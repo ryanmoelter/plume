@@ -11,6 +11,7 @@ struct SidebarView: View {
     private var groups: [TaskGroup]
 
     @Binding var renamingTaskID: UUID?
+    @Binding var archiveShown: Bool
 
     @State private var renamingGroupID: UUID?
     @State private var taskPendingDeletion: WorkTask?
@@ -57,6 +58,14 @@ struct SidebarView: View {
                 } primaryAction: {
                     createTask(in: nil)
                 }
+            }
+            ToolbarItem {
+                Button {
+                    archiveShown = true
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .help("Show archived tasks")
             }
         }
         .overlay {

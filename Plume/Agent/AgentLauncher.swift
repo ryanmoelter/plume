@@ -22,7 +22,10 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = ClaudeCodeProvider(settingsPath: settingsPath)
+        let provider = AgentProviderRegistry.provider(
+            for: AppSettings.shared.providerID,
+            settingsPath: settingsPath
+        )
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,

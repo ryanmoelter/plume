@@ -40,10 +40,20 @@ enum WorkspaceProvisioner {
 
     // MARK: - Provisioning
 
-    static func worktreePath(repository: String, branch: String) -> String {
-        URL(fileURLWithPath: repository)
-            .appending(path: plumeDirectoryName)
-            .appending(path: "worktrees")
+    /// Worktrees live under `<repo>/.plume/worktrees` by default, or under
+    /// `basePath` when Settings overrides it — still namespaced by a
+    /// repository-derived folder so worktrees from different repos can't collide.
+    static func worktreePath(repository: String, branch: String, basePath: String? = nil) -> String {
+        guard let basePath, !basePath.isEmpty else {
+            return URL(fileURLWithPath: repository)
+                .appending(path: plumeDirectoryName)
+                .appending(path: "worktrees")
+                .appending(path: worktreeDirectoryName(for: branch))
+                .path
+        }
+        let repositoryName = URL(fileURLWithPath: repository).lastPathComponent
+        return URL(fileURLWithPath: basePath)
+            .appending(path: repositoryName)
             .appending(path: worktreeDirectoryName(for: branch))
             .path
     }
@@ -60,11 +70,19 @@ enum WorkspaceProvisioner {
     }
 
     /// Creates a branch and its worktree, returning the worktree path.
-    /// Base ref is the repository's current HEAD.
+    /// Base ref is the repository's current HEAD. `basePath` overrides the
+    /// default in-repo location (Settings' worktree base path override).
     @discardableResult
-    static func createWorktree(repository: String, branch: String) throws -> String {
-        try ensurePlumeDirectoryIgnored(in: repository)
-        let path = worktreePath(repository: repository, branch: branch)
+    static func createWorktree(repository: String, branch: String, basePath: String? = nil) throws -> String {
+        let path = worktreePath(repository: repository, branch: branch, basePath: basePath)
+        if basePath == nil || basePath!.isEmpty {
+            try ensurePlumeDirectoryIgnored(in: repository)
+        } else {
+            try FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: path).deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        }
         try GitRunner.run(["worktree", "add", "-b", branch, path], in: repository)
         return path
     }

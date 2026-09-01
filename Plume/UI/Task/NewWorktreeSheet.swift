@@ -44,7 +44,11 @@ struct NewWorktreeSheet: View {
                 TextField("Branch name", text: $branchName)
                     .textFieldStyle(.roundedBorder)
                 if !repositoryPath.isEmpty && !branchName.isEmpty {
-                    Text(WorkspaceProvisioner.worktreePath(repository: repositoryPath, branch: branchName)
+                    Text(WorkspaceProvisioner.worktreePath(
+                        repository: repositoryPath,
+                        branch: branchName,
+                        basePath: AppSettings.shared.worktreeBasePath
+                    )
                         .replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -92,7 +96,8 @@ struct NewWorktreeSheet: View {
         do {
             let path = try WorkspaceProvisioner.createWorktree(
                 repository: repositoryPath,
-                branch: branchName
+                branch: branchName,
+                basePath: AppSettings.shared.worktreeBasePath
             )
             task.workingDirectoryPath = path
             task.repoPath = repositoryPath

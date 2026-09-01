@@ -6,13 +6,14 @@ struct MainWindow: View {
     @State private var selection: UUID?
     @State private var renamingTaskID: UUID?
     @State private var statusPersistence: StatusPersistence?
+    @State private var archiveShown = false
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived })
     private var tasks: [WorkTask]
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selection: $selection, renamingTaskID: $renamingTaskID)
+            SidebarView(selection: $selection, renamingTaskID: $renamingTaskID, archiveShown: $archiveShown)
         } detail: {
             if let task = selectedTask {
                 TaskDetailView(task: task)
@@ -24,6 +25,10 @@ struct MainWindow: View {
                 )
             }
         }
+        .sheet(isPresented: $archiveShown) {
+            ArchiveView()
+        }
+        .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
         .focusedSceneValue(\.newTaskAction) {
             let ungrouped = tasks.filter { $0.group == nil }
             let task = TaskStore.createTask(in: context, siblings: ungrouped)
@@ -50,6 +55,10 @@ struct MainWindow: View {
                     guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
                     else { return }
                     TaskStore.closeTab(tab, in: context)
+                },
+                archiveSelectedTask: {
+                    task.isArchived = true
+                    if selection == task.id { selection = nil }
                 }
             )
         })
