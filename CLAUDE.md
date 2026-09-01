@@ -70,11 +70,15 @@ for l in $(pgrep -P $PID); do pgrep -P $l; done   # shell pids, stable across sw
 
 Stable PIDs across many switches is the real proof that hide/show doesn't kill processes. `SmokeHarness` (DEBUG only) drives this from env vars.
 
+Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matches the Claude desktop app's helper processes and will convince you an agent launched when none did.
+
 ## Ghostty
 
 Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/GHOSTTY_PIN.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
 
 The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfigLoader` finds the user's config itself. Its ordering (Application Support before XDG) is deliberate and test-locked — don't "fix" it to match ghostty's docs page, which is wrong.
+
+The config reaches libghostty as **generated contents with every `theme` directive stripped**, never as a file path. `GhosttyThemeResolver` applies the theme in Swift instead. Passing `theme` through breaks terminal launching outright — surfaces silently spawn a login shell instead of their command, with no diagnostic. `GhosttyConfigLoader.configContentsForGhostty` documents the mechanism.
 
 ## Conventions
 
@@ -96,6 +100,8 @@ The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfig
 - In Debug, `Plume.app/Contents/MacOS/Plume` is a ~57K launcher stub. The real code — and every linked libghostty symbol — is in `Plume.debug.dylib` beside it. Inspecting the stub with `nm` makes it look like nothing is linked.
 - `log` is shadowed by a shell function; use `/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume"' --last 5m --info`.
 - **Tests that run `git commit` must set `commit.gpgsign false` on the scratch repo.** The global config signs via 1Password, which is unreachable from a test host: the commit hangs ~60s, then fails with exit 128. `WorkspaceProvisionerTests.makeRepository` does this. The same failure hits `git commit` in this environment — retry with `--no-gpg-sign`.
+- **`-only-testing` with a name that matches no Swift Testing test prints `** TEST SUCCEEDED **` having run nothing**, and `-parallel-testing-enabled NO` silently skips Swift Testing suites entirely. Both read as a pass. Confirm the test name appears in the output before believing a green run.
+- Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - Deployment target is macOS 26.2, matching the Xcode 26.2 SDK ceiling. Raising it above the installed SDK makes every build warn.
