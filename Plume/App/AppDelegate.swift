@@ -16,8 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `effectiveAppearance` KVO fires on both a system light/dark switch
         // and window-level appearance changes, so one observer covers both.
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self, weak window] _, _ in
-            guard let self, let window else { return }
-            self.tintTitlebar(of: window)
+            MainActor.assumeIsolated {
+                guard let self, let window else { return }
+                self.tintTitlebar(of: window)
+            }
         }
     }
 
