@@ -85,4 +85,21 @@ struct SurfaceManagerTests {
         #expect(session.state.configuration.envVars["PLUME_TAB_ID"] == id.uuidString)
         #expect(session.state.configuration.command == "/bin/echo hello")
     }
+
+    /// Mirrors what `TabContentView.session(for:)` builds for a plain
+    /// terminal tab: the task's working directory, plus a login shell so the
+    /// terminal has the same environment as a normal one.
+    @Test func plainTerminalTabGetsTheTasksWorkingDirectory() {
+        let manager = SurfaceManager.shared
+        let id = UUID()
+        defer { manager.closeSession(for: id) }
+
+        let session = manager.session(for: id, options: TerminalSurfaceOptions(
+            workingDirectory: "/tmp/some-task-worktree",
+            command: LoginShellCommand.loginShell(shell: "/bin/zsh")
+        ))
+
+        #expect(session.state.configuration.workingDirectory == "/tmp/some-task-worktree")
+        #expect(session.state.configuration.command == "/bin/zsh -li")
+    }
 }
