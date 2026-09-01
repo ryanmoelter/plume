@@ -7,7 +7,13 @@ struct ChatTabView: View {
     let tab: TaskTab
     let isVisible: Bool
 
-    @State private var distanceFromBottom: CGFloat = 0
+    /// Scroll position, held in a reference box rather than `@State`.
+    ///
+    /// `onScrollGeometryChange` fires on every scroll frame, so writing this
+    /// to `@State` invalidated the whole chat body once per frame while
+    /// scrolling. Nothing renders from it — it is only read when a new
+    /// message arrives, to decide whether to follow the bottom.
+    @State private var scrollPosition = ScrollPosition()
     @State private var settings = AppSettings.shared
     @State private var isShowingPlan = false
 
@@ -185,7 +191,7 @@ struct ChatTabView: View {
                     contentHeight: geometry.contentSize.height
                 )
             } action: { old, new in
-                distanceFromBottom = new.distanceFromBottom
+                scrollPosition.distanceFromBottom = new.distanceFromBottom
                 guard ChatScrollAnchor.shouldFollowGrowth(
                     previousDistanceFromBottom: old.distanceFromBottom,
                     previousContentHeight: old.contentHeight,
@@ -195,7 +201,7 @@ struct ChatTabView: View {
             }
             .onChange(of: lastMessageID) { _, newID in
                 guard newID != nil else { return }
-                if ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: distanceFromBottom) {
+                if ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: scrollPosition.distanceFromBottom) {
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                     }
@@ -230,4 +236,13 @@ struct ChatTabView: View {
     }
 
     private let bottomAnchorID = "chat-bottom-anchor"
+}
+
+/// Mutable scroll state that must not invalidate a view when it changes.
+///
+/// A class, so writing to it from a per-frame scroll callback is not a
+/// SwiftUI state change.
+@MainActor
+private final class ScrollPosition {
+    var distanceFromBottom: CGFloat = 0
 }
