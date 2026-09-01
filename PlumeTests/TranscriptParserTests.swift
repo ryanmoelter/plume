@@ -158,6 +158,59 @@ struct TranscriptParserTests {
         #expect(transcript.messages.isEmpty)
     }
 
+    @Test func aPlanModeAttachmentSurfacesThePlanPath() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode","reminderType":"full","isSubAgent":false,"planFilePath":"/Users/ryanmoelter/.claude/plans/first-plan.md","planExists":false},"type":"attachment","uuid":"u1"}"#,
+        ]))
+
+        #expect(transcript.planFilePath == "/Users/ryanmoelter/.claude/plans/first-plan.md")
+        #expect(transcript.messages.isEmpty)
+    }
+
+    @Test func aPlanModeExitAttachmentSurfacesThePlanPath() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode_exit","planFilePath":"/Users/ryanmoelter/.claude/plans/first-plan.md","planExists":true},"type":"attachment","uuid":"u1"}"#,
+        ]))
+
+        #expect(transcript.planFilePath == "/Users/ryanmoelter/.claude/plans/first-plan.md")
+        #expect(transcript.messages.isEmpty)
+    }
+
+    @Test func theLatestPlanPathWins() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/first.md","planExists":false},"type":"attachment","uuid":"u1"}"#,
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode_exit","planFilePath":"/plans/second.md","planExists":false},"type":"attachment","uuid":"u2"}"#,
+        ]))
+
+        #expect(transcript.planFilePath == "/plans/second.md")
+    }
+
+    @Test func aMalformedAttachmentIsIgnoredWithoutThrowing() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":123},"type":"attachment","uuid":"u1"}"#,
+            #"{"type":"user","uuid":"u2","isSidechain":false,"message":{"role":"user","content":"still works"}}"#,
+        ]))
+
+        #expect(transcript.planFilePath == nil)
+        #expect(transcript.messages.count == 1)
+    }
+
+    @Test func anAttachmentWithNoPlanFilePathLeavesThePathUnset() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode","reminderType":"full"},"type":"attachment","uuid":"u1"}"#,
+        ]))
+
+        #expect(transcript.planFilePath == nil)
+    }
+
+    @Test func anUnrecognizedAttachmentTypeIsIgnored() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"isSidechain":false,"attachment":{"type":"some_future_attachment","planFilePath":"/plans/x.md"},"type":"attachment","uuid":"u1"}"#,
+        ]))
+
+        #expect(transcript.planFilePath == nil)
+    }
+
     @Test func aMalformedLineMidFileDoesNotStopParsing() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"before"}}"#,

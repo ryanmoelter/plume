@@ -51,9 +51,11 @@ struct TranscriptEntry: Decodable {
     let effort: String?
     let sessionId: String?
     let message: TranscriptMessage?
+    let attachment: TranscriptAttachment?
 
     enum CodingKeys: String, CodingKey {
         case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
+        case attachment
     }
 
     init(from decoder: Decoder) throws {
@@ -68,6 +70,7 @@ struct TranscriptEntry: Decodable {
         effort = try container.decodeIfPresent(String.self, forKey: .effort)
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
+        attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
 
         if let raw = try container.decodeIfPresent(String.self, forKey: .timestamp) {
             timestamp = TranscriptEntry.isoFormatter.date(from: raw)
@@ -130,6 +133,29 @@ struct TranscriptContent: Decodable {
             blocks = array
         } else {
             blocks = []
+        }
+    }
+}
+
+/// A top-level `attachment` line's payload. Only `plan_mode` and
+/// `plan_mode_exit` are modeled — both carry a `planFilePath` recording where
+/// Claude Code intended to write the plan, whether or not it exists on disk
+/// at the time the line was written.
+struct TranscriptAttachment: Decodable {
+    let planFilePath: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, planFilePath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decodeIfPresent(String.self, forKey: .type)
+        switch type {
+        case "plan_mode", "plan_mode_exit":
+            planFilePath = try container.decodeIfPresent(String.self, forKey: .planFilePath)
+        default:
+            planFilePath = nil
         }
     }
 }

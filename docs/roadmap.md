@@ -93,12 +93,12 @@ What exists:
 - **Done, in slices.** An agent tab now renders a native chat by default and keeps its terminal one ⌘/ away. Both stay mounted, so toggling never touches the PTY — the same rule tabs already follow.
 - `TranscriptParser` turns a transcript into `ChatMessage`s; `TranscriptStore` watches the file per tab and republishes, following `AgentTitleMonitor`'s pattern with a shorter debounce because this drives visible content. `SessionJSONLReader` still resolves paths and now also enumerates the subagent transcripts.
 - `MarkdownBlock` splits block structure by hand and inline-parses each paragraph with `AttributedString`, so there is no WebKit. Nested lists and tables are deliberately unsupported: a table degrades to a paragraph rather than being mangled.
+- `TranscriptParser` also surfaces the latest `planFilePath` from a session's `plan_mode`/`plan_mode_exit` attachment lines. When that path exists on disk, `ChatTabView` shows a "Plan" button that opens `MarkdownFileView` in a sheet — a file-backed, live-updating `MarkdownFileStore` reads the same `MarkdownView` renderer chat messages use, so it isn't hardcoded to plans.
 - The composer sends with ⌘↩ — plain ↩ inserts a newline, so a half-typed message is never lost. It reaches the agent through `TerminalSession.submit(text:)`, which pastes and then presses Enter as two operations. **A trailing `\r` in pasted text does not submit**: the wrapper's text path is a paste, and bracketed paste leaves the carriage return in the edit line.
 - **Quota and cost still need the statusline capture.** They exist only in the payload Claude Code hands a statusline command. `StatuslineCaptureWriter` generates a chaining script and `StatuslineInstaller` can install it, but installation is **off by default and never automatic** — Settings shows the exact JSON it would write to `~/.claude/settings.json` behind an explicit button. With capture off the strip still shows context use, model, effort and branch, all of which come from the transcript. Note `statusLine` is a single object, so it replaces rather than unions the way hook lists do.
 
 Left for later:
 
-- Rendering a plan *file* through `MarkdownView`. The renderer is built and pointed at chat messages only; aiming it at a file on disk is the remaining half of that item.
 - Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
 
 ## PR/MR state in the sidebar

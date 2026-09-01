@@ -9,9 +9,19 @@ struct ChatTabView: View {
 
     @State private var distanceFromBottom: CGFloat = 0
     @State private var settings = AppSettings.shared
+    @State private var isShowingPlan = false
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
+    }
+
+    /// The transcript's plan path is a stale snapshot from when the line was
+    /// written — check the filesystem now rather than trusting it.
+    private var planFilePath: String? {
+        guard let path = transcript?.planFilePath, FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
     }
 
     private var subagents: [SubagentTranscript] {
@@ -27,14 +37,19 @@ struct ChatTabView: View {
             if let transcript, !transcript.messages.isEmpty {
                 messageList(transcript)
                 Divider()
-                StatuslineStripView(
-                    contextUsedTokens: transcript.latestUsage?.inputTokens,
-                    contextMaxTokens: nil,
-                    model: transcript.model,
-                    effort: transcript.effort,
-                    branch: transcript.gitBranch,
-                    payload: StatuslineStore.shared.payload(forTab: tab.id)
-                )
+                HStack(spacing: 0) {
+                    StatuslineStripView(
+                        contextUsedTokens: transcript.latestUsage?.inputTokens,
+                        contextMaxTokens: nil,
+                        model: transcript.model,
+                        effort: transcript.effort,
+                        branch: transcript.gitBranch,
+                        payload: StatuslineStore.shared.payload(forTab: tab.id)
+                    )
+                    if let planFilePath {
+                        planButton(path: planFilePath)
+                    }
+                }
                 Divider()
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil || (tab.agentSessionID?.isEmpty == false) {
@@ -48,6 +63,57 @@ struct ChatTabView: View {
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
+        .onChange(of: planFilePath) { _, newPath in
+            if newPath == nil { isShowingPlan = false }
+        }
+        .overlay(alignment: .trailing) {
+            if isShowingPlan, let planFilePath {
+                planPanel(path: planFilePath)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+    }
+
+    private func planButton(path: String) -> some View {
+        Button {
+            isShowingPlan = true
+        } label: {
+            Label("Plan", systemImage: "doc.text")
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+    }
+
+    private func planPanel(path: String) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text((path as NSString).lastPathComponent)
+                    .font(.headline)
+                Spacer()
+                Button {
+                    isShowingPlan = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+            Divider()
+            MarkdownFileView(path: path)
+        }
+        .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+        .frame(width: 420)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+        .overlay(alignment: .leading) {
+            Divider()
+        }
+        .shadow(color: .black.opacity(0.2), radius: 12, x: -2, y: 0)
     }
 
     private func messageList(_ transcript: Transcript) -> some View {
