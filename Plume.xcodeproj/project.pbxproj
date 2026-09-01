@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		PL0000000000000000002 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000001 /* GhosttyTerminal */; };
 		PL0000000000000000005 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000004 /* GhosttyTheme */; };
+		PL0000000000000000006 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000007 /* GhosttyTerminal */; };
+		PL0000000000000000008 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000009 /* GhosttyTheme */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +68,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				PL0000000000000000006 /* GhosttyTerminal in Frameworks */,
+				PL0000000000000000008 /* GhosttyTheme in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -144,6 +148,8 @@
 			);
 			name = PlumeTests;
 			packageProductDependencies = (
+				PL0000000000000000007 /* GhosttyTerminal */,
+				PL0000000000000000009 /* GhosttyTheme */,
 			);
 			productName = PlumeTests;
 			productReference = C6A1E5E730464813003EAFC1 /* PlumeTests.xctest */;
@@ -602,6 +608,16 @@
 			productName = GhosttyTerminal;
 		};
 		PL0000000000000000004 /* GhosttyTheme */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
+			productName = GhosttyTheme;
+		};
+		PL0000000000000000007 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
+			productName = GhosttyTerminal;
+		};
+		PL0000000000000000009 /* GhosttyTheme */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
 			productName = GhosttyTheme;
