@@ -7,8 +7,9 @@ import os
 ///
 /// Sessions outlive the views that show them: SwiftUI mounts and unmounts
 /// `TerminalTabView` freely as tabs and tasks change, and the process keeps
-/// running because it belongs here instead. Nothing in this class is
-/// persisted — SwiftData holds the tab, this holds the running terminal.
+/// running because the session holds the platform view that owns the surface.
+/// Nothing in this class is persisted — SwiftData holds the tab, this holds
+/// the running terminal.
 @MainActor
 @Observable
 final class SurfaceManager {
@@ -50,11 +51,15 @@ final class SurfaceManager {
     /// Tears down a tab's terminal. Call when the tab or its task is deleted,
     /// never merely because the tab scrolled out of view.
     func closeSession(for id: UUID) {
-        guard sessions.removeValue(forKey: id) != nil else { return }
+        guard let session = sessions.removeValue(forKey: id) else { return }
+        session.releaseHostedView()
         Log.ghostty.info("Closed surface for tab \(id, privacy: .public)")
     }
 
     func closeAll() {
+        for session in sessions.values {
+            session.releaseHostedView()
+        }
         sessions.removeAll()
     }
 }

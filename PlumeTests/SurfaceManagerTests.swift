@@ -86,6 +86,68 @@ struct SurfaceManagerTests {
         #expect(session.state.configuration.command == "/bin/echo hello")
     }
 
+    /// The factory is the seam that keeps a terminal alive across a task
+    /// switch. Nothing else reports its absence, so a refactor that dropped
+    /// it would regress silently.
+    @Test func aSessionSuppliesAPlatformViewFactory() {
+        let manager = SurfaceManager.shared
+        let id = UUID()
+        defer { manager.closeSession(for: id) }
+
+        let session = manager.session(for: id, options: TerminalSurfaceOptions())
+
+        #expect(session.state.makePlatformView != nil)
+    }
+
+    @Test func theFactoryReturnsTheSameViewEachTime() {
+        let manager = SurfaceManager.shared
+        let id = UUID()
+        defer { manager.closeSession(for: id) }
+
+        let session = manager.session(for: id, options: TerminalSurfaceOptions())
+        let first = session.state.makePlatformView?()
+        let second = session.state.makePlatformView?()
+
+        #expect(first != nil)
+        #expect(first === second)
+    }
+
+    /// The view owns the surface and its process, and the wrapper holds it
+    /// weakly, so only the session's own reference keeps a terminal alive
+    /// while no view presents it.
+    @Test func theHostedViewOutlivesTheViewsThatPresentIt() {
+        let manager = SurfaceManager.shared
+        let id = UUID()
+        defer { manager.closeSession(for: id) }
+
+        let session = manager.session(for: id, options: TerminalSurfaceOptions())
+        weak var hosted: TerminalView?
+        // The pool would otherwise keep the view alive on its own, and the
+        // test would pass without the session holding anything.
+        autoreleasepool {
+            hosted = session.state.makePlatformView?()
+        }
+
+        #expect(hosted != nil)
+    }
+
+    @Test func closingASessionReleasesItsHostedView() {
+        let manager = SurfaceManager.shared
+        let id = UUID()
+        let session = manager.session(for: id, options: TerminalSurfaceOptions())
+        weak var hosted: TerminalView?
+        autoreleasepool {
+            let view = session.state.makePlatformView?()
+            hosted = view
+            #expect(hosted != nil, "factory produced no view")
+        }
+
+        manager.closeSession(for: id)
+
+        #expect(session.state.makePlatformView == nil, "factory still set")
+        #expect(hosted == nil, "hosted view still alive")
+    }
+
     /// Mirrors what `TabContentView.session(for:)` builds for a plain
     /// terminal tab: the task's working directory, plus a login shell so the
     /// terminal has the same environment as a normal one.

@@ -25,19 +25,23 @@ enum SmokeHarness {
             tasks.append(TaskStore.createTask(in: context, title: "Task \(tasks.count + 1)", siblings: tasks))
         }
 
-        // PLUME_SEED_TABS gives the first task extra terminal tabs, so
-        // several surfaces are mounted at once. Selection lands on the first
-        // tab afterward, unless PLUME_SEED_AGENT_SESSION_ID is also set, in
-        // which case the last-added terminal tab stays selected so the
+        // PLUME_SEED_TABS gives every task extra terminal tabs, so several
+        // surfaces are mounted at once and switching tasks exercises live
+        // ones. Seeding only the first task would switch between empty tab
+        // trees and prove nothing about surface survival. Selection lands on
+        // the first tab afterward, unless PLUME_SEED_AGENT_SESSION_ID is also
+        // set, in which case the last-added terminal tab stays selected so the
         // agent tab's lazy auto-resume can be observed happening later, on
         // an explicit selection, rather than immediately at seed time.
         if let tabsValue = environment["PLUME_SEED_TABS"],
-           let tabCount = Int(tabsValue), let first = tasks.first {
-            while first.tabs.count < tabCount {
-                TaskStore.addTab(to: first, kind: .terminal, in: context)
-            }
-            if environment["PLUME_SEED_AGENT_SESSION_ID"] == nil {
-                first.orderedTabs.first.map { TaskStore.selectTab($0, in: first) }
+           let tabCount = Int(tabsValue) {
+            for task in tasks {
+                while task.tabs.count < tabCount {
+                    TaskStore.addTab(to: task, kind: .terminal, in: context)
+                }
+                if environment["PLUME_SEED_AGENT_SESSION_ID"] == nil {
+                    task.orderedTabs.first.map { TaskStore.selectTab($0, in: task) }
+                }
             }
         }
 
