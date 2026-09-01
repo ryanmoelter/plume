@@ -26,6 +26,9 @@ struct MainWindow: View {
             let ungrouped = tasks.filter { $0.group == nil }
             selection = TaskStore.createTask(in: context, siblings: ungrouped).id
         }
+        #if DEBUG
+        .task { await SmokeHarness.runIfRequested(context: context, selection: $selection) }
+        #endif
     }
 
     private var selectedTask: WorkTask? {

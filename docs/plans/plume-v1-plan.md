@@ -169,8 +169,20 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
   - Note for later verification: the Debug app binary is a 57K launcher stub; the real code and all ~6300 libghostty symbols live in `Plume.app/Contents/MacOS/Plume.debug.dylib`. Inspect that, not the stub.
 
 **Phase 1 — Terminal embedding** (sequential; the risk phase, front-loaded)
-- **WP1.1 Runtime + single surface**: GhosttyRuntime/Surface/NSView/TerminalSurfaceView; one hardcoded interactive terminal with user's ghostty config. *Accept:* typing, theme/font from config, resize, scrollback, `vim` usable.
-- **WP1.2 Lifecycle + input polish**: SurfaceManager/TabSession, per-surface command/cwd/env, exit detection, focus/IME/clipboard/scroll. *Accept:* two concurrent surfaces; hide/show never kills a process; copy/paste works.
+- **[x] WP1.1 Runtime + single surface** *(done 2026-08-31)*: GhosttyRuntime/Surface/NSView/TerminalSurfaceView; one hardcoded interactive terminal with user's ghostty config. *Accept:* typing, theme/font from config, resize, scrollback, `vim` usable.
+  - Adopting the wrapper removed the planned `GhosttySurfaceNSView` and IME work entirely: `TerminalSession` wraps the wrapper's `TerminalViewState`, and `TerminalTabView` is a thin `TerminalSurfaceView` host.
+  - Verified: a real PTY spawns (`login` → `-zsh`, stdin/stdout/stderr on `/dev/ttysNNN`, state `SN+`), cwd honored.
+  - **Not yet verified visually** — see Open items.
+- **[x] WP1.2 Lifecycle + input polish** *(done 2026-08-31)*: SurfaceManager/TabSession, per-surface command/cwd/env, exit detection, focus/IME/clipboard/scroll. *Accept:* two concurrent surfaces; hide/show never kills a process; copy/paste works.
+  - `SurfaceManager` keyed by tab ID; `TaskDetailView` keeps every tab mounted and toggles opacity, so switching never unmounts a surface.
+  - Verified: **3 concurrent surfaces on 3 distinct PTYs survived 18 tab/task switches over 30s** with the same shell PIDs throughout and exactly 3 surfaces ever created. Quit reaps every child cleanly.
+  - Exit detection via the wrapper's `onClose(processAlive:)`; `command`/`workingDirectory`/`envVars` confirmed reaching the surface config (the mechanism agent launch needs in Phase 2).
+  - Surfaces spawn lazily on first attach to a visible view, so an unselected task's terminal starts only once shown.
+  - Input polish (IME, clipboard, scroll) is the wrapper's, not reimplemented; **unverified by hand** — see Open items.
+
+### Open items needing Ryan
+
+- **Visual/interactive verification of the terminal is outstanding.** Screen Recording permission is not granted to this session's terminal host, so screenshots fail with "could not create image from display", and Accessibility permission is missing too, so UI scripting (`System Events`) fails with `-1743`. Everything provable without pixels has been proven (PTY allocation, process survival, teardown), but these remain unconfirmed: text actually renders, the user's theme/font apply, typing works, resize/reflow, scrollback, `vim`, and copy/paste. Grant Screen Recording (and optionally Accessibility) to re-enable automated checking, or eyeball it once manually.
 
 **Phase 2 — Tasks, tabs, workspaces** (WP2.1 ∥ WP2.2, then WP2.3)
 - **WP2.1 Tab model + strip**: TabStrip/TabContent, add/close/reorder persisted; agent tab first-message view launching uninstrumented `claude "<msg>"`. *Accept:* mixed tabs per task; switching preserves processes; layout survives relaunch.

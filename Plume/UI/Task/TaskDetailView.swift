@@ -1,3 +1,4 @@
+import GhosttyTerminal
 import SwiftUI
 import SwiftData
 
@@ -44,10 +45,25 @@ struct TaskDetailView: View {
                 .onTapGesture { task.selectedTabID = tab.id }
             }
 
-            Spacer()
+            ForEach(task.orderedTabs) { tab in
+                TerminalTabView(session: session(for: tab))
+                    .frame(minHeight: 200)
+                    .opacity(task.selectedTabID == tab.id ? 1 : 0)
+                    .allowsHitTesting(task.selectedTabID == tab.id)
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Every tab stays mounted and only the selected one is visible, so
+    /// switching tabs never tears a surface down. `TabContentView` takes this
+    /// over in WP2.1.
+    private func session(for tab: TaskTab) -> TerminalSession {
+        SurfaceManager.shared.session(
+            for: tab.id,
+            options: TerminalSurfaceOptions(workingDirectory: task.workingDirectoryPath)
+        )
     }
 
     private var workspaceDescription: String {

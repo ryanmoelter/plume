@@ -47,7 +47,12 @@ enum TaskStore {
 
     // MARK: - Delete
 
+    /// The cascade delete removes the tabs, but their terminals are held
+    /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
+        for tab in task.tabs {
+            SurfaceManager.shared.closeSession(for: tab.id)
+        }
         context.delete(task)
     }
 
@@ -63,6 +68,7 @@ enum TaskStore {
     }
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
+        SurfaceManager.shared.closeSession(for: tab.id)
         guard let task = tab.task else {
             context.delete(tab)
             return

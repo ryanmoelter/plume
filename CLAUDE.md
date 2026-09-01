@@ -25,12 +25,41 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 Plume/
   App/       PlumeApp, MainWindow, PlumeCommands
   Models/    SwiftData models, TaskStore (CRUD/ordering), enums
-  Ghostty/   GhosttyRuntime, GhosttyConfigLoader
-  Support/   Log
+  Ghostty/   GhosttyRuntime, GhosttyConfigLoader, TerminalSession, TerminalTabView
+  Sessions/  SurfaceManager
+  Support/   Log, SmokeHarness (DEBUG)
   UI/        Sidebar/, Task/
 ```
 
-Folders from the plan not yet created (`Sessions/`, `Agent/`, `Status/`, `Workspace/`) arrive with their phases.
+Folders from the plan not yet created (`Agent/`, `Status/`, `Workspace/`) arrive with their phases.
+
+## Terminals
+
+`SurfaceManager.shared` owns every live terminal, keyed by **tab ID**. Views never create or destroy surfaces — they ask for a session and host it. This is what keeps processes alive across tab and task switches, so:
+
+- Keep every tab's `TerminalTabView` mounted and toggle visibility (opacity). Never unmount to hide.
+- Call `SurfaceManager.closeSession(for:)` when a tab or task is deleted. A SwiftData cascade delete does *not* reap the terminal.
+- `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
+- Surfaces spawn their PTY lazily, when first attached to a *visible* view.
+
+## Verifying terminal behavior
+
+This environment has **no Screen Recording or Accessibility permission**, so screenshots (`screencapture` → "could not create image from display") and UI scripting (`osascript` → `-1743`) both fail. Verify from outside the app instead:
+
+```
+PLUME_SEED_TASKS=1 PLUME_SEED_TABS=3 PLUME_CYCLE_SELECTION=3 \
+  <DerivedData>/Plume.app/Contents/MacOS/Plume &
+```
+
+Then watch real processes — one `login` → `-zsh` per surface, each on its own tty:
+
+```
+PID=$(pgrep -x Plume)
+for l in $(pgrep -P $PID); do pgrep -P $l; done   # shell pids, stable across switches
+/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume"' --last 2m --info
+```
+
+Stable PIDs across many switches is the real proof that hide/show doesn't kill processes. `SmokeHarness` (DEBUG only) drives this from env vars.
 
 ## Ghostty
 

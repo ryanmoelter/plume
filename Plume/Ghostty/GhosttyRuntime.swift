@@ -37,4 +37,15 @@ final class GhosttyRuntime {
 
         Log.ghostty.info("Ghostty runtime started (config: \(self.loadedConfigPath ?? "built-in defaults", privacy: .public))")
     }
+
+    /// The controller, starting the runtime if a surface is requested before
+    /// `start()` ran. A terminal cannot exist without it, so failing here is
+    /// a programmer error rather than something to recover from.
+    func requireController() -> TerminalController {
+        if controller == nil { start() }
+        guard let controller else {
+            fatalError("Ghostty runtime failed to start")
+        }
+        return controller
+    }
 }
