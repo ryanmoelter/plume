@@ -17,7 +17,7 @@ Every change ends with a clean build and a manual run. `PlumeUITests` launches t
 
 ## Releasing locally
 
-Plume is installed by hand — no archive, no notarization, no DMG. **`docs/RELEASING.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
+Plume is installed by hand — no archive, no notarization, no DMG. **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
 Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. Nothing needs embedding or separate signing.
 
@@ -81,7 +81,7 @@ Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matc
 
 ## Ghostty
 
-Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/GHOSTTY_PIN.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
+Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/ghostty-pin.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
 
 The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfigLoader` finds the user's config itself. Its ordering (Application Support before XDG) is deliberate and test-locked — don't "fix" it to match ghostty's docs page, which is wrong.
 
@@ -102,13 +102,15 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` means transitive imports don't count. Using `Array.move(fromOffsets:toOffset:)` needs an explicit `import SwiftUI`; `IndexSet` needs `import Foundation`. The error names the missing module.
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: everything is MainActor-isolated unless marked otherwise. Test suites touching models need `@MainActor`.
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.
-- The store lives at `~/Library/Application Support/Plume/Plume.store`, alongside the `hooks` and `events` directories. Delete it to test first-run behavior. Debug and Release share it, so a debug run writes the same data the installed app reads. If the store fails to open, `PlumeApp` moves it aside as `Plume.store.<timestamp>.bak` and starts empty rather than refusing to launch.
+- The store lives at `~/Library/Application Support/Plume/Plume.store`, alongside the `hooks` and `events` directories. Delete it to test first-run behavior. **Debug writes to `Plume.debug/` instead** — its bundle ID carries a `.debug` suffix and `AppPaths.directoryName` keys off that — so a debug run and the installed app no longer share data and can run side by side. The test host has no bundle ID and falls back to `Plume/`. If the store fails to open, `PlumeApp` moves it aside as `Plume.store.<timestamp>.bak` and starts empty rather than refusing to launch.
 - SourceKit in-editor diagnostics go stale on new files and report phantom "cannot find type in scope" errors (often resolving `TaskGroup` to Swift's generic one). Trust `xcodebuild`, not the editor squiggles.
 - In Debug, `Plume.app/Contents/MacOS/Plume` is a ~57K launcher stub. The real code — and every linked libghostty symbol — is in `Plume.debug.dylib` beside it. Inspecting the stub with `nm` makes it look like nothing is linked.
 - **Tests that run `git commit` must set `commit.gpgsign false` on the scratch repo.** A signing config that prompts an external agent is unreachable from a test host: the commit hangs ~60s, then fails with exit 128. `WorkspaceProvisionerTests.makeRepository` does this.
 - **`-only-testing` with a name that matches no Swift Testing test prints `** TEST SUCCEEDED **` having run nothing**, and `-parallel-testing-enabled NO` silently skips Swift Testing suites entirely. Both read as a pass. Confirm the test name appears in the output before believing a green run.
 - **`TerminalViewState` is a Combine `ObservableObject`, not `@Observable`.** Its `title`/`workingDirectory` are `@Published`, which `@Observable` tracking cannot see, and `TerminalSession` holds it `@ObservationIgnored`. Reading it straight from a view renders once and never updates — a stale value that looks like it works. `TerminalSession` mirrors those two fields into its own observable storage; add any further ones the same way rather than observing the state object from a view.
 - **Never write to `@Observable` state during a SwiftUI `body`.** SwiftUI records the write as a dependency of the view being rendered, so the render invalidates itself and spins forever — one core at 100%, no crash, and the surfaces never spawn their PTYs. A `sample` blames whatever is most expensive inside the loop (`ProcessInfo.environment`, say), not the write. Create sessions and register them from `.onAppear`/`.task` and hold them in `@State`; `TerminalTabHost` in `TabContentView` is the pattern.
+- **The wrapper's text path is a *paste*, not typing.** `TerminalViewState.paste(text:)` frames its argument as a bracketed paste, so a trailing `\r` lands in the program's edit line instead of submitting — `send(_:)` is deprecated for exactly this reason. Sending a line means `paste(text:)` then `sendKey(.enter)`; `TerminalSession.submit(text:)` does both.
+- **Two test suites only pass in the primary checkout with a real GUI session.** `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` derives the repo path from `#filePath` and asserts a matching directory exists under `~/.claude/projects`, so it fails in any worktree — that path has no transcripts. `SurfaceCommandTests` spawns real `NSWindow`s and PTYs, so it fails from a headless shell. Both are environmental; check them against `main` before believing a regression.
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).

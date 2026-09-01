@@ -1,0 +1,200 @@
+import Foundation
+
+struct Transcript {
+    var messages: [ChatMessage] = []
+    var latestUsage: TranscriptUsage?
+    var model: String?
+    var effort: String?
+    var gitBranch: String?
+    var cwd: String?
+    var sessionID: String?
+    /// The most recently referenced plan file, from a `plan_mode` or
+    /// `plan_mode_exit` attachment line. Latest wins: a session typically
+    /// iterates on one plan, and the newest reference is what's current.
+    /// Whether the file still exists is a filesystem question, not something
+    /// this records — a path here does not imply the file is on disk.
+    var planFilePath: String?
+}
+
+/// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
+/// `ChatMessage`s. Pure — no file I/O, no SwiftData.
+enum TranscriptParser {
+    /// Where a pending tool call's block currently lives, so a later
+    /// `tool_result` line can patch it in place.
+    private enum ToolCallLocation {
+        case pendingAssistant(blockIndex: Int)
+        case flushedMessage(messageIndex: Int, blockIndex: Int)
+    }
+
+    static func parse(_ data: Data) -> Transcript {
+        let decoder = JSONDecoder()
+        var transcript = Transcript()
+
+        // A pending, still-open run of assistant lines, folded into one
+        // message once a non-assistant line breaks the run.
+        var pendingAssistantBlocks: [ChatBlock] = []
+        var pendingAssistantID: String?
+        var pendingAssistantTimestamp: Date?
+
+        var pendingToolCalls: [String: ToolCallLocation] = [:]
+
+        func flushPendingAssistant() {
+            guard !pendingAssistantBlocks.isEmpty else { return }
+            let messageIndex = transcript.messages.count
+            transcript.messages.append(ChatMessage(
+                id: pendingAssistantID ?? UUID().uuidString,
+                role: .assistant,
+                blocks: pendingAssistantBlocks,
+                timestamp: pendingAssistantTimestamp
+            ))
+            for (id, location) in pendingToolCalls {
+                if case .pendingAssistant(let blockIndex) = location {
+                    pendingToolCalls[id] = .flushedMessage(messageIndex: messageIndex, blockIndex: blockIndex)
+                }
+            }
+            pendingAssistantBlocks = []
+            pendingAssistantID = nil
+            pendingAssistantTimestamp = nil
+        }
+
+        func applyResult(toolUseId: String, content: String?) {
+            guard let location = pendingToolCalls.removeValue(forKey: toolUseId) else { return }
+            switch location {
+            case .pendingAssistant(let blockIndex):
+                guard pendingAssistantBlocks.indices.contains(blockIndex),
+                      case .toolCall(var call) = pendingAssistantBlocks[blockIndex]
+                else { return }
+                call.result = content
+                pendingAssistantBlocks[blockIndex] = .toolCall(call)
+            case .flushedMessage(let messageIndex, let blockIndex):
+                guard transcript.messages.indices.contains(messageIndex),
+                      transcript.messages[messageIndex].blocks.indices.contains(blockIndex),
+                      case .toolCall(var call) = transcript.messages[messageIndex].blocks[blockIndex]
+                else { return }
+                call.result = content
+                transcript.messages[messageIndex].blocks[blockIndex] = .toolCall(call)
+            }
+        }
+
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
+                continue
+            }
+            if entry.isSidechain { continue }
+
+            if let usage = entry.message?.usage { transcript.latestUsage = usage }
+            if let model = entry.message?.model { transcript.model = model }
+            if let effort = entry.effort { transcript.effort = effort }
+            if let gitBranch = entry.gitBranch { transcript.gitBranch = gitBranch }
+            if let cwd = entry.cwd { transcript.cwd = cwd }
+            if let sessionID = entry.sessionId { transcript.sessionID = sessionID }
+            if let planFilePath = entry.attachment?.planFilePath { transcript.planFilePath = planFilePath }
+
+            guard let message = entry.message, let role = message.role else { continue }
+            let contentBlocks = message.content?.blocks ?? []
+
+            switch (entry.type, role) {
+            case ("assistant", "assistant"):
+                for block in contentBlocks {
+                    switch block {
+                    case .text(let text):
+                        pendingAssistantBlocks.append(.markdown(text))
+                    case .thinking(let text):
+                        pendingAssistantBlocks.append(.thinking(text))
+                    case .toolUse(let id, let name, let input):
+                        let call = ToolCall(
+                            id: id,
+                            name: name,
+                            summary: ToolCallSummary.summary(name: name, input: input),
+                            input: ToolCallInputRendering.render(
+                                name: name,
+                                input: input,
+                                prettyJSON: prettyPrint(input)
+                            ),
+                            result: nil
+                        )
+                        pendingAssistantBlocks.append(.toolCall(call))
+                        pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)
+                    case .toolResult, .ignored:
+                        continue
+                    }
+                }
+                if pendingAssistantID == nil { pendingAssistantID = entry.uuid }
+                if pendingAssistantTimestamp == nil { pendingAssistantTimestamp = entry.timestamp }
+
+            case ("user", "user"):
+                flushPendingAssistant()
+
+                var results: [(toolUseId: String, content: String?)] = []
+                var otherBlocks: [ChatBlock] = []
+                for block in contentBlocks {
+                    switch block {
+                    case .toolResult(let toolUseId, let content):
+                        results.append((toolUseId, content))
+                    case .text(let text):
+                        otherBlocks.append(.markdown(text))
+                    case .thinking(let text):
+                        otherBlocks.append(.thinking(text))
+                    case .toolUse, .ignored:
+                        continue
+                    }
+                }
+
+                for result in results {
+                    applyResult(toolUseId: result.toolUseId, content: result.content)
+                }
+
+                // A user message made up only of tool_results carries no
+                // message of its own — the results attach to the tool calls.
+                guard !otherBlocks.isEmpty else { continue }
+                transcript.messages.append(ChatMessage(
+                    id: entry.uuid ?? UUID().uuidString,
+                    role: .user,
+                    blocks: otherBlocks,
+                    timestamp: entry.timestamp
+                ))
+
+            default:
+                continue
+            }
+        }
+
+        flushPendingAssistant()
+        return transcript
+    }
+
+    private static func prettyPrint(_ input: [String: JSONValue]) -> String {
+        guard let data = try? JSONEncoder.sortedKeys.encode(input.mapValues(EncodableJSONValue.init)),
+              let string = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return string
+    }
+}
+
+private extension JSONEncoder {
+    static var sortedKeys: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+}
+
+private struct EncodableJSONValue: Encodable {
+    let value: JSONValue
+
+    nonisolated init(_ value: JSONValue) {
+        self.value = value
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch value {
+        case .string(let string): try container.encode(string)
+        case .number(let number): try container.encode(number)
+        case .bool(let bool): try container.encode(bool)
+        case .null: try container.encodeNil()
+        case .array(let array): try container.encode(array.map(EncodableJSONValue.init))
+        case .object(let object): try container.encode(object.mapValues(EncodableJSONValue.init))
+        }
+    }
+}

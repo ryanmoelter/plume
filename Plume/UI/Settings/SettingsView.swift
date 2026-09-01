@@ -6,6 +6,17 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var installError: String?
+
+    private var claudeSettingsURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".claude")
+            .appending(path: "settings.json")
+    }
+
+    private var claudeSettingsBackupURL: URL {
+        claudeSettingsURL.appendingPathExtension("plume-backup")
+    }
 
     var body: some View {
         Form {
@@ -33,10 +44,108 @@ struct SettingsView: View {
                 Text("Claude Code is the only provider available in v1.")
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                HStack {
+                    Slider(
+                        value: $settings.chatFontSize,
+                        in: AppSettings.chatFontSizeRange,
+                        step: 1
+                    )
+                    Text("\(Int(settings.chatFontSize)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+
+                Picker("Send message with", selection: $settings.composerSendKey) {
+                    Text("⌘Return").tag(ComposerSendKey.commandReturn)
+                    Text("Return").tag(ComposerSendKey.returnKey)
+                }
+            } header: {
+                Text("Chat")
+            } footer: {
+                Text(
+                    "Text size sets the prose size in the chat view — messages, tool calls, " +
+                    "and thinking blocks scale together. The other key inserts a newline " +
+                    "instead of sending, so a half-typed multi-line message stays editable."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Capture statusline for quota and cost", isOn: $settings.statuslineCaptureEnabled)
+
+                Text(StatuslineInstaller.preview(settingsURL: claudeSettingsURL))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: .rect(cornerRadius: 6))
+
+                HStack {
+                    Button("Install") { install() }
+                    Button("Restore") { restore() }
+                        .disabled(settings.statuslineBackedUpCommand == nil && !StatuslineInstaller.isAlreadyInstalled(settingsURL: claudeSettingsURL))
+                    if let installError {
+                        Text(installError)
+                            .foregroundStyle(.red)
+                            .lineLimit(1)
+                    }
+                }
+            } header: {
+                Text("Statusline Capture")
+            } footer: {
+                Text("Quota and session cost exist only in the payload Claude Code sends its statusline command, nowhere on disk. Install writes to ~/.claude/settings.json outside Plume, replacing statusLine with a script that captures the payload and then runs your previous command unchanged, so your terminal statusline looks the same. Restore puts your previous statusLine back.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
+                Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
+            } header: {
+                Text("Quit Confirmation")
+            } footer: {
+                Text(
+                    "Quitting always ends running agent processes immediately. " +
+                    "Confirming during a logout, restart, or shutdown blocks that " +
+                    "shutdown until someone dismisses the prompt, so leave it off " +
+                    "unless you want that."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
+    }
+
+    private func install() {
+        installError = nil
+        do {
+            let previous = try StatuslineInstaller.install(
+                settingsURL: claudeSettingsURL,
+                backupURL: claudeSettingsBackupURL
+            )
+            settings.statuslineBackedUpCommand = previous?.command
+            settings.statuslineCaptureEnabled = true
+        } catch {
+            installError = "Install failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func restore() {
+        installError = nil
+        do {
+            try StatuslineInstaller.restore(
+                settingsURL: claudeSettingsURL,
+                backupURL: claudeSettingsBackupURL
+            )
+            settings.statuslineBackedUpCommand = nil
+            settings.statuslineCaptureEnabled = false
+        } catch {
+            installError = "Restore failed: \(error.localizedDescription)"
+        }
     }
 
     private var worktreeBasePathBinding: Binding<String> {

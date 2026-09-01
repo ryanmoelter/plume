@@ -83,6 +83,19 @@ final class TerminalSession {
         state.attachedPlatformView?.foregroundPid
     }
 
+    /// Sends text and then presses Enter, for a composer outside the
+    /// terminal.
+    ///
+    /// Two calls rather than a trailing `\r` in the text: the wrapper's text
+    /// path is a *paste*, so a program with bracketed paste enabled receives
+    /// the carriage return as content and leaves it sitting in the edit line
+    /// unsent. Enter has to arrive as a keystroke.
+    func submit(text: String) {
+        guard !text.isEmpty else { return }
+        state.paste(text: text)
+        state.sendKey(.enter)
+    }
+
     /// Hands back the same view on every remount, so the surface it owns
     /// survives. A reused view may still be parented if SwiftUI mounted the
     /// new host before unmounting the old one; AppKit would reparent it

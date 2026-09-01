@@ -83,8 +83,13 @@ private struct TabChip: View {
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
         .contextMenu {
-            if tab.kind == .agent, let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-                Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
+            if tab.kind == .agent {
+                Button(tab.renderMode == .chat ? "Show Terminal" : "Show Chat") {
+                    tab.renderMode = tab.renderMode == .chat ? .terminal : .chat
+                }
+                if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+                    Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
+                }
             }
         }
         .confirmationDialog(

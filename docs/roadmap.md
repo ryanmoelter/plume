@@ -36,7 +36,7 @@ Recommendations, not commitments. Reorder freely.
 
 **Bigger, and best taken deliberately:**
 
-- **Native chat UI** is the largest item here and the one that most changes what Plume is. It's also the most incremental: font and message attribution first, then the statusline strip, then agents. Ship it in slices.
+- ~~**Native chat UI**~~ Done, shipped in slices as predicted. See the section below for what landed and what it left.
 - **Assignable hotkeys** is the sleeper. Adding a next/previous *task* command is easy; making bindings user-settable means a binding store, a settings UI, and applying stored bindings to menu commands. Consider shipping fixed alt+J/K first and configurability later.
 - **Directories on tabs instead of tasks** is the widest change here — ten-odd call sites, mostly mechanical, but it forces a real question about what a task *is* once it doesn't own a directory. Worth deciding alongside the naming question, since they're the same question wearing different hats. Tracking the agent's live directory is the easy half and could land first: the terminal already reports it per tab, and `EnterWorktree` needs no special case.
 - **Palettes** and **PR/MR state** are both moderate. Palettes extend a theming layer that already exists; PR/MR state is new surface but a well-understood shape.
@@ -79,22 +79,49 @@ What exists:
 
 Make the chat experience nicer than the terminal.
 
-- [ ] Don't use a monospace font.
-- [ ] Clearly distinguish my messages from Claude's.
-- [ ] Separate treatment for work-in-progress and for a response that needs me.
-- [ ] Show context-window use, 5h/7d quota, estimated session cost, branch, and model + effort level. Follow `~/.scripts/.claude/statusline.sh` for what belongs in each and when it turns yellow or red.
-- [ ] Show agents and their status.
-- [ ] A markdown viewer for plans and other files — ideally not a full browser.
+- [x] Don't use a monospace font.
+- [x] Clearly distinguish my messages from Claude's.
+- [x] Separate treatment for work-in-progress and for a response that needs me.
+- [x] Show context-window use, 5h/7d quota, estimated session cost, branch, and model + effort level. Follow `~/.scripts/.claude/statusline.sh` for what belongs in each and when it turns yellow or red.
+- [x] Show agents and their status.
+- [x] A markdown viewer for plans and other files — ideally not a full browser.
+- [ ] Render mermaid diagrams in chat messages and in viewed files.
+- [ ] Slash commands in the composer — completion for what's available, and a sensible rendering of the ones that answer in the chat.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
 What exists:
 
-- `SessionJSONLReader` resolves the transcript path today but deliberately parses no message content. That is the seam this builds on.
-- The transcript is a clean message stream: `assistant` lines carry `text` and `tool_use` blocks, `user` lines carry a string or `tool_result`. User-vs-Claude and in-progress-vs-final are both derivable, as are `gitBranch`, `cwd`, `isSidechain` and `agent-name` for the agents list.
-- Per-message `usage` and `model` are in the transcript, so context-window use and the model are derivable from it.
-- The markdown viewer belongs to this workstream: rendering Claude's messages and rendering a plan file are the same problem, so build one renderer and point it at either. "Not a full browser" is achievable — SwiftUI's `Text` initializer takes an `AttributedString` parsed from markdown, which covers inline formatting with no WebKit at all. Its limits are the things a plan file actually uses: no headings, tables, or fenced code blocks. Expect to hand-render block structure and inline-parse each paragraph, or take a small markdown library.
-- **Quota and cost are not.** They exist only in the payload Claude Code hands a statusline command — not in the transcript, and nowhere on disk. Decision: Plume installs its own statusline command that captures the payload and then chains to `~/.scripts/.claude/statusline.sh`, passing its output through unchanged, so the terminal statusline still looks the same. The capture can reuse the existing events-dir + `FileWatcher` transport. Note `statusLine` is a single object, so it replaces rather than unions the way hook lists do.
+- **Done, in slices.** An agent tab now renders a native chat by default and keeps its terminal one ⌘/ away. Both stay mounted, so toggling never touches the PTY — the same rule tabs already follow.
+- `TranscriptParser` turns a transcript into `ChatMessage`s; `TranscriptStore` watches the file per tab and republishes, following `AgentTitleMonitor`'s pattern with a shorter debounce because this drives visible content. `SessionJSONLReader` still resolves paths and now also enumerates the subagent transcripts.
+- `MarkdownBlock` splits block structure by hand and inline-parses each paragraph with `AttributedString`, so there is no WebKit. Nested lists and tables are deliberately unsupported: a table degrades to a paragraph rather than being mangled.
+- `TranscriptParser` also surfaces the latest `planFilePath` from a session's `plan_mode`/`plan_mode_exit` attachment lines. When that path exists on disk, `ChatTabView` shows a "Plan" button that opens `MarkdownFileView` in a sheet — a file-backed, live-updating `MarkdownFileStore` reads the same `MarkdownView` renderer chat messages use, so it isn't hardcoded to plans.
+- The composer sends with ⌘↩ — plain ↩ inserts a newline, so a half-typed message is never lost. It reaches the agent through `TerminalSession.submit(text:)`, which pastes and then presses Enter as two operations. **A trailing `\r` in pasted text does not submit**: the wrapper's text path is a paste, and bracketed paste leaves the carriage return in the edit line.
+- **Quota and cost still need the statusline capture.** They exist only in the payload Claude Code hands a statusline command. `StatuslineCaptureWriter` generates a chaining script and `StatuslineInstaller` can install it, but installation is **off by default and never automatic** — Settings shows the exact JSON it would write to `~/.claude/settings.json` behind an explicit button. With capture off the strip still shows context use, model, effort and branch, all of which come from the transcript. Note `statusLine` is a single object, so it replaces rather than unions the way hook lists do.
+
+Left for later:
+
+- Slash commands work only by accident today. The composer sends whatever is typed straight through, so `/review` reaches `claude` and runs, but nothing completes it, lists it, or knows it is a command. The one exception is `/model` and `/effort`, which `ModelEffortCommand` already composes and sends through `TerminalSession.submit` from the statusline strip's menu — so the send path is proven and the gap is discovery and presentation. Available commands are enumerable from disk (`~/.claude/skills/`, project `.claude/commands/`, plugins), though built-ins are not, so a completion list assembled from disk will be incomplete unless it also carries a static set. Worth deciding what a command's *output* should look like too: some answer in prose that renders fine as a chat message, while others are really UI in disguise, and those will read badly until the renderer knows about them.
+- Mermaid has no renderer yet. `MarkdownBlock` already isolates fenced code blocks, so a `mermaid` fence is easy to *detect* — drawing it is the work. Worth deciding early whether that means WebKit (mermaid.js is JavaScript, and a `WKWebView` per diagram is the quick path but reintroduces the browser this renderer deliberately avoids) or native drawing of a useful subset. Until one exists, a mermaid fence should keep degrading to readable source the way an unsupported table already degrades to a paragraph.
+- Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
+
+## Running inside Plume
+
+Let scripts and Claude itself know they're in Plume, and give Claude the formatting Plume can render.
+
+- [ ] Export an environment variable marking a shell as running inside Plume.
+- [ ] Skills that prompt Claude to use richer formatting — diagrams above all — when it's running in Plume.
+- [ ] Put Plume's own configuration in a config file — a superset of ghostty's, or a structured format of its own (TOML or JSON).
+
+What exists:
+
+- Plume already injects `PLUME_TASK_ID`, `PLUME_TAB_ID` and `PLUME_EVENTS_DIR`, but only on an *agent* launch (`ClaudeCodeProvider`), so a plain terminal tab carries no marker at all. A general `PLUME=1`-style variable set on every tab's shell is the missing piece. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam exists — this is the same change the one-tab-kind item needs, and doing it once serves both.
+- The statusline integration does **not** need a new variable: `StatuslineCaptureWriter` already keys off `$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID`, and those are exactly the per-tab identifiers a general marker would sit beside. A bare `PLUME=1` answers "am I in Plume?" for a shell prompt or a script; it doesn't replace the per-tab IDs, which are what make captured output attributable to a tab.
+- Config today is split: terminal behavior comes from the user's ghostty config, while Plume's own eight settings (worktree base path, provider, statusline capture, chat font size, quit confirmations, composer send key) live in `UserDefaults` behind `AppSettings`, reachable only through the Settings window. A file would make them diffable, shareable and version-controllable, which `UserDefaults` never will be.
+- A superset is plausible because Plume already reads and rewrites the config rather than passing a path: `GhosttyConfigLoader` finds the file in ghostty's own search order, then hands libghostty *generated contents* with every `theme` line stripped, parsing line by line. Plume-specific keys would be stripped the same way — and they must be, since libghostty emits diagnostics for keys it doesn't recognize and `GhosttyRuntime` already logs them.
+- A different format is worth weighing against the superset, not assumed away. TOML or JSON both express nesting natively, and JSON needs no dependency at all — `Codable` reads it, and the statusline capture already parses JSON. TOML reads better by hand but means taking a parser. The cost either way is that Plume's config and ghostty's stop being one file, so the user keeps two — which may be honest rather than unfortunate, since the two configure genuinely different things. A middle path: keep terminal behavior in the ghostty config where it already lives and works, and give Plume's own settings their own structured file, rather than stretching a flat format to hold everything.
+- Two things to settle first if the superset wins. Ghostty takes the first matching config file outright and never merges, so a Plume file that *is* the ghostty file means the user maintains one file for both, while a separate file means deciding precedence. And ghostty's format is flat `key = value` with repeated keys for lists, which suits toggles and paths but has no obvious shape for anything nested — worth checking that every setting worth moving actually fits before committing to the format. `AppSettings` stays the reader either way; a file is a new source for it, not a replacement for the type.
+- The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports — the same discipline that keeps tables degrading gracefully rather than being mangled.
 
 ## PR/MR state in the sidebar
 
@@ -129,11 +156,14 @@ What exists:
 
 What exists: `TaskStore.createTask` already takes a `group:`, and the sidebar's "New Task in Group" passes it. ⌘N is the one call site that hardcodes ungrouped (`MainWindow.swift`). `TaskGroup` has no color or icon field yet.
 
-## Color palette
+## Colors and fonts
 
 - [ ] Default to Lum. The full palette is in the dotfiles at `colors/lum.css` — use that, not just the simplified terminal palette.
 - [ ] Preload other palettes: solarized, monokai, catppuccin, and other popular open-source ones.
 - [ ] Support custom palettes, with light and dark.
+- [ ] Choose the fonts — chat prose and code separately from the terminal — and maybe bundle a few good defaults.
+
+Fonts sit alongside this, and the two halves of the app treat them differently. The terminal takes its font from the user's ghostty config, which is right — it should keep matching their terminal. The chat hardcodes `.system` for prose and `.monospaced` for code in `MarkdownView`, `ChatMessageRow` and `MarkdownComposerStyler`; only the *size* is configurable (`AppSettings.chatFontSize`, clamped 11–28). So the work is a family setting to sit beside the size, threaded the same way through the environment, with prose and code chosen separately — a proportional body font next to a monospaced code font is the point, not one setting for both. Bundling is a separate decision: shipping a font means honoring its license and adding it to the bundle, so it's worth confirming a chosen face allows redistribution before assuming it can ship. Defaulting to the terminal's configured font for code, and the system font for prose, is a reasonable starting point that needs no bundling at all.
 
 What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar and tab strip from the user's resolved ghostty theme, and `Color(hex:)` exists, so this extends a theming layer rather than starting one. Lum in `lum.css` is a 14-hue × 8-tone system whose tone names already split light from dark (`-28`/`-35`/`-on-dark` vs `-93`/`-97`/`-on-light`/`-on-white`) — richer than the 16-color ghostty theme, and a good fit for group and task colors.
 
@@ -169,5 +199,10 @@ The observation is right: these outlive a single unit of work, and "task" unders
 - [ ] Shortcuts work while the terminal is focused.
 - [x] A terminal view takes focus when its tab is shown.
 - [ ] Drag and drop to reorder tabs.
+- [ ] Reopen the last session on launch — restore the selected task and tab instead of starting cold.
 
-What exists: shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus. `TabContentView` toggles opacity and never moves first responder. `.onMove` reorders sidebar tasks but `TabStripView` has no drag support.
+What exists:
+
+- Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
+- `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
+- On launch, the per-task selected tab already persists (`WorkTask.selectedTabID`), so only the selected *task* is missing. `MainWindow` holds it in plain `@State`, which starts nil every launch, so the app always opens on "No Task Selected" even though the rest of the tree restores. Persisting that one UUID — `AppSettings` or `@SceneStorage` — is most of the item. Decide what happens when the stored task is gone (archived or deleted), and whether a restored agent tab should auto-resume on launch or wait to be selected, since the existing rule deliberately avoids spawning `claude` for every agent tab at startup.
