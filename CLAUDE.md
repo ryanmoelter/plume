@@ -53,6 +53,8 @@ Plume/
 
 `claude` launches with `--settings <generated>` plus `PLUME_TASK_ID` / `PLUME_TAB_ID` / `PLUME_EVENTS_DIR`. Each hook appends its stdin to `~/Library/Application Support/Plume/events/<taskID>/<tabID>.jsonl`; `AgentEventMonitor` tails those files and feeds `StatusEngine`.
 
+Input reaches the agent as a paste plus a synthetic Enter, which is why a native chat can't answer a running `AskUserQuestion` or set a permission mode directly. **`docs/agent-transport.md` is the reference** for that ceiling, what Craft Agents does instead, and the headless `claude -p` alternative. Read it before building anything that needs to answer a running prompt.
+
 - **Never put a `matcher` on `Stop` or `UserPromptSubmit`** — Claude Code rejects it. Omitting `matcher` already means "all", so the generated file omits it everywhere.
 - `--settings` *merges*, and hook lists *union*, so the user's own hooks keep firing. Don't expect replacement semantics.
 - Instrumentation is best-effort: a missing settings file degrades to a plain `claude`, never a failed launch.
