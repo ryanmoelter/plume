@@ -8,7 +8,7 @@ Recommendations, not commitments. Reorder freely.
 
 **Start here.** State restoration comes before everything else: a notification that tells you to look at a task is worth less if switching to it disturbs what's running there.
 
-1. **Keep terminals intact across task switches.** The processes already survive; the hosted views don't, so scroll position, selection and focus are lost every switch. See the section below for the two ways to fix it.
+1. ~~**Keep terminals intact across task switches.**~~ Done — and it was worse than described: switching tasks killed the terminals outright. See the section below.
 2. **Resume an existing conversation.** Today `--resume` only works for a session Plume started and captured. Listing what's in `~/.claude/projects/` and letting a tab attach to one closes the gap.
 
 **Then these — small, self-contained, and each one is felt every day:**
@@ -16,7 +16,7 @@ Recommendations, not commitments. Reorder freely.
 3. **⌘N opens a task in the current group.** One call site (`MainWindow.swift`) hardcodes ungrouped; `TaskStore.createTask` already takes a `group:`. Smallest real win on the list.
 4. **Terminal bell + a dot on tabs that rang one.** The wrapper already publishes `bellCount` / `lastBellAt`, and `TerminalSession` already mirrors published fields. Little more than wiring.
 5. **System notification on bell.** Once the bell signal exists, this is one `UNUserNotificationCenter` call and a permission prompt. Together with the two above it delivers most of "tell me when to look" for a fraction of the whole notifications section.
-6. **Terminal focus when a tab is shown.** A one-line irritation that shows up constantly. Related to item 1 — both are focus lost on a switch — so check whether fixing restoration already covers it.
+6. ~~**Terminal focus when a tab is shown.**~~ Done alongside item 1, as that item predicted: `requestFocus()` on becoming visible.
 7. **⌘N defaults to the current directory.** Turns the common case into zero decisions, and doesn't depend on the larger directory rework below.
 
 **Then the highest-value item on the list:**
@@ -47,16 +47,16 @@ Recommendations, not commitments. Reorder freely.
 
 Terminals and conversations should survive everything short of being closed. Worth doing before the notification work — being told to look at a task matters less if looking at it disturbs what's there.
 
-- [ ] Don't discard terminals when switching tasks. Don't discard one until it's actually closed, and never interrupt or clear its state.
+- [x] Don't discard terminals when switching tasks. Don't discard one until it's actually closed, and never interrupt or clear its state.
 - [ ] Let an agent tab resume an existing conversation with `claude --resume`, including one Plume didn't start.
-- [ ] Restore a conversation after `/clear` — the new conversation only, never the cleared one.
+- [x] Restore a conversation after `/clear` — the new conversation only, never the cleared one.
 
 What exists:
 
-- The *process* already survives a task switch. `SurfaceManager` holds sessions in a dictionary keyed by tab ID and only `closeSession` removes one, which is why the earlier "same PIDs across 18 switches" check passed. This item is not about processes dying.
-- What doesn't survive is the **view**. `TabContentView` keeps every tab of the *selected* task mounted, but `MainWindow` builds `TaskDetailView` only for the selected task, so switching tasks unmounts the previous task's whole tab tree. The surface lives on; its hosted `TerminalView` is rebuilt on return, taking scroll position, selection, and focus with it. The wrapper is built for this — `dismantleNSView` only clears a focus callback, and `TerminalViewState` documents that "the state outlives detached views" — so the fix is about keeping or restoring the view, not about keeping the process.
-- Two directions worth weighing: keep every task's detail view mounted the way tabs already are (simple, but grows with task count), or reuse one persistent `TerminalView` per tab across remounts via the wrapper's `makePlatformView` hook, which Plume doesn't currently supply.
-- `/clear` starts a fresh session with a new ID and its own transcript file, and the new file records no link back to the one it replaced. So Plume can't infer the succession from the transcripts alone; it has to notice the switch as it happens. The `SessionStart` hook already fires and Plume already captures session IDs from hook events (`MainWindow`), so the tab's stored `agentSessionID` should simply be overwritten with the newest one — the risk to avoid is resuming the stale pre-`/clear` ID, which would restore exactly the conversation the user threw away. Worth checking whether `SessionStart` distinguishes a `/clear` from a plain start; if it does, that's the signal, and if not, "the ID changed mid-tab" is enough.
+- **Done.** The process did *not* survive a task switch, contrary to what this section used to claim. The ghostty surface lives in `core`, a `let` on `AppTerminalView`, and its `deinit` frees the surface — which reaps the PTY child on the `.exec` backend. Nothing held that view strongly, so unmounting a task's tab tree killed its terminals. The earlier "same PIDs" check missed it because `SmokeHarness` seeded tabs only on the first task, and because it compared PID counts, which a teardown-and-respawn preserves.
+- The fix is `TerminalSession` holding the platform view strongly and handing it back through the wrapper's `makePlatformView` hook, so the same view — and the surface, scrollback and selection inside it — survives every remount. Verified by identical PID *sets* and ttys across repeated switches, with one "Created hosted view" per tab for a whole run.
+- `isSurfaceVisible` is now driven from tab selection (`TabVisibility`). Hidden tabs previously kept drawing frames nobody saw. It gates rendering only, never surface creation, so a tab that has never been selected still spawns its PTY.
+- **Done.** A `/clear` writes `SessionEnd` (`reason: "clear"`, carrying the *old* ID) immediately followed by `SessionStart` (`source: "clear"`, the new one). Both fields are now decoded. Because the `SessionEnd` carries the discarded ID, it is reported as a clear and its ID is dropped rather than written back; the `SessionStart` a moment later supplies the replacement. That closes the window where a crash between the two would have left the stale ID on disk to be resumed. The same event no longer reports the tab idle, which used to misreport a still-running agent.
 - Resume works *only* for a conversation Plume started itself. `AutoResumingAgentTabView` fires `claude --resume` when `tab.agentSessionID` is set, but that field is only ever written from a captured hook event (`MainWindow`). Nothing enumerates past sessions and there is no picker, so a conversation started outside Plume — or one whose ID was lost — can't be reattached. The transcripts needed to list them are already on disk under `~/.claude/projects/`, and `SessionJSONLReader` already resolves and reads that directory.
 
 ## Notifications
@@ -167,7 +167,7 @@ The observation is right: these outlive a single unit of work, and "task" unders
 ## Misc UX
 
 - [ ] Shortcuts work while the terminal is focused.
-- [ ] A terminal view takes focus when its tab is shown.
+- [x] A terminal view takes focus when its tab is shown.
 - [ ] Drag and drop to reorder tabs.
 
 What exists: shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus. `TabContentView` toggles opacity and never moves first responder. `.onMove` reorders sidebar tasks but `TabStripView` has no drag support.

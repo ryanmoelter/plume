@@ -37,9 +37,11 @@ Plume/
 `SurfaceManager.shared` owns every live terminal, keyed by **tab ID**. Views never create or destroy surfaces — they ask for a session and host it. This is what keeps processes alive across tab and task switches, so:
 
 - Keep every tab's `TerminalTabView` mounted and toggle visibility (opacity). Never unmount to hide.
+- **`TerminalSession` holds its platform view strongly, and that is what keeps the process alive.** The view owns the ghostty surface, which owns the PTY child, and the wrapper's `attachedView` is weak — so without that reference, unmounting a view (switching tasks, say) frees the surface and kills the terminal. The view is handed back on remount through the wrapper's `makePlatformView` hook. Hold the session, not just the surface state.
+- Hidden tabs set `isSurfaceVisible = false` (`TabVisibility`), which stops rendering only. It never gates surface creation, so an unselected tab still spawns its PTY.
 - Call `SurfaceManager.closeSession(for:)` when a tab or task is deleted. A SwiftData cascade delete does *not* reap the terminal.
 - `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
-- Surfaces spawn their PTY lazily, when first attached to a *visible* view.
+- Surfaces spawn their PTY lazily, when first attached to a view with a usable size — not on selection. A hidden tab still spawns.
 
 ## Agent instrumentation
 
