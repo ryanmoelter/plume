@@ -35,6 +35,10 @@ Recommendations, not commitments. Reorder freely.
 - **Bundle Newsreader for chat prose.** Self-contained, and the most visible change per unit of work on the list. Adding a bundled family is the whole job; the font setting it eventually belongs to can come later.
 - **Dim the sidebar's selected task.** Small and self-contained, and `TabStripView` already has the pattern to copy — a wash of the theme's own foreground instead of the system accent. The one thing to watch is that hand-drawing the row background gives up `List`'s automatic label inversion.
 
+**After those:**
+
+- **Queued messages.** Bigger than it sounds, because there is no queue today — the composer pastes straight into the PTY, so a message typed while the agent is working vanishes into Claude Code's edit line where Plume can't see it. Worth doing after the chat rendering items, since it needs somewhere trustworthy to *show* a pending message, and it pairs naturally with notifications: knowing a message is queued and knowing an agent went idle are the same question asked from two ends.
+
 **Also cheap, once you want them:**
 
 - **CLI notify** is nearly free — the wrapper already accepts OSC 9 / 777, so a shell can notify Plume today with no app change. The helper is a convenience script.
@@ -96,6 +100,7 @@ Make the chat experience nicer than the terminal.
 - [ ] Slash commands in the composer — completion for what's available, and a sensible rendering of the ones that answer in the chat.
 - [ ] Render the tools that talk to me — a proposed plan and a question with its options — as their own thing, not as raw tool JSON.
 - [ ] Stop showing injected content as if I wrote it. A skill's body, a slash command's expansion and its output all arrive as user lines and read as messages from me.
+- [ ] Queued messages — show what's waiting to go, and show it leaving when it does.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
@@ -114,6 +119,8 @@ Left for later:
 - Mermaid has no renderer yet. `MarkdownBlock` already isolates fenced code blocks, so a `mermaid` fence is easy to *detect* — drawing it is the work. Worth deciding early whether that means WebKit (mermaid.js is JavaScript, and a `WKWebView` per diagram is the quick path but reintroduces the browser this renderer deliberately avoids) or native drawing of a useful subset. Until one exists, a mermaid fence should keep degrading to readable source the way an unsupported table already degrades to a paragraph.
 - `AskUserQuestion` and `ExitPlanMode` render as pretty-printed JSON today, like any other tool call — `ToolCallInputRendering` special-cases only `Bash`. Both payloads already carry everything a real rendering needs: `AskUserQuestion` gives `questions[]` with `header`, `question`, `multiSelect` and `options[]` of `label` + `description`, and `ExitPlanMode` gives `plan` (markdown, renderable by `MarkdownView` as-is) alongside the `planFilePath` the parser already tracks. Worth deciding how far to go: showing them well is a rendering change, but making the options *clickable* means sending the answer back, and the composer's send path is a paste into the terminal — it has no way to pick the third option of a running prompt. Read-only presentation is the honest first slice.
 - **Injected content renders as my messages.** `TranscriptParser` keys on `(entry.type, role)` alone and ignores `isMeta`, so every synthetic user line becomes a `.user` chat message: a skill's whole body (`Base directory for this skill: …`), `<command-name>`/`<command-message>` blocks, `<local-command-stdout>`, `<local-command-caveat>`, `<task-notification>` and `[Request interrupted by user]`. `isMeta: true` catches some of them — a skill body and the caveat block — but not all: a slash command's expansion and its stdout are both `isMeta: false`, so they need recognizing by their wrapper tags. These are worth *showing*, just not as prose in my voice; a skill invocation and a slash command are both things that happened, and a compact marker row reads better than either a raw dump or silence.
+- **Queued messages** would need a real queue first — there isn't one. `ChatComposer.send()` clears the draft and calls `TerminalSession.submit(text:)`, which pastes and presses Enter straight into the PTY. Type while the agent is working and the text lands in Claude Code's own edit line, where Plume can't see it, can't show it, and can't take it back. So the work is a per-tab queue (`DraftStore` is the shape to copy — in memory, keyed by tab ID, since a queued message isn't worth persisting) that holds messages while the tab is busy and submits them when it isn't. `StatusEngine` already knows busy from idle, which is the gate.
+- Knowing a queued message actually *went* is the subtle half. `submit` is fire-and-forget — the paste succeeding says nothing about Claude Code accepting it. The transcript is the real acknowledgement: a consumed message shows up as a genuine user line with a timestamp, so the queue can hold an entry as pending and mark it sent when a matching line appears. That also decides what to do when a message is typed straight into the terminal instead, and what happens to a queue whose tab is closed mid-flight.
 - Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
 
 ## Running inside Plume
