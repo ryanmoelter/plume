@@ -20,9 +20,12 @@ struct TabContentView: View {
                 .themeTint(colorScheme: colorScheme)
             }
             ForEach(task.orderedTabs) { tab in
-                tabContent(for: tab)
-                    .opacity(task.selectedTabID == tab.id ? 1 : 0)
-                    .allowsHitTesting(task.selectedTabID == tab.id)
+                let isVisible = TabVisibility.isOnScreen(
+                    tabID: tab.id, selectedTabID: task.selectedTabID
+                )
+                tabContent(for: tab, isVisible: isVisible)
+                    .opacity(isVisible ? 1 : 0)
+                    .allowsHitTesting(isVisible)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -32,17 +35,17 @@ struct TabContentView: View {
     /// knows the `claude` command. Creating one here would win the race and
     /// leave the tab running a bare shell.
     @ViewBuilder
-    private func tabContent(for tab: TaskTab) -> some View {
+    private func tabContent(for tab: TaskTab, isVisible: Bool) -> some View {
         if tab.kind == .agent {
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session)
+                TerminalTabView(session: session, isVisible: isVisible)
             } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-                AutoResumingAgentTabView(task: task, tab: tab, isSelected: task.selectedTabID == tab.id)
+                AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
             } else {
-                AgentFirstMessageView(task: task, tab: tab)
+                AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible)
             }
         } else {
-            TerminalTabHost(task: task, tab: tab)
+            TerminalTabHost(task: task, tab: tab, isVisible: isVisible)
         }
     }
 }
@@ -57,13 +60,14 @@ struct TabContentView: View {
 private struct TerminalTabHost: View {
     let task: WorkTask
     let tab: TaskTab
+    let isVisible: Bool
 
     @State private var session: TerminalSession?
 
     var body: some View {
         Group {
             if let session {
-                TerminalTabView(session: session)
+                TerminalTabView(session: session, isVisible: isVisible)
                     .onChange(of: session.title, initial: true) { _, title in
                         TitleStore.shared.setTitle(title, forTab: tab.id)
                     }

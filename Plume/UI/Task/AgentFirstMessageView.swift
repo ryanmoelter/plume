@@ -5,6 +5,7 @@ import SwiftUI
 struct AgentFirstMessageView: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
+    var isVisible = true
 
     @State private var message = ""
     @FocusState private var inputFocused: Bool
@@ -56,7 +57,11 @@ struct AgentFirstMessageView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { inputFocused = true }
+        // Only the visible tab takes focus; hidden tabs stay mounted, and
+        // focusing every one of them makes them fight over the input.
+        .onChange(of: isVisible, initial: true) { _, visible in
+            if visible { inputFocused = true }
+        }
     }
 
     private func send() {
