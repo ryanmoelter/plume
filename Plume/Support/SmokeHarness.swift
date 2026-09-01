@@ -26,13 +26,19 @@ enum SmokeHarness {
         }
 
         // PLUME_SEED_TABS gives the first task extra terminal tabs, so
-        // several surfaces are mounted at once.
+        // several surfaces are mounted at once. Selection lands on the first
+        // tab afterward, unless PLUME_SEED_AGENT_SESSION_ID is also set, in
+        // which case the last-added terminal tab stays selected so the
+        // agent tab's lazy auto-resume can be observed happening later, on
+        // an explicit selection, rather than immediately at seed time.
         if let tabsValue = environment["PLUME_SEED_TABS"],
            let tabCount = Int(tabsValue), let first = tasks.first {
             while first.tabs.count < tabCount {
                 TaskStore.addTab(to: first, kind: .terminal, in: context)
             }
-            first.selectedTabID = first.orderedTabs.first?.id
+            if environment["PLUME_SEED_AGENT_SESSION_ID"] == nil {
+                first.selectedTabID = first.orderedTabs.first?.id
+            }
         }
 
         // PLUME_SEED_CWD gives the first task a working directory, so agent
@@ -40,6 +46,15 @@ enum SmokeHarness {
         if let cwd = environment["PLUME_SEED_CWD"], let first = tasks.first {
             first.workingDirectoryPath = cwd
             first.workspaceKind = .directory
+        }
+
+        // PLUME_SEED_AGENT_SESSION_ID stores a session ID on the first task's
+        // agent tab without launching anything, so lazy auto-resume can be
+        // observed on first selection instead of at seed time.
+        if let sessionID = environment["PLUME_SEED_AGENT_SESSION_ID"],
+           let first = tasks.first,
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            agentTab.agentSessionID = sessionID
         }
 
         selection.wrappedValue = tasks.first?.id

@@ -16,6 +16,8 @@ struct TaskCommands {
     let cycleTab: (Int) -> Void
     let closeSelectedTab: () -> Void
     let archiveSelectedTask: () -> Void
+    /// Nil when the selected tab has no stored session to discard.
+    let startFreshSelectedTab: (() -> Void)?
 }
 
 struct TaskCommandsKey: FocusedValueKey {
@@ -90,6 +92,11 @@ struct PlumeCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(Character("\(number)")))
                     .disabled(task == nil)
             }
+
+            Divider()
+
+            Button("Start Fresh Conversation…") { task?.startFreshSelectedTab?() }
+                .disabled(task?.startFreshSelectedTab == nil)
         }
     }
 }

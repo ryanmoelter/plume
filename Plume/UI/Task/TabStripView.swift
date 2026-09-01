@@ -48,6 +48,7 @@ private struct TabChip: View {
     let close: () -> Void
 
     @State private var isHovering = false
+    @State private var isConfirmingStartFresh = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -74,6 +75,20 @@ private struct TabChip: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            if tab.kind == .agent, let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+                Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
+            }
+        }
+        .confirmationDialog(
+            "Start a fresh conversation?",
+            isPresented: $isConfirmingStartFresh
+        ) {
+            Button("Start Fresh", role: .destructive) { tab.agentSessionID = nil }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+        }
     }
 
     /// `.selection` reads as a native system tint, which disappears against a
