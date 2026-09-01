@@ -27,5 +27,9 @@ struct PlumeApp: App {
         .commands {
             PlumeCommands()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct AgentLaunch {
     /// Command line for the surface's child process.
@@ -19,4 +20,19 @@ protocol AgentProvider {
 /// Quotes a string for safe use as a single shell word.
 func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+}
+
+/// Resolves a provider ID (from Settings) to its implementation. Only
+/// `claude-code` exists in v1; anything else falls back to it rather than
+/// failing to launch.
+enum AgentProviderRegistry {
+    static func provider(for id: String, settingsPath: String?) -> ClaudeCodeProvider {
+        switch id {
+        case ClaudeCodeProviderID:
+            return ClaudeCodeProvider(settingsPath: settingsPath)
+        default:
+            Log.agent.error("Unknown provider id \"\(id, privacy: .public)\"; falling back to Claude Code")
+            return ClaudeCodeProvider(settingsPath: settingsPath)
+        }
+    }
 }

@@ -40,6 +40,20 @@ struct BranchNamingTests {
         #expect(path == "/repo/.plume/worktrees/plume-x-0001")
     }
 
+    @Test func worktreePathHonorsABasePathOverride() {
+        let path = WorkspaceProvisioner.worktreePath(
+            repository: "/repo", branch: "plume/x-0001", basePath: "/elsewhere"
+        )
+        #expect(path == "/elsewhere/repo/plume-x-0001")
+    }
+
+    @Test func emptyBasePathFallsBackToTheDefaultLocation() {
+        let path = WorkspaceProvisioner.worktreePath(
+            repository: "/repo", branch: "plume/x-0001", basePath: ""
+        )
+        #expect(path == "/repo/.plume/worktrees/plume-x-0001")
+    }
+
     @Test func randomSuffixIsFourHexCharacters() {
         let suffix = WorkspaceProvisioner.randomSuffix()
         #expect(suffix.count == 4)
@@ -115,6 +129,23 @@ struct WorktreeProvisioningTests {
         #expect(!FileManager.default.fileExists(atPath: path))
         let remaining = try GitRunner.run(["branch", "--list", branch], in: repository)
         #expect(remaining.isEmpty)
+    }
+
+    @Test func createWorktreeHonorsABasePathOverride() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let basePath = FileManager.default.temporaryDirectory
+            .appending(path: "plume-base-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: basePath) }
+
+        let path = try WorkspaceProvisioner.createWorktree(
+            repository: repository, branch: "plume/feature-0004", basePath: basePath
+        )
+
+        #expect(path == "\(basePath)/\(URL(fileURLWithPath: repository).lastPathComponent)/plume-feature-0004")
+        #expect(FileManager.default.fileExists(atPath: "\(path)/README.md"))
+        // An override skips the in-repo `.plume/.gitignore` bootstrap.
+        #expect(!FileManager.default.fileExists(atPath: "\(repository)/.plume/.gitignore"))
     }
 
     @Test func duplicateBranchFailsWithGitsMessage() throws {

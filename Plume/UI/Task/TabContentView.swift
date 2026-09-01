@@ -10,6 +10,13 @@ struct TabContentView: View {
 
     var body: some View {
         ZStack {
+            if task.tabs.isEmpty {
+                ContentUnavailableView {
+                    Label("No Tabs", systemImage: "square.on.square")
+                } description: {
+                    Text("Use the + button above to add an agent or terminal tab.")
+                }
+            }
             ForEach(task.orderedTabs) { tab in
                 tabContent(for: tab)
                     .opacity(task.selectedTabID == tab.id ? 1 : 0)

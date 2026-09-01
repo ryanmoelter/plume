@@ -4,6 +4,10 @@ struct NewTaskActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowArchiveActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 /// Actions the menu bar performs on the selected task. Nil when nothing is
 /// selected, which disables the whole Task menu.
 struct TaskCommands {
@@ -11,6 +15,7 @@ struct TaskCommands {
     let selectTab: (Int) -> Void
     let cycleTab: (Int) -> Void
     let closeSelectedTab: () -> Void
+    let archiveSelectedTask: () -> Void
 }
 
 struct TaskCommandsKey: FocusedValueKey {
@@ -23,6 +28,11 @@ extension FocusedValues {
         set { self[NewTaskActionKey.self] = newValue }
     }
 
+    var showArchiveAction: (() -> Void)? {
+        get { self[ShowArchiveActionKey.self] }
+        set { self[ShowArchiveActionKey.self] = newValue }
+    }
+
     var taskCommands: TaskCommands? {
         get { self[TaskCommandsKey.self] }
         set { self[TaskCommandsKey.self] = newValue }
@@ -31,6 +41,7 @@ extension FocusedValues {
 
 struct PlumeCommands: Commands {
     @FocusedValue(\.newTaskAction) private var newTask
+    @FocusedValue(\.showArchiveAction) private var showArchive
     @FocusedValue(\.taskCommands) private var task
 
     var body: some Commands {
@@ -48,9 +59,19 @@ struct PlumeCommands: Commands {
                 .disabled(task == nil)
         }
 
+        CommandGroup(after: .toolbar) {
+            Button("Show Archive…") { showArchive?() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .disabled(showArchive == nil)
+        }
+
         CommandGroup(after: .saveItem) {
             Button("Close Tab") { task?.closeSelectedTab() }
                 .keyboardShortcut("w")
+                .disabled(task == nil)
+
+            Button("Archive Task") { task?.archiveSelectedTask() }
+                .keyboardShortcut("a", modifiers: [.command, .control])
                 .disabled(task == nil)
         }
 
