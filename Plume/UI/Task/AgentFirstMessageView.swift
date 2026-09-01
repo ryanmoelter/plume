@@ -1,4 +1,3 @@
-import GhosttyTerminal
 import SwiftUI
 
 /// An agent tab before its first message: no `claude` process exists yet, so
@@ -54,17 +53,7 @@ struct AgentFirstMessageView: View {
 
     private func send() {
         guard canSend else { return }
-        let provider = ClaudeCodeProvider()
-        let launch = provider.launchCommand(firstMessage: message, resumeSessionID: nil)
-
-        _ = SurfaceManager.shared.session(
-            for: tab.id,
-            options: TerminalSurfaceOptions(
-                workingDirectory: task.workingDirectoryPath,
-                envVars: launch.environment,
-                command: launch.command
-            )
-        )
+        AgentLauncher.launch(message: message, task: task, tab: tab)
         message = ""
     }
 }

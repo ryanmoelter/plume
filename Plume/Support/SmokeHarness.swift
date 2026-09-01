@@ -35,8 +35,24 @@ enum SmokeHarness {
             first.selectedTabID = first.orderedTabs.first?.id
         }
 
+        // PLUME_SEED_CWD gives the first task a working directory, so agent
+        // tabs can launch without a folder picker.
+        if let cwd = environment["PLUME_SEED_CWD"], let first = tasks.first {
+            first.workingDirectoryPath = cwd
+            first.workspaceKind = .directory
+        }
+
         selection.wrappedValue = tasks.first?.id
         Log.app.info("Smoke harness seeded \(tasks.count) task(s)")
+
+        // PLUME_SEND_MESSAGE launches the agent through the same path the
+        // send button uses, since UI scripting is unavailable here.
+        if let message = environment["PLUME_SEND_MESSAGE"],
+           let first = tasks.first,
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            AgentLauncher.launch(message: message, task: first, tab: agentTab)
+            Log.app.info("Smoke harness sent first message to agent tab")
+        }
 
         guard let intervalValue = environment["PLUME_CYCLE_SELECTION"],
               let interval = Double(intervalValue), interval > 0
