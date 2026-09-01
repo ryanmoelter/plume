@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import GhosttyTerminal
 import Observation
@@ -21,6 +22,15 @@ final class TerminalSession {
     /// which is how an abnormal exit is distinguished from a clean one.
     private(set) var exitedWhileProcessAlive: Bool?
 
+    /// `TerminalViewState` is a Combine `ObservableObject`, whose `@Published`
+    /// changes `@Observable` cannot see. Mirroring them into stored properties
+    /// here is what lets SwiftUI views track the title without each one
+    /// holding the state as an `@ObservedObject`.
+    private(set) var title = ""
+    private(set) var workingDirectory: String?
+
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+
     init(id: UUID, options: TerminalSurfaceOptions) {
         self.id = id
         state = TerminalViewState(controller: GhosttyRuntime.shared.requireController())
@@ -28,15 +38,24 @@ final class TerminalSession {
         state.onClose = { [weak self] processAlive in
             self?.markExited(processAlive: processAlive)
         }
+
+        state.$title
+            .sink { [weak self] in self?.title = $0 }
+            .store(in: &cancellables)
+        state.$workingDirectory
+            .sink { [weak self] in self?.workingDirectory = $0 }
+            .store(in: &cancellables)
     }
 
-    var title: String {
-        state.title.isEmpty ? "Terminal" : state.title
+    var displayTitle: String {
+        title.isEmpty ? "Terminal" : title
     }
 
-    /// OSC 7 working directory, when the shell reports one.
-    var workingDirectory: String? {
-        state.workingDirectory
+    /// PID of the pty's foreground process group, for correlating this
+    /// surface with the system process list. Nil until a view presents the
+    /// surface and a process exists.
+    var foregroundPid: pid_t? {
+        state.attachedPlatformView?.foregroundPid
     }
 
     private func markExited(processAlive: Bool) {
