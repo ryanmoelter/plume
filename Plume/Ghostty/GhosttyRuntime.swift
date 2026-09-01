@@ -43,7 +43,14 @@ final class GhosttyRuntime {
             }
         }
 
-        let controller = TerminalController(configFilePath: loadedConfigPath, theme: resolvedTheme)
+        // The config reaches libghostty as generated contents, not as a file
+        // path, so the `theme` directive can be stripped first — see
+        // GhosttyConfigLoader.configContentsForGhostty.
+        let configSource: TerminalController.ConfigSource = loadedConfigPath
+            .flatMap { GhosttyConfigLoader.configContentsForGhostty(atPath: $0) }
+            .map { .generated($0) } ?? .none
+
+        let controller = TerminalController(configSource: configSource, theme: resolvedTheme)
         self.controller = controller
 
         if let issue = controller.lastConfigurationIssue {

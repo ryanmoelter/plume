@@ -46,7 +46,39 @@ value itself, resolves each name against `GhosttyThemeCatalog` first, then
 falls back to parsing a same-named file in the user's `themes/` directory
 (ghostty's own custom-theme convention) for names the catalog doesn't know.
 `GhosttyRuntime.start()` builds the resulting `TerminalTheme` and passes it
-into the controller alongside the raw config path.
+into the controller alongside the user's config contents, with the `theme`
+line stripped out — see the next section for why that removal is mandatory.
+
+## The `theme` directive must never reach libghostty
+
+`GhosttyRuntime` hands the controller **generated contents**, not the config
+file path, so `GhosttyConfigLoader.configContentsForGhostty(atPath:)` can strip
+every `theme = ...` line first. This is required, not cosmetic.
+
+A split `theme = dark:X,light:Y` naming two *different* themes makes
+`Config.finalize()` insert `.theme` into the config's conditional set. Creating
+a surface then calls `changeConditionalState`, which rebuilds the config from
+`cloneEmpty` — fresh defaults — and replays only the settings that came from
+the config file. The per-surface `command` is assigned straight onto the struct
+in `embedded.zig` rather than recorded as a replay step, so the rebuild drops
+it; the second `finalize()` then sees `command == null` and substitutes the
+passwd-derived login shell. `working-directory` is explicitly re-applied after
+the swap and `command` is not, which is why cwd and env survive while the
+command vanishes.
+
+Two things make this hard to spot:
+
+- **No diagnostic.** The "theme not found" diagnostic lands on the throwaway
+  config that `changeConditionalState` deinits, so
+  `ghostty_config_diagnostics_count` stays zero.
+- **Only differing names trigger it.** `theme = dark:Nord,light:Nord` is fine,
+  because `finalize()` compares the two names as strings and marks the config
+  conditional only when they differ. Quoting and whether the theme resolves are
+  both irrelevant.
+
+Plume resolves themes in Swift anyway (see **Theme resolution** above), so
+nothing is lost by stripping the line. `SurfaceCommandTests` locks the behavior
+down by asserting a real process runs the command it was given.
 
 ## Config search order
 

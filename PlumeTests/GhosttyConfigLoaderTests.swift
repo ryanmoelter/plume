@@ -73,4 +73,25 @@ struct GhosttyConfigLoaderTests {
         let path = GhosttyConfigLoader.themesDirectory(forConfigPath: symlinkConfig.path)
         #expect(path == realConfigDir.appendingPathComponent("themes").path)
     }
+
+    @Test func themeDirectivesAreStrippedForGhostty() {
+        let stripped = GhosttyConfigLoader.strippingThemeDirectives(from: """
+        theme = dark:"Lum dark",light:"Lum light"
+        font-size = 15
+          theme = Nord
+        """)
+
+        #expect(!stripped.contains("theme"))
+        #expect(stripped.contains("font-size = 15"))
+    }
+
+    @Test func strippingKeepsKeysThatMerelyStartWithTheme() {
+        let stripped = GhosttyConfigLoader.strippingThemeDirectives(from: """
+        theme-ish = keep
+        # theme = commented
+        """)
+
+        #expect(stripped.contains("theme-ish = keep"))
+        #expect(stripped.contains("# theme = commented"))
+    }
 }
