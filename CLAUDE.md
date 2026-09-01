@@ -2,11 +2,9 @@
 
 Native macOS app for organizing and parallelizing coding-agent work: a sidebar of tasks in groups, agent/terminal tabs per task, and at-a-glance status.
 
-## The plan
+## The roadmap
 
-`docs/plans/plume-v1-plan.md` is the working document. It defines phases and work packages (WPs), each sized for one agent session with its own acceptance criteria. **Check off and annotate WPs there as you complete them.** Read it before starting work.
-
-Decisions recorded in the plan are settled — don't relitigate them. Where reality has since diverged from the plan, the plan file carries an `Amendments` section; add to it rather than editing the original text.
+`docs/roadmap.md` tracks the features we intend to build. Read it before starting work, and check items off as they land. It records what each item is and what the code already provides, not how to build it — work out the approach when you pick an item up.
 
 ## Build and test
 
@@ -15,7 +13,7 @@ xcodebuild -scheme Plume -destination 'platform=macOS' build
 xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
 ```
 
-Every WP ends with a clean build and a manual run. `PlumeUITests` launches the app, so a full `test` run is slow — prefer `-only-testing:PlumeTests` while iterating.
+Every change ends with a clean build and a manual run. `PlumeUITests` launches the app, so a full `test` run is slow — prefer `-only-testing:PlumeTests` while iterating.
 
 ## Layout
 
@@ -23,15 +21,16 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 
 ```
 Plume/
-  App/       PlumeApp, MainWindow, PlumeCommands
-  Models/    SwiftData models, TaskStore (CRUD/ordering), enums
-  Ghostty/   GhosttyRuntime, GhosttyConfigLoader, TerminalSession, TerminalTabView
-  Sessions/  SurfaceManager
-  Support/   Log, SmokeHarness (DEBUG)
-  UI/        Sidebar/, Task/
+  App/        PlumeApp, MainWindow, PlumeCommands, AppDelegate
+  Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
+  Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
+  Sessions/   SurfaceManager, LoginShellCommand
+  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
+  Status/     StatusEngine, StatusPersistence
+  Workspace/  WorkspaceProvisioner, GitRunner
+  Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, SmokeHarness (DEBUG)
+  UI/         Sidebar/, Task/, Settings/
 ```
-
-Folders from the plan not yet created (`Agent/`, `Status/`, `Workspace/`) arrive with their phases.
 
 ## Terminals
 
