@@ -18,6 +18,34 @@ struct StatusEngineTests {
         #expect(StatusEngine.status(for: .sessionEnd) == .idle)
     }
 
+    /// `/clear` ends the session while the agent keeps running, so the usual
+    /// session-ended-means-idle reading would misreport a live agent.
+    @Test func aClearedSessionEndLeavesTheAgentWorking() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.apply(event("UserPromptSubmit"), taskID: task, tabID: tab)
+
+        engine.apply(
+            HookEvent(hookEventName: "SessionEnd", reason: "clear"),
+            taskID: task, tabID: tab
+        )
+
+        #expect(engine.status(forTab: tab) == .working)
+    }
+
+    @Test func anOrdinarySessionEndStillGoesIdle() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.apply(event("UserPromptSubmit"), taskID: task, tabID: tab)
+
+        engine.apply(
+            HookEvent(hookEventName: "SessionEnd", reason: "other"),
+            taskID: task, tabID: tab
+        )
+
+        #expect(engine.status(forTab: tab) == .idle)
+    }
+
     @Test func unknownEventsAreIgnored() {
         #expect(StatusEngine.status(for: .unknown) == nil)
 

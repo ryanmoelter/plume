@@ -38,6 +38,9 @@ final class StatusEngine {
     // MARK: - Writing
 
     func apply(_ event: HookEvent, taskID: UUID, tabID: UUID) {
+        // A `/clear` ends a session while the agent keeps running, so the
+        // usual "session ended means idle" reading is wrong here.
+        guard !event.endsClearedSession else { return }
         guard let status = Self.status(for: event.kind) else { return }
         setStatus(status, taskID: taskID, tabID: tabID)
     }

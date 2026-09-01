@@ -112,6 +112,40 @@ struct HookEventIngesterTests {
         #expect(HookEventIngester().readNewEvents(at: url).first?.kind == .stop)
     }
 
+    /// Verbatim payloads Claude Code wrote during a real `/clear`.
+    @Test func aClearDecodesItsSourceAndReason() throws {
+        let url = makeFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try append([
+            #"{"session_id":"3176c2af","transcript_path":"/t/3176c2af.jsonl","cwd":"/w","prompt_id":"78c451fa","hook_event_name":"SessionEnd","reason":"clear"}"#,
+            #"{"session_id":"68b117c1","transcript_path":"/t/68b117c1.jsonl","cwd":"/w","hook_event_name":"SessionStart","source":"clear"}"#,
+        ], to: url)
+
+        let events = HookEventIngester().readNewEvents(at: url)
+
+        #expect(events.first?.reason == "clear")
+        #expect(events.first?.endsClearedSession == true)
+        #expect(events.last?.source == "clear")
+        #expect(events.last?.sessionID == "68b117c1")
+    }
+
+    @Test func anOrdinarySessionEndIsNotAClear() throws {
+        let url = makeFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try append([
+            #"{"hook_event_name":"SessionEnd","session_id":"s","reason":"other"}"#,
+            #"{"hook_event_name":"SessionStart","session_id":"s"}"#,
+        ], to: url)
+
+        let events = HookEventIngester().readNewEvents(at: url)
+
+        #expect(events.first?.endsClearedSession == false)
+        #expect(events.last?.source == nil)
+        #expect(events.last?.endsClearedSession == false)
+    }
+
     @Test func rotationOnlyHappensAfterEverythingIsRead() throws {
         let url = makeFile()
         defer { try? FileManager.default.removeItem(at: url) }

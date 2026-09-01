@@ -17,6 +17,10 @@ final class AgentEventMonitor {
     /// Reports the session ID a tab's events carry, for `--resume`.
     var onSessionIDDiscovered: ((UUID, String) -> Void)?
 
+    /// Reports that a tab's conversation was cleared, so the discarded
+    /// session ID can be dropped before the replacement arrives.
+    var onSessionCleared: ((UUID) -> Void)?
+
     /// Reports the tab's transcript file, cached for the future chat renderer.
     var onTranscriptPathDiscovered: ((UUID, String) -> Void)?
 
@@ -52,6 +56,13 @@ final class AgentEventMonitor {
 
         for event in events {
             statusEngine.apply(event, taskID: taskID, tabID: tabID)
+            if event.endsClearedSession {
+                // This event carries the discarded session's ID, so reporting
+                // it would put back exactly what the clear threw away. The
+                // `SessionStart` that follows brings the replacement.
+                onSessionCleared?(tabID)
+                continue
+            }
             if let sessionID = event.sessionID, !sessionID.isEmpty {
                 onSessionIDDiscovered?(tabID, sessionID)
             }

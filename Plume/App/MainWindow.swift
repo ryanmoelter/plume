@@ -114,6 +114,16 @@ struct MainWindow: View {
             else { return }
             tab.agentSessionID = sessionID
         }
+        AgentEventMonitor.shared.onSessionCleared = { tabID in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
+            else { return }
+            // Dropped rather than replaced, because the new session's ID
+            // arrives a moment later in its own event. Losing auto-resume if
+            // Plume dies in between costs a message; keeping the stale ID
+            // would silently restore the conversation the user discarded.
+            tab.agentSessionID = nil
+            tab.sessionJSONLPath = nil
+        }
         AgentEventMonitor.shared.onTranscriptPathDiscovered = { tabID, path in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
             else { return }
