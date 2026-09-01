@@ -16,6 +16,15 @@ Plume is a new macOS app (empty SwiftUI/SwiftData Xcode template at `/Users/ryan
 ### Later (design for, don't build in v1)
 Native SwiftUI chat rendering (deliberately excluded from this plan — it's involved enough to warrant its own plan later; the JSONL seam in WP3.3 is built for it); customizable statusline bar; more providers (Codex, local models); sidebar integrations (PR/MR status, Linear tickets).
 
+## Amendments
+
+Decisions made during execution that supersede the text below. Append here rather than rewriting the original.
+
+- **2026-08-31 — Adopt the `GhosttyTerminal` wrapper.** WP0.2's evaluation resolved in favor of adopting it rather than writing our own wrapper on the raw C API. `libghostty-spm` has matured well past the 1.3.x assumed below (now 1.5.0), and the wrapper meets all three adoption criteria: per-surface `workingDirectory` + `command` + `envVars` via `TerminalSurfaceOptions` (its docs describe host tagging of surfaces with a UUID — exactly the `PLUME_TAB_ID` case), surface keep-alive across reparenting, and the user's config via `TerminalController.ConfigSource.file(path)` pointed at `~/.config/ghostty/config`. Note it does *not* call `ghostty_config_load_default_files`; it renders a config file from a base string plus programmatic overrides, so config-file discovery is ours to do. This substantially shrinks Phase 1 — no hand-written Metal layer or `NSTextInputClient` IME. The raw-C path stays the documented fallback, and the one-folder containment rule is unchanged.
+- **2026-08-31 — Pin `.exact("1.5.0")`.**
+- **2026-08-31 — Deployment target stays at the template's macOS 26.5** (Ryan's call), even though Xcode 26.2's SDK only compiles to 26.2 and every build therefore logs a deployment-target warning. Revisit if it ever becomes a hard error.
+- **2026-08-31 — `ENABLE_USER_SELECTED_FILES` removed** alongside disabling the sandbox; it is a sandbox entitlement and is meaningless unsandboxed.
+
 ## Architecture
 
 Single app target, organized by folder:
@@ -149,7 +158,10 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
 **First action on approval (before any WP):** copy this plan verbatim into the repo at `docs/plans/plume-v1-plan.md` and commit it — it's the working document the implementing agents pick WPs from. Agents should check off / annotate WPs in that file as they complete them.
 
 **Phase 0 — Skeleton & data model** (WP0.1 ∥ WP0.2)
-- **WP0.1 Hygiene + schema + shell**: sandbox off, delete `Item.swift`, Models/, NavigationSplitView shell with full group/task CRUD (placeholder detail). *Accept:* CRUD + reorder works, survives relaunch, clean build.
+- **[x] WP0.1 Hygiene + schema + shell** *(done 2026-08-31)*: sandbox off, delete `Item.swift`, Models/, NavigationSplitView shell with full group/task CRUD (placeholder detail). *Accept:* CRUD + reorder works, survives relaunch, clean build.
+  - Added `TaskStore` (not in the original file list) to hold CRUD + dense-`orderIndex` reordering, keeping it out of the views. `TaskStatus.aggregate` implements the priority ladder now so Phase 3 inherits a tested seam.
+  - 10 unit tests cover ordering, tab selection on close, group-delete-keeps-tasks, status aggregation, and an on-disk close/reopen round-trip standing in for relaunch.
+  - Detail pane is an intentional placeholder listing tabs; `TabStripView`/`TabContentView` arrive in WP2.1.
 - **WP0.2 GhosttyKit into the build**: add libghostty-spm `.exact`, `ghostty_init()` at launch, write `docs/GHOSTTY_PIN.md`, record GhosttyTerminal-vs-raw-C verdict. *Accept:* linked and running; pin + wrapper decision documented.
 
 **Phase 1 — Terminal embedding** (sequential; the risk phase, front-loaded)
