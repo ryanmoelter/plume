@@ -17,7 +17,7 @@ Every change ends with a clean build and a manual run. `PlumeUITests` launches t
 
 ## Releasing locally
 
-Plume is installed by hand — no archive, no notarization, no DMG. **`docs/RELEASING.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
+Plume is installed by hand — no archive, no notarization, no DMG. **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
 Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. Nothing needs embedding or separate signing.
 
@@ -81,7 +81,7 @@ Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matc
 
 ## Ghostty
 
-Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/GHOSTTY_PIN.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
+Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/ghostty-pin.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
 
 The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfigLoader` finds the user's config itself. Its ordering (Application Support before XDG) is deliberate and test-locked — don't "fix" it to match ghostty's docs page, which is wrong.
 
