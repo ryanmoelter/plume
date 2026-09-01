@@ -5,6 +5,11 @@ enum AppPaths {
         URL.applicationSupportDirectory.appending(path: "Plume")
     }
 
+    /// SwiftData's persistent store.
+    static var storeFile: URL {
+        applicationSupport.appending(path: "Plume.store")
+    }
+
     /// Generated `settings.json` passed to `claude --settings`.
     static var hooksDirectory: URL {
         applicationSupport.appending(path: "hooks")
@@ -26,7 +31,7 @@ enum AppPaths {
     }
 
     static func createDirectories() throws {
-        for directory in [hooksDirectory, eventsDirectory] {
+        for directory in [applicationSupport, hooksDirectory, eventsDirectory] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
     }

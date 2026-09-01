@@ -15,6 +15,19 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 
 Every change ends with a clean build and a manual run. `PlumeUITests` launches the app, so a full `test` run is slow — prefer `-only-testing:PlumeTests` while iterating.
 
+## Releasing locally
+
+Plume is installed by hand — no archive, no notarization, no DMG:
+
+```
+xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' clean build
+cp -R <DerivedData>/Build/Products/Release/Plume.app /Applications/
+```
+
+Quit a running Plume first; copying over a live bundle corrupts the running process.
+
+Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. Nothing needs embedding or separate signing. The Apple Development identity the build already uses is enough to run on this machine; Developer ID and notarization only matter for moving the app to another Mac.
+
 ## Layout
 
 The Xcode project uses **file-system synchronized groups**: files added under `Plume/` join the target automatically. Adding a source file needs no `project.pbxproj` edit; adding a *package or build setting* does.
@@ -96,7 +109,7 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` means transitive imports don't count. Using `Array.move(fromOffsets:toOffset:)` needs an explicit `import SwiftUI`; `IndexSet` needs `import Foundation`. The error names the missing module.
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: everything is MainActor-isolated unless marked otherwise. Test suites touching models need `@MainActor`.
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.
-- The debug store lives at `~/Library/Application Support/default.store`. Delete it to test first-run behavior.
+- The store lives at `~/Library/Application Support/Plume/Plume.store`, alongside the `hooks` and `events` directories. Delete it to test first-run behavior. Debug and Release share it, so a debug run writes the same data the installed app reads. If the store fails to open, `PlumeApp` moves it aside as `Plume.store.<timestamp>.bak` and starts empty rather than refusing to launch.
 - SourceKit in-editor diagnostics go stale on new files and report phantom "cannot find type in scope" errors (often resolving `TaskGroup` to Swift's generic one). Trust `xcodebuild`, not the editor squiggles.
 - In Debug, `Plume.app/Contents/MacOS/Plume` is a ~57K launcher stub. The real code — and every linked libghostty symbol — is in `Plume.debug.dylib` beside it. Inspecting the stub with `nm` makes it look like nothing is linked.
 - **Tests that run `git commit` must set `commit.gpgsign false` on the scratch repo.** A signing config that prompts an external agent is unreachable from a test host: the commit hangs ~60s, then fails with exit 128. `WorkspaceProvisionerTests.makeRepository` does this.
