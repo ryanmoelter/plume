@@ -148,7 +148,11 @@ struct ChatTabView: View {
         let maxWidth = ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize))
         return ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                // Lazy so a long transcript only builds the rows on screen.
+                // A plain VStack lays out every message on every pass, which
+                // is thousands of markdown parses per frame on a real
+                // conversation.
+                LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(transcript.messages) { message in
                         ChatMessageRow(
                             message: message,

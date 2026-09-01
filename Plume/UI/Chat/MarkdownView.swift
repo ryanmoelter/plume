@@ -11,7 +11,7 @@ struct MarkdownView: View {
     let blocks: [MarkdownBlock]
 
     init(_ markdown: String) {
-        self.blocks = MarkdownBlock.parse(markdown)
+        self.blocks = MarkdownCache.blocks(for: markdown)
     }
 
     init(blocks: [MarkdownBlock]) {
@@ -91,12 +91,8 @@ struct MarkdownView: View {
         }
     }
 
-    /// Inline-only parsing (bold, italic, inline code, links) while keeping
-    /// single newlines inside the block instead of collapsing them.
     private func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        ))) ?? AttributedString(text)
+        MarkdownCache.inline(text)
     }
 
     private var bodyFont: Font {
