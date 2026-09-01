@@ -85,6 +85,7 @@ Make the chat experience nicer than the terminal.
 - [x] Show context-window use, 5h/7d quota, estimated session cost, branch, and model + effort level. Follow `~/.scripts/.claude/statusline.sh` for what belongs in each and when it turns yellow or red.
 - [x] Show agents and their status.
 - [x] A markdown viewer for plans and other files — ideally not a full browser.
+- [ ] Render mermaid diagrams in chat messages and in viewed files.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
@@ -99,7 +100,21 @@ What exists:
 
 Left for later:
 
+- Mermaid has no renderer yet. `MarkdownBlock` already isolates fenced code blocks, so a `mermaid` fence is easy to *detect* — drawing it is the work. Worth deciding early whether that means WebKit (mermaid.js is JavaScript, and a `WKWebView` per diagram is the quick path but reintroduces the browser this renderer deliberately avoids) or native drawing of a useful subset. Until one exists, a mermaid fence should keep degrading to readable source the way an unsupported table already degrades to a paragraph.
 - Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
+
+## Running inside Plume
+
+Let scripts and Claude itself know they're in Plume, and give Claude the formatting Plume can render.
+
+- [ ] Export an environment variable marking a shell as running inside Plume.
+- [ ] Skills that prompt Claude to use richer formatting — diagrams above all — when it's running in Plume.
+
+What exists:
+
+- Plume already injects `PLUME_TASK_ID`, `PLUME_TAB_ID` and `PLUME_EVENTS_DIR`, but only on an *agent* launch (`ClaudeCodeProvider`), so a plain terminal tab carries no marker at all. A general `PLUME=1`-style variable set on every tab's shell is the missing piece. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam exists — this is the same change the one-tab-kind item needs, and doing it once serves both.
+- The statusline integration does **not** need a new variable: `StatuslineCaptureWriter` already keys off `$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID`, and those are exactly the per-tab identifiers a general marker would sit beside. A bare `PLUME=1` answers "am I in Plume?" for a shell prompt or a script; it doesn't replace the per-tab IDs, which are what make captured output attributable to a tab.
+- The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports — the same discipline that keeps tables degrading gracefully rather than being mangled.
 
 ## PR/MR state in the sidebar
 
