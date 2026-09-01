@@ -1,0 +1,70 @@
+import GhosttyTerminal
+import SwiftUI
+
+/// An agent tab before its first message: no `claude` process exists yet, so
+/// the tab shows a native input. Submitting launches the agent.
+struct AgentFirstMessageView: View {
+    @Bindable var task: WorkTask
+    let tab: TaskTab
+
+    @State private var message = ""
+    @FocusState private var inputFocused: Bool
+
+    private var canSend: Bool {
+        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && task.workingDirectoryPath != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Spacer()
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+
+            Text("Start a conversation")
+                .font(.headline)
+
+            if task.workingDirectoryPath == nil {
+                Text("Choose a folder for this task first.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                TextField("Send a message to Claude…", text: $message, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+                    .focused($inputFocused)
+                    .onSubmit(send)
+
+                Button("Send", action: send)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSend)
+            }
+            .frame(maxWidth: 560)
+
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { inputFocused = true }
+    }
+
+    private func send() {
+        guard canSend else { return }
+        let provider = ClaudeCodeProvider()
+        let launch = provider.launchCommand(firstMessage: message, resumeSessionID: nil)
+
+        _ = SurfaceManager.shared.session(
+            for: tab.id,
+            options: TerminalSurfaceOptions(
+                workingDirectory: task.workingDirectoryPath,
+                envVars: launch.environment,
+                command: launch.command
+            )
+        )
+        message = ""
+    }
+}

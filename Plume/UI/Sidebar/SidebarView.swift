@@ -11,6 +11,8 @@ struct SidebarView: View {
     private var groups: [TaskGroup]
 
     @State private var renamingGroupID: UUID?
+    @State private var taskPendingDeletion: WorkTask?
+    @State private var deletionError: String?
 
     var body: some View {
         List(selection: $selection) {
@@ -64,6 +66,57 @@ struct SidebarView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Delete “\(taskPendingDeletion?.title ?? "")”?",
+            isPresented: Binding(
+                get: { taskPendingDeletion != nil },
+                set: { if !$0 { taskPendingDeletion = nil } }
+            ),
+            presenting: taskPendingDeletion
+        ) { task in
+            Button("Delete Task and Remove Worktree", role: .destructive) {
+                deleteTask(task, removeWorktree: true, deleteBranch: false)
+            }
+            Button("Delete Task, Remove Worktree and Branch", role: .destructive) {
+                deleteTask(task, removeWorktree: true, deleteBranch: true)
+            }
+            Button("Delete Task Only") {
+                deleteTask(task)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { task in
+            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").")
+        }
+        .alert("Could Not Remove Worktree", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK") { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    /// Removing the worktree is best-effort: if git refuses, the task stays so
+    /// the user can resolve it rather than losing track of the directory.
+    private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
+        if removeWorktree, let repository = task.repoPath, let path = task.workingDirectoryPath {
+            do {
+                try WorkspaceProvisioner.removeWorktree(
+                    repository: repository,
+                    path: path,
+                    branch: task.branchName,
+                    deleteBranch: deleteBranch
+                )
+            } catch {
+                deletionError = error.localizedDescription
+                taskPendingDeletion = nil
+                return
+            }
+        }
+        if selection == task.id { selection = nil }
+        TaskStore.delete(task, in: context)
+        taskPendingDeletion = nil
     }
 
     @ViewBuilder
@@ -99,8 +152,13 @@ struct SidebarView: View {
         Button("Archive") { task.isArchived = true }
         Divider()
         Button("Delete", role: .destructive) {
-            if selection == task.id { selection = nil }
-            TaskStore.delete(task, in: context)
+            // A worktree task owns a branch and a directory on disk, so
+            // deleting it asks before touching either.
+            if task.workspaceKind == .worktree {
+                taskPendingDeletion = task
+            } else {
+                deleteTask(task)
+            }
         }
     }
 
