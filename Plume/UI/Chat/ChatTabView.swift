@@ -56,6 +56,8 @@ struct ChatTabView: View {
                         planButton(path: planFilePath)
                     }
                 }
+                .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)))
+                .frame(maxWidth: .infinity)
                 Divider()
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil || (tab.agentSessionID?.isEmpty == false) {
