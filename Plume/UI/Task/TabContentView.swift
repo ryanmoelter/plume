@@ -37,15 +37,49 @@ struct TabContentView: View {
     @ViewBuilder
     private func tabContent(for tab: TaskTab, isVisible: Bool) -> some View {
         if tab.kind == .agent {
-            if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session, isVisible: isVisible)
-            } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-                AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
-            } else {
-                AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible)
-            }
+            AgentTabContent(task: task, tab: tab, isVisible: isVisible)
         } else {
             TerminalTabHost(task: task, tab: tab, isVisible: isVisible)
+        }
+    }
+}
+
+/// An agent tab in both its renderings at once, showing whichever the tab's
+/// render mode selects.
+///
+/// Both stay mounted for the same reason every tab does: the terminal owns the
+/// PTY, so unmounting it to show the chat would kill the agent.
+private struct AgentTabContent: View {
+    @Bindable var task: WorkTask
+    let tab: TaskTab
+    let isVisible: Bool
+
+    private var showsChat: Bool {
+        tab.renderMode == .chat
+    }
+
+    var body: some View {
+        ZStack {
+            terminal
+                .opacity(showsChat ? 0 : 1)
+                .allowsHitTesting(isVisible && !showsChat)
+
+            if isVisible && showsChat {
+                ChatTabView(task: task, tab: tab, isVisible: isVisible)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var terminal: some View {
+        if let session = SurfaceManager.shared.existingSession(for: tab.id) {
+            // The chat drives focus while it is showing, so the terminal must
+            // not also claim it.
+            TerminalTabView(session: session, isVisible: isVisible && !showsChat)
+        } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+            AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
+        } else {
+            AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible && !showsChat)
         }
     }
 }

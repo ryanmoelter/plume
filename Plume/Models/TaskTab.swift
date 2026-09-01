@@ -9,6 +9,8 @@ final class TaskTab {
     var orderIndex: Int = 0
     var task: WorkTask?
 
+    var renderModeRaw: String = TabRenderMode.chat.rawValue
+
     var providerID: String?
     /// Passed to `claude --resume` when the user resumes this tab.
     var agentSessionID: String?
@@ -28,6 +30,13 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
+    }
+
+    /// Only meaningful for an agent tab; a terminal tab has nothing to render
+    /// a chat from.
+    var renderMode: TabRenderMode {
+        get { TabRenderMode(rawValue: renderModeRaw) ?? .chat }
+        set { renderModeRaw = newValue.rawValue }
     }
 
     var displayTitle: String {

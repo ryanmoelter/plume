@@ -31,6 +31,13 @@ enum TabKind: String, CaseIterable, Sendable {
     case terminal
 }
 
+/// Which view an agent tab presents. Both stay mounted, so switching never
+/// touches the running process — see `TabContentView`.
+enum TabRenderMode: String, CaseIterable, Sendable {
+    case chat
+    case terminal
+}
+
 enum WorkspaceKind: String, CaseIterable, Sendable {
     case unset
     case directory

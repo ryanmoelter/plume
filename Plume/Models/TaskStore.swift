@@ -63,6 +63,7 @@ enum TaskStore {
     static func delete(_ task: WorkTask, in context: ModelContext) {
         for tab in task.tabs {
             SurfaceManager.shared.closeSession(for: tab.id)
+            TranscriptStore.shared.stopWatching(tabID: tab.id)
         }
         context.delete(task)
     }
@@ -96,6 +97,7 @@ enum TaskStore {
             }
         }
         TitleStore.shared.forget(tabID: tab.id)
+        TranscriptStore.shared.stopWatching(tabID: tab.id)
         context.delete(tab)
         reindex(remaining)
     }

@@ -64,6 +64,9 @@ struct MainWindow: View {
                 },
                 startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
                     { tabPendingStartFresh = tab }
+                },
+                toggleRenderMode: selectedAgentTab(in: task).map { tab in
+                    { tab.renderMode = tab.renderMode == .chat ? .terminal : .chat }
                 }
             )
         })
@@ -96,6 +99,10 @@ struct MainWindow: View {
         return tasks.first { $0.id == selection }
     }
 
+    private func selectedAgentTab(in task: WorkTask) -> TaskTab? {
+        task.orderedTabs.first { $0.id == task.selectedTabID && $0.kind == .agent }
+    }
+
     private func tabWithResumableSession(in task: WorkTask) -> TaskTab? {
         guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID }),
               tab.kind == .agent,
@@ -123,6 +130,10 @@ struct MainWindow: View {
             // would silently restore the conversation the user discarded.
             tab.agentSessionID = nil
             tab.sessionJSONLPath = nil
+            // The chat would otherwise keep rendering the conversation the
+            // user just discarded, until the replacement session's first
+            // write.
+            TranscriptStore.shared.stopWatching(tabID: tabID)
         }
         AgentEventMonitor.shared.onTranscriptPathDiscovered = { tabID, path in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
@@ -131,6 +142,7 @@ struct MainWindow: View {
                 tab.sessionJSONLPath = path
             }
             AgentTitleMonitor.shared.watch(tabID: tabID, transcriptPath: path)
+            TranscriptStore.shared.watch(tabID: tabID, transcriptPath: path)
         }
         AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title in
             TitleStore.shared.setTitle(title, forTab: tabID)
@@ -148,6 +160,7 @@ struct MainWindow: View {
                 StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)
                 if let path = tab.sessionJSONLPath, !path.isEmpty {
                     AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+                    TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
                 }
             }
         }
