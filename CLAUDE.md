@@ -42,6 +42,15 @@ Folders from the plan not yet created (`Agent/`, `Status/`, `Workspace/`) arrive
 - `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
 - Surfaces spawn their PTY lazily, when first attached to a *visible* view.
 
+## Agent instrumentation
+
+`claude` launches with `--settings <generated>` plus `PLUME_TASK_ID` / `PLUME_TAB_ID` / `PLUME_EVENTS_DIR`. Each hook appends its stdin to `~/Library/Application Support/Plume/events/<taskID>/<tabID>.jsonl`; `AgentEventMonitor` tails those files and feeds `StatusEngine`.
+
+- **Never put a `matcher` on `Stop` or `UserPromptSubmit`** — Claude Code rejects it. Omitting `matcher` already means "all", so the generated file omits it everywhere.
+- `--settings` *merges*, and hook lists *union*, so the user's own hooks keep firing. Don't expect replacement semantics.
+- Instrumentation is best-effort: a missing settings file degrades to a plain `claude`, never a failed launch.
+- A hook only fires when Claude Code actually reaches that point. Testing in an **untrusted directory** (like `/tmp`) stalls on the folder-trust prompt and produces no events — use a directory already trusted.
+
 ## Verifying terminal behavior
 
 This environment has **no Screen Recording or Accessibility permission**, so screenshots (`screencapture` → "could not create image from display") and UI scripting (`osascript` → `-1743`) both fail. Verify from outside the app instead:

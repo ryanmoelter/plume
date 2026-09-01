@@ -10,6 +10,13 @@ struct TaskRowView: View {
 
     private var isEditing: Bool { renamingTaskID == task.id }
 
+    /// Live status once the engine knows the task; the persisted snapshot
+    /// covers the window before any agent has run this launch.
+    private var status: TaskStatus {
+        let live = StatusEngine.shared.status(forTask: task.id)
+        return live == .unset ? task.lastStatus : live
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             if isEditing {
@@ -27,11 +34,11 @@ struct TaskRowView: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 4)
-            StatusBadge(status: task.lastStatus)
+            StatusBadge(status: status)
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(task.title), \(task.lastStatus.rawValue)")
+        .accessibilityLabel("\(task.title), \(status.rawValue)")
     }
 
     /// An empty name would leave an unlabelled row, so it reverts.
