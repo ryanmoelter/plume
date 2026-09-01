@@ -138,6 +138,7 @@ struct SidebarView: View {
         ForEach(sectionTasks) { task in
             TaskRowView(task: task, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
+                .listRowBackground(SidebarSelectionBackground(isSelected: selection == task.id))
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
