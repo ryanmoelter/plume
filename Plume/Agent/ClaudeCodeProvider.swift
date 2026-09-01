@@ -49,6 +49,7 @@ struct ClaudeCodeProvider: AgentProvider {
             environment["PLUME_EVENTS_DIR"] = AppPaths.eventsDirectory.path
         }
 
-        return AgentLaunch(command: arguments.joined(separator: " "), environment: environment)
+        let command = LoginShellCommand.wrap(arguments.joined(separator: " "))
+        return AgentLaunch(command: command, environment: environment)
     }
 }
