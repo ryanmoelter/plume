@@ -205,7 +205,11 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
 - **[x] WP3.2 StatusEngine + badges** *(done 2026-08-31)*: state machine, aggregation, StatusBadge, debounced persistence, dock badge = needsInput count. *Accept:* live correct badges across ≥3 parallel tasks; permission prompt → needsInput within ~1s.
   - Verified live: the app ingested events and drove `working` → `working` → `done` through a real turn, each within ~1s of the hook firing. The debounced snapshot persisted as `done`.
   - **Partly unverified:** the ≥3-parallel-tasks case and the badge/dock *visuals* need the screenshot permission below. The state machine itself is covered by 13 unit tests including aggregation across tabs.
-- **WP3.3 JSONL resolver**: path resolution incl. worktree cwds, mtime fallback, documented chat-rendering seam. *Accept:* correct JSONL path for new and resumed sessions.
+- **[x] WP3.3 JSONL resolver** *(done 2026-08-31)*: path resolution incl. worktree cwds, mtime fallback, documented chat-rendering seam. *Accept:* correct JSONL path for new and resumed sessions.
+  - The hook payload's `transcript_path` is authoritative; deriving from the cwd is the fallback. Both paths are covered.
+  - Encoding replaces `/` and `.` with `-`, so a hidden directory yields a double dash and a worktree gets its own transcript directory, distinct from its parent repo's. Verified against real `~/.claude/projects` names, and a test resolves this repo's own directory so a scheme change fails loudly.
+  - `_` handling is **unverified** (no local evidence, and `--print` mode did not create a directory to test with). It is not encoded, since guessing would be worse than falling back. Only affects the derived path, never the authoritative one.
+  - `sessionJSONLPath` is cached onto the tab. No v1 UI parses message content — this is purely the seam.
 
 **Phase 4 — Restore & polish** (WP4.1 ∥ WP4.2)
 - **WP4.1 Full restore**: resume overlay, event replay + status reset, missing-dir banners, quit confirmation while agents work. *Accept:* quit mid-session, relaunch, resume prior conversation.

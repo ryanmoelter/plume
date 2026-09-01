@@ -77,6 +77,12 @@ struct MainWindow: View {
             else { return }
             tab.agentSessionID = sessionID
         }
+        AgentEventMonitor.shared.onTranscriptPathDiscovered = { tabID, path in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
+                  tab.sessionJSONLPath != path
+            else { return }
+            tab.sessionJSONLPath = path
+        }
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
