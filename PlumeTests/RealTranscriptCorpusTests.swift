@@ -82,6 +82,37 @@ struct RealTranscriptCorpusTests {
         #expect(leaked.isEmpty, "injected content rendered as user prose:\n\(leaked.prefix(5).joined(separator: "\n"))")
     }
 
+    /// Almost every real `ExitPlanMode` and `AskUserQuestion` must decode to
+    /// a structured payload. A payload-shape change in Claude Code shows up
+    /// as these falling back to raw JSON.
+    @Test func interactiveToolCallsDecodeAcrossTheCorpus() throws {
+        let (main, _) = transcripts()
+        try #require(!main.isEmpty, "no transcripts on this machine")
+
+        var total = 0
+        var decoded = 0
+        for url in main {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            for message in TranscriptParser.parse(data).messages {
+                for block in message.blocks {
+                    guard case .toolCall(let call) = block,
+                          call.name == "ExitPlanMode" || call.name == "AskUserQuestion"
+                    else { continue }
+                    total += 1
+                    if call.interactive != nil { decoded += 1 }
+                }
+            }
+        }
+
+        try #require(total > 0, "no interactive tool calls in the corpus")
+        // One known ExitPlanMode carries an empty input and correctly falls
+        // back, so this is a high bar rather than a total.
+        #expect(
+            decoded > total * 9 / 10,
+            "only \(decoded) of \(total) interactive tool calls decoded"
+        )
+    }
+
     @Test func everyTranscriptParsesWithoutCrashing() throws {
         let (main, subagent) = transcripts()
         for url in main + subagent {

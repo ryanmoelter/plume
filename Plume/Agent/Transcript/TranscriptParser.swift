@@ -115,6 +115,7 @@ enum TranscriptParser {
                                 input: input,
                                 prettyJSON: prettyPrint(input)
                             ),
+                            interactive: InteractiveToolPayload.decoding(name: name, input: input),
                             result: nil
                         )
                         pendingAssistantBlocks.append(.toolCall(call))

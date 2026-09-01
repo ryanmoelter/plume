@@ -7,10 +7,21 @@ struct ToolCallRow: View {
     @Environment(\.chatFontSize) private var chatFontSize
 
     let call: ToolCall
+    /// Whether the agent is still waiting on this call, passed down so a
+    /// pending plan or question reads as live.
+    var isPending: Bool = false
 
     @State private var expanded = false
 
     var body: some View {
+        if let interactive = call.interactive {
+            InteractiveToolRow(payload: interactive, isPending: isPending)
+        } else {
+            collapsibleBody
+        }
+    }
+
+    private var collapsibleBody: some View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 8) {
                 if !call.input.isEmpty {
@@ -101,6 +112,27 @@ struct ToolCallRow: View {
             input: .json("{\"file_path\":\"/Users/me/Plume/CLAUDE.md\"}"),
             result: nil
         ))
+        ToolCallRow(
+            call: ToolCall(
+                id: "3",
+                name: "AskUserQuestion",
+                summary: "AskUserQuestion",
+                input: .json("{}"),
+                interactive: .questions([
+                    .init(
+                        header: "Scope",
+                        question: "How much should this cover?",
+                        multiSelect: false,
+                        options: [
+                            .init(label: "Just the parser", description: "Smallest reviewable slice"),
+                            .init(label: "Everything", description: "All five roadmap items"),
+                        ]
+                    )
+                ]),
+                result: nil
+            ),
+            isPending: true
+        )
     }
     .padding()
 }

@@ -29,6 +29,9 @@ struct ToolCall: Identifiable {
     let name: String
     let summary: String
     let input: ToolCallInput
+    /// Set for the two tools that talk to the user, which render as
+    /// themselves instead of as JSON.
+    var interactive: InteractiveToolPayload?
     var result: String?
 }
 

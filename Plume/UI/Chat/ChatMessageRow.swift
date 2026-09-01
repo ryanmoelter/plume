@@ -80,18 +80,24 @@ struct ChatMessageRow: View {
 
     @ViewBuilder
     private var blocks: some View {
-        ForEach(Array(message.blocks.enumerated()), id: \.offset) { _, block in
+        ForEach(Array(message.blocks.enumerated()), id: \.offset) { index, block in
             switch block {
             case .markdown(let text):
                 MarkdownView(text)
             case .thinking(let text):
                 ThinkingRow(text: text)
             case .toolCall(let call):
-                ToolCallRow(call: call)
+                ToolCallRow(call: call, isPending: isPendingBlock(at: index))
             case .injected(let kind, let text):
                 InjectedContentRow(kind: kind, text: text)
             }
         }
+    }
+
+    /// A plan or question is still live only as the final block of the newest
+    /// message, while the agent is waiting.
+    private func isPendingBlock(at index: Int) -> Bool {
+        needsInput && index == message.blocks.count - 1
     }
 
     private var washColor: Color {
