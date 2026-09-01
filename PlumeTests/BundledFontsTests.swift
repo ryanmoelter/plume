@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import SwiftUI
 @testable import Plume
 
 /// The test host loads the app's resources, so this is a real check that the
@@ -80,5 +81,33 @@ struct ComposerProseFontTests {
 
         #expect(bold?.familyName == BundledFonts.prose)
         #expect(bold?.fontName != base.fontName, "bold did not resolve to a distinct face")
+    }
+}
+
+/// The prose font sits on the scroll path — `MarkdownView` asks for it once
+/// per block — so resolving it has to stay cheap.
+@MainActor
+struct ProseFontCostTests {
+    /// Guards against reintroducing a system-wide font enumeration behind
+    /// `chatProse`. `availableFontFamilies` measured ~0.045ms a call against
+    /// ~0.001ms for a font lookup, which is what made scrolling stutter.
+    @Test func resolvingProseRepeatedlyStaysCheap() {
+        BundledFonts.registerIfNeeded()
+        // Warm the cache and the font cache so this times steady state.
+        _ = Font.chatProse(size: 15)
+        _ = NSFont.chatProse(ofSize: 15)
+
+        let iterations = 2000
+        let start = Date()
+        for _ in 0..<iterations {
+            _ = Font.chatProse(size: 15)
+            _ = NSFont.chatProse(ofSize: 15)
+        }
+        let msEach = Date().timeIntervalSince(start) * 1000 / Double(iterations)
+
+        // An enumeration-backed check lands around 0.045ms per call, so this
+        // threshold is loose enough for a busy machine and still far below a
+        // regression.
+        #expect(msEach < 0.02, "prose font resolution cost \(msEach) ms per call")
     }
 }
