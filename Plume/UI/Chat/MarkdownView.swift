@@ -6,6 +6,7 @@ import SwiftUI
 /// SwiftUI stacks over `MarkdownBlock.parse`.
 struct MarkdownView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chatFontSize) private var bodyFontSize
 
     let blocks: [MarkdownBlock]
 
@@ -36,7 +37,7 @@ struct MarkdownView: View {
 
         case let .paragraph(text):
             Text(inline(text))
-                .font(.body)
+                .font(bodyFont)
                 .fixedSize(horizontal: false, vertical: true)
 
         case let .bulletList(items):
@@ -46,7 +47,7 @@ struct MarkdownView: View {
                         Text("\u{2022}")
                         Text(inline(item))
                     }
-                    .font(.body)
+                    .font(bodyFont)
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -58,7 +59,7 @@ struct MarkdownView: View {
                         Text("\(index + 1).")
                         Text(inline(item))
                     }
-                    .font(.body)
+                    .font(bodyFont)
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -66,7 +67,7 @@ struct MarkdownView: View {
         case let .codeBlock(_, code):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: bodyFontSize, design: .monospaced))
                     .foregroundStyle(codeForeground)
                     .padding(8)
             }
@@ -78,7 +79,7 @@ struct MarkdownView: View {
                     .fill(quoteBarColor)
                     .frame(width: 3)
                 Text(inline(text))
-                    .font(.body)
+                    .font(bodyFont)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -98,14 +99,21 @@ struct MarkdownView: View {
         ))) ?? AttributedString(text)
     }
 
+    private var bodyFont: Font {
+        .system(size: bodyFontSize)
+    }
+
+    /// Heading sizes as multiples of the body size, preserving the original
+    /// ladder's proportions (title/title2/title3/headline/subheadline/callout
+    /// against the system 13pt body) and weight distinctions.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return .title
-        case 2: return .title2
-        case 3: return .title3
-        case 4: return .headline
-        case 5: return .subheadline.bold()
-        default: return .callout.bold()
+        case 1: return .system(size: bodyFontSize * 2.15, weight: .bold)
+        case 2: return .system(size: bodyFontSize * 1.7, weight: .bold)
+        case 3: return .system(size: bodyFontSize * 1.35, weight: .bold)
+        case 4: return .system(size: bodyFontSize * 1.15, weight: .semibold)
+        case 5: return .system(size: bodyFontSize * 1.0, weight: .semibold)
+        default: return .system(size: bodyFontSize * 0.85, weight: .semibold)
         }
     }
 

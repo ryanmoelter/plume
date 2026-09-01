@@ -16,7 +16,12 @@ final class AppSettings {
         static let providerID = "providerID"
         static let statuslineCaptureEnabled = "statuslineCaptureEnabled"
         static let statuslineBackedUpCommand = "statuslineBackedUpCommand"
+        static let chatFontSize = "chatFontSize"
     }
+
+    /// 125% of the system `.body` size (13pt on macOS).
+    nonisolated static let defaultChatFontSize: Double = 16
+    nonisolated static let chatFontSizeRange: ClosedRange<Double> = 11...28
 
     private let defaults: UserDefaults
 
@@ -26,6 +31,13 @@ final class AppSettings {
         self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
         self.statuslineCaptureEnabled = defaults.bool(forKey: Key.statuslineCaptureEnabled)
         self.statuslineBackedUpCommand = defaults.string(forKey: Key.statuslineBackedUpCommand)
+
+        // `double(forKey:)` returns 0 for an unset key, so 0 (and anything
+        // outside the clamped range) falls back to the default.
+        let storedFontSize = defaults.double(forKey: Key.chatFontSize)
+        self.chatFontSize = Self.chatFontSizeRange.contains(storedFontSize)
+            ? storedFontSize
+            : Self.defaultChatFontSize
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -60,6 +72,19 @@ final class AppSettings {
     var statuslineBackedUpCommand: String? {
         didSet {
             defaults.set(statuslineBackedUpCommand, forKey: Key.statuslineBackedUpCommand)
+        }
+    }
+
+    /// Point size for chat prose (`MarkdownView` and its sibling chat rows).
+    /// Clamped to `chatFontSizeRange`.
+    var chatFontSize: Double {
+        didSet {
+            let clamped = min(max(chatFontSize, Self.chatFontSizeRange.lowerBound), Self.chatFontSizeRange.upperBound)
+            if clamped != chatFontSize {
+                chatFontSize = clamped
+                return
+            }
+            defaults.set(chatFontSize, forKey: Key.chatFontSize)
         }
     }
 }

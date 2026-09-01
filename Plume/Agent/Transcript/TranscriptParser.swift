@@ -99,7 +99,11 @@ enum TranscriptParser {
                             id: id,
                             name: name,
                             summary: ToolCallSummary.summary(name: name, input: input),
-                            prettyInput: prettyPrint(input),
+                            input: ToolCallInputRendering.render(
+                                name: name,
+                                input: input,
+                                prettyJSON: prettyPrint(input)
+                            ),
                             result: nil
                         )
                         pendingAssistantBlocks.append(.toolCall(call))

@@ -24,6 +24,21 @@ struct ToolCall: Identifiable {
     let id: String
     let name: String
     let summary: String
-    let prettyInput: String
+    let input: ToolCallInput
     var result: String?
+}
+
+/// How a tool call's input should render. Bash's full command renders as
+/// shell code instead of raw JSON; everything else keeps the pretty-printed
+/// JSON.
+enum ToolCallInput: Equatable {
+    case code(language: String, text: String)
+    case json(String)
+
+    var isEmpty: Bool {
+        switch self {
+        case .code(_, let text): return text.isEmpty
+        case .json(let text): return text.isEmpty || text == "{}"
+        }
+    }
 }

@@ -80,3 +80,31 @@ struct ToolCallSummaryTests {
         #expect(summary == "Bash")
     }
 }
+
+struct ToolCallInputRenderingTests {
+    @Test func bashRendersTheFullMultilineCommandAsShellCode() {
+        let command = "git status\ngit diff --stat"
+        let rendering = ToolCallInputRendering.render(
+            name: "Bash",
+            input: ["command": .string(command)],
+            prettyJSON: "{\"command\":\"git status\\ngit diff --stat\"}"
+        )
+        #expect(rendering == .code(language: "sh", text: command))
+    }
+
+    @Test func nonBashToolsRenderAsJSON() {
+        let json = "{\"file_path\":\"/tmp/out.swift\"}"
+        let rendering = ToolCallInputRendering.render(
+            name: "Read",
+            input: ["file_path": .string("/tmp/out.swift")],
+            prettyJSON: json
+        )
+        #expect(rendering == .json(json))
+    }
+
+    @Test func bashWithNoCommandKeyDegradesToJSON() {
+        let json = "{}"
+        let rendering = ToolCallInputRendering.render(name: "Bash", input: [:], prettyJSON: json)
+        #expect(rendering == .json(json))
+    }
+}

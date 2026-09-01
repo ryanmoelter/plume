@@ -46,6 +46,25 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack {
+                    Slider(
+                        value: $settings.chatFontSize,
+                        in: AppSettings.chatFontSizeRange,
+                        step: 1
+                    )
+                    Text("\(Int(settings.chatFontSize)) pt")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+            } header: {
+                Text("Chat Text Size")
+            } footer: {
+                Text("Sets the prose size in the chat view — messages, tool calls, and thinking blocks scale together.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Capture statusline for quota and cost", isOn: $settings.statuslineCaptureEnabled)
 
                 Text(StatuslineInstaller.preview(settingsURL: claudeSettingsURL))

@@ -8,6 +8,7 @@ struct ChatTabView: View {
     let isVisible: Bool
 
     @State private var distanceFromBottom: CGFloat = 0
+    @State private var settings = AppSettings.shared
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
@@ -44,12 +45,14 @@ struct ChatTabView: View {
                 emptyState(showsComposer: true)
             }
         }
+        .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
     }
 
     private func messageList(_ transcript: Transcript) -> some View {
         let lastMessageID = transcript.messages.last?.id
+        let maxWidth = ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize))
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -66,6 +69,8 @@ struct ChatTabView: View {
                     }
                     SubagentListView(subagents: subagents)
                 }
+                .frame(maxWidth: maxWidth)
+                .frame(maxWidth: .infinity)
                 .padding(16)
                 .id(bottomAnchorID)
             }

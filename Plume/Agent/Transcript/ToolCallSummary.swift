@@ -41,3 +41,14 @@ enum ToolCallSummary {
         return "\(text[..<cutoff])…"
     }
 }
+
+/// Decides how a tool call's raw input should render. Bash's full,
+/// unelided `command` renders as shell code; every other tool keeps the
+/// pretty-printed JSON.
+enum ToolCallInputRendering {
+    static func render(name: String, input: [String: JSONValue], prettyJSON: String) -> ToolCallInput {
+        guard name == "Bash" else { return .json(prettyJSON) }
+        guard let command = input["command"]?.stringValue else { return .json(prettyJSON) }
+        return .code(language: "sh", text: command)
+    }
+}

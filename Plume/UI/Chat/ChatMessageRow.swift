@@ -81,6 +81,7 @@ struct ChatMessageRow: View {
 /// Local re-export of the sidebar's pulsing dot, sized for inline use next to
 /// prose rather than a status list.
 private struct WorkingIndicator: View {
+    @Environment(\.chatFontSize) private var chatFontSize
     @State private var pulsing = false
 
     var body: some View {
@@ -92,7 +93,7 @@ private struct WorkingIndicator: View {
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
                 .onAppear { pulsing = true }
             Text("Working…")
-                .font(.caption)
+                .font(.system(size: chatFontSize * 0.8))
                 .foregroundStyle(.secondary)
         }
     }

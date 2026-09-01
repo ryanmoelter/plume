@@ -6,6 +6,8 @@ import SwiftUI
 /// against captured sessions) — render nothing for that case rather than an
 /// empty expander with nothing to disclose.
 struct ThinkingRow: View {
+    @Environment(\.chatFontSize) private var chatFontSize
+
     let text: String
 
     @State private var expanded = false
@@ -14,13 +16,13 @@ struct ThinkingRow: View {
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DisclosureGroup(isExpanded: $expanded) {
                 Text(text)
-                    .font(.callout)
+                    .font(.system(size: chatFontSize * 0.9))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .padding(.top, 4)
             } label: {
                 Text("Thinking")
-                    .font(.callout)
+                    .font(.system(size: chatFontSize * 0.9))
                     .foregroundStyle(.secondary)
             }
             .opacity(0.7)

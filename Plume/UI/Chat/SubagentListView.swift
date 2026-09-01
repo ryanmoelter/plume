@@ -4,6 +4,8 @@ import SwiftUI
 /// one section so they don't compete with it for attention. Absent entirely
 /// when there are none.
 struct SubagentListView: View {
+    @Environment(\.chatFontSize) private var chatFontSize
+
     let subagents: [SubagentTranscript]
 
     @State private var expanded = false
@@ -19,7 +21,7 @@ struct SubagentListView: View {
                 .padding(.top, 6)
             } label: {
                 Text("\(subagents.count) subagent\(subagents.count == 1 ? "" : "s")")
-                    .font(.callout)
+                    .font(.system(size: chatFontSize * 0.9))
                     .foregroundStyle(.secondary)
             }
         }
@@ -27,6 +29,8 @@ struct SubagentListView: View {
 }
 
 private struct SubagentRow: View {
+    @Environment(\.chatFontSize) private var chatFontSize
+
     let subagent: SubagentTranscript
 
     @State private var expanded = false
@@ -52,10 +56,10 @@ private struct SubagentRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(subagent.id)
-                    .font(.caption.monospaced())
+                    .font(.system(size: chatFontSize * 0.75, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Text(lastMessageSummary)
-                    .font(.callout)
+                    .font(.system(size: chatFontSize * 0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
