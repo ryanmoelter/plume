@@ -17,6 +17,8 @@ final class AppSettings {
         static let statuslineCaptureEnabled = "statuslineCaptureEnabled"
         static let statuslineBackedUpCommand = "statuslineBackedUpCommand"
         static let chatFontSize = "chatFontSize"
+        static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
+        static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
     }
 
     /// 125% of the system `.body` size (13pt on macOS).
@@ -38,6 +40,16 @@ final class AppSettings {
         self.chatFontSize = Self.chatFontSizeRange.contains(storedFontSize)
             ? storedFontSize
             : Self.defaultChatFontSize
+
+        // `bool(forKey:)` returns false for an unset key, which would silently
+        // flip the default to off — an unset key must read as true.
+        self.confirmQuitWhileWorking = defaults.object(forKey: Key.confirmQuitWhileWorking) == nil
+            ? true
+            : defaults.bool(forKey: Key.confirmQuitWhileWorking)
+
+        // Unset reads as false: an unattended OS-initiated restart or
+        // shutdown should never stall on a modal nobody is there to dismiss.
+        self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -85,6 +97,24 @@ final class AppSettings {
                 return
             }
             defaults.set(chatFontSize, forKey: Key.chatFontSize)
+        }
+    }
+
+    /// Whether a user-initiated quit (⌘Q, Quit menu item) while a tab is
+    /// `.working` or `.needsInput` shows a confirmation alert.
+    var confirmQuitWhileWorking: Bool {
+        didSet {
+            defaults.set(confirmQuitWhileWorking, forKey: Key.confirmQuitWhileWorking)
+        }
+    }
+
+    /// Whether a system-initiated quit (logout, restart, shutdown) while a
+    /// tab is `.working` or `.needsInput` also shows the alert. Off by
+    /// default: a modal during an OS-initiated shutdown blocks that shutdown
+    /// until someone dismisses it, and nobody may be there to do so.
+    var confirmSystemInitiatedQuit: Bool {
+        didSet {
+            defaults.set(confirmSystemInitiatedQuit, forKey: Key.confirmSystemInitiatedQuit)
         }
     }
 }

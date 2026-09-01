@@ -90,6 +90,21 @@ struct SettingsView: View {
                 Text("Quota and session cost exist only in the payload Claude Code sends its statusline command, nowhere on disk. Install writes to ~/.claude/settings.json outside Plume, replacing statusLine with a script that captures the payload and then runs your previous command unchanged, so your terminal statusline looks the same. Restore puts your previous statusLine back.")
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
+                Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
+            } header: {
+                Text("Quit Confirmation")
+            } footer: {
+                Text(
+                    "Quitting always ends running agent processes immediately. " +
+                    "Confirming during a logout, restart, or shutdown blocks that " +
+                    "shutdown until someone dismisses the prompt, so leave it off " +
+                    "unless you want that."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
