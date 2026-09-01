@@ -53,7 +53,7 @@ Folders from the plan not yet created (`Agent/`, `Status/`, `Workspace/`) arrive
 
 ## Verifying terminal behavior
 
-This environment has **no Screen Recording or Accessibility permission**, so screenshots (`screencapture` → "could not create image from display") and UI scripting (`osascript` → `-1743`) both fail. Verify from outside the app instead:
+Verify from outside the app rather than by screenshot — the surfaces are real processes, so the process tree is better evidence than a picture:
 
 ```
 PLUME_SEED_TASKS=1 PLUME_SEED_TABS=3 PLUME_CYCLE_SELECTION=3 \
@@ -98,9 +98,10 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - The debug store lives at `~/Library/Application Support/default.store`. Delete it to test first-run behavior.
 - SourceKit in-editor diagnostics go stale on new files and report phantom "cannot find type in scope" errors (often resolving `TaskGroup` to Swift's generic one). Trust `xcodebuild`, not the editor squiggles.
 - In Debug, `Plume.app/Contents/MacOS/Plume` is a ~57K launcher stub. The real code — and every linked libghostty symbol — is in `Plume.debug.dylib` beside it. Inspecting the stub with `nm` makes it look like nothing is linked.
-- `log` is shadowed by a shell function; use `/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume"' --last 5m --info`.
-- **Tests that run `git commit` must set `commit.gpgsign false` on the scratch repo.** The global config signs via 1Password, which is unreachable from a test host: the commit hangs ~60s, then fails with exit 128. `WorkspaceProvisionerTests.makeRepository` does this. The same failure hits `git commit` in this environment — retry with `--no-gpg-sign`.
+- **Tests that run `git commit` must set `commit.gpgsign false` on the scratch repo.** A signing config that prompts an external agent is unreachable from a test host: the commit hangs ~60s, then fails with exit 128. `WorkspaceProvisionerTests.makeRepository` does this.
 - **`-only-testing` with a name that matches no Swift Testing test prints `** TEST SUCCEEDED **` having run nothing**, and `-parallel-testing-enabled NO` silently skips Swift Testing suites entirely. Both read as a pass. Confirm the test name appears in the output before believing a green run.
+- **`TerminalViewState` is a Combine `ObservableObject`, not `@Observable`.** Its `title`/`workingDirectory` are `@Published`, which `@Observable` tracking cannot see, and `TerminalSession` holds it `@ObservationIgnored`. Reading it straight from a view renders once and never updates — a stale value that looks like it works. `TerminalSession` mirrors those two fields into its own observable storage; add any further ones the same way rather than observing the state object from a view.
+- **Never write to `@Observable` state during a SwiftUI `body`.** SwiftUI records the write as a dependency of the view being rendered, so the render invalidates itself and spins forever — one core at 100%, no crash, and the surfaces never spawn their PTYs. A `sample` blames whatever is most expensive inside the loop (`ProcessInfo.environment`, say), not the write. Create sessions and register them from `.onAppear`/`.task` and hold them in `@State`; `TerminalTabHost` in `TabContentView` is the pattern.
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
