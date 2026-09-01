@@ -1,8 +1,22 @@
 import Foundation
 
 enum AppPaths {
+    /// `Plume.debug` for the debug build, whose bundle ID carries that
+    /// suffix, and `Plume` otherwise — so a debug run never writes the store,
+    /// hooks and events the installed app reads.
+    static let debugBundleSuffix = ".debug"
+
+    static func directoryName(forBundleID bundleID: String?) -> String {
+        guard let bundleID, bundleID.hasSuffix(debugBundleSuffix) else { return "Plume" }
+        return "Plume.debug"
+    }
+
+    static var directoryName: String {
+        directoryName(forBundleID: Bundle.main.bundleIdentifier)
+    }
+
     static var applicationSupport: URL {
-        URL.applicationSupportDirectory.appending(path: "Plume")
+        URL.applicationSupportDirectory.appending(path: directoryName)
     }
 
     /// SwiftData's persistent store.
