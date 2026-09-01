@@ -12,7 +12,7 @@ enum TaskStore {
     @discardableResult
     static func createTask(
         in context: ModelContext,
-        title: String = "New Task",
+        title: String = "",
         group: TaskGroup? = nil,
         siblings: [WorkTask]
     ) -> WorkTask {
@@ -21,7 +21,7 @@ enum TaskStore {
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
-        task.selectedTabID = tab.id
+        selectTab(tab, in: task)
         return task
     }
 
@@ -41,8 +41,19 @@ enum TaskStore {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs), task: task)
         context.insert(tab)
         task.tabs.append(tab)
-        task.selectedTabID = tab.id
+        selectTab(tab, in: task)
         return tab
+    }
+
+    // MARK: - Selection
+
+    /// The one place selection changes, so `lastFocusedAgentTabID` cannot
+    /// drift out of step with it.
+    static func selectTab(_ tab: TaskTab, in task: WorkTask) {
+        task.selectedTabID = tab.id
+        if tab.kind == .agent {
+            task.lastFocusedAgentTabID = tab.id
+        }
     }
 
     // MARK: - Delete
@@ -74,9 +85,17 @@ enum TaskStore {
             return
         }
         let remaining = task.orderedTabs.filter { $0.id != tab.id }
-        if task.selectedTabID == tab.id {
-            task.selectedTabID = remaining.first?.id
+        if task.lastFocusedAgentTabID == tab.id {
+            task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
+        if task.selectedTabID == tab.id {
+            if let next = remaining.first {
+                selectTab(next, in: task)
+            } else {
+                task.selectedTabID = nil
+            }
+        }
+        TitleStore.shared.forget(tabID: tab.id)
         context.delete(tab)
         reindex(remaining)
     }

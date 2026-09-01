@@ -26,6 +26,9 @@ final class WorkTask {
     @Relationship(deleteRule: .cascade, inverse: \TaskTab.task)
     var tabs: [TaskTab] = []
     var selectedTabID: UUID?
+    /// Which agent tab's title stands in for the task in the sidebar, so
+    /// dipping into a terminal tab doesn't relabel the row.
+    var lastFocusedAgentTabID: UUID?
 
     init(title: String, orderIndex: Int, group: TaskGroup? = nil) {
         self.id = UUID()
