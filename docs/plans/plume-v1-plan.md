@@ -198,8 +198,13 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
   - **Timing criterion unverified** — needs the visual/interactive check below.
 
 **Phase 3 — Instrumentation & status** (WP3.1 → WP3.2; WP3.3 ∥ WP3.2)
-- **WP3.1 Hook pipeline**: AgentProvider + ClaudeCodeProvider, HookSettingsWriter, HookEventIngester + FileWatcher (offsets, rotation, startup replay). *Accept:* all hook types decoded live; session ID captured onto TaskTab.
-- **WP3.2 StatusEngine + badges**: state machine, aggregation, StatusBadge, debounced persistence, dock badge = needsInput count. *Accept:* live correct badges across ≥3 parallel tasks; permission prompt → needsInput within ~1s.
+- **[x] WP3.1 Hook pipeline** *(done 2026-08-31)*: AgentProvider + ClaudeCodeProvider, HookSettingsWriter, HookEventIngester + FileWatcher (offsets, rotation, startup replay). *Accept:* all hook types decoded live; session ID captured onto TaskTab.
+  - Verified against a live `claude`: `SessionStart`, `UserPromptSubmit`, `PreToolUse` (with `tool_name`), `Notification`, `Stop`, and `SessionEnd` all fired and decoded. **Session ID persisted onto the tab**, ready for `--resume`.
+  - Two schema corrections from the docs, confirmed at source: **`Stop` and `UserPromptSubmit` reject a `matcher`** (the generated file omits it everywhere; for other events omitting it already means "all"). And `--settings` *unions* hook lists rather than replacing, so the user's own hooks keep firing.
+  - Instrumentation is best-effort: if the settings file cannot be written, `claude` still launches, just unreported.
+- **[x] WP3.2 StatusEngine + badges** *(done 2026-08-31)*: state machine, aggregation, StatusBadge, debounced persistence, dock badge = needsInput count. *Accept:* live correct badges across ≥3 parallel tasks; permission prompt → needsInput within ~1s.
+  - Verified live: the app ingested events and drove `working` → `working` → `done` through a real turn, each within ~1s of the hook firing. The debounced snapshot persisted as `done`.
+  - **Partly unverified:** the ≥3-parallel-tasks case and the badge/dock *visuals* need the screenshot permission below. The state machine itself is covered by 13 unit tests including aggregation across tabs.
 - **WP3.3 JSONL resolver**: path resolution incl. worktree cwds, mtime fallback, documented chat-rendering seam. *Accept:* correct JSONL path for new and resumed sessions.
 
 **Phase 4 — Restore & polish** (WP4.1 ∥ WP4.2)

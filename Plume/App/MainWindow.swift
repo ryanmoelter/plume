@@ -5,6 +5,7 @@ struct MainWindow: View {
     @Environment(\.modelContext) private var context
     @State private var selection: UUID?
     @State private var renamingTaskID: UUID?
+    @State private var statusPersistence: StatusPersistence?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived })
     private var tasks: [WorkTask]
@@ -52,13 +53,36 @@ struct MainWindow: View {
                 }
             )
         })
-        #if DEBUG
-        .task { await SmokeHarness.runIfRequested(context: context, selection: $selection) }
-        #endif
+        .task {
+            statusPersistence = StatusPersistence(context: context)
+            restoreStatusMonitoring()
+            #if DEBUG
+            await SmokeHarness.runIfRequested(context: context, selection: $selection)
+            #endif
+        }
     }
 
     private var selectedTask: WorkTask? {
         guard let selection else { return nil }
         return tasks.first { $0.id == selection }
+    }
+
+    /// Replays events written while Plume was closed, then settles every tab
+    /// to idle — nothing is running yet this launch, whatever the last event
+    /// said.
+    private func restoreStatusMonitoring() {
+        AgentEventMonitor.shared.onSessionIDDiscovered = { tabID, sessionID in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
+                  tab.agentSessionID != sessionID
+            else { return }
+            tab.agentSessionID = sessionID
+        }
+
+        for task in tasks {
+            for tab in task.tabs where tab.kind == .agent {
+                AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
+                StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)
+            }
+        }
     }
 }
