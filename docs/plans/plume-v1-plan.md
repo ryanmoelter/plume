@@ -22,7 +22,7 @@ Decisions made during execution that supersede the text below. Append here rathe
 
 - **2026-08-31 — Adopt the `GhosttyTerminal` wrapper.** WP0.2's evaluation resolved in favor of adopting it rather than writing our own wrapper on the raw C API. `libghostty-spm` has matured well past the 1.3.x assumed below (now 1.5.0), and the wrapper meets all three adoption criteria: per-surface `workingDirectory` + `command` + `envVars` via `TerminalSurfaceOptions` (its docs describe host tagging of surfaces with a UUID — exactly the `PLUME_TAB_ID` case), surface keep-alive across reparenting, and the user's config via `TerminalController.ConfigSource.file(path)` pointed at `~/.config/ghostty/config`. Note it does *not* call `ghostty_config_load_default_files`; it renders a config file from a base string plus programmatic overrides, so config-file discovery is ours to do. This substantially shrinks Phase 1 — no hand-written Metal layer or `NSTextInputClient` IME. The raw-C path stays the documented fallback, and the one-folder containment rule is unchanged.
 - **2026-08-31 — Pin `.exact("1.5.0")`.**
-- **2026-08-31 — Deployment target stays at the template's macOS 26.5** (Ryan's call), even though Xcode 26.2's SDK only compiles to 26.2 and every build therefore logs a deployment-target warning. Revisit if it ever becomes a hard error.
+- **2026-08-31 — Deployment target is macOS 26.2.** The template's 26.5 was unbuildable-in-principle: Xcode 26.2's SDK only compiles to 26.2, so every build warned. Lowered to match the SDK ceiling.
 - **2026-08-31 — `ENABLE_USER_SELECTED_FILES` removed** alongside disabling the sandbox; it is a sandbox entitlement and is meaningless unsandboxed.
 
 ## Architecture

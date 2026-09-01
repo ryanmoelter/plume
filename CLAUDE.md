@@ -47,4 +47,4 @@ Folders from the plan not yet created (`Ghostty/`, `Sessions/`, `Agent/`, `Statu
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.
 - The debug store lives at `~/Library/Application Support/default.store`. Delete it to test first-run behavior.
 - SourceKit in-editor diagnostics go stale on new files and report phantom "cannot find type in scope" errors (often resolving `TaskGroup` to Swift's generic one). Trust `xcodebuild`, not the editor squiggles.
-- Deployment target is macOS 26.5 but Xcode 26.2's SDK only compiles to 26.2, so every build logs a warning. Deliberate; see Amendments in the plan.
+- Deployment target is macOS 26.2, matching the Xcode 26.2 SDK ceiling. Raising it above the installed SDK makes every build warn.
