@@ -10,6 +10,8 @@ struct SidebarView: View {
     @Query(sort: \TaskGroup.orderIndex)
     private var groups: [TaskGroup]
 
+    @Binding var renamingTaskID: UUID?
+
     @State private var renamingGroupID: UUID?
     @State private var taskPendingDeletion: WorkTask?
     @State private var deletionError: String?
@@ -122,9 +124,10 @@ struct SidebarView: View {
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
-            TaskRowView(task: task)
+            TaskRowView(task: task, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
                 .contextMenu {
+                    Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
                 }
         }
@@ -174,6 +177,7 @@ struct SidebarView: View {
         let siblings = group.map(tasksFor) ?? ungroupedTasks
         let task = TaskStore.createTask(in: context, group: group, siblings: siblings)
         selection = task.id
+        renamingTaskID = task.id
     }
 }
 
