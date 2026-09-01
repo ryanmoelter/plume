@@ -21,6 +21,9 @@ struct StatuslineStripView: View {
     let model: String?
     let effort: String?
     let branch: String?
+    /// Ahead/behind and dirty, which no transcript or statusline payload
+    /// carries — Plume runs `git` for these itself.
+    let gitState: GitState?
     let permissionMode: String?
 
     // Capture-derived — nil segments are simply omitted.
@@ -41,6 +44,7 @@ struct StatuslineStripView: View {
         model: String? = nil,
         effort: String? = nil,
         branch: String? = nil,
+        gitState: GitState? = nil,
         permissionMode: String? = nil,
         payload: StatuslinePayload? = nil,
         onSelectModel: ((AgentModel) -> Void)? = nil,
@@ -52,6 +56,7 @@ struct StatuslineStripView: View {
         self.model = model
         self.effort = effort
         self.branch = branch
+        self.gitState = gitState
         self.permissionMode = permissionMode
         self.payload = payload
         self.onSelectModel = onSelectModel
@@ -126,12 +131,33 @@ struct StatuslineStripView: View {
             .foregroundStyle(foreground(for: .neutral))
     }
 
+    /// Ahead/behind and dirty ride alongside the branch, which is where they
+    /// read as one fact about the working tree rather than three segments.
     private func branchSegment(_ branch: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: "arrow.triangle.branch")
             Text(branch)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            if let gitState {
+                if let ahead = gitState.ahead, ahead > 0 {
+                    Text("↑\(ahead)")
+                }
+                if let behind = gitState.behind, behind > 0 {
+                    Text("↓\(behind)")
+                }
+                // No upstream at all is worth saying: it is the common case
+                // on a fresh worktree branch, and silence would read as
+                // "level with upstream".
+                if !gitState.hasUpstream {
+                    Text("no upstream")
+                        .foregroundStyle(foreground(for: .neutral).opacity(0.7))
+                }
+                if gitState.isDirty {
+                    Text("•")
+                        .help("Uncommitted changes")
+                }
+            }
         }
         .foregroundStyle(foreground(for: .neutral))
     }

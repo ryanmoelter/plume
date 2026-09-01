@@ -28,6 +28,13 @@ struct ChatTabView: View {
         TranscriptStore.shared.subagents(forTab: tab.id)
     }
 
+    /// The transcript's own `cwd` follows the agent, including through
+    /// `EnterWorktree`; the task's path only covers the window before any
+    /// transcript exists.
+    private var gitDirectory: String? {
+        transcript?.cwd ?? task.workingDirectoryPath
+    }
+
     private var status: TaskStatus {
         StatusEngine.shared.status(forTab: tab.id)
     }
@@ -44,6 +51,7 @@ struct ChatTabView: View {
                         model: transcript.model,
                         effort: transcript.effort,
                         branch: transcript.gitBranch,
+                        gitState: GitStateStore.shared.state(for: gitDirectory),
                         permissionMode: transcript.permissionMode,
                         payload: StatuslineStore.shared.payload(forTab: tab.id),
                         onSelectModel: SurfaceManager.shared.existingSession(for: tab.id).map { session in
@@ -74,6 +82,13 @@ struct ChatTabView: View {
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .onChange(of: gitDirectory, initial: true) { previous, current in
+            if let previous { GitStateStore.shared.release(previous) }
+            if let current { GitStateStore.shared.watch(current) }
+        }
+        .onDisappear {
+            if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
+        }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { isShowingPlan = false }
