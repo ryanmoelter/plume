@@ -86,6 +86,7 @@ Make the chat experience nicer than the terminal.
 - [x] Show agents and their status.
 - [x] A markdown viewer for plans and other files — ideally not a full browser.
 - [ ] Render mermaid diagrams in chat messages and in viewed files.
+- [ ] Slash commands in the composer — completion for what's available, and a sensible rendering of the ones that answer in the chat.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
@@ -100,6 +101,7 @@ What exists:
 
 Left for later:
 
+- Slash commands work only by accident today. The composer sends whatever is typed straight through, so `/review` reaches `claude` and runs, but nothing completes it, lists it, or knows it is a command. The one exception is `/model` and `/effort`, which `ModelEffortCommand` already composes and sends through `TerminalSession.submit` from the statusline strip's menu — so the send path is proven and the gap is discovery and presentation. Available commands are enumerable from disk (`~/.claude/skills/`, project `.claude/commands/`, plugins), though built-ins are not, so a completion list assembled from disk will be incomplete unless it also carries a static set. Worth deciding what a command's *output* should look like too: some answer in prose that renders fine as a chat message, while others are really UI in disguise, and those will read badly until the renderer knows about them.
 - Mermaid has no renderer yet. `MarkdownBlock` already isolates fenced code blocks, so a `mermaid` fence is easy to *detect* — drawing it is the work. Worth deciding early whether that means WebKit (mermaid.js is JavaScript, and a `WKWebView` per diagram is the quick path but reintroduces the browser this renderer deliberately avoids) or native drawing of a useful subset. Until one exists, a mermaid fence should keep degrading to readable source the way an unsupported table already degrades to a paragraph.
 - Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
 
