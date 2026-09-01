@@ -100,7 +100,7 @@ struct MarkdownView: View {
     }
 
     private var bodyFont: Font {
-        .system(size: bodyFontSize)
+        .chatProse(size: bodyFontSize)
     }
 
     /// Heading sizes as multiples of the body size, preserving the original
@@ -108,12 +108,12 @@ struct MarkdownView: View {
     /// against the system 13pt body) and weight distinctions.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return .system(size: bodyFontSize * 2.15, weight: .bold)
-        case 2: return .system(size: bodyFontSize * 1.7, weight: .bold)
-        case 3: return .system(size: bodyFontSize * 1.35, weight: .bold)
-        case 4: return .system(size: bodyFontSize * 1.15, weight: .semibold)
-        case 5: return .system(size: bodyFontSize * 1.0, weight: .semibold)
-        default: return .system(size: bodyFontSize * 0.85, weight: .semibold)
+        case 1: return .chatProse(size: bodyFontSize * 2.15, weight: .bold)
+        case 2: return .chatProse(size: bodyFontSize * 1.7, weight: .bold)
+        case 3: return .chatProse(size: bodyFontSize * 1.35, weight: .bold)
+        case 4: return .chatProse(size: bodyFontSize * 1.15, weight: .semibold)
+        case 5: return .chatProse(size: bodyFontSize * 1.0, weight: .semibold)
+        default: return .chatProse(size: bodyFontSize * 0.85, weight: .semibold)
         }
     }
 

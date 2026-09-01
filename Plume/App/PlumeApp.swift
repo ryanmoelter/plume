@@ -9,6 +9,7 @@ struct PlumeApp: App {
     let modelContainer: ModelContainer = makeModelContainer()
 
     init() {
+        BundledFonts.registerIfNeeded()
         GhosttyRuntime.shared.start()
     }
 
