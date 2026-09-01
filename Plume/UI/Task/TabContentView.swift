@@ -42,7 +42,10 @@ struct TabContentView: View {
     private func session(for tab: TaskTab) -> TerminalSession {
         SurfaceManager.shared.session(
             for: tab.id,
-            options: TerminalSurfaceOptions(workingDirectory: task.workingDirectoryPath)
+            options: TerminalSurfaceOptions(
+                workingDirectory: task.workingDirectoryPath,
+                command: LoginShellCommand.loginShell()
+            )
         )
     }
 }
