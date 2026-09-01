@@ -4,4 +4,5 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 *.moved-aside
+*.profraw
 .swiftpm/

@@ -13,6 +13,10 @@ struct PlumeApp: App {
         }
     }()
 
+    init() {
+        GhosttyRuntime.shared.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             MainWindow()

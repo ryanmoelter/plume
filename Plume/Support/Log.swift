@@ -1,0 +1,9 @@
+import os
+import OSLog
+
+enum Log {
+    private static let subsystem = "com.ryanmoelter.Plume"
+
+    static let ghostty = Logger(subsystem: subsystem, category: "ghostty")
+    static let app = Logger(subsystem: subsystem, category: "app")
+}

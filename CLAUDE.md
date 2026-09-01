@@ -25,10 +25,18 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 Plume/
   App/       PlumeApp, MainWindow, PlumeCommands
   Models/    SwiftData models, TaskStore (CRUD/ordering), enums
+  Ghostty/   GhosttyRuntime, GhosttyConfigLoader
+  Support/   Log
   UI/        Sidebar/, Task/
 ```
 
-Folders from the plan not yet created (`Ghostty/`, `Sessions/`, `Agent/`, `Status/`, `Workspace/`, `Support/`) arrive with their phases.
+Folders from the plan not yet created (`Sessions/`, `Agent/`, `Status/`, `Workspace/`) arrive with their phases.
+
+## Ghostty
+
+Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.0")`. **`docs/GHOSTTY_PIN.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.
+
+The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfigLoader` finds the user's config itself. Its ordering (Application Support before XDG) is deliberate and test-locked — don't "fix" it to match ghostty's docs page, which is wrong.
 
 ## Conventions
 
@@ -47,4 +55,7 @@ Folders from the plan not yet created (`Ghostty/`, `Sessions/`, `Agent/`, `Statu
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.
 - The debug store lives at `~/Library/Application Support/default.store`. Delete it to test first-run behavior.
 - SourceKit in-editor diagnostics go stale on new files and report phantom "cannot find type in scope" errors (often resolving `TaskGroup` to Swift's generic one). Trust `xcodebuild`, not the editor squiggles.
+- In Debug, `Plume.app/Contents/MacOS/Plume` is a ~57K launcher stub. The real code — and every linked libghostty symbol — is in `Plume.debug.dylib` beside it. Inspecting the stub with `nm` makes it look like nothing is linked.
+- `log` is shadowed by a shell function; use `/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume"' --last 5m --info`.
+- Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - Deployment target is macOS 26.2, matching the Xcode 26.2 SDK ceiling. Raising it above the installed SDK makes every build warn.

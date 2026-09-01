@@ -162,7 +162,11 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
   - Added `TaskStore` (not in the original file list) to hold CRUD + dense-`orderIndex` reordering, keeping it out of the views. `TaskStatus.aggregate` implements the priority ladder now so Phase 3 inherits a tested seam.
   - 10 unit tests cover ordering, tab selection on close, group-delete-keeps-tasks, status aggregation, and an on-disk close/reopen round-trip standing in for relaunch.
   - Detail pane is an intentional placeholder listing tabs; `TabStripView`/`TabContentView` arrive in WP2.1.
-- **WP0.2 GhosttyKit into the build**: add libghostty-spm `.exact`, `ghostty_init()` at launch, write `docs/GHOSTTY_PIN.md`, record GhosttyTerminal-vs-raw-C verdict. *Accept:* linked and running; pin + wrapper decision documented.
+- **[x] WP0.2 GhosttyKit into the build** *(done 2026-08-31)*: add libghostty-spm `.exact`, `ghostty_init()` at launch, write `docs/GHOSTTY_PIN.md`, record GhosttyTerminal-vs-raw-C verdict. *Accept:* linked and running; pin + wrapper decision documented.
+  - Verdict: adopt `GhosttyTerminal` (see Amendments). Pinned `.exact("1.5.0")`; `Package.resolved` committed.
+  - `GhosttyRuntime` (MainActor `@Observable` singleton) starts in `PlumeApp.init()`. Verified at runtime via unified log: the app loads the user's real config from `~/Library/Application Support/com.mitchellh.ghostty/config` with no config issue reported.
+  - `GhosttyConfigLoader` implements ghostty's config search order, which is **Application Support before XDG** — the opposite of what ghostty's docs page implies. Verified against `src/config/file_load.zig` and locked down by tests.
+  - Note for later verification: the Debug app binary is a 57K launcher stub; the real code and all ~6300 libghostty symbols live in `Plume.app/Contents/MacOS/Plume.debug.dylib`. Inspect that, not the stub.
 
 **Phase 1 — Terminal embedding** (sequential; the risk phase, front-loaded)
 - **WP1.1 Runtime + single surface**: GhosttyRuntime/Surface/NSView/TerminalSurfaceView; one hardcoded interactive terminal with user's ghostty config. *Accept:* typing, theme/font from config, resize, scrollback, `vim` usable.

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		PL0000000000000000002 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000001 /* GhosttyTerminal */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		C6A1E5E830464813003EAFC1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				PL0000000000000000002 /* GhosttyTerminal in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = Plume;
 			packageProductDependencies = (
+				PL0000000000000000001 /* GhosttyTerminal */,
 			);
 			productName = Plume;
 			productReference = C6A1E5D830464812003EAFC1 /* Plume.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = C6A1E5CF30464812003EAFC1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C6A1E5D930464812003EAFC1 /* Products */;
 			projectDirPath = "";
@@ -571,6 +580,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Lakr233/libghostty-spm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.5.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		PL0000000000000000001 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
+			productName = GhosttyTerminal;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C6A1E5D030464812003EAFC1 /* Project object */;
 }
