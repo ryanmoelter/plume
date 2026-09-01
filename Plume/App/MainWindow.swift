@@ -36,7 +36,6 @@ struct MainWindow: View {
             let ungrouped = tasks.filter { $0.group == nil }
             let task = TaskStore.createTask(in: context, siblings: ungrouped)
             selection = task.id
-            renamingTaskID = task.id
         }
         .focusedSceneValue(\.taskCommands, selectedTask.map { task in
             TaskCommands(
@@ -44,7 +43,7 @@ struct MainWindow: View {
                 selectTab: { index in
                     let tabs = task.orderedTabs
                     guard tabs.indices.contains(index) else { return }
-                    task.selectedTabID = tabs[index].id
+                    TaskStore.selectTab(tabs[index], in: task)
                 },
                 cycleTab: { offset in
                     let tabs = task.orderedTabs
@@ -52,7 +51,7 @@ struct MainWindow: View {
                           let current = tabs.firstIndex(where: { $0.id == task.selectedTabID })
                     else { return }
                     let next = (current + offset + tabs.count) % tabs.count
-                    task.selectedTabID = tabs[next].id
+                    TaskStore.selectTab(tabs[next], in: task)
                 },
                 closeSelectedTab: {
                     guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
@@ -116,16 +115,30 @@ struct MainWindow: View {
             tab.agentSessionID = sessionID
         }
         AgentEventMonitor.shared.onTranscriptPathDiscovered = { tabID, path in
-            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
-                  tab.sessionJSONLPath != path
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
             else { return }
-            tab.sessionJSONLPath = path
+            if tab.sessionJSONLPath != path {
+                tab.sessionJSONLPath = path
+            }
+            AgentTitleMonitor.shared.watch(tabID: tabID, transcriptPath: path)
+        }
+        AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title in
+            TitleStore.shared.setTitle(title, forTab: tabID)
+        }
+        TitleStore.shared.onTitleChanged = { tabID, title in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
+                  tab.title != title
+            else { return }
+            tab.title = title
         }
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
                 AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
                 StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)
+                if let path = tab.sessionJSONLPath, !path.isEmpty {
+                    AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+                }
             }
         }
     }

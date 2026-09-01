@@ -2,8 +2,7 @@ import SwiftUI
 
 struct TaskRowView: View {
     @Bindable var task: WorkTask
-    /// Newly created tasks start in edit mode so ⌘N flows straight into typing
-    /// a name.
+    /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
@@ -17,35 +16,57 @@ struct TaskRowView: View {
         return live == .unset ? task.lastStatus : live
     }
 
+    private var detailLines: [String] {
+        TaskRowDetails.lines(
+            status: status,
+            branch: task.branchName,
+            workingDirectory: task.workingDirectoryPath
+        )
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
-            if isEditing {
-                TextField("Task name", text: $task.title)
-                    .textFieldStyle(.plain)
-                    .focused($titleFocused)
-                    .onSubmit(endEditing)
-                    .onChange(of: titleFocused) { _, focused in
-                        if !focused { endEditing() }
-                    }
-                    .onAppear { titleFocused = true }
-            } else {
-                Text(task.title)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                if isEditing {
+                    TextField("Task name", text: $task.title)
+                        .textFieldStyle(.plain)
+                        .focused($titleFocused)
+                        .onSubmit(endEditing)
+                        .onChange(of: titleFocused) { _, focused in
+                            if !focused { endEditing() }
+                        }
+                        .onAppear { titleFocused = true }
+                } else {
+                    Text(TitleStore.shared.displayTitle(for: task))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                ForEach(detailLines, id: \.self) { line in
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer(minLength: 4)
             StatusBadge(status: status)
         }
+        .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(task.title), \(status.rawValue)")
+        .accessibilityLabel(accessibilityLabel)
     }
 
-    /// An empty name would leave an unlabelled row, so it reverts.
+    private var accessibilityLabel: String {
+        ([TitleStore.shared.displayTitle(for: task)] + detailLines).joined(separator: ", ")
+    }
+
+    /// Clearing the name is how the user goes back to showing the agent's own
+    /// title, so an emptied field is left empty.
     private func endEditing() {
-        if task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            task.title = "New Task"
-        }
+        task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         renamingTaskID = nil
     }
 }

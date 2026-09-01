@@ -13,7 +13,7 @@ struct TabStripView: View {
                     tab: tab,
                     isSelected: task.selectedTabID == tab.id,
                     themeForeground: ThemeChrome.foreground(for: colorScheme),
-                    select: { task.selectedTabID = tab.id },
+                    select: { TaskStore.selectTab(tab, in: task) },
                     close: { TaskStore.closeTab(tab, in: context) }
                 )
             }
@@ -50,12 +50,19 @@ private struct TabChip: View {
     @State private var isHovering = false
     @State private var isConfirmingStartFresh = false
 
+    /// The live title wins over the snapshot on the tab, which is only there
+    /// to label the chip before anything reconnects.
+    private var chipTitle: String {
+        TitleStore.shared.title(forTab: tab.id) ?? tab.displayTitle
+    }
+
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: tab.kind == .agent ? "sparkles" : "terminal")
                 .font(.caption)
-            Text(tab.displayTitle)
+            Text(chipTitle)
                 .lineLimit(1)
+                .truncationMode(.middle)
                 .font(.callout)
 
             // Reserve the slot so the chip doesn't resize on hover.
