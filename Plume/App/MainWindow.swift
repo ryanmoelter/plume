@@ -3,6 +3,7 @@ import SwiftData
 
 struct MainWindow: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selection: UUID?
     @State private var renamingTaskID: UUID?
     @State private var statusPersistence: StatusPersistence?
@@ -23,6 +24,7 @@ struct MainWindow: View {
                     systemImage: "sidebar.left",
                     description: Text("Select a task, or press ⌘N to create one.")
                 )
+                .themeTint(colorScheme: colorScheme)
             }
         }
         .sheet(isPresented: $archiveShown) {

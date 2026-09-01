@@ -7,6 +7,7 @@ import SwiftUI
 /// keeps their processes alive across tab switches.
 struct TabContentView: View {
     @Bindable var task: WorkTask
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
@@ -16,6 +17,7 @@ struct TabContentView: View {
                 } description: {
                     Text("Use the + button above to add an agent or terminal tab.")
                 }
+                .themeTint(colorScheme: colorScheme)
             }
             ForEach(task.orderedTabs) { tab in
                 tabContent(for: tab)

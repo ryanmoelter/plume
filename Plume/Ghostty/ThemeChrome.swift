@@ -1,3 +1,4 @@
+import AppKit
 import GhosttyTheme
 import SwiftUI
 
@@ -45,6 +46,19 @@ enum ThemeChrome {
         case .dark: return definitions?.dark
         @unknown default: return definitions?.dark
         }
+    }
+
+    /// Background tint for a titlebar in the given appearance's dark/light
+    /// mode, or nil to leave the titlebar at its default system color.
+    static func titlebarBackground(forDark isDark: Bool) -> NSColor? {
+        titlebarBackground(forDark: isDark, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+    }
+
+    static func titlebarBackground(
+        forDark isDark: Bool,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> NSColor? {
+        background(for: isDark ? .dark : .light, in: definitions).map(NSColor.init)
     }
 }
 

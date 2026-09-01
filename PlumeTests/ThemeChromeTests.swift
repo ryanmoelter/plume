@@ -1,5 +1,6 @@
 import Testing
 import SwiftUI
+import AppKit
 import GhosttyTheme
 @testable import Plume
 
@@ -32,5 +33,23 @@ struct ThemeChromeTests {
         )
         #expect(ThemeChrome.background(for: .light, in: broken) == nil)
         #expect(ThemeChrome.foreground(for: .light, in: broken) == nil)
+    }
+
+    @Test func titlebarBackgroundSelectsLightOrDark() {
+        #expect(ThemeChrome.titlebarBackground(forDark: false, in: definitions) == NSColor(Color(hex: "fffbf7")!))
+        #expect(ThemeChrome.titlebarBackground(forDark: true, in: definitions) == NSColor(Color(hex: "211a14")!))
+    }
+
+    @Test func titlebarBackgroundFallsBackToNilWithNoTheme() {
+        #expect(ThemeChrome.titlebarBackground(forDark: false, in: nil) == nil)
+        #expect(ThemeChrome.titlebarBackground(forDark: true, in: nil) == nil)
+    }
+
+    @Test func titlebarBackgroundFallsBackToNilOnUnparseableColor() {
+        let broken = GhosttyThemeResolver.ResolvedDefinitions(
+            light: GhosttyThemeDefinition(name: "Broken", background: "not-a-color", foreground: "also-bad"),
+            dark: nil
+        )
+        #expect(ThemeChrome.titlebarBackground(forDark: false, in: broken) == nil)
     }
 }

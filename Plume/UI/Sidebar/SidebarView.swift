@@ -77,6 +77,7 @@ struct SidebarView: View {
                 } description: {
                     Text("Press ⌘N to start a task.")
                 }
+                .themeTint(colorScheme: colorScheme)
             }
         }
         .confirmationDialog(
