@@ -56,6 +56,32 @@ struct RealTranscriptCorpusTests {
     }
 
     /// No real transcript may crash or hang the parser.
+    /// No user message in the real corpus may open with an injected wrapper.
+    /// This is the regression guard for the classifier: if Claude Code adds a
+    /// new wrapper tag, or renames one, the content starts rendering as the
+    /// user's own prose again and this fails.
+    @Test func noInjectedContentRendersAsUserProse() throws {
+        let (main, _) = transcripts()
+        try #require(!main.isEmpty, "no transcripts on this machine")
+
+        var leaked: [String] = []
+        for url in main {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            for message in TranscriptParser.parse(data).messages where message.role == .user {
+                for block in message.blocks {
+                    guard case .markdown(let text) = block else { continue }
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.hasPrefix("<") || trimmed.hasPrefix("Base directory for this skill:")
+                        || trimmed.hasPrefix("[Request interrupted") {
+                        leaked.append("\(url.lastPathComponent): \(trimmed.prefix(60))")
+                    }
+                }
+            }
+        }
+
+        #expect(leaked.isEmpty, "injected content rendered as user prose:\n\(leaked.prefix(5).joined(separator: "\n"))")
+    }
+
     @Test func everyTranscriptParsesWithoutCrashing() throws {
         let (main, subagent) = transcripts()
         for url in main + subagent {

@@ -257,6 +257,64 @@ struct TranscriptParserTests {
         #expect(transcript.messages.count == 1)
     }
 
+    @Test func aSkillBodyBecomesAMarkerNotAUserMessage() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"isMeta":true,"message":{"role":"user","content":"Base directory for this skill: /Users/x/.claude/skills/debug\n\nbody"}}"#,
+        ]))
+
+        #expect(transcript.messages.count == 1)
+        if case .injected(let kind, let text) = transcript.messages[0].blocks.first {
+            #expect(kind == .skill(name: "debug"))
+            #expect(text.contains("body"))
+        } else {
+            Issue.record("expected an injected block")
+        }
+    }
+
+    @Test func aSlashCommandExpansionBecomesAMarkerDespiteNotBeingMeta() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"<command-name>/compact</command-name>"}}"#,
+        ]))
+
+        if case .injected(let kind, _) = transcript.messages[0].blocks.first {
+            #expect(kind == .slashCommand(name: "/compact"))
+        } else {
+            Issue.record("expected an injected block")
+        }
+    }
+
+    @Test func aTypedMessageStaysMarkdown() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"reconcile the roadmap"}}"#,
+        ]))
+
+        if case .markdown(let text) = transcript.messages[0].blocks.first {
+            #expect(text == "reconcile the roadmap")
+        } else {
+            Issue.record("expected a markdown block")
+        }
+    }
+
+    /// A tool result rides on the same line as an injected marker in real
+    /// transcripts, so the result must still reach its call.
+    @Test func anInjectedLineStillDeliversItsToolResult() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"assistant","uuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"#,
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"out"},{"type":"text","text":"<task-notification>done</task-notification>"}]}}"#,
+        ]))
+
+        if case .toolCall(let call) = transcript.messages[0].blocks.first {
+            #expect(call.result == "out")
+        } else {
+            Issue.record("expected the tool call to keep its result")
+        }
+        if case .injected(let kind, _) = transcript.messages[1].blocks.first {
+            #expect(kind == .taskNotification)
+        } else {
+            Issue.record("expected an injected block alongside the result")
+        }
+    }
+
     @Test func latestPermissionModeWins() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"permission-mode","permissionMode":"plan","isSidechain":false}"#,

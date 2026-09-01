@@ -130,13 +130,14 @@ enum TranscriptParser {
                 flushPendingAssistant()
 
                 var results: [(toolUseId: String, content: String?)] = []
+                var texts: [String] = []
                 var otherBlocks: [ChatBlock] = []
                 for block in contentBlocks {
                     switch block {
                     case .toolResult(let toolUseId, let content):
                         results.append((toolUseId, content))
                     case .text(let text):
-                        otherBlocks.append(.markdown(text))
+                        texts.append(text)
                     case .thinking(let text):
                         otherBlocks.append(.thinking(text))
                     case .toolUse, .ignored:
@@ -146,6 +147,17 @@ enum TranscriptParser {
 
                 for result in results {
                     applyResult(toolUseId: result.toolUseId, content: result.content)
+                }
+
+                // One line's text blocks are one unit of injected content, so
+                // they classify together rather than block by block.
+                let text = texts.joined(separator: "\n")
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let kind = InjectedContent.classify(text: text, isMeta: entry.isMeta)
+                    otherBlocks.insert(
+                        kind.isUserProse ? .markdown(text) : .injected(kind, text: text),
+                        at: 0
+                    )
                 }
 
                 // A user message made up only of tool_results carries no

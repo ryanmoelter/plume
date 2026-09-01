@@ -18,6 +18,10 @@ enum ChatBlock {
     case markdown(String)
     case thinking(String)
     case toolCall(ToolCall)
+    /// Something Claude Code injected as a user line — a skill body, a slash
+    /// command, shell output. Rendered as a compact marker with the text kept
+    /// behind a disclosure rather than shown as the user's prose.
+    case injected(InjectedContent, text: String)
 }
 
 struct ToolCall: Identifiable {

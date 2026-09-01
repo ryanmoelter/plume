@@ -53,12 +53,17 @@ struct TranscriptEntry: Decodable {
     /// Set only on `permission-mode` lines, which Claude Code writes on every
     /// change of mode.
     let permissionMode: String?
+    /// Marks a user line Claude Code synthesized rather than one the user
+    /// typed. True for a skill body and a caveat block, but false for a slash
+    /// command's expansion and its output — see `InjectedContent`.
+    let isMeta: Bool
     let message: TranscriptMessage?
     let attachment: TranscriptAttachment?
 
     enum CodingKeys: String, CodingKey {
         case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
         case permissionMode
+        case isMeta
         case attachment
     }
 
@@ -74,6 +79,7 @@ struct TranscriptEntry: Decodable {
         effort = try container.decodeIfPresent(String.self, forKey: .effort)
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        isMeta = try container.decodeIfPresent(Bool.self, forKey: .isMeta) ?? false
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
         attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
 

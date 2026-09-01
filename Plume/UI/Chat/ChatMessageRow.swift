@@ -30,14 +30,33 @@ struct ChatMessageRow: View {
         }
     }
 
+    /// An injected line is not the user speaking, so it skips the bubble and
+    /// its right-hand indent and sits full-width like the transcript's own
+    /// asides.
+    private var isInjectedOnly: Bool {
+        !message.blocks.isEmpty && message.blocks.allSatisfy { block in
+            if case .injected = block { return true }
+            return false
+        }
+    }
+
     private var userBody: some View {
-        HStack {
-            Spacer(minLength: 48)
-            VStack(alignment: .leading, spacing: 8) {
-                blocks
+        Group {
+            if isInjectedOnly {
+                VStack(alignment: .leading, spacing: 8) {
+                    blocks
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack {
+                    Spacer(minLength: 48)
+                    VStack(alignment: .leading, spacing: 8) {
+                        blocks
+                    }
+                    .padding(10)
+                    .background(washColor, in: .rect(cornerRadius: 10))
+                }
             }
-            .padding(10)
-            .background(washColor, in: .rect(cornerRadius: 10))
         }
     }
 
@@ -69,6 +88,8 @@ struct ChatMessageRow: View {
                 ThinkingRow(text: text)
             case .toolCall(let call):
                 ToolCallRow(call: call)
+            case .injected(let kind, let text):
+                InjectedContentRow(kind: kind, text: text)
             }
         }
     }
