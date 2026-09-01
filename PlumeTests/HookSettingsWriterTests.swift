@@ -55,6 +55,12 @@ struct HookSettingsWriterTests {
 }
 
 struct InstrumentedLaunchTests {
+    /// The whole `claude` argv runs as one argument to a login, interactive
+    /// shell — see `LoginShellCommand`.
+    private func loginWrapped(_ inner: String) -> String {
+        LoginShellCommand.wrap(inner)
+    }
+
     @Test func launchPassesSettingsAndIdentifiers() {
         let taskID = UUID()
         let tabID = UUID()
@@ -64,7 +70,7 @@ struct InstrumentedLaunchTests {
             firstMessage: "hi", resumeSessionID: nil, taskID: taskID, tabID: tabID
         )
 
-        #expect(launch.command == "claude --settings '/tmp/settings.json' 'hi'")
+        #expect(launch.command == loginWrapped("claude --settings '/tmp/settings.json' 'hi'"))
         #expect(launch.environment["PLUME_TASK_ID"] == taskID.uuidString)
         #expect(launch.environment["PLUME_TAB_ID"] == tabID.uuidString)
         #expect(launch.environment["PLUME_EVENTS_DIR"] == AppPaths.eventsDirectory.path)
@@ -73,13 +79,13 @@ struct InstrumentedLaunchTests {
     @Test func settingsPathIsQuoted() {
         let provider = ClaudeCodeProvider(settingsPath: "/tmp/a b/settings.json")
         let launch = provider.launchCommand(firstMessage: nil, resumeSessionID: nil)
-        #expect(launch.command == "claude --settings '/tmp/a b/settings.json'")
+        #expect(launch.command == loginWrapped("claude --settings '/tmp/a b/settings.json'"))
     }
 
     /// Without instrumentation the agent must still launch, just unreported.
     @Test func withoutSettingsItDegradesToAPlainLaunch() {
         let launch = ClaudeCodeProvider().launchCommand(firstMessage: "hi", resumeSessionID: nil)
-        #expect(launch.command == "claude 'hi'")
+        #expect(launch.command == loginWrapped("claude 'hi'"))
         #expect(launch.environment.isEmpty)
     }
 
@@ -88,7 +94,7 @@ struct InstrumentedLaunchTests {
         let launch = provider.launchCommand(
             firstMessage: nil, resumeSessionID: "sess-1", taskID: UUID(), tabID: UUID()
         )
-        #expect(launch.command == "claude --settings '/s.json' --resume 'sess-1'")
+        #expect(launch.command == loginWrapped("claude --settings '/s.json' --resume 'sess-1'"))
     }
 
     @Test func eventsFilePathIsPerTaskAndTab() {
