@@ -16,12 +16,12 @@ struct ChatTabView: View {
     }
 
     /// The transcript's plan path is a stale snapshot from when the line was
-    /// written — check the filesystem now rather than trusting it.
+    /// written, so the file may be gone. The existence check is cached rather
+    /// than run inline: this is read from `body`, and touching the filesystem
+    /// on every render pass is not free.
     private var planFilePath: String? {
-        guard let path = transcript?.planFilePath, FileManager.default.fileExists(atPath: path) else {
-            return nil
-        }
-        return path
+        guard let path = transcript?.planFilePath else { return nil }
+        return PlanFileExistence.exists(path) ? path : nil
     }
 
     private var subagents: [SubagentTranscript] {
@@ -154,13 +154,18 @@ struct ChatTabView: View {
                 // conversation.
                 LazyVStack(alignment: .leading, spacing: 16) {
                     ForEach(transcript.messages) { message in
+                        // Only the newest row reflects live status, so only
+                        // it reads `status`. Passing it to every row made a
+                        // status change invalidate the whole list, which
+                        // rebuilds rows the lazy stack had already built.
+                        let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
+                            messageID: message.id,
+                            lastMessageID: lastMessageID
+                        )
                         ChatMessageRow(
                             message: message,
-                            isLast: ChatScrollAnchor.isEligibleForLiveStatus(
-                                messageID: message.id,
-                                lastMessageID: lastMessageID
-                            ),
-                            status: status
+                            isLast: isLast,
+                            status: isLast ? status : .unset
                         )
                         .id(message.id)
                     }
