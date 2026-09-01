@@ -26,6 +26,28 @@ WP0.2 evaluated adopting the package's `GhosttyTerminal` product against writing
 
 **Caveat on config:** the wrapper does *not* call `ghostty_config_load_default_files`. It renders a config file from a base string plus programmatic overrides, so **discovering the user's config path is Plume's job** — see `GhosttyConfigLoader`, which mirrors ghostty's own search order.
 
+## Theme resolution
+
+The wrapper's `TerminalController` does **not** resolve a config file's
+`theme = ...` directive itself. `GhosttyRuntimeResources.configureEnvironment()`
+points `GHOSTTY_RESOURCES_DIR` at the package's own bundled resource
+directory (`Sources/GhosttyTerminal/Resources/Ghostty`), which ships only
+`shell-integration/` — no `themes/` folder, built-in or otherwise. A bare
+`theme = Name` line loads without any diagnostic (`ghostty_config_diagnostics_count`
+stays zero) and the surface silently keeps default colors instead.
+
+Name resolution is meant to happen in Swift, via the separate `GhosttyTheme`
+product the same package ships (485 themes from iTerm2-Color-Schemes,
+`GhosttyThemeCatalog.theme(named:)`), applied through
+`TerminalController(configFilePath:theme:)` / `setTheme(_:)` — see the
+package's own `docs/guide/themes.html`. `Plume/Ghostty/GhosttyThemeResolver.swift`
+does this: it parses the config's `theme = X` / `theme = dark:"X",light:"Y"`
+value itself, resolves each name against `GhosttyThemeCatalog` first, then
+falls back to parsing a same-named file in the user's `themes/` directory
+(ghostty's own custom-theme convention) for names the catalog doesn't know.
+`GhosttyRuntime.start()` builds the resulting `TerminalTheme` and passes it
+into the controller alongside the raw config path.
+
 ## Config search order
 
 From `preferredDefaultFilePath()` in ghostty's [`src/config/file_load.zig`](https://github.com/ghostty-org/ghostty/blob/main/src/config/file_load.zig). First match wins outright — ghostty never merges these, and a zero-byte file does not count as a match:

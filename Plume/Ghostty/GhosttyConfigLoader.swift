@@ -38,6 +38,15 @@ enum GhosttyConfigLoader {
         ]
     }
 
+    /// The `themes/` directory ghostty looks in alongside a config file,
+    /// resolving symlinks first — the Application Support config is a
+    /// symlink to the real XDG config, and themes live next to the target,
+    /// not next to the symlink.
+    static func themesDirectory(forConfigPath configPath: String) -> String {
+        let resolved = URL(fileURLWithPath: configPath).resolvingSymlinksInPath()
+        return resolved.deletingLastPathComponent().appendingPathComponent("themes").path
+    }
+
     /// Ghostty rejects zero-byte config files, so an empty file should fall
     /// through to the next candidate rather than win.
     private static func isNonEmptyFile(at path: String) -> Bool {

@@ -27,7 +27,23 @@ final class GhosttyRuntime {
         guard controller == nil else { return }
 
         loadedConfigPath = GhosttyConfigLoader.userConfigPath()
-        let controller = TerminalController(configFilePath: loadedConfigPath)
+
+        // The wrapper never resolves a config file's `theme = name` directive
+        // itself — see GhosttyThemeResolver — so do it before creating the
+        // controller and pass the result in as an explicit TerminalTheme.
+        var resolvedTheme = TerminalTheme()
+        if let loadedConfigPath,
+           let contents = try? String(contentsOfFile: loadedConfigPath, encoding: .utf8) {
+            let themesDirectory = GhosttyConfigLoader.themesDirectory(forConfigPath: loadedConfigPath)
+            if let theme = GhosttyThemeResolver.resolveTheme(
+                configContents: contents,
+                userThemesDirectory: themesDirectory
+            ) {
+                resolvedTheme = theme
+            }
+        }
+
+        let controller = TerminalController(configFilePath: loadedConfigPath, theme: resolvedTheme)
         self.controller = controller
 
         if let issue = controller.lastConfigurationIssue {
