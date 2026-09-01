@@ -138,4 +138,23 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         #expect(store.subagents(forTab: UUID()).isEmpty)
     }
+
+    /// Reading subagents must not touch the disk: a SwiftUI view asks for them
+    /// from `body`, which re-evaluates on every scroll frame. A subagent file
+    /// appearing after the last transcript read is therefore invisible until
+    /// the transcript changes again.
+    @Test func subagentsComeFromTheCacheRatherThanTheDisk() {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(userLine("Main session"), to: path)
+
+        let store = TranscriptStore(debounce: .milliseconds(10))
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+        #expect(store.subagents(forTab: tab).isEmpty)
+
+        write(userLine("Late subagent"), to: dir.appending(path: "session/subagents/agent-late.jsonl"))
+        #expect(store.subagents(forTab: tab).isEmpty)
+    }
 }

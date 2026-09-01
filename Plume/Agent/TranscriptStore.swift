@@ -22,6 +22,7 @@ final class TranscriptStore {
     static let shared = TranscriptStore()
 
     private(set) var transcripts: [UUID: Transcript] = [:]
+    private(set) var subagentTranscripts: [UUID: [SubagentTranscript]] = [:]
 
     private var watchers: [UUID: FileWatcher] = [:]
     private var paths: [UUID: String] = [:]
@@ -60,6 +61,7 @@ final class TranscriptStore {
         pending.removeValue(forKey: tabID)?.cancel()
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
+        subagentTranscripts.removeValue(forKey: tabID)
     }
 
     func stopAll() {
@@ -69,19 +71,28 @@ final class TranscriptStore {
         pending.removeAll()
         paths.removeAll()
         transcripts.removeAll()
+        subagentTranscripts.removeAll()
     }
 
     func transcript(forTab tabID: UUID) -> Transcript? {
         transcripts[tabID]
     }
 
-    /// Subagents spawned by a tab's transcript. Re-scanned from disk on every
-    /// call, since a subagent file's own writes do not trigger the main
-    /// transcript's watcher — freshness here is best-effort, bounded by how
-    /// often the main transcript changes, not by subagent activity itself.
+    /// Subagents spawned by a tab's transcript.
+    ///
+    /// Read from the cache filled on each transcript read, never from disk: a
+    /// SwiftUI view calls this from `body`, which re-evaluates far more often
+    /// than the file changes — scrolling alone would otherwise re-parse every
+    /// subagent file per frame.
     func subagents(forTab tabID: UUID) -> [SubagentTranscript] {
-        guard let path = paths[tabID] else { return [] }
-        return SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: path).map { subagentPath in
+        subagentTranscripts[tabID] ?? []
+    }
+
+    /// A subagent's own writes do not touch the main transcript, so its
+    /// watcher never fires for them. Freshness is therefore bounded by main
+    /// transcript activity rather than by subagent activity itself.
+    private func readSubagents(transcriptPath: String) -> [SubagentTranscript] {
+        SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath).map { subagentPath in
             let id = (subagentPath as NSString)
                 .lastPathComponent
                 .replacingOccurrences(of: "agent-", with: "")
@@ -109,5 +120,6 @@ final class TranscriptStore {
               let data = FileManager.default.contents(atPath: path)
         else { return }
         transcripts[tabID] = TranscriptParser.parse(data)
+        subagentTranscripts[tabID] = readSubagents(transcriptPath: path)
     }
 }

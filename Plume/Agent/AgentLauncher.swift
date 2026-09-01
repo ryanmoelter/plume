@@ -35,6 +35,7 @@ enum AgentLauncher {
 
         if settingsPath != nil {
             AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
+            StatuslineStore.shared.watch(tabID: tab.id, taskID: task.id)
         }
         StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
 
