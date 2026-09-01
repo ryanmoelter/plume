@@ -14,6 +14,8 @@ final class AppSettings {
     private enum Key {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
+        static let statuslineCaptureEnabled = "statuslineCaptureEnabled"
+        static let statuslineBackedUpCommand = "statuslineBackedUpCommand"
     }
 
     private let defaults: UserDefaults
@@ -22,6 +24,8 @@ final class AppSettings {
         self.defaults = defaults
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
         self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
+        self.statuslineCaptureEnabled = defaults.bool(forKey: Key.statuslineCaptureEnabled)
+        self.statuslineBackedUpCommand = defaults.string(forKey: Key.statuslineBackedUpCommand)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -37,6 +41,25 @@ final class AppSettings {
     var providerID: String {
         didSet {
             defaults.set(providerID, forKey: Key.providerID)
+        }
+    }
+
+    /// Whether Plume's statusline capture script is installed as
+    /// `~/.claude/settings.json`'s `statusLine.command`. Ships off; only the
+    /// Settings UI's Install/Restore buttons flip this and touch that file.
+    var statuslineCaptureEnabled: Bool {
+        didSet {
+            defaults.set(statuslineCaptureEnabled, forKey: Key.statuslineCaptureEnabled)
+        }
+    }
+
+    /// The `statusLine.command` `install()` overwrote, shown in Settings so
+    /// Restore's effect is visible before pressing it. `StatuslineInstaller`
+    /// keeps its own on-disk backup as the source of truth for `restore()`
+    /// itself; this is a display mirror of it.
+    var statuslineBackedUpCommand: String? {
+        didSet {
+            defaults.set(statuslineBackedUpCommand, forKey: Key.statuslineBackedUpCommand)
         }
     }
 }
