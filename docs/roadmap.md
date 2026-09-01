@@ -36,7 +36,7 @@ Recommendations, not commitments. Reorder freely.
 
 **Bigger, and best taken deliberately:**
 
-- **Native chat UI** is the largest item here and the one that most changes what Plume is. It's also the most incremental: font and message attribution first, then the statusline strip, then agents. Ship it in slices.
+- ~~**Native chat UI**~~ Done, shipped in slices as predicted. See the section below for what landed and what it left.
 - **Assignable hotkeys** is the sleeper. Adding a next/previous *task* command is easy; making bindings user-settable means a binding store, a settings UI, and applying stored bindings to menu commands. Consider shipping fixed alt+J/K first and configurability later.
 - **Directories on tabs instead of tasks** is the widest change here — ten-odd call sites, mostly mechanical, but it forces a real question about what a task *is* once it doesn't own a directory. Worth deciding alongside the naming question, since they're the same question wearing different hats. Tracking the agent's live directory is the easy half and could land first: the terminal already reports it per tab, and `EnterWorktree` needs no special case.
 - **Palettes** and **PR/MR state** are both moderate. Palettes extend a theming layer that already exists; PR/MR state is new surface but a well-understood shape.
@@ -79,22 +79,27 @@ What exists:
 
 Make the chat experience nicer than the terminal.
 
-- [ ] Don't use a monospace font.
-- [ ] Clearly distinguish my messages from Claude's.
-- [ ] Separate treatment for work-in-progress and for a response that needs me.
-- [ ] Show context-window use, 5h/7d quota, estimated session cost, branch, and model + effort level. Follow `~/.scripts/.claude/statusline.sh` for what belongs in each and when it turns yellow or red.
-- [ ] Show agents and their status.
-- [ ] A markdown viewer for plans and other files — ideally not a full browser.
+- [x] Don't use a monospace font.
+- [x] Clearly distinguish my messages from Claude's.
+- [x] Separate treatment for work-in-progress and for a response that needs me.
+- [x] Show context-window use, 5h/7d quota, estimated session cost, branch, and model + effort level. Follow `~/.scripts/.claude/statusline.sh` for what belongs in each and when it turns yellow or red.
+- [x] Show agents and their status.
+- [x] A markdown viewer for plans and other files — ideally not a full browser.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
 What exists:
 
-- `SessionJSONLReader` resolves the transcript path today but deliberately parses no message content. That is the seam this builds on.
-- The transcript is a clean message stream: `assistant` lines carry `text` and `tool_use` blocks, `user` lines carry a string or `tool_result`. User-vs-Claude and in-progress-vs-final are both derivable, as are `gitBranch`, `cwd`, `isSidechain` and `agent-name` for the agents list.
-- Per-message `usage` and `model` are in the transcript, so context-window use and the model are derivable from it.
-- The markdown viewer belongs to this workstream: rendering Claude's messages and rendering a plan file are the same problem, so build one renderer and point it at either. "Not a full browser" is achievable — SwiftUI's `Text` initializer takes an `AttributedString` parsed from markdown, which covers inline formatting with no WebKit at all. Its limits are the things a plan file actually uses: no headings, tables, or fenced code blocks. Expect to hand-render block structure and inline-parse each paragraph, or take a small markdown library.
-- **Quota and cost are not.** They exist only in the payload Claude Code hands a statusline command — not in the transcript, and nowhere on disk. Decision: Plume installs its own statusline command that captures the payload and then chains to `~/.scripts/.claude/statusline.sh`, passing its output through unchanged, so the terminal statusline still looks the same. The capture can reuse the existing events-dir + `FileWatcher` transport. Note `statusLine` is a single object, so it replaces rather than unions the way hook lists do.
+- **Done, in slices.** An agent tab now renders a native chat by default and keeps its terminal one ⌘/ away. Both stay mounted, so toggling never touches the PTY — the same rule tabs already follow.
+- `TranscriptParser` turns a transcript into `ChatMessage`s; `TranscriptStore` watches the file per tab and republishes, following `AgentTitleMonitor`'s pattern with a shorter debounce because this drives visible content. `SessionJSONLReader` still resolves paths and now also enumerates the subagent transcripts.
+- `MarkdownBlock` splits block structure by hand and inline-parses each paragraph with `AttributedString`, so there is no WebKit. Nested lists and tables are deliberately unsupported: a table degrades to a paragraph rather than being mangled.
+- The composer sends with ⌘↩ — plain ↩ inserts a newline, so a half-typed message is never lost. It reaches the agent through `TerminalSession.submit(text:)`, which pastes and then presses Enter as two operations. **A trailing `\r` in pasted text does not submit**: the wrapper's text path is a paste, and bracketed paste leaves the carriage return in the edit line.
+- **Quota and cost still need the statusline capture.** They exist only in the payload Claude Code hands a statusline command. `StatuslineCaptureWriter` generates a chaining script and `StatuslineInstaller` can install it, but installation is **off by default and never automatic** — Settings shows the exact JSON it would write to `~/.claude/settings.json` behind an explicit button. With capture off the strip still shows context use, model, effort and branch, all of which come from the transcript. Note `statusLine` is a single object, so it replaces rather than unions the way hook lists do.
+
+Left for later:
+
+- Rendering a plan *file* through `MarkdownView`. The renderer is built and pointed at chat messages only; aiming it at a file on disk is the remaining half of that item.
+- Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
 
 ## PR/MR state in the sidebar
 
