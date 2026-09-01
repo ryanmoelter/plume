@@ -17,6 +17,9 @@ final class AgentEventMonitor {
     /// Reports the session ID a tab's events carry, for `--resume`.
     var onSessionIDDiscovered: ((UUID, String) -> Void)?
 
+    /// Reports the tab's transcript file, cached for the future chat renderer.
+    var onTranscriptPathDiscovered: ((UUID, String) -> Void)?
+
     init(statusEngine: StatusEngine = .shared) {
         self.statusEngine = statusEngine
     }
@@ -51,6 +54,13 @@ final class AgentEventMonitor {
             statusEngine.apply(event, taskID: taskID, tabID: tabID)
             if let sessionID = event.sessionID, !sessionID.isEmpty {
                 onSessionIDDiscovered?(tabID, sessionID)
+            }
+            if let transcript = SessionJSONLReader.resolveTranscriptPath(
+                hookProvided: event.transcriptPath,
+                workingDirectory: event.cwd,
+                sessionID: event.sessionID
+            ) {
+                onTranscriptPathDiscovered?(tabID, transcript)
             }
         }
         ingester.rotateIfNeeded(at: url)
