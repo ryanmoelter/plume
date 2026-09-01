@@ -189,5 +189,10 @@ The observation is right: these outlive a single unit of work, and "task" unders
 - [ ] Shortcuts work while the terminal is focused.
 - [x] A terminal view takes focus when its tab is shown.
 - [ ] Drag and drop to reorder tabs.
+- [ ] Reopen the last session on launch — restore the selected task and tab instead of starting cold.
 
-What exists: shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus. `TabContentView` toggles opacity and never moves first responder. `.onMove` reorders sidebar tasks but `TabStripView` has no drag support.
+What exists:
+
+- Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
+- `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
+- On launch, the per-task selected tab already persists (`WorkTask.selectedTabID`), so only the selected *task* is missing. `MainWindow` holds it in plain `@State`, which starts nil every launch, so the app always opens on "No Task Selected" even though the rest of the tree restores. Persisting that one UUID — `AppSettings` or `@SceneStorage` — is most of the item. Decide what happens when the stored task is gone (archived or deleted), and whether a restored agent tab should auto-resume on launch or wait to be selected, since the existing rule deliberately avoids spawning `claude` for every agent tab at startup.
