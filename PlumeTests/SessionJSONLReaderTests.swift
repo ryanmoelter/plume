@@ -103,3 +103,84 @@ struct SessionJSONLReaderTests {
         )
     }
 }
+
+/// `ai-title` lines are the title Claude gives a session. Fixtures mirror
+/// real transcripts in `~/.claude/projects`.
+struct SessionAITitleTests {
+    private func data(_ lines: [String]) -> Data {
+        Data(lines.joined(separator: "\n").utf8)
+    }
+
+    @Test func theTitleIsRead() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"user","message":{"role":"user"}}"#,
+            #"{"type":"ai-title","aiTitle":"Plume v1 implementation","sessionId":"a"}"#,
+        ]))
+        #expect(found == "Plume v1 implementation")
+    }
+
+    /// Claude retitles a session as it develops, so the last one is current.
+    @Test func theLastTitleWins() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"ai-title","aiTitle":"First guess","sessionId":"a"}"#,
+            #"{"type":"assistant","message":{"role":"assistant"}}"#,
+            #"{"type":"ai-title","aiTitle":"Sharper title","sessionId":"a"}"#,
+        ]))
+        #expect(found == "Sharper title")
+    }
+
+    /// Short sessions never get titled; that is not an error.
+    @Test func aTranscriptWithoutATitleYieldsNil() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"user","message":{"role":"user"}}"#,
+            #"{"type":"system","subtype":"init"}"#,
+        ]))
+        #expect(found == nil)
+    }
+
+    @Test func unknownLineTypesAreSkipped() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"ai-title","aiTitle":"Real title","sessionId":"a"}"#,
+            #"{"type":"file-history-snapshot","snapshot":{"deep":[1,2,3]}}"#,
+            #"{"type":"attachment","content":"whatever"}"#,
+        ]))
+        #expect(found == "Real title")
+    }
+
+    /// A half-written last line is normal while the agent is running.
+    @Test func aMalformedLineDoesNotHideAnEarlierTitle() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"ai-title","aiTitle":"Real title","sessionId":"a"}"#,
+            #"{"type":"assistant","message":{"role":"#,
+        ]))
+        #expect(found == "Real title")
+    }
+
+    @Test func anEmptyTitleIsIgnored() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"ai-title","aiTitle":"Real title","sessionId":"a"}"#,
+            #"{"type":"ai-title","aiTitle":"","sessionId":"a"}"#,
+        ]))
+        #expect(found == "Real title")
+    }
+
+    @Test func agentNameLinesAreNotMistakenForTitles() {
+        let found = SessionJSONLReader.latestAITitle(in: data([
+            #"{"type":"agent-name","agentName":"Some agent","sessionId":"a"}"#,
+        ]))
+        #expect(found == nil)
+    }
+
+    @Test func aMissingFileYieldsNil() {
+        #expect(SessionJSONLReader.latestAITitle(atPath: "/nonexistent/x.jsonl") == nil)
+    }
+
+    @Test func theTitleIsReadFromDisk() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "plume-title-\(UUID().uuidString).jsonl")
+        try data([#"{"type":"ai-title","aiTitle":"From disk","sessionId":"a"}"#]).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(SessionJSONLReader.latestAITitle(atPath: url.path) == "From disk")
+    }
+}

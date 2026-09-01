@@ -51,6 +51,36 @@ enum SessionJSONLReader {
         return attributes[.modificationDate] as? Date
     }
 
+    /// Claude Code writes its own generated session title into the transcript
+    /// as `{"type":"ai-title","aiTitle":"…"}`, rewriting it as the
+    /// conversation develops, so the last one is the current title. Nil means
+    /// Claude has not titled the session yet — short sessions never get one.
+    static func latestAITitle(atPath path: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        return latestAITitle(in: data)
+    }
+
+    static func latestAITitle(in data: Data) -> String? {
+        let decoder = JSONDecoder()
+        // A transcript is mostly line types Plume does not model, so every
+        // line that fails to decode is skipped rather than treated as an error.
+        for line in data.split(separator: UInt8(ascii: "\n")).reversed() {
+            guard !line.isEmpty,
+                  let entry = try? decoder.decode(TitleEntry.self, from: Data(line)),
+                  entry.type == "ai-title",
+                  let title = entry.aiTitle,
+                  !title.isEmpty
+            else { continue }
+            return title
+        }
+        return nil
+    }
+
+    private struct TitleEntry: Decodable {
+        let type: String?
+        let aiTitle: String?
+    }
+
     static func exists(atPath path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }
