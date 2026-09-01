@@ -6,22 +6,19 @@ Features we intend to build, in no particular order. This tracks what we want an
 
 Recommendations, not commitments. Reorder freely.
 
-**Start here.** State restoration comes before everything else: a notification that tells you to look at a task is worth less if switching to it disturbs what's running there.
+State restoration came first, on the reasoning that a notification telling you to look at a task is worth less if switching to it disturbs what's running there. That part is done: ~~**keeping terminals intact across task switches**~~ turned out to be worse than described — switching tasks killed the terminals outright. See the section below.
 
-1. ~~**Keep terminals intact across task switches.**~~ Done — and it was worse than described: switching tasks killed the terminals outright. See the section below.
-2. **Resume an existing conversation.** Today `--resume` only works for a session Plume started and captured. Listing what's in `~/.claude/projects/` and letting a tab attach to one closes the gap.
+**Small, self-contained, and each one is felt every day:**
 
-**Then these — small, self-contained, and each one is felt every day:**
-
-3. **⌘N opens a task in the current group.** One call site (`MainWindow.swift`) hardcodes ungrouped; `TaskStore.createTask` already takes a `group:`. Smallest real win on the list.
-4. **Terminal bell + a dot on tabs that rang one.** The wrapper already publishes `bellCount` / `lastBellAt`, and `TerminalSession` already mirrors published fields. Little more than wiring.
-5. **System notification on bell.** Once the bell signal exists, this is one `UNUserNotificationCenter` call and a permission prompt. Together with the two above it delivers most of "tell me when to look" for a fraction of the whole notifications section.
-6. ~~**Terminal focus when a tab is shown.**~~ Done alongside item 1, as that item predicted: `requestFocus()` on becoming visible.
-7. **⌘N defaults to the current directory.** Turns the common case into zero decisions, and doesn't depend on the larger directory rework below.
+1. **⌘N opens a task in the current group.** One call site (`MainWindow.swift`) hardcodes ungrouped; `TaskStore.createTask` already takes a `group:`. Smallest real win on the list.
+2. **Terminal bell + a dot on tabs that rang one.** The wrapper already publishes `bellCount` / `lastBellAt`, and `TerminalSession` already mirrors published fields. Little more than wiring.
+3. **System notification on bell.** Once the bell signal exists, this is one `UNUserNotificationCenter` call and a permission prompt. Together with the two above it delivers most of "tell me when to look" for a fraction of the whole notifications section.
+4. ~~**Terminal focus when a tab is shown.**~~ Done alongside the terminal work above, as it predicted: `requestFocus()` on becoming visible.
+5. **⌘N defaults to the current directory.** Turns the common case into zero decisions, and doesn't depend on the larger directory rework below.
 
 **Then the highest-value item on the list:**
 
-8. **Notify on Claude Code events, above all waiting-for-input.** This is the thing that makes parallel tasks actually parallel — right now a blocked agent waits silently. The signal already exists and already drives `needsInput`; only delivery is missing. Highest value per unit of work of anything here.
+6. **Notify on Claude Code events, above all waiting-for-input.** This is the thing that makes parallel tasks actually parallel — right now a blocked agent waits silently. The signal already exists and already drives `needsInput`; only delivery is missing. Highest value per unit of work of anything here.
 
 **Nearly done already:**
 
@@ -38,6 +35,8 @@ Recommendations, not commitments. Reorder freely.
 
 **After those:**
 
+- **Resume an existing conversation from a new agent tab.** `--resume` works today only for a session Plume started and captured in `tab.agentSessionID`. The transcripts are all on disk under `~/.claude/projects/`, so the work is listing them for the tab's directory and letting the user pick one — a picker plus the session ID write, since `AutoResumingAgentTabView` already handles the launch once an ID exists.
+- **Polish the plan view.** It should be as wide as the chat and share its background; today it's a fixed 420pt panel on `.regularMaterial`. Small, and it makes the plan actually readable.
 - **Queued messages.** Bigger than it sounds, because there is no queue today — the composer pastes straight into the PTY, so a message typed while the agent is working vanishes into Claude Code's edit line where Plume can't see it. Worth doing after the chat rendering items, since it needs somewhere trustworthy to *show* a pending message, and it pairs naturally with notifications: knowing a message is queued and knowing an agent went idle are the same question asked from two ends.
 
 **Also cheap, once you want them:**
@@ -103,6 +102,7 @@ Make the chat experience nicer than the terminal.
 - [ ] Stop showing injected content as if I wrote it. A skill's body, a slash command's expansion and its output all arrive as user lines and read as messages from me.
 - [ ] Queued messages — show what's waiting to go, and show it leaving when it does.
 - [ ] Git state in the statusline: commits ahead of and behind the tracked remote branch, and whether the tree is dirty.
+- [ ] Match the plan view to the chat — the same content width, and the same background.
 
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
@@ -125,6 +125,7 @@ Left for later:
 - `AskUserQuestion` and `ExitPlanMode` render as pretty-printed JSON today, like any other tool call — `ToolCallInputRendering` special-cases only `Bash`. Both payloads already carry everything a real rendering needs: `AskUserQuestion` gives `questions[]` with `header`, `question`, `multiSelect` and `options[]` of `label` + `description`, and `ExitPlanMode` gives `plan` (markdown, renderable by `MarkdownView` as-is) alongside the `planFilePath` the parser already tracks. Worth deciding how far to go: showing them well is a rendering change, but making the options *clickable* means sending the answer back, and the composer's send path is a paste into the terminal — it has no way to pick the third option of a running prompt. Read-only presentation is the honest first slice.
 - **Injected content renders as my messages.** `TranscriptParser` keys on `(entry.type, role)` alone and ignores `isMeta`, so every synthetic user line becomes a `.user` chat message: a skill's whole body (`Base directory for this skill: …`), `<command-name>`/`<command-message>` blocks, `<local-command-stdout>`, `<local-command-caveat>`, `<task-notification>` and `[Request interrupted by user]`. `isMeta: true` catches some of them — a skill body and the caveat block — but not all: a slash command's expansion and its stdout are both `isMeta: false`, so they need recognizing by their wrapper tags. These are worth *showing*, just not as prose in my voice; a skill invocation and a slash command are both things that happened, and a compact marker row reads better than either a raw dump or silence.
 - **Git state is the first thing here that needs Plume to run `git` itself.** The branch in the strip is free — it comes from the transcript's `gitBranch` field, written per line by Claude Code — but ahead/behind and dirty appear nowhere in the transcript or the statusline payload, and `~/.scripts/.claude/statusline.sh` doesn't show them either, so there's no reference behavior to match. One command covers all of it: `git status --porcelain=v2 --branch` reports `# branch.upstream` and `# branch.ab +3 -0` alongside the changed files, in about 30ms on this repo. `GitRunner.run` already shells out to `git` synchronously and surfaces stderr, so the call itself is done; what's new is deciding when to make it. Polling on a timer is the obvious approach and the easy one to get wrong — the answer changes on commits, fetches and edits, all of which happen outside Plume. `FileWatcher` on `.git/HEAD` and `.git/refs` would catch commits and branch switches but not working-tree edits, so a slow poll underneath a watcher is probably the honest combination. Worth deciding what to show with no upstream at all, which is the common case on a fresh worktree branch.
+- The plan view is a trailing overlay pinned to `.frame(width: 420)` on a `.regularMaterial` background, while the chat sizes its column from the font — `ChatMetrics.maxContentWidth` is `fontSize * 40`, so 640pt at the default size of 16. That's why the plan reads narrower than the messages beside it, and why its background reads as a floating panel rather than part of the chat. Sharing the chat's width means the same `ChatMetrics` call rather than a second constant, so the two stay together when the font size changes. Worth deciding whether it stays an overlay at that width or becomes a split beside the messages, since at 640pt an overlay covers most of the conversation it's pinned over.
 - **Queued messages** would need a real queue first — there isn't one. `ChatComposer.send()` clears the draft and calls `TerminalSession.submit(text:)`, which pastes and presses Enter straight into the PTY. Type while the agent is working and the text lands in Claude Code's own edit line, where Plume can't see it, can't show it, and can't take it back. So the work is a per-tab queue holding messages while the tab is busy and submitting them when it isn't. `Plume/Models/DraftStore.swift` is the shape to copy and already exists — `@MainActor @Observable`, keyed by tab ID, in memory only, forgotten by `TaskStore` on delete — but it stores the *unsent draft*, not a queue, and nothing gates the send on status. `StatusEngine` already knows busy from idle, which is the gate.
 - Knowing a queued message actually *went* is the subtle half. `submit` is fire-and-forget — the paste succeeding says nothing about Claude Code accepting it. The transcript is the real acknowledgement: a consumed message shows up as a genuine user line with a timestamp, so the queue can hold an entry as pending and mark it sent when a matching line appears. That also decides what to do when a message is typed straight into the terminal instead, and what happens to a queue whose tab is closed mid-flight.
 - Subagent status is best-effort: a subagent's own writes don't trigger the main transcript's watcher, so its freshness is bounded by main-transcript activity rather than watched per file.
