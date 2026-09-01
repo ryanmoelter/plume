@@ -189,7 +189,6 @@ struct SidebarView: View {
         let siblings = group.map(tasksFor) ?? ungroupedTasks
         let task = TaskStore.createTask(in: context, group: group, siblings: siblings)
         selection = task.id
-        renamingTaskID = task.id
     }
 }
 
