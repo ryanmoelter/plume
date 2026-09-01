@@ -144,6 +144,7 @@ struct ChatTabView: View {
                 .frame(maxWidth: maxWidth)
                 .frame(maxWidth: .infinity)
                 .padding(16)
+                .padding(.bottom, ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize)))
                 .id(bottomAnchorID)
             }
             .onScrollGeometryChange(for: CGFloat.self) { geometry in

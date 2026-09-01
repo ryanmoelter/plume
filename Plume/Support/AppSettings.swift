@@ -19,6 +19,7 @@ final class AppSettings {
         static let chatFontSize = "chatFontSize"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
+        static let composerSendKeyRaw = "composerSendKeyRaw"
     }
 
     /// 125% of the system `.body` size (13pt on macOS).
@@ -50,6 +51,9 @@ final class AppSettings {
         // Unset reads as false: an unattended OS-initiated restart or
         // shutdown should never stall on a modal nobody is there to dismiss.
         self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
+
+        self.composerSendKey = defaults.string(forKey: Key.composerSendKeyRaw)
+            .flatMap(ComposerSendKey.init(rawValue:)) ?? .commandReturn
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -117,4 +121,18 @@ final class AppSettings {
             defaults.set(confirmSystemInitiatedQuit, forKey: Key.confirmSystemInitiatedQuit)
         }
     }
+
+    /// Which key sends a chat message; the other key (with Shift) inserts a
+    /// newline instead. See `ChatComposer`'s doc comment for the reasoning
+    /// behind the default.
+    var composerSendKey: ComposerSendKey {
+        didSet {
+            defaults.set(composerSendKey.rawValue, forKey: Key.composerSendKeyRaw)
+        }
+    }
+}
+
+enum ComposerSendKey: String {
+    case returnKey
+    case commandReturn
 }

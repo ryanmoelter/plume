@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// The chat composer: multiline text, sending on ⌘↩ rather than plain ↩.
+/// The chat composer: multiline text, sending on a configurable key.
 ///
 /// A chat that sends on bare Return makes a half-typed multi-line message
 /// unrecoverable the instant you press it, where the terminal underneath
 /// would have just kept editing. ⌘↩ to send, ↩ to insert a newline, matches
-/// the terminal's own forgiveness.
+/// the terminal's own forgiveness — the default in `AppSettings.composerSendKey`.
+/// Whichever key sends, the other (with Shift) inserts a newline instead.
 struct ChatComposer: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -14,6 +15,7 @@ struct ChatComposer: View {
     @State private var message = ""
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
+    @State private var settings = AppSettings.shared
 
     private var canSend: Bool {
         !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -26,6 +28,7 @@ struct ChatComposer: View {
                 placeholder: "Message Claude…",
                 fontSize: fontSize,
                 isFocused: $inputFocused,
+                sendKey: settings.composerSendKey,
                 onSend: send
             )
             .padding(.horizontal, 6)
@@ -36,6 +39,8 @@ struct ChatComposer: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSend)
         }
+        .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize))
+        .frame(maxWidth: .infinity)
         .padding(10)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.

@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A fixed-height, WYSIWYM-styled multiline text editor for the chat
-/// composer.
+/// A WYSIWYM-styled multiline text editor for the chat composer.
 ///
 /// Wraps `NSTextView` because `TextField` cannot style ranges of its own
 /// text. `MarkdownHighlighter` finds the spans; this view only applies them
@@ -16,8 +15,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var placeholder: String
     var fontSize: CGFloat
     var isFocused: FocusState<Bool>.Binding
-    /// ⌘↩ sends; plain ↩ inserts a newline. See `ChatComposer`'s doc comment
-    /// for why that split exists.
+    var sendKey: ComposerSendKey
     var onSend: () -> Void
 
     static let minLines: CGFloat = 1
@@ -38,6 +36,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         let textView = view.composerTextView
         context.coordinator.onSend = onSend
         context.coordinator.placeholder = placeholder
+        textView.sendKey = sendKey
 
         if textView.string != text || context.coordinator.fontSize != fontSize {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
@@ -52,6 +51,15 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, isFocused: isFocused, onSend: onSend, placeholder: placeholder)
+    }
+
+    /// macOS 26's reliable seam for an `NSViewRepresentable`'s size: SwiftUI
+    /// does not treat AppKit's `intrinsicContentSize` as authoritative here,
+    /// so growth/shrink as content changes must come from this instead.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ScrollableComposerTextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? nsView.bounds.width
+        guard width > 0 else { return nil }
+        return CGSize(width: width, height: nsView.contentHeight(forWidth: width))
     }
 
     @MainActor
@@ -80,6 +88,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             if textView.string != text {
                 textView.string = text
             }
+            let bodyFont = NSFont.systemFont(ofSize: fontSize)
+            textView.font = bodyFont
+            textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             MarkdownComposerStyler.style(textView.textStorage!, text: text, fontSize: fontSize)
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
@@ -108,7 +119,6 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             focusBinding.wrappedValue = false
         }
 
-        /// ↩ inserts a newline (the text view's default); ⌘↩ sends instead.
         func handleSendShortcut() {
             onSend()
         }
@@ -116,13 +126,14 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 }
 
 /// Draws placeholder text directly rather than via a second overlay view,
-/// and routes ⌘↩ to the composer's send action while leaving every other
-/// key — plain Return included — to `NSTextView`'s default handling, which
-/// inserts a literal newline.
+/// and routes the configured send key to the composer's send action.
+/// Whichever key sends, that same key with Shift always inserts a literal
+/// newline — otherwise a multi-line message becomes impossible to type.
 final class ComposerNSTextView: NSTextView {
     var placeholderText: String? {
         didSet { needsDisplay = true }
     }
+    var sendKey: ComposerSendKey = .commandReturn
     weak var composerCoordinator: MarkdownComposerTextView.Coordinator?
 
     override func draw(_ dirtyRect: NSRect) {
@@ -137,9 +148,29 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 /* Return */, event.modifierFlags.contains(.command) {
-            composerCoordinator?.handleSendShortcut()
+        guard event.keyCode == 36 /* Return */ else {
+            super.keyDown(with: event)
             return
+        }
+
+        let isCommand = event.modifierFlags.contains(.command)
+        let isShift = event.modifierFlags.contains(.shift)
+
+        switch sendKey {
+        case .commandReturn:
+            if isCommand {
+                composerCoordinator?.handleSendShortcut()
+                return
+            }
+        case .returnKey:
+            if !isCommand, !isShift {
+                composerCoordinator?.handleSendShortcut()
+                return
+            }
+            if isShift, !isCommand {
+                insertNewline(self)
+                return
+            }
         }
         super.keyDown(with: event)
     }
@@ -191,27 +222,44 @@ final class ScrollableComposerTextView: NSView {
         ])
     }
 
-    /// Called when the text changes, since AppKit caches the intrinsic size
-    /// and will not re-ask on its own.
+    /// Called when the text changes, since SwiftUI only re-asks
+    /// `sizeThatFits` when something invalidates layout.
     func invalidateContentHeight() {
-        invalidateIntrinsicContentSize()
+        needsLayout = true
     }
 
-    override var intrinsicContentSize: NSSize {
-        let lineHeight = composerTextView.font?.boundingRectForFont.height ?? 16
-        let insets = composerTextView.textContainerInset.height * 2
+    /// The height for `width`, clamped between `minLines` and `maxLines`.
+    ///
+    /// `NSLayoutManager.usedRect` only reflects wrapping done at the text
+    /// container's *current* width, which — before this view has been given
+    /// its final SwiftUI-proposed width — can be stale or zero and reports a
+    /// wildly wrong (often much taller) wrapped height. Setting the
+    /// container's width explicitly before measuring is what makes this
+    /// correct independent of AutoLayout's pass order.
+    func contentHeight(forWidth width: CGFloat) -> CGFloat {
+        let font = composerTextView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        let lineHeight = font.boundingRectForFont.height
+        let inset = composerTextView.textContainerInset
+        let insets = inset.height * 2
         let minHeight = lineHeight * MarkdownComposerTextView.minLines + insets
         let maxHeight = lineHeight * MarkdownComposerTextView.maxLines + insets
 
-        // usedRect is only valid once layout has run for the whole container.
-        guard let layoutManager = composerTextView.layoutManager,
-              let container = composerTextView.textContainer
-        else {
-            return NSSize(width: NSView.noIntrinsicMetric, height: minHeight)
-        }
-        layoutManager.ensureLayout(for: container)
-        let used = layoutManager.usedRect(for: container).height + insets
+        guard let storage = composerTextView.textStorage else { return minHeight }
 
-        return NSSize(width: NSView.noIntrinsicMetric, height: min(max(used, minHeight), maxHeight))
+        // Measured in a throwaway layout stack rather than the live one: the
+        // view's own container tracks its width, so resizing it here to ask a
+        // question would fight the layout it is being asked about.
+        let container = NSTextContainer(
+            size: NSSize(width: max(0, width - inset.width * 2), height: .greatestFiniteMagnitude)
+        )
+        container.lineFragmentPadding = composerTextView.textContainer?.lineFragmentPadding ?? 0
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(container)
+        let measured = NSTextStorage(attributedString: storage)
+        measured.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+
+        let used = layoutManager.usedRect(for: container).height + insets
+        return min(max(used, minHeight), maxHeight)
     }
 }

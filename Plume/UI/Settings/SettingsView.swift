@@ -57,11 +57,20 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 44, alignment: .trailing)
                 }
+
+                Picker("Send message with", selection: $settings.composerSendKey) {
+                    Text("⌘Return").tag(ComposerSendKey.commandReturn)
+                    Text("Return").tag(ComposerSendKey.returnKey)
+                }
             } header: {
-                Text("Chat Text Size")
+                Text("Chat")
             } footer: {
-                Text("Sets the prose size in the chat view — messages, tool calls, and thinking blocks scale together.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Text size sets the prose size in the chat view — messages, tool calls, " +
+                    "and thinking blocks scale together. The other key inserts a newline " +
+                    "instead of sending, so a half-typed multi-line message stays editable."
+                )
+                .foregroundStyle(.secondary)
             }
 
             Section {

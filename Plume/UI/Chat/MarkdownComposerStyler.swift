@@ -20,9 +20,14 @@ enum MarkdownComposerStyler {
             .foregroundColor: NSColor.labelColor,
         ], range: fullRange)
 
-        for span in MarkdownHighlighter.spans(in: text) {
+        let spans = MarkdownHighlighter.spans(in: text)
+        for span in spans {
             guard fullRange.contains(span.range) || span.range.length == 0 else { continue }
             apply(span, to: storage, bodyFontSize: fontSize)
+        }
+        for span in spans {
+            guard fullRange.contains(span.range) || span.range.length == 0 else { continue }
+            applyParagraphStyle(span, to: storage, text: text as NSString, bodyFontSize: fontSize)
         }
         storage.endEditing()
     }
@@ -52,6 +57,44 @@ enum MarkdownComposerStyler {
 
         if isMarkerOnly(span.style) {
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+        }
+    }
+
+    /// Block-level layout — hanging indents for lists and quotes, padding
+    /// and spacing for code blocks, spacing above headings — via
+    /// `NSParagraphStyle`. A paragraph style applies to the whole paragraph
+    /// it's set on regardless of the range it's set with, so ranges here are
+    /// always expanded to full paragraph boundaries first.
+    private static func applyParagraphStyle(
+        _ span: MarkdownHighlighter.Span,
+        to storage: NSTextStorage,
+        text ns: NSString,
+        bodyFontSize: CGFloat
+    ) {
+        switch span.style {
+        case .listMarker, .blockQuote:
+            let indent = bodyFontSize * 1.4
+            let style = NSMutableParagraphStyle()
+            style.firstLineHeadIndent = 0
+            style.headIndent = indent
+            storage.addAttribute(.paragraphStyle, value: style, range: ns.paragraphRange(for: span.range))
+
+        case .codeBlock:
+            let padding = bodyFontSize * 0.6
+            let style = NSMutableParagraphStyle()
+            style.firstLineHeadIndent = padding
+            style.headIndent = padding
+            style.paragraphSpacingBefore = bodyFontSize * 0.3
+            style.paragraphSpacing = bodyFontSize * 0.3
+            storage.addAttribute(.paragraphStyle, value: style, range: span.range)
+
+        case .heading:
+            let style = NSMutableParagraphStyle()
+            style.paragraphSpacingBefore = bodyFontSize * 0.4
+            storage.addAttribute(.paragraphStyle, value: style, range: ns.paragraphRange(for: span.range))
+
+        default:
+            break
         }
     }
 

@@ -34,6 +34,20 @@ struct AppSettingsTests {
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.providerID == "codex")
     }
+
+    @Test func composerSendKeyDefaultsToCommandReturn() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.composerSendKey == .commandReturn)
+    }
+
+    @Test func composerSendKeyPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.composerSendKey = .returnKey
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.composerSendKey == .returnKey)
+    }
 }
 
 @MainActor
