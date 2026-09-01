@@ -3,6 +3,8 @@ import SwiftData
 
 @main
 struct PlumeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     let modelContainer: ModelContainer = {
         let schema = Schema([TaskGroup.self, WorkTask.self, TaskTab.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
