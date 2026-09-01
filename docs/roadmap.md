@@ -151,11 +151,14 @@ What exists:
 
 What exists: `TaskStore.createTask` already takes a `group:`, and the sidebar's "New Task in Group" passes it. ⌘N is the one call site that hardcodes ungrouped (`MainWindow.swift`). `TaskGroup` has no color or icon field yet.
 
-## Color palette
+## Colors and fonts
 
 - [ ] Default to Lum. The full palette is in the dotfiles at `colors/lum.css` — use that, not just the simplified terminal palette.
 - [ ] Preload other palettes: solarized, monokai, catppuccin, and other popular open-source ones.
 - [ ] Support custom palettes, with light and dark.
+- [ ] Choose the fonts — chat prose and code separately from the terminal — and maybe bundle a few good defaults.
+
+Fonts sit alongside this, and the two halves of the app treat them differently. The terminal takes its font from the user's ghostty config, which is right — it should keep matching their terminal. The chat hardcodes `.system` for prose and `.monospaced` for code in `MarkdownView`, `ChatMessageRow` and `MarkdownComposerStyler`; only the *size* is configurable (`AppSettings.chatFontSize`, clamped 11–28). So the work is a family setting to sit beside the size, threaded the same way through the environment, with prose and code chosen separately — a proportional body font next to a monospaced code font is the point, not one setting for both. Bundling is a separate decision: shipping a font means honoring its license and adding it to the bundle, so it's worth confirming a chosen face allows redistribution before assuming it can ship. Defaulting to the terminal's configured font for code, and the system font for prose, is a reasonable starting point that needs no bundling at all.
 
 What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar and tab strip from the user's resolved ghostty theme, and `Color(hex:)` exists, so this extends a theming layer rather than starting one. Lum in `lum.css` is a 14-hue × 8-tone system whose tone names already split light from dark (`-28`/`-35`/`-on-dark` vs `-93`/`-97`/`-on-light`/`-on-white`) — richer than the 16-color ghostty theme, and a good fit for group and task colors.
 
