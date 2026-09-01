@@ -42,17 +42,44 @@ struct TabContentView: View {
                 AgentFirstMessageView(task: task, tab: tab)
             }
         } else {
-            TerminalTabView(session: terminalSession(for: tab))
+            TerminalTabHost(task: task, tab: tab)
         }
     }
+}
 
-    private func terminalSession(for tab: TaskTab) -> TerminalSession {
-        SurfaceManager.shared.session(
-            for: tab.id,
-            options: TerminalSurfaceOptions(
-                workingDirectory: task.workingDirectoryPath,
-                command: LoginShellCommand.loginShell()
+/// Owns one terminal tab's session, so the surface lookup and the title
+/// reporting happen outside `body`.
+///
+/// Both write shared state — `SurfaceManager`'s task association and
+/// `TitleStore`'s titles — and a write to `@Observable` state during a body
+/// evaluation invalidates the very view being rendered, which spins the
+/// render loop.
+private struct TerminalTabHost: View {
+    let task: WorkTask
+    let tab: TaskTab
+
+    @State private var session: TerminalSession?
+
+    var body: some View {
+        Group {
+            if let session {
+                TerminalTabView(session: session)
+                    .onChange(of: session.title, initial: true) { _, title in
+                        TitleStore.shared.setTitle(title, forTab: tab.id)
+                    }
+            } else {
+                Color.clear
+            }
+        }
+        .onAppear {
+            guard session == nil else { return }
+            session = SurfaceManager.shared.session(
+                for: tab.id,
+                options: TerminalSurfaceOptions(
+                    workingDirectory: task.workingDirectoryPath,
+                    command: LoginShellCommand.loginShell()
+                )
             )
-        )
+        }
     }
 }
