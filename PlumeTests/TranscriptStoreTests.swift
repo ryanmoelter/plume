@@ -89,6 +89,36 @@ struct TranscriptStoreTests {
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
     }
 
+    /// `watch` is called again on every hook event for a tab. Re-reading on
+    /// those calls bypassed the debounce and kept a core busy re-parsing a
+    /// file nothing had written to.
+    @Test func rewatchingTheSamePathDoesNotReparse() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "session.jsonl")
+        write(userLine("first"), to: url)
+
+        let store = TranscriptStore(debounce: .milliseconds(50))
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: url.path)
+        #expect(store.transcript(forTab: tab)?.messages.count == 1)
+
+        // Change the file behind the store's back, then re-watch the same
+        // path. A re-parse here would pick the new line up immediately.
+        write(userLine("first") + "\n" + userLine("second"), to: url)
+        for _ in 0..<20 {
+            store.watch(tabID: tab, transcriptPath: url.path)
+        }
+        #expect(
+            store.transcript(forTab: tab)?.messages.count == 1,
+            "re-watching the same path re-parsed instead of leaving it to the watcher"
+        )
+
+        // The watcher still delivers it, on the debounce.
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 2 }
+        #expect(store.transcript(forTab: tab)?.messages.count == 2)
+    }
+
     @Test func stopWatchingDropsTheTranscript() {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }

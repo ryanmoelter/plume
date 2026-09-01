@@ -109,16 +109,20 @@ struct ChatMessageRow: View {
 /// prose rather than a status list.
 private struct WorkingIndicator: View {
     @Environment(\.chatFontSize) private var chatFontSize
-    @State private var pulsing = false
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(.blue)
                 .frame(width: 7, height: 7)
-                .opacity(pulsing ? 0.3 : 1)
-                .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
-                .onAppear { pulsing = true }
+                // `phaseAnimator` rather than state toggled from `onAppear`:
+                // rows are recycled as they scroll, and a state-driven pulse
+                // restarts its animation on every remount.
+                .phaseAnimator([1.0, 0.3]) { view, opacity in
+                    view.opacity(opacity)
+                } animation: { _ in
+                    .easeInOut(duration: 0.7)
+                }
             Text("Working…")
                 .font(.system(size: chatFontSize * 0.8))
                 .foregroundStyle(.secondary)

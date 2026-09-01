@@ -40,10 +40,11 @@ final class TranscriptStore {
     /// holds. Re-pointing a tab at a different transcript (a `/clear` gives
     /// it a new session file) replaces the watch.
     func watch(tabID: UUID, transcriptPath: String) {
-        guard paths[tabID] != transcriptPath else {
-            read(tabID: tabID)
-            return
-        }
+        // Already watching this exact file, so the watcher is what reports
+        // changes. Re-reading here would bypass the debounce, and this is
+        // called again on every hook event for the tab — enough to keep a
+        // core busy re-parsing a file nothing has written to.
+        guard paths[tabID] != transcriptPath else { return }
 
         stopWatching(tabID: tabID)
         paths[tabID] = transcriptPath
