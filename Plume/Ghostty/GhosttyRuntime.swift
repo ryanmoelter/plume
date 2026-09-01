@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyTerminal
+import GhosttyTheme
 import Observation
 import os // Logger string interpolation
 
@@ -20,6 +21,12 @@ final class GhosttyRuntime {
     /// the wrapper's built-in defaults are in use.
     private(set) var loadedConfigPath: String?
 
+    /// The same theme resolution passed to the controller, kept in its raw
+    /// form so SwiftUI chrome can read the background/foreground hex —
+    /// `TerminalConfiguration` (what the controller takes) exposes no
+    /// accessors to get them back out.
+    private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions?
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
@@ -35,10 +42,16 @@ final class GhosttyRuntime {
         if let loadedConfigPath,
            let contents = try? String(contentsOfFile: loadedConfigPath, encoding: .utf8) {
             let themesDirectory = GhosttyConfigLoader.themesDirectory(forConfigPath: loadedConfigPath)
-            if let theme = GhosttyThemeResolver.resolveTheme(
+            resolvedThemeDefinitions = GhosttyThemeResolver.resolveDefinitions(
                 configContents: contents,
                 userThemesDirectory: themesDirectory
-            ) {
+            )
+            if let theme = resolvedThemeDefinitions.map({
+                TerminalTheme(
+                    light: $0.light?.toTerminalConfiguration() ?? .init(),
+                    dark: $0.dark?.toTerminalConfiguration() ?? .init()
+                )
+            }) {
                 resolvedTheme = theme
             }
         }

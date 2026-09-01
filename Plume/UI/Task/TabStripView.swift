@@ -3,6 +3,7 @@ import SwiftData
 
 struct TabStripView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var task: WorkTask
 
     var body: some View {
@@ -11,6 +12,7 @@ struct TabStripView: View {
                 TabChip(
                     tab: tab,
                     isSelected: task.selectedTabID == tab.id,
+                    themeForeground: ThemeChrome.foreground(for: colorScheme),
                     select: { task.selectedTabID = tab.id },
                     close: { TaskStore.closeTab(tab, in: context) }
                 )
@@ -32,12 +34,16 @@ struct TabStripView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .themeTint(colorScheme: colorScheme)
     }
 }
 
 private struct TabChip: View {
     let tab: TaskTab
     let isSelected: Bool
+    /// The theme's resolved foreground, when a theme is tinting the strip.
+    /// Nil means default chrome, so text/icons keep the system foreground.
+    let themeForeground: Color?
     let select: () -> Void
     let close: () -> Void
 
@@ -61,11 +67,22 @@ private struct TabChip: View {
             .allowsHitTesting(isHovering)
             .help("Close tab")
         }
+        .foregroundStyle(themeForeground ?? .primary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+        .background(chipBackground, in: .rect(cornerRadius: 6))
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
+    }
+
+    /// `.selection` reads as a native system tint, which disappears against a
+    /// custom theme background; a translucent wash of the theme's own
+    /// foreground stays legible in both themes.
+    private var chipBackground: AnyShapeStyle {
+        guard let themeForeground else {
+            return isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear)
+        }
+        return AnyShapeStyle(themeForeground.opacity(isSelected ? 0.22 : (isHovering ? 0.1 : 0)))
     }
 }

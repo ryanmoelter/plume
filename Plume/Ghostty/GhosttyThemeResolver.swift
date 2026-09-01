@@ -26,6 +26,14 @@ enum GhosttyThemeResolver {
         var isEmpty: Bool { light == nil && dark == nil }
     }
 
+    /// One resolved theme definition per color scheme. A theme naming only
+    /// one mode reuses that definition for the other, matching ghostty's own
+    /// single-name `theme = X` behavior.
+    struct ResolvedDefinitions: Equatable {
+        var light: GhosttyThemeDefinition?
+        var dark: GhosttyThemeDefinition?
+    }
+
     /// Reads `configContents` for its last `theme = ...` line and resolves
     /// the named theme(s) against the built-in catalog, then a directory of
     /// user theme files. Returns nil if no `theme` directive is present or
@@ -35,6 +43,29 @@ enum GhosttyThemeResolver {
         userThemesDirectory: String,
         readThemeFile: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }
     ) -> TerminalTheme? {
+        guard let definitions = resolveDefinitions(
+            configContents: configContents,
+            userThemesDirectory: userThemesDirectory,
+            readThemeFile: readThemeFile
+        ) else {
+            return nil
+        }
+
+        return TerminalTheme(
+            light: definitions.light?.toTerminalConfiguration() ?? .init(),
+            dark: definitions.dark?.toTerminalConfiguration() ?? .init()
+        )
+    }
+
+    /// Same resolution as `resolveTheme`, but returns the raw definitions
+    /// instead of libghostty's opaque `TerminalConfiguration` — the only way
+    /// to read a resolved theme's colors back out, since `TerminalConfiguration`
+    /// exposes no accessors of its own.
+    static func resolveDefinitions(
+        configContents: String,
+        userThemesDirectory: String,
+        readThemeFile: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> ResolvedDefinitions? {
         guard let names = parseThemeDirective(configContents), !names.isEmpty else {
             return nil
         }
@@ -48,15 +79,7 @@ enum GhosttyThemeResolver {
 
         guard light != nil || dark != nil else { return nil }
 
-        // A theme naming only one mode reuses that definition for the other,
-        // matching ghostty's own single-name `theme = X` behavior.
-        let resolvedLight = light ?? dark
-        let resolvedDark = dark ?? light
-
-        return TerminalTheme(
-            light: resolvedLight?.toTerminalConfiguration() ?? .init(),
-            dark: resolvedDark?.toTerminalConfiguration() ?? .init()
-        )
+        return ResolvedDefinitions(light: light ?? dark, dark: dark ?? light)
     }
 
     /// Parses ghostty's `theme` directive value, in either the plain

@@ -3,6 +3,7 @@ import SwiftData
 
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: UUID?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
@@ -44,6 +45,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .themeTint(colorScheme: colorScheme)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         .toolbar {
             ToolbarItem {

@@ -144,6 +144,36 @@ struct GhosttyThemeResolverTests {
         #expect(theme == nil)
     }
 
+    // MARK: - resolveDefinitions
+
+    @Test func resolveDefinitionsReturnsRawHexForBothModes() {
+        let lightContents = "background = fffbf7\nforeground = 4e463f\n"
+        let darkContents = "background = 211a14\nforeground = f6ece4\n"
+
+        let definitions = GhosttyThemeResolver.resolveDefinitions(
+            configContents: #"theme = dark:"Lum dark",light:"Lum light""#,
+            userThemesDirectory: "/fake/themes"
+        ) { path in
+            switch path {
+            case "/fake/themes/Lum light": lightContents
+            case "/fake/themes/Lum dark": darkContents
+            default: nil
+            }
+        }
+
+        #expect(definitions?.light?.background == "fffbf7")
+        #expect(definitions?.dark?.background == "211a14")
+    }
+
+    @Test func resolveDefinitionsReturnsNilWithoutThemeDirective() {
+        let definitions = GhosttyThemeResolver.resolveDefinitions(
+            configContents: "font-family = \"Cascadia Code\"",
+            userThemesDirectory: "/fake/themes"
+        ) { _ in nil }
+
+        #expect(definitions == nil)
+    }
+
     @Test func singleNameAppliesToBothModesWhenSplitFormOmitsOne() {
         let contents = "background = 101010\nforeground = f0f0f0\n"
         let theme = GhosttyThemeResolver.resolveTheme(
