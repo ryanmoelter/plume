@@ -14,6 +14,9 @@ struct Transcript {
     /// Whether the file still exists is a filesystem question, not something
     /// this records — a path here does not imply the file is on disk.
     var planFilePath: String?
+    /// The session's current permission mode, from the latest
+    /// `permission-mode` line.
+    var permissionMode: String?
 }
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
@@ -89,6 +92,7 @@ enum TranscriptParser {
             if let cwd = entry.cwd { transcript.cwd = cwd }
             if let sessionID = entry.sessionId { transcript.sessionID = sessionID }
             if let planFilePath = entry.attachment?.planFilePath { transcript.planFilePath = planFilePath }
+            if let permissionMode = entry.permissionMode { transcript.permissionMode = permissionMode }
 
             guard let message = entry.message, let role = message.role else { continue }
             let contentBlocks = message.content?.blocks ?? []

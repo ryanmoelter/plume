@@ -21,6 +21,7 @@ struct StatuslineStripView: View {
     let model: String?
     let effort: String?
     let branch: String?
+    let permissionMode: String?
 
     // Capture-derived — nil segments are simply omitted.
     let payload: StatuslinePayload?
@@ -29,6 +30,10 @@ struct StatuslineStripView: View {
     // read-only, so every existing preview and call site is unaffected.
     var onSelectModel: ((AgentModel) -> Void)?
     var onSelectEffort: ((AgentEffort) -> Void)?
+    /// Advances the session one permission mode. Not a setter: Claude Code
+    /// only steps through the modes, so the strip offers the step and shows
+    /// where the session landed.
+    var onCyclePermissionMode: (() -> Void)?
 
     init(
         contextUsedTokens: Int? = nil,
@@ -36,18 +41,22 @@ struct StatuslineStripView: View {
         model: String? = nil,
         effort: String? = nil,
         branch: String? = nil,
+        permissionMode: String? = nil,
         payload: StatuslinePayload? = nil,
         onSelectModel: ((AgentModel) -> Void)? = nil,
-        onSelectEffort: ((AgentEffort) -> Void)? = nil
+        onSelectEffort: ((AgentEffort) -> Void)? = nil,
+        onCyclePermissionMode: (() -> Void)? = nil
     ) {
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.model = model
         self.effort = effort
         self.branch = branch
+        self.permissionMode = permissionMode
         self.payload = payload
         self.onSelectModel = onSelectModel
         self.onSelectEffort = onSelectEffort
+        self.onCyclePermissionMode = onCyclePermissionMode
     }
 
     private var themeForeground: Color? {
@@ -69,6 +78,7 @@ struct StatuslineStripView: View {
             if let branch, !branch.isEmpty {
                 branchSegment(branch)
             }
+            permissionModeSegment
             modelSegment
             Spacer(minLength: 0)
         }
@@ -124,6 +134,26 @@ struct StatuslineStripView: View {
                 .truncationMode(.middle)
         }
         .foregroundStyle(foreground(for: .neutral))
+    }
+
+    /// A mode this UI does not offer still shows its reported name — better a
+    /// truthful unfamiliar label than a familiar wrong one.
+    @ViewBuilder
+    private var permissionModeSegment: some View {
+        if let permissionMode, !permissionMode.isEmpty {
+            let label = PermissionMode.recognizing(permissionMode)?.label ?? permissionMode
+            let attention = permissionModeAttention(permissionMode)
+            if let onCyclePermissionMode {
+                Button(action: onCyclePermissionMode) {
+                    segmentLabel(label, attention: attention)
+                }
+                .buttonStyle(.plain)
+                .help("Next permission mode (⇧⇥)")
+            } else {
+                Text(label)
+                    .foregroundStyle(foreground(for: attention))
+            }
+        }
     }
 
     @ViewBuilder
@@ -196,6 +226,12 @@ struct StatuslineStripView: View {
         case "xhigh", "max": return .yellow
         default: return .neutral
         }
+    }
+
+    /// Bypassing every permission check is worth flagging; the rest are
+    /// ordinary working modes.
+    private func permissionModeAttention(_ mode: String) -> StatuslineAttention {
+        PermissionMode.recognizing(mode) == .bypassPermissions ? .red : .neutral
     }
 
     private func percentage(used: Int?, max: Int?) -> Double? {

@@ -83,4 +83,26 @@ struct ClaudeCodeProviderTests {
         )
         #expect(launch.command == loginWrapped("claude --resume 'abc-123'"))
     }
+
+    @Test func permissionModePrecedesResumeAndMessage() {
+        let launch = provider.launchCommand(
+            firstMessage: "go",
+            resumeSessionID: "abc-123",
+            taskID: nil,
+            tabID: nil,
+            permissionMode: .plan
+        )
+        #expect(launch.command == loginWrapped("claude --permission-mode plan --resume 'abc-123' 'go'"))
+    }
+
+    @Test func noPermissionModeLeavesTheFlagOff() {
+        let launch = provider.launchCommand(
+            firstMessage: "go",
+            resumeSessionID: nil,
+            taskID: nil,
+            tabID: nil,
+            permissionMode: nil
+        )
+        #expect(launch.command == loginWrapped("claude 'go'"))
+    }
 }

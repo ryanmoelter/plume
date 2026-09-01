@@ -30,7 +30,8 @@ enum AgentLauncher {
             firstMessage: message,
             resumeSessionID: resumeSessionID,
             taskID: settingsPath == nil ? nil : task.id,
-            tabID: settingsPath == nil ? nil : tab.id
+            tabID: settingsPath == nil ? nil : tab.id,
+            permissionMode: task.permissionMode
         )
 
         if settingsPath != nil {

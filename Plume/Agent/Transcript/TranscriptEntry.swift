@@ -50,11 +50,15 @@ struct TranscriptEntry: Decodable {
     let gitBranch: String?
     let effort: String?
     let sessionId: String?
+    /// Set only on `permission-mode` lines, which Claude Code writes on every
+    /// change of mode.
+    let permissionMode: String?
     let message: TranscriptMessage?
     let attachment: TranscriptAttachment?
 
     enum CodingKeys: String, CodingKey {
         case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
+        case permissionMode
         case attachment
     }
 
@@ -69,6 +73,7 @@ struct TranscriptEntry: Decodable {
         gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
         effort = try container.decodeIfPresent(String.self, forKey: .effort)
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
         attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
 

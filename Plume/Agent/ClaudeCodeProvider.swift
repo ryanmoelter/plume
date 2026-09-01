@@ -21,13 +21,19 @@ struct ClaudeCodeProvider: AgentProvider {
         firstMessage: String?,
         resumeSessionID: String?,
         taskID: UUID?,
-        tabID: UUID?
+        tabID: UUID?,
+        permissionMode: PermissionMode? = nil
     ) -> AgentLaunch {
         var arguments = ["claude"]
 
         if let settingsPath {
             arguments.append("--settings")
             arguments.append(shellQuoted(settingsPath))
+        }
+
+        if let permissionMode {
+            arguments.append("--permission-mode")
+            arguments.append(permissionMode.token)
         }
 
         if let resumeSessionID, !resumeSessionID.isEmpty {

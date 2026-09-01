@@ -18,11 +18,12 @@ struct WorkspacePickerView: View {
     @State private var worktreeSheetShown = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 14) {
             folderChip
             if task.repoPath != nil {
                 worktreeChip
             }
+            permissionModeChip
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -88,6 +89,33 @@ struct WorkspacePickerView: View {
         return (path as NSString).lastPathComponent
     }
 
+    // MARK: - Permission mode
+
+    /// Only settable before launch: `--permission-mode` is a launch flag, and
+    /// a running session changes mode from the statusline strip instead.
+    private var permissionModeChip: some View {
+        chip(isEditable: isEditable) {
+            Menu {
+                Button("Default") { task.permissionMode = nil }
+                Divider()
+                ForEach(PermissionMode.allCases) { mode in
+                    Button(mode.label) { task.permissionMode = mode }
+                }
+            } label: {
+                permissionModeLabel
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        } readOnly: {
+            permissionModeLabel
+        }
+        .help("Permission mode for new sessions")
+    }
+
+    private var permissionModeLabel: some View {
+        Label(task.permissionMode?.label ?? "Default", systemImage: "lock.shield")
+    }
+
     // MARK: - Worktree
 
     private var worktreeChip: some View {
@@ -109,7 +137,7 @@ struct WorkspacePickerView: View {
     }
 
     private var worktreeLabel: some View {
-        Label(worktreeName, systemImage: "arrow.triangle.branch")
+        Label(worktreeName, systemImage: "tree")
     }
 
     private var worktreeName: String {

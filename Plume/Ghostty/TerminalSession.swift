@@ -96,6 +96,16 @@ final class TerminalSession {
         state.sendKey(.enter)
     }
 
+    /// Advances Claude Code to its next permission mode.
+    ///
+    /// Claude Code has no command that *sets* a mode — `--permission-mode` is
+    /// a launch flag, and a running session only steps through the modes on
+    /// Shift+Tab. So this advances by one; the transcript reports where it
+    /// landed.
+    func cyclePermissionMode() {
+        state.sendKey(.tab, modifiers: .shift)
+    }
+
     /// Hands back the same view on every remount, so the surface it owns
     /// survives. A reused view may still be parented if SwiftUI mounted the
     /// new host before unmounting the old one; AppKit would reparent it

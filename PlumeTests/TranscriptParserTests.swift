@@ -256,4 +256,21 @@ struct TranscriptParserTests {
 
         #expect(transcript.messages.count == 1)
     }
+
+    @Test func latestPermissionModeWins() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"permission-mode","permissionMode":"plan","isSidechain":false}"#,
+            #"{"type":"permission-mode","permissionMode":"auto","isSidechain":false}"#,
+        ]))
+
+        #expect(transcript.permissionMode == "auto")
+    }
+
+    @Test func noPermissionModeLineLeavesItUnset() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"permission-mode","isSidechain":false}"#,
+        ]))
+
+        #expect(transcript.permissionMode == nil)
+    }
 }

@@ -15,6 +15,9 @@ final class WorkTask {
     var workingDirectoryPath: String?
     var repoPath: String?
     var branchName: String?
+    /// Nil launches `claude` without `--permission-mode`, leaving the CLI's
+    /// own default in charge rather than asserting one.
+    var permissionModeRaw: String?
 
     /// Snapshot so the sidebar can show badges before any agent process is live.
     var lastStatusRaw: String = TaskStatus.unset.rawValue
@@ -36,6 +39,11 @@ final class WorkTask {
         self.orderIndex = orderIndex
         self.createdAt = Date()
         self.group = group
+    }
+
+    var permissionMode: PermissionMode? {
+        get { permissionModeRaw.flatMap(PermissionMode.init(rawValue:)) }
+        set { permissionModeRaw = newValue?.rawValue }
     }
 
     var workspaceKind: WorkspaceKind {
