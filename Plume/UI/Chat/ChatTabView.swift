@@ -44,7 +44,13 @@ struct ChatTabView: View {
                         model: transcript.model,
                         effort: transcript.effort,
                         branch: transcript.gitBranch,
-                        payload: StatuslineStore.shared.payload(forTab: tab.id)
+                        payload: StatuslineStore.shared.payload(forTab: tab.id),
+                        onSelectModel: SurfaceManager.shared.existingSession(for: tab.id).map { session in
+                            { session.submit(text: ModelEffortCommand.setModel($0)) }
+                        },
+                        onSelectEffort: SurfaceManager.shared.existingSession(for: tab.id).map { session in
+                            { session.submit(text: ModelEffortCommand.setEffort($0)) }
+                        }
                     )
                     if let planFilePath {
                         planButton(path: planFilePath)

@@ -9,6 +9,9 @@ import Foundation
 /// store. Context/model/effort/branch are transcript-derived and available
 /// even with statusline capture off; quota and cost only exist in a captured
 /// payload, so those segments render only when one is supplied.
+///
+/// The model and effort segments become pickers when `onSelectModel`/
+/// `onSelectEffort` are supplied; otherwise they render read-only as before.
 struct StatuslineStripView: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -22,13 +25,20 @@ struct StatuslineStripView: View {
     // Capture-derived — nil segments are simply omitted.
     let payload: StatuslinePayload?
 
+    // Turns the model/effort segments into pickers. Nil keeps them
+    // read-only, so every existing preview and call site is unaffected.
+    var onSelectModel: ((AgentModel) -> Void)?
+    var onSelectEffort: ((AgentEffort) -> Void)?
+
     init(
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         model: String? = nil,
         effort: String? = nil,
         branch: String? = nil,
-        payload: StatuslinePayload? = nil
+        payload: StatuslinePayload? = nil,
+        onSelectModel: ((AgentModel) -> Void)? = nil,
+        onSelectEffort: ((AgentEffort) -> Void)? = nil
     ) {
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
@@ -36,6 +46,8 @@ struct StatuslineStripView: View {
         self.effort = effort
         self.branch = branch
         self.payload = payload
+        self.onSelectModel = onSelectModel
+        self.onSelectEffort = onSelectEffort
     }
 
     private var themeForeground: Color? {
@@ -120,17 +132,59 @@ struct StatuslineStripView: View {
         let displayEffort = effort ?? payload?.effort?.level
         if let displayModel, !displayModel.isEmpty {
             HStack(spacing: 4) {
-                Text(displayModel)
+                modelPicker(displayModel)
                 if let displayEffort, !displayEffort.isEmpty {
-                    Text(displayEffort)
-                        .foregroundStyle(foreground(for: effortAttention(displayEffort)))
+                    effortPicker(displayEffort)
                 }
             }
-            .foregroundStyle(foreground(for: .neutral))
         } else if let displayEffort, !displayEffort.isEmpty {
+            effortPicker(displayEffort)
+        }
+    }
+
+    @ViewBuilder
+    private func modelPicker(_ displayModel: String) -> some View {
+        if let onSelectModel {
+            Menu {
+                ForEach(AgentModel.allCases) { option in
+                    Button(option.label) { onSelectModel(option) }
+                }
+            } label: {
+                segmentLabel(displayModel, attention: .neutral)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        } else {
+            Text(displayModel)
+                .foregroundStyle(foreground(for: .neutral))
+        }
+    }
+
+    @ViewBuilder
+    private func effortPicker(_ displayEffort: String) -> some View {
+        if let onSelectEffort {
+            Menu {
+                ForEach(AgentEffort.allCases) { option in
+                    Button(option.label) { onSelectEffort(option) }
+                }
+            } label: {
+                segmentLabel(displayEffort, attention: effortAttention(displayEffort))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        } else {
             Text(displayEffort)
                 .foregroundStyle(foreground(for: effortAttention(displayEffort)))
         }
+    }
+
+    private func segmentLabel(_ text: String, attention: StatuslineAttention) -> some View {
+        HStack(spacing: 2) {
+            Text(text)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8))
+        }
+        .foregroundStyle(foreground(for: attention))
     }
 
     // MARK: - Helpers
@@ -257,6 +311,19 @@ private struct MeterView: View {
             model: .init(displayName: "Opus 5 (1M)"),
             effort: .init(level: "max")
         )
+    )
+    .frame(width: 640)
+}
+
+#Preview("Pickers active") {
+    StatuslineStripView(
+        contextUsedTokens: 82_000,
+        contextMaxTokens: 200_000,
+        model: "sonnet",
+        effort: "medium",
+        branch: "ryanm/native-chat-ui",
+        onSelectModel: { _ in },
+        onSelectEffort: { _ in }
     )
     .frame(width: 640)
 }
