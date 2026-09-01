@@ -47,6 +47,42 @@ enum GhosttyConfigLoader {
         return resolved.deletingLastPathComponent().appendingPathComponent("themes").path
     }
 
+    /// The user's config with every `theme` directive removed, ready to hand
+    /// to libghostty as generated contents.
+    ///
+    /// `GhosttyThemeResolver` resolves the directive in Swift and the result
+    /// reaches the controller as a `TerminalTheme`, so libghostty never needs
+    /// to see it — and must not. Its embedded resources ship no `themes/`
+    /// directory, so the line resolves to nothing anyway, and a split
+    /// `theme = dark:X,light:Y` naming *different* themes actively breaks
+    /// terminal launching: ghostty's `finalize()` marks the config
+    /// conditional on theme, so building a surface rebuilds the config from
+    /// defaults and replays only file-derived settings. The per-surface
+    /// `command` is set directly on the struct rather than replayed, so it is
+    /// dropped and the surface silently spawns a login shell. `finalize()`
+    /// preserves `working-directory` across that rebuild but not `command`,
+    /// which is why only `command` goes missing. No diagnostic is reported:
+    /// it lands on the discarded config.
+    static func configContentsForGhostty(atPath path: String) -> String? {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return nil
+        }
+        return strippingThemeDirectives(from: contents)
+    }
+
+    static func strippingThemeDirectives(from contents: String) -> String {
+        contents
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.hasPrefix("#"), let equals = trimmed.firstIndex(of: "=") else {
+                    return true
+                }
+                return trimmed[trimmed.startIndex..<equals].trimmingCharacters(in: .whitespaces) != "theme"
+            }
+            .joined(separator: "\n")
+    }
+
     /// Ghostty rejects zero-byte config files, so an empty file should fall
     /// through to the next candidate rather than win.
     private static func isNonEmptyFile(at path: String) -> Bool {
