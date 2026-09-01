@@ -185,9 +185,17 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
 - **Visual/interactive verification of the terminal is outstanding.** Screen Recording permission is not granted to this session's terminal host, so screenshots fail with "could not create image from display", and Accessibility permission is missing too, so UI scripting (`System Events`) fails with `-1743`. Everything provable without pixels has been proven (PTY allocation, process survival, teardown), but these remain unconfirmed: text actually renders, the user's theme/font apply, typing works, resize/reflow, scrollback, `vim`, and copy/paste. Grant Screen Recording (and optionally Accessibility) to re-enable automated checking, or eyeball it once manually.
 
 **Phase 2 — Tasks, tabs, workspaces** (WP2.1 ∥ WP2.2, then WP2.3)
-- **WP2.1 Tab model + strip**: TabStrip/TabContent, add/close/reorder persisted; agent tab first-message view launching uninstrumented `claude "<msg>"`. *Accept:* mixed tabs per task; switching preserves processes; layout survives relaunch.
-- **WP2.2 Workspace provisioning**: provisioner + GitRunner, both flows, `.plume/` gitignore bootstrap, error surfacing, worktree cleanup prompt. *Accept:* worktree task creates branch+worktree inside `.plume/worktrees/` and opens there; failures show readable errors; repo `git status` stays clean.
-- **WP2.3 Frictionless creation + sidebar polish**: ⌘N instant-create, inline title edit, setup header, drag-folder, recent repos. *Accept:* ⌘N → first message sent to claude in ~5s after picking a folder; no modal blocks creation.
+- **[x] WP2.1 Tab model + strip** *(done 2026-08-31)*: TabStrip/TabContent, add/close/reorder persisted; agent tab first-message view launching uninstrumented `claude "<msg>"`. *Accept:* mixed tabs per task; switching preserves processes; layout survives relaunch.
+  - Verified end to end: an agent tab launched real `claude` (2.1.252) as the surface's child in the task's cwd, and the message reached it — confirmed by finding the exact prompt text in the session JSONL that `claude` created.
+  - `AgentLauncher` is the single launch path, shared by the send button and the smoke harness.
+  - Shell quoting is test-covered against injection (quotes, `$(…)`, backticks, `&&`).
+- **[x] WP2.2 Workspace provisioning** *(done 2026-08-31)*: provisioner + GitRunner, both flows, `.plume/` gitignore bootstrap, error surfacing, worktree cleanup prompt. *Accept:* worktree task creates branch+worktree inside `.plume/worktrees/` and opens there; failures show readable errors; repo `git status` stays clean.
+  - Tests drive real `git` against scratch repos, including the "`git status` stays clean" criterion.
+  - Delete offers Task only / + worktree / + worktree and branch; a git failure surfaces its stderr and keeps the task rather than losing track of the directory.
+- **[x] WP2.3 Frictionless creation + sidebar polish** *(done 2026-08-31)*: ⌘N instant-create, inline title edit, setup header, drag-folder, recent repos. *Accept:* ⌘N → first message sent to claude in ~5s after picking a folder; no modal blocks creation.
+  - ⌘N creates and immediately opens inline rename; an emptied name reverts to "New Task".
+  - Menu commands and shortcuts from WP4.2 landed here since the seam existed: ⌘T / ⌘⇧T new tab, ⌘W close, ⌘⇧[ / ⌘⇧] cycle, ⌘1–9 select.
+  - **Timing criterion unverified** — needs the visual/interactive check below.
 
 **Phase 3 — Instrumentation & status** (WP3.1 → WP3.2; WP3.3 ∥ WP3.2)
 - **WP3.1 Hook pipeline**: AgentProvider + ClaudeCodeProvider, HookSettingsWriter, HookEventIngester + FileWatcher (offsets, rotation, startup replay). *Accept:* all hook types decoded live; session ID captured onto TaskTab.
