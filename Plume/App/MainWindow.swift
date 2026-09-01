@@ -8,6 +8,7 @@ struct MainWindow: View {
     @State private var renamingTaskID: UUID?
     @State private var statusPersistence: StatusPersistence?
     @State private var archiveShown = false
+    @State private var tabPendingStartFresh: TaskTab?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived })
     private var tasks: [WorkTask]
@@ -61,9 +62,27 @@ struct MainWindow: View {
                 archiveSelectedTask: {
                     task.isArchived = true
                     if selection == task.id { selection = nil }
+                },
+                startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
+                    { tabPendingStartFresh = tab }
                 }
             )
         })
+        .confirmationDialog(
+            "Start a fresh conversation?",
+            isPresented: Binding(
+                get: { tabPendingStartFresh != nil },
+                set: { if !$0 { tabPendingStartFresh = nil } }
+            )
+        ) {
+            Button("Start Fresh", role: .destructive) {
+                tabPendingStartFresh?.agentSessionID = nil
+                tabPendingStartFresh = nil
+            }
+            Button("Cancel", role: .cancel) { tabPendingStartFresh = nil }
+        } message: {
+            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+        }
         .task {
             statusPersistence = StatusPersistence(context: context)
             restoreStatusMonitoring()
@@ -76,6 +95,14 @@ struct MainWindow: View {
     private var selectedTask: WorkTask? {
         guard let selection else { return nil }
         return tasks.first { $0.id == selection }
+    }
+
+    private func tabWithResumableSession(in task: WorkTask) -> TaskTab? {
+        guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID }),
+              tab.kind == .agent,
+              let sessionID = tab.agentSessionID, !sessionID.isEmpty
+        else { return nil }
+        return tab
     }
 
     /// Replays events written while Plume was closed, then settles every tab

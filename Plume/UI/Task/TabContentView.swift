@@ -37,7 +37,7 @@ struct TabContentView: View {
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
                 TerminalTabView(session: session)
             } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-                AgentResumeOverlayView(task: task, tab: tab)
+                AutoResumingAgentTabView(task: task, tab: tab, isSelected: task.selectedTabID == tab.id)
             } else {
                 AgentFirstMessageView(task: task, tab: tab)
             }
