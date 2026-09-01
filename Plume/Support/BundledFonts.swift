@@ -12,10 +12,8 @@ import os
 /// resources into `Contents/Resources` rather than preserving the source
 /// directory.
 enum BundledFonts {
-    /// The typographic family name, which is what `Font.custom` resolves.
-    /// Note the compatibility family is `Newsreader 16pt` — the default
-    /// `opsz` instance — so the two names are not interchangeable.
-    static let newsreader = "Newsreader"
+    /// The family name `Font.custom` resolves.
+    static let prose = "Libre Baskerville"
 
     private static var registered = false
 
@@ -25,7 +23,7 @@ enum BundledFonts {
         registered = true
 
         let urls = Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
-        for url in urls where url.lastPathComponent.hasPrefix(newsreader) {
+        for url in urls where url.lastPathComponent.hasPrefix("LibreBaskerville") {
             var error: Unmanaged<CFError>?
             if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
                 // A font that fails to register is a styling problem, not a
@@ -40,27 +38,38 @@ enum BundledFonts {
 
     /// Whether the family resolved, so a caller can fall back rather than
     /// silently rendering in a substitute face.
-    static var isNewsreaderAvailable: Bool {
+    static var isProseAvailable: Bool {
         registerIfNeeded()
-        return NSFontManager.shared.availableFontFamilies.contains(newsreader)
+        return NSFontManager.shared.availableFontFamilies.contains(prose)
     }
 }
 
 import SwiftUI
 
 extension Font {
-    /// Chat prose in Newsreader, falling back to the system face if the
-    /// bundled font is missing.
+    /// Chat prose in the bundled serif, falling back to the system face if
+    /// it is missing.
     ///
-    /// The family carries an `opsz` axis (6–72), which is what keeps a
-    /// variable serif looking right across the 11–28pt range `chatFontSize`
-    /// allows. SwiftUI reaches it by asking for the face at the size it will
-    /// render at, which is what `Font.custom(_:size:)` does — the optical
-    /// size then tracks the point size for free.
+    /// Libre Baskerville carries only a `wght` axis (400–700), so there is no
+    /// optical size to track — the face is the same shape at every size.
     static func chatProse(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        guard BundledFonts.isNewsreaderAvailable else {
+        guard BundledFonts.isProseAvailable else {
             return .system(size: size, weight: weight)
         }
-        return .custom(BundledFonts.newsreader, size: size).weight(weight)
+        return .custom(BundledFonts.prose, size: size).weight(weight)
+    }
+}
+
+extension NSFont {
+    /// The AppKit half of `Font.chatProse`, for the composer's text storage.
+    ///
+    /// Emphasis is derived from this descriptor rather than the system one,
+    /// so bold and italic resolve within the bundled family — the italic
+    /// comes from the italic file instead of being synthesized by slanting.
+    static func chatProse(ofSize size: CGFloat) -> NSFont {
+        guard BundledFonts.isProseAvailable, let font = NSFont(name: BundledFonts.prose, size: size) else {
+            return .systemFont(ofSize: size)
+        }
+        return font
     }
 }

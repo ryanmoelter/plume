@@ -88,7 +88,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             if textView.string != text {
                 textView.string = text
             }
-            let bodyFont = NSFont.systemFont(ofSize: fontSize)
+            let bodyFont = NSFont.chatProse(ofSize: fontSize)
             textView.font = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             MarkdownComposerStyler.style(textView.textStorage!, text: text, fontSize: fontSize)

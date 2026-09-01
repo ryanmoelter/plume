@@ -11,7 +11,7 @@ import SwiftUI
 @MainActor
 enum MarkdownComposerStyler {
     static func style(_ storage: NSTextStorage, text: String, fontSize: CGFloat) {
-        let bodyFont = NSFont.systemFont(ofSize: fontSize)
+        let bodyFont = NSFont.chatProse(ofSize: fontSize)
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
 
         storage.beginEditing()
@@ -116,7 +116,7 @@ enum MarkdownComposerStyler {
         var traits: NSFontDescriptor.SymbolicTraits = []
         if bold { traits.insert(.bold) }
         if italic { traits.insert(.italic) }
-        let base = NSFont.systemFont(ofSize: size)
+        let base = NSFont.chatProse(ofSize: size)
         let descriptor = base.fontDescriptor.withSymbolicTraits(traits)
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
@@ -131,7 +131,12 @@ enum MarkdownComposerStyler {
         case 5: (1.0, .semibold)
         default: (0.85, .semibold)
         }
-        return NSFont.systemFont(ofSize: bodyFontSize * multiplier, weight: weight)
+        let size = bodyFontSize * multiplier
+        let base = NSFont.chatProse(ofSize: size)
+        let descriptor = base.fontDescriptor.addingAttributes([
+            .traits: [NSFontDescriptor.TraitKey.weight: weight],
+        ])
+        return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
     /// Matches `MarkdownView.codeBackground`: `ThemeChrome` foreground at 8%
