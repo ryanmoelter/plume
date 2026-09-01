@@ -13,6 +13,7 @@ struct ChatComposer: View {
 
     @State private var message = ""
     @FocusState private var inputFocused: Bool
+    @Environment(\.chatFontSize) private var fontSize
 
     private var canSend: Bool {
         !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -20,16 +21,16 @@ struct ChatComposer: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message Claude…", text: $message, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...8)
-                .focused($inputFocused)
-                .onSubmit(insertNewline)
-                .onKeyPress(.return, phases: .down) { press in
-                    guard press.modifiers.contains(.command) else { return .ignored }
-                    send()
-                    return .handled
-                }
+            MarkdownComposerTextView(
+                text: $message,
+                placeholder: "Message Claude…",
+                fontSize: fontSize,
+                isFocused: $inputFocused,
+                onSend: send
+            )
+            .padding(.horizontal, 6)
+            .background(.background, in: .rect(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
 
             Button("Send", action: send)
                 .buttonStyle(.borderedProminent)
@@ -41,12 +42,6 @@ struct ChatComposer: View {
         .onChange(of: isVisible, initial: true) { _, visible in
             if visible { inputFocused = true }
         }
-    }
-
-    /// `TextField(axis: .vertical)` treats plain Return as submit by default;
-    /// this override is what turns it back into a newline.
-    private func insertNewline() {
-        message += "\n"
     }
 
     private func send() {
