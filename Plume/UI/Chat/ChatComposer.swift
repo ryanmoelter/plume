@@ -12,13 +12,29 @@ struct ChatComposer: View {
     let tab: TaskTab
     var isVisible = true
 
-    @State private var message = ""
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
+    @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
+    @State private var drafts = DraftStore.shared
+
+    private var message: Binding<String> {
+        let drafts = drafts
+        let tabID = tab.id
+        return Binding(
+            get: { drafts.draft(forTab: tabID) },
+            set: { drafts.setDraft($0, forTab: tabID) }
+        )
+    }
+
+    /// The terminal's own background, so the field matches the surface it
+    /// sends to. Falls back to standard chrome when no theme is configured.
+    private var fieldBackground: AnyShapeStyle {
+        ThemeChrome.background(for: colorScheme).map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
+    }
 
     private var canSend: Bool {
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !drafts.draft(forTab: tab.id).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -29,22 +45,22 @@ struct ChatComposer: View {
             )
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(alignment: .bottom, spacing: 8) {
-                MarkdownComposerTextView(
-                    text: $message,
-                    placeholder: "Message Claude…",
-                    fontSize: fontSize,
-                    isFocused: $inputFocused,
-                    sendKey: settings.composerSendKey,
-                    onSend: send
-                )
-                .padding(.horizontal, 6)
-                .background(.background, in: .rect(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
-
-                Button("Send", action: send)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSend)
+            MarkdownComposerTextView(
+                text: message,
+                placeholder: "Message Claude…",
+                fontSize: fontSize,
+                isFocused: $inputFocused,
+                sendKey: settings.composerSendKey,
+                onSend: send
+            )
+            .padding(.leading, 10)
+            // Reserves the send button's column, so text wraps before it
+            // reaches the button rather than running underneath.
+            .padding(.trailing, Self.sendButtonDiameter + 18)
+            .background(fieldBackground, in: .rect(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .overlay(alignment: .trailing) {
+                sendButton.padding(.trailing, 8)
             }
         }
         .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize))
@@ -57,10 +73,25 @@ struct ChatComposer: View {
         }
     }
 
+    private static let sendButtonDiameter: CGFloat = 22
+
+    private var sendButton: some View {
+        Button(action: send) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.circle)
+        .disabled(!canSend)
+        .help("Send")
+        .accessibilityLabel("Send")
+    }
+
     private func send() {
         guard canSend else { return }
-        let text = message
-        message = ""
+        let text = drafts.draft(forTab: tab.id)
+        drafts.setDraft("", forTab: tab.id)
         if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {

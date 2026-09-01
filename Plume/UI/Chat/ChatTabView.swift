@@ -44,12 +44,16 @@ struct ChatTabView: View {
                         model: transcript.model,
                         effort: transcript.effort,
                         branch: transcript.gitBranch,
+                        permissionMode: transcript.permissionMode,
                         payload: StatuslineStore.shared.payload(forTab: tab.id),
                         onSelectModel: SurfaceManager.shared.existingSession(for: tab.id).map { session in
                             { session.submit(text: ModelEffortCommand.setModel($0)) }
                         },
                         onSelectEffort: SurfaceManager.shared.existingSession(for: tab.id).map { session in
                             { session.submit(text: ModelEffortCommand.setEffort($0)) }
+                        },
+                        onCyclePermissionMode: SurfaceManager.shared.existingSession(for: tab.id).map { session in
+                            { session.cyclePermissionMode() }
                         }
                     )
                     if let planFilePath {
@@ -142,17 +146,28 @@ struct ChatTabView: View {
                         .id(message.id)
                     }
                     SubagentListView(subagents: subagents)
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomAnchorID)
                 }
                 .frame(maxWidth: maxWidth)
                 .frame(maxWidth: .infinity)
                 .padding(16)
                 .padding(.bottom, ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize)))
-                .id(bottomAnchorID)
             }
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentSize.height - geometry.visibleRect.maxY
-            } action: { _, distance in
-                distanceFromBottom = max(0, distance)
+            .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
+                ChatScrollGeometry(
+                    distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
+                    contentHeight: geometry.contentSize.height
+                )
+            } action: { old, new in
+                distanceFromBottom = new.distanceFromBottom
+                guard ChatScrollAnchor.shouldFollowGrowth(
+                    previousDistanceFromBottom: old.distanceFromBottom,
+                    previousContentHeight: old.contentHeight,
+                    newContentHeight: new.contentHeight
+                ) else { return }
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
             .onChange(of: lastMessageID) { _, newID in
                 guard newID != nil else { return }

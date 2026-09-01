@@ -198,7 +198,7 @@ final class ScrollableComposerTextView: NSView {
         composerTextView.isAutomaticDashSubstitutionEnabled = false
         composerTextView.isAutomaticTextReplacementEnabled = false
         composerTextView.isAutomaticSpellingCorrectionEnabled = true
-        composerTextView.textContainerInset = NSSize(width: 0, height: 6)
+        composerTextView.textContainerInset = NSSize(width: 0, height: 9)
         composerTextView.drawsBackground = false
         composerTextView.textContainer?.widthTracksTextView = true
         composerTextView.isVerticallyResizable = true
