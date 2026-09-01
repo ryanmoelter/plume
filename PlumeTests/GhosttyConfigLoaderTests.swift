@@ -51,4 +51,26 @@ struct GhosttyConfigLoaderTests {
     @Test func missingConfigResolvesToNil() {
         #expect(GhosttyConfigLoader.userConfigPath(environment: [:]) { _ in false } == nil)
     }
+
+    @Test func themesDirectoryIsSiblingOfConfigFile() {
+        let path = GhosttyConfigLoader.themesDirectory(forConfigPath: "/tmp/ghostty/config")
+        #expect(path == "/tmp/ghostty/themes")
+    }
+
+    @Test func themesDirectoryResolvesSymlinksBeforeAppending() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let realConfigDir = tempDir.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: realConfigDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let realConfig = realConfigDir.appendingPathComponent("config")
+        try "theme = X".write(to: realConfig, atomically: true, encoding: .utf8)
+
+        let symlinkConfig = tempDir.appendingPathComponent("config")
+        try FileManager.default.createSymbolicLink(at: symlinkConfig, withDestinationURL: realConfig)
+
+        let path = GhosttyConfigLoader.themesDirectory(forConfigPath: symlinkConfig.path)
+        #expect(path == realConfigDir.appendingPathComponent("themes").path)
+    }
 }
