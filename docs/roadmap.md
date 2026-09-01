@@ -28,11 +28,12 @@ Recommendations, not commitments. Reorder freely.
 - **⌘T in the current task** already works — it's just labelled "New Agent Tab". Collapsing to one tab kind renames it and finishes the item.
 - **Next/previous tab** is bound to ⌘⇧] / ⌘⇧[. What's missing is next/previous *task*, and making any of it user-assignable.
 
-**Next up, mostly in the chat:**
+**Next up:**
 
 - **Don't render injected content as my messages.** The cheapest real improvement to the chat: it's a filter in one parser function, and today a skill's body shows up as a wall of text apparently written by me. Honoring `isMeta` handles half of it in a line; recognizing the `<command-name>` and `<local-command-stdout>` wrappers handles the rest.
 - **Render plans and questions properly.** `ExitPlanMode` hands over finished markdown and `MarkdownView` can already draw it, so a plan is nearly free. A question is more work but reads worst as JSON. Keep both read-only at first — answering in place needs a send path the composer doesn't have.
 - **Bundle Newsreader for chat prose.** Self-contained, and the most visible change per unit of work on the list. Adding a bundled family is the whole job; the font setting it eventually belongs to can come later.
+- **Dim the sidebar's selected task.** Small and self-contained, and `TabStripView` already has the pattern to copy — a wash of the theme's own foreground instead of the system accent. The one thing to watch is that hand-drawing the row background gives up `List`'s automatic label inversion.
 
 **Also cheap, once you want them:**
 
@@ -171,10 +172,13 @@ What exists: `TaskStore.createTask` already takes a `group:`, and the sidebar's 
 - [ ] Default to Lum. The full palette is in the dotfiles at `colors/lum.css` — use that, not just the simplified terminal palette.
 - [ ] Preload other palettes: solarized, monokai, catppuccin, and other popular open-source ones.
 - [ ] Support custom palettes, with light and dark.
+- [ ] Dim the sidebar's selected task instead of painting it bright blue.
 - [ ] Bundle Newsreader and make it the chat's prose font.
 - [ ] Choose the rest of the fonts — chat code separately from the terminal — and maybe bundle a few more good defaults.
 
 Fonts sit alongside this, and the two halves of the app treat them differently. The terminal takes its font from the user's ghostty config, which is right — it should keep matching their terminal. The chat hardcodes `.system` for prose and `.monospaced` for code in `MarkdownView`, `ChatMessageRow` and `MarkdownComposerStyler`; only the *size* is configurable (`AppSettings.chatFontSize`, clamped 11–28). So the work is a family setting to sit beside the size, threaded the same way through the environment, with prose and code chosen separately — a proportional body font next to a monospaced code font is the point, not one setting for both. Defaulting to the terminal's configured font for code is a reasonable starting point that needs no bundling at all. Prose is the half that's already decided.
+
+The sidebar's selection is the system's, not ours: `SidebarView` is a plain `List(selection:)`, so macOS paints the selected row with the accent color. That reads as bright blue over a `themeTint`ed sidebar, which is the clash. `TabStripView` already solved the same problem for tab chips — its `chipBackground` falls back to `.selection` when no theme is configured, and otherwise washes the theme's own foreground at 0.22 opacity (0.1 on hover). Doing the same here means taking the row background over with `.listRowBackground` and drawing selection by hand, which also costs the free things `List` gives you: keyboard navigation still works, but the row no longer inverts its label color, so check contrast on a selected row in both light and dark themes.
 
 **Newsreader is the chosen prose face**, in `~/Downloads/Newsreader`. It ships as two variable fonts — upright and italic — each with a `wght` axis (200–800, default 400) and an `opsz` optical-size axis (6–72, default 18), plus a `static/` directory of fixed instances at 9/14/24/36/60pt if the variable path proves awkward. It's SIL Open Font License 1.1, so bundling it is fine; the license file has to ship with it. Two things to check when it lands: whether SwiftUI reaches the `wght` and `opsz` axes usefully (`opsz` is the interesting one — it's what makes a variable face look right across the 11–28pt range `chatFontSize` already allows, and wiring it to the current size is close to free), and that italics come from the italic file rather than being synthesized by slanting the upright.
 
