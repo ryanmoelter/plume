@@ -26,20 +26,25 @@ struct TabContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Only `AgentLauncher` may create an agent tab's surface, since it alone
+    /// knows the `claude` command. Creating one here would win the race and
+    /// leave the tab running a bare shell.
     @ViewBuilder
     private func tabContent(for tab: TaskTab) -> some View {
-        if tab.kind == .agent, SurfaceManager.shared.existingSession(for: tab.id) == nil {
-            if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+        if tab.kind == .agent {
+            if let session = SurfaceManager.shared.existingSession(for: tab.id) {
+                TerminalTabView(session: session)
+            } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                 AgentResumeOverlayView(task: task, tab: tab)
             } else {
                 AgentFirstMessageView(task: task, tab: tab)
             }
         } else {
-            TerminalTabView(session: session(for: tab))
+            TerminalTabView(session: terminalSession(for: tab))
         }
     }
 
-    private func session(for tab: TaskTab) -> TerminalSession {
+    private func terminalSession(for tab: TaskTab) -> TerminalSession {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(

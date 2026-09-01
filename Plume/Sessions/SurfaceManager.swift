@@ -24,7 +24,14 @@ final class SurfaceManager {
     /// would mean a new surface, discarding scrollback and killing the
     /// process, so an existing session is returned untouched.
     func session(for id: UUID, options: @autoclosure () -> TerminalSurfaceOptions) -> TerminalSession {
-        if let existing = sessions[id] { return existing }
+        if let existing = sessions[id] {
+            if existing.state.configuration.command != options().command {
+                Log.ghostty.error(
+                    "Tab \(id, privacy: .public) already has a surface running a different command; the new one is ignored"
+                )
+            }
+            return existing
+        }
 
         let session = TerminalSession(id: id, options: options())
         sessions[id] = session
