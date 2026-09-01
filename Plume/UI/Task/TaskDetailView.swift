@@ -6,8 +6,6 @@ struct TaskDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TaskSetupHeaderView(task: task)
-            Divider()
             TabStripView(task: task)
             Divider()
             TabContentView(task: task)

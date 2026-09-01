@@ -55,3 +55,40 @@ enum GitRunner {
         try? run(["rev-parse", "--abbrev-ref", "HEAD"], in: repository)
     }
 }
+
+/// One entry from `git worktree list` — the repository's own checkout plus
+/// every worktree added to it.
+struct GitWorktree: Hashable, Sendable {
+    let path: String
+    /// nil when the worktree has a detached HEAD.
+    let branch: String?
+    /// The repository's own checkout, which `git` always lists first.
+    let isMain: Bool
+}
+
+extension GitRunner {
+    static func worktrees(in repository: String) -> [GitWorktree] {
+        guard let output = try? run(["worktree", "list", "--porcelain"], in: repository) else {
+            return []
+        }
+        return output.components(separatedBy: "\n\n").enumerated().compactMap { index, record in
+            var path: String?
+            var branch: String?
+            for line in record.split(separator: "\n") {
+                if let value = line.dropPrefix("worktree ") {
+                    path = value
+                } else if let value = line.dropPrefix("branch refs/heads/") {
+                    branch = value
+                }
+            }
+            guard let path else { return nil }
+            return GitWorktree(path: path, branch: branch, isMain: index == 0)
+        }
+    }
+}
+
+private extension Substring {
+    func dropPrefix(_ prefix: String) -> String? {
+        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
+    }
+}

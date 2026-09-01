@@ -9,14 +9,24 @@ import SwiftUI // Array.move(fromOffsets:toOffset:)
 enum TaskStore {
     // MARK: - Create
 
+    /// `defaultsToRecentFolder` seeds the workspace from the last folder used,
+    /// so a new task is ready to run in the place you were already working.
+    /// Off by default: it reads `UserDefaults` and shells out to `git`, which
+    /// callers that just want a bare task shouldn't pay for.
     @discardableResult
     static func createTask(
         in context: ModelContext,
         title: String = "",
         group: TaskGroup? = nil,
-        siblings: [WorkTask]
+        siblings: [WorkTask],
+        defaultsToRecentFolder: Bool = false
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
+        if defaultsToRecentFolder, let folder = RecentFolders.mostRecent {
+            task.workingDirectoryPath = folder
+            task.repoPath = GitRunner.repositoryRoot(containing: folder)
+            task.workspaceKind = .directory
+        }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         context.insert(task)
         context.insert(tab)

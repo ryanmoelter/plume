@@ -30,26 +30,21 @@ struct AgentFirstMessageView: View {
             Text("Start a conversation")
                 .font(.headline)
 
-            if task.workingDirectoryPath == nil {
-                Text("Choose a folder for this task first.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else if !directoryExists {
-                Label("The working directory no longer exists.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-            }
+            VStack(spacing: 6) {
+                WorkspacePickerView(task: task)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 8) {
-                TextField("Send a message to Claude…", text: $message, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...6)
-                    .focused($inputFocused)
-                    .onSubmit(send)
+                HStack(spacing: 8) {
+                    TextField("Send a message to Claude…", text: $message, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...6)
+                        .focused($inputFocused)
+                        .onSubmit(send)
 
-                Button("Send", action: send)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSend)
+                    Button("Send", action: send)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canSend)
+                }
             }
             .frame(maxWidth: 560)
 

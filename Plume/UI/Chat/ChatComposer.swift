@@ -22,22 +22,30 @@ struct ChatComposer: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            MarkdownComposerTextView(
-                text: $message,
-                placeholder: "Message Claude…",
-                fontSize: fontSize,
-                isFocused: $inputFocused,
-                sendKey: settings.composerSendKey,
-                onSend: send
+        VStack(spacing: 6) {
+            WorkspacePickerView(
+                task: task,
+                isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
             )
-            .padding(.horizontal, 6)
-            .background(.background, in: .rect(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button("Send", action: send)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSend)
+            HStack(alignment: .bottom, spacing: 8) {
+                MarkdownComposerTextView(
+                    text: $message,
+                    placeholder: "Message Claude…",
+                    fontSize: fontSize,
+                    isFocused: $inputFocused,
+                    sendKey: settings.composerSendKey,
+                    onSend: send
+                )
+                .padding(.horizontal, 6)
+                .background(.background, in: .rect(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+
+                Button("Send", action: send)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSend)
+            }
         }
         .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize))
         .frame(maxWidth: .infinity)

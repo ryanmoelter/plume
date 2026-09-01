@@ -187,7 +187,9 @@ struct SidebarView: View {
 
     private func createTask(in group: TaskGroup?) {
         let siblings = group.map(tasksFor) ?? ungroupedTasks
-        let task = TaskStore.createTask(in: context, group: group, siblings: siblings)
+        let task = TaskStore.createTask(
+            in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
+        )
         selection = task.id
     }
 }

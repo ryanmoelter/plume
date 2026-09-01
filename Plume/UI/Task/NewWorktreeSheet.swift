@@ -9,7 +9,7 @@ struct NewWorktreeSheet: View {
     @State private var branchName = ""
     @State private var errorMessage: String?
     @State private var isCreating = false
-    @State private var recentRepositories = RecentRepositories.load()
+    @State private var recentFolders = RecentFolders.load()
 
     private var canCreate: Bool {
         !repositoryPath.isEmpty && !branchName.isEmpty && !isCreating
@@ -26,9 +26,9 @@ struct NewWorktreeSheet: View {
                         .textFieldStyle(.roundedBorder)
                     Button("Choose…", action: chooseRepository)
                 }
-                if !recentRepositories.isEmpty {
+                if !recentFolders.isEmpty {
                     Menu("Recent") {
-                        ForEach(recentRepositories, id: \.self) { path in
+                        ForEach(recentFolders, id: \.self) { path in
                             Button(path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) {
                                 repositoryPath = path
                             }
@@ -77,6 +77,7 @@ struct NewWorktreeSheet: View {
         .padding(20)
         .frame(width: 480)
         .onAppear {
+            repositoryPath = task.repoPath ?? ""
             branchName = WorkspaceProvisioner.suggestedBranchName(for: task.title)
         }
     }
@@ -103,7 +104,7 @@ struct NewWorktreeSheet: View {
             task.repoPath = repositoryPath
             task.branchName = branchName
             task.workspaceKind = .worktree
-            RecentRepositories.remember(repositoryPath)
+            RecentFolders.remember(repositoryPath)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -112,17 +113,3 @@ struct NewWorktreeSheet: View {
     }
 }
 
-enum RecentRepositories {
-    private static let key = "recentRepositories"
-    private static let limit = 8
-
-    static func load() -> [String] {
-        UserDefaults.standard.stringArray(forKey: key) ?? []
-    }
-
-    static func remember(_ path: String) {
-        var paths = load().filter { $0 != path }
-        paths.insert(path, at: 0)
-        UserDefaults.standard.set(Array(paths.prefix(limit)), forKey: key)
-    }
-}
