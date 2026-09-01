@@ -8,9 +8,12 @@ import SwiftUI
 /// creates or destroys a terminal.
 struct TerminalTabView: View {
     let session: TerminalSession
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         TerminalSurfaceView(context: session.state)
-            .background(Color.black)
+            // Shows through wherever the surface doesn't reach — around the
+            // window padding, and while a surface is still starting up.
+            .background(ThemeChrome.background(for: colorScheme) ?? Color.black)
     }
 }
