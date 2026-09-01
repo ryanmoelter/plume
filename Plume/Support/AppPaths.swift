@@ -1,0 +1,33 @@
+import Foundation
+
+enum AppPaths {
+    static var applicationSupport: URL {
+        URL.applicationSupportDirectory.appending(path: "Plume")
+    }
+
+    /// Generated `settings.json` passed to `claude --settings`.
+    static var hooksDirectory: URL {
+        applicationSupport.appending(path: "hooks")
+    }
+
+    static var hookSettingsFile: URL {
+        hooksDirectory.appending(path: "settings.json")
+    }
+
+    /// Hook events land here as `<taskID>/<tabID>.jsonl`.
+    static var eventsDirectory: URL {
+        applicationSupport.appending(path: "events")
+    }
+
+    static func eventsFile(taskID: UUID, tabID: UUID) -> URL {
+        eventsDirectory
+            .appending(path: taskID.uuidString)
+            .appending(path: "\(tabID.uuidString).jsonl")
+    }
+
+    static func createDirectories() throws {
+        for directory in [hooksDirectory, eventsDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+}
