@@ -61,6 +61,7 @@ struct PersistenceTests {
         TaskStore.delete(task, in: context)
         try context.save()
 
-        #expect(try context.fetch(FetchDescriptor<TaskTab>()).isEmpty)
+        let remainingTabs = try context.fetch(FetchDescriptor<TaskTab>())
+        #expect(remainingTabs.isEmpty)
     }
 }

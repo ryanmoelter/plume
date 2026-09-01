@@ -8,10 +8,10 @@ import Foundation
 struct GhosttyConfigLoaderTests {
     private let home = NSHomeDirectory()
 
-    @Test func applicationSupportOutranksXDG() {
+    @Test func applicationSupportOutranksXDG() throws {
         let paths = GhosttyConfigLoader.candidatePaths(environment: [:])
-        let appSupport = try! #require(paths.firstIndex { $0.contains("Application Support") })
-        let xdg = try! #require(paths.firstIndex { $0.contains("/.config/ghostty") })
+        let appSupport = try #require(paths.firstIndex { $0.contains("Application Support") })
+        let xdg = try #require(paths.firstIndex { $0.contains("/.config/ghostty") })
         #expect(appSupport < xdg)
     }
 
