@@ -10,8 +10,12 @@ struct AgentFirstMessageView: View {
     @FocusState private var inputFocused: Bool
 
     private var canSend: Bool {
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && task.workingDirectoryPath != nil
+        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && directoryExists
+    }
+
+    private var directoryExists: Bool {
+        guard let path = task.workingDirectoryPath else { return false }
+        return FileManager.default.fileExists(atPath: path)
     }
 
     var body: some View {
@@ -29,6 +33,10 @@ struct AgentFirstMessageView: View {
                 Text("Choose a folder for this task first.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            } else if !directoryExists {
+                Label("The working directory no longer exists.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
             }
 
             HStack(spacing: 8) {

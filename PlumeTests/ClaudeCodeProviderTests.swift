@@ -50,4 +50,29 @@ struct ClaudeCodeProviderTests {
     @Test func providerIdentifiesItself() {
         #expect(provider.id == ClaudeCodeProviderID)
     }
+
+    @Test func taskAndTabIDsInjectEnvironment() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let launch = provider.launchCommand(
+            firstMessage: nil, resumeSessionID: nil, taskID: taskID, tabID: tabID
+        )
+        #expect(launch.environment["PLUME_TASK_ID"] == taskID.uuidString)
+        #expect(launch.environment["PLUME_TAB_ID"] == tabID.uuidString)
+        #expect(launch.environment["PLUME_EVENTS_DIR"] == AppPaths.eventsDirectory.path)
+    }
+
+    @Test func missingTaskOrTabIDOmitsEnvironment() {
+        let launch = provider.launchCommand(
+            firstMessage: nil, resumeSessionID: nil, taskID: nil, tabID: UUID()
+        )
+        #expect(launch.environment.isEmpty)
+    }
+
+    @Test func resumeViaTheFourArgumentOverloadStillQuotesTheSessionID() {
+        let launch = provider.launchCommand(
+            firstMessage: nil, resumeSessionID: "abc-123", taskID: nil, tabID: nil
+        )
+        #expect(launch.command == "claude --resume 'abc-123'")
+    }
 }

@@ -22,7 +22,11 @@ struct TabContentView: View {
     @ViewBuilder
     private func tabContent(for tab: TaskTab) -> some View {
         if tab.kind == .agent, SurfaceManager.shared.existingSession(for: tab.id) == nil {
-            AgentFirstMessageView(task: task, tab: tab)
+            if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+                AgentResumeOverlayView(task: task, tab: tab)
+            } else {
+                AgentFirstMessageView(task: task, tab: tab)
+            }
         } else {
             TerminalTabView(session: session(for: tab))
         }

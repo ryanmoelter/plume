@@ -212,7 +212,13 @@ SwiftData restores tree/tabs/selection; `lastStatusRaw` badges show immediately.
   - `sessionJSONLPath` is cached onto the tab. No v1 UI parses message content — this is purely the seam.
 
 **Phase 4 — Restore & polish** (WP4.1 ∥ WP4.2)
-- **WP4.1 Full restore**: resume overlay, event replay + status reset, missing-dir banners, quit confirmation while agents work. *Accept:* quit mid-session, relaunch, resume prior conversation.
+- **[x] WP4.1 Full restore** *(done 2026-08-31)*: resume overlay, event replay + status reset, missing-dir banners, quit confirmation while agents work. *Accept:* quit mid-session, relaunch, resume prior conversation.
+  - `AgentResumeOverlayView` (new) is shown by `TabContentView` for an agent tab with no live session but a stored `agentSessionID` — Resume calls the existing `AgentLauncher.launch(resumeSessionID:)` path (`claude --resume` support already existed, just unused); Start Fresh clears `agentSessionID` and falls through to the ordinary `AgentFirstMessageView`. Neither happens automatically.
+  - Event replay + idle reset: `MainWindow.restoreStatusMonitoring()` was already correctly ordered — `AgentEventMonitor.watch()` drains the backlog synchronously before the loop force-sets `.idle`, so idle always wins on launch, which is right (nothing is actually running yet). No change needed there.
+  - Missing-directory banners: `TaskSetupHeaderView` already had one for the workspace chip. Extended the same `FileManager.fileExists` guard to `AgentFirstMessageView` (blocks Send, shows a banner) and to the new `AgentResumeOverlayView` (blocks Resume).
+  - Quit confirmation: added `Plume/App/AppDelegate.swift` (`NSApplicationDelegate.applicationShouldTerminate`), wired via `@NSApplicationDelegateAdaptor` in `PlumeApp`. Confirms via `NSAlert` when any tab's `StatusEngine` status is `.working` or `.needsInput`; the yes/no decision logic is a static, unit-tested function (`AppDelegate.shouldConfirmQuit`).
+  - New tests: `AppDelegateTests` (5 cases covering the confirm/don't-confirm matrix) and 3 additional `ClaudeCodeProviderTests` cases for the 4-argument `launchCommand` overload (env var injection, resume quoting) that had no prior coverage.
+  - Verified: clean build, full `PlumeTests` pass. Runtime verification (fresh launch not auto-resuming, session ID persistence across relaunch, quit not crashing) was delegated to a runtime-check agent using the process-tree/unified-log recipe — see its results in the WP4.1 commit message / session notes; the interactive "does the confirmation dialog actually block quit" behavior remains unverifiable in this environment (no Accessibility permission for UI scripting).
 - **WP4.2 Polish**: menu commands, shortcuts (⌘1–9, ⌘⇧]/[), empty states, Settings stub (worktree base path override, provider field), archive view, app icon. *Accept:* keyboard-only workflow; first launch self-explanatory.
 
 ## Risks & mitigations
