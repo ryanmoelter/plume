@@ -2,9 +2,8 @@ import Foundation
 
 /// Resolves the transcript file for an agent session.
 ///
-/// **This is the seam for native chat rendering.** Nothing in v1 parses
-/// message content: status comes from hooks, and this only locates the file
-/// and reports its activity. A future renderer reads the same path.
+/// This only locates files and reports activity; `TranscriptParser` parses
+/// message content into render-ready chat messages.
 enum SessionJSONLReader {
     static let projectsDirectory = URL.homeDirectory.appending(path: ".claude/projects")
 
@@ -83,5 +82,22 @@ enum SessionJSONLReader {
 
     static func exists(atPath path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
+    }
+
+    /// Subagent transcripts live alongside the main one, in a directory
+    /// named after it minus the `.jsonl` extension.
+    static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {
+        (transcriptPath as NSString).deletingPathExtension + "/subagents"
+    }
+
+    /// The `agent-*.jsonl` transcripts under a session's subagents
+    /// directory, sorted, or empty if the directory does not exist.
+    static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
+        let directory = subagentsDirectory(forTranscriptPath: transcriptPath)
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
+        return entries
+            .filter { $0.hasPrefix("agent-") && $0.hasSuffix(".jsonl") }
+            .sorted()
+            .map { directory + "/" + $0 }
     }
 }
