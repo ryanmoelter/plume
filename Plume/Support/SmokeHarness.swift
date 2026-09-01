@@ -37,7 +37,7 @@ enum SmokeHarness {
                 TaskStore.addTab(to: first, kind: .terminal, in: context)
             }
             if environment["PLUME_SEED_AGENT_SESSION_ID"] == nil {
-                first.selectedTabID = first.orderedTabs.first?.id
+                first.orderedTabs.first.map { TaskStore.selectTab($0, in: first) }
             }
         }
 
@@ -82,7 +82,7 @@ enum SmokeHarness {
             // task switching.
             if let first = tasks.first, first.tabs.count > 1 {
                 let tabs = first.orderedTabs
-                first.selectedTabID = tabs[index % tabs.count].id
+                TaskStore.selectTab(tabs[index % tabs.count], in: first)
             }
 
             let task = tasks[index % tasks.count]
