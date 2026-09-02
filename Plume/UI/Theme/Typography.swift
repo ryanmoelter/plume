@@ -88,6 +88,10 @@ struct Typography {
         /// The role as written — proportional, in the environment's face.
         var font: Font { face(weight: weight) }
 
+        /// Extra leading between wrapped lines, on top of the font's own.
+        /// Prose at reading measure needs more air than the default.
+        var lineSpacing: CGFloat { size * 0.22 }
+
         var semibold: Font { face(weight: .semibold) }
         var bold: Font { face(weight: .bold) }
         var medium: Font { face(weight: .medium) }

@@ -2,11 +2,12 @@ import SwiftUI
 
 /// The chat rendering of an agent tab: messages, the statusline strip, the
 /// plan dock when a plan is minimized, then the composer.
-struct ChatTabView: View {
+struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
 
+    @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
     @State private var planPresentation = PlanPresentation.closed
@@ -51,7 +52,7 @@ struct ChatTabView: View {
                     messages: transcript.messages,
                     subagents: subagents,
                     status: status,
-                    bottomPadding: ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize)),
+                    bottomPadding: dimensions.listBottomPadding,
                     tabID: tab.id
                 )
                 Divider()

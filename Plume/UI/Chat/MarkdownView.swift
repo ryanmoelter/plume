@@ -28,10 +28,8 @@ struct MarkdownView: View, ThemedView {
         isAgentVoice ? proseTypography : typography
     }
 
-    private var bodyFontSize: CGFloat { typography.bodySize }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: ChatMetrics.blockSpacing(forFontSize: bodyFontSize)) {
+        VStack(alignment: .leading, spacing: dimensions.blockSpacing) {
             // Indexed rather than `Array(blocks.enumerated())`: the
             // enumerated array is a fresh value every pass, which SwiftUI
             // cannot match against the previous children, so it evicts and
@@ -48,7 +46,7 @@ struct MarkdownView: View, ThemedView {
 
     private func headingTopSpacing(at index: Int) -> CGFloat {
         guard index > 0, case let .heading(level, _) = blocks[index] else { return 0 }
-        return ChatMetrics.headingTopSpacing(level: level, forFontSize: bodyFontSize)
+        return dimensions.headingTopSpacing(level: level)
     }
 
     @ViewBuilder
@@ -63,7 +61,7 @@ struct MarkdownView: View, ThemedView {
         case let .paragraph(text):
             Text(inline(text))
                 .font(prose.body.font)
-                .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
+                .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
@@ -75,7 +73,7 @@ struct MarkdownView: View, ThemedView {
                         Text(inline(items[index]))
                     }
                     .font(prose.body.font)
-                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
+                    .lineSpacing(prose.body.lineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -89,7 +87,7 @@ struct MarkdownView: View, ThemedView {
                         Text(inline(items[index]))
                     }
                     .font(prose.body.font)
-                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
+                    .lineSpacing(prose.body.lineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -113,7 +111,7 @@ struct MarkdownView: View, ThemedView {
                 Text(inline(text))
                     .font(prose.body.font)
                     .emphasis(.secondary)
-                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
+                    .lineSpacing(prose.body.lineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .listItemPadding(vertical: false)
@@ -126,7 +124,7 @@ struct MarkdownView: View, ThemedView {
     }
 
     private func inline(_ text: String) -> AttributedString {
-        MarkdownCache.styledInline(text, fontSize: bodyFontSize, tint: codeBackground)
+        MarkdownCache.styledInline(text, fontSize: typography.bodySize, tint: codeBackground)
     }
 
     /// A heading's text, uppercased at the levels that rank by case rather
