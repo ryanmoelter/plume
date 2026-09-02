@@ -2,12 +2,13 @@ import AppKit
 import GhosttyTheme
 import SwiftUI
 
-/// Tints Plume's own chrome (sidebar, tab strip) with the user's resolved
-/// terminal theme, so the window reads as one surface instead of a terminal
-/// pane bolted onto default macOS controls.
+/// Tints Plume's own chrome with the user's resolved terminal theme, so the
+/// window reads as one surface instead of a terminal pane bolted onto default
+/// macOS controls.
 ///
-/// Scoped deliberately to the sidebar and tab strip — sheets, Settings, and
-/// the archive view stay standard chrome.
+/// Covers the sidebar, the tab strip and the chat — including the plan view's
+/// glass tint, so a document reads as the chat holding it. Sheets, Settings
+/// and the archive view stay standard chrome.
 enum ThemeChrome {
     /// Background tint for the given color scheme, or nil to fall back to
     /// default chrome — no theme configured, or its color didn't parse.

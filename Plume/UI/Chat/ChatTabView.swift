@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The chat rendering of an agent tab: messages, the statusline strip, then
-/// the composer.
+/// The chat rendering of an agent tab: messages, the statusline strip, the
+/// plan dock when a plan is minimized, then the composer.
 struct ChatTabView: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -9,7 +9,7 @@ struct ChatTabView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
-    @State private var isShowingPlan = false
+    @State private var planPresentation = PlanPresentation.closed
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
@@ -70,13 +70,17 @@ struct ChatTabView: View {
                             { session.cyclePermissionMode() }
                         }
                     )
-                    if let planFilePath {
+                    if let planFilePath, planPresentation != .minimized {
                         planButton(path: planFilePath)
                     }
                 }
                 .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)))
                 .frame(maxWidth: .infinity)
                 Divider()
+                if planPresentation == .minimized, let planFilePath {
+                    planDockBar(path: planFilePath)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil || (tab.agentSessionID?.isEmpty == false) {
                 // A process (or a resumable session) exists but has written no
@@ -98,19 +102,20 @@ struct ChatTabView: View {
         }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
         .onChange(of: planFilePath) { _, newPath in
-            if newPath == nil { isShowingPlan = false }
+            if newPath == nil { planPresentation = .closed }
         }
-        .overlay(alignment: .trailing) {
-            if isShowingPlan, let planFilePath {
+        .overlay {
+            if planPresentation == .expanded, let planFilePath {
                 planPanel(path: planFilePath)
-                    .transition(.move(edge: .trailing))
+                    .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .animation(.snappy(duration: 0.22), value: planPresentation)
     }
 
     private func planButton(path: String) -> some View {
         Button {
-            isShowingPlan = true
+            planPresentation = .expanded
         } label: {
             Label("Plan", systemImage: "doc.text")
         }
@@ -121,33 +126,98 @@ struct ChatTabView: View {
         .padding(.vertical, 4)
     }
 
+    /// The plan's own column matches the messages' *text* column, not their
+    /// outer frame: `ChatMessageList` clamps to `maxContentWidth` and then pads
+    /// 16 per side, and `MarkdownFileView` pads another 16 inside its scroll
+    /// view. Adding both back keeps the two measures equal.
+    private var planContentWidth: CGFloat {
+        ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)) + 32
+    }
+
+    /// A wash of the chat's own surface, so the glass reads as the chat holding
+    /// a document rather than a system panel floating over it. Nil leaves the
+    /// glass untinted, which is still legible.
+    private var planTint: Color? {
+        ThemeChrome.background(for: colorScheme)?.opacity(0.5)
+    }
+
     private func planPanel(path: String) -> some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
                 Text((path as NSString).lastPathComponent)
                     .font(.headline)
                 Spacer()
                 Button {
-                    isShowingPlan = false
+                    planPresentation = .minimized
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Minimize")
+                Button {
+                    planPresentation = .closed
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
+                .help("Close")
             }
             .padding(12)
             Divider()
             MarkdownFileView(path: path)
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
-        .frame(width: 420)
-        .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
-        .overlay(alignment: .leading) {
-            Divider()
+        .frame(maxWidth: planContentWidth)
+        .glassEffect(planGlass, in: .rect(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 24)
+    }
+
+    private func planDockBar(path: String) -> some View {
+        HStack(spacing: 8) {
+            // The whole row expands, so the target is the bar rather than just
+            // the chevron; close stays a sibling so it isn't a nested button.
+            Button {
+                planPresentation = .expanded
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text")
+                        .foregroundStyle(.secondary)
+                    Text((path as NSString).lastPathComponent)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up")
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Expand the plan")
+
+            Button {
+                planPresentation = .closed
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Close")
         }
-        .shadow(color: .black.opacity(0.2), radius: 12, x: -2, y: 0)
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassEffect(planGlass, in: .rect(cornerRadius: 10))
+        .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)))
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
+    private var planGlass: Glass {
+        planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
     private func emptyState(showsComposer: Bool) -> some View {
