@@ -2,7 +2,7 @@ import Foundation
 
 /// A JSON value of unknown shape, for fields like `tool_use.input` whose
 /// keys are tool-specific. Decodes any JSON; encodes back losslessly.
-enum JSONValue: Decodable {
+enum JSONValue: Decodable, Encodable, Equatable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -27,9 +27,41 @@ enum JSONValue: Decodable {
         }
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
     /// Convenience accessor for table-driven tool summaries.
     var stringValue: String? {
         if case .string(let value) = self { return value }
+        return nil
+    }
+
+    var doubleValue: Double? {
+        if case .number(let value) = self { return value }
+        return nil
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
+        return nil
+    }
+
+    var objectValue: [String: JSONValue]? {
+        if case .object(let value) = self { return value }
+        return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self { return value }
         return nil
     }
 }
