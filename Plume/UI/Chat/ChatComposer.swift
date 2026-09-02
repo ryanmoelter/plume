@@ -72,9 +72,7 @@ struct ChatComposer: View {
                 sendButton.padding(.trailing, 8)
             }
         }
-        .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize))
-        .frame(maxWidth: .infinity)
-        .padding(10)
+        .listItemPadding(bleed: true)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in

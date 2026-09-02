@@ -14,6 +14,17 @@ struct ChatMetricsTests {
         #expect(large > small)
     }
 
+    @Test func bleedIsWiderThanContentAtEverySize() {
+        for size in stride(from: 9.0, through: 32.0, by: 1.0) {
+            #expect(ChatMetrics.maxBleedWidth(forFontSize: size) > ChatMetrics.maxContentWidth(forFontSize: size))
+        }
+    }
+
+    @Test func bleedScalesWithFontSize() {
+        #expect(ChatMetrics.maxBleedWidth(forFontSize: 16) == 800)
+        #expect(ChatMetrics.maxBleedWidth(forFontSize: 13) == 650)
+    }
+
     @Test func bottomPaddingScalesWithFontSize() {
         #expect(ChatMetrics.bottomPadding(forFontSize: 16) == 72)
         #expect(ChatMetrics.bottomPadding(forFontSize: 13) == 58.5)

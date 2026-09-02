@@ -46,7 +46,6 @@ struct ChatTabView: View {
                     messages: transcript.messages,
                     subagents: subagents,
                     status: status,
-                    maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)),
                     bottomPadding: ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize))
                 )
                 Divider()
@@ -74,8 +73,7 @@ struct ChatTabView: View {
                         planButton(path: planFilePath)
                     }
                 }
-                .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)))
-                .frame(maxWidth: .infinity)
+                .listItemPadding(vertical: false)
                 Divider()
                 if planPresentation == .minimized, let planFilePath {
                     planDockBar(path: planFilePath)
@@ -126,14 +124,6 @@ struct ChatTabView: View {
         .padding(.vertical, 4)
     }
 
-    /// The plan's own column matches the messages' *text* column, not their
-    /// outer frame: `ChatMessageList` clamps to `maxContentWidth` and then pads
-    /// 16 per side, and `MarkdownFileView` pads another 16 inside its scroll
-    /// view. Adding both back keeps the two measures equal.
-    private var planContentWidth: CGFloat {
-        ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)) + 32
-    }
-
     /// A wash of the chat's own surface, so the glass reads as the chat holding
     /// a document rather than a system panel floating over it. Nil leaves the
     /// glass untinted, which is still legible.
@@ -170,10 +160,9 @@ struct ChatTabView: View {
             MarkdownFileView(path: path)
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
-        .frame(maxWidth: planContentWidth)
         .glassEffect(planGlass, in: .rect(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 24)
+        .listItemPadding(bleed: true)
+        .padding(.vertical, 8)
     }
 
     private func planDockBar(path: String) -> some View {
@@ -210,9 +199,7 @@ struct ChatTabView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassEffect(planGlass, in: .rect(cornerRadius: 10))
-        .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)))
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 10)
+        .listItemPadding(bleed: true, vertical: false)
         .padding(.top, 8)
     }
 

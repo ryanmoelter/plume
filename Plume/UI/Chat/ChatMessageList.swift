@@ -12,7 +12,6 @@ struct ChatMessageList: View {
     let messages: [ChatMessage]
     let subagents: [SubagentTranscript]
     let status: TaskStatus
-    let maxWidth: CGFloat
     let bottomPadding: CGFloat
 
     /// Scroll position, held in a reference box rather than `@State`.
@@ -33,7 +32,7 @@ struct ChatMessageList: View {
                 // A plain VStack lays out every message on every pass, which
                 // is thousands of markdown parses per frame on a real
                 // conversation.
-                LazyVStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         // Only the newest row reflects live status, so only
                         // it reads `status`. Passing it to every row made a
@@ -48,16 +47,15 @@ struct ChatMessageList: View {
                             isLast: isLast,
                             status: isLast ? status : .unset
                         )
+                        .listItemPadding(bleed: true)
                         .id(message.id)
                     }
                     SubagentListView(subagents: subagents)
+                        .listItemPadding(bleed: true)
                     Color.clear
                         .frame(height: 1)
                         .id(bottomAnchorID)
                 }
-                .frame(maxWidth: maxWidth)
-                .frame(maxWidth: .infinity)
-                .padding(16)
                 .padding(.bottom, bottomPadding)
             }
             .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in

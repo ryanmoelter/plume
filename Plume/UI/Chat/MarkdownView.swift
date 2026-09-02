@@ -40,11 +40,13 @@ struct MarkdownView: View {
             Text(inline(text))
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
+                .listItemPadding(vertical: false)
 
         case let .paragraph(text):
             Text(inline(text))
                 .font(bodyFont)
                 .fixedSize(horizontal: false, vertical: true)
+                .listItemPadding(vertical: false)
 
         case let .bulletList(items):
             VStack(alignment: .leading, spacing: 4) {
@@ -57,6 +59,7 @@ struct MarkdownView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .listItemPadding(vertical: false)
 
         case let .numberedList(items):
             VStack(alignment: .leading, spacing: 4) {
@@ -69,6 +72,7 @@ struct MarkdownView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .listItemPadding(vertical: false)
 
         case let .codeBlock(_, code):
             ScrollView(.horizontal, showsIndicators: false) {
@@ -89,6 +93,7 @@ struct MarkdownView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .listItemPadding(vertical: false)
 
         case .rule:
             Rectangle()
