@@ -58,6 +58,9 @@ struct ChatMessageRow: View {
                 }
             }
         }
+        // What the user typed reads as input, not as published prose, so it
+        // keeps the system face while the agent's replies take the serif.
+        .environment(\.chatProseFace, .system)
     }
 
     private var assistantBody: some View {

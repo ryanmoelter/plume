@@ -50,36 +50,37 @@ struct ChatProseFontTests {
     }
 }
 
-/// The composer is AppKit, so it takes `NSFont` rather than SwiftUI's `Font`.
-/// Emphasis is derived from that descriptor, which is what keeps bold and
-/// italic inside the bundled family.
+/// The composer uses the system face, not the bundled serif: what the user is
+/// typing should read as input rather than published prose. Emphasis still has
+/// to resolve to real bold and italic faces.
 @MainActor
-struct ComposerProseFontTests {
-    @Test func theComposerBodyFontIsTheBundledFamily() {
-        BundledFonts.registerIfNeeded()
-        #expect(NSFont.chatProse(ofSize: 15).familyName == BundledFonts.prose)
-        #expect(NSFont.chatProse(ofSize: 15).pointSize == 15)
+struct ComposerBodyFontTests {
+    @Test func theComposerBodyFontIsTheSystemFace() {
+        let composer = NSFont.composerBody(ofSize: 15)
+        #expect(composer.familyName == NSFont.systemFont(ofSize: 15).familyName)
+        #expect(composer.pointSize == 15)
     }
 
-    @Test func italicResolvesWithinTheFamilyRatherThanBeingSynthesized() {
+    @Test func theComposerDoesNotUseTheBundledSerif() {
         BundledFonts.registerIfNeeded()
-        let base = NSFont.chatProse(ofSize: 15)
+        #expect(NSFont.composerBody(ofSize: 15).familyName != BundledFonts.prose)
+    }
+
+    @Test func italicResolvesToADistinctFace() {
+        let base = NSFont.composerBody(ofSize: 15)
         let descriptor = base.fontDescriptor.withSymbolicTraits(.italic)
         let italic = try? #require(NSFont(descriptor: descriptor, size: 15))
 
-        #expect(italic?.familyName == BundledFonts.prose)
         // A synthesized slant keeps the upright's PostScript name; a real
         // italic face reports its own.
         #expect(italic?.fontName != base.fontName, "italic did not resolve to a distinct face")
     }
 
-    @Test func boldResolvesWithinTheFamily() {
-        BundledFonts.registerIfNeeded()
-        let base = NSFont.chatProse(ofSize: 15)
+    @Test func boldResolvesToADistinctFace() {
+        let base = NSFont.composerBody(ofSize: 15)
         let descriptor = base.fontDescriptor.withSymbolicTraits(.bold)
         let bold = try? #require(NSFont(descriptor: descriptor, size: 15))
 
-        #expect(bold?.familyName == BundledFonts.prose)
         #expect(bold?.fontName != base.fontName, "bold did not resolve to a distinct face")
     }
 }
@@ -95,13 +96,11 @@ struct ProseFontCostTests {
         BundledFonts.registerIfNeeded()
         // Warm the cache and the font cache so this times steady state.
         _ = Font.chatProse(size: 15)
-        _ = NSFont.chatProse(ofSize: 15)
 
         let iterations = 2000
         let start = Date()
         for _ in 0..<iterations {
             _ = Font.chatProse(size: 15)
-            _ = NSFont.chatProse(ofSize: 15)
         }
         let msEach = Date().timeIntervalSince(start) * 1000 / Double(iterations)
 

@@ -7,6 +7,7 @@ import SwiftUI
 struct MarkdownView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var bodyFontSize
+    @Environment(\.chatProseFace) private var proseFace
 
     let blocks: [MarkdownBlock]
 
@@ -101,7 +102,15 @@ struct MarkdownView: View {
     }
 
     private var bodyFont: Font {
-        .chatProse(size: bodyFontSize)
+        prose(size: bodyFontSize)
+    }
+
+    /// Prose in whichever face the environment asks for.
+    private func prose(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch proseFace {
+        case .serif: return .chatProse(size: size, weight: weight)
+        case .system: return .system(size: size, weight: weight)
+        }
     }
 
     /// Heading sizes as multiples of the body size, preserving the original
@@ -109,12 +118,12 @@ struct MarkdownView: View {
     /// against the system 13pt body) and weight distinctions.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return .chatProse(size: bodyFontSize * 2.15, weight: .bold)
-        case 2: return .chatProse(size: bodyFontSize * 1.7, weight: .bold)
-        case 3: return .chatProse(size: bodyFontSize * 1.35, weight: .bold)
-        case 4: return .chatProse(size: bodyFontSize * 1.15, weight: .semibold)
-        case 5: return .chatProse(size: bodyFontSize * 1.0, weight: .semibold)
-        default: return .chatProse(size: bodyFontSize * 0.85, weight: .semibold)
+        case 1: return prose(size: bodyFontSize * 2.15, weight: .bold)
+        case 2: return prose(size: bodyFontSize * 1.7, weight: .bold)
+        case 3: return prose(size: bodyFontSize * 1.35, weight: .bold)
+        case 4: return prose(size: bodyFontSize * 1.15, weight: .semibold)
+        case 5: return prose(size: bodyFontSize * 1.0, weight: .semibold)
+        default: return prose(size: bodyFontSize * 0.85, weight: .semibold)
         }
     }
 

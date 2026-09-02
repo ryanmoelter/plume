@@ -67,15 +67,12 @@ extension Font {
 }
 
 extension NSFont {
-    /// The AppKit half of `Font.chatProse`, for the composer's text storage.
+    /// The composer's body font, for its text storage.
     ///
-    /// Emphasis is derived from this descriptor rather than the system one,
-    /// so bold and italic resolve within the bundled family — the italic
-    /// comes from the italic file instead of being synthesized by slanting.
-    static func chatProse(ofSize size: CGFloat) -> NSFont {
-        guard BundledFonts.isProseAvailable, let font = NSFont(name: BundledFonts.prose, size: size) else {
-            return .systemFont(ofSize: size)
-        }
-        return font
+    /// The system face rather than the bundled serif: what the user is typing
+    /// should read as input, not as published prose. `MarkdownComposerStyler`
+    /// derives bold and italic from this descriptor.
+    static func composerBody(ofSize size: CGFloat) -> NSFont {
+        .systemFont(ofSize: size)
     }
 }
