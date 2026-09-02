@@ -9,7 +9,9 @@ final class TaskTab {
     var orderIndex: Int = 0
     var task: WorkTask?
 
-    var renderModeRaw: String = TabRenderMode.chat.rawValue
+    /// Optional so a row written before this property existed migrates as NULL
+    /// rather than failing to materialize; `renderMode` supplies the default.
+    var renderModeRaw: String?
 
     var providerID: String?
     /// Passed to `claude --resume` when the user resumes this tab.
@@ -35,7 +37,7 @@ final class TaskTab {
     /// Only meaningful for an agent tab; a terminal tab has nothing to render
     /// a chat from.
     var renderMode: TabRenderMode {
-        get { TabRenderMode(rawValue: renderModeRaw) ?? .chat }
+        get { renderModeRaw.flatMap(TabRenderMode.init(rawValue:)) ?? .chat }
         set { renderModeRaw = newValue.rawValue }
     }
 
