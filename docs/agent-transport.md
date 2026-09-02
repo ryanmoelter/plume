@@ -64,6 +64,7 @@ The transcript-reading half of Plume is largely unaffected either way: `Transcri
 | Set permission mode mid-session | Shift+Tab cycling only | Possible | Possible |
 | Interrupt | Ctrl+C keystroke | SIGINT | `AbortController` |
 | Language fit for a Swift app | Native | Native (subprocess + pipes) | Poor — TS/Python library |
+| Quota and session cost | Statusline capture only — a global `~/.claude/settings.json` rewrite | Native `rate_limit_event` and `result` events | Native |
 | Terminal still available | It *is* the transport | Optional, alongside | Separate concern |
 
 ## Bottom line
@@ -71,6 +72,30 @@ The transcript-reading half of Plume is largely unaffected either way: `Transcri
 The ceiling is real but narrow: input, not output. Craft escapes it with the Agent SDK, and their subscription support is a self-implemented OAuth flow that Anthropic's own docs steer third-party products away from. For Plume the same escape is available one layer down — the headless `claude` binary — with no change to how the user logs in.
 
 Nothing here is urgent. The TUI path works, and the roadmap's read-only rendering items (injected content, plan and question presentation) are worth doing regardless of transport. This is a decision to make deliberately before building anything that depends on answering a running prompt.
+
+## The statusline capture is TUI-only
+
+Quota and session cost are the one thing Plume cannot read from a transcript, so today it captures them from the payload Claude Code pipes to a statusline command (`StatuslineCaptureWriter`, `StatuslineInstaller`, `StatuslinePayload`). **That mechanism does not survive a move to `claude -p`.** A statusline is TUI chrome, and a headless run draws none.
+
+Verified against Claude Code 2.1.258: with a `statusLine` configured through `--settings`, a `-p` run never executes the script — checked with both the default output format and `--output-format stream-json`. The script is not called with empty input; it is not called at all.
+
+Headless does not lose the data, though. It gets it natively, pushed as events:
+
+- **`rate_limit_event`**, emitted *first*, before `system/init`. Carries `unifiedWindows.five_hour` and `unifiedWindows.seven_day`, each with `utilization` and `resetsAt`, plus `overageStatus` and `isUsingOverage`.
+- **`result`**, emitted last. Carries `total_cost_usd`, a `usage` breakdown, and a per-model `modelUsage` map with `contextWindow` and `costUSD` for each model the turn touched — including subagent models, which the statusline payload does not report at all.
+
+Mapping onto what `StatuslinePayload` decodes today:
+
+| `StatuslinePayload` field | Headless source | Note |
+|---|---|---|
+| `rate_limits.five_hour.used_percentage` | `rate_limit_event` → `unifiedWindows.five_hour.utilization` | **0–1, not 0–100.** `StatuslineAttention`'s thresholds are percentages. |
+| `rate_limits.*.resets_at` | same event, `resetsAt` | Epoch seconds in both. |
+| `cost.total_cost_usd` | `result` → `total_cost_usd` | Per run, so a resumed session needs accumulating. |
+| `context_window.*` | `result` → `usage` / `modelUsage[].contextWindow` | Already transcript-derived today; unaffected. |
+| `model.display_name`, `effort.level` | `system/init` → `model` | Already transcript-derived today; unaffected. |
+| `workspace.current_dir` / `cwd` | `system/init` → `cwd` | Already transcript-derived today; unaffected. |
+
+So the capture is scaffolding for the current transport, not a foundation. It is safe to install now, but it is not worth building further on — and a cutover deletes it rather than porting it.
 
 ## What the chat view still needs
 
@@ -97,6 +122,11 @@ Switching transports is the smaller half. Headless, the chat view stops being an
 - [ ] **Subagents always show `status: .unset`** — no live indicator while one is running.
 - [ ] **No scroll-to-bottom affordance** once the user has scrolled away. Auto-follow exists (`ChatScrollAnchor`, 40pt tolerance); a manual jump does not.
 
+### Retired on cutover — remove, don't port
+
+- [ ] **The whole statusline capture.** `StatuslineCaptureWriter`, `StatuslineInstaller`, the Settings section, `AppPaths.sharedApplicationSupport`, and `StatuslineStore`'s file watching all exist to work around a TUI-only channel. Headless supplies the same numbers as events. **Uninstall before deleting**: the script is referenced from the user's global `~/.claude/settings.json`, so shipping a build that drops the code without first restoring that key leaves a `statusLine` pointing at a file Plume no longer writes. `StatuslineInstaller.restore()` already handles it; the cutover needs to *call* it, which nothing does automatically today.
+- [ ] **Feed quota and cost from the stream instead.** Keep `StatuslineStripView` and `StatuslineAttention` — only the source changes. Three things to get right: `utilization` is 0–1 where `used_percentage` is 0–100; `total_cost_usd` is per run, so a resumed session must accumulate rather than replace; and `rate_limit_event` arrives before `system/init`, so the reader must tolerate quota landing before the session it belongs to is known.
+
 ### Lost outright without a replacement
 
 - [ ] **Slash commands beyond `/model` and `/effort`.** Only those two are composed natively (`ModelEffortCommand`). Everything else works today purely because the text reaches a real TUI. A `-p` session does expand skills and commands in the prompt string, so this is recoverable — but it needs discovery and expansion, not just a passthrough.
@@ -113,5 +143,7 @@ No work needed; noted so nobody re-derives it. `TranscriptParser` already patche
 - Auth precedence and `claude setup-token`: https://code.claude.com/docs/en/authentication
 - Subscription usage limits for SDK and `-p`: https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan
 - Craft's implementation: https://github.com/lukilabs/craft-agents-oss/blob/main/packages/shared/src/agent/claude-agent.ts and `packages/shared/src/auth/claude-oauth.ts`
+
+The statusline finding is first-hand: `claude -p` was run against a configured `statusLine` on Claude Code 2.1.258 (September 2026), with both output formats, and the script never fired. Re-check it if the CLI ever grows a headless status channel.
 
 Craft's OAuth endpoints, scopes, and env-var clearing were read from raw source files as of September 2026. The SDK, hook, and MCP mechanics came via DeepWiki's AI-generated summaries of the same repo — high-confidence but not verified line-by-line. If any of it becomes load-bearing, clone the repo and read it directly.
