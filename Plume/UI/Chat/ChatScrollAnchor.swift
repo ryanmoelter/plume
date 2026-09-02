@@ -15,24 +15,6 @@ enum ChatScrollAnchor {
         distanceFromBottom <= bottomTolerance
     }
 
-    /// Whether growing content should pull the view down with it.
-    ///
-    /// An agent's reply arrives as repeated growth of the *same* message
-    /// rather than as new ones, so following it means reacting to the content
-    /// getting taller. The distance has to be the one measured before the
-    /// growth: afterwards the new content is already below the viewport, which
-    /// reads as "the user has scrolled away" no matter where they were.
-    static func shouldFollowGrowth(
-        previousDistanceFromBottom: CGFloat,
-        previousContentHeight: CGFloat,
-        newContentHeight: CGFloat
-    ) -> Bool {
-        guard newContentHeight > previousContentHeight else { return false }
-        // A first layout reports growth from zero with no scroll position to
-        // preserve; `onAppear` already pins that case to the bottom.
-        guard previousContentHeight > 0 else { return false }
-        return shouldAutoScroll(distanceFromBottom: previousDistanceFromBottom)
-    }
 
     /// Whether a geometry change reflects where the *user* put the view,
     /// rather than content growing underneath it.
@@ -72,4 +54,7 @@ enum ChatScrollAnchor {
 struct ChatScrollGeometry: Equatable {
     var distanceFromBottom: CGFloat
     var contentHeight: CGFloat
+    /// Zero while the list is offscreen, which is how a hidden tab is told
+    /// apart from a visible one scrolled to its top.
+    var viewportHeight: CGFloat = 0
 }

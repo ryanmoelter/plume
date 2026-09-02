@@ -101,12 +101,22 @@ private struct HeadlessAgentTabContent: View {
 
     @State private var hasResumed = false
 
+    /// Only the visible tab builds its chat. Nothing here owns a process —
+    /// `HeadlessSessionManager` does — so unmounting costs a rebuild on the
+    /// way back, where staying mounted costs a live `ScrollView` per hidden
+    /// tab, each still laying out against a zero-height viewport.
     var body: some View {
-        ChatTabView(task: task, tab: tab, isVisible: isVisible)
-            .onChange(of: isVisible, initial: true) { _, visible in
-                guard visible else { return }
-                resumeIfNeeded()
+        Group {
+            if isVisible {
+                ChatTabView(task: task, tab: tab, isVisible: isVisible)
+            } else {
+                Color.clear
             }
+        }
+        .onChange(of: isVisible, initial: true) { _, visible in
+            guard visible else { return }
+            resumeIfNeeded()
+        }
     }
 
     private func resumeIfNeeded() {

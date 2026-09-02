@@ -105,9 +105,15 @@ struct ChatMessageList: View {
             .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
                 ChatScrollGeometry(
                     distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
-                    contentHeight: geometry.contentSize.height
+                    contentHeight: geometry.contentSize.height,
+                    viewportHeight: geometry.containerSize.height
                 )
             } action: { old, new in
+                // Every tab stays mounted, hidden by opacity, so an offscreen
+                // list keeps reporting geometry. Its viewport measures zero,
+                // which reads as a huge distance from the bottom and scrolls
+                // to chase it — and that scroll reports again.
+                guard new.viewportHeight > 0 else { return }
                 if ChatScrollAnchor.reflectsUserScroll(
                     previousContentHeight: old.contentHeight,
                     newContentHeight: new.contentHeight
@@ -121,25 +127,16 @@ struct ChatMessageList: View {
                     distanceFromBottom: scrollPosition.distanceFromBottom
                 )
                 if detached != isDetached { isDetached = detached }
-                guard !scrollPosition.isFollowing else {
-                    scrollPosition.isFollowing = false
-                    return
-                }
-                guard ChatScrollAnchor.shouldFollowGrowth(
-                    previousDistanceFromBottom: scrollPosition.distanceFromBottom,
-                    previousContentHeight: old.contentHeight,
-                    newContentHeight: new.contentHeight
-                ) else { return }
-                scrollPosition.isFollowing = true
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
+            // Following is driven by what arrives, never by geometry: a scroll
+            // reports geometry of its own, and deciding to scroll from that
+            // report is a loop with no fixed point.
             .onChange(of: lastMessageID) { _, newID in
                 guard newID != nil else { return }
-                if ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: scrollPosition.distanceFromBottom) {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-                    }
-                }
+                followBottomIfPinned(proxy)
+            }
+            .onChange(of: streaming) { _, _ in
+                followBottomIfPinned(proxy)
             }
             .onAppear {
                 proxy.scrollTo(bottomAnchorID, anchor: .bottom)
@@ -164,6 +161,16 @@ struct ChatMessageList: View {
         }
     }
 
+    /// Scrolls to the newest content when the user is already at the bottom.
+    private func followBottomIfPinned(_ proxy: ScrollViewProxy) {
+        guard ChatScrollAnchor.shouldAutoScroll(
+            distanceFromBottom: scrollPosition.distanceFromBottom
+        ) else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+    }
+
     private func scrollToBottomButton(action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "arrow.down")
@@ -185,7 +192,4 @@ struct ChatMessageList: View {
 @MainActor
 private final class ScrollPosition {
     var distanceFromBottom: CGFloat = 0
-    /// Set while a programmatic scroll is in flight. That scroll reports back
-    /// as another geometry change, and following it again never settles.
-    var isFollowing = false
 }
