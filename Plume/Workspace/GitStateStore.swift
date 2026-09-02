@@ -17,6 +17,10 @@ final class GitStateStore {
     /// dirty flag is never surprising.
     static let pollInterval: TimeInterval = 15
 
+    /// Long enough to collapse the burst of `.git` writes a single commit,
+    /// checkout or fetch makes, short enough to feel immediate.
+    static let debounce: Duration = .milliseconds(250)
+
     private struct Watch {
         var state: GitState?
         var watcher: FileWatcher?
@@ -25,6 +29,8 @@ final class GitStateStore {
 
     private var watches: [String: Watch] = [:]
     private var pollTimer: Timer?
+    private var pending: [String: Task<Void, Never>] = [:]
+    private var inFlight: Set<String> = []
 
     init() {}
 
@@ -53,6 +59,7 @@ final class GitStateStore {
         existing.refCount -= 1
         if existing.refCount <= 0 {
             existing.watcher?.stop()
+            pending.removeValue(forKey: directory)?.cancel()
             watches.removeValue(forKey: directory)
         } else {
             watches[directory] = existing
@@ -71,8 +78,11 @@ final class GitStateStore {
         let gitDirectory = URL(fileURLWithPath: root).appendingPathComponent(".git")
         guard FileManager.default.fileExists(atPath: gitDirectory.path) else { return }
 
+        // Debounced: an agent working in the repo writes to `.git` — index,
+        // lock files, refs, logs — many times a second, and each write would
+        // otherwise spawn its own `git status`.
         let watcher = FileWatcher(url: gitDirectory) { [weak self] in
-            Task { @MainActor in self?.refresh(directory) }
+            Task { @MainActor in self?.scheduleRefresh(directory) }
         }
         watcher.start()
         watches[directory]?.watcher = watcher
@@ -89,12 +99,27 @@ final class GitStateStore {
         for directory in watches.keys { refresh(directory) }
     }
 
+    private func scheduleRefresh(_ directory: String) {
+        pending[directory]?.cancel()
+        pending[directory] = Task { [debounce = Self.debounce] in
+            try? await Task.sleep(for: debounce)
+            guard !Task.isCancelled else { return }
+            refresh(directory)
+        }
+    }
+
     /// Runs `git` off the main actor, then publishes on it.
     private func refresh(_ directory: String) {
+        // One `git` process per directory at a time. Without this a slow
+        // repository would queue a subprocess per event behind the debounce.
+        guard !inFlight.contains(directory) else { return }
+        inFlight.insert(directory)
         Task.detached(priority: .utility) {
             let state = GitRunner.state(in: directory)
             await MainActor.run { [weak self] in
-                guard let self, let existing = self.watches[directory] else { return }
+                guard let self else { return }
+                self.inFlight.remove(directory)
+                guard let existing = self.watches[directory] else { return }
                 // The `.git` watcher fires on every write inside `.git`, and
                 // an agent working in the repo makes many that leave this
                 // answer unchanged. Assigning anyway would publish an
@@ -108,6 +133,9 @@ final class GitStateStore {
     /// Drops every watch. For tests.
     func reset() {
         for watch in watches.values { watch.watcher?.stop() }
+        for task in pending.values { task.cancel() }
+        pending.removeAll()
+        inFlight.removeAll()
         watches.removeAll()
         pollTimer?.invalidate()
         pollTimer = nil
