@@ -47,11 +47,11 @@ struct ChatMessageList: View {
                             isLast: isLast,
                             status: isLast ? status : .unset
                         )
-                        .listItemPadding(bleed: true)
+                        .listItemPadding(bleed: true, column: .unpadded)
                         .id(message.id)
                     }
                     SubagentListView(subagents: subagents)
-                        .listItemPadding(bleed: true)
+                        .listItemPadding(bleed: true, column: .unpadded)
                     Color.clear
                         .frame(height: 1)
                         .id(bottomAnchorID)

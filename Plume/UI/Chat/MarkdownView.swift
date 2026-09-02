@@ -30,6 +30,7 @@ struct MarkdownView: View {
                 render(blocks[index])
             }
         }
+        .frame(maxWidth: .infinity)
         .textSelection(.enabled)
     }
 
@@ -82,6 +83,7 @@ struct MarkdownView: View {
                     .padding(8)
             }
             .background(codeBackground, in: .rect(cornerRadius: 6))
+            .listItemPadding(bleed: true, vertical: false)
 
         case let .quote(text):
             HStack(spacing: 8) {
