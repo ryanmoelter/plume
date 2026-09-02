@@ -13,7 +13,6 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusEngine: StatusEngine = .shared
     var settings: AppSettings = .shared
-    private var appearanceObservation: NSKeyValueObservation?
 
     /// Latched by `NSWorkspace.willPowerOffNotification`, which fires ahead
     /// of the logout/restart/shutdown Apple Event in some cases. Kept as a
@@ -33,15 +32,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // it's up by the time launch finishes.
         guard let window = NSApp.windows.first else { return }
         tintTitlebar(of: window)
-
-        // `effectiveAppearance` KVO fires on both a system light/dark switch
-        // and window-level appearance changes, so one observer covers both.
-        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self, weak window] _, _ in
-            MainActor.assumeIsolated {
-                guard let self, let window else { return }
-                self.tintTitlebar(of: window)
-            }
-        }
     }
 
     @objc private func handleWillPowerOff() {
@@ -53,9 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// strip. Leaving `styleMask` untouched (no `.fullSizeContentView`) keeps
     /// the traffic lights and content layout exactly where AppKit already
     /// puts them.
+    ///
+    /// Applied once: the tint resolves its own light/dark variant per draw.
     private func tintTitlebar(of window: NSWindow) {
-        let isDark = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        guard let tint = ThemeChrome.titlebarBackground(forDark: isDark) else {
+        guard let tint = ThemeChrome.titlebarBackground() else {
             window.titlebarAppearsTransparent = false
             window.backgroundColor = nil
             return

@@ -48,17 +48,26 @@ enum ThemeChrome {
         }
     }
 
-    /// Background tint for a titlebar in the given appearance's dark/light
-    /// mode, or nil to leave the titlebar at its default system color.
-    static func titlebarBackground(forDark isDark: Bool) -> NSColor? {
-        titlebarBackground(forDark: isDark, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+    /// Background tint for the window and its titlebar, or nil to leave them
+    /// at their default system color.
+    ///
+    /// Resolves per draw rather than per call, so a light/dark switch recolors
+    /// the titlebar and the window edges without anything having to re-set it.
+    static func titlebarBackground() -> NSColor? {
+        titlebarBackground(in: GhosttyRuntime.shared.resolvedThemeDefinitions)
     }
 
     static func titlebarBackground(
-        forDark isDark: Bool,
         in definitions: GhosttyThemeResolver.ResolvedDefinitions?
     ) -> NSColor? {
-        background(for: isDark ? .dark : .light, in: definitions).map(NSColor.init)
+        let light = background(for: .light, in: definitions)
+        let dark = background(for: .dark, in: definitions)
+        guard let light, let dark else { return nil }
+
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(isDark ? dark : light)
+        }
     }
 }
 

@@ -3,6 +3,8 @@ import SwiftUI
 /// Shown for an agent tab with a stored session whose working directory no
 /// longer exists, so auto-resume is withheld until the user resolves it.
 struct AgentMissingDirectoryView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 12) {
             Spacer()
@@ -22,5 +24,6 @@ struct AgentMissingDirectoryView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
     }
 }

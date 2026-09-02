@@ -141,15 +141,17 @@ enum MarkdownComposerStyler {
 
     /// Matches `MarkdownView.codeBackground`: `ThemeChrome` foreground at 8%
     /// opacity, falling back to system secondary when no theme is set.
-    private static var codeBackgroundColor: NSColor {
-        if let themeColor = ThemeChrome.foreground(for: currentColorScheme) {
-            return NSColor(themeColor).withAlphaComponent(0.08)
+    ///
+    /// Resolves per draw, so the text keeps its contrast across a light/dark
+    /// switch without being restyled — nothing restyles it until the next
+    /// keystroke.
+    private static let codeBackgroundColor = NSColor(name: nil) { appearance in
+        let scheme: ColorScheme =
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+        guard let themeColor = ThemeChrome.foreground(for: scheme) else {
+            return NSColor.secondaryLabelColor.withAlphaComponent(0.1)
         }
-        return NSColor.secondaryLabelColor.withAlphaComponent(0.1)
-    }
-
-    private static var currentColorScheme: ColorScheme {
-        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+        return NSColor(themeColor).withAlphaComponent(0.08)
     }
 }
 

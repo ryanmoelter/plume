@@ -7,6 +7,7 @@ struct AgentFirstMessageView: View {
     let tab: TaskTab
     var isVisible = true
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var message = ""
     @FocusState private var inputFocused: Bool
 
@@ -52,6 +53,7 @@ struct AgentFirstMessageView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in

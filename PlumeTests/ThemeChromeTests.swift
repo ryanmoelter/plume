@@ -35,21 +35,44 @@ struct ThemeChromeTests {
         #expect(ThemeChrome.foreground(for: .light, in: broken) == nil)
     }
 
-    @Test func titlebarBackgroundSelectsLightOrDark() {
-        #expect(ThemeChrome.titlebarBackground(forDark: false, in: definitions) == NSColor(Color(hex: "fffbf7")!))
-        #expect(ThemeChrome.titlebarBackground(forDark: true, in: definitions) == NSColor(Color(hex: "211a14")!))
+    /// The titlebar tint resolves its own variant per draw, so both are
+    /// checked through the appearance rather than by asking for one.
+    @MainActor
+    @Test func titlebarBackgroundResolvesPerAppearance() throws {
+        let tint = try #require(ThemeChrome.titlebarBackground(in: definitions))
+
+        #expect(tint.resolved(forDark: false) == NSColor(Color(hex: "fffbf7")!))
+        #expect(tint.resolved(forDark: true) == NSColor(Color(hex: "211a14")!))
     }
 
     @Test func titlebarBackgroundFallsBackToNilWithNoTheme() {
-        #expect(ThemeChrome.titlebarBackground(forDark: false, in: nil) == nil)
-        #expect(ThemeChrome.titlebarBackground(forDark: true, in: nil) == nil)
+        #expect(ThemeChrome.titlebarBackground(in: nil) == nil)
     }
 
-    @Test func titlebarBackgroundFallsBackToNilOnUnparseableColor() {
-        let broken = GhosttyThemeResolver.ResolvedDefinitions(
+    /// One unusable side is enough to fall back: a dynamic color has to be
+    /// able to answer for both appearances.
+    @Test func titlebarBackgroundFallsBackToNilWhenEitherSideIsMissing() {
+        let unparseableLight = GhosttyThemeResolver.ResolvedDefinitions(
             light: GhosttyThemeDefinition(name: "Broken", background: "not-a-color", foreground: "also-bad"),
-            dark: nil
+            dark: definitions.dark
         )
-        #expect(ThemeChrome.titlebarBackground(forDark: false, in: broken) == nil)
+        #expect(ThemeChrome.titlebarBackground(in: unparseableLight) == nil)
+
+        let darkOnly = GhosttyThemeResolver.ResolvedDefinitions(light: nil, dark: definitions.dark)
+        #expect(ThemeChrome.titlebarBackground(in: darkOnly) == nil)
+    }
+}
+
+private extension NSColor {
+    /// The variant this color resolves to in the given appearance, so a
+    /// dynamic color can be compared against a plain one.
+    @MainActor
+    func resolved(forDark isDark: Bool) -> NSColor {
+        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)!
+        var resolved = self
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor(cgColor: self.cgColor)!
+        }
+        return resolved
     }
 }

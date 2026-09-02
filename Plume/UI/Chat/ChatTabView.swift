@@ -7,6 +7,7 @@ struct ChatTabView: View {
     let tab: TaskTab
     let isVisible: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
     @State private var isShowingPlan = false
 
@@ -85,6 +86,7 @@ struct ChatTabView: View {
                 emptyState(showsComposer: true)
             }
         }
+        .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
         .onChange(of: gitDirectory, initial: true) { previous, current in
