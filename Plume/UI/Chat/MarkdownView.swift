@@ -30,7 +30,6 @@ struct MarkdownView: View {
                 render(blocks[index])
             }
         }
-        .frame(maxWidth: .infinity)
         .textSelection(.enabled)
     }
 

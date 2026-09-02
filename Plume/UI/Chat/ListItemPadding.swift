@@ -1,5 +1,19 @@
 import SwiftUI
 
+private struct ChatHugsContentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Set on the user's bubble, where the container sizes to its text rather
+    /// than the text filling a column. `ListItemPadding` reads it so a short
+    /// message stays short instead of stretching to reading measure.
+    var chatHugsContent: Bool {
+        get { self[ChatHugsContentKey.self] }
+        set { self[ChatHugsContentKey.self] = newValue }
+    }
+}
+
 /// How an item takes its column.
 enum ChatColumn {
     /// A visible container: clamps to the column and paints a gutter around
@@ -29,6 +43,7 @@ enum ChatColumn {
 /// items never stack one inset on another.
 private struct ListItemPadding: ViewModifier {
     @Environment(\.chatFontSize) private var fontSize
+    @Environment(\.chatHugsContent) private var hugsContent
 
     let bleed: Bool
     let column: ChatColumn
@@ -38,8 +53,10 @@ private struct ListItemPadding: ViewModifier {
         content
             // Fill the column and left-align inside it, so a one-line
             // paragraph starts at the same left edge as a wrapped one rather
-            // than centering itself in a frame its own width.
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // than centering itself in a frame its own width. A hugging
+            // container sizes to its text instead, so a short message does
+            // not stretch to reading measure.
+            .frame(maxWidth: hugsContent ? nil : .infinity, alignment: .leading)
             // Padding goes inside the clamp: the column measures the content
             // itself, so a padded item occupies `maxWidth + gutter * 2` and
             // the text inside it still measures a full `maxWidth`.
@@ -47,15 +64,23 @@ private struct ListItemPadding: ViewModifier {
             .padding(.vertical, vertical ? ChatMetrics.verticalPadding : 0)
             .frame(maxWidth: clampedWidth)
             // The column itself centers in whatever contains it.
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: fillsContainer ? .infinity : nil, alignment: .center)
     }
 
+    /// A hugging item takes no column — its container is already sized to it,
+    /// so clamping here would only center the text in a box it doesn't fill.
     private var clampedWidth: CGFloat? {
+        guard !hugsContent else { return nil }
         switch column {
-        case .padded: maxWidth + gutter * 2
-        case .unpadded: maxWidth
-        case .none: nil
+        case .padded: return maxWidth + gutter * 2
+        case .unpadded: return maxWidth
+        case .none: return nil
         }
+    }
+
+    /// A hugging item has no column to center in — it is as wide as it is.
+    private var fillsContainer: Bool {
+        !hugsContent && column != .none
     }
 
     private var maxWidth: CGFloat {

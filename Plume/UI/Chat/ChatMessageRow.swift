@@ -49,18 +49,20 @@ struct ChatMessageRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 48)
-                    VStack(alignment: .leading, spacing: 8) {
-                        blocks
-                    }
-                    .padding(10)
-                    .background(washColor, in: .rect(cornerRadius: 10))
-                    // The bubble tracks the message width rather than a fixed
-                    // column, up to reading measure, and hangs off the bleed
-                    // edge the code blocks use.
-                    .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: chatFontSize), alignment: .trailing)
+                // The wash sits directly on the blocks, and the frames only
+                // position the result. Bounded text wraps and reports the width
+                // it actually used, so the bubble hugs a short message and still
+                // wraps a long one at reading measure. A container between the
+                // two would instead accept the full width on offer, which is
+                // what made a two-word message as wide as a paragraph.
+                VStack(alignment: .leading, spacing: 8) {
+                    blocks
                 }
+                .environment(\.chatHugsContent, true)
+                .padding(10)
+                .background(washColor, in: .rect(cornerRadius: 10))
+                .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: chatFontSize), alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         // What the user typed reads as input, not as published prose, so it
