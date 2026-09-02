@@ -49,11 +49,24 @@ Plume/
 - `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
 - Surfaces spawn their PTY lazily, when first attached to a view with a usable size — not on selection. A hidden tab still spawns.
 
-## Agent instrumentation
+## Agent transports
+
+An agent tab runs over one of two transports, chosen by `TaskTab.transport` and defaulted by a setting. This is a separate axis from `renderMode`, which only picks a view.
+
+**Headless (`.headless`, the default).** `claude -p` speaking stream-json over pipes, owned by `HeadlessSession` and keyed by tab ID in `HeadlessSessionManager` — the same shape as `SurfaceManager`, and no PTY at all. **`docs/headless-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Headless/`.
+
+- **`--permission-prompt-tool stdio` plus an `initialize` control request** is what makes permission requests reach the host. Without both, anything needing approval is auto-denied and the turn ends having done nothing.
+- Answering a running prompt, approving a plan, denying a tool with a reason, setting mode and model, and interrupting all ride the control plane. Interrupt is a control request — **never a signal**, which abandons the turn.
+- One process serves the whole conversation. `session_id` is stable and gets persisted to the tab so a restart can `--resume`.
+- Status, quota and cost arrive as events, so headless tabs start no hook watch. `total_cost_usd` is per turn and accumulates; stream `utilization` is 0–1 where the retired statusline capture used 0–100.
+
+**Terminal (`.terminal`).** The Claude Code TUI hosted in a real PTY, kept as an escape hatch. Input reaches it as a paste plus a synthetic Enter, so it cannot answer a running `AskUserQuestion` — that ceiling is why the headless transport exists. `docs/agent-transport.md` records it.
+
+Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.
+
+### Hook instrumentation (terminal transport)
 
 `claude` launches with `--settings <generated>` plus `PLUME_TASK_ID` / `PLUME_TAB_ID` / `PLUME_EVENTS_DIR`. Each hook appends its stdin to `~/Library/Application Support/Plume/events/<taskID>/<tabID>.jsonl`; `AgentEventMonitor` tails those files and feeds `StatusEngine`.
-
-Input reaches the agent as a paste plus a synthetic Enter, which is why a native chat can't answer a running `AskUserQuestion` or set a permission mode directly. **`docs/agent-transport.md` is the reference** for that ceiling, what Craft Agents does instead, and the headless `claude -p` alternative. Read it before building anything that needs to answer a running prompt.
 
 - **Never put a `matcher` on `Stop` or `UserPromptSubmit`** — Claude Code rejects it. Omitting `matcher` already means "all", so the generated file omits it everywhere.
 - `--settings` *merges*, and hook lists *union*, so the user's own hooks keep firing. Don't expect replacement semantics.
