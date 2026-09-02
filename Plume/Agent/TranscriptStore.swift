@@ -11,11 +11,12 @@ struct SubagentTranscript: Identifiable, Equatable {
 
 /// Watches agent transcripts and republishes their parsed content live.
 ///
-/// One watcher per agent tab, mirroring `AgentTitleMonitor`. Transcripts are
-/// small (largest seen locally is ~500KB), so each change re-reads and
-/// re-parses the whole file rather than tracking offsets. If that stops being
-/// cheap enough, `HookEventIngester`'s offset-based reads are the model to
-/// copy.
+/// One watcher per agent tab, mirroring `AgentTitleMonitor`. Each change
+/// re-reads and re-parses the whole file rather than tracking offsets, which
+/// costs tens of milliseconds on a multi-megabyte transcript — so the read
+/// runs off the main actor and only the result is published on it. If whole-
+/// file parsing stops being affordable at all, `HookEventIngester`'s
+/// offset-based reads are the model to copy.
 @MainActor
 @Observable
 final class TranscriptStore {
@@ -27,6 +28,8 @@ final class TranscriptStore {
     private var watchers: [UUID: FileWatcher] = [:]
     private var paths: [UUID: String] = [:]
     private var pending: [UUID: Task<Void, Never>] = [:]
+    /// Tabs with a parse in flight, so a burst of writes cannot stack reads.
+    private var inFlight: Set<UUID> = []
 
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
@@ -60,6 +63,7 @@ final class TranscriptStore {
     func stopWatching(tabID: UUID) {
         watchers.removeValue(forKey: tabID)?.stop()
         pending.removeValue(forKey: tabID)?.cancel()
+        inFlight.remove(tabID)
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
         subagentTranscripts.removeValue(forKey: tabID)
@@ -70,6 +74,7 @@ final class TranscriptStore {
         for task in pending.values { task.cancel() }
         watchers.removeAll()
         pending.removeAll()
+        inFlight.removeAll()
         paths.removeAll()
         transcripts.removeAll()
         subagentTranscripts.removeAll()
@@ -92,7 +97,7 @@ final class TranscriptStore {
     /// A subagent's own writes do not touch the main transcript, so its
     /// watcher never fires for them. Freshness is therefore bounded by main
     /// transcript activity rather than by subagent activity itself.
-    private func readSubagents(transcriptPath: String) -> [SubagentTranscript] {
+    private nonisolated static func readSubagents(transcriptPath: String) -> [SubagentTranscript] {
         SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath).map { subagentPath in
             let id = (subagentPath as NSString)
                 .lastPathComponent
@@ -116,11 +121,28 @@ final class TranscriptStore {
         }
     }
 
+    /// Reads and parses off the main actor, then publishes on it.
+    ///
+    /// A live transcript is megabytes of JSONL and the debounce fires several
+    /// times a second while a turn streams, so parsing here would stutter the
+    /// window. One read per tab at a time: the parse can outlast the debounce,
+    /// and queuing them would spend the whole gain re-parsing stale bytes.
     private func read(tabID: UUID) {
-        guard let path = paths[tabID],
-              let data = FileManager.default.contents(atPath: path)
-        else { return }
-        transcripts[tabID] = TranscriptParser.parse(data)
-        subagentTranscripts[tabID] = readSubagents(transcriptPath: path)
+        guard let path = paths[tabID], !inFlight.contains(tabID) else { return }
+        inFlight.insert(tabID)
+        Task.detached(priority: .utility) {
+            let parsed = FileManager.default.contents(atPath: path).map {
+                (TranscriptParser.parse($0), Self.readSubagents(transcriptPath: path))
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.inFlight.remove(tabID)
+                // The tab may have been dropped, or re-pointed at a different
+                // session file, while this parse was in flight.
+                guard let parsed, self.paths[tabID] == path else { return }
+                self.transcripts[tabID] = parsed.0
+                self.subagentTranscripts[tabID] = parsed.1
+            }
+        }
     }
 }

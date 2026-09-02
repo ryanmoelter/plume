@@ -7,7 +7,7 @@ import Foundation
 /// summaries — and stay dropped. What survives is what a reader would
 /// otherwise be confused by: a failed turn that looks identical to a silent
 /// one, and history disappearing under compaction.
-struct ChatNotice: Equatable {
+nonisolated struct ChatNotice: Equatable {
     enum Kind: Equatable {
         case error
         case warning
@@ -22,7 +22,7 @@ struct ChatNotice: Equatable {
     let detail: String?
 }
 
-extension ChatNotice {
+nonisolated extension ChatNotice {
     /// Builds a notice from a `system` entry, or nil for the bookkeeping
     /// subtypes that carry nothing a reader needs.
     static func decoding(_ entry: TranscriptEntry) -> ChatNotice? {
@@ -74,7 +74,7 @@ extension ChatNotice {
 }
 
 /// The parts of a `compact_boundary`'s `compactMetadata` worth showing.
-struct CompactMetadata: Decodable, Equatable {
+nonisolated struct CompactMetadata: Decodable, Equatable {
     let trigger: String?
     let preTokens: Int?
     let postTokens: Int?

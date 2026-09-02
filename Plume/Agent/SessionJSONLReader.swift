@@ -45,7 +45,7 @@ enum SessionJSONLReader {
 
     /// Activity signal for when hooks misfire — a transcript being written
     /// means the agent is doing something.
-    static func lastModified(atPath path: String) -> Date? {
+    nonisolated static func lastModified(atPath path: String) -> Date? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
         return attributes[.modificationDate] as? Date
     }
@@ -86,13 +86,13 @@ enum SessionJSONLReader {
 
     /// Subagent transcripts live alongside the main one, in a directory
     /// named after it minus the `.jsonl` extension.
-    static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {
+    nonisolated static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {
         (transcriptPath as NSString).deletingPathExtension + "/subagents"
     }
 
     /// The `agent-*.jsonl` transcripts under a session's subagents
     /// directory, sorted, or empty if the directory does not exist.
-    static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
+    nonisolated static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
         let directory = subagentsDirectory(forTranscriptPath: transcriptPath)
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
         return entries

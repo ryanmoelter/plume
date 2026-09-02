@@ -1,7 +1,7 @@
 import Foundation
 
 /// Table-driven one-liner for a tool call, formatted as `Name(detail)`.
-enum ToolCallSummary {
+nonisolated enum ToolCallSummary {
     private static let maxDetailLength = 60
 
     static func summary(name: String, input: [String: JSONValue]) -> String {
@@ -45,7 +45,7 @@ enum ToolCallSummary {
 /// Decides how a tool call's raw input should render. Bash's full, unelided
 /// `command` renders as shell code, an `Edit` or `Write` as the change it
 /// makes; every other tool keeps the pretty-printed JSON.
-enum ToolCallInputRendering {
+nonisolated enum ToolCallInputRendering {
     static func render(name: String, input: [String: JSONValue], prettyJSON: String) -> ToolCallInput {
         if name == "Bash", let command = input["command"]?.stringValue {
             return .code(language: "sh", text: command)

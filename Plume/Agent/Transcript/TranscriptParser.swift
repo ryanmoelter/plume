@@ -1,6 +1,6 @@
 import Foundation
 
-struct Transcript: Equatable {
+nonisolated struct Transcript: Equatable {
     var messages: [ChatMessage] = []
     var latestUsage: TranscriptUsage?
     var model: String?
@@ -21,7 +21,7 @@ struct Transcript: Equatable {
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
 /// `ChatMessage`s. Pure — no file I/O, no SwiftData.
-enum TranscriptParser {
+nonisolated enum TranscriptParser {
     /// Where a pending tool call's block currently lives, so a later
     /// `tool_result` line can patch it in place.
     private enum ToolCallLocation {

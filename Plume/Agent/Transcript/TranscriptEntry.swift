@@ -2,7 +2,7 @@ import Foundation
 
 /// A JSON value of unknown shape, for fields like `tool_use.input` whose
 /// keys are tool-specific. Decodes any JSON; encodes back losslessly.
-enum JSONValue: Decodable, Encodable, Equatable {
+nonisolated enum JSONValue: Decodable, Encodable, Equatable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -71,7 +71,7 @@ enum JSONValue: Decodable, Encodable, Equatable {
 /// Forgiving like `HookEvent`: unknown `type`s and unknown content block
 /// types decode to an ignored case rather than throwing, since a transcript
 /// is mostly line shapes Plume does not model.
-struct TranscriptEntry: Decodable {
+nonisolated struct TranscriptEntry: Decodable {
     let type: String
     let uuid: String?
     let parentUuid: String?
@@ -169,7 +169,7 @@ struct TranscriptEntry: Decodable {
     }()
 }
 
-struct TranscriptMessage: Decodable {
+nonisolated struct TranscriptMessage: Decodable {
     let role: String?
     let model: String?
     let usage: TranscriptUsage?
@@ -188,7 +188,7 @@ struct TranscriptMessage: Decodable {
     }
 }
 
-struct TranscriptUsage: Decodable, Equatable {
+nonisolated struct TranscriptUsage: Decodable, Equatable {
     let inputTokens: Int?
     let cacheCreationInputTokens: Int?
     let cacheReadInputTokens: Int?
@@ -205,7 +205,7 @@ struct TranscriptUsage: Decodable, Equatable {
 /// A message's `content` is either a bare string (plain user messages) or an
 /// array of typed blocks (assistant messages, and user messages carrying
 /// tool results).
-struct TranscriptContent: Decodable {
+nonisolated struct TranscriptContent: Decodable {
     let blocks: [TranscriptBlock]
 
     init(from decoder: Decoder) throws {
@@ -224,7 +224,7 @@ struct TranscriptContent: Decodable {
 /// `plan_mode_exit` are modeled — both carry a `planFilePath` recording where
 /// Claude Code intended to write the plan, whether or not it exists on disk
 /// at the time the line was written.
-struct TranscriptAttachment: Decodable {
+nonisolated struct TranscriptAttachment: Decodable {
     let planFilePath: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -243,7 +243,7 @@ struct TranscriptAttachment: Decodable {
     }
 }
 
-enum TranscriptBlock: Decodable {
+nonisolated enum TranscriptBlock: Decodable {
     case text(String)
     case thinking(String)
     case toolUse(id: String, name: String, input: [String: JSONValue])

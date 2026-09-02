@@ -47,6 +47,7 @@ struct TranscriptStoreTests {
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
 
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
     }
 
@@ -59,6 +60,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         append(userLine("Second"), to: path)
@@ -78,9 +80,11 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: firstPath.path)
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         store.watch(tabID: tab, transcriptPath: secondPath.path)
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 2 }
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
 
         // The old file changing must not resurrect the old watch.
@@ -101,6 +105,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(50))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: url.path)
+        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         // Change the file behind the store's back, then re-watch the same
@@ -119,7 +124,7 @@ struct TranscriptStoreTests {
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
     }
 
-    @Test func stopWatchingDropsTheTranscript() {
+    @Test func stopWatchingDropsTheTranscript() async {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = dir.appending(path: "session.jsonl")
@@ -128,6 +133,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.transcript(forTab: tab) != nil }
         #expect(store.transcript(forTab: tab) != nil)
 
         store.stopWatching(tabID: tab)
@@ -139,7 +145,7 @@ struct TranscriptStoreTests {
         #expect(store.transcript(forTab: UUID()) == nil)
     }
 
-    @Test func subagentsAreEnumeratedFromTheSubagentsDirectory() {
+    @Test func subagentsAreEnumeratedFromTheSubagentsDirectory() async {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = dir.appending(path: "session.jsonl")
@@ -154,6 +160,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).count == 2 }
 
         let subagents = store.subagents(forTab: tab)
         #expect(subagents.count == 2)
@@ -173,7 +180,7 @@ struct TranscriptStoreTests {
     /// from `body`, which re-evaluates on every scroll frame. A subagent file
     /// appearing after the last transcript read is therefore invisible until
     /// the transcript changes again.
-    @Test func subagentsComeFromTheCacheRatherThanTheDisk() {
+    @Test func subagentsComeFromTheCacheRatherThanTheDisk() async {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let path = dir.appending(path: "session.jsonl")
@@ -182,6 +189,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.transcript(forTab: tab) != nil }
         #expect(store.subagents(forTab: tab).isEmpty)
 
         write(userLine("Late subagent"), to: dir.appending(path: "session/subagents/agent-late.jsonl"))

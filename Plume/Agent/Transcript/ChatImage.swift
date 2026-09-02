@@ -5,7 +5,7 @@ import Foundation
 /// Decoding is deferred to the render path (`ChatImageCache`), because a
 /// screenshot-heavy session holds tens of megabytes of pixels and only a
 /// screenful is ever on display.
-struct ChatImage: Equatable {
+nonisolated struct ChatImage: Equatable {
     /// The largest base64 payload worth carrying. Above this the image
     /// renders as a placeholder — a transcript with a dozen full-screen
     /// captures would otherwise dominate both parse time and memory.

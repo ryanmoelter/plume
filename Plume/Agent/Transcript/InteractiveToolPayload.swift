@@ -7,7 +7,7 @@ import Foundation
 /// *answering* one means sending a structured response, and the composer's
 /// send path is a paste into the terminal — it cannot pick the third option
 /// of a running prompt. See `docs/agent-transport.md`.
-enum InteractiveToolPayload: Equatable {
+nonisolated enum InteractiveToolPayload: Equatable {
     case plan(markdown: String, filePath: String?)
     case questions([AskedQuestion])
 

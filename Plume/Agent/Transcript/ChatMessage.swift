@@ -2,7 +2,7 @@ import Foundation
 
 /// One rendered chat message, folded from one or more consecutive transcript
 /// lines of the same role.
-struct ChatMessage: Identifiable, Equatable {
+nonisolated struct ChatMessage: Identifiable, Equatable {
     enum Role {
         case user
         case assistant
@@ -18,7 +18,7 @@ struct ChatMessage: Identifiable, Equatable {
     let timestamp: Date?
 }
 
-enum ChatBlock: Equatable {
+nonisolated enum ChatBlock: Equatable {
     case markdown(String)
     case thinking(String)
     case toolCall(ToolCall)
@@ -30,7 +30,7 @@ enum ChatBlock: Equatable {
     case image(ChatImage)
 }
 
-struct ToolCall: Identifiable, Equatable {
+nonisolated struct ToolCall: Identifiable, Equatable {
     let id: String
     let name: String
     let summary: String
@@ -46,7 +46,7 @@ struct ToolCall: Identifiable, Equatable {
 /// How a tool call's input should render. Bash's full command renders as
 /// shell code instead of raw JSON; everything else keeps the pretty-printed
 /// JSON.
-enum ToolCallInput: Equatable {
+nonisolated enum ToolCallInput: Equatable {
     case code(language: String, text: String)
     case json(String)
     /// An `Edit` or `Write`, shown as the change it makes rather than as the

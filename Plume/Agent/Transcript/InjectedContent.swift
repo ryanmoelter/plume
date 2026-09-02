@@ -7,7 +7,7 @@ import Foundation
 /// notifications, and interruptions all arrive with `role: "user"`. Rendering
 /// them as prose puts words in the user's mouth, so the chat classifies each
 /// line and renders injected ones as a compact marker instead.
-enum InjectedContent: Equatable {
+nonisolated enum InjectedContent: Equatable {
     /// Genuinely typed by the user.
     case userMessage
     /// A skill's body, injected when the skill is invoked.

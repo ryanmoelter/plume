@@ -1,7 +1,7 @@
 import Foundation
 
 /// A line-level diff of an `Edit` or a `Write`, ready to render.
-struct FileDiff: Equatable {
+nonisolated struct FileDiff: Equatable {
     enum LineKind: Equatable {
         case context
         case removed
@@ -30,7 +30,7 @@ struct FileDiff: Equatable {
 /// `Edit` replaces one contiguous region, so trimming the matching ends is
 /// already the whole answer for the shape these tools produce, and it costs a
 /// single pass instead of a quadratic table.
-enum FileDiffBuilder {
+nonisolated enum FileDiffBuilder {
     /// Beyond this the diff renders as a prefix with a count. A generated file
     /// written in one `Write` runs to thousands of lines, and none of them are
     /// worth laying out inside a collapsed row.
