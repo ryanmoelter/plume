@@ -121,11 +121,16 @@ struct ChatMessageList: View {
                     distanceFromBottom: scrollPosition.distanceFromBottom
                 )
                 if detached != isDetached { isDetached = detached }
+                guard !scrollPosition.isFollowing else {
+                    scrollPosition.isFollowing = false
+                    return
+                }
                 guard ChatScrollAnchor.shouldFollowGrowth(
                     previousDistanceFromBottom: scrollPosition.distanceFromBottom,
                     previousContentHeight: old.contentHeight,
                     newContentHeight: new.contentHeight
                 ) else { return }
+                scrollPosition.isFollowing = true
                 proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
             .onChange(of: lastMessageID) { _, newID in
@@ -139,19 +144,22 @@ struct ChatMessageList: View {
             .onAppear {
                 proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
+            // Always mounted, shown by opacity. Inserting it on demand
+            // resizes the scroll view, which reports new geometry, which
+            // toggles it again.
             .overlay(alignment: .bottom) {
-                if isDetached {
-                    scrollToBottomButton {
-                        // The programmatic scroll reports as growth-free
-                        // geometry, but only after the fact; resetting here
-                        // hides the button at once and restores auto-follow.
-                        scrollPosition.distanceFromBottom = 0
-                        isDetached = false
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-                        }
+                scrollToBottomButton {
+                    // The programmatic scroll reports as growth-free
+                    // geometry, but only after the fact; resetting here
+                    // hides the button at once and restores auto-follow.
+                    scrollPosition.distanceFromBottom = 0
+                    isDetached = false
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                     }
                 }
+                .opacity(isDetached ? 1 : 0)
+                .allowsHitTesting(isDetached)
             }
         }
     }
@@ -167,8 +175,6 @@ struct ChatMessageList: View {
         .glassEffect(.regular, in: .circle)
         .padding(.bottom, 12)
         .help("Jump to the newest message")
-        .transition(.scale(scale: 0.8).combined(with: .opacity))
-        .animation(.snappy(duration: 0.18), value: isDetached)
     }
 }
 
@@ -179,4 +185,7 @@ struct ChatMessageList: View {
 @MainActor
 private final class ScrollPosition {
     var distanceFromBottom: CGFloat = 0
+    /// Set while a programmatic scroll is in flight. That scroll reports back
+    /// as another geometry change, and following it again never settles.
+    var isFollowing = false
 }

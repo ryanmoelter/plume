@@ -172,7 +172,15 @@ struct InteractiveToolRow: View {
     private func header(symbol: String, title: String) -> some View {
         Label(title, systemImage: symbol)
             .font(.system(size: chatFontSize * 0.8, weight: .semibold))
-            .foregroundStyle(AnyShapeStyle.role(ChatRole.attention, when: isPending, otherwise: .secondary))
+            .foregroundStyle(AnyShapeStyle.role(pendingRole, when: isPending, otherwise: .secondary))
+    }
+
+    /// A question only waits on the user; approving a plan sets work going.
+    private var pendingRole: Color {
+        switch payload {
+        case .questions: ChatRole.attention(for: colorScheme)
+        case .plan: ChatRole.warning(for: colorScheme)
+        }
     }
 
     /// Only worth saying while the agent is actually waiting — on a settled
@@ -190,12 +198,11 @@ struct InteractiveToolRow: View {
         .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 
-    /// A pending row borrows the attention hue for its border only. Washing
-    /// the whole card orange as well would double-signal a card that already
-    /// has an orange header and an orange edge.
+    /// A pending row carries its hue on the border only. Washing the card as
+    /// well would double-signal one that already has a tinted header.
     private var borderColor: Color {
         isPending
-            ? ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme)
+            ? pendingRole.emphasized(.disabled, colorScheme: colorScheme)
             : .chatSurface(.divider, colorScheme: colorScheme)
     }
 }

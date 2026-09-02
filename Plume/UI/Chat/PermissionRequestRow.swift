@@ -27,7 +27,7 @@ struct PermissionRequestRow: View {
             if let reason = permission.decisionReason, !reason.isEmpty {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(.system(size: chatFontSize * 0.78))
-                    .foregroundStyle(ChatRole.warning)
+                    .foregroundStyle(ChatRole.warning(for: colorScheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
             inputFields
@@ -47,7 +47,7 @@ struct PermissionRequestRow: View {
         .background(washColor, in: .rect(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme), lineWidth: 1)
+                .strokeBorder(ChatRole.warning(for: colorScheme).emphasized(.disabled, colorScheme: colorScheme), lineWidth: 1)
         }
     }
 
@@ -55,7 +55,7 @@ struct PermissionRequestRow: View {
         HStack(spacing: 6) {
             Label(permission.displayName, systemImage: "hand.raised")
                 .font(.system(size: chatFontSize * 0.85, weight: .semibold))
-                .foregroundStyle(ChatRole.attention)
+                .foregroundStyle(ChatRole.warning(for: colorScheme))
             if permission.agentID != nil {
                 Label("subagent", systemImage: "person.2")
                     .font(.system(size: chatFontSize * 0.7))

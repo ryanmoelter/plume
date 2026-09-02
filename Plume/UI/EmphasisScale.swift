@@ -72,29 +72,50 @@ enum Emphasis: CaseIterable {
     var textHierarchy: HierarchicalShapeStyle { textLevel.style }
 }
 
-/// Semantic color roles, resolved once so no view reaches for a literal
-/// `Color.orange` or `Color.blue`.
+/// Semantic color roles, so no view reaches for a literal `Color.orange` or
+/// `Color.blue`.
 ///
-/// Selection is the only role that follows the user's accent color. The rest
-/// are fixed hues, because a status color that changes meaning when someone
-/// picks graphite in System Settings is not a status color.
+/// Status hues come from the terminal theme's ANSI palette, which is what
+/// makes the chat read as part of the same surface as the terminal beside it.
+/// Each falls back to its system color whenever the palette can't supply a
+/// readable one, so an unthemed ghostty config looks exactly as it did before
+/// the palette existed.
+///
+/// Selection stays on the system accent color: it marks the user's own choice,
+/// not the agent's state, and macOS-wide that is the accent color's job.
 enum ChatRole {
-    /// Something is waiting on the user — a stalled permission, a question.
-    ///
-    /// Orange, not the accent color: on macOS blue *is* selection, and a
-    /// stalled agent needs to be distinguishable from the row that happens to
-    /// be selected.
-    static let attention = Color.orange
-    /// A condition worth knowing about that is not blocking anything.
-    static let warning = Color.yellow
+    /// The agent is waiting on the user, and nothing is wrong — a question to
+    /// answer, a reply worth reading. Informational, so blue.
+    static func attention(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.attentionAccent(for: colorScheme) ?? .blue
+    }
+
+    /// The agent wants to do something the user should look at first, or a
+    /// condition worth knowing about. A tool asking for permission is this,
+    /// not `attention`: the answer carries consequences.
+    static func warning(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.warningAccent(for: colorScheme) ?? .orange
+    }
+
     /// Destructive or failed.
-    static let danger = Color.red
+    static func danger(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.dangerAccent(for: colorScheme) ?? .red
+    }
+
     /// Succeeded.
-    static let success = Color.green
+    static func success(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.successAccent(for: colorScheme) ?? .green
+    }
+
     /// The user's choice, and only that. Follows the system accent color.
     static let selection = Color.accentColor
-    /// Live activity — a turn in flight. Not attention: nothing is blocked.
-    static let activity = Color.blue
+
+    /// A turn in flight. Shares `attention`'s hue because it carries the same
+    /// news — the agent, nothing wrong — and the shape tells them apart: a
+    /// pulsing dot while it works, a steady mark once it wants the user.
+    static func activity(for colorScheme: ColorScheme) -> Color {
+        attention(for: colorScheme)
+    }
 }
 
 extension ShapeStyle where Self == Color {

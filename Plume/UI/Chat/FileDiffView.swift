@@ -33,9 +33,9 @@ struct FileDiffView: View {
     private var counts: some View {
         HStack(spacing: 8) {
             Text("+\(diff.addedCount)")
-                .foregroundStyle(ChatRole.success)
+                .foregroundStyle(ChatRole.success(for: colorScheme))
             Text("−\(diff.removedCount)")
-                .foregroundStyle(ChatRole.danger)
+                .foregroundStyle(ChatRole.danger(for: colorScheme))
         }
         .font(.system(size: chatFontSize * 0.75, design: .monospaced))
     }
@@ -62,16 +62,16 @@ struct FileDiffView: View {
     private func foreground(_ kind: FileDiff.LineKind) -> AnyShapeStyle {
         switch kind {
         case .context: AnyShapeStyle(Emphasis.secondary.textHierarchy)
-        case .removed: AnyShapeStyle(ChatRole.danger)
-        case .added: AnyShapeStyle(ChatRole.success)
+        case .removed: AnyShapeStyle(ChatRole.danger(for: colorScheme))
+        case .added: AnyShapeStyle(ChatRole.success(for: colorScheme))
         }
     }
 
     private func background(_ kind: FileDiff.LineKind) -> Color {
         switch kind {
         case .context: .clear
-        case .removed: ChatRole.danger.emphasized(.backgroundTint, colorScheme: colorScheme)
-        case .added: ChatRole.success.emphasized(.backgroundTint, colorScheme: colorScheme)
+        case .removed: ChatRole.danger(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
+        case .added: ChatRole.success(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
         }
     }
 }

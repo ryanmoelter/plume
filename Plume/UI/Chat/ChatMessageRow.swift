@@ -142,11 +142,11 @@ struct ChatMessageRow: View {
     }
 
     private var attentionWash: Color {
-        ChatRole.attention.emphasized(.backgroundTint, colorScheme: colorScheme)
+        ChatRole.attention(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
     }
 
     private var attentionBorder: Color {
-        ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme)
+        ChatRole.attention(for: colorScheme).emphasized(.disabled, colorScheme: colorScheme)
     }
 }
 
@@ -154,6 +154,7 @@ struct ChatMessageRow: View {
 /// prose rather than a status list.
 private struct WorkingIndicator: View {
     @Environment(\.chatFontSize) private var chatFontSize
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 6) {
@@ -165,7 +166,7 @@ private struct WorkingIndicator: View {
             // Deriving opacity from the clock keeps the redraw to this view.
             TimelineView(.periodic(from: .now, by: 1.0 / 20.0)) { context in
                 Circle()
-                    .fill(ChatRole.activity)
+                    .fill(ChatRole.activity(for: colorScheme))
                     .opacity(Self.opacity(at: context.date))
             }
             .frame(width: 7, height: 7)

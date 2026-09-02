@@ -39,7 +39,13 @@ struct ChatNoticeRow: View {
                 .imageScale(.small)
                 .foregroundStyle(tintStyle)
             Text(notice.title)
-                .foregroundStyle(AnyShapeStyle.role(ChatRole.danger, when: notice.kind == .error, otherwise: .secondary))
+                .foregroundStyle(
+                    AnyShapeStyle.role(
+                        ChatRole.danger(for: colorScheme),
+                        when: notice.kind == .error,
+                        otherwise: .secondary
+                    )
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
             if notice.detail != nil {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -63,8 +69,8 @@ struct ChatNoticeRow: View {
     /// instead of a color no one needs to decode.
     private var roleTint: Color? {
         switch notice.kind {
-        case .error: ChatRole.danger
-        case .warning: ChatRole.warning
+        case .error: ChatRole.danger(for: colorScheme)
+        case .warning: ChatRole.warning(for: colorScheme)
         case .info, .compaction: nil
         }
     }

@@ -31,3 +31,21 @@ struct HexColorTests {
         #expect(Color(hex: "zzz") == nil)
     }
 }
+
+/// The component parse behind `Color(hex:)`, and the contrast math the theme
+/// accents use to reject a hue that would be unreadable.
+struct HexRGBTests {
+    @Test func parsesComponents() throws {
+        let color = try #require(HexRGB(hex: "#4080c0"))
+        #expect(abs(color.red - 0x40 / 255.0) < 0.001)
+        #expect(abs(color.green - 0x80 / 255.0) < 0.001)
+        #expect(abs(color.blue - 0xc0 / 255.0) < 0.001)
+    }
+
+    @Test func rejectsWhatColorRejects() {
+        #expect(HexRGB(hex: "zzzzzz") == nil)
+        #expect(HexRGB(hex: "abcd") == nil)
+        #expect(HexRGB(hex: "") == nil)
+    }
+
+}

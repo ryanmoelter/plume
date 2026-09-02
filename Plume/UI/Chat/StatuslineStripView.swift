@@ -305,16 +305,16 @@ struct StatuslineStripView: View {
         switch attention {
         case .neutral: return (themeForeground ?? .primary)
             .opacity(Emphasis.secondary.fillOpacity(for: colorScheme))
-        case .yellow: return ChatRole.warning
-        case .red: return ChatRole.danger
+        case .yellow: return ChatRole.warning(for: colorScheme)
+        case .red: return ChatRole.danger(for: colorScheme)
         }
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         switch attention {
         case .neutral: return themeForeground ?? .primary
-        case .yellow: return ChatRole.warning
-        case .red: return ChatRole.danger
+        case .yellow: return ChatRole.warning(for: colorScheme)
+        case .red: return ChatRole.danger(for: colorScheme)
         }
     }
 }

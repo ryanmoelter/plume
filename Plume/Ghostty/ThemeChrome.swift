@@ -49,6 +49,74 @@ enum ThemeChrome {
         }
     }
 
+    /// The ANSI palette slots Plume draws status accents from.
+    ///
+    /// Each role names both variants: the normal slot is the accent, and the
+    /// bright one stands in when a theme omits it or sets one that vanishes
+    /// into its own background.
+    enum PaletteAccent {
+        case danger
+        case success
+        case warning
+        case attention
+
+        var normalSlot: Int {
+            switch self {
+            case .danger: return 1
+            case .success: return 2
+            case .warning: return 3
+            case .attention: return 4
+            }
+        }
+
+        var brightSlot: Int { normalSlot + 8 }
+    }
+
+    /// A status accent drawn from the terminal palette, or nil to fall back to
+    /// a system color — no theme, no such slot, or an unparseable hex.
+    static func paletteAccent(_ accent: PaletteAccent, for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(accent, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+    }
+
+    static func dangerAccent(for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(.danger, for: colorScheme)
+    }
+
+    static func successAccent(for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(.success, for: colorScheme)
+    }
+
+    static func warningAccent(for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(.warning, for: colorScheme)
+    }
+
+    static func attentionAccent(for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(.attention, for: colorScheme)
+    }
+
+    /// Testable core: reads an explicit `ResolvedDefinitions` rather than the
+    /// live runtime.
+    ///
+    /// Takes the normal slot in either appearance, falling through to the
+    /// bright one only when the theme leaves it out.
+    static func paletteAccent(
+        _ accent: PaletteAccent,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> Color? {
+        guard let definition = definition(for: colorScheme, in: definitions) else { return nil }
+
+        // The same slot in either appearance: a role that swapped slots
+        // between light and dark would change hue when the system does, and
+        // the two themes already carry their own palettes. A low-contrast
+        // palette is the user's own choice, so it is used as written.
+        let accent = [accent.normalSlot, accent.brightSlot]
+            .lazy
+            .compactMap { definition.palette[$0].flatMap(Color.init(hex:)) }
+            .first
+        return accent
+    }
+
     /// Background tint for the window and its titlebar, or nil to leave them
     /// at their default system color.
     ///

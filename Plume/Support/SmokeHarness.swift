@@ -88,6 +88,27 @@ enum SmokeHarness {
             }
         }
 
+        // PLUME_AUTO_ANSWER exercises the answer-a-running-question path,
+        // which UI scripting cannot reach (no Accessibility permission). It
+        // polls the first task's agent session for a pending permission and
+        // resolves the first one it sees: an AskUserQuestion gets its first
+        // option on every question, ExitPlanMode gets approved, anything else
+        // gets allowed as-is. Polling (rather than one delayed shot) copes
+        // with not knowing in advance when the agent will actually ask.
+        if environment["PLUME_AUTO_ANSWER"] != nil,
+           let first = tasks.first,
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            Task { @MainActor in
+                let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard let permission = session.pendingPermissions.first else { continue }
+                    autoAnswer(permission, in: session)
+                    Log.app.info("Smoke harness auto-answered a pending permission")
+                }
+            }
+        }
+
         guard let intervalValue = environment["PLUME_CYCLE_SELECTION"],
               let interval = Double(intervalValue), interval > 0
         else { return }
@@ -121,6 +142,27 @@ enum SmokeHarness {
             let task = tasks[index % tasks.count]
             selection.wrappedValue = task.id
             Log.app.info("Smoke harness selected task \(index % tasks.count + 1) of \(tasks.count)")
+        }
+    }
+
+    /// Picks the first option of every question, approves a plan, or allows
+    /// anything else as-is — whatever answers the specific pending request so
+    /// the turn can proceed, since the point is exercising the resume path,
+    /// not the choice made.
+    private static func autoAnswer(_ permission: PendingPermission, in session: HeadlessSession) {
+        switch permission.interactive {
+        case .questions(let questions):
+            var answers: [String: String] = [:]
+            for question in questions {
+                if let firstOption = question.options.first {
+                    answers[question.question] = firstOption.label
+                }
+            }
+            session.answer(permission, answers: answers)
+        case .plan:
+            session.resolve(permission, with: .allow(updatedInput: permission.input))
+        case nil:
+            session.resolve(permission, with: .allow(updatedInput: permission.input))
         }
     }
 }
