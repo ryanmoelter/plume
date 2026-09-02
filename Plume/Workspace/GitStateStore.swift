@@ -94,7 +94,12 @@ final class GitStateStore {
         Task.detached(priority: .utility) {
             let state = GitRunner.state(in: directory)
             await MainActor.run { [weak self] in
-                guard let self, self.watches[directory] != nil else { return }
+                guard let self, let existing = self.watches[directory] else { return }
+                // The `.git` watcher fires on every write inside `.git`, and
+                // an agent working in the repo makes many that leave this
+                // answer unchanged. Assigning anyway would publish an
+                // observable change and invalidate every view reading it.
+                guard existing.state != state else { return }
                 self.watches[directory]?.state = state
             }
         }

@@ -116,7 +116,7 @@ struct TranscriptMessage: Decodable {
     }
 }
 
-struct TranscriptUsage: Decodable {
+struct TranscriptUsage: Decodable, Equatable {
     let inputTokens: Int?
     let cacheCreationInputTokens: Int?
     let cacheReadInputTokens: Int?

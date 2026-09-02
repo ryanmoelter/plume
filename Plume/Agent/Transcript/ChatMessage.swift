@@ -2,7 +2,7 @@ import Foundation
 
 /// One rendered chat message, folded from one or more consecutive transcript
 /// lines of the same role.
-struct ChatMessage: Identifiable {
+struct ChatMessage: Identifiable, Equatable {
     enum Role {
         case user
         case assistant
@@ -14,7 +14,7 @@ struct ChatMessage: Identifiable {
     let timestamp: Date?
 }
 
-enum ChatBlock {
+enum ChatBlock: Equatable {
     case markdown(String)
     case thinking(String)
     case toolCall(ToolCall)
@@ -24,7 +24,7 @@ enum ChatBlock {
     case injected(InjectedContent, text: String)
 }
 
-struct ToolCall: Identifiable {
+struct ToolCall: Identifiable, Equatable {
     let id: String
     let name: String
     let summary: String

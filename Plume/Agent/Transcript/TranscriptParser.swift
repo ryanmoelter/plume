@@ -1,6 +1,6 @@
 import Foundation
 
-struct Transcript {
+struct Transcript: Equatable {
     var messages: [ChatMessage] = []
     var latestUsage: TranscriptUsage?
     var model: String?

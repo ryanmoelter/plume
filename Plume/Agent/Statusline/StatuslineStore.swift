@@ -73,6 +73,7 @@ final class StatuslineStore {
               !data.isEmpty,
               let payload = try? JSONDecoder().decode(StatuslinePayload.self, from: data)
         else { return }
+        guard payloads[tabID] != payload else { return }
         payloads[tabID] = payload
     }
 }

@@ -3,7 +3,7 @@ import Observation
 
 /// A subagent's parsed transcript, keyed by the id in its filename
 /// (`agent-<id>.jsonl`).
-struct SubagentTranscript: Identifiable {
+struct SubagentTranscript: Identifiable, Equatable {
     let id: String
     let transcript: Transcript
     let modifiedAt: Date?

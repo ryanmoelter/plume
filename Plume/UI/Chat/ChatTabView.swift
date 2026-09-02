@@ -7,13 +7,6 @@ struct ChatTabView: View {
     let tab: TaskTab
     let isVisible: Bool
 
-    /// Scroll position, held in a reference box rather than `@State`.
-    ///
-    /// `onScrollGeometryChange` fires on every scroll frame, so writing this
-    /// to `@State` invalidated the whole chat body once per frame while
-    /// scrolling. Nothing renders from it — it is only read when a new
-    /// message arrives, to decide whether to follow the bottom.
-    @State private var scrollPosition = ScrollPosition()
     @State private var settings = AppSettings.shared
     @State private var isShowingPlan = false
 
@@ -48,7 +41,13 @@ struct ChatTabView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let transcript, !transcript.messages.isEmpty {
-                messageList(transcript)
+                ChatMessageList(
+                    messages: transcript.messages,
+                    subagents: subagents,
+                    status: status,
+                    maxWidth: ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize)),
+                    bottomPadding: ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize))
+                )
                 Divider()
                 HStack(spacing: 0) {
                     StatuslineStripView(
@@ -149,70 +148,6 @@ struct ChatTabView: View {
         .shadow(color: .black.opacity(0.2), radius: 12, x: -2, y: 0)
     }
 
-    private func messageList(_ transcript: Transcript) -> some View {
-        let lastMessageID = transcript.messages.last?.id
-        let maxWidth = ChatMetrics.maxContentWidth(forFontSize: CGFloat(settings.chatFontSize))
-        return ScrollViewReader { proxy in
-            ScrollView {
-                // Lazy so a long transcript only builds the rows on screen.
-                // A plain VStack lays out every message on every pass, which
-                // is thousands of markdown parses per frame on a real
-                // conversation.
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(transcript.messages) { message in
-                        // Only the newest row reflects live status, so only
-                        // it reads `status`. Passing it to every row made a
-                        // status change invalidate the whole list, which
-                        // rebuilds rows the lazy stack had already built.
-                        let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
-                            messageID: message.id,
-                            lastMessageID: lastMessageID
-                        )
-                        ChatMessageRow(
-                            message: message,
-                            isLast: isLast,
-                            status: isLast ? status : .unset
-                        )
-                        .id(message.id)
-                    }
-                    SubagentListView(subagents: subagents)
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchorID)
-                }
-                .frame(maxWidth: maxWidth)
-                .frame(maxWidth: .infinity)
-                .padding(16)
-                .padding(.bottom, ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize)))
-            }
-            .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
-                ChatScrollGeometry(
-                    distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
-                    contentHeight: geometry.contentSize.height
-                )
-            } action: { old, new in
-                scrollPosition.distanceFromBottom = new.distanceFromBottom
-                guard ChatScrollAnchor.shouldFollowGrowth(
-                    previousDistanceFromBottom: old.distanceFromBottom,
-                    previousContentHeight: old.contentHeight,
-                    newContentHeight: new.contentHeight
-                ) else { return }
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
-            .onChange(of: lastMessageID) { _, newID in
-                guard newID != nil else { return }
-                if ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: scrollPosition.distanceFromBottom) {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-                    }
-                }
-            }
-            .onAppear {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
-        }
-    }
-
     private func emptyState(showsComposer: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
@@ -235,14 +170,4 @@ struct ChatTabView: View {
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
     }
 
-    private let bottomAnchorID = "chat-bottom-anchor"
-}
-
-/// Mutable scroll state that must not invalidate a view when it changes.
-///
-/// A class, so writing to it from a per-frame scroll callback is not a
-/// SwiftUI state change.
-@MainActor
-private final class ScrollPosition {
-    var distanceFromBottom: CGFloat = 0
 }
