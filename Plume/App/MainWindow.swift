@@ -161,10 +161,9 @@ struct MainWindow: View {
                 switch tab.transport {
                 case .terminal:
                     AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
-                    StatuslineStore.shared.watch(tabID: tab.id, taskID: task.id)
                 case .headless:
                     // The stream carries status directly once resumed; hook
-                    // events and statusline capture are TUI-only concerns.
+                    // events are a TUI-only concern.
                     break
                 }
                 StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)

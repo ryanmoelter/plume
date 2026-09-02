@@ -57,14 +57,16 @@ struct ChatTabView: View {
                 Divider()
                 HStack(spacing: 0) {
                     StatuslineStripView(
-                        contextUsedTokens: transcript.latestUsage?.inputTokens,
-                        contextMaxTokens: nil,
+                        contextUsedTokens: headlessSession?.contextUsedTokens
+                            ?? transcript.latestUsage?.inputTokens,
+                        contextMaxTokens: headlessSession?.contextWindow,
                         model: transcript.model,
                         effort: transcript.effort,
                         branch: transcript.gitBranch,
                         gitState: GitStateStore.shared.state(for: gitDirectory),
                         permissionMode: transcript.permissionMode,
-                        payload: StatuslineStore.shared.payload(forTab: tab.id),
+                        rateLimit: headlessSession?.rateLimit,
+                        sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil },
                         onSelectModel: modelSelectionHandler,
                         onSelectEffort: effortSelectionHandler,
                         onCyclePermissionMode: cyclePermissionModeHandler

@@ -42,13 +42,17 @@ enum ToolCallSummary {
     }
 }
 
-/// Decides how a tool call's raw input should render. Bash's full,
-/// unelided `command` renders as shell code; every other tool keeps the
-/// pretty-printed JSON.
+/// Decides how a tool call's raw input should render. Bash's full, unelided
+/// `command` renders as shell code, an `Edit` or `Write` as the change it
+/// makes; every other tool keeps the pretty-printed JSON.
 enum ToolCallInputRendering {
     static func render(name: String, input: [String: JSONValue], prettyJSON: String) -> ToolCallInput {
-        guard name == "Bash" else { return .json(prettyJSON) }
-        guard let command = input["command"]?.stringValue else { return .json(prettyJSON) }
-        return .code(language: "sh", text: command)
+        if name == "Bash", let command = input["command"]?.stringValue {
+            return .code(language: "sh", text: command)
+        }
+        if let diff = FileDiffBuilder.diff(name: name, input: input) {
+            return .diff(diff)
+        }
+        return .json(prettyJSON)
     }
 }

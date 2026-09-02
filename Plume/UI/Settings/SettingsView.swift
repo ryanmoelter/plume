@@ -6,31 +6,6 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
-    @State private var installError: String?
-
-    private var claudeSettingsURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".claude")
-            .appending(path: "settings.json")
-    }
-
-    private var claudeSettingsBackupURL: URL {
-        claudeSettingsURL.appendingPathExtension("plume-backup")
-    }
-
-    /// Whether `statusLine` currently points at Plume's script. Read from disk
-    /// rather than mirrored into a setting, so an install made by the other
-    /// build — or an edit made by hand — reads correctly here.
-    private var isStatuslineInstalled: Bool {
-        StatuslineInstaller.isAlreadyInstalled(settingsURL: claudeSettingsURL)
-    }
-
-    private var restoreEffectDescription: String {
-        guard let previous = settings.statuslineBackedUpCommand else {
-            return "Restore will remove your statusLine setting."
-        }
-        return "Restore will put back: \(previous)"
-    }
 
     var body: some View {
         Form {
@@ -101,38 +76,6 @@ struct SettingsView: View {
             }
 
             Section {
-                if isStatuslineInstalled {
-                    Text("Installed. \(restoreEffectDescription)")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(StatuslineInstaller.preview(settingsURL: claudeSettingsURL))
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.quaternary, in: .rect(cornerRadius: 6))
-                }
-
-                HStack {
-                    if isStatuslineInstalled {
-                        Button("Restore") { restore() }
-                    } else {
-                        Button("Install") { install() }
-                    }
-                    if let installError {
-                        Text(installError)
-                            .foregroundStyle(.red)
-                            .lineLimit(1)
-                    }
-                }
-            } header: {
-                Text("Statusline Capture")
-            } footer: {
-                Text("Quota and session cost exist only in the payload Claude Code sends its statusline command, nowhere on disk. Install writes to ~/.claude/settings.json outside Plume, replacing statusLine with a script that captures the payload and then runs your previous command unchanged, so your terminal statusline looks the same. That file is global, so the script also runs in terminals Plume didn't launch — there it captures nothing and just runs your own command. Restore puts your previous statusLine back.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
                 Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {
@@ -150,32 +93,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
-    }
-
-    private func install() {
-        installError = nil
-        do {
-            let previous = try StatuslineInstaller.install(
-                settingsURL: claudeSettingsURL,
-                backupURL: claudeSettingsBackupURL
-            )
-            settings.statuslineBackedUpCommand = previous?.command
-        } catch {
-            installError = "Install failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func restore() {
-        installError = nil
-        do {
-            try StatuslineInstaller.restore(
-                settingsURL: claudeSettingsURL,
-                backupURL: claudeSettingsBackupURL
-            )
-            settings.statuslineBackedUpCommand = nil
-        } catch {
-            installError = "Restore failed: \(error.localizedDescription)"
-        }
     }
 
     private var worktreeBasePathBinding: Binding<String> {

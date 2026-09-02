@@ -42,7 +42,11 @@ final class HeadlessSession {
     private(set) var pendingPermissions: [PendingPermission] = []
 
     /// Text of the turn in flight, assembled from partial-message deltas.
-    /// Cleared when the turn's `result` arrives and the transcript takes over.
+    ///
+    /// Kept past the turn's `result` rather than cleared, because the
+    /// transcript that replaces it is written on a debounce and would leave a
+    /// gap. `ChatStreamHandoff` retires it once the same text is on disk; a
+    /// new turn clears it outright.
     private(set) var streamingText = ""
     private(set) var streamingThinking = ""
 
@@ -239,8 +243,7 @@ final class HeadlessSession {
 
     private func endTurn(_ result: TurnResult) {
         isWorking = false
-        streamingText = ""
-        streamingThinking = ""
+        // The streamed text is not cleared here — see its declaration.
         if let cost = result.totalCostUSD { sessionCostUSD += cost }
         if let window = result.contextWindow { contextWindow = window }
         if let input = result.inputTokens, let output = result.outputTokens {
@@ -265,6 +268,8 @@ final class HeadlessSession {
     private func handleExit(status: Int32) {
         hasExited = true
         isWorking = false
+        streamingText = ""
+        streamingThinking = ""
         exitStatus = status
         process = nil
         // Anything still pending will never be answered now.

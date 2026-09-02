@@ -47,6 +47,18 @@ enum ChatScrollAnchor {
         previousContentHeight == newContentHeight
     }
 
+    /// How far the user must be from the bottom before a jump-back button is
+    /// worth offering. Well past `bottomTolerance`, so the button does not
+    /// flicker in and out around the follow threshold, and past a screenful of
+    /// nudge-scrolling that the user will scroll back by hand anyway.
+    static let detachedThreshold: CGFloat = 320
+
+    /// Whether the user has scrolled far enough from the bottom to want a way
+    /// back down.
+    static func isDetached(distanceFromBottom: CGFloat) -> Bool {
+        distanceFromBottom > detachedThreshold
+    }
+
     /// The last message is the only one eligible for the in-progress /
     /// needs-input treatment — an older message can't be "in progress".
     static func isEligibleForLiveStatus(messageID: String, lastMessageID: String?) -> Bool {

@@ -15,6 +15,9 @@ struct ChatMessageRow: View {
     /// dock draws with live controls. Empty on the TUI transport, which has
     /// no such signal.
     var pendingToolUseIDs: Set<String> = []
+    /// Live text for the turn in flight, drawn after this message's own
+    /// blocks. Only ever set on the last message.
+    var streaming = ChatStreamHandoff.Overlay()
 
     private var isWorking: Bool {
         isLast && status == .working
@@ -31,6 +34,8 @@ struct ChatMessageRow: View {
                 userBody
             case .assistant:
                 assistantBody
+            case .notice:
+                noticeBody
             }
         }
     }
@@ -74,9 +79,19 @@ struct ChatMessageRow: View {
         .environment(\.chatProseFace, .system)
     }
 
+    private var noticeBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            blocks
+        }
+        .padding(.vertical, 4)
+    }
+
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             blocks
+            if !streaming.isEmpty {
+                StreamingBlocks(overlay: streaming)
+            }
             if isWorking {
                 WorkingIndicator()
                     .listItemPadding(vertical: false)
@@ -108,6 +123,10 @@ struct ChatMessageRow: View {
                 }
             case .injected(let kind, let text):
                 InjectedContentRow(kind: kind, text: text)
+            case .notice(let notice):
+                ChatNoticeRow(notice: notice)
+            case .image(let image):
+                ChatImageView(image: image)
             }
         }
     }

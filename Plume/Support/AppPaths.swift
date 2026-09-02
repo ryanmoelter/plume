@@ -21,8 +21,7 @@ enum AppPaths {
 
     /// Always `Plume`, never `Plume.debug`. `~/.claude/settings.json` is global
     /// and its `statusLine` holds a single command, so a per-build script path
-    /// would have a debug and a release install overwrite each other — each
-    /// one seeing the other's script as a stranger's statusline to chain to.
+    /// would have a debug and a release install overwrite each other.
     static var sharedApplicationSupport: URL {
         URL.applicationSupportDirectory.appending(path: "Plume")
     }
@@ -52,17 +51,11 @@ enum AppPaths {
             .appending(path: "\(tabID.uuidString).jsonl")
     }
 
-    /// Generated statusline capture script, chained ahead of the user's own.
-    /// Shared across builds — see `sharedApplicationSupport`.
+    /// The statusline capture script earlier versions generated and installed
+    /// into `~/.claude/settings.json`. Kept so `StatuslineUninstall` can
+    /// recognize and remove that installation.
     static var statuslineScriptFile: URL {
         sharedApplicationSupport.appending(path: "hooks").appending(path: "statusline.sh")
-    }
-
-    /// Captured statusline payload, written atomically as `<taskID>/<tabID>.statusline.json`.
-    static func statuslineFile(taskID: UUID, tabID: UUID) -> URL {
-        eventsDirectory
-            .appending(path: taskID.uuidString)
-            .appending(path: "\(tabID.uuidString).statusline.json")
     }
 
     static func createDirectories() throws {

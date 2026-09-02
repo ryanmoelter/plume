@@ -14,7 +14,7 @@ final class AppSettings {
     private enum Key {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
-        static let statuslineBackedUpCommand = "statuslineBackedUpCommand"
+        static let statuslineCaptureRemoved = "statuslineCaptureRemoved"
         static let chatFontSize = "chatFontSize"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
@@ -32,7 +32,7 @@ final class AppSettings {
         self.defaults = defaults
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
         self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
-        self.statuslineBackedUpCommand = defaults.string(forKey: Key.statuslineBackedUpCommand)
+        self.statuslineCaptureRemoved = defaults.bool(forKey: Key.statuslineCaptureRemoved)
 
         // `double(forKey:)` returns 0 for an unset key, so 0 (and anything
         // outside the clamped range) falls back to the default.
@@ -74,14 +74,12 @@ final class AppSettings {
         }
     }
 
-    /// The `statusLine.command` `install()` overwrote, shown in Settings so
-    /// Restore's effect is visible before pressing it. Nil means there was no
-    /// `statusLine` at all, so Restore removes the key. `StatuslineInstaller`
-    /// keeps its own on-disk backup as the source of truth for `restore()`
-    /// itself; this is a display mirror of it.
-    var statuslineBackedUpCommand: String? {
+    /// Whether `StatuslineUninstall` has already taken Plume's capture back
+    /// out of `~/.claude/settings.json`. Latches so a statusline the user
+    /// configures afterwards is never touched.
+    var statuslineCaptureRemoved: Bool {
         didSet {
-            defaults.set(statuslineBackedUpCommand, forKey: Key.statuslineBackedUpCommand)
+            defaults.set(statuslineCaptureRemoved, forKey: Key.statuslineCaptureRemoved)
         }
     }
 

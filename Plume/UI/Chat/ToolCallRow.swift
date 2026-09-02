@@ -30,6 +30,9 @@ struct ToolCallRow: View {
                 if let result = call.result, !result.isEmpty {
                     body(title: "Result", text: result)
                 }
+                ForEach(call.resultImages.indices, id: \.self) { index in
+                    ChatImageView(image: call.resultImages[index])
+                }
             }
             .padding(.top, 4)
         } label: {
@@ -45,10 +48,12 @@ struct ToolCallRow: View {
     @ViewBuilder
     private var inputBody: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Input")
+            Text(isDiff ? "Change" : "Input")
                 .font(.system(size: chatFontSize * 0.75))
                 .foregroundStyle(.tertiary)
             switch call.input {
+            case .diff(let diff):
+                FileDiffView(diff: diff)
             case .code(let language, let text):
                 ScrollView {
                     MarkdownView(blocks: [.codeBlock(language: language, code: text)])
@@ -67,6 +72,11 @@ struct ToolCallRow: View {
                 .padding(6)
             }
         }
+    }
+
+    private var isDiff: Bool {
+        if case .diff = call.input { return true }
+        return false
     }
 
     private func body(title: String, text: String) -> some View {

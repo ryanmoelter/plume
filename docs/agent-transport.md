@@ -113,17 +113,17 @@ Switching transports is the smaller half. Headless, the chat view stops being an
 ### Serious gaps — usable but painful
 
 - [ ] **Stop / interrupt.** `TerminalSession` exposes exactly two outbound operations, `submit(text:)` and `cyclePermissionMode()` — no `interrupt()`, no `sendKey(.escape)`. Today Ctrl+C in the terminal covers it. Headless, send SIGINT: SIGTERM exits 143 and leaves the turn unfinished.
-- [ ] **Live streaming state.** Content is entirely file-driven — `TranscriptStore` re-parses the whole transcript on a 250ms debounce, so nothing appears until Claude Code flushes a line. `--include-partial-messages` gives token deltas, but no view consumes them. The only in-flight signal is the hook-driven `WorkingIndicator` dot, which is a coarse boolean rather than real output.
+- [x] **Live streaming state.** `ChatMessageList` draws `HeadlessSession.streamingText` and `.streamingThinking` beneath the trailing assistant message. The seam is the interesting part: the session keeps the streamed text past the turn's `result` rather than clearing it, and `ChatStreamHandoff` retires the overlay by comparing it against the transcript's own trailing markdown — so the 250ms debounce shows neither a gap nor a duplicate.
 - [ ] **Queued messages while the agent is working.** `ChatComposer.send()` submits immediately with no check on status and no pending-message model. Streaming input mode supports queueing.
 
 ### Rendering — worth doing on the current transport too
 
-- [ ] **System, error, and compaction entries are dropped.** `TranscriptParser` matches only `("assistant","assistant")` and `("user","user")`; everything else hits `default: continue`. There is no error concept in the model at all. Headless this matters more: `system/api_retry`, auth failures, and `result` error subtypes would vanish silently instead of being visible in the terminal.
-- [ ] **Images are not modeled.** `TranscriptBlock` has no `.image` case, so image blocks decode to `.ignored`. `decodeResultContent` separately keeps only text blocks, so an image returned by a tool is dropped twice over.
-- [ ] **No diff rendering for `Edit` / `Write`.** Only `Bash` gets special input rendering (a `sh` code block); every other tool's input is pretty-printed JSON — including the `old_string` / `new_string` / `content` fields that most want a diff.
+- [x] **System, error, and compaction entries are dropped.** `ChatNotice` models them and `ChatNoticeRow` draws them, tinted by severity. `ChatNotice.decoding` keeps `api_error`, `compact_boundary`, `informational` and `local_command`, plus any unmodelled subtype flagged `level: "error"`; the bookkeeping majority (`turn_duration`, `stop_hook_summary`, `away_summary`) stays dropped. An assistant line carrying `isApiErrorMessage` becomes a notice rather than prose.
+- [x] **Images are not modeled.** `TranscriptBlock.image` decodes base64 sources (a URL source would need a fetch, which the parser stays free of), and `decodeResultContent` now returns them alongside the text so a screenshot tool's result keeps its picture. `ChatImage` holds the undecoded payload; `ChatImageCache` decodes on the render path and bounds what it holds, because `body` runs far more often than the file changes.
+- [x] **No diff rendering for `Edit` / `Write`.** `ToolCallInput.diff` carries a `FileDiff` that `FileDiffView` draws as added and removed lines. `FileDiffBuilder` trims the common prefix and suffix rather than running an LCS: an `Edit` replaces one contiguous region, so that is already the whole answer for the shape these tools produce.
 - [ ] **Injected content still renders as the user's own messages.** Skill bodies, slash-command expansions, and `<local-command-stdout>` all arrive as user lines.
 - [ ] **Subagents always show `status: .unset`** — no live indicator while one is running.
-- [ ] **No scroll-to-bottom affordance** once the user has scrolled away. Auto-follow exists (`ChatScrollAnchor`, 40pt tolerance); a manual jump does not.
+- [x] **No scroll-to-bottom affordance** once the user has scrolled away. A glass button appears past `ChatScrollAnchor.detachedThreshold`, well beyond the 40pt follow tolerance so it does not flicker while the chat is auto-following. It reads the *recorded* scroll position rather than the live one, since content growth always reports a large distance from the bottom.
 
 ### Retired on cutover — remove, don't port
 
@@ -134,6 +134,10 @@ Switching transports is the smaller half. Headless, the chat view stops being an
 
 - [ ] **Slash commands beyond `/model` and `/effort`.** Only those two are composed natively (`ModelEffortCommand`). Everything else works today purely because the text reaches a real TUI. A `-p` session does expand skills and commands in the prompt string, so this is recoverable — but it needs discovery and expansion, not just a passthrough.
 - [ ] **Terminal-only prompts** — `/login`, first-run trust. A `-p` session shows no workspace-trust dialog at all.
+
+### Already resolved by the move
+
+- [x] **Quota and cost.** The statusline capture is gone. `rate_limit_event` and each turn's `total_cost_usd` reach `HeadlessSession` directly, and `StatuslineStripView` reads them from there. Watch the units: the stream's `utilization` is 0–1, while `StatuslineAttention`'s thresholds are 0–100. A terminal-transport tab has no headless session, so its strip shows the transcript-derived segments alone.
 
 ### What already maps cleanly
 

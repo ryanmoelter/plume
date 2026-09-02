@@ -60,7 +60,7 @@ enum TranscriptParser {
             pendingAssistantTimestamp = nil
         }
 
-        func applyResult(toolUseId: String, content: String?) {
+        func applyResult(toolUseId: String, content: String?, images: [ChatImage]) {
             guard let location = pendingToolCalls.removeValue(forKey: toolUseId) else { return }
             switch location {
             case .pendingAssistant(let blockIndex):
@@ -68,6 +68,7 @@ enum TranscriptParser {
                       case .toolCall(var call) = pendingAssistantBlocks[blockIndex]
                 else { return }
                 call.result = content
+                call.resultImages = images
                 pendingAssistantBlocks[blockIndex] = .toolCall(call)
             case .flushedMessage(let messageIndex, let blockIndex):
                 guard transcript.messages.indices.contains(messageIndex),
@@ -75,8 +76,19 @@ enum TranscriptParser {
                       case .toolCall(var call) = transcript.messages[messageIndex].blocks[blockIndex]
                 else { return }
                 call.result = content
+                call.resultImages = images
                 transcript.messages[messageIndex].blocks[blockIndex] = .toolCall(call)
             }
+        }
+
+        func appendNotice(_ notice: ChatNotice, id: String?, timestamp: Date?) {
+            flushPendingAssistant()
+            transcript.messages.append(ChatMessage(
+                id: id ?? UUID().uuidString,
+                role: .notice,
+                blocks: [.notice(notice)],
+                timestamp: timestamp
+            ))
         }
 
         for line in data.split(separator: UInt8(ascii: "\n")) {
@@ -94,8 +106,26 @@ enum TranscriptParser {
             if let planFilePath = entry.attachment?.planFilePath { transcript.planFilePath = planFilePath }
             if let permissionMode = entry.permissionMode { transcript.permissionMode = permissionMode }
 
+            if let notice = ChatNotice.decoding(entry) {
+                appendNotice(notice, id: entry.uuid, timestamp: entry.timestamp)
+                continue
+            }
+
             guard let message = entry.message, let role = message.role else { continue }
             let contentBlocks = message.content?.blocks ?? []
+
+            if entry.type == "assistant", entry.isApiErrorMessage {
+                let text = contentBlocks.compactMap { block -> String? in
+                    if case .text(let value) = block { return value }
+                    return nil
+                }.joined(separator: "\n")
+                appendNotice(
+                    ChatNotice(kind: .error, title: text.isEmpty ? "API error" : text, detail: nil),
+                    id: entry.uuid,
+                    timestamp: entry.timestamp
+                )
+                continue
+            }
 
             switch (entry.type, role) {
             case ("assistant", "assistant"):
@@ -120,6 +150,8 @@ enum TranscriptParser {
                         )
                         pendingAssistantBlocks.append(.toolCall(call))
                         pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)
+                    case .image(let image):
+                        pendingAssistantBlocks.append(.image(image))
                     case .toolResult, .ignored:
                         continue
                     }
@@ -130,24 +162,26 @@ enum TranscriptParser {
             case ("user", "user"):
                 flushPendingAssistant()
 
-                var results: [(toolUseId: String, content: String?)] = []
+                var results: [(toolUseId: String, content: String?, images: [ChatImage])] = []
                 var texts: [String] = []
                 var otherBlocks: [ChatBlock] = []
                 for block in contentBlocks {
                     switch block {
-                    case .toolResult(let toolUseId, let content):
-                        results.append((toolUseId, content))
+                    case .toolResult(let toolUseId, let content, let images):
+                        results.append((toolUseId, content, images))
                     case .text(let text):
                         texts.append(text)
                     case .thinking(let text):
                         otherBlocks.append(.thinking(text))
+                    case .image(let image):
+                        otherBlocks.append(.image(image))
                     case .toolUse, .ignored:
                         continue
                     }
                 }
 
                 for result in results {
-                    applyResult(toolUseId: result.toolUseId, content: result.content)
+                    applyResult(toolUseId: result.toolUseId, content: result.content, images: result.images)
                 }
 
                 // One line's text blocks are one unit of injected content, so

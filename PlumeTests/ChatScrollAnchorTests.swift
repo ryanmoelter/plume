@@ -85,4 +85,19 @@ struct ChatScrollGrowthTests {
             newContentHeight: 1200
         ))
     }
+
+    /// The jump-back button must not appear at the follow threshold, or it
+    /// flickers on and off while the chat is auto-following.
+    @Test func detachmentSitsWellPastTheFollowThreshold() {
+        #expect(!ChatScrollAnchor.isDetached(distanceFromBottom: 0))
+        #expect(!ChatScrollAnchor.isDetached(distanceFromBottom: ChatScrollAnchor.bottomTolerance + 1))
+        #expect(!ChatScrollAnchor.isDetached(distanceFromBottom: ChatScrollAnchor.detachedThreshold))
+        #expect(ChatScrollAnchor.isDetached(distanceFromBottom: ChatScrollAnchor.detachedThreshold + 1))
+    }
+
+    @Test func aDetachedViewNoLongerAutoScrolls() {
+        #expect(!ChatScrollAnchor.shouldAutoScroll(
+            distanceFromBottom: ChatScrollAnchor.detachedThreshold + 1
+        ))
+    }
 }

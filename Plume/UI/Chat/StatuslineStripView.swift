@@ -6,31 +6,31 @@ import Foundation
 /// `~/.scripts/.claude/statusline.sh`.
 ///
 /// Everything is a plain parameter so it previews and renders without a
-/// store. Context/model/effort/branch are transcript-derived and available
-/// even with statusline capture off; quota and cost only exist in a captured
-/// payload, so those segments render only when one is supplied.
+/// store. Context/model/effort/branch are transcript-derived; quota and cost
+/// only reach a headless session, so those segments render only when the
+/// stream has pushed them.
 ///
 /// The model and effort segments become pickers when `onSelectModel`/
-/// `onSelectEffort` are supplied; otherwise they render read-only as before.
+/// `onSelectEffort` are supplied; otherwise they render read-only.
 struct StatuslineStripView: View {
     @Environment(\.colorScheme) private var colorScheme
 
-    // Transcript-derived — available regardless of capture.
+    // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
     let model: String?
     let effort: String?
     let branch: String?
-    /// Ahead/behind and dirty, which no transcript or statusline payload
-    /// carries — Plume runs `git` for these itself.
+    /// Ahead/behind and dirty, which no transcript or stream event carries —
+    /// Plume runs `git` for these itself.
     let gitState: GitState?
     let permissionMode: String?
 
-    // Capture-derived — nil segments are simply omitted.
-    let payload: StatuslinePayload?
+    // Stream-derived, headless only — nil segments are simply omitted.
+    let rateLimit: RateLimitInfo?
+    let sessionCostUSD: Double?
 
-    // Turns the model/effort segments into pickers. Nil keeps them
-    // read-only, so every existing preview and call site is unaffected.
+    // Turns the model/effort segments into pickers. Nil keeps them read-only.
     var onSelectModel: ((AgentModel) -> Void)?
     var onSelectEffort: ((AgentEffort) -> Void)?
     /// Advances the session one permission mode. Not a setter: Claude Code
@@ -46,7 +46,8 @@ struct StatuslineStripView: View {
         branch: String? = nil,
         gitState: GitState? = nil,
         permissionMode: String? = nil,
-        payload: StatuslinePayload? = nil,
+        rateLimit: RateLimitInfo? = nil,
+        sessionCostUSD: Double? = nil,
         onSelectModel: ((AgentModel) -> Void)? = nil,
         onSelectEffort: ((AgentEffort) -> Void)? = nil,
         onCyclePermissionMode: (() -> Void)? = nil
@@ -58,7 +59,8 @@ struct StatuslineStripView: View {
         self.branch = branch
         self.gitState = gitState
         self.permissionMode = permissionMode
-        self.payload = payload
+        self.rateLimit = rateLimit
+        self.sessionCostUSD = sessionCostUSD
         self.onSelectModel = onSelectModel
         self.onSelectEffort = onSelectEffort
         self.onCyclePermissionMode = onCyclePermissionMode
@@ -71,14 +73,14 @@ struct StatuslineStripView: View {
     var body: some View {
         HStack(spacing: 14) {
             contextSegment
-            if let fiveHour = payload?.rateLimits?.fiveHour {
-                quotaSegment(label: "5h", rateLimit: fiveHour)
+            if let fiveHour = rateLimit?.fiveHour {
+                quotaSegment(label: "5h", window: fiveHour)
             }
-            if let sevenDay = payload?.rateLimits?.sevenDay {
-                quotaSegment(label: "7d", rateLimit: sevenDay)
+            if let sevenDay = rateLimit?.sevenDay {
+                quotaSegment(label: "7d", window: sevenDay)
             }
-            if let cost = payload?.cost?.totalCostUSD {
-                costSegment(cost)
+            if let sessionCostUSD {
+                costSegment(sessionCostUSD)
             }
             if let branch, !branch.isEmpty {
                 branchSegment(branch)
@@ -96,32 +98,29 @@ struct StatuslineStripView: View {
 
     @ViewBuilder
     private var contextSegment: some View {
-        let usedTokens = contextUsedTokens ?? payload?.contextUsedTokens
-        let maxTokens = contextMaxTokens ?? payload?.contextWindow?.contextWindowSize
-        let percent = payload?.contextWindow?.usedPercentage
-            ?? percentage(used: usedTokens, max: maxTokens)
+        let percent = percentage(used: contextUsedTokens, max: contextMaxTokens)
 
-        if usedTokens != nil || percent != nil {
-            let attention = StatuslineAttention.attention(contextTokens: usedTokens, percent: percent)
+        if contextUsedTokens != nil || percent != nil {
+            let attention = StatuslineAttention.attention(contextTokens: contextUsedTokens, percent: percent)
             HStack(spacing: 5) {
                 MeterView(fraction: fraction(percent: percent), color: color(for: attention))
                     .frame(width: 36)
-                Text(tokenLabel(used: usedTokens, max: maxTokens))
+                Text(tokenLabel(used: contextUsedTokens, max: contextMaxTokens))
             }
             .foregroundStyle(foreground(for: attention))
         }
     }
 
-    private func quotaSegment(label: String, rateLimit: StatuslinePayload.RateLimit) -> some View {
-        let percent = rateLimit.usedPercentage
+    /// The stream reports `utilization` as a 0–1 fraction; every threshold and
+    /// label here works in percent, so it is scaled once on the way in.
+    private func quotaSegment(label: String, window: RateLimitInfo.Window) -> some View {
+        let percent = window.utilization * 100
         let attention = StatuslineAttention.attention(percent: percent)
         return HStack(spacing: 5) {
-            Text(resetLabel(fallback: label, resetsAt: rateLimit.resetsAt))
+            Text(resetLabel(fallback: label, resetsAt: window.resetsAt))
             MeterView(fraction: fraction(percent: percent), color: color(for: attention))
                 .frame(width: 28)
-            if let percent {
-                Text("\(Int(percent.rounded()))%")
-            }
+            Text("\(Int(percent.rounded()))%")
         }
         .foregroundStyle(foreground(for: attention))
     }
@@ -184,17 +183,15 @@ struct StatuslineStripView: View {
 
     @ViewBuilder
     private var modelSegment: some View {
-        let displayModel = model ?? payload?.model?.displayName
-        let displayEffort = effort ?? payload?.effort?.level
-        if let displayModel, !displayModel.isEmpty {
+        if let model, !model.isEmpty {
             HStack(spacing: 4) {
-                modelPicker(displayModel)
-                if let displayEffort, !displayEffort.isEmpty {
-                    effortPicker(displayEffort)
+                modelPicker(model)
+                if let effort, !effort.isEmpty {
+                    effortPicker(effort)
                 }
             }
-        } else if let displayEffort, !displayEffort.isEmpty {
-            effortPicker(displayEffort)
+        } else if let effort, !effort.isEmpty {
+            effortPicker(effort)
         }
     }
 
@@ -288,9 +285,9 @@ struct StatuslineStripView: View {
         return "\(count)"
     }
 
-    private func resetLabel(fallback: String, resetsAt: Double?) -> String {
-        guard let resetsAt, resetsAt > 0 else { return fallback }
-        let seconds = resetsAt - Date().timeIntervalSince1970
+    private func resetLabel(fallback: String, resetsAt: Date?) -> String {
+        guard let resetsAt else { return fallback }
+        let seconds = resetsAt.timeIntervalSinceNow
         guard seconds > 0 else { return fallback }
         if seconds >= 86400 {
             return "\(Int((seconds + 43200) / 86400))d"
@@ -338,7 +335,7 @@ private struct MeterView: View {
     }
 }
 
-#Preview("Capture off") {
+#Preview("Terminal transport") {
     StatuslineStripView(
         contextUsedTokens: 82_000,
         contextMaxTokens: 200_000,
@@ -349,30 +346,19 @@ private struct MeterView: View {
     .frame(width: 640)
 }
 
-#Preview("Capture on") {
+#Preview("Headless transport") {
     StatuslineStripView(
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
         model: "Opus 5 (1M)",
         effort: "max",
         branch: "ryanm/native-chat-ui",
-        payload: StatuslinePayload(
-            contextWindow: .init(
-                usedPercentage: 62,
-                totalInputTokens: 600_000,
-                totalOutputTokens: 20_000,
-                contextWindowSize: 1_000_000
-            ),
-            rateLimits: .init(
-                fiveHour: .init(usedPercentage: 45, resetsAt: Date().timeIntervalSince1970 + 3600 * 2),
-                sevenDay: .init(usedPercentage: 91, resetsAt: Date().timeIntervalSince1970 + 86400 * 3)
-            ),
-            cost: .init(totalCostUSD: 4.32),
-            workspace: nil,
-            cwd: nil,
-            model: .init(displayName: "Opus 5 (1M)"),
-            effort: .init(level: "max")
-        )
+        rateLimit: RateLimitInfo(
+            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
+            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
+            isUsingOverage: false
+        ),
+        sessionCostUSD: 4.32
     )
     .frame(width: 640)
 }

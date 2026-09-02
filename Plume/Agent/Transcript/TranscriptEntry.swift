@@ -91,12 +91,28 @@ struct TranscriptEntry: Decodable {
     let isMeta: Bool
     let message: TranscriptMessage?
     let attachment: TranscriptAttachment?
+    /// Set on `system` lines: `compact_boundary`, `api_error`,
+    /// `turn_duration`, and a long tail of bookkeeping kinds.
+    let subtype: String?
+    /// A `system` line's severity — `error`, `warning`, `info`, `notice`.
+    let level: String?
+    /// A `system` line's own `content`, which is a plain string rather than
+    /// the block array a message's content is.
+    let systemContent: String?
+    let compactMetadata: CompactMetadata?
+    /// A human-readable summary of an `api_error` line's nested error object.
+    let errorDescription: String?
+    /// Claude Code's own flag that an assistant line is an error report
+    /// rather than the model speaking.
+    let isApiErrorMessage: Bool
 
     enum CodingKeys: String, CodingKey {
         case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
         case permissionMode
         case isMeta
         case attachment
+        case subtype, level, content, compactMetadata, error
+        case isApiErrorMessage
     }
 
     init(from decoder: Decoder) throws {
@@ -114,12 +130,36 @@ struct TranscriptEntry: Decodable {
         isMeta = try container.decodeIfPresent(Bool.self, forKey: .isMeta) ?? false
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
         attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
+        subtype = try container.decodeIfPresent(String.self, forKey: .subtype)
+        level = try container.decodeIfPresent(String.self, forKey: .level)
+        systemContent = try? container.decodeIfPresent(String.self, forKey: .content)
+        compactMetadata = try? container.decodeIfPresent(CompactMetadata.self, forKey: .compactMetadata)
+        errorDescription = TranscriptEntry.describeError(
+            try? container.decodeIfPresent(JSONValue.self, forKey: .error)
+        )
+        isApiErrorMessage = try container.decodeIfPresent(Bool.self, forKey: .isApiErrorMessage) ?? false
 
         if let raw = try container.decodeIfPresent(String.self, forKey: .timestamp) {
             timestamp = TranscriptEntry.isoFormatter.date(from: raw)
         } else {
             timestamp = nil
         }
+    }
+
+    /// An `api_error`'s payload nests the real message a couple of levels
+    /// down (`error.error.error.message`), with an HTTP `status` beside it.
+    private static func describeError(_ value: JSONValue?) -> String? {
+        guard let value, case .object(let object) = value else { return nil }
+        var parts: [String] = []
+        if let status = object["status"]?.doubleValue { parts.append("HTTP \(Int(status))") }
+        if let message = deepMessage(object) { parts.append(message) }
+        return parts.isEmpty ? nil : parts.joined(separator: ": ")
+    }
+
+    private static func deepMessage(_ object: [String: JSONValue]) -> String? {
+        if let message = object["message"]?.stringValue { return message }
+        if let nested = object["error"]?.objectValue { return deepMessage(nested) }
+        return object["type"]?.stringValue
     }
 
     private static let isoFormatter: ISO8601DateFormatter = {
@@ -207,13 +247,20 @@ enum TranscriptBlock: Decodable {
     case text(String)
     case thinking(String)
     case toolUse(id: String, name: String, input: [String: JSONValue])
-    case toolResult(toolUseId: String, content: String?)
+    case toolResult(toolUseId: String, content: String?, images: [ChatImage])
+    case image(ChatImage)
     case ignored
 
     private enum CodingKeys: String, CodingKey {
         case type, text, thinking, id, name, input
         case toolUseId = "tool_use_id"
         case content
+        case source
+    }
+
+    private enum SourceKeys: String, CodingKey {
+        case type, data
+        case mediaType = "media_type"
     }
 
     init(from decoder: Decoder) throws {
@@ -232,25 +279,50 @@ enum TranscriptBlock: Decodable {
             self = .toolUse(id: id, name: name, input: input)
         case "tool_result":
             let toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId) ?? ""
-            self = .toolResult(toolUseId: toolUseId, content: try TranscriptBlock.decodeResultContent(container))
+            let (text, images) = try TranscriptBlock.decodeResultContent(container)
+            self = .toolResult(toolUseId: toolUseId, content: text, images: images)
+        case "image":
+            guard let image = try TranscriptBlock.decodeImage(container) else {
+                self = .ignored
+                return
+            }
+            self = .image(image)
         default:
             self = .ignored
         }
     }
 
-    /// `tool_result.content` is a plain string, an array of blocks (only
-    /// `text` is rendered, others are dropped), or absent entirely.
-    private static func decodeResultContent(_ container: KeyedDecodingContainer<CodingKeys>) throws -> String? {
+    /// Only base64 sources are modeled. A URL source would need a fetch,
+    /// which the parser must stay free of.
+    private static func decodeImage(_ container: KeyedDecodingContainer<CodingKeys>) throws -> ChatImage? {
+        guard let source = try? container.nestedContainer(keyedBy: SourceKeys.self, forKey: .source),
+              (try? source.decodeIfPresent(String.self, forKey: .type)) == "base64",
+              let data = try? source.decodeIfPresent(String.self, forKey: .data), !data.isEmpty
+        else { return nil }
+        let mediaType = try? source.decodeIfPresent(String.self, forKey: .mediaType)
+        return ChatImage(mediaType: mediaType ?? "image/png", base64: data)
+    }
+
+    /// `tool_result.content` is a plain string, an array of blocks, or
+    /// absent entirely. Text blocks join into the result body; image blocks
+    /// come back alongside it — a screenshot tool returns exactly that.
+    private static func decodeResultContent(
+        _ container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> (String?, [ChatImage]) {
         if let string = try? container.decodeIfPresent(String.self, forKey: .content) {
-            return string
+            return (string, [])
         }
-        if let blocks = try? container.decodeIfPresent([TranscriptBlock].self, forKey: .content) {
-            let text = blocks.compactMap { block -> String? in
-                if case .text(let value) = block { return value }
-                return nil
-            }.joined(separator: "\n")
-            return text.isEmpty ? nil : text
+        guard let blocks = try? container.decodeIfPresent([TranscriptBlock].self, forKey: .content) else {
+            return (nil, [])
         }
-        return nil
+        let text = blocks.compactMap { block -> String? in
+            if case .text(let value) = block { return value }
+            return nil
+        }.joined(separator: "\n")
+        let images = blocks.compactMap { block -> ChatImage? in
+            if case .image(let image) = block { return image }
+            return nil
+        }
+        return (text.isEmpty ? nil : text, images)
     }
 }

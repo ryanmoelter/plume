@@ -6,6 +6,10 @@ struct ChatMessage: Identifiable, Equatable {
     enum Role {
         case user
         case assistant
+        /// A transcript aside — an error, a warning, a compaction boundary.
+        /// Rendered full-width as the transcript's own voice, not anyone's
+        /// message.
+        case notice
     }
 
     let id: String
@@ -22,6 +26,8 @@ enum ChatBlock: Equatable {
     /// command, shell output. Rendered as a compact marker with the text kept
     /// behind a disclosure rather than shown as the user's prose.
     case injected(InjectedContent, text: String)
+    case notice(ChatNotice)
+    case image(ChatImage)
 }
 
 struct ToolCall: Identifiable, Equatable {
@@ -33,6 +39,8 @@ struct ToolCall: Identifiable, Equatable {
     /// themselves instead of as JSON.
     var interactive: InteractiveToolPayload?
     var result: String?
+    /// Images the tool returned — a screenshot tool returns exactly this.
+    var resultImages: [ChatImage] = []
 }
 
 /// How a tool call's input should render. Bash's full command renders as
@@ -41,11 +49,15 @@ struct ToolCall: Identifiable, Equatable {
 enum ToolCallInput: Equatable {
     case code(language: String, text: String)
     case json(String)
+    /// An `Edit` or `Write`, shown as the change it makes rather than as the
+    /// strings that describe it.
+    case diff(FileDiff)
 
     var isEmpty: Bool {
         switch self {
         case .code(_, let text): return text.isEmpty
         case .json(let text): return text.isEmpty || text == "{}"
+        case .diff(let diff): return diff.lines.isEmpty
         }
     }
 }
