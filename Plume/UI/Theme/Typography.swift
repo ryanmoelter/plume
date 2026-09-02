@@ -16,12 +16,21 @@ struct Typography {
     /// Point size of `body`. Every other role is a power of `ratio` from here.
     let bodySize: CGFloat
 
-    /// Which face prose renders in. Code is always monospaced regardless.
+    /// Which face this scale renders in. Code is always monospaced regardless.
+    ///
+    /// The system face is the app's voice — chrome, controls, what the user
+    /// typed. Only the agent's own prose asks for the serif, through
+    /// `inFace(_:)`.
     let proseFace: ChatProseFace
 
     init(bodySize: CGFloat, proseFace: ChatProseFace = .system) {
         self.bodySize = bodySize
         self.proseFace = proseFace
+    }
+
+    /// The same scale in a different face.
+    func inFace(_ face: ChatProseFace) -> Typography {
+        Typography(bodySize: bodySize, proseFace: face)
     }
 
     /// `bodySize` scaled by `ratio` to the given power. Negative steps down.

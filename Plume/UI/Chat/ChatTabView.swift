@@ -97,7 +97,7 @@ struct ChatTabView: View {
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
-        .plumeTheme(bodySize: CGFloat(settings.chatFontSize), proseFace: .serif)
+        .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
@@ -171,7 +171,7 @@ struct ChatTabView: View {
             MarkdownFileView(path: path)
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
-        .plumeTheme(bodySize: CGFloat(settings.chatFontSize), proseFace: .serif)
+        .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .glassEffect(planGlass, in: .rect(cornerRadius: 12))
         .listItemPadding(bleed: true)
         .padding(.vertical, 8)

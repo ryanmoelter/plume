@@ -1,20 +1,31 @@
 import SwiftUI
 
-/// Renders parsed markdown with a system proportional font for prose —
-/// monospace is reserved for code blocks and inline code, per the roadmap's
-/// "don't use a monospace font" item. No WebKit; block layout is plain
-/// SwiftUI stacks over `MarkdownBlock.parse`.
+/// Renders parsed markdown with a proportional font for prose — monospace is
+/// reserved for code blocks and inline code, per the roadmap's "don't use a
+/// monospace font" item. No WebKit; block layout is plain SwiftUI stacks over
+/// `MarkdownBlock.parse`.
 struct MarkdownView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let blocks: [MarkdownBlock]
+    /// Whether this is the agent speaking, which earns the serif. Anything
+    /// else — the user's own message, a tool's output — stays in the system
+    /// face so it reads as input rather than published prose.
+    let isAgentVoice: Bool
 
-    init(_ markdown: String) {
+    init(_ markdown: String, isAgentVoice: Bool = false) {
         self.blocks = MarkdownCache.blocks(for: markdown)
+        self.isAgentVoice = isAgentVoice
     }
 
-    init(blocks: [MarkdownBlock]) {
+    init(blocks: [MarkdownBlock], isAgentVoice: Bool = false) {
         self.blocks = blocks
+        self.isAgentVoice = isAgentVoice
+    }
+
+    /// The scale this view's prose renders in.
+    private var prose: Typography {
+        isAgentVoice ? proseTypography : typography
     }
 
     private var bodyFontSize: CGFloat { typography.bodySize }
@@ -51,7 +62,7 @@ struct MarkdownView: View, ThemedView {
 
         case let .paragraph(text):
             Text(inline(text))
-                .font(typography.body.font)
+                .font(prose.body.font)
                 .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
@@ -63,7 +74,7 @@ struct MarkdownView: View, ThemedView {
                         Text("\u{2022}")
                         Text(inline(items[index]))
                     }
-                    .font(typography.body.font)
+                    .font(prose.body.font)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -77,7 +88,7 @@ struct MarkdownView: View, ThemedView {
                         Text("\(index + 1).")
                         Text(inline(items[index]))
                     }
-                    .font(typography.body.font)
+                    .font(prose.body.font)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -100,7 +111,7 @@ struct MarkdownView: View, ThemedView {
                     .fill(quoteBarColor)
                     .frame(width: 3)
                 Text(inline(text))
-                    .font(typography.body.font)
+                    .font(prose.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
@@ -142,12 +153,12 @@ struct MarkdownView: View, ThemedView {
     /// `headingIsUppercased`.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return typography.headline.font
-        case 2: return typography.title.font
-        case 3: return typography.bodyLarge.font
-        case 4: return typography.body.semibold
-        case 5: return typography.body.semibold
-        default: return typography.caption.semibold
+        case 1: return prose.headline.font
+        case 2: return prose.title.font
+        case 3: return prose.bodyLarge.font
+        case 4: return prose.body.semibold
+        case 5: return prose.body.semibold
+        default: return prose.caption.semibold
         }
     }
 

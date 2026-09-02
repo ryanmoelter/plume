@@ -43,6 +43,15 @@ extension ThemedView {
     var colors: Palette { theme.colors }
     var dimensions: Dimensions { theme.dimensions }
     var typography: Typography { theme.typography }
+
+    /// The type scale in the serif, for the agent's own prose.
+    ///
+    /// Only the AI's voice takes it — a reply, a plan it wrote, a question it
+    /// asked. Everything else, `typography` included, is the system face: what
+    /// the user typed reads as input, and chrome reads as chrome.
+    var proseTypography: Typography {
+        theme.typography.inFace(.serif)
+    }
 }
 
 /// Resolves the theme for everything below it.
@@ -55,10 +64,9 @@ private struct ThemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     let bodySize: CGFloat
-    let proseFace: ChatProseFace
 
     func body(content: Content) -> some View {
-        let typography = Typography(bodySize: bodySize, proseFace: proseFace)
+        let typography = Typography(bodySize: bodySize)
         let theme = Theme(
             colors: Palette(
                 colorScheme: colorScheme,
@@ -75,7 +83,7 @@ private struct ThemeModifier: ViewModifier {
 
 extension View {
     /// Resolves and installs the theme for this view and its children.
-    func plumeTheme(bodySize: CGFloat, proseFace: ChatProseFace = .system) -> some View {
-        modifier(ThemeModifier(bodySize: bodySize, proseFace: proseFace))
+    func plumeTheme(bodySize: CGFloat) -> some View {
+        modifier(ThemeModifier(bodySize: bodySize))
     }
 }

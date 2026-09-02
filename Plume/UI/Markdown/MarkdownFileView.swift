@@ -22,7 +22,7 @@ struct MarkdownFileView: View {
     @ViewBuilder
     private var content: some View {
         if let content = store.content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            MarkdownView(content)
+            MarkdownView(content, isAgentVoice: true)
         } else {
             emptyState
         }

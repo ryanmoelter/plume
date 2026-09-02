@@ -50,7 +50,7 @@ struct InteractiveToolRow: View, ThemedView {
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
         header(symbol: "list.clipboard", title: "Proposed plan")
-        MarkdownView(markdown)
+        MarkdownView(markdown, isAgentVoice: true)
         if let filePath {
             Text((filePath as NSString).lastPathComponent)
                 .font(typography.caption.mono)
@@ -87,7 +87,7 @@ struct InteractiveToolRow: View, ThemedView {
                         .chatTextColumn()
                 }
                 Text(question.question)
-                    .font(typography.caption.font)
+                    .font(proseTypography.caption.font)
                     .textSelection(.enabled)
                     .chatTextColumn()
                 if question.multiSelect {

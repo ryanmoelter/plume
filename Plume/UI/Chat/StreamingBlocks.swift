@@ -22,7 +22,7 @@ struct StreamingBlocks: View, ThemedView {
                     .listItemPadding(vertical: false)
             }
             if !overlay.text.isEmpty {
-                MarkdownView(overlay.text)
+                MarkdownView(overlay.text, isAgentVoice: true)
             }
         }
     }

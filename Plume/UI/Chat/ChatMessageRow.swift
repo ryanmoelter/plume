@@ -73,9 +73,6 @@ struct ChatMessageRow: View, ThemedView {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        // What the user typed reads as input, not as published prose, so it
-        // keeps the system face while the agent's replies take the serif.
-        .plumeTheme(bodySize: typography.bodySize, proseFace: .system)
     }
 
     private var noticeBody: some View {
@@ -112,7 +109,7 @@ struct ChatMessageRow: View, ThemedView {
         ForEach(message.blocks.indices, id: \.self) { index in
             switch message.blocks[index] {
             case .markdown(let text):
-                MarkdownView(text)
+                MarkdownView(text, isAgentVoice: message.role == .assistant)
             case .thinking(let text):
                 ThinkingRow(text: text)
             case .toolCall(let call):
