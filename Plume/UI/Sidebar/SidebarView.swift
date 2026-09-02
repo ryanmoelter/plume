@@ -45,6 +45,15 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        // Arrow keys came free with the list's selection; `.selectionDisabled`
+        // on the rows takes them with it, so they are wired up by hand.
+        .onMoveCommand { direction in
+            switch direction {
+            case .up: moveSelection(by: -1)
+            case .down: moveSelection(by: 1)
+            default: break
+            }
+        }
         .themeTint(colorScheme: colorScheme)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         .toolbar {
@@ -138,7 +147,18 @@ struct SidebarView: View {
         ForEach(sectionTasks) { task in
             TaskRowView(task: task, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
-                .listRowBackground(SidebarSelectionBackground(isSelected: selection == task.id))
+                .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
+                // The list's own selection is turned off because
+                // `.listRowBackground` draws *behind* its fill, so the accent
+                // rectangle would show on top of the wash as a second
+                // selection state. Selection therefore comes from the tap.
+                .selectionDisabled()
+                // Not while renaming: the row's `TextField` needs the click
+                // to place its cursor.
+                .onTapGesture {
+                    guard renamingTaskID != task.id else { return }
+                    selection = task.id
+                }
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
@@ -176,6 +196,21 @@ struct SidebarView: View {
                 deleteTask(task)
             }
         }
+    }
+
+    /// Every task in the order the sidebar shows them, which is what the
+    /// arrow keys walk.
+    private var navigableTasks: [WorkTask] {
+        groups.flatMap(tasksFor) + ungroupedTasks
+    }
+
+    private func moveSelection(by offset: Int) {
+        let destination = SidebarKeyboardNavigation.destination(
+            from: selection,
+            in: navigableTasks.map(\.id),
+            offset: offset
+        )
+        if let destination { selection = destination }
     }
 
     private func tasksFor(_ group: TaskGroup) -> [WorkTask] {
