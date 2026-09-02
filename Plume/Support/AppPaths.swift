@@ -19,13 +19,6 @@ enum AppPaths {
         URL.applicationSupportDirectory.appending(path: directoryName)
     }
 
-    /// Always `Plume`, never `Plume.debug`. `~/.claude/settings.json` is global
-    /// and its `statusLine` holds a single command, so a per-build script path
-    /// would have a debug and a release install overwrite each other.
-    static var sharedApplicationSupport: URL {
-        URL.applicationSupportDirectory.appending(path: "Plume")
-    }
-
     /// SwiftData's persistent store.
     static var storeFile: URL {
         applicationSupport.appending(path: "Plume.store")
@@ -49,13 +42,6 @@ enum AppPaths {
         eventsDirectory
             .appending(path: taskID.uuidString)
             .appending(path: "\(tabID.uuidString).jsonl")
-    }
-
-    /// The statusline capture script earlier versions generated and installed
-    /// into `~/.claude/settings.json`. Kept so `StatuslineUninstall` can
-    /// recognize and remove that installation.
-    static var statuslineScriptFile: URL {
-        sharedApplicationSupport.appending(path: "hooks").appending(path: "statusline.sh")
     }
 
     static func createDirectories() throws {

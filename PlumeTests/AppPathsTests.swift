@@ -26,12 +26,4 @@ struct AppPathsTests {
         #expect(AppPaths.eventsDirectory.path.hasPrefix(support))
     }
 
-    /// The deliberate exception: `~/.claude/settings.json` names one script for
-    /// every build, so the script itself must not move with the bundle ID.
-    @Test func theStatuslineScriptStaysOutOfTheDebugDirectory() {
-        #expect(!AppPaths.sharedApplicationSupport.path.hasSuffix("Plume.debug"))
-        #expect(AppPaths.sharedApplicationSupport.path.hasSuffix("Plume"))
-        #expect(AppPaths.statuslineScriptFile.path.hasPrefix(AppPaths.sharedApplicationSupport.path))
-        #expect(!AppPaths.statuslineScriptFile.path.contains("Plume.debug"))
-    }
 }

@@ -21,8 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isPoweringOff = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        StatuslineUninstall.runIfNeeded()
-
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(handleWillPowerOff),

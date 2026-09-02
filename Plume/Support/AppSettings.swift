@@ -14,7 +14,6 @@ final class AppSettings {
     private enum Key {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
-        static let statuslineCaptureRemoved = "statuslineCaptureRemoved"
         static let chatFontSize = "chatFontSize"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
@@ -32,7 +31,6 @@ final class AppSettings {
         self.defaults = defaults
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
         self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
-        self.statuslineCaptureRemoved = defaults.bool(forKey: Key.statuslineCaptureRemoved)
 
         // `double(forKey:)` returns 0 for an unset key, so 0 (and anything
         // outside the clamped range) falls back to the default.
@@ -74,14 +72,6 @@ final class AppSettings {
         }
     }
 
-    /// Whether `StatuslineUninstall` has already taken Plume's capture back
-    /// out of `~/.claude/settings.json`. Latches so a statusline the user
-    /// configures afterwards is never touched.
-    var statuslineCaptureRemoved: Bool {
-        didSet {
-            defaults.set(statuslineCaptureRemoved, forKey: Key.statuslineCaptureRemoved)
-        }
-    }
 
     /// Point size for chat prose (`MarkdownView` and its sibling chat rows).
     /// Clamped to `chatFontSizeRange`.
