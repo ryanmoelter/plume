@@ -20,6 +20,13 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on every keystroke, so the composer can react to the text
     /// without the text itself flowing through SwiftUI state per character.
     var onTextChange: (String) -> Void = { _ in }
+    /// Called whenever the caret moves, from typing or arrow-key navigation
+    /// alike — the slash-command autocomplete needs the caret's position,
+    /// not just the text.
+    var onCaretChange: (Int) -> Void = { _ in }
+    /// Set to steer arrow/Tab/Escape/Return into the slash-command list
+    /// while it's showing; nil (the default) leaves every key as-is.
+    var autocompleteHandler: ComposerAutocompleteHandler?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -40,7 +47,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.onSend = onSend
         context.coordinator.placeholder = placeholder
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onCaretChange = onCaretChange
         textView.sendKey = sendKey
+        textView.autocompleteHandler = autocompleteHandler
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
@@ -62,7 +71,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             isFocused: isFocused,
             onSend: onSend,
             placeholder: placeholder,
-            onTextChange: onTextChange
+            onTextChange: onTextChange,
+            onCaretChange: onCaretChange
         )
     }
 
@@ -82,6 +92,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         var onSend: () -> Void
         var placeholder: String
         var onTextChange: (String) -> Void
+        var onCaretChange: (Int) -> Void
         weak var host: ScrollableComposerTextView?
         weak var textView: ComposerNSTextView?
         private(set) var fontSize: CGFloat = 0
@@ -91,13 +102,15 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             isFocused: FocusState<Bool>.Binding,
             onSend: @escaping () -> Void,
             placeholder: String,
-            onTextChange: @escaping (String) -> Void
+            onTextChange: @escaping (String) -> Void,
+            onCaretChange: @escaping (Int) -> Void = { _ in }
         ) {
             self.textBinding = text
             self.focusBinding = isFocused
             self.onSend = onSend
             self.placeholder = placeholder
             self.onTextChange = onTextChange
+            self.onCaretChange = onCaretChange
         }
 
         /// Full re-style, used when the text or font size changes from
@@ -131,6 +144,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             MarkdownComposerStyler.style(textView.textStorage!, text: newText, fontSize: fontSize)
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()
+            onCaretChange(textView.selectedRange().location)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            onCaretChange(textView.selectedRange().location)
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -158,6 +177,11 @@ final class ComposerNSTextView: NSTextView {
     var sendKey: ComposerSendKey = .commandReturn
     weak var composerCoordinator: MarkdownComposerTextView.Coordinator?
 
+    /// Consulted before Return/Tab/Escape/Up/Down are given their usual
+    /// meaning, so the slash-command list can steer the caret and accept a
+    /// selection without disturbing send-on-Return when it isn't showing.
+    var autocompleteHandler: ComposerAutocompleteHandler?
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let placeholderText, let font = self.font else { return }
@@ -170,6 +194,28 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if let autocompleteHandler, autocompleteHandler.isShowing {
+            switch event.keyCode {
+            case 125 /* Down */:
+                autocompleteHandler.moveSelection(by: 1)
+                return
+            case 126 /* Up */:
+                autocompleteHandler.moveSelection(by: -1)
+                return
+            case 48 /* Tab */:
+                autocompleteHandler.acceptSelection()
+                return
+            case 53 /* Escape */:
+                autocompleteHandler.dismiss()
+                return
+            case 36 /* Return */:
+                autocompleteHandler.acceptSelection()
+                return
+            default:
+                break
+            }
+        }
+
         guard event.keyCode == 36 /* Return */ else {
             super.keyDown(with: event)
             return
@@ -196,6 +242,16 @@ final class ComposerNSTextView: NSTextView {
         }
         super.keyDown(with: event)
     }
+}
+
+/// Steers the slash-command list from key events the text view intercepts.
+/// `isShowing` gates interception itself — false means every key falls
+/// through to the text view's normal behavior, send-on-Return included.
+protocol ComposerAutocompleteHandler: AnyObject {
+    var isShowing: Bool { get }
+    func moveSelection(by delta: Int)
+    func acceptSelection()
+    func dismiss()
 }
 
 /// Hosts the text view in a scroll view sized to its content, between

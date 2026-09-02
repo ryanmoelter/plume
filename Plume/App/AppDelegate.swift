@@ -80,6 +80,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 
+    /// Headless agents are children of this process, and closing their stdin
+    /// is what tells them to exit. Without this they outlive the app until
+    /// they notice the pipe has gone.
+    func applicationWillTerminate(_ notification: Notification) {
+        HeadlessSessionManager.shared.closeAll()
+    }
+
     /// True when the current terminate request originated from the OS
     /// (logout, restart, shutdown) rather than ⌘Q or the Quit menu item.
     ///

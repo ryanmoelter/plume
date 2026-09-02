@@ -76,6 +76,18 @@ enum SmokeHarness {
             Log.app.info("Smoke harness sent first message to agent tab")
         }
 
+        // PLUME_SEND_MESSAGE_2 sends a second turn after a delay, so multi-turn
+        // continuity over one process can be observed.
+        if let second = environment["PLUME_SEND_MESSAGE_2"],
+           let first = tasks.first,
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Double(environment["PLUME_SEND_MESSAGE_2_DELAY"] ?? "") ?? 25))
+                HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id).submit(text: second)
+                Log.app.info("Smoke harness sent second message")
+            }
+        }
+
         guard let intervalValue = environment["PLUME_CYCLE_SELECTION"],
               let interval = Double(intervalValue), interval > 0
         else { return }

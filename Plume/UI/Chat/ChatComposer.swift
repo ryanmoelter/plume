@@ -17,6 +17,8 @@ struct ChatComposer: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
+    @State private var caretLocation = 0
+    @State private var autocomplete = ComposerAutocompleteController()
 
     private var headlessSession: HeadlessSession? {
         guard tab.transport == .headless else { return nil }
@@ -47,6 +49,23 @@ struct ChatComposer: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var availableSlashCommands: [SlashCommand] {
+        headlessSession?.slashCommands ?? []
+    }
+
+    /// Replaces the leading `/token` with `/name ` and leaves the rest of
+    /// the message (if any) untouched, so arguments can follow immediately.
+    private func acceptSlashCommand(_ command: SlashCommand) {
+        let tabID = tab.id
+        let text = drafts.draft(forTab: tabID) as NSString
+        let tokenEnd = text.rangeOfCharacter(from: .whitespacesAndNewlines).location
+        let firstTokenLength = tokenEnd == NSNotFound ? text.length : tokenEnd
+        let replacement = "/\(command.name) "
+        let newText = text.replacingCharacters(in: NSRange(location: 0, length: firstTokenLength), with: replacement)
+        drafts.setDraft(newText, forTab: tabID)
+        hasSendableText = sendableText(newText)
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             WorkspacePickerView(
@@ -60,6 +79,14 @@ struct ChatComposer: View {
                 queuedMessagesView(headlessSession)
             }
 
+            if autocomplete.isShowing {
+                SlashCommandAutocompleteView(
+                    commands: autocomplete.matches,
+                    selectedIndex: autocomplete.selectedIndex,
+                    onSelect: { autocomplete.select($0) }
+                )
+            }
+
             MarkdownComposerTextView(
                 text: message,
                 placeholder: "Message Claude…",
@@ -70,7 +97,13 @@ struct ChatComposer: View {
                 onTextChange: { text in
                     let sendable = sendableText(text)
                     if sendable != hasSendableText { hasSendableText = sendable }
-                }
+                    autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
+                },
+                onCaretChange: { location in
+                    caretLocation = location
+                    autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
+                },
+                autocompleteHandler: autocomplete
             )
             .padding(.leading, 10)
             // Reserves the send button's column, so text wraps before it
@@ -87,6 +120,9 @@ struct ChatComposer: View {
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in
             if visible { inputFocused = true }
+        }
+        .onAppear {
+            autocomplete.onAccept = acceptSlashCommand
         }
     }
 
