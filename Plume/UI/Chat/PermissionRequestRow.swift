@@ -27,7 +27,7 @@ struct PermissionRequestRow: View {
             if let reason = permission.decisionReason, !reason.isEmpty {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(.system(size: chatFontSize * 0.78))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ChatRole.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
             inputFields
@@ -47,7 +47,7 @@ struct PermissionRequestRow: View {
         .background(washColor, in: .rect(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.orange.opacity(0.5), lineWidth: 1)
+                .strokeBorder(ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme), lineWidth: 1)
         }
     }
 
@@ -55,11 +55,11 @@ struct PermissionRequestRow: View {
         HStack(spacing: 6) {
             Label(permission.displayName, systemImage: "hand.raised")
                 .font(.system(size: chatFontSize * 0.85, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(ChatRole.attention)
             if permission.agentID != nil {
                 Label("subagent", systemImage: "person.2")
                     .font(.system(size: chatFontSize * 0.7))
-                    .foregroundStyle(.tertiary)
+                    .emphasis(.subtle)
             }
         }
     }
@@ -76,7 +76,7 @@ struct PermissionRequestRow: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(field.key)
                                 .font(.system(size: chatFontSize * 0.7))
-                                .foregroundStyle(.tertiary)
+                                .emphasis(.subtle)
                             Text(field.value)
                                 .font(.system(
                                     size: chatFontSize * 0.85,
@@ -91,11 +91,11 @@ struct PermissionRequestRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
-            .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+            .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
         }
     }
 
     private var washColor: Color {
-        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.05)
+        .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 }

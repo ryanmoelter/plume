@@ -22,7 +22,7 @@ struct SubagentListView: View {
             } label: {
                 Text("\(subagents.count) subagent\(subagents.count == 1 ? "" : "s")")
                     .font(.system(size: chatFontSize * 0.9))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
             }
             .listItemPadding(vertical: false)
         }
@@ -58,7 +58,7 @@ private struct SubagentRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(subagent.id)
                     .font(.system(size: chatFontSize * 0.75, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
                 Text(lastMessageSummary)
                     .font(.system(size: chatFontSize * 0.9))
                     .lineLimit(1)

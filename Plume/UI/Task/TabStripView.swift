@@ -10,6 +10,7 @@ struct TabStripView: View {
         HStack(spacing: 6) {
             ForEach(task.orderedTabs) { tab in
                 TabChip(
+                    task: task,
                     tab: tab,
                     isSelected: task.selectedTabID == tab.id,
                     themeForeground: ThemeChrome.foreground(for: colorScheme),
@@ -39,6 +40,9 @@ struct TabStripView: View {
 }
 
 private struct TabChip: View {
+    let task: WorkTask
+    @Environment(\.colorScheme) private var colorScheme
+
     let tab: TaskTab
     let isSelected: Bool
     /// The theme's resolved foreground, when a theme is tinting the strip.
@@ -49,6 +53,7 @@ private struct TabChip: View {
 
     @State private var isHovering = false
     @State private var isConfirmingStartFresh = false
+    @State private var isConfirmingTransportSwitch = false
 
     /// The live title wins over the snapshot on the tab, which is only there
     /// to label the chip before anything reconnects.
@@ -84,8 +89,13 @@ private struct TabChip: View {
         .onHover { isHovering = $0 }
         .contextMenu {
             if tab.kind == .agent {
-                Button(tab.renderMode == .chat ? "Show Terminal" : "Show Chat") {
-                    tab.renderMode = tab.renderMode == .chat ? .terminal : .chat
+                if let renderModeAction = AgentTabMenu.renderModeAction(for: tab.transport, renderMode: tab.renderMode) {
+                    Button(renderModeAction == .showTerminal ? "Show Terminal" : "Show Chat") {
+                        tab.renderMode = renderModeAction == .showTerminal ? .terminal : .chat
+                    }
+                }
+                Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {
+                    isConfirmingTransportSwitch = true
                 }
                 if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                     Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
@@ -101,6 +111,15 @@ private struct TabChip: View {
         } message: {
             Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
         }
+        .confirmationDialog(
+            "Switch how this agent runs?",
+            isPresented: $isConfirmingTransportSwitch
+        ) {
+            Button("Switch", role: .destructive) { AgentLauncher.switchTransport(task: task, tab: tab) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This ends the running agent and starts it again on the other transport. Plume will resume the same conversation if it can.")
+        }
     }
 
     /// `.selection` reads as a native system tint, which disappears against a
@@ -110,6 +129,13 @@ private struct TabChip: View {
         guard let themeForeground else {
             return isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear)
         }
-        return AnyShapeStyle(themeForeground.opacity(isSelected ? 0.22 : (isHovering ? 0.1 : 0)))
+        let opacity: Double = if isSelected {
+            SidebarSelectionFill.opacity
+        } else if isHovering {
+            Emphasis.backgroundTint.fillOpacity(for: colorScheme)
+        } else {
+            0
+        }
+        return AnyShapeStyle(themeForeground.opacity(opacity))
     }
 }

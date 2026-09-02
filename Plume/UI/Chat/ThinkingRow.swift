@@ -17,15 +17,14 @@ struct ThinkingRow: View {
             DisclosureGroup(isExpanded: $expanded) {
                 Text(text)
                     .font(.system(size: chatFontSize * 0.9))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.subtle)
                     .textSelection(.enabled)
                     .padding(.top, 4)
             } label: {
                 Text("Thinking")
                     .font(.system(size: chatFontSize * 0.9))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.subtle)
             }
-            .opacity(0.7)
             .listItemPadding(vertical: false)
         }
     }

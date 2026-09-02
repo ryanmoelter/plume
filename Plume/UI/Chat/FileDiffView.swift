@@ -2,6 +2,7 @@ import SwiftUI
 
 /// An `Edit` or `Write`'s change, as added and removed lines.
 struct FileDiffView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var chatFontSize
 
     let diff: FileDiff
@@ -17,7 +18,7 @@ struct FileDiffView: View {
                     if diff.truncatedLineCount > 0 {
                         Text("… \(diff.truncatedLineCount) more lines")
                             .font(.system(size: chatFontSize * 0.75))
-                            .foregroundStyle(.tertiary)
+                            .emphasis(.subtle)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
                     }
@@ -25,16 +26,16 @@ struct FileDiffView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 320)
-            .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+            .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
         }
     }
 
     private var counts: some View {
         HStack(spacing: 8) {
             Text("+\(diff.addedCount)")
-                .foregroundStyle(.green)
+                .foregroundStyle(ChatRole.success)
             Text("−\(diff.removedCount)")
-                .foregroundStyle(.red)
+                .foregroundStyle(ChatRole.danger)
         }
         .font(.system(size: chatFontSize * 0.75, design: .monospaced))
     }
@@ -58,19 +59,19 @@ struct FileDiffView: View {
         }
     }
 
-    private func foreground(_ kind: FileDiff.LineKind) -> Color {
+    private func foreground(_ kind: FileDiff.LineKind) -> AnyShapeStyle {
         switch kind {
-        case .context: .secondary
-        case .removed: .red
-        case .added: .green
+        case .context: AnyShapeStyle(Emphasis.secondary.textHierarchy)
+        case .removed: AnyShapeStyle(ChatRole.danger)
+        case .added: AnyShapeStyle(ChatRole.success)
         }
     }
 
     private func background(_ kind: FileDiff.LineKind) -> Color {
         switch kind {
         case .context: .clear
-        case .removed: .red.opacity(0.1)
-        case .added: .green.opacity(0.1)
+        case .removed: ChatRole.danger.emphasized(.backgroundTint, colorScheme: colorScheme)
+        case .added: ChatRole.success.emphasized(.backgroundTint, colorScheme: colorScheme)
         }
     }
 }

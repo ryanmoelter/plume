@@ -36,14 +36,17 @@ struct SlashCommandAutocompleteView: View {
             if !command.description.isEmpty {
                 Text(command.description)
                     .font(.system(size: chatFontSize * 0.78))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : .clear, in: .rect(cornerRadius: 5))
+        .background(
+            isSelected ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear,
+            in: .rect(cornerRadius: 5)
+        )
         .contentShape(.rect)
     }
 

@@ -159,7 +159,7 @@ struct ChatComposer: View {
             ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
                 HStack(spacing: 6) {
                     Image(systemName: "clock")
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                     Text(message)
                         .lineLimit(1)
                         .font(.callout)
@@ -168,7 +168,7 @@ struct ChatComposer: View {
                         session.removeQueuedMessage(at: index)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .emphasis(.secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Remove from queue")

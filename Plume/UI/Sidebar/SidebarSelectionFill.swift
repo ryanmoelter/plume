@@ -15,20 +15,16 @@ struct SidebarSelectionFill: View {
 
     let isSelected: Bool
 
-    /// Low enough to stay a wash rather than a block of color. Matches the
-    /// tab chips in `TabStripView`.
+    /// Stronger than a card's `backgroundTint`, because a selected row has
+    /// to win against the rows either side of it rather than merely separate
+    /// from the surface. Matches the tab chips in `TabStripView`.
     static let opacity: Double = 0.22
 
     var body: some View {
-        Group {
-            if let themeForeground = ThemeChrome.foreground(for: colorScheme) {
-                themeForeground.opacity(isSelected ? Self.opacity : 0)
-            } else {
-                Color.primary.opacity(isSelected ? Self.opacity : 0)
-            }
-        }
-        .clipShape(.rect(cornerRadius: 6))
-        .padding(.horizontal, 4)
-        .padding(.vertical, 1)
+        Color.chatSurface(.primary, colorScheme: colorScheme)
+            .opacity(isSelected ? Self.opacity : 0)
+            .clipShape(.rect(cornerRadius: 6))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
     }
 }

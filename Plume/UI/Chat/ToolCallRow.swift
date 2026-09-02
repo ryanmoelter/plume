@@ -4,6 +4,7 @@ import SwiftUI
 /// Expanding shows the raw input and result, bounded so a huge result scrolls
 /// in place instead of growing the page.
 struct ToolCallRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var chatFontSize
 
     let call: ToolCall
@@ -38,7 +39,7 @@ struct ToolCallRow: View {
         } label: {
             Label(call.summary, systemImage: glyph)
                 .font(.system(size: chatFontSize * 0.85))
-                .foregroundStyle(.secondary)
+                .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -50,7 +51,7 @@ struct ToolCallRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(isDiff ? "Change" : "Input")
                 .font(.system(size: chatFontSize * 0.75))
-                .foregroundStyle(.tertiary)
+                .emphasis(.subtle)
             switch call.input {
             case .diff(let diff):
                 FileDiffView(diff: diff)
@@ -68,7 +69,7 @@ struct ToolCallRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 240)
-                .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+                .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
                 .padding(6)
             }
         }
@@ -83,7 +84,7 @@ struct ToolCallRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: chatFontSize * 0.75))
-                .foregroundStyle(.tertiary)
+                .emphasis(.subtle)
             ScrollView {
                 Text(text)
                     .font(.system(size: chatFontSize * 0.85, design: .monospaced))
@@ -91,7 +92,7 @@ struct ToolCallRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 240)
-            .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+            .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
             .padding(6)
         }
     }

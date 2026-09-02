@@ -55,7 +55,7 @@ struct InteractiveToolRow: View {
         if let filePath {
             Text((filePath as NSString).lastPathComponent)
                 .font(.system(size: chatFontSize * 0.75, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .emphasis(.subtle)
         }
         if let answer {
             TextField("Reason (optional, sent on reject)", text: $rejectionReason)
@@ -83,7 +83,7 @@ struct InteractiveToolRow: View {
                 if !question.header.isEmpty {
                     Text(question.header.uppercased())
                         .font(.system(size: chatFontSize * 0.7, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .emphasis(.subtle)
                 }
                 Text(question.question)
                     .font(.system(size: chatFontSize))
@@ -91,7 +91,7 @@ struct InteractiveToolRow: View {
                 if question.multiSelect {
                     Text("Choose any number")
                         .font(.system(size: chatFontSize * 0.72))
-                        .foregroundStyle(.tertiary)
+                        .emphasis(.subtle)
                 }
                 ForEach(question.options) { option in
                     optionRow(option, in: question)
@@ -127,7 +127,7 @@ struct InteractiveToolRow: View {
                 if !option.description.isEmpty {
                     Text(option.description)
                         .font(.system(size: chatFontSize * 0.8))
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -150,7 +150,7 @@ struct InteractiveToolRow: View {
     }
 
     private func glyphStyle(isSelected: Bool) -> AnyShapeStyle {
-        isSelected && isAnswerable ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary)
+        .role(ChatRole.selection, when: isSelected && isAnswerable, otherwise: .subtle)
     }
 
     private func glyph(forSelected isSelected: Bool, multiSelect: Bool) -> String {
@@ -163,8 +163,8 @@ struct InteractiveToolRow: View {
 
     private func optionWash(isSelected: Bool) -> Color {
         isSelected && isAnswerable
-            ? Color.accentColor.opacity(0.15)
-            : Color.secondary.opacity(0.08)
+            ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme)
+            : .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 
     // MARK: - Chrome
@@ -172,7 +172,7 @@ struct InteractiveToolRow: View {
     private func header(symbol: String, title: String) -> some View {
         Label(title, systemImage: symbol)
             .font(.system(size: chatFontSize * 0.8, weight: .semibold))
-            .foregroundStyle(isPending ? Color.orange : .secondary)
+            .foregroundStyle(AnyShapeStyle.role(ChatRole.attention, when: isPending, otherwise: .secondary))
     }
 
     /// Only worth saying while the agent is actually waiting — on a settled
@@ -182,15 +182,20 @@ struct InteractiveToolRow: View {
         if isPending {
             Text(text)
                 .font(.system(size: chatFontSize * 0.72))
-                .foregroundStyle(.tertiary)
+                .emphasis(.subtle)
         }
     }
 
     private var washColor: Color {
-        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.05)
+        .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 
+    /// A pending row borrows the attention hue for its border only. Washing
+    /// the whole card orange as well would double-signal a card that already
+    /// has an orange header and an orange edge.
     private var borderColor: Color {
-        isPending ? Color.orange.opacity(0.5) : Color.secondary.opacity(0.25)
+        isPending
+            ? ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme)
+            : .chatSurface(.divider, colorScheme: colorScheme)
     }
 }

@@ -150,7 +150,7 @@ struct StatuslineStripView: View {
                 // "level with upstream".
                 if !gitState.hasUpstream {
                     Text("no upstream")
-                        .foregroundStyle(foreground(for: .neutral).opacity(0.7))
+                        .foregroundStyle(foreground(for: .neutral).opacity(Emphasis.subtle.fillOpacity(for: colorScheme)))
                 }
                 if gitState.isDirty {
                     Text("•")
@@ -298,19 +298,23 @@ struct StatuslineStripView: View {
         return "\(Int((seconds + 30) / 60))m"
     }
 
+    /// The meter's own fill, which is a graphic rather than text — so a
+    /// neutral meter dims the theme foreground instead of borrowing the text
+    /// hierarchy, which a `Capsule` fill cannot use.
     private func color(for attention: StatuslineAttention) -> Color {
         switch attention {
-        case .neutral: return themeForeground ?? .secondary
-        case .yellow: return .yellow
-        case .red: return .red
+        case .neutral: return (themeForeground ?? .primary)
+            .opacity(Emphasis.secondary.fillOpacity(for: colorScheme))
+        case .yellow: return ChatRole.warning
+        case .red: return ChatRole.danger
         }
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         switch attention {
         case .neutral: return themeForeground ?? .primary
-        case .yellow: return .yellow
-        case .red: return .red
+        case .yellow: return ChatRole.warning
+        case .red: return ChatRole.danger
         }
     }
 }
@@ -318,14 +322,20 @@ struct StatuslineStripView: View {
 /// A small capsule meter — the native stand-in for the shell script's braille
 /// bars, not a reproduction of them.
 private struct MeterView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let fraction: Double
     let color: Color
+
+    private var trackOpacity: Double {
+        Emphasis.divider.fillOpacity(for: colorScheme)
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(color.opacity(0.2))
+                    .fill(color.opacity(trackOpacity))
                 Capsule()
                     .fill(color)
                     .frame(width: geometry.size.width * fraction)

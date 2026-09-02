@@ -45,7 +45,7 @@ struct TaskRowView: View {
                 ForEach(detailLines, id: \.self) { line in
                     Text(line)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }

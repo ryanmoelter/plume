@@ -22,6 +22,25 @@ enum AgentLauncher {
         }
     }
 
+    /// Ends the tab's current process and relaunches it on the other
+    /// transport, resuming the same Claude Code session when one exists.
+    ///
+    /// The tab's `agentSessionID` is what makes this a continuation rather
+    /// than a fresh conversation — both transports write it, and both accept
+    /// it as `--resume`, so switching transport doesn't have to switch
+    /// conversation.
+    static func switchTransport(task: WorkTask, tab: TaskTab) {
+        let newTransport = AgentTabMenu.targetTransport(switchingFrom: tab.transport)
+        switch tab.transport {
+        case .headless:
+            HeadlessSessionManager.shared.closeSession(for: tab.id)
+        case .terminal:
+            SurfaceManager.shared.closeSession(for: tab.id)
+        }
+        tab.transport = newTransport
+        launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+    }
+
     private static func launchHeadless(
         message: String?,
         task: WorkTask,

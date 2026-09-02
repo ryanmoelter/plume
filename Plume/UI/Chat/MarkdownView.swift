@@ -101,7 +101,7 @@ struct MarkdownView: View {
                     .frame(width: 3)
                 Text(inline(text))
                     .font(bodyFont)
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -109,7 +109,7 @@ struct MarkdownView: View {
 
         case .rule:
             Rectangle()
-                .fill(Color.secondary.opacity(0.3))
+                .fill(Color.chatSurface(.divider, colorScheme: colorScheme))
                 .frame(height: 1)
         }
     }
@@ -145,7 +145,7 @@ struct MarkdownView: View {
     }
 
     private var codeBackground: Color {
-        ThemeChrome.foreground(for: colorScheme)?.opacity(0.08) ?? Color.secondary.opacity(0.1)
+        .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 
     private var codeForeground: Color {
@@ -153,6 +153,6 @@ struct MarkdownView: View {
     }
 
     private var quoteBarColor: Color {
-        ThemeChrome.foreground(for: colorScheme)?.opacity(0.4) ?? Color.secondary.opacity(0.4)
+        .chatSurface(.disabled, colorScheme: colorScheme)
     }
 }

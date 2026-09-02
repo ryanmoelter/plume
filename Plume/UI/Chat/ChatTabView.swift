@@ -129,7 +129,7 @@ struct ChatTabView: View {
         }
         .buttonStyle(.plain)
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .emphasis(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
     }
@@ -151,7 +151,7 @@ struct ChatTabView: View {
                     planPresentation = .minimized
                 } label: {
                     Image(systemName: "chevron.down")
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Minimize")
@@ -159,7 +159,7 @@ struct ChatTabView: View {
                     planPresentation = .closed
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
@@ -184,12 +184,12 @@ struct ChatTabView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text")
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                     Text((path as NSString).lastPathComponent)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.up")
-                        .foregroundStyle(.secondary)
+                        .emphasis(.secondary)
                 }
                 .contentShape(.rect)
             }
@@ -200,7 +200,7 @@ struct ChatTabView: View {
                 planPresentation = .closed
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
             }
             .buttonStyle(.plain)
             .help("Close")
@@ -222,10 +222,10 @@ struct ChatTabView: View {
             Spacer()
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 28))
-                .foregroundStyle(.secondary)
+                .emphasis(.secondary)
             Text(showsComposer ? "Start a conversation" : "Waiting for the first message…")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .emphasis(.secondary)
             Spacer()
             if showsComposer {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
@@ -295,7 +295,7 @@ struct ChatTabView: View {
         }
         .buttonStyle(.plain)
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .emphasis(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .help("Stop the current turn")

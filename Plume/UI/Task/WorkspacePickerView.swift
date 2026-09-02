@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 /// A running agent's working directory is fixed at launch, so `isEditable`
 /// renders the same chips as plain labels rather than hiding them.
 struct WorkspacePickerView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @Bindable var task: WorkTask
     var isEditable = true
 
@@ -33,7 +35,7 @@ struct WorkspacePickerView: View {
         }
         .font(.callout)
         .padding(.horizontal, 4)
-        .background(isTargetedForDrop ? Color.accentColor.opacity(0.15) : .clear)
+        .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
         .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
             handleDrop(providers)
         }
@@ -170,7 +172,7 @@ struct WorkspacePickerView: View {
             if isEditable {
                 editable()
             } else {
-                readOnly().foregroundStyle(.secondary)
+                readOnly().emphasis(.secondary)
             }
         }
         .labelStyle(.titleAndIcon)

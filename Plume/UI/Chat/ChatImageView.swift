@@ -34,6 +34,7 @@ enum ChatImageCache {
 /// An inline transcript image, bounded so a full-screen capture does not take
 /// over the conversation. Clicking opens it at full size in Preview.
 struct ChatImageView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var chatFontSize
 
     let image: ChatImage
@@ -47,7 +48,7 @@ struct ChatImageView: View {
                 .clipShape(.rect(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
+                        .strokeBorder(Color.chatSurface(.divider, colorScheme: colorScheme), lineWidth: 1)
                 }
                 .onTapGesture { open(decoded) }
                 .help("Open at full size")
@@ -63,7 +64,7 @@ struct ChatImageView: View {
             systemImage: "photo"
         )
         .font(.system(size: chatFontSize * 0.82))
-        .foregroundStyle(.secondary)
+        .emphasis(.secondary)
         .listItemPadding(vertical: false)
     }
 

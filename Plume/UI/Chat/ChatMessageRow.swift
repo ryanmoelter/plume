@@ -99,11 +99,11 @@ struct ChatMessageRow: View {
         }
         .padding(.vertical, 4)
         .padding(.horizontal, needsInput ? 10 : 0)
-        .background(needsInput ? Color.orange.opacity(0.1) : Color.clear, in: .rect(cornerRadius: 10))
+        .background(needsInput ? attentionWash : Color.clear, in: .rect(cornerRadius: 10))
         .overlay {
             if needsInput {
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.orange.opacity(0.5), lineWidth: 1)
+                    .strokeBorder(attentionBorder, lineWidth: 1)
             }
         }
     }
@@ -138,7 +138,15 @@ struct ChatMessageRow: View {
     }
 
     private var washColor: Color {
-        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.08)
+        .chatSurface(.backgroundTint, colorScheme: colorScheme)
+    }
+
+    private var attentionWash: Color {
+        ChatRole.attention.emphasized(.backgroundTint, colorScheme: colorScheme)
+    }
+
+    private var attentionBorder: Color {
+        ChatRole.attention.emphasized(.disabled, colorScheme: colorScheme)
     }
 }
 
@@ -157,13 +165,13 @@ private struct WorkingIndicator: View {
             // Deriving opacity from the clock keeps the redraw to this view.
             TimelineView(.periodic(from: .now, by: 1.0 / 20.0)) { context in
                 Circle()
-                    .fill(.blue)
+                    .fill(ChatRole.activity)
                     .opacity(Self.opacity(at: context.date))
             }
             .frame(width: 7, height: 7)
             Text("Working…")
                 .font(.system(size: chatFontSize * 0.8))
-                .foregroundStyle(.secondary)
+                .emphasis(.secondary)
         }
     }
 

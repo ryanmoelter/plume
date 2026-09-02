@@ -8,15 +8,15 @@ struct StatusBadge: View {
         case .unset:
             EmptyView()
         case .idle:
-            Circle().fill(.tertiary).frame(width: 7, height: 7)
+            Circle().fill(Emphasis.subtle.textHierarchy).frame(width: 7, height: 7)
         case .working:
             WorkingIndicator()
         case .needsInput:
-            Image(systemName: "bell.fill").foregroundStyle(.orange)
+            Image(systemName: "bell.fill").foregroundStyle(ChatRole.attention)
         case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success)
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatRole.danger)
         }
     }
 }
@@ -26,7 +26,7 @@ private struct WorkingIndicator: View {
 
     var body: some View {
         Circle()
-            .fill(.blue)
+            .fill(ChatRole.activity)
             .frame(width: 7, height: 7)
             .opacity(pulsing ? 0.3 : 1)
             .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)

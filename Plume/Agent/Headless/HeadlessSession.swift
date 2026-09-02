@@ -176,6 +176,14 @@ final class HeadlessSession {
             break
 
         case .streamEvent(let event):
+            // A turn can produce several messages: answering a question or
+            // approving a tool resumes the same turn with a fresh one. Each
+            // starts the live text over, or the earlier message stays stuck in
+            // front of it and never matches what the transcript writes.
+            if event.eventType == "message_start" {
+                streamingText = ""
+                streamingThinking = ""
+            }
             if let delta = event.textDelta { streamingText += delta }
             if let delta = event.thinkingDelta { streamingThinking += delta }
 

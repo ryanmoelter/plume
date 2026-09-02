@@ -27,17 +27,17 @@ struct InjectedContentRow: View {
                         .truncationMode(.middle)
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
-                        .opacity(0.6)
+                        .emphasis(.subtle)
                 }
                 .font(.system(size: chatFontSize * 0.82, design: monospacedLabel ? .monospaced : .default))
-                .foregroundStyle(.secondary)
+                .emphasis(.secondary)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 Text(text)
                     .font(.system(size: chatFontSize * 0.82, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -56,6 +56,6 @@ struct InjectedContentRow: View {
     }
 
     private var washColor: Color {
-        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.06)
+        .chatSurface(.backgroundTint, colorScheme: colorScheme)
     }
 }

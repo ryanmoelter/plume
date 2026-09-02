@@ -4,6 +4,7 @@ import SwiftUI
 /// boundary. Compact and full-width — a thing that happened to the session
 /// rather than a thing anyone said.
 struct ChatNoticeRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var chatFontSize
 
     let notice: ChatNotice
@@ -16,17 +17,17 @@ struct ChatNoticeRow: View {
             if isExpanded, let detail = notice.detail {
                 Text(detail)
                     .font(.system(size: chatFontSize * 0.8, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(tint.opacity(0.1), in: .rect(cornerRadius: 8))
+        .background(tintFill, in: .rect(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+                .strokeBorder(tintBorder, lineWidth: 1)
         }
         .listItemPadding(vertical: false)
     }
@@ -36,14 +37,14 @@ struct ChatNoticeRow: View {
         let label = HStack(spacing: 6) {
             Image(systemName: symbol)
                 .imageScale(.small)
-                .foregroundStyle(tint)
+                .foregroundStyle(tintStyle)
             Text(notice.title)
-                .foregroundStyle(notice.kind == .error ? tint : .secondary)
+                .foregroundStyle(AnyShapeStyle.role(ChatRole.danger, when: notice.kind == .error, otherwise: .secondary))
                 .frame(maxWidth: .infinity, alignment: .leading)
             if notice.detail != nil {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .imageScale(.small)
-                    .foregroundStyle(.secondary)
+                    .emphasis(.secondary)
             }
         }
         .font(.system(size: chatFontSize * 0.82))
@@ -57,12 +58,29 @@ struct ChatNoticeRow: View {
         }
     }
 
-    private var tint: Color {
+    /// Only error and warning carry a hue. An info or compaction notice is
+    /// a boundary marker, so it takes the surface wash and the text hierarchy
+    /// instead of a color no one needs to decode.
+    private var roleTint: Color? {
         switch notice.kind {
-        case .error: .red
-        case .warning: .orange
-        case .info, .compaction: .secondary
+        case .error: ChatRole.danger
+        case .warning: ChatRole.warning
+        case .info, .compaction: nil
         }
+    }
+
+    private var tintStyle: AnyShapeStyle {
+        roleTint.map(AnyShapeStyle.init) ?? AnyShapeStyle(Emphasis.secondary.textHierarchy)
+    }
+
+    private var tintFill: Color {
+        roleTint?.emphasized(.backgroundTint, colorScheme: colorScheme)
+            ?? .chatSurface(.backgroundTint, colorScheme: colorScheme)
+    }
+
+    private var tintBorder: Color {
+        roleTint?.emphasized(.disabled, colorScheme: colorScheme)
+            ?? .chatSurface(.divider, colorScheme: colorScheme)
     }
 
     private var symbol: String {

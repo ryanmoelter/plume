@@ -16,9 +16,8 @@ struct StreamingBlocks: View {
             if !overlay.thinking.isEmpty {
                 Text(overlay.thinking)
                     .font(.system(size: chatFontSize * 0.9))
-                    .foregroundStyle(.secondary)
+                    .emphasis(.subtle)
                     .textSelection(.enabled)
-                    .opacity(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .listItemPadding(vertical: false)
             }
