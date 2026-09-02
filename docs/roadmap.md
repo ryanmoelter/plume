@@ -95,6 +95,7 @@ Make the chat experience nicer than the terminal.
 - [ ] Render mermaid diagrams in chat messages and in viewed files.
 - [ ] Slash commands in the composer — completion for what's available, and a sensible rendering of the ones that answer in the chat.
 - [x] Render the tools that talk to me — a proposed plan and a question with its options — as their own thing, not as raw tool JSON.
+- [ ] Answering those tools, once the transport allows it — one question at a time, free-form answers, and the option previews the TUI draws. Tracked in `docs/agent-transport.md`, since answering needs the `claude -p` cutover.
 - [x] Stop showing injected content as if I wrote it. A skill's body, a slash command's expansion and its output all arrive as user lines and read as messages from me.
 - [ ] Queued messages — show what's waiting to go, and show it leaving when it does.
 - [x] Git state in the statusline: commits ahead of and behind the tracked remote branch, and whether the tree is dirty.
@@ -206,6 +207,7 @@ What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar a
 
 - [ ] One tab kind. "New Tab" opens a shell; when `claude` is running in it, the tab takes on agent chrome — no agent-vs-terminal prompt at creation.
 - [ ] Remove the unused title bar, or move something into it (task name? directory?).
+- [ ] Rebalance the chat chrome: put the titlebar's empty space to work, consolidate the statusline, and move some of it into the message box.
 - [ ] Drag a tab into another task.
 - [ ] Move a tab out into a new task of its own.
 
@@ -214,6 +216,7 @@ What exists:
 - Instrumentation can only be injected at launch — `--settings` and the `PLUME_*` env vars can't be attached to a `claude` the user started by hand. For a shell-first tab to keep reporting status and titles, Plume needs to set `PLUME_*` on every tab's shell, not just on agent tabs. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam is there.
 - The wrapper exposes `COMMAND_FINISHED` and `PROGRESS_REPORT` actions, and `TerminalViewState` publishes the command metadata — useful for detection.
 - `AppDelegate` already makes the titlebar transparent and tints it.
+- The chrome is unbalanced in both directions: the detail pane has no toolbar at all — only the sidebar declares one, so the titlebar is empty tinted space — while `StatuslineStripView` packs up to seven segments into one flat `HStack` (context, 5h, 7d, cost, branch, permission mode, model/effort). Some of those belong nearer the composer, since they describe what the *next* message will do rather than the session as a whole: permission mode, model and effort are all already interactive, and reading them at the point of sending is more useful than reading them above the transcript. The session-wide facts — quota, cost, branch — are the natural candidates for the titlebar. Two things to settle: a window-level toolbar shows the selected task's state, so it needs a decision about what it reads from when tabs disagree, and the strip's items are sized for `.caption` in a themed row, so moving them is a restyle rather than a reparent.
 - Moving a tab between tasks is mostly a data operation — reassign `TaskTab.task` and renumber `orderIndex`, both of which `TaskStore` already owns. The catch is the terminal: `SurfaceManager` is keyed by tab ID, not by task, so the surface itself should survive the move untouched. Don't tear it down and rebuild it, or the move kills a running agent. A tab whose working directory came from its old task also needs a decision — the process keeps its original cwd regardless of where the tab now lives.
 
 ## Shortcuts
