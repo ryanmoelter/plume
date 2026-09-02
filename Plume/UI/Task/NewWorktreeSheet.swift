@@ -88,27 +88,40 @@ struct NewWorktreeSheet: View {
         panel.canChooseFiles = false
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        repositoryPath = GitRunner.repositoryRoot(containing: url.path) ?? url.path
+        repositoryPath = url.path
+        // Narrowed to the repository root once `git` answers, so the sheet
+        // shows the chosen folder immediately rather than after a subprocess.
+        Task {
+            if let root = await GitService.shared.repositoryRoot(containing: url.path) {
+                repositoryPath = root
+            }
+        }
     }
 
     private func create() {
         isCreating = true
         errorMessage = nil
-        do {
-            let path = try WorkspaceProvisioner.createWorktree(
-                repository: repositoryPath,
-                branch: branchName,
-                basePath: AppSettings.shared.worktreeBasePath
-            )
-            task.workingDirectoryPath = path
-            task.repoPath = repositoryPath
-            task.branchName = branchName
-            task.workspaceKind = .worktree
-            RecentFolders.remember(repositoryPath)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-            isCreating = false
+        let basePath = AppSettings.shared.worktreeBasePath
+        Task {
+            do {
+                // `git worktree add` checks out a whole tree, so this is the
+                // slowest call the app makes. On the main thread it froze the
+                // sheet before the spinner could draw.
+                let path = try await GitService.shared.createWorktree(
+                    repository: repositoryPath,
+                    branch: branchName,
+                    basePath: basePath
+                )
+                task.workingDirectoryPath = path
+                task.repoPath = repositoryPath
+                task.branchName = branchName
+                task.workspaceKind = .worktree
+                RecentFolders.remember(repositoryPath)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                isCreating = false
+            }
         }
     }
 }

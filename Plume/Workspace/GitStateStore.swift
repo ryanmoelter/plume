@@ -74,18 +74,24 @@ final class GitStateStore {
     /// checkout or fetch makes. Working-tree edits touch none of them, which
     /// is what the poll is for.
     private func startWatching(_ directory: String) {
-        guard let root = GitRunner.repositoryRoot(containing: directory) else { return }
-        let gitDirectory = URL(fileURLWithPath: root).appendingPathComponent(".git")
-        guard FileManager.default.fileExists(atPath: gitDirectory.path) else { return }
+        Task {
+            guard let root = await GitService.shared.repositoryRoot(containing: directory) else {
+                return
+            }
+            let gitDirectory = URL(fileURLWithPath: root).appendingPathComponent(".git")
+            guard FileManager.default.fileExists(atPath: gitDirectory.path) else { return }
+            // The watch may have been dropped while the probe was running.
+            guard watches[directory] != nil else { return }
 
-        // Debounced: an agent working in the repo writes to `.git` — index,
-        // lock files, refs, logs — many times a second, and each write would
-        // otherwise spawn its own `git status`.
-        let watcher = FileWatcher(url: gitDirectory) { [weak self] in
-            Task { @MainActor in self?.scheduleRefresh(directory) }
+            // Debounced: an agent working in the repo writes to `.git` — index,
+            // lock files, refs, logs — many times a second, and each write would
+            // otherwise spawn its own `git status`.
+            let watcher = FileWatcher(url: gitDirectory) { [weak self] in
+                Task { @MainActor in self?.scheduleRefresh(directory) }
+            }
+            watcher.start()
+            watches[directory]?.watcher = watcher
         }
-        watcher.start()
-        watches[directory]?.watcher = watcher
     }
 
     private func startPollingIfNeeded() {
@@ -108,25 +114,22 @@ final class GitStateStore {
         }
     }
 
-    /// Runs `git` off the main actor, then publishes on it.
+    /// Runs `git` on `GitService`, then publishes on the main actor.
     private func refresh(_ directory: String) {
         // One `git` process per directory at a time. Without this a slow
         // repository would queue a subprocess per event behind the debounce.
         guard !inFlight.contains(directory) else { return }
         inFlight.insert(directory)
-        Task.detached(priority: .utility) {
-            let state = GitRunner.state(in: directory)
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.inFlight.remove(directory)
-                guard let existing = self.watches[directory] else { return }
-                // The `.git` watcher fires on every write inside `.git`, and
-                // an agent working in the repo makes many that leave this
-                // answer unchanged. Assigning anyway would publish an
-                // observable change and invalidate every view reading it.
-                guard existing.state != state else { return }
-                self.watches[directory]?.state = state
-            }
+        Task {
+            let state = await GitService.shared.state(in: directory)
+            inFlight.remove(directory)
+            guard let existing = watches[directory] else { return }
+            // The `.git` watcher fires on every write inside `.git`, and an
+            // agent working in the repo makes many that leave this answer
+            // unchanged. Assigning anyway would publish an observable change
+            // and invalidate every view reading it.
+            guard existing.state != state else { return }
+            watches[directory]?.state = state
         }
     }
 

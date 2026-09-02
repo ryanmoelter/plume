@@ -51,11 +51,9 @@ struct WorkspacePickerView: View {
                 repositoryBranch = nil
                 return
             }
-            let loaded = await Task.detached {
-                (GitRunner.worktrees(in: repoPath), GitRunner.currentBranch(in: repoPath))
-            }.value
-            worktrees = loaded.0
-            repositoryBranch = loaded.1
+            let loaded = await GitService.shared.worktreeListing(in: repoPath)
+            worktrees = loaded.worktrees
+            repositoryBranch = loaded.branch
         }
     }
 
@@ -212,9 +210,12 @@ struct WorkspacePickerView: View {
     private func setDirectory(_ path: String) {
         task.workingDirectoryPath = path
         task.workspaceKind = .directory
-        task.repoPath = GitRunner.repositoryRoot(containing: path)
         task.branchName = nil
         RecentFolders.remember(path)
         recentFolders = RecentFolders.load()
+        // Resolved after the fact: finding the repository root is a
+        // subprocess, and the picker should not wait on one to show the
+        // folder the user just chose.
+        Task { task.repoPath = await GitService.shared.repositoryRoot(containing: path) }
     }
 }

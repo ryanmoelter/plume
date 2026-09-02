@@ -5,7 +5,7 @@ import Foundation
 /// Worktrees live inside the repo at `<repo>/.plume/worktrees/<branch-slug>`,
 /// with a `<repo>/.plume/.gitignore` of `*` so nothing under `.plume/` is ever
 /// tracked.
-enum WorkspaceProvisioner {
+nonisolated enum WorkspaceProvisioner {
     static let plumeDirectoryName = ".plume"
 
     // MARK: - Branch naming

@@ -1,7 +1,9 @@
 import Foundation
 
 /// A working tree's state, as the statusline shows it.
-struct GitState: Equatable {
+///
+/// `nonisolated` so parsing runs wherever its caller does — see `GitRunner`.
+nonisolated struct GitState: Equatable {
     let branch: String?
     /// Nil when the branch tracks nothing, which is the common case on a
     /// fresh worktree branch. Zero and "no upstream" are different facts and

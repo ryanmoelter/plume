@@ -1,6 +1,6 @@
 import Foundation
 
-struct GitError: LocalizedError {
+nonisolated struct GitError: LocalizedError {
     let command: String
     let status: Int32
     let stderr: String
@@ -11,7 +11,12 @@ struct GitError: LocalizedError {
 }
 
 /// Runs `git` as a subprocess, surfacing stderr so failures can be shown.
-enum GitRunner {
+///
+/// Every call blocks its thread until `git` exits. Reach it through
+/// `GitService`, never directly — the actor is what keeps that wait off the
+/// main thread. Tests call it synchronously, which is fine; they have no
+/// window to freeze.
+nonisolated enum GitRunner {
     @discardableResult
     static func run(_ arguments: [String], in directory: String? = nil) throws -> String {
         let process = Process()
@@ -58,7 +63,7 @@ enum GitRunner {
 
 /// One entry from `git worktree list` — the repository's own checkout plus
 /// every worktree added to it.
-struct GitWorktree: Hashable, Sendable {
+nonisolated struct GitWorktree: Hashable, Sendable {
     let path: String
     /// nil when the worktree has a detached HEAD.
     let branch: String?

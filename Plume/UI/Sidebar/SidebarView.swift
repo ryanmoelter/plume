@@ -123,9 +123,16 @@ struct SidebarView: View {
     /// Removing the worktree is best-effort: if git refuses, the task stays so
     /// the user can resolve it rather than losing track of the directory.
     private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
-        if removeWorktree, let repository = task.repoPath, let path = task.workingDirectoryPath {
+        guard removeWorktree,
+              let repository = task.repoPath,
+              let path = task.workingDirectoryPath
+        else {
+            finishDeleting(task)
+            return
+        }
+        Task {
             do {
-                try WorkspaceProvisioner.removeWorktree(
+                try await GitService.shared.removeWorktree(
                     repository: repository,
                     path: path,
                     branch: task.branchName,
@@ -136,7 +143,11 @@ struct SidebarView: View {
                 taskPendingDeletion = nil
                 return
             }
+            finishDeleting(task)
         }
+    }
+
+    private func finishDeleting(_ task: WorkTask) {
         if selection == task.id { selection = nil }
         TaskStore.delete(task, in: context)
         taskPendingDeletion = nil

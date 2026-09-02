@@ -24,8 +24,10 @@ enum TaskStore {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
         if defaultsToRecentFolder, let folder = RecentFolders.mostRecent {
             task.workingDirectoryPath = folder
-            task.repoPath = GitRunner.repositoryRoot(containing: folder)
             task.workspaceKind = .directory
+            // Filled in once `git` answers: creating a task must not wait on
+            // a subprocess, and nothing reads `repoPath` before then.
+            Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         tab.transport = AppSettings.shared.defaultAgentTransport
