@@ -44,7 +44,7 @@ struct MarkdownView: View, ThemedView {
     private func render(_ block: MarkdownBlock) -> some View {
         switch block {
         case let .heading(level, text):
-            Text(inline(text))
+            Text(heading(text, level: level))
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
@@ -118,17 +118,41 @@ struct MarkdownView: View, ThemedView {
         MarkdownCache.styledInline(text, fontSize: bodyFontSize, tint: codeBackground)
     }
 
+    /// A heading's text, uppercased at the levels that rank by case rather
+    /// than by size.
+    ///
+    /// Uppercases the parsed runs rather than the source: raising the markdown
+    /// first would carry a link's URL up with it, and `.textCase` does not
+    /// reach a `Text` built from an `AttributedString`.
+    private func heading(_ text: String, level: Int) -> AttributedString {
+        let parsed = inline(text)
+        guard headingIsUppercased(level: level) else { return parsed }
+        return parsed.runs.reduce(into: AttributedString()) { result, run in
+            var raised = AttributedString(String(parsed[run.range].characters).uppercased())
+            raised.mergeAttributes(run.attributes)
+            result.append(raised)
+        }
+    }
+
     /// Heading levels map to the type scale's own roles, preserving the
     /// original ladder's weight distinctions.
+    ///
+    /// The ladder runs out before the levels do, so h5 and h6 sit at prose
+    /// size and earn their rank from small caps instead — see
+    /// `headingIsUppercased`.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return typography.display.font
-        case 2: return typography.headline.font
-        case 3: return typography.title.font
-        case 4: return typography.bodyLarge.font
+        case 1: return typography.headline.font
+        case 2: return typography.title.font
+        case 3: return typography.bodyLarge.font
+        case 4: return typography.body.semibold
         case 5: return typography.body.semibold
         default: return typography.caption.semibold
         }
+    }
+
+    private func headingIsUppercased(level: Int) -> Bool {
+        level >= 5
     }
 
     private var codeBackground: Color {
