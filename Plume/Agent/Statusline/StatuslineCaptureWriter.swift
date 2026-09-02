@@ -11,6 +11,12 @@ import Foundation
 /// the chained command with the same stdin and passes its stdout through
 /// unchanged, so the user's own statusline looks identical.
 ///
+/// **The capture is conditional; the chain is not.** `settings.json` is global
+/// but the three `PLUME_*` variables only exist in a terminal Plume launched,
+/// so the script captures nothing and goes straight to the chain everywhere
+/// else. Without that guard the user's real statusline disappears from every
+/// other terminal.
+///
 /// Dependency-free and bash-3.2-safe, same rationale as `HookSettingsWriter`.
 enum StatuslineCaptureWriter {
     /// `chainCommand` is the user's previous `statusLine.command`, run exactly
@@ -31,10 +37,12 @@ enum StatuslineCaptureWriter {
 
         input=$(cat)
 
-        dir="$PLUME_EVENTS_DIR/$PLUME_TASK_ID"
-        mkdir -p "$dir"
-        tmp="$dir/$PLUME_TAB_ID.statusline.json.tmp.$$"
-        printf '%s' "$input" > "$tmp" && mv -f "$tmp" "$dir/$PLUME_TAB_ID.statusline.json"
+        if [ -n "${PLUME_EVENTS_DIR:-}" ] && [ -n "${PLUME_TASK_ID:-}" ] && [ -n "${PLUME_TAB_ID:-}" ]; then
+          dir="$PLUME_EVENTS_DIR/$PLUME_TASK_ID"
+          mkdir -p "$dir"
+          tmp="$dir/$PLUME_TAB_ID.statusline.json.tmp.$$"
+          printf '%s' "$input" > "$tmp" && mv -f "$tmp" "$dir/$PLUME_TAB_ID.statusline.json"
+        fi
 
         printf '%s' "$input" | sh -c \#(quotedChain)
         exit 0
@@ -45,8 +53,11 @@ enum StatuslineCaptureWriter {
     /// `chainCommand` is the previously-installed `statusLine.command`.
     @discardableResult
     static func write(chainCommand: String) throws -> URL {
-        try AppPaths.createDirectories()
         let url = AppPaths.statuslineScriptFile
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try script(chainCommand: chainCommand).write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],

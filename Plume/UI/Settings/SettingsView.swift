@@ -18,6 +18,20 @@ struct SettingsView: View {
         claudeSettingsURL.appendingPathExtension("plume-backup")
     }
 
+    /// Whether `statusLine` currently points at Plume's script. Read from disk
+    /// rather than mirrored into a setting, so an install made by the other
+    /// build — or an edit made by hand — reads correctly here.
+    private var isStatuslineInstalled: Bool {
+        StatuslineInstaller.isAlreadyInstalled(settingsURL: claudeSettingsURL)
+    }
+
+    private var restoreEffectDescription: String {
+        guard let previous = settings.statuslineBackedUpCommand else {
+            return "Restore will remove your statusLine setting."
+        }
+        return "Restore will put back: \(previous)"
+    }
+
     var body: some View {
         Form {
             Section {
@@ -74,19 +88,24 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Capture statusline for quota and cost", isOn: $settings.statuslineCaptureEnabled)
-
-                Text(StatuslineInstaller.preview(settingsURL: claudeSettingsURL))
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary, in: .rect(cornerRadius: 6))
+                if isStatuslineInstalled {
+                    Text("Installed. \(restoreEffectDescription)")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(StatuslineInstaller.preview(settingsURL: claudeSettingsURL))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary, in: .rect(cornerRadius: 6))
+                }
 
                 HStack {
-                    Button("Install") { install() }
-                    Button("Restore") { restore() }
-                        .disabled(settings.statuslineBackedUpCommand == nil && !StatuslineInstaller.isAlreadyInstalled(settingsURL: claudeSettingsURL))
+                    if isStatuslineInstalled {
+                        Button("Restore") { restore() }
+                    } else {
+                        Button("Install") { install() }
+                    }
                     if let installError {
                         Text(installError)
                             .foregroundStyle(.red)
@@ -96,7 +115,7 @@ struct SettingsView: View {
             } header: {
                 Text("Statusline Capture")
             } footer: {
-                Text("Quota and session cost exist only in the payload Claude Code sends its statusline command, nowhere on disk. Install writes to ~/.claude/settings.json outside Plume, replacing statusLine with a script that captures the payload and then runs your previous command unchanged, so your terminal statusline looks the same. Restore puts your previous statusLine back.")
+                Text("Quota and session cost exist only in the payload Claude Code sends its statusline command, nowhere on disk. Install writes to ~/.claude/settings.json outside Plume, replacing statusLine with a script that captures the payload and then runs your previous command unchanged, so your terminal statusline looks the same. That file is global, so the script also runs in terminals Plume didn't launch — there it captures nothing and just runs your own command. Restore puts your previous statusLine back.")
                     .foregroundStyle(.secondary)
             }
 
@@ -128,7 +147,6 @@ struct SettingsView: View {
                 backupURL: claudeSettingsBackupURL
             )
             settings.statuslineBackedUpCommand = previous?.command
-            settings.statuslineCaptureEnabled = true
         } catch {
             installError = "Install failed: \(error.localizedDescription)"
         }
@@ -142,7 +160,6 @@ struct SettingsView: View {
                 backupURL: claudeSettingsBackupURL
             )
             settings.statuslineBackedUpCommand = nil
-            settings.statuslineCaptureEnabled = false
         } catch {
             installError = "Restore failed: \(error.localizedDescription)"
         }

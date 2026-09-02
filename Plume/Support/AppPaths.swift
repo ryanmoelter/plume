@@ -19,6 +19,14 @@ enum AppPaths {
         URL.applicationSupportDirectory.appending(path: directoryName)
     }
 
+    /// Always `Plume`, never `Plume.debug`. `~/.claude/settings.json` is global
+    /// and its `statusLine` holds a single command, so a per-build script path
+    /// would have a debug and a release install overwrite each other — each
+    /// one seeing the other's script as a stranger's statusline to chain to.
+    static var sharedApplicationSupport: URL {
+        URL.applicationSupportDirectory.appending(path: "Plume")
+    }
+
     /// SwiftData's persistent store.
     static var storeFile: URL {
         applicationSupport.appending(path: "Plume.store")
@@ -45,8 +53,9 @@ enum AppPaths {
     }
 
     /// Generated statusline capture script, chained ahead of the user's own.
+    /// Shared across builds — see `sharedApplicationSupport`.
     static var statuslineScriptFile: URL {
-        hooksDirectory.appending(path: "statusline.sh")
+        sharedApplicationSupport.appending(path: "hooks").appending(path: "statusline.sh")
     }
 
     /// Captured statusline payload, written atomically as `<taskID>/<tabID>.statusline.json`.
