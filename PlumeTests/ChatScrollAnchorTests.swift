@@ -71,4 +71,18 @@ struct ChatScrollGrowthTests {
             newContentHeight: 460
         ))
     }
+
+    /// The regression this guards: recording a growth-driven geometry change
+    /// as the scroll position makes the chat stop following new messages,
+    /// because growth always reports a large distance from the bottom.
+    @Test func onlyANonGrowthChangeReflectsTheUserScroll() {
+        #expect(ChatScrollAnchor.reflectsUserScroll(
+            previousContentHeight: 900,
+            newContentHeight: 900
+        ))
+        #expect(!ChatScrollAnchor.reflectsUserScroll(
+            previousContentHeight: 900,
+            newContentHeight: 1200
+        ))
+    }
 }

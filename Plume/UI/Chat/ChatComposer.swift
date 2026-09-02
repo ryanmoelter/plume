@@ -33,8 +33,13 @@ struct ChatComposer: View {
         ThemeChrome.background(for: colorScheme).map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
     }
 
-    private var canSend: Bool {
-        !drafts.draft(forTab: tab.id).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Tracked separately from the draft text so a keystroke does not
+    /// invalidate this whole body. The draft changes on every character; only
+    /// its emptiness matters here, and that flips twice a message.
+    @State private var hasSendableText = false
+
+    private func sendableText(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -51,7 +56,11 @@ struct ChatComposer: View {
                 fontSize: fontSize,
                 isFocused: $inputFocused,
                 sendKey: settings.composerSendKey,
-                onSend: send
+                onSend: send,
+                onTextChange: { text in
+                    let sendable = sendableText(text)
+                    if sendable != hasSendableText { hasSendableText = sendable }
+                }
             )
             .padding(.leading, 10)
             // Reserves the send button's column, so text wraps before it
@@ -83,13 +92,13 @@ struct ChatComposer: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
-        .disabled(!canSend)
+        .disabled(!hasSendableText)
         .help("Send")
         .accessibilityLabel("Send")
     }
 
     private func send() {
-        guard canSend else { return }
+        guard hasSendableText else { return }
         let text = drafts.draft(forTab: tab.id)
         drafts.setDraft("", forTab: tab.id)
         if let session = SurfaceManager.shared.existingSession(for: tab.id) {

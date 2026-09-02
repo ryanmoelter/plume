@@ -66,9 +66,14 @@ struct ChatMessageList: View {
                     contentHeight: geometry.contentSize.height
                 )
             } action: { old, new in
-                scrollPosition.distanceFromBottom = new.distanceFromBottom
+                if ChatScrollAnchor.reflectsUserScroll(
+                    previousContentHeight: old.contentHeight,
+                    newContentHeight: new.contentHeight
+                ) {
+                    scrollPosition.distanceFromBottom = new.distanceFromBottom
+                }
                 guard ChatScrollAnchor.shouldFollowGrowth(
-                    previousDistanceFromBottom: old.distanceFromBottom,
+                    previousDistanceFromBottom: scrollPosition.distanceFromBottom,
                     previousContentHeight: old.contentHeight,
                     newContentHeight: new.contentHeight
                 ) else { return }

@@ -17,6 +17,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var isFocused: FocusState<Bool>.Binding
     var sendKey: ComposerSendKey
     var onSend: () -> Void
+    /// Called on every keystroke, so the composer can react to the text
+    /// without the text itself flowing through SwiftUI state per character.
+    var onTextChange: (String) -> Void = { _ in }
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -36,13 +39,17 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         let textView = view.composerTextView
         context.coordinator.onSend = onSend
         context.coordinator.placeholder = placeholder
+        context.coordinator.onTextChange = onTextChange
         textView.sendKey = sendKey
 
+        // Only re-style and re-measure when something actually changed.
+        // SwiftUI runs this on every update pass, and both the styling and
+        // the height measurement are full passes over the text.
         if textView.string != text || context.coordinator.fontSize != fontSize {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
+            view.invalidateContentHeight()
         }
         context.coordinator.updatePlaceholderVisibility(textView)
-        view.invalidateContentHeight()
 
         if isFocused.wrappedValue, view.window?.firstResponder !== textView {
             view.window?.makeFirstResponder(textView)
@@ -50,7 +57,13 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: isFocused, onSend: onSend, placeholder: placeholder)
+        Coordinator(
+            text: $text,
+            isFocused: isFocused,
+            onSend: onSend,
+            placeholder: placeholder,
+            onTextChange: onTextChange
+        )
     }
 
     /// macOS 26's reliable seam for an `NSViewRepresentable`'s size: SwiftUI
@@ -68,15 +81,23 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         private let focusBinding: FocusState<Bool>.Binding
         var onSend: () -> Void
         var placeholder: String
+        var onTextChange: (String) -> Void
         weak var host: ScrollableComposerTextView?
         weak var textView: ComposerNSTextView?
         private(set) var fontSize: CGFloat = 0
 
-        init(text: Binding<String>, isFocused: FocusState<Bool>.Binding, onSend: @escaping () -> Void, placeholder: String) {
+        init(
+            text: Binding<String>,
+            isFocused: FocusState<Bool>.Binding,
+            onSend: @escaping () -> Void,
+            placeholder: String,
+            onTextChange: @escaping (String) -> Void
+        ) {
             self.textBinding = text
             self.focusBinding = isFocused
             self.onSend = onSend
             self.placeholder = placeholder
+            self.onTextChange = onTextChange
         }
 
         /// Full re-style, used when the text or font size changes from
@@ -106,6 +127,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             let newText = textView.string
             textBinding.wrappedValue = newText
+            onTextChange(newText)
             MarkdownComposerStyler.style(textView.textStorage!, text: newText, fontSize: fontSize)
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()
@@ -225,7 +247,28 @@ final class ScrollableComposerTextView: NSView {
     /// Called when the text changes, since SwiftUI only re-asks
     /// `sizeThatFits` when something invalidates layout.
     func invalidateContentHeight() {
+        cachedHeight = nil
+        cachedKey = nil
         needsLayout = true
+    }
+
+    /// The measuring stack, built once and re-measured in place.
+    ///
+    /// SwiftUI asks `sizeThatFits` on every layout pass, not only when the
+    /// text changes. Building an `NSLayoutManager` and copying the whole
+    /// `NSTextStorage` per call put a full TextKit layout on the keystroke
+    /// path, which is what made typing lag.
+    private let measuringContainer = NSTextContainer()
+    private let measuringLayoutManager = NSLayoutManager()
+    private let measuringStorage = NSTextStorage()
+
+    private var cachedHeight: CGFloat?
+    private var cachedKey: MeasurementKey?
+
+    private struct MeasurementKey: Equatable {
+        let width: CGFloat
+        let text: String
+        let fontSize: CGFloat
     }
 
     /// The height for `width`, clamped between `minLines` and `maxLines`.
@@ -246,20 +289,26 @@ final class ScrollableComposerTextView: NSView {
 
         guard let storage = composerTextView.textStorage else { return minHeight }
 
-        // Measured in a throwaway layout stack rather than the live one: the
-        // view's own container tracks its width, so resizing it here to ask a
-        // question would fight the layout it is being asked about.
-        let container = NSTextContainer(
-            size: NSSize(width: max(0, width - inset.width * 2), height: .greatestFiniteMagnitude)
-        )
-        container.lineFragmentPadding = composerTextView.textContainer?.lineFragmentPadding ?? 0
-        let layoutManager = NSLayoutManager()
-        layoutManager.addTextContainer(container)
-        let measured = NSTextStorage(attributedString: storage)
-        measured.addLayoutManager(layoutManager)
-        layoutManager.ensureLayout(for: container)
+        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize)
+        if key == cachedKey, let cachedHeight { return cachedHeight }
 
-        let used = layoutManager.usedRect(for: container).height + insets
-        return min(max(used, minHeight), maxHeight)
+        if measuringLayoutManager.textContainers.isEmpty {
+            measuringLayoutManager.addTextContainer(measuringContainer)
+            measuringStorage.addLayoutManager(measuringLayoutManager)
+            measuringContainer.lineFragmentPadding =
+                composerTextView.textContainer?.lineFragmentPadding ?? 0
+        }
+        measuringContainer.size = NSSize(
+            width: max(0, width - inset.width * 2),
+            height: .greatestFiniteMagnitude
+        )
+        measuringStorage.setAttributedString(storage)
+        measuringLayoutManager.ensureLayout(for: measuringContainer)
+
+        let used = measuringLayoutManager.usedRect(for: measuringContainer).height + insets
+        let height = min(max(used, minHeight), maxHeight)
+        cachedKey = key
+        cachedHeight = height
+        return height
     }
 }

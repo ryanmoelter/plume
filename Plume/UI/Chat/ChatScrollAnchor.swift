@@ -34,6 +34,19 @@ enum ChatScrollAnchor {
         return shouldAutoScroll(distanceFromBottom: previousDistanceFromBottom)
     }
 
+    /// Whether a geometry change reflects where the *user* put the view,
+    /// rather than content growing underneath it.
+    ///
+    /// Only the former may be recorded as the scroll position. Growth pushes
+    /// the bottom away from the viewport, so recording its distance reads as
+    /// "the user scrolled away" and stops the chat following new messages.
+    static func reflectsUserScroll(
+        previousContentHeight: CGFloat,
+        newContentHeight: CGFloat
+    ) -> Bool {
+        previousContentHeight == newContentHeight
+    }
+
     /// The last message is the only one eligible for the in-progress /
     /// needs-input treatment — an older message can't be "in progress".
     static func isEligibleForLiveStatus(messageID: String, lastMessageID: String?) -> Bool {
