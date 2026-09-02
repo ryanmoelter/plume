@@ -7,7 +7,7 @@ import Foundation
 /// filed under a sibling worktree rather than the one the tab is in.
 /// Resuming one of those runs it in *this* tab's directory, which is why the
 /// picker labels them.
-enum ResumableSessions {
+nonisolated enum ResumableSessions {
     /// The tab's own directory first, then its repository's other worktrees.
     static func searchDirectories(
         workingDirectory: String,
@@ -17,15 +17,23 @@ enum ResumableSessions {
         return ([workingDirectory] + worktreePaths).filter { seen.insert(standardized($0)).inserted }
     }
 
-    /// Runs a `git` subprocess and reads every transcript in range, so call
-    /// it once when a view appears rather than from `body`. Transcripts are
-    /// mapped and their prose scan is capped, which is what keeps a directory
-    /// of large sessions affordable to label.
-    static func load(workingDirectory: String, repoPath: String?) -> [StoredSession] {
-        let worktrees = repoPath.map { GitRunner.worktrees(in: $0).map(\.path) } ?? []
-        return searchDirectories(workingDirectory: workingDirectory, worktreePaths: worktrees)
-            .flatMap { SessionJSONLReader.storedSessions(inDirectory: $0) }
-            .sorted { $0.lastModified > $1.lastModified }
+    /// Reads every transcript in range, so it stays off the main actor: the
+    /// worktree list comes from `GitService` and the scan runs in a detached
+    /// task. Transcripts are mapped and both their scans are capped, which is
+    /// what keeps a directory of large sessions affordable to label.
+    static func load(workingDirectory: String, repoPath: String?) async -> [StoredSession] {
+        let worktrees = if let repoPath {
+            await GitService.shared.worktrees(in: repoPath).map(\.path)
+        } else {
+            [String]()
+        }
+        let directories = searchDirectories(workingDirectory: workingDirectory, worktreePaths: worktrees)
+
+        return await Task.detached {
+            directories
+                .flatMap { SessionJSONLReader.storedSessions(inDirectory: $0) }
+                .sorted { $0.lastModified > $1.lastModified }
+        }.value
     }
 
     private static func standardized(_ path: String) -> String {

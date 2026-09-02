@@ -11,6 +11,7 @@ struct ChatTabView: View, ThemedView {
     @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
     @State private var planPresentation = PlanPresentation.closed
+    @State private var resumeSheetShown = false
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
@@ -23,6 +24,14 @@ struct ChatTabView: View, ThemedView {
     private var planFilePath: String? {
         guard let path = transcript?.planFilePath else { return nil }
         return PlanFileExistence.exists(path) ? path : nil
+    }
+
+    /// Only reached from the empty state, which renders while the tab has no
+    /// transcript at all — so unlike the plan path, this is not on the
+    /// streaming render path and can check the filesystem directly.
+    private var canResume: Bool {
+        guard let directory = task.workingDirectoryPath else { return false }
+        return FileManager.default.fileExists(atPath: directory)
     }
 
     private var subagents: [SubagentTranscript] {
@@ -121,6 +130,15 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .animation(.snappy(duration: 0.22), value: planPresentation)
+        .sheet(isPresented: $resumeSheetShown) {
+            if let path = task.workingDirectoryPath {
+                ResumeSessionSheet(
+                    workingDirectory: path,
+                    repoPath: task.repoPath,
+                    onSelect: resume
+                )
+            }
+        }
     }
 
     private func planButton(path: String) -> some View {
@@ -229,6 +247,13 @@ struct ChatTabView: View, ThemedView {
             Text(showsComposer ? "Start a conversation" : "Waiting for the first message…")
                 .font(.headline)
                 .emphasis(.secondary)
+            // Only before the first message: once a session exists, the tab
+            // has the conversation it is going to have.
+            if showsComposer, canResume {
+                Button("Resume…") { resumeSheetShown = true }
+                    .buttonStyle(.link)
+                    .help("Continue a past Claude conversation in this folder")
+            }
             Spacer()
             if showsComposer {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
@@ -240,6 +265,13 @@ struct ChatTabView: View, ThemedView {
     private func registerWatchIfNeeded() {
         guard let path = tab.sessionJSONLPath, !path.isEmpty else { return }
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
+    }
+
+    /// Storing the ID is the whole resume: both transports watch
+    /// `tab.agentSessionID` and launch `claude --resume` from it.
+    private func resume(_ session: StoredSession) {
+        tab.agentSessionID = session.sessionID
+        tab.sessionJSONLPath = session.transcriptPath
     }
 
     /// The TUI path learns these from hook events; headless has no hooks, so

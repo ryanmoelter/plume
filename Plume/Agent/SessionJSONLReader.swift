@@ -4,7 +4,7 @@ import Foundation
 ///
 /// This only locates files and reports activity; `TranscriptParser` parses
 /// message content into render-ready chat messages.
-enum SessionJSONLReader {
+nonisolated enum SessionJSONLReader {
     static let projectsDirectory = URL.homeDirectory.appending(path: ".claude/projects")
 
     /// Claude Code encodes a project directory by replacing `/` and `.` with
@@ -45,7 +45,7 @@ enum SessionJSONLReader {
 
     /// Activity signal for when hooks misfire — a transcript being written
     /// means the agent is doing something.
-    nonisolated static func lastModified(atPath path: String) -> Date? {
+    static func lastModified(atPath path: String) -> Date? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
         return attributes[.modificationDate] as? Date
     }
@@ -86,13 +86,13 @@ enum SessionJSONLReader {
 
     /// Subagent transcripts live alongside the main one, in a directory
     /// named after it minus the `.jsonl` extension.
-    nonisolated static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {
+    static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {
         (transcriptPath as NSString).deletingPathExtension + "/subagents"
     }
 
     /// The `agent-*.jsonl` transcripts under a session's subagents
     /// directory, sorted, or empty if the directory does not exist.
-    nonisolated static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
+    static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
         let directory = subagentsDirectory(forTranscriptPath: transcriptPath)
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
         return entries

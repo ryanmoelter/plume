@@ -38,11 +38,11 @@ struct ResumeSessionSheet: View {
         }
         .padding(20)
         .frame(width: 520)
-        // Loaded once here rather than from `body`: the scan runs a `git`
-        // subprocess and reads every transcript in range, and writing
-        // observable state during a render invalidates it.
         .task {
-            sessions = ResumableSessions.load(workingDirectory: workingDirectory, repoPath: repoPath)
+            sessions = await ResumableSessions.load(
+                workingDirectory: workingDirectory,
+                repoPath: repoPath
+            )
         }
     }
 

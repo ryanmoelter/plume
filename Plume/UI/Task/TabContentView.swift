@@ -117,6 +117,12 @@ private struct HeadlessAgentTabContent: View {
             guard visible else { return }
             resumeIfNeeded()
         }
+        // Picking a conversation to resume sets the ID on a tab that is
+        // already visible, so visibility alone would never fire again.
+        .onChange(of: tab.agentSessionID) { _, _ in
+            guard isVisible else { return }
+            resumeIfNeeded()
+        }
     }
 
     private func resumeIfNeeded() {

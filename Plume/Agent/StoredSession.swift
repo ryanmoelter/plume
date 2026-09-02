@@ -1,7 +1,7 @@
 import Foundation
 
 /// A past `claude` conversation on disk, as the resume picker shows it.
-struct StoredSession: Identifiable, Hashable, Sendable {
+nonisolated struct StoredSession: Identifiable, Hashable, Sendable {
     var id: String { sessionID }
     let sessionID: String
     let transcriptPath: String
@@ -29,7 +29,7 @@ extension SessionJSONLReader {
     /// subdirectory beside each one holds sidechains, which cannot be
     /// resumed. Empty files are skipped — Claude Code leaves them behind for
     /// sessions that never produced a line.
-    static func storedSessions(inDirectory workingDirectory: String) -> [StoredSession] {
+    nonisolated static func storedSessions(inDirectory workingDirectory: String) -> [StoredSession] {
         let directory = projectsDirectory.appending(path: encodedProjectDirectory(for: workingDirectory))
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return [] }
 
@@ -44,7 +44,7 @@ extension SessionJSONLReader {
             .sorted { $0.lastModified > $1.lastModified }
     }
 
-    static func storedSession(atTranscriptPath path: String, workingDirectory: String) -> StoredSession? {
+    nonisolated static func storedSession(atTranscriptPath path: String, workingDirectory: String) -> StoredSession? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let size = attributes[.size] as? Int, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -73,7 +73,7 @@ extension SessionJSONLReader {
     ///
     /// Scans forward only as far as `firstMessageScanLimit`, since the picker
     /// reads every transcript in a directory and they run to megabytes.
-    static func firstUserMessage(in data: Data, limit: Int = firstMessageScanLimit) -> String? {
+    nonisolated static func firstUserMessage(in data: Data, limit: Int = firstMessageScanLimit) -> String? {
         let decoder = JSONDecoder()
         var slashCommand: String?
 
@@ -105,14 +105,14 @@ extension SessionJSONLReader {
 
     /// A prefix generous enough to hold the opening exchange of every
     /// transcript in the corpus, without reading a 4 MB file to label it.
-    static let firstMessageScanLimit = 256 * 1024
+    nonisolated static let firstMessageScanLimit = 256 * 1024
 
     /// Claude rewrites `ai-title` as the conversation develops, so the
     /// current one is always near the end — within 40 KB of it in every
     /// transcript on this machine, the largest of which is 28 MB.
-    static let titleScanLimit = 256 * 1024
+    nonisolated static let titleScanLimit = 256 * 1024
 
-    private static func condensed(_ text: String, maximum: Int = 120) -> String {
+    nonisolated private static func condensed(_ text: String, maximum: Int = 120) -> String {
         let oneLine = text.split(whereSeparator: \.isNewline).joined(separator: " ")
         guard oneLine.count > maximum else { return oneLine }
         return oneLine.prefix(maximum).trimmingCharacters(in: .whitespaces) + "…"
