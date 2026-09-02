@@ -68,6 +68,7 @@ struct ChatMessageRow: View {
             blocks
             if isWorking {
                 WorkingIndicator()
+                    .listItemPadding(vertical: false)
             }
         }
         .padding(.vertical, 4)

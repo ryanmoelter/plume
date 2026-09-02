@@ -39,6 +39,7 @@ struct ToolCallRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+        .listItemPadding(vertical: false)
     }
 
     @ViewBuilder
@@ -47,21 +48,24 @@ struct ToolCallRow: View {
             Text("Input")
                 .font(.system(size: chatFontSize * 0.75))
                 .foregroundStyle(.tertiary)
-            ScrollView {
-                switch call.input {
-                case .code(let language, let text):
+            switch call.input {
+            case .code(let language, let text):
+                ScrollView {
                     MarkdownView(blocks: [.codeBlock(language: language, code: text)])
                         .frame(maxWidth: .infinity, alignment: .leading)
-                case .json(let text):
+                }
+                .frame(maxHeight: 240)
+            case .json(let text):
+                ScrollView {
                     Text(text)
                         .font(.system(size: chatFontSize * 0.85, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxHeight: 240)
+                .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+                .padding(6)
             }
-            .frame(maxHeight: 240)
-            .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
-            .padding(6)
         }
     }
 

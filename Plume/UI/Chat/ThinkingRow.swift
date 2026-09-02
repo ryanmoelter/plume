@@ -26,6 +26,7 @@ struct ThinkingRow: View {
                     .foregroundStyle(.secondary)
             }
             .opacity(0.7)
+            .listItemPadding(vertical: false)
         }
     }
 }

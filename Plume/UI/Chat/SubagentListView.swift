@@ -24,6 +24,7 @@ struct SubagentListView: View {
                     .font(.system(size: chatFontSize * 0.9))
                     .foregroundStyle(.secondary)
             }
+            .listItemPadding(vertical: false)
         }
     }
 }

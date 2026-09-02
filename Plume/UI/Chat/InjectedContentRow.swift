@@ -44,6 +44,7 @@ struct InjectedContentRow: View {
                     .background(washColor, in: .rect(cornerRadius: 6))
             }
         }
+        .listItemPadding(vertical: false)
     }
 
     /// A shell command reads as code; the rest read as labels.
