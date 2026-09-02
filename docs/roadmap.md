@@ -27,10 +27,6 @@ State restoration came first, on the reasoning that a notification telling you t
 
 **Next up:**
 
-- **Resume an existing conversation from a new agent tab.** `--resume` works today only for a session Plume started and captured in `tab.agentSessionID`. The transcripts are all on disk under `~/.claude/projects/`, so the work is listing them for the tab's directory and letting the user pick one — a picker plus the session ID write, since `AutoResumingAgentTabView` already handles the launch once an ID exists.
-
-**After those:**
-
 - ~~**Queued messages.**~~ Done on the headless transport, which supplies the queue rather than needing one built — `HeadlessSession.queuedMessages` holds them and the composer shows them. The terminal transport still can't, for the reason this item described.
 - **Mermaid diagrams**, the last unstarted item in the chat section, and the one that most needs its approach settled first — WebKit or a native subset. See the section below.
 
@@ -54,7 +50,7 @@ State restoration came first, on the reasoning that a notification telling you t
 Terminals and conversations should survive everything short of being closed. Worth doing before the notification work — being told to look at a task matters less if looking at it disturbs what's there.
 
 - [x] Don't discard terminals when switching tasks. Don't discard one until it's actually closed, and never interrupt or clear its state.
-- [ ] Let an agent tab resume an existing conversation with `claude --resume`, including one Plume didn't start.
+- [x] Let an agent tab resume an existing conversation with `claude --resume`, including one Plume didn't start.
 - [x] Restore a conversation after `/clear` — the new conversation only, never the cleared one.
 
 What exists:
@@ -63,7 +59,10 @@ What exists:
 - The fix is `TerminalSession` holding the platform view strongly and handing it back through the wrapper's `makePlatformView` hook, so the same view — and the surface, scrollback and selection inside it — survives every remount. Verified by identical PID *sets* and ttys across repeated switches, with one "Created hosted view" per tab for a whole run.
 - `isSurfaceVisible` is now driven from tab selection (`TabVisibility`). Hidden tabs previously kept drawing frames nobody saw. It gates rendering only, never surface creation, so a tab that has never been selected still spawns its PTY.
 - **Done.** A `/clear` writes `SessionEnd` (`reason: "clear"`, carrying the *old* ID) immediately followed by `SessionStart` (`source: "clear"`, the new one). Both fields are now decoded. Because the `SessionEnd` carries the discarded ID, it is reported as a clear and its ID is dropped rather than written back; the `SessionStart` a moment later supplies the replacement. That closes the window where a crash between the two would have left the stale ID on disk to be resumed. The same event no longer reports the tab idle, which used to misreport a still-running agent.
-- Resume works *only* for a conversation Plume started itself. `AutoResumingAgentTabView` fires `claude --resume` when `tab.agentSessionID` is set, but that field is only ever written from a captured hook event (`MainWindow`). Nothing enumerates past sessions and there is no picker, so a conversation started outside Plume — or one whose ID was lost — can't be reattached. The transcripts needed to list them are already on disk under `~/.claude/projects/`, and `SessionJSONLReader` already resolves and reads that directory.
+- **Done.** A new agent tab offers "Resume…" beside its workspace chips, opening `ResumeSessionSheet` over the transcripts on disk. Picking one writes `tab.agentSessionID` and `tab.sessionJSONLPath` and nothing else — `TabContentView` then swaps in `AutoResumingAgentTabView`, which already knew how to launch `claude --resume`. So a conversation Plume never started reattaches through the same path as one it did.
+- The picker searches the tab's own directory **and its repository's sibling worktrees** (`ResumableSessions`), because each worktree is its own directory under `~/.claude/projects/` and the conversation you want is often filed under a different one. Resuming across worktrees runs the session in *this* tab's directory, not the one it was recorded in, so those rows are labelled with their source.
+- **Labels come from `ai-title`, not `summary`.** No transcript in the corpus on this machine has a `summary` line; 31 of 39 have an `ai-title`, which `SessionJSONLReader.latestAITitle` already read. The fallback is the opening user message, with injected lines skipped — and a session begun with a slash command is labelled with the command, since `/implement-ticket` *is* the request and there is no prose after it. Only one transcript in the whole corpus ends up unlabellable: its sole user line is a `/context` command's own output. `RealTranscriptCorpusTests.nearlyEverySessionWithContentHasALabel` guards the proportion.
+- The forward scan for that fallback is capped at 256 KB. The picker reads every transcript in range and the largest on this machine is 28 MB, so labelling a directory must not mean reading it all.
 
 ## Notifications
 

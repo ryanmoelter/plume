@@ -120,4 +120,33 @@ struct RealTranscriptCorpusTests {
             _ = TranscriptParser.parse(data)
         }
     }
+
+    /// The resume picker must not degrade into a list of bare UUIDs. A
+    /// session whose only user line is a command's own output genuinely has
+    /// nothing to be called, so the guard is a proportion rather than a
+    /// certainty — a format change shows up as the labelled share collapsing.
+    @Test func nearlyEverySessionWithContentHasALabel() throws {
+        let (main, _) = transcripts()
+        try #require(!main.isEmpty, "no transcripts on this machine")
+
+        let substantial = main.filter { url in
+            guard let data = try? Data(contentsOf: url) else { return false }
+            return !TranscriptParser.parse(data).messages.isEmpty
+        }
+        try #require(!substantial.isEmpty)
+
+        let unlabelled = substantial.filter { url in
+            let session = SessionJSONLReader.storedSession(
+                atTranscriptPath: url.path,
+                workingDirectory: url.deletingLastPathComponent().path
+            )
+            guard let session else { return true }
+            return session.title == nil && session.firstUserMessage == nil
+        }
+
+        #expect(
+            unlabelled.count < substantial.count / 20,
+            "\(unlabelled.count) of \(substantial.count) sessions would list as a bare UUID"
+        )
+    }
 }

@@ -9,6 +9,7 @@ struct AgentFirstMessageView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var message = ""
+    @State private var resumeSheetShown = false
     @FocusState private var inputFocused: Bool
 
     private var canSend: Bool {
@@ -32,8 +33,15 @@ struct AgentFirstMessageView: View {
                 .font(.headline)
 
             VStack(spacing: 6) {
-                WorkspacePickerView(task: task)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 14) {
+                    WorkspacePickerView(task: task)
+                    Spacer()
+                    Button("Resume…") { resumeSheetShown = true }
+                        .buttonStyle(.link)
+                        .disabled(!directoryExists)
+                        .help("Continue a past Claude conversation in this folder")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 8) {
                     TextField("Send a message to Claude…", text: $message, axis: .vertical)
@@ -59,11 +67,27 @@ struct AgentFirstMessageView: View {
         .onChange(of: isVisible, initial: true) { _, visible in
             if visible { inputFocused = true }
         }
+        .sheet(isPresented: $resumeSheetShown) {
+            if let path = task.workingDirectoryPath {
+                ResumeSessionSheet(
+                    workingDirectory: path,
+                    repoPath: task.repoPath,
+                    onSelect: resume
+                )
+            }
+        }
     }
 
     private func send() {
         guard canSend else { return }
         AgentLauncher.launch(message: message, task: task, tab: tab)
         message = ""
+    }
+
+    /// Storing the ID is the whole resume: `TabContentView` swaps this view
+    /// for `AutoResumingAgentTabView`, which launches `claude --resume`.
+    private func resume(_ session: StoredSession) {
+        tab.agentSessionID = session.sessionID
+        tab.sessionJSONLPath = session.transcriptPath
     }
 }
