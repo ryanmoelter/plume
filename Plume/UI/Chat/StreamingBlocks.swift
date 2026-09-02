@@ -6,8 +6,8 @@ import SwiftUI
 /// Thinking stays plain rather than reusing `ThinkingRow`: that row is a
 /// disclosure the reader opens, and a stream that is still arriving has
 /// nothing to disclose yet — it just wants to be legible and dim.
-struct StreamingBlocks: View {
-    @Environment(\.chatFontSize) private var chatFontSize
+struct StreamingBlocks: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let overlay: ChatStreamHandoff.Overlay
 
@@ -15,7 +15,7 @@ struct StreamingBlocks: View {
         VStack(alignment: .leading, spacing: 8) {
             if !overlay.thinking.isEmpty {
                 Text(overlay.thinking)
-                    .font(.system(size: chatFontSize * 0.9))
+                    .font(typography.body.font)
                     .emphasis(.subtle)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

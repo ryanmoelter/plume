@@ -2,9 +2,8 @@ import SwiftUI
 
 /// One message in the chat, with the roadmap's two treatments: a quiet,
 /// indented wash for the user, full-width prose for Claude.
-struct ChatMessageRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct ChatMessageRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let message: ChatMessage
     /// Whether this is the newest message, so it's eligible for the
@@ -70,13 +69,13 @@ struct ChatMessageRow: View {
                 .environment(\.chatHugsContent, true)
                 .padding(10)
                 .background(washColor, in: .rect(cornerRadius: 10))
-                .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: chatFontSize), alignment: .trailing)
+                .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         // What the user typed reads as input, not as published prose, so it
         // keeps the system face while the agent's replies take the serif.
-        .environment(\.chatProseFace, .system)
+        .plumeTheme(bodySize: typography.bodySize, proseFace: .system)
     }
 
     private var noticeBody: some View {
@@ -138,23 +137,22 @@ struct ChatMessageRow: View {
     }
 
     private var washColor: Color {
-        .chatSurface(.backgroundTint, colorScheme: colorScheme)
+        colors.surfaceTint
     }
 
     private var attentionWash: Color {
-        ChatRole.attention(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
+        colors.attention.emphasized(.backgroundTint, in: colors)
     }
 
     private var attentionBorder: Color {
-        ChatRole.attention(for: colorScheme).emphasized(.disabled, colorScheme: colorScheme)
+        colors.attention.emphasized(.disabled, in: colors)
     }
 }
 
 /// Local re-export of the sidebar's pulsing dot, sized for inline use next to
 /// prose rather than a status list.
-private struct WorkingIndicator: View {
-    @Environment(\.chatFontSize) private var chatFontSize
-    @Environment(\.colorScheme) private var colorScheme
+private struct WorkingIndicator: View, ThemedView {
+    @Environment(\.theme) var theme
 
     var body: some View {
         HStack(spacing: 6) {
@@ -166,12 +164,12 @@ private struct WorkingIndicator: View {
             // Deriving opacity from the clock keeps the redraw to this view.
             TimelineView(.periodic(from: .now, by: 1.0 / 20.0)) { context in
                 Circle()
-                    .fill(ChatRole.activity(for: colorScheme))
+                    .fill(colors.activity)
                     .opacity(Self.opacity(at: context.date))
             }
             .frame(width: 7, height: 7)
             Text("Working…")
-                .font(.system(size: chatFontSize * 0.8))
+                .font(typography.caption.font)
                 .emphasis(.secondary)
         }
     }

@@ -1,9 +1,8 @@
 import SwiftUI
 
 /// An `Edit` or `Write`'s change, as added and removed lines.
-struct FileDiffView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct FileDiffView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let diff: FileDiff
 
@@ -17,7 +16,7 @@ struct FileDiffView: View {
                     }
                     if diff.truncatedLineCount > 0 {
                         Text("… \(diff.truncatedLineCount) more lines")
-                            .font(.system(size: chatFontSize * 0.75))
+                            .font(typography.caption.font)
                             .emphasis(.subtle)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
@@ -26,23 +25,23 @@ struct FileDiffView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 320)
-            .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
+            .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
         }
     }
 
     private var counts: some View {
         HStack(spacing: 8) {
             Text("+\(diff.addedCount)")
-                .foregroundStyle(ChatRole.success(for: colorScheme))
+                .foregroundStyle(colors.success)
             Text("−\(diff.removedCount)")
-                .foregroundStyle(ChatRole.danger(for: colorScheme))
+                .foregroundStyle(colors.danger)
         }
-        .font(.system(size: chatFontSize * 0.75, design: .monospaced))
+        .font(typography.caption.mono)
     }
 
     private func line(_ line: FileDiff.Line) -> some View {
         Text("\(marker(line.kind))\(line.text)")
-            .font(.system(size: chatFontSize * 0.8, design: .monospaced))
+            .font(typography.caption.mono)
             .foregroundStyle(foreground(line.kind))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -62,16 +61,16 @@ struct FileDiffView: View {
     private func foreground(_ kind: FileDiff.LineKind) -> AnyShapeStyle {
         switch kind {
         case .context: AnyShapeStyle(Emphasis.secondary.textHierarchy)
-        case .removed: AnyShapeStyle(ChatRole.danger(for: colorScheme))
-        case .added: AnyShapeStyle(ChatRole.success(for: colorScheme))
+        case .removed: AnyShapeStyle(colors.danger)
+        case .added: AnyShapeStyle(colors.success)
         }
     }
 
     private func background(_ kind: FileDiff.LineKind) -> Color {
         switch kind {
         case .context: .clear
-        case .removed: ChatRole.danger(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
-        case .added: ChatRole.success(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme)
+        case .removed: colors.danger.emphasized(.backgroundTint, in: colors)
+        case .added: colors.success.emphasized(.backgroundTint, in: colors)
         }
     }
 }

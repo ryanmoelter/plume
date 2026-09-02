@@ -12,8 +12,8 @@ import Foundation
 ///
 /// The model and effort segments become pickers when `onSelectModel`/
 /// `onSelectEffort` are supplied; otherwise they render read-only.
-struct StatuslineStripView: View {
-    @Environment(\.colorScheme) private var colorScheme
+struct StatuslineStripView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
@@ -64,10 +64,6 @@ struct StatuslineStripView: View {
         self.onSelectModel = onSelectModel
         self.onSelectEffort = onSelectEffort
         self.onCyclePermissionMode = onCyclePermissionMode
-    }
-
-    private var themeForeground: Color? {
-        ThemeChrome.foreground(for: colorScheme)
     }
 
     var body: some View {
@@ -150,7 +146,7 @@ struct StatuslineStripView: View {
                 // "level with upstream".
                 if !gitState.hasUpstream {
                     Text("no upstream")
-                        .foregroundStyle(foreground(for: .neutral).opacity(Emphasis.subtle.fillOpacity(for: colorScheme)))
+                        .foregroundStyle(foreground(for: .neutral).opacity(colors.emphasis[.subtle]))
                 }
                 if gitState.isDirty {
                     Text("•")
@@ -303,32 +299,32 @@ struct StatuslineStripView: View {
     /// hierarchy, which a `Capsule` fill cannot use.
     private func color(for attention: StatuslineAttention) -> Color {
         switch attention {
-        case .neutral: return (themeForeground ?? .primary)
-            .opacity(Emphasis.secondary.fillOpacity(for: colorScheme))
-        case .yellow: return ChatRole.warning(for: colorScheme)
-        case .red: return ChatRole.danger(for: colorScheme)
+        case .neutral: return colors.foreground
+            .opacity(colors.emphasis[.secondary])
+        case .yellow: return colors.warning
+        case .red: return colors.danger
         }
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         switch attention {
-        case .neutral: return themeForeground ?? .primary
-        case .yellow: return ChatRole.warning(for: colorScheme)
-        case .red: return ChatRole.danger(for: colorScheme)
+        case .neutral: return colors.foreground
+        case .yellow: return colors.warning
+        case .red: return colors.danger
         }
     }
 }
 
 /// A small capsule meter — the native stand-in for the shell script's braille
 /// bars, not a reproduction of them.
-private struct MeterView: View {
-    @Environment(\.colorScheme) private var colorScheme
+private struct MeterView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let fraction: Double
     let color: Color
 
     private var trackOpacity: Double {
-        Emphasis.divider.fillOpacity(for: colorScheme)
+        colors.emphasis[.divider]
     }
 
     var body: some View {

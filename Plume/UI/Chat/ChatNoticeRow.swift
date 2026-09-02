@@ -3,9 +3,8 @@ import SwiftUI
 /// A transcript aside: an API error, a harness warning, a compaction
 /// boundary. Compact and full-width — a thing that happened to the session
 /// rather than a thing anyone said.
-struct ChatNoticeRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct ChatNoticeRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let notice: ChatNotice
 
@@ -16,7 +15,7 @@ struct ChatNoticeRow: View {
             header
             if isExpanded, let detail = notice.detail {
                 Text(detail)
-                    .font(.system(size: chatFontSize * 0.8, design: .monospaced))
+                    .font(typography.caption.mono)
                     .emphasis(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -41,7 +40,7 @@ struct ChatNoticeRow: View {
             Text(notice.title)
                 .foregroundStyle(
                     AnyShapeStyle.role(
-                        ChatRole.danger(for: colorScheme),
+                        colors.danger,
                         when: notice.kind == .error,
                         otherwise: .secondary
                     )
@@ -53,7 +52,7 @@ struct ChatNoticeRow: View {
                     .emphasis(.secondary)
             }
         }
-        .font(.system(size: chatFontSize * 0.82))
+        .font(typography.caption.font)
         .multilineTextAlignment(.leading)
 
         if notice.detail == nil {
@@ -69,8 +68,8 @@ struct ChatNoticeRow: View {
     /// instead of a color no one needs to decode.
     private var roleTint: Color? {
         switch notice.kind {
-        case .error: ChatRole.danger(for: colorScheme)
-        case .warning: ChatRole.warning(for: colorScheme)
+        case .error: colors.danger
+        case .warning: colors.warning
         case .info, .compaction: nil
         }
     }
@@ -80,13 +79,13 @@ struct ChatNoticeRow: View {
     }
 
     private var tintFill: Color {
-        roleTint?.emphasized(.backgroundTint, colorScheme: colorScheme)
-            ?? .chatSurface(.backgroundTint, colorScheme: colorScheme)
+        roleTint?.emphasized(.backgroundTint, in: colors)
+            ?? colors.surfaceTint
     }
 
     private var tintBorder: Color {
-        roleTint?.emphasized(.disabled, colorScheme: colorScheme)
-            ?? .chatSurface(.divider, colorScheme: colorScheme)
+        roleTint?.emphasized(.disabled, in: colors)
+            ?? colors.divider
     }
 
     private var symbol: String {

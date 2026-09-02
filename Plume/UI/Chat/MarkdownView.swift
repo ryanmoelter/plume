@@ -4,10 +4,8 @@ import SwiftUI
 /// monospace is reserved for code blocks and inline code, per the roadmap's
 /// "don't use a monospace font" item. No WebKit; block layout is plain
 /// SwiftUI stacks over `MarkdownBlock.parse`.
-struct MarkdownView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var bodyFontSize
-    @Environment(\.chatProseFace) private var proseFace
+struct MarkdownView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let blocks: [MarkdownBlock]
 
@@ -18,6 +16,8 @@ struct MarkdownView: View {
     init(blocks: [MarkdownBlock]) {
         self.blocks = blocks
     }
+
+    private var bodyFontSize: CGFloat { typography.bodySize }
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChatMetrics.blockSpacing(forFontSize: bodyFontSize)) {
@@ -51,7 +51,7 @@ struct MarkdownView: View {
 
         case let .paragraph(text):
             Text(inline(text))
-                .font(bodyFont)
+                .font(typography.body.font)
                 .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
@@ -63,7 +63,7 @@ struct MarkdownView: View {
                         Text("\u{2022}")
                         Text(inline(items[index]))
                     }
-                    .font(bodyFont)
+                    .font(typography.body.font)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -77,7 +77,7 @@ struct MarkdownView: View {
                         Text("\(index + 1).")
                         Text(inline(items[index]))
                     }
-                    .font(bodyFont)
+                    .font(typography.body.font)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -87,7 +87,7 @@ struct MarkdownView: View {
         case let .codeBlock(_, code):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: bodyFontSize, design: .monospaced))
+                    .font(typography.body.mono)
                     .foregroundStyle(codeForeground)
                     .padding(8)
             }
@@ -100,7 +100,7 @@ struct MarkdownView: View {
                     .fill(quoteBarColor)
                     .frame(width: 3)
                 Text(inline(text))
-                    .font(bodyFont)
+                    .font(typography.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
@@ -109,7 +109,7 @@ struct MarkdownView: View {
 
         case .rule:
             Rectangle()
-                .fill(Color.chatSurface(.divider, colorScheme: colorScheme))
+                .fill(colors.divider)
                 .frame(height: 1)
         }
     }
@@ -118,41 +118,28 @@ struct MarkdownView: View {
         MarkdownCache.styledInline(text, fontSize: bodyFontSize, tint: codeBackground)
     }
 
-    private var bodyFont: Font {
-        prose(size: bodyFontSize)
-    }
-
-    /// Prose in whichever face the environment asks for.
-    private func prose(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        switch proseFace {
-        case .serif: return .chatProse(size: size, weight: weight)
-        case .system: return .system(size: size, weight: weight)
-        }
-    }
-
-    /// Heading sizes as multiples of the body size, preserving the original
-    /// ladder's proportions (title/title2/title3/headline/subheadline/callout
-    /// against the system 13pt body) and weight distinctions.
+    /// Heading levels map to the type scale's own roles, preserving the
+    /// original ladder's weight distinctions.
     private func headingFont(level: Int) -> Font {
         switch level {
-        case 1: return prose(size: bodyFontSize * 2.15, weight: .bold)
-        case 2: return prose(size: bodyFontSize * 1.7, weight: .bold)
-        case 3: return prose(size: bodyFontSize * 1.35, weight: .bold)
-        case 4: return prose(size: bodyFontSize * 1.15, weight: .semibold)
-        case 5: return prose(size: bodyFontSize * 1.0, weight: .semibold)
-        default: return prose(size: bodyFontSize * 0.85, weight: .semibold)
+        case 1: return typography.display.font
+        case 2: return typography.headline.font
+        case 3: return typography.title.font
+        case 4: return typography.bodyLarge.font
+        case 5: return typography.body.semibold
+        default: return typography.caption.semibold
         }
     }
 
     private var codeBackground: Color {
-        .chatSurface(.backgroundTint, colorScheme: colorScheme)
+        colors.surfaceTint
     }
 
     private var codeForeground: Color {
-        ThemeChrome.foreground(for: colorScheme) ?? .primary
+        colors.foreground
     }
 
     private var quoteBarColor: Color {
-        .chatSurface(.disabled, colorScheme: colorScheme)
+        colors.surface(.disabled)
     }
 }

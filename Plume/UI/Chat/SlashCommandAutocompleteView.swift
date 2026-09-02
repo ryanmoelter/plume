@@ -4,9 +4,8 @@ import SwiftUI
 /// sits in a leading `/token`. Purely a rendering of already-matched
 /// commands and a selected index — all matching and key handling live
 /// elsewhere.
-struct SlashCommandAutocompleteView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct SlashCommandAutocompleteView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let commands: [SlashCommand]
     let selectedIndex: Int
@@ -32,10 +31,10 @@ struct SlashCommandAutocompleteView: View {
     private func row(_ command: SlashCommand, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             Text("/\(command.name)")
-                .font(.system(size: chatFontSize * 0.85, weight: .medium, design: .monospaced))
+                .font(typography.caption.monoMedium)
             if !command.description.isEmpty {
                 Text(command.description)
-                    .font(.system(size: chatFontSize * 0.78))
+                    .font(typography.caption.font)
                     .emphasis(.secondary)
                     .lineLimit(1)
             }
@@ -44,13 +43,13 @@ struct SlashCommandAutocompleteView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(
-            isSelected ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear,
+            isSelected ? colors.selection.emphasized(.divider, in: colors) : .clear,
             in: .rect(cornerRadius: 5)
         )
         .contentShape(.rect)
     }
 
     private var washColor: AnyShapeStyle {
-        ThemeChrome.background(for: colorScheme).map(AnyShapeStyle.init) ?? AnyShapeStyle(.regularMaterial)
+        colors.background.map(AnyShapeStyle.init) ?? AnyShapeStyle(.regularMaterial)
     }
 }

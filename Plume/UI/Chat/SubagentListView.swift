@@ -3,8 +3,8 @@ import SwiftUI
 /// Subagent transcripts spawned from the main conversation, collapsed behind
 /// one section so they don't compete with it for attention. Absent entirely
 /// when there are none.
-struct SubagentListView: View {
-    @Environment(\.chatFontSize) private var chatFontSize
+struct SubagentListView: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let subagents: [SubagentTranscript]
 
@@ -21,7 +21,7 @@ struct SubagentListView: View {
                 .padding(.top, 6)
             } label: {
                 Text("\(subagents.count) subagent\(subagents.count == 1 ? "" : "s")")
-                    .font(.system(size: chatFontSize * 0.9))
+                    .font(typography.body.font)
                     .emphasis(.secondary)
             }
             .listItemPadding(vertical: false)
@@ -29,8 +29,8 @@ struct SubagentListView: View {
     }
 }
 
-private struct SubagentRow: View {
-    @Environment(\.chatFontSize) private var chatFontSize
+private struct SubagentRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let subagent: SubagentTranscript
 
@@ -57,10 +57,10 @@ private struct SubagentRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(subagent.id)
-                    .font(.system(size: chatFontSize * 0.75, design: .monospaced))
+                    .font(typography.caption.mono)
                     .emphasis(.secondary)
                 Text(lastMessageSummary)
-                    .font(.system(size: chatFontSize * 0.9))
+                    .font(typography.body.font)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

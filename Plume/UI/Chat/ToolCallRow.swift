@@ -3,9 +3,8 @@ import SwiftUI
 /// One tool call, collapsed to a glyph plus `ToolCall.summary` by default.
 /// Expanding shows the raw input and result, bounded so a huge result scrolls
 /// in place instead of growing the page.
-struct ToolCallRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct ToolCallRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let call: ToolCall
     /// Whether the agent is still waiting on this call, passed down so a
@@ -38,7 +37,7 @@ struct ToolCallRow: View {
             .padding(.top, 4)
         } label: {
             Label(call.summary, systemImage: glyph)
-                .font(.system(size: chatFontSize * 0.85))
+                .font(typography.caption.font)
                 .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -50,7 +49,7 @@ struct ToolCallRow: View {
     private var inputBody: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(isDiff ? "Change" : "Input")
-                .font(.system(size: chatFontSize * 0.75))
+                .font(typography.caption.font)
                 .emphasis(.subtle)
             switch call.input {
             case .diff(let diff):
@@ -64,12 +63,12 @@ struct ToolCallRow: View {
             case .json(let text):
                 ScrollView {
                     Text(text)
-                        .font(.system(size: chatFontSize * 0.85, design: .monospaced))
+                        .font(typography.caption.mono)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 240)
-                .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
+                .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
                 .padding(6)
             }
         }
@@ -83,16 +82,16 @@ struct ToolCallRow: View {
     private func body(title: String, text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: chatFontSize * 0.75))
+                .font(typography.caption.font)
                 .emphasis(.subtle)
             ScrollView {
                 Text(text)
-                    .font(.system(size: chatFontSize * 0.85, design: .monospaced))
+                    .font(typography.caption.mono)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 240)
-            .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
+            .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
             .padding(6)
         }
     }

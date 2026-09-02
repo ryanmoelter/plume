@@ -95,12 +95,12 @@ struct ProseFontCostTests {
     @Test func resolvingProseRepeatedlyStaysCheap() {
         BundledFonts.registerIfNeeded()
         // Warm the cache and the font cache so this times steady state.
-        _ = Font.chatProse(size: 15)
+        _ = Font.chatProse(size: 15, relativeTo: .body)
 
         let iterations = 2000
         let start = Date()
         for _ in 0..<iterations {
-            _ = Font.chatProse(size: 15)
+            _ = Font.chatProse(size: 15, relativeTo: .body)
         }
         let msEach = Date().timeIntervalSince(start) * 1000 / Double(iterations)
 

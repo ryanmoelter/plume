@@ -58,11 +58,19 @@ extension Font {
     ///
     /// Libre Baskerville carries only a `wght` axis (400–700), so there is no
     /// optical size to track — the face is the same shape at every size.
-    static func chatProse(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    ///
+    /// `relativeTo` anchors the size to a text style so Dynamic Type still
+    /// scales it. A bare `Font.custom(_:size:)` is fixed at its point size and
+    /// ignores the accessibility setting outright.
+    static func chatProse(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        relativeTo textStyle: Font.TextStyle
+    ) -> Font {
         guard BundledFonts.isProseAvailable else {
             return .system(size: size, weight: weight)
         }
-        return .custom(BundledFonts.prose, size: size).weight(weight)
+        return .custom(BundledFonts.prose, size: size, relativeTo: textStyle).weight(weight)
     }
 }
 

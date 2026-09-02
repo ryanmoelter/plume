@@ -41,8 +41,8 @@ enum ChatColumn {
 /// visible one. A code block adds nothing and simply fills the bleed row it
 /// already sits in. Only the innermost visible item pays a gutter, so nested
 /// items never stack one inset on another.
-private struct ListItemPadding: ViewModifier {
-    @Environment(\.chatFontSize) private var fontSize
+private struct ListItemPadding: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
     @Environment(\.chatHugsContent) private var hugsContent
 
     let bleed: Bool
@@ -61,7 +61,7 @@ private struct ListItemPadding: ViewModifier {
             // itself, so a padded item occupies `maxWidth + gutter * 2` and
             // the text inside it still measures a full `maxWidth`.
             .padding(.horizontal, gutter)
-            .padding(.vertical, vertical ? ChatMetrics.verticalPadding : 0)
+            .padding(.vertical, vertical ? dimensions.verticalPadding : 0)
             .frame(maxWidth: clampedWidth)
             // The column itself centers in whatever contains it.
             .frame(maxWidth: fillsContainer ? .infinity : nil, alignment: .center)
@@ -84,9 +84,7 @@ private struct ListItemPadding: ViewModifier {
     }
 
     private var maxWidth: CGFloat {
-        bleed
-            ? ChatMetrics.maxBleedWidth(forFontSize: fontSize)
-            : ChatMetrics.maxContentWidth(forFontSize: fontSize)
+        bleed ? dimensions.bleedWidth : dimensions.contentWidth
     }
 
     /// Content steps in by less than bleed, so that in a window too narrow for
@@ -94,7 +92,7 @@ private struct ListItemPadding: ViewModifier {
     /// the bleed around it rather than collapsing flush against it.
     private var gutter: CGFloat {
         guard column == .padded else { return 0 }
-        return bleed ? ChatMetrics.horizontalPadding : ChatMetrics.contentInset
+        return bleed ? dimensions.horizontalGutter : dimensions.contentInset
     }
 }
 
@@ -116,15 +114,12 @@ extension View {
     }
 }
 
-private struct ChatTextColumn: ViewModifier {
-    @Environment(\.chatFontSize) private var fontSize
+private struct ChatTextColumn: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
 
     func body(content: Content) -> some View {
         content
-            .frame(
-                maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize),
-                alignment: .leading
-            )
+            .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
             // The clamped column then centers in the wider one holding it, so
             // a card's prose sits under the same axis as prose outside it.
             .frame(maxWidth: .infinity, alignment: .center)

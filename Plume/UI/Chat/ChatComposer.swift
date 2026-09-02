@@ -7,14 +7,14 @@ import SwiftUI
 /// would have just kept editing. ⌘↩ to send, ↩ to insert a newline, matches
 /// the terminal's own forgiveness — the default in `AppSettings.composerSendKey`.
 /// Whichever key sends, the other (with Shift) inserts a newline instead.
-struct ChatComposer: View {
+struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) var theme
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
     @State private var caretLocation = 0
@@ -37,7 +37,7 @@ struct ChatComposer: View {
     /// The terminal's own background, so the field matches the surface it
     /// sends to. Falls back to standard chrome when no theme is configured.
     private var fieldBackground: AnyShapeStyle {
-        ThemeChrome.background(for: colorScheme).map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
+        colors.background.map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
     }
 
     /// Tracked separately from the draft text so a keystroke does not

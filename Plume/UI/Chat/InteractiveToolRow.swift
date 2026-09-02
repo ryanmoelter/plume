@@ -5,7 +5,7 @@ import SwiftUI
 /// Read-only unless an `answer` is supplied. A historical transcript row has
 /// nothing to answer; a row backed by a live `PendingPermission` gets real
 /// controls, because the headless transport can send a structured response.
-struct InteractiveToolRow: View {
+struct InteractiveToolRow: View, ThemedView {
     /// What the user can send back, when the row is backed by a live request.
     enum Answer {
         case questions([String: String])
@@ -13,8 +13,7 @@ struct InteractiveToolRow: View {
         case rejectPlan(reason: String)
     }
 
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+    @Environment(\.theme) var theme
 
     let payload: InteractiveToolPayload
     /// Whether the agent is still waiting on this. Only the newest message
@@ -54,21 +53,21 @@ struct InteractiveToolRow: View {
         MarkdownView(markdown)
         if let filePath {
             Text((filePath as NSString).lastPathComponent)
-                .font(.system(size: chatFontSize * 0.75, design: .monospaced))
+                .font(typography.caption.mono)
                 .emphasis(.subtle)
                 .chatTextColumn()
         }
         if let answer {
             TextField("Reason (optional, sent on reject)", text: $rejectionReason)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: chatFontSize * 0.85))
+                .font(typography.caption.font)
             HStack(spacing: 8) {
                 Button("Approve") { answer(.approvePlan) }
                     .keyboardShortcut(.defaultAction)
                 Button("Reject") { answer(.rejectPlan(reason: rejectionReason)) }
                 Spacer()
             }
-            .font(.system(size: chatFontSize * 0.85))
+            .font(typography.caption.font)
         } else {
             answerHint("Approve or reject in the terminal.")
         }
@@ -83,17 +82,17 @@ struct InteractiveToolRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 if !question.header.isEmpty {
                     Text(question.header.uppercased())
-                        .font(.system(size: chatFontSize * 0.7, weight: .semibold))
+                        .font(typography.caption.semibold)
                         .emphasis(.subtle)
                         .chatTextColumn()
                 }
                 Text(question.question)
-                    .font(.system(size: chatFontSize))
+                    .font(typography.caption.font)
                     .textSelection(.enabled)
                     .chatTextColumn()
                 if question.multiSelect {
                     Text("Choose any number")
-                        .font(.system(size: chatFontSize * 0.72))
+                        .font(typography.caption.font)
                         .emphasis(.subtle)
                         .chatTextColumn()
                 }
@@ -109,7 +108,7 @@ struct InteractiveToolRow: View {
                     .disabled(!answerState.isComplete(for: questions))
                 Spacer()
             }
-            .font(.system(size: chatFontSize * 0.85))
+            .font(typography.caption.font)
         } else {
             answerHint("Answer in the terminal.")
         }
@@ -127,10 +126,10 @@ struct InteractiveToolRow: View {
                 .foregroundStyle(glyphStyle(isSelected: isSelected))
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
-                    .font(.system(size: chatFontSize * 0.9, weight: .medium))
+                    .font(typography.body.medium)
                 if !option.description.isEmpty {
                     Text(option.description)
-                        .font(.system(size: chatFontSize * 0.8))
+                        .font(typography.caption.font)
                         .emphasis(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -155,7 +154,7 @@ struct InteractiveToolRow: View {
     }
 
     private func glyphStyle(isSelected: Bool) -> AnyShapeStyle {
-        .role(ChatRole.selection, when: isSelected && isAnswerable, otherwise: .subtle)
+        .role(colors.selection, when: isSelected && isAnswerable, otherwise: .subtle)
     }
 
     private func glyph(forSelected isSelected: Bool, multiSelect: Bool) -> String {
@@ -168,15 +167,15 @@ struct InteractiveToolRow: View {
 
     private func optionWash(isSelected: Bool) -> Color {
         isSelected && isAnswerable
-            ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme)
-            : .chatSurface(.backgroundTint, colorScheme: colorScheme)
+            ? colors.selection.emphasized(.divider, in: colors)
+            : colors.surfaceTint
     }
 
     // MARK: - Chrome
 
     private func header(symbol: String, title: String) -> some View {
         Label(title, systemImage: symbol)
-            .font(.system(size: chatFontSize * 0.8, weight: .semibold))
+            .font(typography.caption.semibold)
             .foregroundStyle(AnyShapeStyle.role(pendingRole, when: isPending, otherwise: .secondary))
             .chatTextColumn()
     }
@@ -184,8 +183,8 @@ struct InteractiveToolRow: View {
     /// A question only waits on the user; approving a plan sets work going.
     private var pendingRole: Color {
         switch payload {
-        case .questions: ChatRole.attention(for: colorScheme)
-        case .plan: ChatRole.warning(for: colorScheme)
+        case .questions: colors.attention
+        case .plan: colors.warning
         }
     }
 
@@ -195,20 +194,20 @@ struct InteractiveToolRow: View {
     private func answerHint(_ text: String) -> some View {
         if isPending {
             Text(text)
-                .font(.system(size: chatFontSize * 0.72))
+                .font(typography.caption.font)
                 .emphasis(.subtle)
         }
     }
 
     private var washColor: Color {
-        .chatSurface(.backgroundTint, colorScheme: colorScheme)
+        colors.surfaceTint
     }
 
     /// A pending row carries its hue on the border only. Washing the card as
     /// well would double-signal one that already has a tinted header.
     private var borderColor: Color {
         isPending
-            ? pendingRole.emphasized(.disabled, colorScheme: colorScheme)
-            : .chatSurface(.divider, colorScheme: colorScheme)
+            ? pendingRole.emphasized(.disabled, in: colors)
+            : colors.divider
     }
 }

@@ -5,9 +5,8 @@ import SwiftUI
 /// A skill invocation and a slash command are both things that happened and
 /// are worth showing — just not as prose in the user's voice. The label says
 /// what happened; the text stays behind a disclosure for when it matters.
-struct InjectedContentRow: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.chatFontSize) private var chatFontSize
+struct InjectedContentRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let kind: InjectedContent
     let text: String
@@ -29,14 +28,14 @@ struct InjectedContentRow: View {
                         .imageScale(.small)
                         .emphasis(.subtle)
                 }
-                .font(.system(size: chatFontSize * 0.82, design: monospacedLabel ? .monospaced : .default))
+                .font(typography.caption.mono(when: monospacedLabel))
                 .emphasis(.secondary)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 Text(text)
-                    .font(.system(size: chatFontSize * 0.82, design: .monospaced))
+                    .font(typography.caption.mono)
                     .emphasis(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,6 +55,6 @@ struct InjectedContentRow: View {
     }
 
     private var washColor: Color {
-        .chatSurface(.backgroundTint, colorScheme: colorScheme)
+        colors.surfaceTint
     }
 }

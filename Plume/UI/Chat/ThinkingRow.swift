@@ -5,8 +5,8 @@ import SwiftUI
 /// Real transcripts sometimes carry a thinking block with no text (verified
 /// against captured sessions) — render nothing for that case rather than an
 /// empty expander with nothing to disclose.
-struct ThinkingRow: View {
-    @Environment(\.chatFontSize) private var chatFontSize
+struct ThinkingRow: View, ThemedView {
+    @Environment(\.theme) var theme
 
     let text: String
 
@@ -16,13 +16,13 @@ struct ThinkingRow: View {
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DisclosureGroup(isExpanded: $expanded) {
                 Text(text)
-                    .font(.system(size: chatFontSize * 0.9))
+                    .font(typography.body.font)
                     .emphasis(.subtle)
                     .textSelection(.enabled)
                     .padding(.top, 4)
             } label: {
                 Text("Thinking")
-                    .font(.system(size: chatFontSize * 0.9))
+                    .font(typography.body.font)
                     .emphasis(.subtle)
             }
             .listItemPadding(vertical: false)
