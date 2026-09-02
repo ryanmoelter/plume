@@ -62,11 +62,15 @@ struct ChatMessageList: View {
         let attachesToLastMessage = messages.last?.role == .assistant
         ScrollViewReader { proxy in
             ScrollView {
-                // Lazy so a long transcript only builds the rows on screen.
-                // A plain VStack lays out every message on every pass, which
-                // is thousands of markdown parses per frame on a real
-                // conversation.
-                LazyVStack(alignment: .leading, spacing: 0) {
+                // Not lazy: a `LazyVStack` chooses which rows to realize
+                // from the content height, and chat rows vary enough in
+                // height that the choice changes the total, which changes the
+                // choice. The two settle into an oscillation the layout can
+                // never resolve, pinning a core with the window frozen.
+                // Laziness is still worth having on a long transcript — it
+                // needs row heights that don't depend on how many rows are
+                // realized.
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         // Only the newest row reflects live status, so only
                         // it reads `status`. Passing it to every row made a
