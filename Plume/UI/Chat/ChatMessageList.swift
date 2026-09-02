@@ -123,10 +123,16 @@ struct ChatMessageList: View {
                 // Off the recorded position, never off `new`: growth pushes
                 // the bottom away from the viewport, so reading the live
                 // distance would flash the button on every streamed chunk.
+                // Off the update pass: this action can run several times in a
+                // single frame, and writing view state from inside one is what
+                // SwiftUI reports as modifying state during a view update.
                 let detached = ChatScrollAnchor.isDetached(
                     distanceFromBottom: scrollPosition.distanceFromBottom
                 )
-                if detached != isDetached { isDetached = detached }
+                guard detached != isDetached else { return }
+                Task { @MainActor in
+                    if detached != isDetached { isDetached = detached }
+                }
             }
             // Following is driven by what arrives, never by geometry: a scroll
             // reports geometry of its own, and deciding to scroll from that
