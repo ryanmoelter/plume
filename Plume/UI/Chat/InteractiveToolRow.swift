@@ -56,6 +56,7 @@ struct InteractiveToolRow: View {
             Text((filePath as NSString).lastPathComponent)
                 .font(.system(size: chatFontSize * 0.75, design: .monospaced))
                 .emphasis(.subtle)
+                .chatTextColumn()
         }
         if let answer {
             TextField("Reason (optional, sent on reject)", text: $rejectionReason)
@@ -84,14 +85,17 @@ struct InteractiveToolRow: View {
                     Text(question.header.uppercased())
                         .font(.system(size: chatFontSize * 0.7, weight: .semibold))
                         .emphasis(.subtle)
+                        .chatTextColumn()
                 }
                 Text(question.question)
                     .font(.system(size: chatFontSize))
                     .textSelection(.enabled)
+                    .chatTextColumn()
                 if question.multiSelect {
                     Text("Choose any number")
                         .font(.system(size: chatFontSize * 0.72))
                         .emphasis(.subtle)
+                        .chatTextColumn()
                 }
                 ForEach(question.options) { option in
                     optionRow(option, in: question)
@@ -136,6 +140,7 @@ struct InteractiveToolRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(optionWash(isSelected: isSelected), in: .rect(cornerRadius: 6))
         .contentShape(.rect)
+        .chatTextColumn()
 
         if isAnswerable {
             Button {
@@ -173,6 +178,7 @@ struct InteractiveToolRow: View {
         Label(title, systemImage: symbol)
             .font(.system(size: chatFontSize * 0.8, weight: .semibold))
             .foregroundStyle(AnyShapeStyle.role(pendingRole, when: isPending, otherwise: .secondary))
+            .chatTextColumn()
     }
 
     /// A question only waits on the user; approving a plan sets work going.

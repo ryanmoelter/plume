@@ -23,12 +23,14 @@ struct PermissionRequestRow: View {
                 Text(description)
                     .font(.system(size: chatFontSize * 0.85))
                     .textSelection(.enabled)
+                    .chatTextColumn()
             }
             if let reason = permission.decisionReason, !reason.isEmpty {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(.system(size: chatFontSize * 0.78))
                     .foregroundStyle(ChatRole.warning(for: colorScheme))
                     .fixedSize(horizontal: false, vertical: true)
+                    .chatTextColumn()
             }
             inputFields
             TextField("Reason (optional, sent on deny)", text: $denialReason)
@@ -73,18 +75,7 @@ struct PermissionRequestRow: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(fields) { field in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(field.key)
-                                .font(.system(size: chatFontSize * 0.7))
-                                .emphasis(.subtle)
-                            Text(field.value)
-                                .font(.system(
-                                    size: chatFontSize * 0.85,
-                                    design: field.isCode ? .monospaced : .default
-                                ))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        fieldRow(field)
                     }
                 }
                 .padding(8)
@@ -92,6 +83,28 @@ struct PermissionRequestRow: View {
             }
             .frame(maxHeight: 220)
             .background(.chatSurface(.backgroundTint, colorScheme: colorScheme), in: .rect(cornerRadius: 6))
+        }
+    }
+
+    @ViewBuilder
+    private func fieldRow(_ field: PermissionInputDetails.Field) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(field.key)
+                .font(.system(size: chatFontSize * 0.7))
+                .emphasis(.subtle)
+                .chatTextColumn()
+            if field.isCode {
+                Text(field.value)
+                    .font(.system(size: chatFontSize * 0.85, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(field.value)
+                    .font(.system(size: chatFontSize * 0.85))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .chatTextColumn()
+            }
         }
     }
 

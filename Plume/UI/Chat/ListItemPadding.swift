@@ -107,4 +107,26 @@ extension View {
     ) -> some View {
         modifier(ListItemPadding(bleed: bleed, column: column, vertical: vertical))
     }
+
+    /// Clamps text to reading measure inside a container that is itself
+    /// wider. A card may take the bleed column, but the prose in it still
+    /// wraps at the same measure as prose anywhere else.
+    func chatTextColumn() -> some View {
+        modifier(ChatTextColumn())
+    }
+}
+
+private struct ChatTextColumn: ViewModifier {
+    @Environment(\.chatFontSize) private var fontSize
+
+    func body(content: Content) -> some View {
+        content
+            .frame(
+                maxWidth: ChatMetrics.maxContentWidth(forFontSize: fontSize),
+                alignment: .leading
+            )
+            // The clamped column then centers in the wider one holding it, so
+            // a card's prose sits under the same axis as prose outside it.
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
 }
