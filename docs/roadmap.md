@@ -14,7 +14,7 @@ State restoration came first, on the reasoning that a notification telling you t
 2. **Terminal bell + a dot on tabs that rang one.** The wrapper already publishes `bellCount` / `lastBellAt`, and `TerminalSession` already mirrors published fields. Little more than wiring.
 3. **System notification on bell.** Once the bell signal exists, this is one `UNUserNotificationCenter` call and a permission prompt. Together with the two above it delivers most of "tell me when to look" for a fraction of the whole notifications section.
 4. ~~**Terminal focus when a tab is shown.**~~ Done alongside the terminal work above, as it predicted: `requestFocus()` on becoming visible.
-5. **⌘N defaults to the current directory.** Turns the common case into zero decisions, and doesn't depend on the larger directory rework below.
+5. ~~**⌘N defaults to a directory.**~~ Done, as the most recently used folder rather than the current one — `TaskStore.createTask(defaultsToRecentFolder:)` seeds the workspace from `RecentFolders.mostRecent`.
 
 **Then the highest-value item on the list:**
 
@@ -27,15 +27,14 @@ State restoration came first, on the reasoning that a notification telling you t
 
 **Next up:**
 
-- **Render plans and questions properly.** `ExitPlanMode` hands over finished markdown and `MarkdownView` can already draw it, so a plan is nearly free. A question is more work but reads worst as JSON. Keep both read-only at first — answering in place needs a send path the composer doesn't have.
-- **Dim the sidebar's selected task.** Small and self-contained, and `TabStripView` already has the pattern to copy — a wash of the theme's own foreground instead of the system accent. The one thing to watch is that hand-drawing the row background gives up `List`'s automatic label inversion.
-- **Git state in the statusline.** `git status --porcelain=v2 --branch` answers ahead/behind and dirty in one ~30ms call, and `GitRunner` already runs git. The work isn't the command, it's deciding how often to run it — the answer changes from outside Plume, so expect a watcher on `.git` plus a slow poll rather than one or the other.
+- **Fix the statusline capture before anyone installs it.** The smallest item here and the only one that's actively harmful: `settings.json` is global, but the generated script runs `set -u` against the three `PLUME_*` variables, so in any terminal Plume didn't launch it aborts before chaining and the user's own statusline disappears. Guarding those variables is a few lines. The Debug/Release path split and the toggle that reads nowhere can follow.
+- **Polish the plan view.** Fixed 420pt on `.regularMaterial`, beside a chat column that derives its width from the font (`ChatMetrics.maxContentWidth`, 640pt at the default size). Reuse that call rather than a second constant. Worth deciding whether it stays a trailing overlay at the wider size or becomes a split, since at 640pt an overlay covers most of what it's pinned over.
+- **Resume an existing conversation from a new agent tab.** `--resume` works today only for a session Plume started and captured in `tab.agentSessionID`. The transcripts are all on disk under `~/.claude/projects/`, so the work is listing them for the tab's directory and letting the user pick one — a picker plus the session ID write, since `AutoResumingAgentTabView` already handles the launch once an ID exists.
 
 **After those:**
 
-- **Resume an existing conversation from a new agent tab.** `--resume` works today only for a session Plume started and captured in `tab.agentSessionID`. The transcripts are all on disk under `~/.claude/projects/`, so the work is listing them for the tab's directory and letting the user pick one — a picker plus the session ID write, since `AutoResumingAgentTabView` already handles the launch once an ID exists.
-- **Polish the plan view.** It should be as wide as the chat and share its background; today it's a fixed 420pt panel on `.regularMaterial`. Small, and it makes the plan actually readable.
-- **Queued messages.** Bigger than it sounds, because there is no queue today — the composer pastes straight into the PTY, so a message typed while the agent is working vanishes into Claude Code's edit line where Plume can't see it. Worth doing after the chat rendering items, since it needs somewhere trustworthy to *show* a pending message, and it pairs naturally with notifications: knowing a message is queued and knowing an agent went idle are the same question asked from two ends.
+- **Queued messages.** Bigger than it sounds, because there is no queue today — the composer pastes straight into the PTY, so a message typed while the agent is working vanishes into Claude Code's edit line where Plume can't see it. It needs somewhere trustworthy to *show* a pending message, and it pairs naturally with notifications: knowing a message is queued and knowing an agent went idle are the same question asked from two ends.
+- **Mermaid diagrams**, the last unstarted item in the chat section, and the one that most needs its approach settled first — WebKit or a native subset. See the section below.
 
 **Also cheap, once you want them:**
 
