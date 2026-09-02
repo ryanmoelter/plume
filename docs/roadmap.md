@@ -31,7 +31,7 @@ State restoration came first, on the reasoning that a notification telling you t
 
 **After those:**
 
-- **Queued messages.** Bigger than it sounds, because there is no queue today — the composer pastes straight into the PTY, so a message typed while the agent is working vanishes into Claude Code's edit line where Plume can't see it. It needs somewhere trustworthy to *show* a pending message, and it pairs naturally with notifications: knowing a message is queued and knowing an agent went idle are the same question asked from two ends.
+- ~~**Queued messages.**~~ Done on the headless transport, which supplies the queue rather than needing one built — `HeadlessSession.queuedMessages` holds them and the composer shows them. The terminal transport still can't, for the reason this item described.
 - **Mermaid diagrams**, the last unstarted item in the chat section, and the one that most needs its approach settled first — WebKit or a native subset. See the section below.
 
 **Also cheap, once you want them:**
@@ -42,7 +42,7 @@ State restoration came first, on the reasoning that a notification telling you t
 
 **Bigger, and best taken deliberately:**
 
-- ~~**Native chat UI**~~ Done, shipped in slices as predicted. See the section below for what landed and what it left.
+- ~~**Native chat UI**~~ Done, shipped in slices as predicted, and the headless transport since closed the gap it left: a plan or question is now answered in the chat rather than the terminal. See the section below for what landed and what it left.
 - **Assignable hotkeys** is the sleeper. Adding a next/previous *task* command is easy; making bindings user-settable means a binding store, a settings UI, and applying stored bindings to menu commands. Consider shipping fixed alt+J/K first and configurability later.
 - **Directories on tabs instead of tasks** is the widest change here — ten-odd call sites, mostly mechanical, but it forces a real question about what a task *is* once it doesn't own a directory. Worth deciding alongside the naming question, since they're the same question wearing different hats. Tracking the agent's live directory is the easy half and could land first: the terminal already reports it per tab, and `EnterWorktree` needs no special case.
 - **Palettes** and **PR/MR state** are both moderate. Palettes extend a theming layer that already exists; PR/MR state is new surface but a well-understood shape.
@@ -94,7 +94,7 @@ Make the chat experience nicer than the terminal.
 - [ ] Render mermaid diagrams in chat messages and in viewed files.
 - [x] Slash commands in the composer — completion for what's available, and a sensible rendering of the ones that answer in the chat.
 - [x] Render the tools that talk to me — a proposed plan and a question with its options — as their own thing, not as raw tool JSON.
-- [ ] Answering those tools, once the transport allows it — one question at a time, free-form answers, and the option previews the TUI draws. Tracked in `docs/agent-transport.md`, since answering needs the `claude -p` cutover.
+- [x] Answering those tools, on the headless transport — a question's options and a plan's Approve/Reject, answered in the chat rather than the terminal.
 - [x] Stop showing injected content as if I wrote it. A skill's body, a slash command's expansion and its output all arrive as user lines and read as messages from me.
 - [x] Queued messages — show what's waiting to go, and show it leaving when it does.
 - [x] Git state in the statusline: commits ahead of and behind the tracked remote branch, and whether the tree is dirty.
@@ -229,6 +229,28 @@ What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCo
 - [ ] Consider renaming "task" to something that better fits a long-lived thing — "workspace" was the suggestion.
 
 The observation is right: these outlive a single unit of work, and "task" undersells that. But "workspace" is already taken. `WorkspaceKind` (unset / directory / worktree) is a *property of* a `WorkTask` meaning where it runs, and `WorkspaceProvisioner` creates those directories and worktrees. Renaming the model to `Workspace` would give us `workspace.workspaceKind` and two unrelated `Workspace*` concepts. So this needs a third word, or a rename of the existing workspace concept too — worth settling before anyone starts, since it touches the model, the store, the UI, and every test.
+
+## Verify what shipped unexercised
+
+The headless cutover and the main-thread fixes landed with a passing test
+suite, a clean build and a manual check of the chat — but several features
+were only read, never run. Each item is "drive it and see", not new work.
+
+- [ ] Answer a plan and a question from the chat, and confirm the agent receives the decision.
+- [ ] Send messages while the agent is working: they should list in the composer, be removable, and leave when it goes idle.
+- [ ] Create and delete a worktree, now that both run on `GitService` rather than the main thread.
+- [ ] Make `git worktree remove` fail, and confirm the task survives with the error shown.
+- [ ] Scroll away and back: the jump-to-bottom button, and following the bottom as new messages arrive.
+- [ ] Trigger slash command autocomplete in the composer.
+- [ ] Watch the statusline on a headless tab — quota, cost and context now come from stream events.
+- [ ] Run a subagent and see what the list shows.
+
+What exists:
+
+- The riskiest are the git conversions, because they changed *when* a value appears rather than what it is. `task.repoPath` is now written after `GitService` answers instead of during the call that sets the folder, so anything reading it in the same turn sees nil where it used to see a path. Nothing does today; that is the assumption to check.
+- `SidebarView.deleteTask` was restructured around the same change: the git call moved into a `Task`, so the early `return` that aborted a delete on failure became a `finishDeleting` continuation. The success path is ordinary use, but the failure path — git refuses, the task stays, the error shows — has never run.
+- Auto-follow and scroll-detach have been rewritten twice without being driven: once when scrolling moved off geometry and onto content, and again when the list stopped being lazy. `ChatScrollAnchorTests` covers the thresholds, not the behavior.
+- `SubagentListView` always passes `status: .unset`, so a running subagent shows no indicator. That is a known gap rather than a regression, and it is what the last item is checking against.
 
 ## Concurrency correctness
 
