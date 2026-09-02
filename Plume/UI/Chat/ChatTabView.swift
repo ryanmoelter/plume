@@ -39,6 +39,11 @@ struct ChatTabView: View {
         StatusEngine.shared.status(forTab: tab.id)
     }
 
+    private var headlessSession: HeadlessSession? {
+        guard tab.transport == .headless else { return nil }
+        return HeadlessSessionManager.shared.existingSession(for: tab.id)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let transcript, !transcript.messages.isEmpty {
@@ -46,7 +51,8 @@ struct ChatTabView: View {
                     messages: transcript.messages,
                     subagents: subagents,
                     status: status,
-                    bottomPadding: ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize))
+                    bottomPadding: ChatMetrics.bottomPadding(forFontSize: CGFloat(settings.chatFontSize)),
+                    tabID: tab.id
                 )
                 Divider()
                 HStack(spacing: 0) {
@@ -59,16 +65,13 @@ struct ChatTabView: View {
                         gitState: GitStateStore.shared.state(for: gitDirectory),
                         permissionMode: transcript.permissionMode,
                         payload: StatuslineStore.shared.payload(forTab: tab.id),
-                        onSelectModel: SurfaceManager.shared.existingSession(for: tab.id).map { session in
-                            { session.submit(text: ModelEffortCommand.setModel($0)) }
-                        },
-                        onSelectEffort: SurfaceManager.shared.existingSession(for: tab.id).map { session in
-                            { session.submit(text: ModelEffortCommand.setEffort($0)) }
-                        },
-                        onCyclePermissionMode: SurfaceManager.shared.existingSession(for: tab.id).map { session in
-                            { session.cyclePermissionMode() }
-                        }
+                        onSelectModel: modelSelectionHandler,
+                        onSelectEffort: effortSelectionHandler,
+                        onCyclePermissionMode: cyclePermissionModeHandler
                     )
+                    if headlessSession?.isWorking == true {
+                        stopButton
+                    }
                     if let planFilePath, planPresentation != .minimized {
                         planButton(path: planFilePath)
                     }
@@ -80,7 +83,9 @@ struct ChatTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
-            } else if SurfaceManager.shared.existingSession(for: tab.id) != nil || (tab.agentSessionID?.isEmpty == false) {
+            } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
+                || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+                || (tab.agentSessionID?.isEmpty == false) {
                 // A process (or a resumable session) exists but has written no
                 // transcript content yet — nothing to show but a quiet wait.
                 emptyState(showsComposer: false)
@@ -101,6 +106,9 @@ struct ChatTabView: View {
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .closed }
+        }
+        .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
+            persistHeadlessSessionID(sessionID)
         }
         .overlay {
             if planPresentation == .expanded, let planFilePath {
@@ -229,4 +237,65 @@ struct ChatTabView: View {
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
     }
 
+    /// The TUI path learns these from hook events; headless has no hooks, so
+    /// the stream's own `session_id` is the only source. Persisted so resume
+    /// survives an app restart and so the chat has a transcript to read.
+    private func persistHeadlessSessionID(_ sessionID: String?) {
+        guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
+        tab.agentSessionID = sessionID
+        guard let workingDirectory = task.workingDirectoryPath else { return }
+        tab.sessionJSONLPath = SessionJSONLReader.transcriptPath(
+            workingDirectory: workingDirectory,
+            sessionID: sessionID
+        )
+    }
+
+    private var modelSelectionHandler: ((AgentModel) -> Void)? {
+        if let headlessSession {
+            return { headlessSession.setModel($0) }
+        }
+        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
+            { session.submit(text: ModelEffortCommand.setModel($0)) }
+        }
+    }
+
+    private var effortSelectionHandler: ((AgentEffort) -> Void)? {
+        if let headlessSession {
+            return { headlessSession.submit(text: ModelEffortCommand.setEffort($0)) }
+        }
+        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
+            { session.submit(text: ModelEffortCommand.setEffort($0)) }
+        }
+    }
+
+    /// Headless has no Shift+Tab to cycle; `set_permission_mode` sets a mode
+    /// outright, so this just steps to the next one in declaration order.
+    private var cyclePermissionModeHandler: (() -> Void)? {
+        if let headlessSession {
+            return {
+                let modes = PermissionMode.allCases
+                let current = transcript?.permissionMode.flatMap(PermissionMode.recognizing)
+                let currentIndex = current.flatMap { modes.firstIndex(of: $0) } ?? -1
+                let next = modes[(currentIndex + 1) % modes.count]
+                headlessSession.setPermissionMode(next)
+            }
+        }
+        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
+            { session.cyclePermissionMode() }
+        }
+    }
+
+    private var stopButton: some View {
+        Button {
+            headlessSession?.interrupt()
+        } label: {
+            Label("Stop", systemImage: "stop.fill")
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .help("Stop the current turn")
+    }
 }

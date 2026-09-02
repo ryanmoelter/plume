@@ -60,6 +60,19 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("New agent tabs use", selection: $settings.defaultAgentTransport) {
+                    Text("Headless").tag(AgentTransport.headless)
+                    Text("Terminal (TUI)").tag(AgentTransport.terminal)
+                }
+                .pickerStyle(.radioGroup)
+            } header: {
+                Text("Agent Transport")
+            } footer: {
+                Text("Headless drives claude directly and can answer permission prompts and questions from the chat. Terminal keeps the classic PTY-backed session as a fallback.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack {
                     Slider(
                         value: $settings.chatFontSize,

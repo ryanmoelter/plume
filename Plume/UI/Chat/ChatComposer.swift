@@ -18,6 +18,11 @@ struct ChatComposer: View {
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
 
+    private var headlessSession: HeadlessSession? {
+        guard tab.transport == .headless else { return nil }
+        return HeadlessSessionManager.shared.existingSession(for: tab.id)
+    }
+
     private var message: Binding<String> {
         let drafts = drafts
         let tabID = tab.id
@@ -47,8 +52,13 @@ struct ChatComposer: View {
             WorkspacePickerView(
                 task: task,
                 isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
+                    && headlessSession == nil
             )
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
+                queuedMessagesView(headlessSession)
+            }
 
             MarkdownComposerTextView(
                 text: message,
@@ -99,11 +109,39 @@ struct ChatComposer: View {
         guard hasSendableText else { return }
         let text = drafts.draft(forTab: tab.id)
         drafts.setDraft("", forTab: tab.id)
-        if let session = SurfaceManager.shared.existingSession(for: tab.id) {
+        if let headlessSession {
+            headlessSession.submit(text: text)
+        } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {
             AgentLauncher.launch(message: text, task: task, tab: tab)
         }
+    }
+
+    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .foregroundStyle(.secondary)
+                    Text(message)
+                        .lineLimit(1)
+                        .font(.callout)
+                    Spacer(minLength: 0)
+                    Button {
+                        session.removeQueuedMessage(at: index)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove from queue")
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.quaternary, in: .rect(cornerRadius: 6))
     }
 }
 

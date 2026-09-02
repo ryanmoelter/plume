@@ -48,7 +48,9 @@ struct TabContentView: View {
 /// render mode selects.
 ///
 /// Both stay mounted for the same reason every tab does: the terminal owns the
-/// PTY, so unmounting it to show the chat would kill the agent.
+/// PTY, so unmounting it to show the chat would kill the agent. A headless
+/// tab has no PTY at all, so it renders chat only and never touches
+/// `SurfaceManager`.
 private struct AgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -59,13 +61,18 @@ private struct AgentTabContent: View {
     }
 
     var body: some View {
-        ZStack {
-            terminal
-                .opacity(showsChat ? 0 : 1)
-                .allowsHitTesting(isVisible && !showsChat)
+        switch tab.transport {
+        case .headless:
+            HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible)
+        case .terminal:
+            ZStack {
+                terminal
+                    .opacity(showsChat ? 0 : 1)
+                    .allowsHitTesting(isVisible && !showsChat)
 
-            if isVisible && showsChat {
-                ChatTabView(task: task, tab: tab, isVisible: isVisible)
+                if isVisible && showsChat {
+                    ChatTabView(task: task, tab: tab, isVisible: isVisible)
+                }
             }
         }
     }
@@ -81,6 +88,38 @@ private struct AgentTabContent: View {
         } else {
             AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible && !showsChat)
         }
+    }
+}
+
+/// A headless agent tab: always chat, auto-resuming its session the first
+/// time it becomes visible — mirrors `AutoResumingAgentTabView`'s timing, but
+/// against `HeadlessSessionManager` instead of `SurfaceManager`.
+private struct HeadlessAgentTabContent: View {
+    @Bindable var task: WorkTask
+    let tab: TaskTab
+    let isVisible: Bool
+
+    @State private var hasResumed = false
+
+    var body: some View {
+        ChatTabView(task: task, tab: tab, isVisible: isVisible)
+            .onChange(of: isVisible, initial: true) { _, visible in
+                guard visible else { return }
+                resumeIfNeeded()
+            }
+    }
+
+    private func resumeIfNeeded() {
+        guard !hasResumed else { return }
+        guard AgentAutoResume.shouldResume(
+            agentSessionID: tab.agentSessionID,
+            workingDirectoryPath: task.workingDirectoryPath,
+            hasExistingSurfaceSession: HeadlessSessionManager.shared.existingSession(for: tab.id) != nil,
+            directoryExists: { FileManager.default.fileExists(atPath: $0) }
+        ) else { return }
+
+        hasResumed = true
+        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 }
 

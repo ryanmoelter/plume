@@ -158,8 +158,15 @@ struct MainWindow: View {
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
-                AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
-                StatuslineStore.shared.watch(tabID: tab.id, taskID: task.id)
+                switch tab.transport {
+                case .terminal:
+                    AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
+                    StatuslineStore.shared.watch(tabID: tab.id, taskID: task.id)
+                case .headless:
+                    // The stream carries status directly once resumed; hook
+                    // events and statusline capture are TUI-only concerns.
+                    break
+                }
                 StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)
                 if let path = tab.sessionJSONLPath, !path.isEmpty {
                     AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)

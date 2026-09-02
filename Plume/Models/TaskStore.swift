@@ -28,6 +28,7 @@ enum TaskStore {
             task.workspaceKind = .directory
         }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
+        tab.transport = AppSettings.shared.defaultAgentTransport
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -49,6 +50,9 @@ enum TaskStore {
     @discardableResult
     static func addTab(to task: WorkTask, kind: TabKind, in context: ModelContext) -> TaskTab {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs), task: task)
+        if kind == .agent {
+            tab.transport = AppSettings.shared.defaultAgentTransport
+        }
         context.insert(tab)
         task.tabs.append(tab)
         selectTab(tab, in: task)
@@ -73,6 +77,7 @@ enum TaskStore {
     static func delete(_ task: WorkTask, in context: ModelContext) {
         for tab in task.tabs {
             SurfaceManager.shared.closeSession(for: tab.id)
+            HeadlessSessionManager.shared.closeSession(for: tab.id)
             DraftStore.shared.forget(tabID: tab.id)
             TranscriptStore.shared.stopWatching(tabID: tab.id)
             StatuslineStore.shared.stopWatching(tabID: tab.id)
@@ -93,6 +98,7 @@ enum TaskStore {
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
         SurfaceManager.shared.closeSession(for: tab.id)
+        HeadlessSessionManager.shared.closeSession(for: tab.id)
         guard let task = tab.task else {
             context.delete(tab)
             return

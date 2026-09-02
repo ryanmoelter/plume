@@ -38,6 +38,14 @@ enum TabRenderMode: String, CaseIterable, Sendable {
     case terminal
 }
 
+/// How an agent tab talks to `claude` — separate from `TabRenderMode`, which
+/// only picks how the tab is displayed. `headless` drives `claude -p` over
+/// stream-json; `terminal` keeps the PTY/TUI as the escape hatch.
+enum AgentTransport: String, CaseIterable, Sendable {
+    case headless
+    case terminal
+}
+
 enum WorkspaceKind: String, CaseIterable, Sendable {
     case unset
     case directory

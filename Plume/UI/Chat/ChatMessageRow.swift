@@ -11,6 +11,10 @@ struct ChatMessageRow: View {
     /// in-progress / needs-input treatment.
     let isLast: Bool
     let status: TaskStatus
+    /// Tool-use ids the headless session is stalled on, which the pending
+    /// dock draws with live controls. Empty on the TUI transport, which has
+    /// no such signal.
+    var pendingToolUseIDs: Set<String> = []
 
     private var isWorking: Bool {
         isLast && status == .working
@@ -98,15 +102,18 @@ struct ChatMessageRow: View {
             case .thinking(let text):
                 ThinkingRow(text: text)
             case .toolCall(let call):
-                ToolCallRow(call: call, isPending: isPendingBlock(at: index))
+                // The dock already draws this one, answerable.
+                if !pendingToolUseIDs.contains(call.id) {
+                    ToolCallRow(call: call, isPending: isPendingBlock(at: index))
+                }
             case .injected(let kind, let text):
                 InjectedContentRow(kind: kind, text: text)
             }
         }
     }
 
-    /// A plan or question is still live only as the final block of the newest
-    /// message, while the agent is waiting.
+    /// The positional guess, for the TUI transport. Headless, a stalled call
+    /// is named exactly and the dock draws it instead.
     private func isPendingBlock(at index: Int) -> Bool {
         needsInput && index == message.blocks.count - 1
     }

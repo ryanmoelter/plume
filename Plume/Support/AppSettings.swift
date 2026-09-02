@@ -19,6 +19,7 @@ final class AppSettings {
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
+        static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
     }
 
     /// 125% of the system `.body` size (13pt on macOS).
@@ -52,6 +53,9 @@ final class AppSettings {
 
         self.composerSendKey = defaults.string(forKey: Key.composerSendKeyRaw)
             .flatMap(ComposerSendKey.init(rawValue:)) ?? .commandReturn
+
+        self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
+            .flatMap(AgentTransport.init(rawValue:)) ?? .headless
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -118,6 +122,14 @@ final class AppSettings {
     var composerSendKey: ComposerSendKey {
         didSet {
             defaults.set(composerSendKey.rawValue, forKey: Key.composerSendKeyRaw)
+        }
+    }
+
+    /// Transport a new agent tab starts with. The TUI stays reachable as an
+    /// escape hatch by flipping this, or per-tab via the tab menu.
+    var defaultAgentTransport: AgentTransport {
+        didSet {
+            defaults.set(defaultAgentTransport.rawValue, forKey: Key.defaultAgentTransportRaw)
         }
     }
 }

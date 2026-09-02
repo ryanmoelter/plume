@@ -13,6 +13,10 @@ final class TaskTab {
     /// rather than failing to materialize; `renderMode` supplies the default.
     var renderModeRaw: String?
 
+    /// Optional for the same migration reason; `transport` defaults new and
+    /// existing tabs alike to headless, per `AppSettings.defaultAgentTransport`.
+    var transportRaw: String?
+
     var providerID: String?
     /// Passed to `claude --resume` when the user resumes this tab.
     var agentSessionID: String?
@@ -39,6 +43,15 @@ final class TaskTab {
     var renderMode: TabRenderMode {
         get { renderModeRaw.flatMap(TabRenderMode.init(rawValue:)) ?? .chat }
         set { renderModeRaw = newValue.rawValue }
+    }
+
+    /// Only meaningful for an agent tab. Nil means the tab predates this
+    /// field, or is new but hasn't been stamped yet — `TaskStore` stamps
+    /// `AppSettings.defaultAgentTransport` onto every agent tab it creates,
+    /// right after this initializer runs.
+    var transport: AgentTransport {
+        get { transportRaw.flatMap(AgentTransport.init(rawValue:)) ?? .headless }
+        set { transportRaw = newValue.rawValue }
     }
 
     var displayTitle: String {

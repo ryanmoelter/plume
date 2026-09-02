@@ -2,10 +2,17 @@ import SwiftUI
 
 /// A proposed plan or a question, drawn as itself rather than as tool JSON.
 ///
-/// Read-only: this shows what Claude asked, it does not answer it. Answering
-/// needs a structured send path the composer does not have — see
-/// `docs/agent-transport.md`.
+/// Read-only unless an `answer` is supplied. A historical transcript row has
+/// nothing to answer; a row backed by a live `PendingPermission` gets real
+/// controls, because the headless transport can send a structured response.
 struct InteractiveToolRow: View {
+    /// What the user can send back, when the row is backed by a live request.
+    enum Answer {
+        case questions([String: String])
+        case approvePlan
+        case rejectPlan(reason: String)
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.chatFontSize) private var chatFontSize
 
@@ -13,6 +20,13 @@ struct InteractiveToolRow: View {
     /// Whether the agent is still waiting on this. Only the newest message
     /// can be, so the caller decides.
     let isPending: Bool
+    /// Non-nil only while a live request backs this row.
+    var answer: ((Answer) -> Void)?
+
+    @State private var answerState = PermissionAnswerState()
+    @State private var rejectionReason = ""
+
+    private var isAnswerable: Bool { answer != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -43,7 +57,20 @@ struct InteractiveToolRow: View {
                 .font(.system(size: chatFontSize * 0.75, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
-        answerHint("Approve or reject in the terminal.")
+        if let answer {
+            TextField("Reason (optional, sent on reject)", text: $rejectionReason)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: chatFontSize * 0.85))
+            HStack(spacing: 8) {
+                Button("Approve") { answer(.approvePlan) }
+                    .keyboardShortcut(.defaultAction)
+                Button("Reject") { answer(.rejectPlan(reason: rejectionReason)) }
+                Spacer()
+            }
+            .font(.system(size: chatFontSize * 0.85))
+        } else {
+            answerHint("Approve or reject in the terminal.")
+        }
     }
 
     // MARK: - Questions
@@ -67,18 +94,33 @@ struct InteractiveToolRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 ForEach(question.options) { option in
-                    optionRow(option)
+                    optionRow(option, in: question)
                 }
             }
         }
-        answerHint("Answer in the terminal.")
+        if let answer {
+            HStack {
+                Button("Send answer") { answer(.questions(answerState.answers(for: questions))) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!answerState.isComplete(for: questions))
+                Spacer()
+            }
+            .font(.system(size: chatFontSize * 0.85))
+        } else {
+            answerHint("Answer in the terminal.")
+        }
     }
 
-    private func optionRow(_ option: InteractiveToolPayload.AskedQuestion.Option) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "circle")
+    @ViewBuilder
+    private func optionRow(
+        _ option: InteractiveToolPayload.AskedQuestion.Option,
+        in question: InteractiveToolPayload.AskedQuestion
+    ) -> some View {
+        let isSelected = answerState.isSelected(option.label, for: question)
+        let content = HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: glyph(forSelected: isSelected, multiSelect: question.multiSelect))
                 .imageScale(.small)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(glyphStyle(isSelected: isSelected))
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
                     .font(.system(size: chatFontSize * 0.9, weight: .medium))
@@ -92,7 +134,37 @@ struct InteractiveToolRow: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 6))
+        .background(optionWash(isSelected: isSelected), in: .rect(cornerRadius: 6))
+        .contentShape(.rect)
+
+        if isAnswerable {
+            Button {
+                answerState.toggle(option.label, for: question)
+            } label: {
+                content
+            }
+            .buttonStyle(.plain)
+        } else {
+            content
+        }
+    }
+
+    private func glyphStyle(isSelected: Bool) -> AnyShapeStyle {
+        isSelected && isAnswerable ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary)
+    }
+
+    private func glyph(forSelected isSelected: Bool, multiSelect: Bool) -> String {
+        guard isAnswerable else { return "circle" }
+        if multiSelect {
+            return isSelected ? "checkmark.square.fill" : "square"
+        }
+        return isSelected ? "largecircle.fill.circle" : "circle"
+    }
+
+    private func optionWash(isSelected: Bool) -> Color {
+        isSelected && isAnswerable
+            ? Color.accentColor.opacity(0.15)
+            : Color.secondary.opacity(0.08)
     }
 
     // MARK: - Chrome

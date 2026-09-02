@@ -13,6 +13,9 @@ struct ChatMessageList: View {
     let subagents: [SubagentTranscript]
     let status: TaskStatus
     let bottomPadding: CGFloat
+    /// Set on the headless transport, so pending permissions can be docked
+    /// after the last message. Nil leaves the list read-only.
+    var tabID: UUID?
 
     /// Scroll position, held in a reference box rather than `@State`.
     ///
@@ -23,6 +26,15 @@ struct ChatMessageList: View {
     @State private var scrollPosition = ScrollPosition()
 
     private let bottomAnchorID = "chat-bottom-anchor"
+
+    /// Exact, when the headless session knows which calls are stalled.
+    /// Empty on the TUI transport, where rows fall back to position.
+    private var pendingToolUseIDs: Set<String> {
+        guard let tabID,
+              let session = HeadlessSessionManager.shared.existingSession(for: tabID)
+        else { return [] }
+        return Set(session.pendingPermissions.compactMap(\.toolUseID))
+    }
 
     var body: some View {
         let lastMessageID = messages.last?.id
@@ -45,13 +57,18 @@ struct ChatMessageList: View {
                         ChatMessageRow(
                             message: message,
                             isLast: isLast,
-                            status: isLast ? status : .unset
+                            status: isLast ? status : .unset,
+                            pendingToolUseIDs: isLast ? pendingToolUseIDs : []
                         )
                         .listItemPadding(bleed: true, column: .unpadded)
                         .id(message.id)
                     }
                     SubagentListView(subagents: subagents)
                         .listItemPadding(bleed: true, column: .unpadded)
+                    if let tabID {
+                        PendingPermissionDock(tabID: tabID)
+                            .listItemPadding(bleed: true, column: .unpadded)
+                    }
                     Color.clear
                         .frame(height: 1)
                         .id(bottomAnchorID)
