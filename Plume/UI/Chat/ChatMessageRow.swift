@@ -4,6 +4,7 @@ import SwiftUI
 /// indented wash for the user, full-width prose for Claude.
 struct ChatMessageRow: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.chatFontSize) private var chatFontSize
 
     let message: ChatMessage
     /// Whether this is the newest message, so it's eligible for the
@@ -48,13 +49,17 @@ struct ChatMessageRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                HStack {
+                HStack(spacing: 0) {
                     Spacer(minLength: 48)
                     VStack(alignment: .leading, spacing: 8) {
                         blocks
                     }
                     .padding(10)
                     .background(washColor, in: .rect(cornerRadius: 10))
+                    // The bubble tracks the message width rather than a fixed
+                    // column, up to reading measure, and hangs off the bleed
+                    // edge the code blocks use.
+                    .frame(maxWidth: ChatMetrics.maxContentWidth(forFontSize: chatFontSize), alignment: .trailing)
                 }
             }
         }
