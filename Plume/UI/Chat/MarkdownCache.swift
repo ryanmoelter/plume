@@ -21,6 +21,16 @@ enum MarkdownCache {
 
     private static var blockCache: [String: [MarkdownBlock]] = [:]
     private static var inlineCache: [String: AttributedString] = [:]
+    private static var styledInlineCache: [StyledInlineKey: AttributedString] = [:]
+
+    /// Styling depends on the body size and the resolved tint as well as the
+    /// text, so all three key the cache — a font-size change or a light/dark
+    /// switch has to miss rather than return the previous appearance's chips.
+    private struct StyledInlineKey: Hashable {
+        let text: String
+        let fontSize: CGFloat
+        let tint: Color
+    }
 
     static func blocks(for markdown: String) -> [MarkdownBlock] {
         if let cached = blockCache[markdown] { return cached }
@@ -42,9 +52,44 @@ enum MarkdownCache {
         return parsed
     }
 
+    /// `inline(_:)` plus the inline-code treatment: the monospace face and a
+    /// tint, padded with thin spaces so the background extends past the
+    /// glyphs. Cached like the parse itself — the styling walks every run and
+    /// rewrites ranges, which is far too costly to redo on each render.
+    static func styledInline(
+        _ text: String,
+        fontSize: CGFloat,
+        tint: Color
+    ) -> AttributedString {
+        let key = StyledInlineKey(text: text, fontSize: fontSize, tint: tint)
+        if let cached = styledInlineCache[key] { return cached }
+
+        var attributed = inline(text)
+        let codeFont = Font.system(size: fontSize * 0.92, design: .monospaced)
+        // Reversed: inserting the padding shifts every later range.
+        for run in attributed.runs.reversed() where run.inlinePresentationIntent == .code {
+            attributed[run.range].font = codeFont
+            attributed[run.range].backgroundColor = tint
+
+            // Same font and intent as the span, so the three fragments merge
+            // into one run and the tint paints as a single unbroken chip.
+            var padding = AttributedString("\u{2009}")
+            padding.font = codeFont
+            padding.backgroundColor = tint
+            padding.inlinePresentationIntent = .code
+            attributed.insert(padding, at: run.range.upperBound)
+            attributed.insert(padding, at: run.range.lowerBound)
+        }
+
+        if styledInlineCache.count >= limit { styledInlineCache.removeAll(keepingCapacity: true) }
+        styledInlineCache[key] = attributed
+        return attributed
+    }
+
     /// Drops everything. For tests.
     static func reset() {
         blockCache.removeAll()
         inlineCache.removeAll()
+        styledInlineCache.removeAll()
     }
 }

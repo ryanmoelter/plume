@@ -20,7 +20,7 @@ struct MarkdownView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ChatMetrics.blockSpacing(forFontSize: bodyFontSize)) {
             // Indexed rather than `Array(blocks.enumerated())`: the
             // enumerated array is a fresh value every pass, which SwiftUI
             // cannot match against the previous children, so it evicts and
@@ -28,9 +28,16 @@ struct MarkdownView: View {
             // markdown blocks ~31,000 times over 15 seconds of scrolling.
             ForEach(blocks.indices, id: \.self) { index in
                 render(blocks[index])
+                    // A heading opening a message has nothing to separate from.
+                    .padding(.top, headingTopSpacing(at: index))
             }
         }
         .textSelection(.enabled)
+    }
+
+    private func headingTopSpacing(at index: Int) -> CGFloat {
+        guard index > 0, case let .heading(level, _) = blocks[index] else { return 0 }
+        return ChatMetrics.headingTopSpacing(level: level, forFontSize: bodyFontSize)
     }
 
     @ViewBuilder
@@ -45,6 +52,7 @@ struct MarkdownView: View {
         case let .paragraph(text):
             Text(inline(text))
                 .font(bodyFont)
+                .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
@@ -56,6 +64,7 @@ struct MarkdownView: View {
                         Text(inline(items[index]))
                     }
                     .font(bodyFont)
+                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -69,6 +78,7 @@ struct MarkdownView: View {
                         Text(inline(items[index]))
                     }
                     .font(bodyFont)
+                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -92,6 +102,7 @@ struct MarkdownView: View {
                 Text(inline(text))
                     .font(bodyFont)
                     .foregroundStyle(.secondary)
+                    .lineSpacing(ChatMetrics.lineSpacing(forFontSize: bodyFontSize))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .listItemPadding(vertical: false)
@@ -104,7 +115,7 @@ struct MarkdownView: View {
     }
 
     private func inline(_ text: String) -> AttributedString {
-        MarkdownCache.inline(text)
+        MarkdownCache.styledInline(text, fontSize: bodyFontSize, tint: codeBackground)
     }
 
     private var bodyFont: Font {

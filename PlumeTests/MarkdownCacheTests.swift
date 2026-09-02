@@ -80,4 +80,37 @@ struct MarkdownCacheTests {
 
         #expect(warmMsPerPass < coldMs / 4, "cached pass \(warmMsPerPass)ms vs cold \(coldMs)ms")
     }
+
+    @Test func styledInlineTintsCodeSpansAndLeavesProseAlone() {
+        let styled = MarkdownCache.styledInline(
+            "Run `git status` now.",
+            fontSize: 16,
+            tint: .gray
+        )
+
+        let tinted = styled.runs.filter { $0.backgroundColor != nil }
+        #expect(tinted.count == 1, "each code span should paint as one unbroken run")
+        #expect(String(styled.characters).contains("git status"))
+        #expect(styled.runs.contains { $0.backgroundColor == nil }, "prose stays untinted")
+    }
+
+    /// The tint and size are part of the key, so a light/dark switch or a font
+    /// change cannot serve chips built for the previous appearance.
+    @Test func styledInlineKeysOnTintAndSize() {
+        let text = "Run `git status` now."
+        let light = MarkdownCache.styledInline(text, fontSize: 16, tint: .white)
+        let dark = MarkdownCache.styledInline(text, fontSize: 16, tint: .black)
+        let bigger = MarkdownCache.styledInline(text, fontSize: 24, tint: .white)
+
+        let tint: (AttributedString) -> Color? = { string in
+            string.runs.compactMap(\.backgroundColor).first
+        }
+        #expect(tint(light) != tint(dark))
+        #expect(tint(bigger) == tint(light))
+
+        let font: (AttributedString) -> Font? = { string in
+            string.runs.first { $0.backgroundColor != nil }?.font
+        }
+        #expect(font(bigger) != font(light), "a size change must rebuild the chips")
+    }
 }
