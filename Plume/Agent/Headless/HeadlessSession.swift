@@ -288,9 +288,7 @@ final class HeadlessSession {
         // The streamed text is not cleared here — see its declaration.
         if let cost = result.totalCostUSD { sessionCostUSD += cost }
         if let window = result.contextWindow { contextWindow = window }
-        if let input = result.inputTokens, let output = result.outputTokens {
-            contextUsedTokens = input + output
-        }
+        if let used = result.contextUsedTokens { contextUsedTokens = used }
         if result.isError {
             lastError = result.text ?? "The turn failed."
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)

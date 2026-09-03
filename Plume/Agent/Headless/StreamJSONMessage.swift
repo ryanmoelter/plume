@@ -75,8 +75,22 @@ struct TurnResult {
     let totalCostUSD: Double?
     let contextWindow: Int?
     let inputTokens: Int?
+    let cacheReadInputTokens: Int?
+    let cacheCreationInputTokens: Int?
     let outputTokens: Int?
     let permissionDenials: Int
+
+    /// Everything occupying the context window after this turn.
+    ///
+    /// Cached input is the bulk of it in any conversation past the first
+    /// turn — a real turn here reported `input_tokens: 2` against
+    /// `cache_read_input_tokens: 270017`, so counting only the uncached
+    /// input under-reports by three orders of magnitude.
+    var contextUsedTokens: Int? {
+        let parts = [inputTokens, cacheReadInputTokens, cacheCreationInputTokens, outputTokens]
+        guard parts.contains(where: { $0 != nil }) else { return nil }
+        return parts.compactMap { $0 }.reduce(0, +)
+    }
 }
 
 struct ControlRequest {

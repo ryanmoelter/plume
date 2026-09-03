@@ -162,6 +162,54 @@ struct StreamJSONDecoderTests {
         #expect(result.contextWindow == 200_000)
     }
 
+    // MARK: - Context usage
+
+    /// Cached input is nearly all of the context in any conversation past its
+    /// first turn. These numbers are copied from a real transcript: counting
+    /// only `input_tokens` reported 160 tokens where 270,724 were in use.
+    @Test func contextUsageCountsCachedInputNotJustTheUncachedRemainder() {
+        let root: [String: JSONValue] = [
+            "type": .string("result"),
+            "usage": .object([
+                "input_tokens": .number(2),
+                "cache_creation_input_tokens": .number(547),
+                "cache_read_input_tokens": .number(270_017),
+                "output_tokens": .number(158)
+            ])
+        ]
+        guard case .result(let result)? = StreamJSONDecoder.decode(root: root) else {
+            Issue.record("expected a result message")
+            return
+        }
+        #expect(result.contextUsedTokens == 270_724)
+    }
+
+    @Test func contextUsageIsNilWhenTheTurnReportsNoUsageAtAll() {
+        let root: [String: JSONValue] = ["type": .string("result")]
+        guard case .result(let result)? = StreamJSONDecoder.decode(root: root) else {
+            Issue.record("expected a result message")
+            return
+        }
+        #expect(result.contextUsedTokens == nil)
+    }
+
+    /// An older or partial payload still totals what it does report, rather
+    /// than dropping to nil because one field is missing.
+    @Test func contextUsageTotalsWhicheverFieldsArePresent() {
+        let root: [String: JSONValue] = [
+            "type": .string("result"),
+            "usage": .object([
+                "input_tokens": .number(1_200),
+                "output_tokens": .number(300)
+            ])
+        ]
+        guard case .result(let result)? = StreamJSONDecoder.decode(root: root) else {
+            Issue.record("expected a result message")
+            return
+        }
+        #expect(result.contextUsedTokens == 1_500)
+    }
+
     // MARK: - Encoder round-trips
 
     private func decodedRoot(_ line: String?) throws -> [String: JSONValue] {

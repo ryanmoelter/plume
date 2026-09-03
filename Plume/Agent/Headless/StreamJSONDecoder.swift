@@ -105,6 +105,8 @@ enum StreamJSONDecoder {
             totalCostUSD: root["total_cost_usd"]?.doubleValue,
             contextWindow: largestContextWindow(in: root["modelUsage"]?.objectValue ?? [:]),
             inputTokens: usage["input_tokens"]?.doubleValue.map(Int.init),
+            cacheReadInputTokens: usage["cache_read_input_tokens"]?.doubleValue.map(Int.init),
+            cacheCreationInputTokens: usage["cache_creation_input_tokens"]?.doubleValue.map(Int.init),
             outputTokens: usage["output_tokens"]?.doubleValue.map(Int.init),
             permissionDenials: root["permission_denials"]?.arrayValue?.count ?? 0
         )
