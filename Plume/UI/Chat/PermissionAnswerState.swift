@@ -87,3 +87,29 @@ enum PlanResolution {
         return remainder.isEmpty ? nil : remainder
     }
 }
+
+/// Index arithmetic for paging through a fixed list one at a time, clamped
+/// rather than wrapping — a plain "prev/next" reads as movement through a
+/// list, not a carousel that loops back on itself.
+enum QuestionPaging {
+    /// `current` moved back one, held at the first index.
+    static func previous(_ current: Int) -> Int {
+        max(0, current - 1)
+    }
+
+    /// `current` moved forward one, held at the last valid index for `count`.
+    ///
+    /// `count == 0` has no valid index at all; clamping to 0 there is an
+    /// arbitrary but harmless choice since nothing renders for an empty list.
+    static func next(_ current: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(count - 1, current + 1)
+    }
+
+    /// `current` re-clamped after `count` changes, so a stale index from a
+    /// previous (larger) question set never reads out of bounds.
+    static func clamped(_ current: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(max(0, current), count - 1)
+    }
+}

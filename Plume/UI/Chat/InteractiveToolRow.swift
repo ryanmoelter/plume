@@ -28,6 +28,7 @@ struct InteractiveToolRow: View, ThemedView {
 
     @State private var answerState = PermissionAnswerState()
     @State private var rejectionReason = ""
+    @State private var questionIndex = 0
 
     private var isAnswerable: Bool { answer != nil }
 
@@ -101,8 +102,13 @@ struct InteractiveToolRow: View, ThemedView {
     @ViewBuilder
     private func questionsBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
         header(symbol: "questionmark.bubble", title: questions.count == 1 ? "Question" : "Questions")
-        ForEach(questions) { question in
+        let index = QuestionPaging.clamped(questionIndex, count: questions.count)
+        if questions.indices.contains(index) {
+            let question = questions[index]
             VStack(alignment: .leading, spacing: 6) {
+                if questions.count > 1 {
+                    pagingControls(current: index, count: questions.count)
+                }
                 if !question.header.isEmpty {
                     Text(question.header.uppercased())
                         .font(typography.caption.semibold)
@@ -110,7 +116,7 @@ struct InteractiveToolRow: View, ThemedView {
                         .chatTextColumn()
                 }
                 Text(question.question)
-                    .font(proseTypography.caption.font)
+                    .font(proseTypography.body.medium)
                     .textSelection(.enabled)
                     .chatTextColumn()
                 if question.multiSelect {
@@ -140,6 +146,27 @@ struct InteractiveToolRow: View, ThemedView {
         }
     }
 
+    private func pagingControls(current: Int, count: Int) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                questionIndex = QuestionPaging.previous(current)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(current == 0)
+            Text("\(current + 1) of \(count)")
+                .font(typography.caption.font)
+                .emphasis(.subtle)
+            Button {
+                questionIndex = QuestionPaging.next(current, count: count)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(current == count - 1)
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func optionRow(
         _ option: InteractiveToolPayload.AskedQuestion.Option,
@@ -163,7 +190,11 @@ struct InteractiveToolRow: View, ThemedView {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(optionWash(isSelected: isSelected), in: .rect(cornerRadius: 6))
+        .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(optionBorderColor(isSelected: isSelected), lineWidth: isSelected && isAnswerable ? 1.5 : 1)
+        }
         .contentShape(.rect)
         .chatTextColumn()
 
@@ -191,10 +222,10 @@ struct InteractiveToolRow: View, ThemedView {
         return isSelected ? "largecircle.fill.circle" : "circle"
     }
 
-    private func optionWash(isSelected: Bool) -> Color {
+    private func optionBorderColor(isSelected: Bool) -> Color {
         isSelected && isAnswerable
-            ? colors.selection.emphasized(.divider, in: colors)
-            : colors.surfaceTint
+            ? colors.selection
+            : colors.divider
     }
 
     // MARK: - Chrome

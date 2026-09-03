@@ -88,6 +88,34 @@ struct PlanResolutionTests {
     }
 }
 
+struct QuestionPagingTests {
+    @Test func previousStopsAtZero() {
+        #expect(QuestionPaging.previous(2) == 1)
+        #expect(QuestionPaging.previous(1) == 0)
+        #expect(QuestionPaging.previous(0) == 0)
+    }
+
+    @Test func nextStopsAtTheLastIndex() {
+        #expect(QuestionPaging.next(0, count: 3) == 1)
+        #expect(QuestionPaging.next(1, count: 3) == 2)
+        #expect(QuestionPaging.next(2, count: 3) == 2)
+    }
+
+    @Test func nextWithNoQuestionsStaysAtZero() {
+        #expect(QuestionPaging.next(0, count: 0) == 0)
+    }
+
+    @Test func clampedPullsAnOutOfRangeIndexIntoBounds() {
+        #expect(QuestionPaging.clamped(5, count: 3) == 2)
+        #expect(QuestionPaging.clamped(-1, count: 3) == 0)
+        #expect(QuestionPaging.clamped(1, count: 3) == 1)
+    }
+
+    @Test func clampedWithNoQuestionsIsZero() {
+        #expect(QuestionPaging.clamped(4, count: 0) == 0)
+    }
+}
+
 @MainActor
 struct PermissionInputDetailsTests {
     @Test func theMostRelevantFieldsComeFirst() {
