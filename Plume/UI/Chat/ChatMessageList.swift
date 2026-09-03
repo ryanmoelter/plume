@@ -100,11 +100,17 @@ struct ChatMessageList: View {
                         PendingPermissionDock(tabID: tabID)
                             .listItemPadding(bleed: true, column: .unpadded)
                     }
+                    // Trailing padding sits above the anchor, so the anchor
+                    // really is the last thing in the content. Applied to the
+                    // VStack instead, it lands below the anchor, and every
+                    // `scrollTo(anchor: .bottom)` comes to rest a padding's
+                    // distance short of the bottom.
+                    Color.clear
+                        .frame(height: bottomPadding)
                     Color.clear
                         .frame(height: 1)
                         .id(bottomAnchorID)
                 }
-                .padding(.bottom, bottomPadding)
             }
             .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
                 ChatScrollGeometry(

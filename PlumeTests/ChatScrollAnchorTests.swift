@@ -50,4 +50,17 @@ struct ChatScrollGrowthTests {
             distanceFromBottom: ChatScrollAnchor.detachedThreshold + 1
         ))
     }
+
+    /// The anchor must be the last thing in the scroll content, below the
+    /// list's bottom padding. Above it, a settled reply comes to rest a whole
+    /// padding from the bottom — more than `bottomTolerance` at any sane font
+    /// size — so following silently stops, and stays short of
+    /// `detachedThreshold`, so the jump-back button never offers a way out.
+    @Test func aRestingPaddingsDistanceWouldStopTheChatFollowing() {
+        for bodySize in [11.0, 13.0, 14.0, 18.0] as [CGFloat] {
+            let padding = Dimensions(bodySize: bodySize).listBottomPadding
+            #expect(!ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: padding))
+            #expect(!ChatScrollAnchor.isDetached(distanceFromBottom: padding))
+        }
+    }
 }
