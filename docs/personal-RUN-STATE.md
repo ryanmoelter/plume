@@ -47,3 +47,7 @@ Re-read what 7 actually left behind before starting 8 and 9.
 ## Judgment calls made during the run
 
 _(append here as they happen — this is what the final summary reports)_
+
+- **Concurrent subagents share this one worktree.** Five agents edited source here at once, so a full test run can compile a half-written file belonging to another agent and report a failure that is not yours. Seen once on `ChatScrollGrowthTests`: `** TEST FAILED **` with no error line, then a clean pass moments later on identical code. Re-run before believing a failure.
+- **Every commit tonight is unsigned.** 1Password is locked, so commits use `--no-gpg-sign`. Re-sign before merging if that matters.
+

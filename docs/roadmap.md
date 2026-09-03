@@ -87,8 +87,8 @@ the section itself.
 
 Auto-follow is broken outright. One placement mistake causes both symptoms.
 
-- [ ] Follow a reply as it streams. It currently advances one tick and stops.
-- [ ] Make the jump-to-bottom arrow reach the actual bottom, not the bottom of the last message.
+- [x] Follow a reply as it streams. It currently advances one tick and stops.
+- [x] Make the jump-to-bottom arrow reach the actual bottom, not the bottom of the last message.
 
 **The bottom anchor is above the list's bottom padding.** `ChatMessageList` puts a 1pt `Color.clear` anchor as the last element *inside* the `VStack`, then applies `.padding(.bottom, bottomPadding)` to the VStack itself (`ChatMessageList.swift:102-107`) — so `dimensions.listBottomPadding`, which is `bodySize * 4.5` (`Dimensions.swift:43`), sits *below* the anchor and outside it. Every `proxy.scrollTo(bottomAnchorID, anchor: .bottom)` therefore lands short by that much: the arrow stops at the end of the text, and streaming settles one message-bottom short of the true bottom.
 
@@ -233,7 +233,7 @@ What it touches: `TabRenderMode` and `TaskTab.renderModeRaw`, `AgentTabMenu.rend
 
 Worktree create and delete moved onto `GitService` and have not been driven since. Rather than block on verifying a feature that matters less than the rest, label it so its state is honest.
 
-- [ ] Put a beta/WIP marker on the worktree entry points.
+- [x] Put a beta/WIP marker on the worktree entry points.
 
 Where it needs to show: the "New Worktree…" button (`WorkspacePickerView.swift:128`), the sheet's own title (`NewWorktreeSheet.swift:20`), and the two destructive delete items that remove a worktree or its branch (`SidebarView.swift:100,103`). The delete items are the ones that most need it — they are irreversible, and their failure path is the least exercised code in the feature.
 
