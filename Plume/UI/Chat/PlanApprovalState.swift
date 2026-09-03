@@ -57,3 +57,20 @@ enum PlanApprovalState: Equatable {
 
     var showsApprovalOptions: Bool { self == .awaitingDecision }
 }
+
+/// The one-line gist of a plan, for the inline row that stands in for it.
+enum PlanSummary {
+    /// The plan's first non-empty line, with any leading heading marker
+    /// removed. Falls back to a fixed label rather than rendering an empty
+    /// row for a plan that is all whitespace or all punctuation.
+    static func firstLine(of markdown: String) -> String {
+        let firstNonEmpty = markdown
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard let firstNonEmpty else { return "Plan" }
+        let unheaded = firstNonEmpty
+            .drop { $0 == "#" }
+            .trimmingCharacters(in: .whitespaces)
+        return unheaded.isEmpty ? "Plan" : unheaded
+    }
+}

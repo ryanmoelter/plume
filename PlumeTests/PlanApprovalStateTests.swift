@@ -46,3 +46,28 @@ struct PlanApprovalStateTests {
         #expect(PlanApprovalState.notApprovedYet.footerLabel == "Not approved yet")
     }
 }
+
+/// The one-line stand-in the inline row shows in place of the whole plan.
+struct PlanSummaryTests {
+    @Test func takesTheFirstLine() {
+        #expect(PlanSummary.firstLine(of: "Rewrite the parser\n\nThen the tests.")
+            == "Rewrite the parser")
+    }
+
+    @Test func stripsAHeadingMarker() {
+        #expect(PlanSummary.firstLine(of: "## Rewrite the parser\nDetails.")
+            == "Rewrite the parser")
+    }
+
+    @Test func skipsLeadingBlankLines() {
+        #expect(PlanSummary.firstLine(of: "\n\n   \nRewrite the parser")
+            == "Rewrite the parser")
+    }
+
+    /// The row must never render empty, however little the plan carries.
+    @Test func fallsBackWhenThereIsNoUsableLine() {
+        #expect(PlanSummary.firstLine(of: "") == "Plan")
+        #expect(PlanSummary.firstLine(of: "   \n\n  ") == "Plan")
+        #expect(PlanSummary.firstLine(of: "###") == "Plan")
+    }
+}

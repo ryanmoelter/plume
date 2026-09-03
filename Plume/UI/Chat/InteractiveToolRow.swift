@@ -25,6 +25,9 @@ struct InteractiveToolRow: View, ThemedView {
     var resultText: String?
     /// Non-nil only while a live request backs this row.
     var answer: ((Answer) -> Void)?
+    /// Supplied where the plan overlay is reachable, which is what decides a
+    /// live proposal. Nil leaves the row a summary with nothing to open.
+    var openPlan: (() -> Void)?
 
     @State private var answerState = PermissionAnswerState()
     @State private var rejectionReason = ""
@@ -52,27 +55,24 @@ struct InteractiveToolRow: View, ThemedView {
 
     // MARK: - Plan
 
+    /// A summary, not the plan itself. The overlay renders the document and
+    /// owns the decision, so repeating either here would ask the user to read
+    /// the same plan twice and choose in two places.
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
         header(symbol: "list.clipboard", title: "Proposed plan")
-        MarkdownView(markdown, isAgentVoice: true)
+        Text(PlanSummary.firstLine(of: markdown))
+            .font(typography.body.medium)
+            .chatTextColumn()
         if let filePath {
             Text((filePath as NSString).lastPathComponent)
                 .font(typography.caption.mono)
                 .emphasis(.subtle)
                 .chatTextColumn()
         }
-        if let answer {
-            TextField("Reason (optional, sent on reject)", text: $rejectionReason)
-                .textFieldStyle(.roundedBorder)
+        if isPending, let openPlan {
+            Button("Review plan") { openPlan() }
                 .font(typography.caption.font)
-            HStack(spacing: 8) {
-                Button("Approve") { answer(.approvePlan) }
-                    .keyboardShortcut(.defaultAction)
-                Button("Reject") { answer(.rejectPlan(reason: rejectionReason)) }
-                Spacer()
-            }
-            .font(typography.caption.font)
         } else if !isPending {
             settledPlanState()
         }
