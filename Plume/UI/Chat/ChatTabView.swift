@@ -292,7 +292,7 @@ struct ChatTabView: View, ThemedView {
         guard let session = headlessSession, let pendingPlan else { return }
         switch decision {
         case .approve:
-            session.resolve(pendingPlan, with: .allow(updatedInput: pendingPlan.input))
+            session.approvePlan(pendingPlan)
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         case .reject:
             session.resolve(
@@ -403,9 +403,13 @@ struct ChatTabView: View, ThemedView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The terminal transport gets both watches from `MainWindow`'s hook
+    /// callback; headless has no hooks, so this is the only place a headless
+    /// tab's transcript path is known and both watches must start here.
     private func registerWatchIfNeeded() {
         guard let path = tab.sessionJSONLPath, !path.isEmpty else { return }
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
+        AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
     }
 
     /// Storing the ID is the whole resume: both transports watch
