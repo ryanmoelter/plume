@@ -99,19 +99,28 @@ struct InteractiveToolRow: View, ThemedView {
 
     // MARK: - Questions
 
+    /// One question at a time while answering, and the whole set as a compact
+    /// summary once it is settled. Showing every question alongside the one
+    /// being answered buries it; showing the option cards again afterwards
+    /// re-asks a question that already has an answer.
     @ViewBuilder
     private func questionsBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
         header(symbol: "questionmark.bubble", title: questions.count == 1 ? "Question" : "Questions")
+        if let answer {
+            askingBody(questions, answer: answer)
+        } else {
+            answeredBody(questions)
+        }
+    }
+
+    @ViewBuilder
+    private func askingBody(
+        _ questions: [InteractiveToolPayload.AskedQuestion],
+        answer: @escaping (Answer) -> Void
+    ) -> some View {
         let index = QuestionPaging.clamped(questionIndex, count: questions.count)
         if questions.indices.contains(index) {
             let question = questions[index]
-            // Everything already decided, kept in view as a summary so the
-            // user can see their answers without paging back for them.
-            ForEach(Array(questions.enumerated()), id: \.element.id) { offset, earlier in
-                if offset != index, !answerState.selectedLabels(for: earlier).isEmpty {
-                    answeredSummary(earlier)
-                }
-            }
             if questions.count > 1 {
                 pagingControls(current: index, count: questions.count)
             }
@@ -136,8 +145,6 @@ struct InteractiveToolRow: View, ThemedView {
                     optionRow(option, in: question)
                 }
             }
-        }
-        if let answer {
             let action = QuestionPrimaryAction.next(for: questions, in: answerState)
             HStack {
                 Spacer()
@@ -148,31 +155,35 @@ struct InteractiveToolRow: View, ThemedView {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(answerState.selectedLabels(for: questions[index]).isEmpty)
+                .disabled(answerState.selectedLabels(for: question).isEmpty)
             }
             .font(typography.caption.font)
             .chatTextColumn()
-        } else if !isPending {
-            Text("Answered")
-                .font(typography.caption.semibold)
-                .emphasis(.secondary)
-                .chatTextColumn()
         }
     }
 
-    /// An answered question, once the user has moved past it: the question
-    /// and what they chose, rather than the whole card of options again.
-    private func answeredSummary(
-        _ question: InteractiveToolPayload.AskedQuestion
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(question.question)
-                .font(typography.caption.font)
-                .emphasis(.secondary)
-            Text(answerState.selectedLabels(for: question).joined(separator: ", "))
-                .font(typography.caption.semibold)
+    /// Every question and what was chosen, one pair each.
+    ///
+    /// A row rebuilt from the transcript has no `answerState`, so it shows the
+    /// questions alone — the answers went back to the agent as a tool result
+    /// and are not part of the call this row draws.
+    @ViewBuilder
+    private func answeredBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(questions) { question in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(question.question)
+                        .font(typography.caption.font)
+                        .emphasis(.secondary)
+                    let chosen = answerState.selectedLabels(for: question)
+                    if !chosen.isEmpty {
+                        Text(chosen.joined(separator: ", "))
+                            .font(typography.caption.semibold)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .chatTextColumn()
     }
 
