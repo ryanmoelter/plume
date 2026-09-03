@@ -94,12 +94,20 @@ struct ChatTabView: View, ThemedView {
                     bottomPadding: dimensions.listBottomPadding,
                     tabID: tab.id
                 )
+                // Above the strip, not below it: the bar reads as the panel
+                // tucked behind the statusline and composer, so it keeps its
+                // top corners and squares off where they meet.
+                if planPresentation == .minimized, let planFilePath {
+                    planDockBar(path: planFilePath)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 Divider()
                 HStack(spacing: 0) {
                     StatuslineStripView(
                         contextUsedTokens: headlessSession?.contextUsedTokens,
                         contextMaxTokens: headlessSession?.contextWindow,
                         branch: transcript.gitBranch,
+                        workspaceName: task.workingDirectoryPath.map { ($0 as NSString).lastPathComponent },
                         gitState: GitStateStore.shared.state(for: gitDirectory),
                         rateLimit: headlessSession?.rateLimit,
                         sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
@@ -113,10 +121,6 @@ struct ChatTabView: View, ThemedView {
                 }
                 .listItemPadding(vertical: false)
                 Divider()
-                if planPresentation == .minimized, let planFilePath {
-                    planDockBar(path: planFilePath)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
@@ -252,26 +256,28 @@ struct ChatTabView: View, ThemedView {
         .padding(.horizontal, 12)
     }
 
+    /// Feedback and the two decisions, right-aligned with Approve last —
+    /// the primary option sits where the eye lands and where Return goes.
+    ///
+    /// Feedback submits the rejection from inside the field, so typing and
+    /// sending are one gesture rather than a field plus a distant button.
     @ViewBuilder
     private var planApprovalOptions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Reason (optional, sent on reject)", text: $planRejectionReason)
+        HStack(spacing: 8) {
+            TextField("Feedback (optional)", text: $planRejectionReason)
                 .textFieldStyle(.roundedBorder)
                 .font(typography.caption.font)
-            HStack(spacing: 8) {
-                Button("Approve") { answerPlan(.approve) }
-                    .keyboardShortcut(.defaultAction)
-                Button("Approve + Compact") { answerPlan(.approveAndCompact) }
-                Button("Reject") { answerPlan(.reject) }
-                Spacer()
-            }
-            .font(typography.caption.font)
+                .onSubmit { answerPlan(.reject) }
+            Button("Give feedback") { answerPlan(.reject) }
+            Button("Approve") { answerPlan(.approve) }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
         }
+        .font(typography.caption.font)
     }
 
     private enum PlanDecision {
         case approve
-        case approveAndCompact
         case reject
     }
 
@@ -280,12 +286,9 @@ struct ChatTabView: View, ThemedView {
     private func answerPlan(_ decision: PlanDecision) {
         guard let session = headlessSession, let pendingPlan else { return }
         switch decision {
-        case .approve, .approveAndCompact:
+        case .approve:
             session.resolve(pendingPlan, with: .allow(updatedInput: pendingPlan.input))
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
-            if decision == .approveAndCompact {
-                session.submit(text: "/compact")
-            }
         case .reject:
             session.resolve(
                 pendingPlan,
@@ -330,7 +333,12 @@ struct ChatTabView: View, ThemedView {
         .font(.callout)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassEffect(planGlass, in: .rect(cornerRadius: 10))
+        // Square where it meets the statusline below, so the bar reads as the
+        // panel tucked behind it rather than a separate floating pill.
+        .glassEffect(
+            planGlass,
+            in: .rect(topLeadingRadius: 10, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 10)
+        )
         .listItemPadding(bleed: true, vertical: false)
         .padding(.top, 8)
     }
