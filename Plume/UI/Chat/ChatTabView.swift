@@ -73,19 +73,12 @@ struct ChatTabView: View, ThemedView {
                 Divider()
                 HStack(spacing: 0) {
                     StatuslineStripView(
-                        contextUsedTokens: headlessSession?.contextUsedTokens
-                            ?? transcript.latestUsage?.inputTokens,
+                        contextUsedTokens: headlessSession?.contextUsedTokens,
                         contextMaxTokens: headlessSession?.contextWindow,
-                        model: transcript.model,
-                        effort: transcript.effort,
                         branch: transcript.gitBranch,
                         gitState: GitStateStore.shared.state(for: gitDirectory),
-                        permissionMode: transcript.permissionMode,
                         rateLimit: headlessSession?.rateLimit,
-                        sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil },
-                        onSelectModel: modelSelectionHandler,
-                        onSelectEffort: effortSelectionHandler,
-                        onCyclePermissionMode: cyclePermissionModeHandler
+                        sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
                     )
                     if headlessSession?.isWorking == true {
                         stopButton
@@ -320,41 +313,6 @@ struct ChatTabView: View, ThemedView {
             workingDirectory: workingDirectory,
             sessionID: sessionID
         )
-    }
-
-    private var modelSelectionHandler: ((AgentModel) -> Void)? {
-        if let headlessSession {
-            return { headlessSession.setModel($0) }
-        }
-        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
-            { session.submit(text: ModelEffortCommand.setModel($0)) }
-        }
-    }
-
-    private var effortSelectionHandler: ((AgentEffort) -> Void)? {
-        if let headlessSession {
-            return { headlessSession.submit(text: ModelEffortCommand.setEffort($0)) }
-        }
-        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
-            { session.submit(text: ModelEffortCommand.setEffort($0)) }
-        }
-    }
-
-    /// Headless has no Shift+Tab to cycle; `set_permission_mode` sets a mode
-    /// outright, so this just steps to the next one in declaration order.
-    private var cyclePermissionModeHandler: (() -> Void)? {
-        if let headlessSession {
-            return {
-                let modes = PermissionMode.allCases
-                let current = transcript?.permissionMode.flatMap(PermissionMode.recognizing)
-                let currentIndex = current.flatMap { modes.firstIndex(of: $0) } ?? -1
-                let next = modes[(currentIndex + 1) % modes.count]
-                headlessSession.setPermissionMode(next)
-            }
-        }
-        return SurfaceManager.shared.existingSession(for: tab.id).map { session in
-            { session.cyclePermissionMode() }
-        }
     }
 
     private var stopButton: some View {

@@ -103,38 +103,47 @@ struct ChatComposer: View, ThemedView {
                 )
             }
 
-            MarkdownComposerTextView(
-                text: message,
-                placeholder: composerPlaceholder,
-                fontSize: fontSize,
-                isFocused: $inputFocused,
-                sendKey: settings.composerSendKey,
-                onSend: send,
-                onTextChange: { text in
-                    let sendable = sendableText(text)
-                    if sendable != hasSendableText { hasSendableText = sendable }
-                    autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
-                },
-                onCaretChange: { location in
-                    caretLocation = location
-                    autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
-                },
-                pendingCaretLocation: $pendingCaretLocation,
-                autocompleteHandler: autocomplete,
-                onEditQueuedMessage: headlessSession.flatMap { session in
-                    session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
-                },
-                recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
-            )
-            .padding(.leading, 10)
-            // Reserves the send button's column, so text wraps before it
-            // reaches the button rather than running underneath.
-            .padding(.trailing, Self.sendButtonDiameter + 18)
-            .background(fieldBackground, in: .rect(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
-            .overlay(alignment: .trailing) {
-                sendButton.padding(.trailing, 8)
+            // First cut of the two-row layout the user asked for: the text
+            // area alone on top, controls and send split left/right below.
+            // Plain and unstyled beyond fitting the row — due for a pass once
+            // this is reviewed.
+            VStack(spacing: 0) {
+                MarkdownComposerTextView(
+                    text: message,
+                    placeholder: composerPlaceholder,
+                    fontSize: fontSize,
+                    isFocused: $inputFocused,
+                    sendKey: settings.composerSendKey,
+                    onSend: send,
+                    onTextChange: { text in
+                        let sendable = sendableText(text)
+                        if sendable != hasSendableText { hasSendableText = sendable }
+                        autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
+                    },
+                    onCaretChange: { location in
+                        caretLocation = location
+                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
+                    },
+                    pendingCaretLocation: $pendingCaretLocation,
+                    autocompleteHandler: autocomplete,
+                    onEditQueuedMessage: headlessSession.flatMap { session in
+                        session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
+                    },
+                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
+                )
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+
+                HStack(spacing: 8) {
+                    ComposerControlsRow(headlessSession: headlessSession)
+                    Spacer(minLength: 8)
+                    sendButton
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
+            .background(fieldBackground, in: .rect(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))
         }
         .listItemPadding(bleed: true)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
