@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The task's workspace, as two chips above the composer: the folder to run
-/// in, and — when that folder is a git repository — which of its worktrees.
+/// The task's workspace, as two chips in the composer's controls row: the
+/// folder to run in, and — when that folder is a git repository — which of
+/// its worktrees.
 ///
 /// A running agent's working directory is fixed at launch, so `isEditable`
 /// renders the same chips as plain labels rather than hiding them.
@@ -20,20 +21,18 @@ struct WorkspacePickerView: View {
     @State private var worktreeSheetShown = false
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             folderChip
             if task.repoPath != nil {
                 worktreeChip
             }
-            permissionModeChip
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
                     .foregroundStyle(.orange)
                     .help("This directory no longer exists.")
             }
         }
-        .font(.callout)
+        .font(.caption)
         .padding(.horizontal, 4)
         .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
         .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
@@ -87,33 +86,6 @@ struct WorkspacePickerView: View {
     private var folderName: String {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return "Choose Folder" }
         return (path as NSString).lastPathComponent
-    }
-
-    // MARK: - Permission mode
-
-    /// Only settable before launch: `--permission-mode` is a launch flag, and
-    /// a running session changes mode from the statusline strip instead.
-    private var permissionModeChip: some View {
-        chip(isEditable: isEditable) {
-            Menu {
-                Button("Default") { task.permissionMode = nil }
-                Divider()
-                ForEach(PermissionMode.allCases) { mode in
-                    Button(mode.label) { task.permissionMode = mode }
-                }
-            } label: {
-                permissionModeLabel
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        } readOnly: {
-            permissionModeLabel
-        }
-        .help("Permission mode for new sessions")
-    }
-
-    private var permissionModeLabel: some View {
-        Label(task.permissionMode?.label ?? "Default", systemImage: "lock.shield")
     }
 
     // MARK: - Worktree

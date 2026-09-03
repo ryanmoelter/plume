@@ -20,9 +20,6 @@ struct StatuslineStripView: View, ThemedView {
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
     let branch: String?
-    /// The worktree or directory work happens in, shown beside the branch —
-    /// together they say where, and neither is much use alone.
-    let workspaceName: String?
     /// Ahead/behind and dirty, which no transcript or stream event carries —
     /// Plume runs `git` for these itself.
     let gitState: GitState?
@@ -35,7 +32,6 @@ struct StatuslineStripView: View, ThemedView {
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         branch: String? = nil,
-        workspaceName: String? = nil,
         gitState: GitState? = nil,
         rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
@@ -43,7 +39,6 @@ struct StatuslineStripView: View, ThemedView {
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.branch = branch
-        self.workspaceName = workspaceName
         self.gitState = gitState
         self.rateLimit = rateLimit
         self.sessionCostUSD = sessionCostUSD
@@ -70,9 +65,6 @@ struct StatuslineStripView: View, ThemedView {
             }
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
-            }
-            if let workspaceName, !workspaceName.isEmpty {
-                workspaceSegment(workspaceName)
             }
             if let branch, !branch.isEmpty {
                 branchSegment(branch)
@@ -101,14 +93,6 @@ struct StatuslineStripView: View, ThemedView {
             }
             .foregroundStyle(foreground(for: attention))
         }
-    }
-
-    private func workspaceSegment(_ name: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "folder")
-            Text(name)
-        }
-        .foregroundStyle(foreground(for: .neutral))
     }
 
     private func costSegment(_ cost: Double) -> some View {

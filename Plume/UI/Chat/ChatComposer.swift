@@ -84,13 +84,6 @@ struct ChatComposer: View, ThemedView {
 
     var body: some View {
         VStack(spacing: 6) {
-            WorkspacePickerView(
-                task: task,
-                isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
-                    && headlessSession == nil
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -103,10 +96,6 @@ struct ChatComposer: View, ThemedView {
                 )
             }
 
-            // First cut of the two-row layout the user asked for: the text
-            // area alone on top, controls and send split left/right below.
-            // Plain and unstyled beyond fitting the row — due for a pass once
-            // this is reviewed.
             VStack(spacing: 0) {
                 MarkdownComposerTextView(
                     text: message,
@@ -135,8 +124,12 @@ struct ChatComposer: View, ThemedView {
                 .padding(.top, 8)
 
                 HStack(spacing: 8) {
-                    ComposerControlsRow(headlessSession: headlessSession)
-                    Spacer(minLength: 8)
+                    ComposerControlsRow(
+                        task: task,
+                        headlessSession: headlessSession,
+                        isWorkspaceEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
+                            && headlessSession == nil
+                    )
                     sendButton
                 }
                 .padding(.horizontal, 8)

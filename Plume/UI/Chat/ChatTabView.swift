@@ -104,10 +104,15 @@ struct ChatTabView: View, ThemedView {
                 Divider()
                 HStack(spacing: 0) {
                     StatuslineStripView(
-                        contextUsedTokens: headlessSession?.contextUsedTokens,
+                        // Both arrive on a turn result, so a resumed
+                        // conversation has neither until it takes a turn. The
+                        // transcript's last usage covers the gap; nothing
+                        // records the window, so that stays absent until the
+                        // first result lands.
+                        contextUsedTokens: headlessSession?.contextUsedTokens
+                            ?? transcript.latestUsage?.contextUsedTokens,
                         contextMaxTokens: headlessSession?.contextWindow,
                         branch: transcript.gitBranch,
-                        workspaceName: task.workingDirectoryPath.map { ($0 as NSString).lastPathComponent },
                         gitState: GitStateStore.shared.state(for: gitDirectory),
                         rateLimit: headlessSession?.rateLimit,
                         sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
