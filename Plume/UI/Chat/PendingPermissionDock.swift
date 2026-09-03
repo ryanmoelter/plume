@@ -40,9 +40,11 @@ struct PendingPermissionDock: View {
     }
 
     /// The model reads this as the tool result, so an empty field still needs
-    /// to say something.
+    /// to say something. Built through `PlanResolution` so its fixed prefix
+    /// is how a settled transcript row later tells a rejection's result text
+    /// apart from an approval's — the user's own reason is free text and
+    /// can't be told apart from an approval message any other way.
     private func denialMessage(_ reason: String) -> String {
-        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "The user declined this." : trimmed
+        PlanResolution.denialMessage(reason: reason)
     }
 }

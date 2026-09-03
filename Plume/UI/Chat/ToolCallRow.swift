@@ -15,7 +15,7 @@ struct ToolCallRow: View, ThemedView {
 
     var body: some View {
         if let interactive = call.interactive {
-            InteractiveToolRow(payload: interactive, isPending: isPending)
+            InteractiveToolRow(payload: interactive, isPending: isPending, resultText: call.result)
         } else {
             collapsibleBody
         }

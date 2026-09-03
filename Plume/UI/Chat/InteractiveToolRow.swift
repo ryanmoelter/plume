@@ -19,6 +19,10 @@ struct InteractiveToolRow: View, ThemedView {
     /// Whether the agent is still waiting on this. Only the newest message
     /// can be, so the caller decides.
     let isPending: Bool
+    /// The tool result text once this call is settled — for a plan, the
+    /// approval or denial message; nil while pending or for a question,
+    /// which doesn't carry a comparable settled message.
+    var resultText: String?
     /// Non-nil only while a live request backs this row.
     var answer: ((Answer) -> Void)?
 
@@ -68,8 +72,27 @@ struct InteractiveToolRow: View, ThemedView {
                 Spacer()
             }
             .font(typography.caption.font)
-        } else {
-            answerHint("Approve or reject in the terminal.")
+        } else if !isPending {
+            settledPlanState()
+        }
+    }
+
+    /// Only a rejection has anything worth saying — approval just let the
+    /// agent continue, which the rest of the transcript already shows.
+    @ViewBuilder
+    private func settledPlanState() -> some View {
+        if let resultText, PlanResolution.isRejection(resultText) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rejected")
+                    .font(typography.caption.semibold)
+                    .foregroundStyle(colors.danger)
+                if let reason = PlanResolution.rejectionReason(from: resultText) {
+                    Text(reason)
+                        .font(typography.caption.font)
+                        .emphasis(.secondary)
+                }
+            }
+            .chatTextColumn()
         }
     }
 
@@ -109,8 +132,11 @@ struct InteractiveToolRow: View, ThemedView {
                 Spacer()
             }
             .font(typography.caption.font)
-        } else {
-            answerHint("Answer in the terminal.")
+        } else if !isPending {
+            Text("Answered")
+                .font(typography.caption.semibold)
+                .emphasis(.secondary)
+                .chatTextColumn()
         }
     }
 
@@ -185,17 +211,6 @@ struct InteractiveToolRow: View, ThemedView {
         switch payload {
         case .questions: colors.attention
         case .plan: colors.warning
-        }
-    }
-
-    /// Only worth saying while the agent is actually waiting — on a settled
-    /// plan it is just noise.
-    @ViewBuilder
-    private func answerHint(_ text: String) -> some View {
-        if isPending {
-            Text(text)
-                .font(typography.caption.font)
-                .emphasis(.subtle)
         }
     }
 

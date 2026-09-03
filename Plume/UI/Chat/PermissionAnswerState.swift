@@ -49,3 +49,41 @@ struct PermissionAnswerState: Equatable {
         return answers
     }
 }
+
+/// Reads a settled `ExitPlanMode` tool result — the denial message text, when
+/// there is one — into what the transcript row should say.
+///
+/// Pure so the parsing rule is testable without a SwiftUI host: an approval
+/// and a rejection both come back as a `ToolCall.result` string, with nothing
+/// structural to tell them apart (the transcript records only text, and a
+/// user's own rejection reason can be anything). `PendingPermissionDock`
+/// marks every denial with `rejectionPrefix` for exactly this reason — it is
+/// the one thing common to every rejection and no approval.
+enum PlanResolution {
+    /// The fixed marker every denial message starts with, so a rejection is
+    /// recognizable regardless of what the user typed as their reason.
+    private static let rejectionPrefix = "Rejected:"
+
+    /// The model-facing tool result for a rejection. `PendingPermissionDock`
+    /// builds every denial through this, so `isRejection`/`rejectionReason`
+    /// below have exactly one wire format to read back.
+    static func denialMessage(reason: String) -> String {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return rejectionPrefix }
+        return "\(rejectionPrefix) \(trimmed)"
+    }
+
+    /// Whether `resultText` reads as a rejection rather than an approval.
+    static func isRejection(_ resultText: String) -> Bool {
+        resultText.hasPrefix(rejectionPrefix)
+    }
+
+    /// The user's own reason, or nil when they left it blank.
+    static func rejectionReason(from resultText: String) -> String? {
+        guard isRejection(resultText) else { return nil }
+        let remainder = resultText
+            .dropFirst(rejectionPrefix.count)
+            .trimmingCharacters(in: .whitespaces)
+        return remainder.isEmpty ? nil : remainder
+    }
+}

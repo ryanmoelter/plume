@@ -62,6 +62,32 @@ struct PermissionAnswerStateTests {
     }
 }
 
+struct PlanResolutionTests {
+    @Test func aBlankReasonBuildsJustThePrefix() {
+        let message = PlanResolution.denialMessage(reason: "  ")
+        #expect(PlanResolution.isRejection(message))
+        #expect(PlanResolution.rejectionReason(from: message) == nil)
+    }
+
+    @Test func aTypedReasonRoundTripsThroughTheBuiltMessage() {
+        let message = PlanResolution.denialMessage(reason: "Too broad, scope it down")
+        #expect(PlanResolution.isRejection(message))
+        #expect(PlanResolution.rejectionReason(from: message) == "Too broad, scope it down")
+    }
+
+    /// A user's own reason is free text, so it can read like an approval
+    /// ("looks good, but...") without the shared prefix to key off.
+    @Test func aReasonThatSoundsLikeApprovalStillReadsAsARejection() {
+        let message = PlanResolution.denialMessage(reason: "Looks good, but hold off for now")
+        #expect(PlanResolution.isRejection(message))
+        #expect(PlanResolution.rejectionReason(from: message) == "Looks good, but hold off for now")
+    }
+
+    @Test func anApprovalResultIsNotARejection() {
+        #expect(!PlanResolution.isRejection("Plan approved. Continuing."))
+    }
+}
+
 @MainActor
 struct PermissionInputDetailsTests {
     @Test func theMostRelevantFieldsComeFirst() {
