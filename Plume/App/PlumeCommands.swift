@@ -18,9 +18,6 @@ struct TaskCommands {
     let archiveSelectedTask: () -> Void
     /// Nil when the selected tab has no stored session to discard.
     let startFreshSelectedTab: (() -> Void)?
-    /// Nil when the selected tab is not an agent tab, which has no chat to
-    /// show.
-    let toggleRenderMode: (() -> Void)?
 }
 
 struct TaskCommandsKey: FocusedValueKey {
@@ -97,10 +94,6 @@ struct PlumeCommands: Commands {
             }
 
             Divider()
-
-            Button("Toggle Chat / Terminal") { task?.toggleRenderMode?() }
-                .keyboardShortcut("/")
-                .disabled(task?.toggleRenderMode == nil)
 
             Button("Start Fresh Conversation…") { task?.startFreshSelectedTab?() }
                 .disabled(task?.startFreshSelectedTab == nil)

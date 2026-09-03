@@ -66,9 +66,6 @@ struct MainWindow: View {
                 },
                 startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
                     { tabPendingStartFresh = tab }
-                },
-                toggleRenderMode: selectedAgentTab(in: task).map { tab in
-                    { tab.renderMode = tab.renderMode == .chat ? .terminal : .chat }
                 }
             )
         })
@@ -99,10 +96,6 @@ struct MainWindow: View {
     private var selectedTask: WorkTask? {
         guard let selection else { return nil }
         return tasks.first { $0.id == selection }
-    }
-
-    private func selectedAgentTab(in task: WorkTask) -> TaskTab? {
-        task.orderedTabs.first { $0.id == task.selectedTabID && $0.kind == .agent }
     }
 
     private func tabWithResumableSession(in task: WorkTask) -> TaskTab? {

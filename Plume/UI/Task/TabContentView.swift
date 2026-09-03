@@ -44,49 +44,26 @@ struct TabContentView: View {
     }
 }
 
-/// An agent tab in both its renderings at once, showing whichever the tab's
-/// render mode selects.
-///
-/// Both stay mounted for the same reason every tab does: the terminal owns the
-/// PTY, so unmounting it to show the chat would kill the agent. A headless
-/// tab has no PTY at all, so it renders chat only and never touches
-/// `SurfaceManager`.
+/// An agent tab, showing whichever view its transport implies: a headless
+/// tab has no PTY and always renders chat; a terminal tab always renders the
+/// terminal.
 private struct AgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
-
-    private var showsChat: Bool {
-        tab.renderMode == .chat
-    }
 
     var body: some View {
         switch tab.transport {
         case .headless:
             HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible)
         case .terminal:
-            ZStack {
-                terminal
-                    .opacity(showsChat ? 0 : 1)
-                    .allowsHitTesting(isVisible && !showsChat)
-
-                if isVisible && showsChat {
-                    ChatTabView(task: task, tab: tab, isVisible: isVisible)
-                }
+            if let session = SurfaceManager.shared.existingSession(for: tab.id) {
+                TerminalTabView(session: session, isVisible: isVisible)
+            } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
+                AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
+            } else {
+                AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var terminal: some View {
-        if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-            // The chat drives focus while it is showing, so the terminal must
-            // not also claim it.
-            TerminalTabView(session: session, isVisible: isVisible && !showsChat)
-        } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-            AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
-        } else {
-            AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible && !showsChat)
         }
     }
 }

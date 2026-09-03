@@ -11,9 +11,6 @@ import SwiftUI
 /// `PLUME_CYCLE_SELECTION=<seconds>` then rotates the selection on that
 /// interval, so surface survival across task switches is observable from
 /// outside the app by watching the child processes.
-/// `PLUME_TOGGLE_RENDER_MODE=1` also flips agent tabs between chat and
-/// terminal on each cycle, which is how the toggle is shown not to disturb a
-/// running agent.
 @MainActor
 enum SmokeHarness {
     static func runIfRequested(context: ModelContext, selection: Binding<UUID?>) async {
@@ -113,24 +110,10 @@ enum SmokeHarness {
               let interval = Double(intervalValue), interval > 0
         else { return }
 
-        // PLUME_TOGGLE_RENDER_MODE flips every agent tab between chat and
-        // terminal on each cycle, so the PTYs can be watched from outside for
-        // proof that switching views never rebuilds a surface.
-        let togglesRenderMode = environment["PLUME_TOGGLE_RENDER_MODE"] != nil
-
         var index = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(interval))
             index += 1
-
-            if togglesRenderMode {
-                for task in tasks {
-                    for tab in task.tabs where tab.kind == .agent {
-                        tab.renderMode = tab.renderMode == .chat ? .terminal : .chat
-                    }
-                }
-                Log.app.info("Smoke harness toggled render mode (cycle \(index))")
-            }
 
             // Rotate the visible tab too, so hide/show is exercised alongside
             // task switching.

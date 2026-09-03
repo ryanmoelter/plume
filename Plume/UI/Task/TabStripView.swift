@@ -89,11 +89,6 @@ private struct TabChip: View {
         .onHover { isHovering = $0 }
         .contextMenu {
             if tab.kind == .agent {
-                if let renderModeAction = AgentTabMenu.renderModeAction(for: tab.transport, renderMode: tab.renderMode) {
-                    Button(renderModeAction == .showTerminal ? "Show Terminal" : "Show Chat") {
-                        tab.renderMode = renderModeAction == .showTerminal ? .terminal : .chat
-                    }
-                }
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {
                     isConfirmingTransportSwitch = true
                 }

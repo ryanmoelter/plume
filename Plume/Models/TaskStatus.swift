@@ -31,16 +31,9 @@ enum TabKind: String, CaseIterable, Sendable {
     case terminal
 }
 
-/// Which view an agent tab presents. Both stay mounted, so switching never
-/// touches the running process — see `TabContentView`.
-enum TabRenderMode: String, CaseIterable, Sendable {
-    case chat
-    case terminal
-}
-
-/// How an agent tab talks to `claude` — separate from `TabRenderMode`, which
-/// only picks how the tab is displayed. `headless` drives `claude -p` over
-/// stream-json; `terminal` keeps the PTY/TUI as the escape hatch.
+/// How an agent tab talks to `claude`. `headless` drives `claude -p` over
+/// stream-json and always renders as chat; `terminal` keeps the PTY/TUI as
+/// the escape hatch and always renders as a terminal.
 enum AgentTransport: String, CaseIterable, Sendable {
     case headless
     case terminal

@@ -9,8 +9,9 @@ final class TaskTab {
     var orderIndex: Int = 0
     var task: WorkTask?
 
-    /// Optional so a row written before this property existed migrates as NULL
-    /// rather than failing to materialize; `renderMode` supplies the default.
+    /// Tombstone: `TabRenderMode` was removed (transport alone now decides a
+    /// tab's view), but the stored property stays so lightweight migration
+    /// keeps working. Unused.
     var renderModeRaw: String?
 
     /// Optional for the same migration reason; `transport` defaults new and
@@ -36,13 +37,6 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
-    }
-
-    /// Only meaningful for an agent tab; a terminal tab has nothing to render
-    /// a chat from.
-    var renderMode: TabRenderMode {
-        get { renderModeRaw.flatMap(TabRenderMode.init(rawValue:)) ?? .chat }
-        set { renderModeRaw = newValue.rawValue }
     }
 
     /// Only meaningful for an agent tab. Nil means the tab predates this
