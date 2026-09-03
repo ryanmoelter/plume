@@ -167,34 +167,17 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 
 ### The statusline
 
-Quota, cost and context do arrive from stream events as intended, but the strip around them has bugs and needs a rethink. It is also horizontally squished, which is what made the rest hard to see.
+- [x] Fix the permission mode, model and effort controls, and the double chevron and mixed text scale around them.
+- [x] Give the strip bleed width and center it, with a compact meter for context and quota.
+- [x] Split session-wide facts (quota, cost, branch) in `StatuslineStripView` from what-the-next-message-does controls (permission mode, model, effort), which moved to a two-row `ChatComposer`: text on top, controls and send below.
 
-- [ ] The permission mode control doesn't work.
-- [ ] Changing effort posts a message into the chat but never updates the control.
-- [ ] Changing model appears to do nothing.
-- [ ] Model and effort each show two chevrons.
-- [ ] Settle one text scale for the whole row; the styles are inconsistent.
-- [ ] Give the strip bleed width and center it, so everything fits.
-- [ ] Find a more horizontally compact form for context and quota.
+`HeadlessSession` now owns `permissionMode`/`model`/`effort` as observable state, set optimistically when the host asks for a change and corrected from the stream (`system`/`init` for model and permission mode — there is no `set_effort` control request, so effort is never corrected, only ever what this host last sent). The strip and composer read this instead of the transcript, fixing the old bug where a control wrote through the session but displayed transcript state.
 
-**The interactive segments share one root cause: they send a change but display transcript state.** Every value in the strip — `model`, `effort`, `permissionMode` — is read from `transcript` (`ChatTabView.swift:73-77`), while the controls write through the session. So a segment only updates once the change has round-tripped into the transcript *and* been parsed back out, and shows nothing at all if it never does.
+Still open:
 
-Per item:
-
-- Permission mode is a click-to-cycle `Button`, not a dropdown (`StatuslineStripView.swift:168`), so it reads as a menu that never opens. `cyclePermissionModeHandler` derives the next mode from `transcript?.permissionMode`, so when the transcript reports nothing (or a mode `recognizing` doesn't offer, like `manual`) `currentIndex` falls back to `-1` and every click resolves to the same first mode. Make it a real dropdown, driven from session state.
-- Effort sends `/model`-style text through `submit(text:)` (`ChatTabView.swift:301`) — an ordinary user turn, which is why it appears as a chat message.
-- Model sends a real control request (`HeadlessSession.setModel`), so it may well be taking effect with no feedback. Two things to establish: whether the control request is accepted mid-conversation, and whether switching model mid-conversation is something we want to offer at all. Answer that before styling the control.
-- The double chevron is one drawn by `segmentLabel` (`StatuslineStripView.swift:233`) and one by `.menuStyle(.borderlessButton)`. Drop the hand-drawn one.
-
-For the compact form, a small bar under the label is the leading idea — `5d: 15%` over a `|----________|` track. Radial fills read as compact but make relative sizes hard to compare, which is most of what these numbers are for.
-
-**Bigger questions, worth settling before polishing the layout:**
-
-- [ ] Consider merging the strip with the directory/worktree/permission row above the composer. They already overlap: permission mode appears in both.
-- [ ] Consider moving the whole thing inside the composer box, if a compact form fits a narrow viewport.
-- [ ] Assume it becomes user-customizable eventually. Not a near-term item, but a useful lens for the decisions above — a segment that can be reordered or hidden has to be self-contained, which argues against special-casing any one of them.
-
-The merge-and-relocate question decides how much room the strip has, and the compact form depends on that. Do the chevron and text-style fixes whenever; hold the layout work until placement is settled.
+- [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
+- [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
+- [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
 
 ### Subagents
 
@@ -292,7 +275,7 @@ What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar a
 
 - [ ] One tab kind. "New Tab" opens a shell; when `claude` is running in it, the tab takes on agent chrome — no agent-vs-terminal prompt at creation.
 - [ ] Remove the unused title bar, or move something into it (task name? directory?).
-- [ ] Rebalance the chat chrome: put the titlebar's empty space to work, consolidate the statusline, and move some of it into the message box.
+- [ ] Rebalance the chat chrome: put the titlebar's empty space to work. The statusline/composer split (see "The statusline" below) already moved the next-message controls into the message box; what's left is the titlebar itself.
 - [ ] Drag a tab into another task.
 - [ ] Move a tab out into a new task of its own.
 
@@ -301,7 +284,7 @@ What exists:
 - Instrumentation can only be injected at launch — `--settings` and the `PLUME_*` env vars can't be attached to a `claude` the user started by hand. For a shell-first tab to keep reporting status and titles, Plume needs to set `PLUME_*` on every tab's shell, not just on agent tabs. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam is there.
 - The wrapper exposes `COMMAND_FINISHED` and `PROGRESS_REPORT` actions, and `TerminalViewState` publishes the command metadata — useful for detection.
 - `AppDelegate` already makes the titlebar transparent and tints it.
-- The chrome is unbalanced in both directions: the detail pane has no toolbar at all — only the sidebar declares one, so the titlebar is empty tinted space — while `StatuslineStripView` packs up to seven segments into one flat `HStack` (context, 5h, 7d, cost, branch, permission mode, model/effort). Some of those belong nearer the composer, since they describe what the *next* message will do rather than the session as a whole: permission mode, model and effort are all already interactive, and reading them at the point of sending is more useful than reading them above the transcript. The session-wide facts — quota, cost, branch — are the natural candidates for the titlebar. Two things to settle: a window-level toolbar shows the selected task's state, so it needs a decision about what it reads from when tabs disagree, and the strip's items are sized for `.caption` in a themed row, so moving them is a restyle rather than a reparent.
+- The detail pane has no toolbar at all — only the sidebar declares one, so the titlebar is empty tinted space. `StatuslineStripView` now carries only the session-wide facts (context, 5h, 7d, cost, branch); permission mode, model and effort moved to `ComposerControlsRow` in `ChatComposer`. Whether any of that still belongs in a window-level toolbar is open — such a toolbar shows the selected task's state, so it needs a decision about what it reads from when tabs disagree.
 - Moving a tab between tasks is mostly a data operation — reassign `TaskTab.task` and renumber `orderIndex`, both of which `TaskStore` already owns. The catch is the terminal: `SurfaceManager` is keyed by tab ID, not by task, so the surface itself should survive the move untouched. Don't tear it down and rebuild it, or the move kills a running agent. A tab whose working directory came from its old task also needs a decision — the process keeps its original cwd regardless of where the tab now lives.
 
 ## Shortcuts
