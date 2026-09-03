@@ -97,10 +97,10 @@ struct SidebarView: View {
             ),
             presenting: taskPendingDeletion
         ) { task in
-            Button("Delete Task and Remove Worktree", role: .destructive) {
+            Button(BetaBadge.menuTitle("Delete Task and Remove Worktree"), role: .destructive) {
                 deleteTask(task, removeWorktree: true, deleteBranch: false)
             }
-            Button("Delete Task, Remove Worktree and Branch", role: .destructive) {
+            Button(BetaBadge.menuTitle("Delete Task, Remove Worktree and Branch"), role: .destructive) {
                 deleteTask(task, removeWorktree: true, deleteBranch: true)
             }
             Button("Delete Task Only") {
@@ -108,7 +108,7 @@ struct SidebarView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { task in
-            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").")
+            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").\n\nBeta: worktree removal forces past a dirty tree, so uncommitted changes can be lost silently. This path hasn't been driven since it moved onto GitService.")
         }
         .alert("Could Not Remove Worktree", isPresented: Binding(
             get: { deletionError != nil },

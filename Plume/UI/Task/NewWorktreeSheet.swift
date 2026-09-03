@@ -17,7 +17,11 @@ struct NewWorktreeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Worktree").font(.headline)
+            HStack(spacing: 8) {
+                Text("New Worktree").font(.headline)
+                BetaBadge()
+                    .help("Worktree creation moved onto GitService and hasn't been driven since. Verify the result before relying on it.")
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Repository").font(.callout).foregroundStyle(.secondary)

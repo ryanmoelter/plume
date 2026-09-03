@@ -125,7 +125,7 @@ struct WorkspacePickerView: View {
                     Button(label(for: worktree)) { select(worktree) }
                 }
                 Divider()
-                Button("New Worktree…") { worktreeSheetShown = true }
+                Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
             } label: {
                 worktreeLabel
             }
