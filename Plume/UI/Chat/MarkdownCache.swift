@@ -53,9 +53,13 @@ enum MarkdownCache {
     }
 
     /// `inline(_:)` plus the inline-code treatment: the monospace face and a
-    /// tint, padded with thin spaces so the background extends past the
-    /// glyphs. Cached like the parse itself — the styling walks every run and
-    /// rewrites ranges, which is far too costly to redo on each render.
+    /// tinted background. Cached like the parse itself — the styling walks
+    /// every run and rewrites ranges, which is far too costly to redo on
+    /// each render.
+    ///
+    /// No padding is added around the code span: `AttributedString`'s flat
+    /// `backgroundColor` can't express real layout padding, and a padding
+    /// character would become part of the copied text.
     static func styledInline(
         _ text: String,
         fontSize: CGFloat,
@@ -66,19 +70,9 @@ enum MarkdownCache {
 
         var attributed = inline(text)
         let codeFont = Font.system(size: fontSize * 0.92, design: .monospaced)
-        // Reversed: inserting the padding shifts every later range.
-        for run in attributed.runs.reversed() where run.inlinePresentationIntent == .code {
+        for run in attributed.runs where run.inlinePresentationIntent == .code {
             attributed[run.range].font = codeFont
             attributed[run.range].backgroundColor = tint
-
-            // Same font and intent as the span, so the three fragments merge
-            // into one run and the tint paints as a single unbroken chip.
-            var padding = AttributedString("\u{2009}")
-            padding.font = codeFont
-            padding.backgroundColor = tint
-            padding.inlinePresentationIntent = .code
-            attributed.insert(padding, at: run.range.upperBound)
-            attributed.insert(padding, at: run.range.lowerBound)
         }
 
         if styledInlineCache.count >= limit { styledInlineCache.removeAll(keepingCapacity: true) }

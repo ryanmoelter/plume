@@ -94,6 +94,21 @@ struct MarkdownCacheTests {
         #expect(styled.runs.contains { $0.backgroundColor == nil }, "prose stays untinted")
     }
 
+    /// Copying an inline code span must yield exactly the source text — no
+    /// thin-space padding smuggled in around the chip, since that padding
+    /// would ride along into a pasted shell command.
+    @Test func styledInlineCodeCopiesExactlyWithNoThinSpaces() {
+        let styled = MarkdownCache.styledInline(
+            "Run `git status` now.",
+            fontSize: 16,
+            tint: .gray
+        )
+
+        let string = String(styled.characters)
+        #expect(string == "Run git status now.")
+        #expect(!string.unicodeScalars.contains(Unicode.Scalar(0x2009)!))
+    }
+
     /// The tint and size are part of the key, so a light/dark switch or a font
     /// change cannot serve chips built for the previous appearance.
     @Test func styledInlineKeysOnTintAndSize() {
