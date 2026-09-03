@@ -194,7 +194,7 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let autocompleteHandler, autocompleteHandler.isShowing {
+        if let autocompleteHandler, autocompleteHandler.isShowing, !event.modifierFlags.contains(.command) {
             switch event.keyCode {
             case 125 /* Down */:
                 autocompleteHandler.moveSelection(by: 1)
