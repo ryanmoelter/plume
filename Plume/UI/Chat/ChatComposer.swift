@@ -145,7 +145,7 @@ struct ChatComposer: View, ThemedView {
             .background(fieldBackground, in: .rect(cornerRadius: 6, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))
         }
-        .listItemPadding(bleed: true)
+        .listItemPadding()
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in

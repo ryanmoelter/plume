@@ -16,10 +16,11 @@ struct ComposerControlsRow: View, ThemedView {
 
     var body: some View {
         HStack(spacing: 12) {
+            Spacer(minLength: 0)
             if let headlessSession {
-                PermissionModeControl(session: headlessSession)
                 ModelControl(session: headlessSession)
                 EffortControl(session: headlessSession)
+                PermissionModeControl(session: headlessSession)
             }
         }
         .font(typography.caption.font)

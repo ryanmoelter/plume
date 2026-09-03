@@ -20,6 +20,9 @@ struct StatuslineStripView: View, ThemedView {
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
     let branch: String?
+    /// The worktree or directory work happens in, shown beside the branch —
+    /// together they say where, and neither is much use alone.
+    let workspaceName: String?
     /// Ahead/behind and dirty, which no transcript or stream event carries —
     /// Plume runs `git` for these itself.
     let gitState: GitState?
@@ -32,6 +35,7 @@ struct StatuslineStripView: View, ThemedView {
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         branch: String? = nil,
+        workspaceName: String? = nil,
         gitState: GitState? = nil,
         rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
@@ -39,6 +43,7 @@ struct StatuslineStripView: View, ThemedView {
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.branch = branch
+        self.workspaceName = workspaceName
         self.gitState = gitState
         self.rateLimit = rateLimit
         self.sessionCostUSD = sessionCostUSD
@@ -48,13 +53,26 @@ struct StatuslineStripView: View, ThemedView {
         HStack(spacing: 14) {
             contextSegment
             if let fiveHour = rateLimit?.fiveHour {
-                StatuslineMeterSegment(label: "5h", utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt)
+                StatuslineMeterSegment(
+                    label: "5h",
+                    utilization: fiveHour.utilization,
+                    resetsAt: fiveHour.resetsAt,
+                    barWidth: StatuslineMeterWidth.shortQuota
+                )
             }
             if let sevenDay = rateLimit?.sevenDay {
-                StatuslineMeterSegment(label: "7d", utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt)
+                StatuslineMeterSegment(
+                    label: "7d",
+                    utilization: sevenDay.utilization,
+                    resetsAt: sevenDay.resetsAt,
+                    barWidth: StatuslineMeterWidth.quota
+                )
             }
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
+            }
+            if let workspaceName, !workspaceName.isEmpty {
+                workspaceSegment(workspaceName)
             }
             if let branch, !branch.isEmpty {
                 branchSegment(branch)
@@ -79,10 +97,18 @@ struct StatuslineStripView: View, ThemedView {
             HStack(spacing: 5) {
                 Text(tokenLabel(used: contextUsedTokens, max: contextMaxTokens))
                 MeterView(fraction: StatuslineMeterMath.fraction(percent: percent), color: color(for: attention))
-                    .frame(width: 36)
+                    .frame(width: StatuslineMeterWidth.context)
             }
             .foregroundStyle(foreground(for: attention))
         }
+    }
+
+    private func workspaceSegment(_ name: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "folder")
+            Text(name)
+        }
+        .foregroundStyle(foreground(for: .neutral))
     }
 
     private func costSegment(_ cost: Double) -> some View {
@@ -155,6 +181,14 @@ struct StatuslineStripView: View, ThemedView {
     }
 }
 
+/// Bar lengths, longest first: the context window reads most precisely, the
+/// seven-day quota next, the five-hour quota least.
+enum StatuslineMeterWidth {
+    static let context: CGFloat = 56
+    static let quota: CGFloat = 36
+    static let shortQuota: CGFloat = 24
+}
+
 /// A quota window's compact meter: `5d` (the reset countdown, falling back to
 /// the raw window label) over a bar, with the percentage alongside it — the
 /// shape the roadmap asked for, `5d: 15%` over `|----________|`.
@@ -166,6 +200,10 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// once, here, rather than by each caller.
     let utilization: Double
     let resetsAt: Date?
+    /// Bar length carries how finely the number is worth reading. Context
+    /// deserves the most precision, then the seven-day window; the five-hour
+    /// quota moves fast enough that its exact percent matters least.
+    var barWidth: CGFloat = StatuslineMeterWidth.quota
 
     var body: some View {
         let percent = utilization * 100
@@ -173,7 +211,7 @@ struct StatuslineMeterSegment: View, ThemedView {
         HStack(spacing: 5) {
             Text(resetLabel)
             MeterView(fraction: StatuslineMeterMath.fraction(percent: percent), color: StatuslineColors.meter(for: attention, colors: colors))
-                .frame(width: 28)
+                .frame(width: barWidth)
             Text("\(Int(percent.rounded()))%")
         }
         .foregroundStyle(StatuslineColors.foreground(for: attention, colors: colors))
