@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Picks a past `claude` conversation for a tab to resume.
@@ -7,14 +8,25 @@ struct ResumeSessionSheet: View {
     let onSelect: (StoredSession) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// Every tab, to hide conversations another one already holds. Reading
+    /// the persisted IDs rather than the live sessions also covers a tab that
+    /// has not spawned its process yet.
+    @Query private var tabs: [TaskTab]
     @State private var sessions: [StoredSession]?
     @State private var query = ""
 
+    private var openSessionIDs: Set<String> {
+        Set(tabs.compactMap { $0.agentSessionID }.filter { !$0.isEmpty })
+    }
+
+    private var available: [StoredSession] {
+        ResumableSessions.excludingOpen(sessions ?? [], openSessionIDs: openSessionIDs)
+    }
+
     private var matches: [StoredSession] {
-        guard let sessions else { return [] }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return sessions }
-        return sessions.filter {
+        guard !trimmed.isEmpty else { return available }
+        return available.filter {
             $0.displayTitle.localizedCaseInsensitiveContains(trimmed)
                 || $0.workingDirectory.localizedCaseInsensitiveContains(trimmed)
         }
@@ -46,16 +58,27 @@ struct ResumeSessionSheet: View {
         }
     }
 
+    /// Distinguishes "there are none" from "they are all already open", so a
+    /// filtered-out conversation never just goes missing.
+    private var emptyMessage: String {
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "No conversations match “\(query)”."
+        }
+        if sessions?.isEmpty == false {
+            return "Every past conversation here is already open in a tab."
+        }
+        return "No past conversations in this folder."
+    }
+
     @ViewBuilder
     private var content: some View {
         if sessions == nil {
             centered { ProgressView() }
         } else if matches.isEmpty {
             centered {
-                Text(sessions?.isEmpty == true
-                    ? "No past conversations in this folder."
-                    : "No conversations match “\(query)”.")
+                Text(emptyMessage)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         } else {
             List(matches) { session in
@@ -79,10 +102,11 @@ struct ResumeSessionSheet: View {
                 Text(session.lastModified.formatted(.relative(presentation: .named)))
                 if isElsewhere(session) {
                     // Resuming runs in this tab's directory, not the one the
-                    // conversation was recorded in.
+                    // conversation was recorded in. The tree matches the
+                    // worktree chip in `WorkspacePickerView`.
                     Label(
                         (session.workingDirectory as NSString).lastPathComponent,
-                        systemImage: "arrow.turn.down.right"
+                        systemImage: "tree"
                     )
                     .help("Recorded in \(session.workingDirectory). Resuming runs it here instead.")
                 }

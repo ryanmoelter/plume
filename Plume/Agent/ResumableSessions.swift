@@ -36,6 +36,12 @@ nonisolated enum ResumableSessions {
         }.value
     }
 
+    /// Drops conversations a tab already holds — resuming one twice would
+    /// point two tabs at a single conversation, and `--resume` is not a fork.
+    static func excludingOpen(_ sessions: [StoredSession], openSessionIDs: Set<String>) -> [StoredSession] {
+        sessions.filter { !openSessionIDs.contains($0.sessionID) }
+    }
+
     private static func standardized(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }

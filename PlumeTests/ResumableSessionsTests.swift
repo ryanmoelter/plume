@@ -32,6 +32,39 @@ struct ResumableSessionsTests {
         #expect(directories.count == 1)
     }
 
+    // MARK: - Already open
+
+    private func session(_ id: String) -> StoredSession {
+        StoredSession(
+            sessionID: id,
+            transcriptPath: "/tmp/\(id).jsonl",
+            workingDirectory: "/tmp",
+            title: id,
+            firstUserMessage: nil,
+            lastModified: .now
+        )
+    }
+
+    /// Two tabs pointed at one conversation would both `--resume` it, and
+    /// `--resume` is not a fork.
+    @Test func aConversationOpenInATabIsNotOfferedAgain() {
+        let remaining = ResumableSessions.excludingOpen(
+            [session("a"), session("b"), session("c")],
+            openSessionIDs: ["b"]
+        )
+        #expect(remaining.map(\.sessionID) == ["a", "c"])
+    }
+
+    @Test func nothingOpenLeavesEveryConversationOffered() {
+        let all = [session("a"), session("b")]
+        #expect(ResumableSessions.excludingOpen(all, openSessionIDs: []).count == 2)
+    }
+
+    @Test func everythingOpenLeavesNothingToResume() {
+        let all = [session("a"), session("b")]
+        #expect(ResumableSessions.excludingOpen(all, openSessionIDs: ["a", "b"]).isEmpty)
+    }
+
     @Test func withoutARepositoryOnlyTheTabsDirectoryIsSearched() {
         let directories = ResumableSessions.searchDirectories(
             workingDirectory: "/Users/me/notes",
