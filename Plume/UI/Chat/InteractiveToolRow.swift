@@ -105,6 +105,13 @@ struct InteractiveToolRow: View, ThemedView {
         let index = QuestionPaging.clamped(questionIndex, count: questions.count)
         if questions.indices.contains(index) {
             let question = questions[index]
+            // Everything already decided, kept in view as a summary so the
+            // user can see their answers without paging back for them.
+            ForEach(Array(questions.enumerated()), id: \.element.id) { offset, earlier in
+                if offset != index, !answerState.selectedLabels(for: earlier).isEmpty {
+                    answeredSummary(earlier)
+                }
+            }
             VStack(alignment: .leading, spacing: 6) {
                 if questions.count > 1 {
                     pagingControls(current: index, count: questions.count)
@@ -131,19 +138,42 @@ struct InteractiveToolRow: View, ThemedView {
             }
         }
         if let answer {
+            let action = QuestionPrimaryAction.next(for: questions, in: answerState)
             HStack {
-                Button("Send answer") { answer(.questions(answerState.answers(for: questions))) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!answerState.isComplete(for: questions))
                 Spacer()
+                Button(action.label) {
+                    switch action {
+                    case .advance(let target): questionIndex = target
+                    case .send: answer(.questions(answerState.answers(for: questions)))
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(answerState.selectedLabels(for: questions[index]).isEmpty)
             }
             .font(typography.caption.font)
+            .chatTextColumn()
         } else if !isPending {
             Text("Answered")
                 .font(typography.caption.semibold)
                 .emphasis(.secondary)
                 .chatTextColumn()
         }
+    }
+
+    /// An answered question, once the user has moved past it: the question
+    /// and what they chose, rather than the whole card of options again.
+    private func answeredSummary(
+        _ question: InteractiveToolPayload.AskedQuestion
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(question.question)
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+            Text(answerState.selectedLabels(for: question).joined(separator: ", "))
+                .font(typography.caption.semibold)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .chatTextColumn()
     }
 
     private func pagingControls(current: Int, count: Int) -> some View {
@@ -163,8 +193,10 @@ struct InteractiveToolRow: View, ThemedView {
                 Image(systemName: "chevron.right")
             }
             .disabled(current == count - 1)
+            Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
+        .chatTextColumn()
     }
 
     @ViewBuilder

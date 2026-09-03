@@ -112,4 +112,42 @@ enum QuestionPaging {
         guard count > 0 else { return 0 }
         return min(max(0, current), count - 1)
     }
+
+    /// The first question with no answer yet, or nil once every one is
+    /// answered. Drives what the primary button does: move to the question
+    /// still waiting, or send.
+    static func firstUnanswered(
+        _ questions: [InteractiveToolPayload.AskedQuestion],
+        in state: PermissionAnswerState
+    ) -> Int? {
+        questions.firstIndex { state.selectedLabels(for: $0).isEmpty }
+    }
+}
+
+/// What the question card's primary button does right now.
+///
+/// One button rather than paging arrows plus a send: answering a question
+/// should carry the user forward on its own, and the arrows exist only to go
+/// back over something already answered.
+enum QuestionPrimaryAction: Equatable {
+    /// Move to the question at this index, which is still unanswered.
+    case advance(to: Int)
+    case send
+
+    static func next(
+        for questions: [InteractiveToolPayload.AskedQuestion],
+        in state: PermissionAnswerState
+    ) -> QuestionPrimaryAction {
+        guard let unanswered = QuestionPaging.firstUnanswered(questions, in: state) else {
+            return .send
+        }
+        return .advance(to: unanswered)
+    }
+
+    var label: String {
+        switch self {
+        case .advance: "Next question"
+        case .send: "Send answer"
+        }
+    }
 }

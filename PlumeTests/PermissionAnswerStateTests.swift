@@ -150,3 +150,57 @@ struct PermissionInputDetailsTests {
         #expect(fields.first?.value == "20")
     }
 }
+
+/// The one button that carries the user through a multi-question card:
+/// forward while anything is unanswered, send once nothing is.
+@MainActor
+struct QuestionPrimaryActionTests {
+    private func question(_ text: String) -> InteractiveToolPayload.AskedQuestion {
+        InteractiveToolPayload.AskedQuestion(
+            header: "",
+            question: text,
+            multiSelect: false,
+            options: [.init(label: "A", description: ""), .init(label: "B", description: "")]
+        )
+    }
+
+    @Test func advancesToTheFirstUnansweredQuestion() {
+        let questions = [question("One"), question("Two"), question("Three")]
+        var state = PermissionAnswerState()
+        state.toggle("A", for: questions[0])
+
+        #expect(QuestionPrimaryAction.next(for: questions, in: state) == .advance(to: 1))
+    }
+
+    /// Answering out of order sends the user back to the gap, not onward past
+    /// it — otherwise paging could leave a question silently unanswered.
+    @Test func advancesBackwardToAGapLeftEarlier() {
+        let questions = [question("One"), question("Two")]
+        var state = PermissionAnswerState()
+        state.toggle("A", for: questions[1])
+
+        #expect(QuestionPrimaryAction.next(for: questions, in: state) == .advance(to: 0))
+    }
+
+    @Test func sendsOnceEveryQuestionIsAnswered() {
+        let questions = [question("One"), question("Two")]
+        var state = PermissionAnswerState()
+        state.toggle("A", for: questions[0])
+        state.toggle("B", for: questions[1])
+
+        #expect(QuestionPrimaryAction.next(for: questions, in: state) == .send)
+    }
+
+    @Test func theLabelSaysWhichActionItIs() {
+        #expect(QuestionPrimaryAction.advance(to: 2).label == "Next question")
+        #expect(QuestionPrimaryAction.send.label == "Send answer")
+    }
+
+    @Test func aSingleAnsweredQuestionSendsRatherThanAdvancing() {
+        let questions = [question("Only")]
+        var state = PermissionAnswerState()
+        state.toggle("A", for: questions[0])
+
+        #expect(QuestionPrimaryAction.next(for: questions, in: state) == .send)
+    }
+}
