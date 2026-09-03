@@ -68,96 +68,61 @@ What exists:
 
 Make the chat experience nicer than the terminal.
 
-- [ ] Show subagents, their status and their transcripts. The list exists; the rest does not — see **Subagents** below.
-- [ ] Render mermaid diagrams in chat messages and in viewed files.
-
 The terminal stays the fallback. Polish what the native UI covers and skip the rest — that's what lets this ship in small pieces.
 
-### From driving the headless transport
+Every open item for the chat now lives under **Testing results** below, grouped by area — subagents and mermaid rendering included.
 
-Found by answering a real plan and a real question in the chat, rather than by reading the code. Grouped by what they touch.
+## Testing results
 
-**Directory trust.** Launching in an untrusted directory stalls on Claude Code's folder-trust prompt, which the headless transport never surfaces — the turn just hangs with nothing to look at.
+Everything below came from driving the app rather than reading it — the headless
+transport is the default for every new agent tab, and it shipped unexercised. The
+build was clean and 556 tests passed throughout, so none of this was visible
+without running it.
 
-- [ ] Don't fail in an untrusted directory. Detect it before launching and offer to resolve it, rather than hanging.
+Grouped by area, so a section is a coherent piece of work to pick up. A few
+sections share a file or a decision; where the order matters it is said so in
+the section itself.
 
-Trust is readable, so this needn't be guesswork: `~/.claude.json` holds `projects.<absolute path>.hasTrustDialogAccepted`, 46 of 47 entries true on this machine. Plume can check the tab's directory against that map before spawning and, when it's missing or false, say so and offer the fix — a terminal tab in that directory (where the real prompt *can* be answered) is the honest version, since writing the flag on the user's behalf silently grants the trust the prompt exists to ask for.
+### Chat scrolling
 
-**Permission mode. This one is a bug, not a preference.** `HeadlessCommand.swift:29` falls back to `.acceptEdits` when the task has no mode set, and `WorkTask.permissionModeRaw` starts nil — so a new agent tab *never* starts in plan mode, whatever the user's own CLI default is. The comment there explains the fallback exists because a `-p` session starts in Manual on every plan, which is a real constraint, but the chosen default silently overrides the user.
+Auto-follow is broken outright. One placement mistake causes both symptoms.
+
+- [ ] Follow a reply as it streams. It currently advances one tick and stops.
+- [ ] Make the jump-to-bottom arrow reach the actual bottom, not the bottom of the last message.
+
+**The bottom anchor is above the list's bottom padding.** `ChatMessageList` puts a 1pt `Color.clear` anchor as the last element *inside* the `VStack`, then applies `.padding(.bottom, bottomPadding)` to the VStack itself (`ChatMessageList.swift:102-107`) — so `dimensions.listBottomPadding`, which is `bodySize * 4.5` (`Dimensions.swift:43`), sits *below* the anchor and outside it. Every `proxy.scrollTo(bottomAnchorID, anchor: .bottom)` therefore lands short by that much: the arrow stops at the end of the text, and streaming settles one message-bottom short of the true bottom.
+
+Why it then stops following: the geometry action guards on `ChatScrollAnchor.reflectsUserScroll` and records `distanceFromBottom` off the *previous* content height. Coming to rest a fixed padding's distance from the bottom reads as a deliberate scroll-away, so the anchor latches detached and stops chasing. The threshold is 40pt and the padding is larger than that at any sane font size, which is why it happens every time rather than intermittently.
+
+Fix the anchor's placement first — move it below the padding, or move the padding inside the anchor's container — and re-check the follow behavior before touching the thresholds. Widening the tolerance would hide the symptom and leave the arrow still landing short. `ChatScrollAnchorTests` covers the arithmetic and passes; it never placed the anchor, which is why the suite stayed green through two rewrites of this code.
+
+### Launching an agent
 
 - [ ] Respect the user's own default permission mode instead of hardcoding `acceptEdits`.
+- [ ] Don't fail in an untrusted directory. Detect it before launching and offer to resolve it, rather than hanging.
 
-Settling what "their default" means is the first task: Claude Code's own resolution order, a Plume setting, or a per-task choice made at creation.
+**The permission mode is a bug, not a preference.** `HeadlessCommand.swift:29` falls back to `.acceptEdits` when the task has no mode set, and `WorkTask.permissionModeRaw` starts nil — so a new agent tab *never* starts in plan mode, whatever the user's own CLI default is. The comment there explains the fallback exists because a `-p` session starts in Manual on every plan, which is a real constraint, but the chosen default silently overrides the user. Settling what "their default" means is the first task: Claude Code's own resolution order, a Plume setting, or a per-task choice made at creation.
 
-**Questions.** `InteractiveToolRow` draws a question as header, text and labelled options.
+**Directory trust** is readable, so the second item needn't be guesswork: `~/.claude.json` holds `projects.<absolute path>.hasTrustDialogAccepted`, 46 of 47 entries true on this machine. Plume can check the tab's directory against that map before spawning and, when it's missing or false, say so and offer the fix. Launching without that check stalls on Claude Code's folder-trust prompt, which the headless transport never surfaces — the turn just hangs with nothing to look at. Offering a terminal tab in that directory (where the real prompt *can* be answered) is the honest fix; writing the flag on the user's behalf silently grants the trust the prompt exists to ask for.
 
-- [ ] Show one question at a time, with prev/next buttons.
-- [ ] Fix the type scale: question text and the main answer line are both body; the second answer line is caption.
-- [ ] Stop double-tinting the options. The question area and its options are two stacked backgrounds, and a blue focus ring around the box makes it three. Either hold the question area's tint and drop the options to the regular background, or make one of the two outline-only — a blue outline on the options instead of a grey fill is the candidate.
+### The plan overlay
 
-**Plans.** The markdown renderer and the approval area under it.
+Today the overlay never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — presenting a proposal for approval, and reviewing the plan once approved.
 
-- [ ] Stop padding inline code spans with space characters. `MarkdownCache.styledInline` inserts a real U+2009 thin space on each side of every span (`MarkdownCache.swift:76`), so the padding is part of the string: copying `foo` yields `\u{2009}foo\u{2009}`, and pasting it into a shell or an editor carries invisible characters that break the paste. Accurate copy matters more than the visual breathing room — if the chip has to hug the glyphs, let it. Only genuine layout padding (which `AttributedString`'s flat `backgroundColor` cannot express — see the note above on why these are square) is worth pursuing as a replacement, and not at the cost of the text.
-- [ ] Support tables. Currently unsupported on purpose (`MarkdownBlock.swift:10`) — a table degrades to a paragraph. They're an important visualization tool and the degradation is poor.
-- [ ] Syntax-highlight code blocks.
-- [ ] Give code blocks more padding inside their border.
-- [ ] Mermaid diagrams in the same renderer — already tracked above, and still the item that most needs its approach settled first.
-
-Approval area:
-
-- [ ] Hold it to content width, and give it more space above, away from the plan content.
+- [ ] Present a proposed plan in the overlay, with the approval options in it.
+- [ ] Inline, show only a row for the `ExitPlanMode` call — with a button to reopen the overlay while it is unanswered.
+- [ ] Hold the approval area to content width, and give it more space above, away from the plan content.
 - [ ] Offer better options than Approve/Reject:
   - **Approve** — also starts work right away, in auto mode when that's enabled.
   - **Approve + compact** — the same, but compacts first.
   - **Reject with an optional reason** — the feedback goes back for a retry.
   - The CLI's third option (reject with feedback, then auto-approve whatever plan comes back) is worth having, but its UX here is unsettled. One idea: alt+return while typing a rejection.
 
-**Minor.**
-
-- [ ] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
-- [ ] Make the composer content-width rather than bleed-width.
-- [ ] Distinguish a bash block's input from its result — they currently render alike.
-- [ ] Put real newlines in a bash input block.
-
-What exists:
-
-- `TranscriptParser` turns a transcript into `ChatMessage`s; `TranscriptStore` watches the file per tab and republishes, following `AgentTitleMonitor`'s pattern with a shorter debounce because this drives visible content. `SessionJSONLReader` still resolves paths and now also enumerates the subagent transcripts.
-- `MarkdownBlock` splits block structure by hand and inline-parses each paragraph with `AttributedString`, so there is no WebKit. Nested lists and tables are deliberately unsupported: a table degrades to a paragraph rather than being mangled.
-- Chat items size themselves rather than inheriting a column from the list. `ChatMetrics` derives both widths from the font — content at `fontSize * 40` for prose, bleed at `fontSize * 50` for code blocks and the plan panel — and `listItemPadding(bleed:column:vertical:)` applies one of them. The nesting runs outside-in: a message row takes bleed as an *invisible* container (`.unpadded`, clamping without a gutter) and the prose inside steps back to content as a visible one, so only the innermost item pays an inset and nothing doubles up. Padding sits inside the clamp, so a content item's text measures a true `maxContentWidth` rather than that minus its own gutter.
-- The user's bubble hugs its text instead of filling the column, capped at reading measure and hung off the bleed edge the code blocks use. The wash goes on the blocks themselves and the frames only position the result: bounded text wraps and reports the width it used, where a container in between would accept the full width on offer and make a two-word message as wide as a paragraph. `chatHugsContent` is what tells the blocks inside not to expand.
-- Prose rhythm scales with the font too: block spacing at `fontSize * 1.15`, extra line leading at `0.22`, and a heading's space-above tapering by level (H1 widest, H5 and H6 nothing) so it mirrors the heading font ladder. A heading opening a message gets no space above it, having nothing to separate from.
-- Inline code spans get the monospace face and the code block's tint, padded with thin spaces so the background reads as a chip rather than hugging the glyphs. Corners are square: `AttributedString` offers only a flat `backgroundColor`, and rounding would mean one view per span — losing paragraph-wide text selection and needing a custom wrapping layout. The styling is cached in `MarkdownCache.styledInline`, keyed by text, size *and* tint so a light/dark switch misses rather than serving the previous appearance's chips; uncached it measured ~57µs a paragraph, which the render loop turns into seconds.
-- `TranscriptParser` also surfaces the latest `planFilePath` from a session's `plan_mode`/`plan_mode_exit` attachment lines. When that path exists on disk, `ChatTabView` shows a "Plan" button that opens `MarkdownFileView` in a sheet — a file-backed, live-updating `MarkdownFileStore` reads the same `MarkdownView` renderer chat messages use, so it isn't hardcoded to plans.
-- The composer sends with ⌘↩ — plain ↩ inserts a newline, so a half-typed message is never lost. It reaches the agent through `TerminalSession.submit(text:)`, which pastes and then presses Enter as two operations. **A trailing `\r` in pasted text does not submit**: the wrapper's text path is a paste, and bracketed paste leaves the carriage return in the edit line.
-- A draft survives leaving the tab. `DraftStore` holds the unsent composer text of every tab in memory, keyed by tab ID, because a chat tab's view unmounts whenever it stops being selected and view state goes with it. `TaskStore` forgets a tab's draft when the tab or its task is deleted. This is a draft, not a queue — see the queued-messages note below.
-- The chat follows a reply as it grows, not just as new messages arrive. `ChatScrollAnchor` keeps the decisions pure and testable: within 40pt of the bottom still counts as at the bottom, and growth of the *same* message pulls the view down only if the distance measured **before** the growth was inside that tolerance. Scroll away and new content stops chasing you, and a glass jump-back button appears once you are past `detachedThreshold`.
-- Permission mode is settable before launch and cyclable during a session. `WorkspacePickerView` has a chip writing `WorkTask.permissionMode`, which `ClaudeCodeProvider` turns into `--permission-mode`; mid-session the statusline strip shows the mode and clicking it calls `TerminalSession.cyclePermissionMode()`, which sends Shift+Tab. That is a *step*, not a setter — the CLI offers no way to set a mode outright once running, so the strip advances by one and reads back where the session landed. `PermissionMode` deliberately omits `manual` and `dontAsk`, so a session in one of those shows its reported string rather than a wrong selection, and `bypassPermissions` shows red.
-- **Quota and cost come from the headless stream.** `rate_limit_event` and each turn's `total_cost_usd` land on `HeadlessSession`, and the strip reads them from there — no capture, and no writes to `~/.claude/settings.json`. A terminal-transport tab has no headless session, so its strip shows context use, model, effort and branch alone, all transcript-derived.
-
-Left for later:
-
-- Mermaid has no renderer yet. `MarkdownBlock` already isolates fenced code blocks, so a `mermaid` fence is easy to *detect* — drawing it is the work. Worth deciding early whether that means WebKit (mermaid.js is JavaScript, and a `WKWebView` per diagram is the quick path but reintroduces the browser this renderer deliberately avoids) or native drawing of a useful subset. Until one exists, a mermaid fence should keep degrading to readable source the way an unsupported table already degrades to a paragraph.
-
-### More from driving plans
-
-**Two bugs in the same place, both from `ToolCallRow` drawing a plan it can't answer.**
-
-- [ ] A rejected plan briefly says "Approve or reject in the terminal."
-
-`InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
-
-**The plan overlay does both jobs.** Today it never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — a proposed plan opens the overlay, and the overlay is where it gets approved.
-
-- [ ] Present a proposed plan in the overlay, with the approval options in it.
-- [ ] Inline, show only a row for the `ExitPlanMode` call — with a button to reopen the overlay while it is unanswered.
-
-The overlay then has two roles, before and after the decision: approving the plan on the table, and reviewing the plan already approved. That also gives the approval controls somewhere with room, which the inline row does not have.
-
-The two content sources turn out to be one, so this needs no reconciliation: an `ExitPlanMode` input carries **both** `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. **The overlay always reads the file** — that file is what is being proposed — so it keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
+**The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
 
 **Interrupting the reader is fine**, as long as the overlay can be minimized — which it already can (`PlanPresentation.minimized` docks it as a bar above the composer). So a proposal expands over the conversation and the user dismisses it if they were mid-thought; no special quiet-arrival case is needed.
 
-**The overlay's footer has three states**, driven by where the plan stands rather than by how the overlay was opened:
+**The footer has three states**, driven by where the plan stands rather than by how the overlay was opened:
 
 | State | Footer |
 |---|---|
@@ -167,75 +132,102 @@ The two content sources turn out to be one, so this needs no reconciliation: an 
 
 "Not approved yet" deliberately covers both of the third state's situations — never proposed, and proposed then rejected — because the plan may have been rewritten since the rejection, so saying anything about that rejection risks describing a document that no longer exists. It speaks only to the state that is still true.
 
-One thing to get right when picking this up: a plan file exists *before* it is ever proposed. `TranscriptParser` records `planFilePath` from a `plan_mode` line as well as `plan_mode_exit` (`TranscriptEntry.swift:238`), so the agent writing a plan is enough to make it viewable. That is the same third state, and it means the footer cannot be derived from the file's existence — it needs the state of the most recent `ExitPlanMode` call and its answer.
+One thing to get right: a plan file exists *before* it is ever proposed. `TranscriptParser` records `planFilePath` from a `plan_mode` line as well as `plan_mode_exit` (`TranscriptEntry.swift:238`), so the agent writing a plan is enough to make it viewable. That is the same third state, and it means the footer cannot be derived from the file's existence — it needs the state of the most recent `ExitPlanMode` call and its answer.
 
-### Queued messages
+### Interactive rows: plans and questions
 
-Driven and working: messages list while the agent is busy, each is removable, and they drain in order when the turn ends. What's left is polish on getting one back to edit it.
+- [ ] A rejected plan briefly says "Approve or reject in the terminal."
+- [ ] Show one question at a time, with prev/next buttons.
+- [ ] Fix the type scale: question text and the main answer line are both body; the second answer line is caption.
+- [ ] Stop double-tinting the question options. The question area and its options are two stacked backgrounds, and a blue focus ring around the box makes it three. Either hold the question area's tint and drop the options to the regular background, or make one of the two outline-only — a blue outline on the options instead of a grey fill is the candidate.
 
-- [ ] An edit icon beside the queued message's ✕. It cancels the message and moves its text into the composer.
-- [ ] ↑ from an empty composer does the same, taking the last queued message. The composer hint becomes "Press ↑ to edit a queued message" while a queue exists.
+**The stale hint is a real bug, and the overlay work above retires half of it.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
 
-Both are one operation — remove from the queue, put the text in the composer — so build it once and give it two triggers. `HeadlessSession.removeQueuedMessage(at:)` already exists and returns nothing; the edit path needs the text it removed.
+### The markdown renderer
 
-The keyboard half has room to land cleanly. `MarkdownComposerTextView.keyDown` already intercepts key code 126 (Up), but only while the slash-command list is showing (`MarkdownComposerTextView.swift:196-217`), and that interception returns early — so an Up with no autocomplete open falls straight through to `super`. The new case belongs after that block, gated on an empty composer so ↑ still moves the caret in a half-typed message. Repeated ↑ walking further back through the queue is the obvious extension, and worth deciding on up front: it is the shell-history behavior the key implies, and building the first one without it tends to hardcode "the last message" in a way that resists the second.
+Shared by the chat, the plan overlay and the file viewer, so none of these are plan-specific.
 
-### Statusline
+- [ ] Stop padding inline code spans with space characters. `MarkdownCache.styledInline` inserts a real U+2009 thin space on each side of every span (`MarkdownCache.swift:76`), so the padding is part of the string: copying `foo` yields `\u{2009}foo\u{2009}`, and pasting it into a shell or an editor carries invisible characters that break the paste. Accurate copy matters more than the visual breathing room — if the chip has to hug the glyphs, let it. Only genuine layout padding (which `AttributedString`'s flat `backgroundColor` cannot express) is worth pursuing as a replacement, and not at the cost of the text.
+- [ ] Support tables. Currently unsupported on purpose (`MarkdownBlock.swift:10`) — a table degrades to a paragraph. They're an important visualization tool and the degradation is poor.
+- [ ] Syntax-highlight code blocks.
+- [ ] Give code blocks more padding inside their border.
+- [ ] Distinguish a bash block's input from its result — they currently render alike.
+- [ ] Put real newlines in a bash input block.
+- [ ] Mermaid diagrams in the same renderer — the item that most needs its approach settled first, WebKit or a native subset. Tables raise the same question, so decide them together.
 
-Driven on a headless tab. Quota, cost and context do arrive from stream events as intended, but the strip around them has bugs and needs a rethink. It is also horizontally squished, which is what made the rest hard to see.
+### The composer
 
-**Bugs. The interactive segments share one root cause: they send a change but display transcript state.** Every value in the strip — `model`, `effort`, `permissionMode` — is read from `transcript` (`ChatTabView.swift:73-77`), while the controls write through the session. So a segment only updates once the change has round-tripped into the transcript *and* been parsed back out, and shows nothing at all if it never does.
+- [ ] An edit icon beside a queued message's ✕. It cancels the message and moves its text into the composer.
+- [ ] ↑ from an empty composer does the same, taking the last queued message. The hint becomes "Press ↑ to edit a queued message" while a queue exists.
+- [ ] Scroll the slash-command list to follow the selection. Arrow keys currently move it outside the visible rows, so the selection disappears rather than the list following it.
+- [ ] Put the caret at the end of an accepted slash command. It fills the text but leaves the caret where it was.
+- [ ] Show in the composer that a slash command is recognized — turn the token blue, or similar. Nothing distinguishes a real command from a typo until you send it.
+- [ ] Let ⌘↩ send while the slash-command list is showing.
+- [ ] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
+- [ ] Make the composer content-width rather than bleed-width.
 
-- [ ] The permission mode control doesn't work. It is a click-to-cycle `Button`, not a dropdown (`StatuslineStripView.swift:168`) — so it reads as a menu that never opens. `cyclePermissionModeHandler` derives the next mode from `transcript?.permissionMode`, so when the transcript reports nothing (or a mode `recognizing` doesn't offer, like `manual`) `currentIndex` falls back to `-1` and every click resolves to the same first mode. Make it a real dropdown, and drive it from session state.
-- [ ] Changing effort posts a message into the chat but never updates the control. `effortSelectionHandler` sends `/model`-style text through `submit(text:)` (`ChatTabView.swift:301`) — an ordinary user turn, which is why it appears as a chat message. The displayed value only catches up if the transcript reports the new effort.
-- [ ] Changing model appears to do nothing. Unlike effort, this one sends a real control request (`HeadlessSession.setModel`, `StreamJSONEncoder.setModel`) — so it may well be taking effect with no feedback, since the label still comes from the transcript. Two things to establish: whether the control request is accepted mid-conversation, and whether switching model mid-conversation is something we want to offer at all. Answer that before styling the control.
-- [ ] Model and effort each show two chevrons — one drawn by `segmentLabel` (`StatuslineStripView.swift:233`) and one by `.menuStyle(.borderlessButton)`. Drop the hand-drawn one.
-- [ ] Text styles across the strip are inconsistent. Settle one scale for the whole row.
+Queued messages otherwise work: they list while the agent is busy, each is removable, and they drain in order when the turn ends. The two edit items are one operation — remove from the queue, put the text in the composer — so build it once and give it two triggers. `HeadlessSession.removeQueuedMessage(at:)` already exists and returns nothing; the edit path needs the text it removed.
 
-**Layout.**
+The keyboard items have room to land cleanly. `MarkdownComposerTextView.keyDown` already intercepts key code 126 (Up), but only while the slash-command list is showing (`MarkdownComposerTextView.swift:196-217`), and that interception returns early — so an Up with no autocomplete open falls straight through to `super`. The new case belongs after that block, gated on an empty composer so ↑ still moves the caret in a half-typed message. Repeated ↑ walking further back through the queue is worth deciding up front: it is the shell-history behavior the key implies, and building the first one without it tends to hardcode "the last message" in a way that resists the second.
 
+⌘↩ fails for a nearby reason: `keyDown` intercepts Return whenever `autocompleteHandler.isShowing`, before any modifier is examined, so ⌘↩ accepts the selection instead of sending. Check for the command modifier ahead of that block — the send path below it already distinguishes ⌘↩ from plain ↩. For the recognized-command styling, `MarkdownComposerStyler` already styles the composer's text and has an `inlineCode` case to follow (`MarkdownComposerStyler.swift:42`), and the recognized set is `headlessSession?.slashCommands`, which the matcher already reads.
+
+### The statusline
+
+Quota, cost and context do arrive from stream events as intended, but the strip around them has bugs and needs a rethink. It is also horizontally squished, which is what made the rest hard to see.
+
+- [ ] The permission mode control doesn't work.
+- [ ] Changing effort posts a message into the chat but never updates the control.
+- [ ] Changing model appears to do nothing.
+- [ ] Model and effort each show two chevrons.
+- [ ] Settle one text scale for the whole row; the styles are inconsistent.
 - [ ] Give the strip bleed width and center it, so everything fits.
-- [ ] Find a more horizontally compact form for context and quota. A small bar under the label is the leading idea — `5d: 15%` over a `|----________|` track. Radial fills read as compact but make relative sizes hard to compare, which is most of what these numbers are for.
+- [ ] Find a more horizontally compact form for context and quota.
 
-**Bigger questions, worth settling before polishing the above.**
+**The interactive segments share one root cause: they send a change but display transcript state.** Every value in the strip — `model`, `effort`, `permissionMode` — is read from `transcript` (`ChatTabView.swift:73-77`), while the controls write through the session. So a segment only updates once the change has round-tripped into the transcript *and* been parsed back out, and shows nothing at all if it never does.
+
+Per item:
+
+- Permission mode is a click-to-cycle `Button`, not a dropdown (`StatuslineStripView.swift:168`), so it reads as a menu that never opens. `cyclePermissionModeHandler` derives the next mode from `transcript?.permissionMode`, so when the transcript reports nothing (or a mode `recognizing` doesn't offer, like `manual`) `currentIndex` falls back to `-1` and every click resolves to the same first mode. Make it a real dropdown, driven from session state.
+- Effort sends `/model`-style text through `submit(text:)` (`ChatTabView.swift:301`) — an ordinary user turn, which is why it appears as a chat message.
+- Model sends a real control request (`HeadlessSession.setModel`), so it may well be taking effect with no feedback. Two things to establish: whether the control request is accepted mid-conversation, and whether switching model mid-conversation is something we want to offer at all. Answer that before styling the control.
+- The double chevron is one drawn by `segmentLabel` (`StatuslineStripView.swift:233`) and one by `.menuStyle(.borderlessButton)`. Drop the hand-drawn one.
+
+For the compact form, a small bar under the label is the leading idea — `5d: 15%` over a `|----________|` track. Radial fills read as compact but make relative sizes hard to compare, which is most of what these numbers are for.
+
+**Bigger questions, worth settling before polishing the layout:**
 
 - [ ] Consider merging the strip with the directory/worktree/permission row above the composer. They already overlap: permission mode appears in both.
 - [ ] Consider moving the whole thing inside the composer box, if a compact form fits a narrow viewport.
 - [ ] Assume it becomes user-customizable eventually. Not a near-term item, but a useful lens for the decisions above — a segment that can be reordered or hidden has to be self-contained, which argues against special-casing any one of them.
 
-There is a real ordering here: the merge-and-relocate question decides how much room the strip has, and the compact form depends on that. Do the chevron and text-style fixes whenever; hold the layout work until the placement is settled.
+The merge-and-relocate question decides how much room the strip has, and the compact form depends on that. Do the chevron and text-style fixes whenever; hold the layout work until placement is settled.
+
+### Subagents
+
+Was marked done and is not: the old checkbox covered the *list*, while the status half never worked. Driven now, and it is well short of useful. Parallel subagents are the case Plume exists to make legible, so this deserves to be a real view rather than a patched-up disclosure row.
+
+- [ ] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
+- [ ] Show each one's live status — working, waiting for input, done, failed.
+- [ ] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
+
+Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:59`) — over a one-line tail of the last message. `SubagentTranscript` carries only `id`, `transcript` and `modifiedAt` (`TranscriptStore.swift:6-10`), so neither a task description nor a status has anywhere to live yet; both want adding there. The description is recoverable: a subagent is spawned by a `Task`/`Agent` tool call in the parent transcript, whose input carries the prompt and a short description, and the transcript parser already reads those calls.
+
+- **Status is hardcoded, not merely wrong.** `ChatMessageRow(message:, isLast: false, status: .unset)` (`SubagentListView.swift:53`) passes both constants, and `ChatMessageRow` gates its working spinner and needs-input indicator on `isLast && status == …` — so neither can ever fire, whatever the subagent is doing.
+- **Freshness would still lag once status is wired.** A subagent's own writes don't trigger the main transcript's watcher, so the list refreshes only when the *main* transcript changes. `SessionJSONLReader` already enumerates the subagent transcripts, so what's missing is a watcher per file, not discovery.
+- **Presentation.** A nested `DisclosureGroup` inside the chat list is a cramped place to read a whole conversation. Worth weighing against the alternatives — a sheet like the plan overlay, or a pane — especially once several subagents run at once, which is the situation that motivates the feature.
 
 ### Drop the chat view on terminal-transport tabs
 
 - [ ] Remove `TabRenderMode`. A terminal tab shows the TUI; a headless tab shows the chat. The transport is the choice.
 
-Yes, a terminal tab has a pretty mode today, and it is the **default**: `TaskTab.renderMode` defaults to `.chat` (`TaskTab.swift:44`), and `TabContentView` keeps both views mounted in a `ZStack`, toggling opacity (`TabContentView.swift:60-75`). A headless tab is already chat-only — `AgentTabMenu.renderModeAction` returns nil for it (`AgentTabMenu.swift:20`) — so the axis only does anything on the terminal transport.
+A terminal tab has a pretty mode today, and it is the **default**: `TaskTab.renderMode` defaults to `.chat` (`TaskTab.swift:44`), and `TabContentView` keeps both views mounted in a `ZStack`, toggling opacity (`TabContentView.swift:60-75`). A headless tab is already chat-only — `AgentTabMenu.renderModeAction` returns nil for it (`AgentTabMenu.swift:20`) — so the axis only does anything on the terminal transport.
 
-Removing it is the right call for the reason given: the chat would otherwise have to read from two sources forever. It already does, and the seams show. `ChatTabView` falls back from `headlessSession?.contextUsedTokens` to `transcript.latestUsage?.inputTokens`; the statusline bugs above come from displaying transcript state while writing session state; and the interactive rows still carry an "answer in the terminal" path that exists only for this case. Every one of those either disappears or gets simpler.
+Removing it avoids the chat reading from two sources forever. It already does, and the seams show: `ChatTabView` falls back from `headlessSession?.contextUsedTokens` to `transcript.latestUsage?.inputTokens`; the statusline bugs above come from displaying transcript state while writing session state; and the interactive rows still carry an "answer in the terminal" path that exists only for this case. Every one of those either disappears or gets simpler.
 
-What it touches: `TabRenderMode` and `TaskTab.renderModeRaw`, `AgentTabMenu.renderModeAction` and its tests, the `ZStack` in `TabContentView`, the "Show Terminal / Show Chat" menu item (`TabStripView.swift:92`), the ⌘/ command (`PlumeCommands.swift:101`, `MainWindow.swift:70`), and `SmokeHarness`'s `PLUME_TOGGLE_RENDER_MODE`. The persisted property stays as a tombstone or gets a migration; everything else deletes. Worth doing before the statusline rework, which would otherwise be built to satisfy both sources.
+What it touches: `TabRenderMode` and `TaskTab.renderModeRaw`, `AgentTabMenu.renderModeAction` and its tests, the `ZStack` in `TabContentView`, the "Show Terminal / Show Chat" menu item (`TabStripView.swift:92`), the ⌘/ command (`PlumeCommands.swift:101`, `MainWindow.swift:70`), and `SmokeHarness`'s `PLUME_TOGGLE_RENDER_MODE`. The persisted property stays as a tombstone or gets a migration; everything else deletes.
 
-### Slash command autocomplete
-
-Driven and mostly working — the list appears, filters, and accepting rewrites the leading token. Four fixes:
-
-- [ ] Scroll the list to follow the selection. Arrow keys currently move it outside the visible rows (`SlashCommandAutocompleteView`), so the selection disappears rather than the list following it.
-- [ ] Put the caret at the end of the inserted command. Accepting fills the text but leaves the caret where it was.
-- [ ] Show in the composer that a command is recognized — turn the token blue, or similar. Nothing currently distinguishes a real command from a typo until you send it. `MarkdownComposerStyler` already styles the composer's text and has an `inlineCode` case to follow (`MarkdownComposerStyler.swift:42`), and the recognized set is `headlessSession?.slashCommands`, which the matcher already reads.
-- [ ] Let ⌘↩ send while the list is showing. `MarkdownComposerTextView.keyDown` intercepts Return whenever `autocompleteHandler.isShowing`, before any modifier is examined (`MarkdownComposerTextView.swift:196-217`), so ⌘↩ accepts the selection instead of sending. The fix is to check for the command modifier ahead of that block — the send path below it already distinguishes ⌘↩ from plain ↩.
-
-### Chat scrolling
-
-Driven for the first time. Auto-follow is broken, and both symptoms come from one placement mistake.
-
-- [ ] Follow a reply as it streams. It currently advances one tick and stops.
-- [ ] Make the jump-to-bottom arrow reach the actual bottom, not the bottom of the last message.
-
-**The bottom anchor is above the list's bottom padding.** `ChatMessageList` puts a 1pt `Color.clear` anchor as the last element *inside* the `VStack`, then applies `.padding(.bottom, bottomPadding)` to the VStack itself (`ChatMessageList.swift:102-107`) — so `dimensions.listBottomPadding`, which is `bodySize * 4.5` (`Dimensions.swift:43`), sits *below* the anchor and outside it. Every `proxy.scrollTo(bottomAnchorID, anchor: .bottom)` therefore lands short by that much, which is exactly what both reports describe: the arrow stops at the end of the text, and streaming settles one message-bottom short of the true bottom.
-
-Why it then stops following: the geometry action guards on `ChatScrollAnchor.reflectsUserScroll` and records `distanceFromBottom` off the *previous* content height. Coming to rest a fixed padding's distance from the bottom reads as a deliberate scroll-away, so the anchor latches detached and stops chasing. The threshold is 40pt and the padding is larger than that at any sane font size, which is why it happens every time rather than intermittently.
-
-Fix the anchor's placement first — move it below the padding, or move the padding inside the anchor's container — and re-check the follow behavior before touching the thresholds. `ChatScrollAnchorTests` covers the arithmetic and passes; it never placed the anchor, which is why the suite stayed green through two rewrites of this code.
+**Do this before the statusline rework**, which would otherwise be built to satisfy both sources.
 
 ### Mark worktrees as work in progress
 
@@ -247,31 +239,7 @@ Where it needs to show: the "New Worktree…" button (`WorkspacePickerView.swift
 
 Settle one marker and use it everywhere, since this will not be the last unfinished feature to ship visible. A "Beta" chip beside a label is the cheap version; a tooltip saying what specifically is unverified is the useful one.
 
-**Still unverified, and worth stating plainly in the marker or alongside it:** creating a worktree, removing one, and the failure path where git refuses and the task must survive with an error shown (`SidebarView.swift:141-145`). Note that `WorkspaceProvisioner.removeWorktree` passes `--force`, so ordinary "dirty tree" refusals never reach that handler — reproducing it needs `git worktree lock` or an already-removed path.
-
-### Subagents
-
-Was marked done and is not: the checkbox above covered the *list*, while the status half never worked. Three notes elsewhere in this document already admit pieces of it, which is how it stayed checked off. Driven now, and it is well short of useful.
-
-Parallel subagents are the case Plume exists to make legible, so this deserves to be a real view rather than a patched-up disclosure row.
-
-- [ ] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
-- [ ] Show each one's live status — working, waiting for input, done, failed.
-- [ ] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
-
-Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:59`) — over a one-line tail of the last message. `SubagentTranscript` carries only `id`, `transcript` and `modifiedAt` (`TranscriptStore.swift:6-10`), so neither a task description nor a status has anywhere to live yet; both want adding there. The description is recoverable: a subagent is spawned by a `Task`/`Agent` tool call in the parent transcript, whose input carries the prompt and a short description, and the transcript parser already reads those calls.
-
-Three specifics behind the items above:
-
-- **Status is hardcoded, not merely wrong.** `ChatMessageRow(message:, isLast: false, status: .unset)` (`SubagentListView.swift:53`) passes both constants, and `ChatMessageRow` gates its working spinner and needs-input indicator on `isLast && status == …` — so neither can ever fire, whatever the subagent is doing.
-- **Freshness would still lag once status is wired.** A subagent's own writes don't trigger the main transcript's watcher, so the list refreshes only when the *main* transcript changes. `SessionJSONLReader` already enumerates the subagent transcripts, so what's missing is a watcher per file, not discovery.
-- **Presentation.** A nested `DisclosureGroup` inside the chat list is a cramped place to read a whole conversation. Worth weighing against the alternatives — a sheet like the plan overlay, or a pane — especially once several subagents run at once, which is the situation that motivates the feature.
-
-`SubagentListView` hardcodes both status arguments: `ChatMessageRow(message: message, isLast: false, status: .unset)` (`SubagentListView.swift:53`). Since `ChatMessageRow` gates its working spinner on `isLast && status == .working` and its needs-input indicator on the same pair, a running subagent can never show either — the two arguments that would drive them are constants. Fixing it means `SubagentTranscript` carrying a status, or `SubagentListView` deriving one, plus a real `isLast` for the newest row.
-
-Freshness is the second half, and it is why a status would still lag once wired: a subagent's own writes don't trigger the main transcript's watcher, so the list only updates when the *main* transcript happens to change. `SessionJSONLReader` already enumerates the subagent transcripts, so the watcher is the missing piece rather than the discovery.
-
-Worth deciding how much of the chat's own rendering a subagent row should get, rather than fixing the status flag alone — the row is the same `ChatMessageRow`, so most of the gap is arguments and freshness rather than a separate renderer.
+Still unverified: creating a worktree, removing one, and the failure path where git refuses and the task must survive with an error shown (`SidebarView.swift:141-145`). Note that `WorkspaceProvisioner.removeWorktree` passes `--force`, so ordinary "dirty tree" refusals never reach that handler — reproducing it needs `git worktree lock` or an already-removed path.
 
 ## Running inside Plume
 
