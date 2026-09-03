@@ -12,14 +12,20 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     let onSelect: (Int) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(commands.enumerated()), id: \.element.id) { index, command in
-                    row(command, isSelected: index == selectedIndex)
-                        .onTapGesture { onSelect(index) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(commands.enumerated()), id: \.element.id) { index, command in
+                        row(command, isSelected: index == selectedIndex)
+                            .id(index)
+                            .onTapGesture { onSelect(index) }
+                    }
                 }
+                .padding(4)
             }
-            .padding(4)
+            .onChange(of: selectedIndex, initial: true) { _, newValue in
+                proxy.scrollTo(newValue)
+            }
         }
         .frame(maxHeight: 200)
         .background(washColor, in: .rect(cornerRadius: 8))
