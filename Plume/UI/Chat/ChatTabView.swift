@@ -12,6 +12,12 @@ struct ChatTabView: View, ThemedView {
     @Environment(\.modelContext) private var modelContext
     @State private var settings = AppSettings.shared
     @State private var planPresentation = PlanPresentation.closed
+    /// The last plan proposal the user answered here, so the footer can say
+    /// where it landed once the live request is gone. Nil until they answer
+    /// one in this tab — a plan approved before the app launched reads as
+    /// "not approved yet" rather than claiming an approval we never saw.
+    @State private var settledPlan: PlanApprovalState.Proposal?
+    @State private var planRejectionReason = ""
     @State private var resumeSheetShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
 
@@ -30,6 +36,24 @@ struct ChatTabView: View, ThemedView {
     private var planFilePath: String? {
         guard let path = transcript?.planFilePath else { return nil }
         return PlanFileExistence.exists(path) ? path : nil
+    }
+
+    /// The live `ExitPlanMode` request, when the agent is waiting on one.
+    private var pendingPlan: PendingPermission? {
+        headlessSession?.pendingPermissions.first { permission in
+            if case .plan = permission.interactive { return true }
+            return false
+        }
+    }
+
+    /// Where the plan stands, for the overlay's footer. A live request
+    /// outranks a remembered answer: a fresh proposal after an approval puts
+    /// the footer back to awaiting a decision.
+    private var planApproval: PlanApprovalState {
+        if let pendingPlan {
+            return .derive(latestProposal: .init(toolUseID: pendingPlan.id))
+        }
+        return .derive(latestProposal: settledPlan)
     }
 
     /// Only reached from the empty state, which renders while the tab has no
@@ -121,6 +145,14 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .closed }
         }
+        // A proposal presents itself rather than waiting to be opened.
+        // Interrupting a read is fine: the overlay minimizes to a dock bar,
+        // so dismissing it costs one click and keeps the plan reachable.
+        .onChange(of: pendingPlan?.id) { _, id in
+            guard id != nil else { return }
+            settledPlan = nil
+            if planPresentation != .expanded { planPresentation = .expanded }
+        }
         .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
             persistHeadlessSessionID(sessionID)
         }
@@ -189,12 +221,80 @@ struct ChatTabView: View, ThemedView {
             .padding(12)
             Divider()
             MarkdownFileView(path: path)
+            planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .glassEffect(planGlass, in: .rect(cornerRadius: 12))
         .listItemPadding(bleed: true)
         .padding(.vertical, 8)
+    }
+
+    /// The approval options while a proposal is live, and where the plan
+    /// landed otherwise. Held to content width and given room above, so the
+    /// controls read as a decision rather than as more of the document.
+    @ViewBuilder
+    private var planFooter: some View {
+        Divider()
+        Group {
+            if planApproval.showsApprovalOptions {
+                planApprovalOptions
+            } else if let label = planApproval.footerLabel {
+                Text(label)
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .chatTextColumn()
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+        .padding(.horizontal, 12)
+    }
+
+    @ViewBuilder
+    private var planApprovalOptions: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Reason (optional, sent on reject)", text: $planRejectionReason)
+                .textFieldStyle(.roundedBorder)
+                .font(typography.caption.font)
+            HStack(spacing: 8) {
+                Button("Approve") { answerPlan(.approve) }
+                    .keyboardShortcut(.defaultAction)
+                Button("Approve + Compact") { answerPlan(.approveAndCompact) }
+                Button("Reject") { answerPlan(.reject) }
+                Spacer()
+            }
+            .font(typography.caption.font)
+        }
+    }
+
+    private enum PlanDecision {
+        case approve
+        case approveAndCompact
+        case reject
+    }
+
+    /// Answers the live proposal and remembers where it landed, so the footer
+    /// keeps saying so once the request is gone.
+    private func answerPlan(_ decision: PlanDecision) {
+        guard let session = headlessSession, let pendingPlan else { return }
+        switch decision {
+        case .approve, .approveAndCompact:
+            session.resolve(pendingPlan, with: .allow(updatedInput: pendingPlan.input))
+            settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
+            if decision == .approveAndCompact {
+                session.submit(text: "/compact")
+            }
+        case .reject:
+            session.resolve(
+                pendingPlan,
+                with: .deny(message: PlanResolution.denialMessage(reason: planRejectionReason))
+            )
+            settledPlan = .init(toolUseID: pendingPlan.id, decision: .rejected)
+        }
+        planRejectionReason = ""
+        planPresentation = .minimized
     }
 
     private func planDockBar(path: String) -> some View {
