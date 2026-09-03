@@ -58,6 +58,15 @@ final class HeadlessSession {
     private(set) var slashCommands: [SlashCommand] = []
     private(set) var lastError: String?
 
+    /// Set optimistically when the host asks for a change, then corrected
+    /// from whatever the stream reports — `init` for `model`/`permissionMode`,
+    /// which round-trip through a real control request. There is no
+    /// `set_effort` control request (`docs/headless-protocol.md`), so
+    /// `effort` is never corrected; it only ever reflects what this host sent.
+    private(set) var permissionMode: PermissionMode?
+    private(set) var model: AgentModel?
+    private(set) var effort: AgentEffort?
+
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [String] = []
 
@@ -79,6 +88,7 @@ final class HeadlessSession {
         environment: [String: String] = [:]
     ) {
         guard process == nil else { return }
+        self.permissionMode = permissionMode
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
@@ -145,11 +155,23 @@ final class HeadlessSession {
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
+        permissionMode = mode
         send(StreamJSONEncoder.setPermissionMode(mode.token, requestID: nextRequestID()))
     }
 
-    func setModel(_ model: AgentModel) {
-        send(StreamJSONEncoder.setModel(model.token, requestID: nextRequestID()))
+    func setModel(_ newModel: AgentModel) {
+        model = newModel
+        send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
+    }
+
+    /// No `set_effort` control request exists, so this rides `submit(text:)`
+    /// as an ordinary user turn — the same path a typed `/effort` command
+    /// would take — which is why changing effort is visible as a message in
+    /// the chat. The value is tracked here regardless, so the composer's
+    /// control reflects it immediately rather than waiting on that turn.
+    func setEffort(_ newEffort: AgentEffort) {
+        effort = newEffort
+        submit(text: ModelEffortCommand.setEffort(newEffort))
     }
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
@@ -168,13 +190,21 @@ final class HeadlessSession {
 
     // MARK: - Receiving
 
-    private func handle(_ message: StreamJSONMessage) {
+    /// `internal` rather than `private` so tests can feed it a decoded
+    /// message directly, without a real process.
+    func handle(_ message: StreamJSONMessage) {
         switch message {
         case .rateLimit(let info):
             rateLimit = info
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
+            if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
+                model = recognized
+            }
+            if let reported = info.permissionMode, let recognized = PermissionMode.recognizing(reported) {
+                permissionMode = recognized
+            }
 
         case .status:
             break
