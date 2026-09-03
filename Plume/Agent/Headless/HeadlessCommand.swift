@@ -24,7 +24,11 @@ enum HeadlessCommand {
         ]
 
         // A `-p` session starts in Manual on every plan, so a mode is always
-        // passed rather than left to the CLI's default.
+        // passed rather than left to the CLI's default. `permissionMode` is
+        // expected to already be resolved (task override, or the user's
+        // configured default); `.acceptEdits` here is only a last-resort
+        // floor for when even that resolution comes back empty, not Plume's
+        // preferred mode.
         arguments.append("--permission-mode")
         arguments.append((permissionMode ?? .acceptEdits).token)
 

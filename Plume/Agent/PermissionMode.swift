@@ -31,3 +31,39 @@ nonisolated enum PermissionMode: String, CaseIterable, Identifiable {
         PermissionMode(rawValue: reported)
     }
 }
+
+/// The permission mode a new agent tab starts in, as a Plume setting.
+///
+/// `.followClaudeCode` is the default: it defers to whatever the user has
+/// already configured in `~/.claude/settings.json` rather than picking a
+/// mode on their behalf. The other cases pin a specific `PermissionMode`.
+nonisolated enum PermissionModeDefault: String, CaseIterable, Identifiable {
+    case followClaudeCode
+    case plan
+    case acceptEdits
+    case auto
+    case bypassPermissions
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .followClaudeCode: return "Follow Claude Code"
+        case .plan: return PermissionMode.plan.label
+        case .acceptEdits: return PermissionMode.acceptEdits.label
+        case .auto: return PermissionMode.auto.label
+        case .bypassPermissions: return PermissionMode.bypassPermissions.label
+        }
+    }
+
+    /// The pinned mode, or nil for `.followClaudeCode`.
+    var permissionMode: PermissionMode? {
+        switch self {
+        case .followClaudeCode: return nil
+        case .plan: return .plan
+        case .acceptEdits: return .acceptEdits
+        case .auto: return .auto
+        case .bypassPermissions: return .bypassPermissions
+        }
+    }
+}

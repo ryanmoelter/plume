@@ -48,6 +48,19 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
+                    ForEach(PermissionModeDefault.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+            } header: {
+                Text("Default Permission Mode")
+            } footer: {
+                Text("Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json. A task's own permission mode, set from its chat, always overrides this.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack {
                     Slider(
                         value: $settings.chatFontSize,

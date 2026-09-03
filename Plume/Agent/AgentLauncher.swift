@@ -47,6 +47,19 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
+        // The headless transport has no way to surface Claude Code's
+        // folder-trust prompt, so an untrusted directory would otherwise
+        // hang the turn with nothing to look at. Refuse to spawn instead,
+        // and point at the terminal transport, where the prompt can
+        // actually be answered. Never write the trust flag here — that
+        // would grant the very trust the prompt exists to ask for.
+        guard let workingDirectory = task.workingDirectoryPath else { return }
+        guard ClaudeTrustStore.isTrusted(workingDirectory) else {
+            UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
+            return
+        }
+        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
+
         // Instrumentation is best-effort: if the settings file cannot be
         // written, `claude` still launches, just without status reporting.
         let settingsPath = try? HookSettingsWriter.write().path
@@ -59,7 +72,7 @@ enum AgentLauncher {
         let session = HeadlessSessionManager.shared.session(for: tab.id, taskID: task.id)
         session.start(
             workingDirectory: task.workingDirectoryPath,
-            permissionMode: task.permissionMode,
+            permissionMode: task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode,
             resumeSessionID: resumeSessionID,
             settingsPath: settingsPath
         )
@@ -90,7 +103,7 @@ enum AgentLauncher {
             resumeSessionID: resumeSessionID,
             taskID: settingsPath == nil ? nil : task.id,
             tabID: settingsPath == nil ? nil : tab.id,
-            permissionMode: task.permissionMode
+            permissionMode: task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode
         )
 
         if settingsPath != nil {

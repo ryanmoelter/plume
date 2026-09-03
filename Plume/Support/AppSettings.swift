@@ -19,6 +19,7 @@ final class AppSettings {
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
+        static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
     }
 
     /// 125% of the system `.body` size (13pt on macOS).
@@ -54,6 +55,9 @@ final class AppSettings {
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
+
+        self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
+            .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -118,6 +122,25 @@ final class AppSettings {
     var defaultAgentTransport: AgentTransport {
         didSet {
             defaults.set(defaultAgentTransport.rawValue, forKey: Key.defaultAgentTransportRaw)
+        }
+    }
+
+    /// Permission mode a new agent tab starts in. Defaults to following
+    /// whatever the user already configured for the Claude Code CLI itself.
+    var defaultPermissionMode: PermissionModeDefault {
+        didSet {
+            defaults.set(defaultPermissionMode.rawValue, forKey: Key.defaultPermissionModeRaw)
+        }
+    }
+
+    /// Resolves `defaultPermissionMode` to an actual `PermissionMode`,
+    /// consulting `~/.claude/settings.json` when following Claude Code.
+    var resolvedDefaultPermissionMode: PermissionMode? {
+        switch defaultPermissionMode {
+        case .followClaudeCode:
+            return ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode()
+        default:
+            return defaultPermissionMode.permissionMode
         }
     }
 }

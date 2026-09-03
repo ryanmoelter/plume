@@ -48,6 +48,26 @@ struct AppSettingsTests {
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.composerSendKey == .returnKey)
     }
+
+    @Test func defaultPermissionModeDefaultsToFollowingClaudeCode() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.defaultPermissionMode == .followClaudeCode)
+    }
+
+    @Test func defaultPermissionModePersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.defaultPermissionMode = .plan
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.defaultPermissionMode == .plan)
+    }
+
+    @Test func resolvedDefaultPermissionModeReturnsThePinnedModeDirectly() {
+        let settings = AppSettings(defaults: makeDefaults())
+        settings.defaultPermissionMode = .bypassPermissions
+        #expect(settings.resolvedDefaultPermissionMode == .bypassPermissions)
+    }
 }
 
 @MainActor

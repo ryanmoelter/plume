@@ -98,10 +98,10 @@ Fix the anchor's placement first — move it below the padding, or move the padd
 
 ### Launching an agent
 
-- [ ] Respect the user's own default permission mode instead of hardcoding `acceptEdits`.
+- [x] Respect the user's own default permission mode instead of hardcoding `acceptEdits`.
 - [ ] Don't fail in an untrusted directory. Detect it before launching and offer to resolve it, rather than hanging.
 
-**The permission mode is a bug, not a preference.** `HeadlessCommand.swift:29` falls back to `.acceptEdits` when the task has no mode set, and `WorkTask.permissionModeRaw` starts nil — so a new agent tab *never* starts in plan mode, whatever the user's own CLI default is. The comment there explains the fallback exists because a `-p` session starts in Manual on every plan, which is a real constraint, but the chosen default silently overrides the user. Settling what "their default" means is the first task: Claude Code's own resolution order, a Plume setting, or a per-task choice made at creation.
+**The permission mode is fixed.** A new `PermissionModeDefault` setting (`.followClaudeCode` by default) resolves through `AppSettings.resolvedDefaultPermissionMode`, reading `permissions.defaultMode` from `~/.claude/settings.json` when following Claude Code. `AgentLauncher` resolves `task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode` for both transports; `HeadlessCommand.arguments` still always passes `--permission-mode` (a `-p` session starts in Manual on every plan), with `.acceptEdits` remaining only as the last-resort floor when resolution comes back empty.
 
 **Directory trust** is readable, so the second item needn't be guesswork: `~/.claude.json` holds `projects.<absolute path>.hasTrustDialogAccepted`, 46 of 47 entries true on this machine. Plume can check the tab's directory against that map before spawning and, when it's missing or false, say so and offer the fix. Launching without that check stalls on Claude Code's folder-trust prompt, which the headless transport never surfaces — the turn just hangs with nothing to look at. Offering a terminal tab in that directory (where the real prompt *can* be answered) is the honest fix; writing the flag on the user's behalf silently grants the trust the prompt exists to ask for.
 
