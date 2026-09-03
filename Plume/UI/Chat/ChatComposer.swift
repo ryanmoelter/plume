@@ -18,6 +18,7 @@ struct ChatComposer: View, ThemedView {
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
     @State private var caretLocation = 0
+    @State private var pendingCaretLocation: Int?
     @State private var autocomplete = ComposerAutocompleteController()
 
     private var headlessSession: HeadlessSession? {
@@ -53,17 +54,32 @@ struct ChatComposer: View, ThemedView {
         headlessSession?.slashCommands ?? []
     }
 
-    /// Replaces the leading `/token` with `/name ` and leaves the rest of
-    /// the message (if any) untouched, so arguments can follow immediately.
+    private var composerPlaceholder: String {
+        guard let headlessSession, !headlessSession.queuedMessages.isEmpty else {
+            return "Message Claude…"
+        }
+        return "Press ↑ to edit a queued message"
+    }
+
+    /// Accepts `command`, replacing the leading `/token` with `/name ` and
+    /// moving the caret to the end of it, ahead of any arguments the user
+    /// goes on to type.
     private func acceptSlashCommand(_ command: SlashCommand) {
         let tabID = tab.id
-        let text = drafts.draft(forTab: tabID) as NSString
-        let tokenEnd = text.rangeOfCharacter(from: .whitespacesAndNewlines).location
-        let firstTokenLength = tokenEnd == NSNotFound ? text.length : tokenEnd
-        let replacement = "/\(command.name) "
-        let newText = text.replacingCharacters(in: NSRange(location: 0, length: firstTokenLength), with: replacement)
-        drafts.setDraft(newText, forTab: tabID)
-        hasSendableText = sendableText(newText)
+        let accepted = SlashCommandMatcher.accepting(command, in: drafts.draft(forTab: tabID))
+        drafts.setDraft(accepted.text, forTab: tabID)
+        hasSendableText = sendableText(accepted.text)
+        pendingCaretLocation = accepted.caretLocation
+    }
+
+    /// Pulls a queued message back into the composer for editing — the
+    /// operation behind both the queued row's edit button and Up-arrow
+    /// recall from an empty composer. Takes an index rather than always the
+    /// last message so recall can later walk further back through the queue.
+    private func editQueuedMessage(at index: Int) {
+        guard let headlessSession, let text = headlessSession.removeQueuedMessage(at: index) else { return }
+        drafts.setDraft(text, forTab: tab.id)
+        hasSendableText = sendableText(text)
     }
 
     var body: some View {
@@ -89,7 +105,7 @@ struct ChatComposer: View, ThemedView {
 
             MarkdownComposerTextView(
                 text: message,
-                placeholder: "Message Claude…",
+                placeholder: composerPlaceholder,
                 fontSize: fontSize,
                 isFocused: $inputFocused,
                 sendKey: settings.composerSendKey,
@@ -103,7 +119,12 @@ struct ChatComposer: View, ThemedView {
                     caretLocation = location
                     autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
                 },
-                autocompleteHandler: autocomplete
+                pendingCaretLocation: $pendingCaretLocation,
+                autocompleteHandler: autocomplete,
+                onEditQueuedMessage: headlessSession.flatMap { session in
+                    session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
+                },
+                recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
             )
             .padding(.leading, 10)
             // Reserves the send button's column, so text wraps before it
@@ -164,6 +185,14 @@ struct ChatComposer: View, ThemedView {
                         .lineLimit(1)
                         .font(.callout)
                     Spacer(minLength: 0)
+                    Button {
+                        editQueuedMessage(at: index)
+                    } label: {
+                        Image(systemName: "pencil.circle.fill")
+                            .emphasis(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Edit")
                     Button {
                         session.removeQueuedMessage(at: index)
                     } label: {

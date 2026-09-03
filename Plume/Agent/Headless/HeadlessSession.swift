@@ -129,9 +129,13 @@ final class HeadlessSession {
         send(StreamJSONEncoder.userTurn(text: trimmed))
     }
 
-    func removeQueuedMessage(at index: Int) {
-        guard queuedMessages.indices.contains(index) else { return }
-        queuedMessages.remove(at: index)
+    /// Removes and returns the queued message at `index`, so a caller can
+    /// both dequeue it and recover its text (e.g. to edit it in the
+    /// composer). Nil when the index is out of range.
+    @discardableResult
+    func removeQueuedMessage(at index: Int) -> String? {
+        guard queuedMessages.indices.contains(index) else { return nil }
+        return queuedMessages.remove(at: index)
     }
 
     /// Ends the turn in flight but keeps the session alive, unlike a signal.

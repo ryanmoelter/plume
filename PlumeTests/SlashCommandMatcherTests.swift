@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Plume
 
@@ -64,5 +65,47 @@ struct SlashCommandMatcherTests {
     @Test func queryHandlesNewlineAsTokenBoundary() {
         let query = SlashCommandMatcher.query(text: "/model\nmore text", caretLocation: 6)
         #expect(query == "model")
+    }
+
+    @Test func recognizedCommandRangeMatchesExactLeadingToken() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "/model", commandNames: ["model", "clear"])
+        #expect(range == NSRange(location: 0, length: 6))
+    }
+
+    @Test func recognizedCommandRangeCoversTokenOnlyWithTrailingArgs() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "/model opus", commandNames: ["model"])
+        #expect(range == NSRange(location: 0, length: 6))
+    }
+
+    @Test func recognizedCommandRangeIsNilForUnknownCommand() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "/bogus", commandNames: ["model", "clear"])
+        #expect(range == nil)
+    }
+
+    @Test func recognizedCommandRangeIsNilWithoutLeadingSlash() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "model", commandNames: ["model"])
+        #expect(range == nil)
+    }
+
+    @Test func recognizedCommandRangeIsNilForBareSlash() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "/", commandNames: ["model"])
+        #expect(range == nil)
+    }
+
+    @Test func recognizedCommandRangeRequiresExactMatchNotPrefix() {
+        let range = SlashCommandMatcher.recognizedCommandRange(text: "/mod", commandNames: ["model"])
+        #expect(range == nil)
+    }
+
+    @Test func acceptingReplacesLeadingTokenAndPlacesCaretAfterIt() {
+        let accepted = SlashCommandMatcher.accepting(command("model"), in: "/mod")
+        #expect(accepted.text == "/model ")
+        #expect(accepted.caretLocation == 7)
+    }
+
+    @Test func acceptingPreservesTrailingArguments() {
+        let accepted = SlashCommandMatcher.accepting(command("model"), in: "/mod opus-4")
+        #expect(accepted.text == "/model  opus-4")
+        #expect(accepted.caretLocation == "/model ".utf16.count)
     }
 }

@@ -24,9 +24,21 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// alike — the slash-command autocomplete needs the caret's position,
     /// not just the text.
     var onCaretChange: (Int) -> Void = { _ in }
+    /// Set by the caller to move the caret to a specific UTF-16 offset (e.g.
+    /// after accepting a slash command); cleared once applied. Ordinary
+    /// typing and arrow-key navigation never touch this — `apply(text:...)`
+    /// otherwise preserves the existing selection across an external text
+    /// change, which is the behavior this binding overrides.
+    @Binding var pendingCaretLocation: Int?
     /// Set to steer arrow/Tab/Escape/Return into the slash-command list
     /// while it's showing; nil (the default) leaves every key as-is.
     var autocompleteHandler: ComposerAutocompleteHandler?
+    /// Called on Up when the composer is empty, to recall a queued message
+    /// for editing. Nil when there's nothing queued.
+    var onEditQueuedMessage: (() -> Void)?
+    /// Names of the session's known slash commands, so a recognized leading
+    /// `/name` token can be tinted as the user types it.
+    var recognizedSlashCommandNames: Set<String> = []
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -38,6 +50,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.composerCoordinator = context.coordinator
         context.coordinator.textView = textView
+        context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         return view
     }
@@ -50,13 +63,22 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.onCaretChange = onCaretChange
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
+        textView.onEditQueuedMessage = onEditQueuedMessage
+
+        let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
+        context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
+        }
+        if let location = pendingCaretLocation {
+            let clamped = min(location, (textView.string as NSString).length)
+            textView.setSelectedRange(NSRange(location: clamped, length: 0))
+            DispatchQueue.main.async { pendingCaretLocation = nil }
         }
         context.coordinator.updatePlaceholderVisibility(textView)
 
@@ -96,6 +118,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         weak var host: ScrollableComposerTextView?
         weak var textView: ComposerNSTextView?
         private(set) var fontSize: CGFloat = 0
+        var recognizedSlashCommandNames: Set<String> = []
 
         init(
             text: Binding<String>,
@@ -125,7 +148,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let bodyFont = NSFont.composerBody(ofSize: fontSize)
             textView.font = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
-            MarkdownComposerStyler.style(textView.textStorage!, text: text, fontSize: fontSize)
+            MarkdownComposerStyler.style(
+                textView.textStorage!,
+                text: text,
+                fontSize: fontSize,
+                recognizedSlashCommandNames: recognizedSlashCommandNames
+            )
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
         }
@@ -141,7 +169,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let newText = textView.string
             textBinding.wrappedValue = newText
             onTextChange(newText)
-            MarkdownComposerStyler.style(textView.textStorage!, text: newText, fontSize: fontSize)
+            MarkdownComposerStyler.style(
+                textView.textStorage!,
+                text: newText,
+                fontSize: fontSize,
+                recognizedSlashCommandNames: recognizedSlashCommandNames
+            )
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()
             onCaretChange(textView.selectedRange().location)
@@ -182,6 +215,11 @@ final class ComposerNSTextView: NSTextView {
     /// selection without disturbing send-on-Return when it isn't showing.
     var autocompleteHandler: ComposerAutocompleteHandler?
 
+    /// Called on Up in an empty composer (and the autocomplete list isn't
+    /// showing) so a queued message can be pulled back for editing —
+    /// shell-history-style recall of the most recently queued send.
+    var onEditQueuedMessage: (() -> Void)?
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let placeholderText, let font = self.font else { return }
@@ -214,6 +252,11 @@ final class ComposerNSTextView: NSTextView {
             default:
                 break
             }
+        }
+
+        if event.keyCode == 126 /* Up */, string.isEmpty, let onEditQueuedMessage {
+            onEditQueuedMessage()
+            return
         }
 
         guard event.keyCode == 36 /* Return */ else {

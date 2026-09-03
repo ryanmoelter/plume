@@ -10,7 +10,12 @@ import SwiftUI
 /// rendered message agree visually.
 @MainActor
 enum MarkdownComposerStyler {
-    static func style(_ storage: NSTextStorage, text: String, fontSize: CGFloat) {
+    static func style(
+        _ storage: NSTextStorage,
+        text: String,
+        fontSize: CGFloat,
+        recognizedSlashCommandNames: Set<String> = []
+    ) {
         let bodyFont = NSFont.composerBody(ofSize: fontSize)
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
 
@@ -29,6 +34,11 @@ enum MarkdownComposerStyler {
             guard fullRange.contains(span.range) || span.range.length == 0 else { continue }
             applyParagraphStyle(span, to: storage, text: text as NSString, bodyFontSize: fontSize)
         }
+
+        if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
+            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: commandRange)
+        }
+
         storage.endEditing()
     }
 
