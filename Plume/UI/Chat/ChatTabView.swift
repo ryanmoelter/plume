@@ -9,9 +9,15 @@ struct ChatTabView: View, ThemedView {
 
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var settings = AppSettings.shared
     @State private var planPresentation = PlanPresentation.closed
     @State private var resumeSheetShown = false
+    @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
+
+    private var untrustedPath: String? {
+        untrustedDirectoryStore.path(forTab: tab.id)
+    }
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
@@ -95,6 +101,8 @@ struct ChatTabView: View, ThemedView {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
+            } else if let untrustedPath {
+                untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
                 || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
                 || (tab.agentSessionID?.isEmpty == false) {
@@ -258,6 +266,33 @@ struct ChatTabView: View, ThemedView {
             if showsComposer {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Shown instead of the composer when `AgentLauncher` refused to spawn
+    /// because Claude Code has not been told to trust this directory. The
+    /// headless transport can't surface the real folder-trust prompt, so the
+    /// fix is a terminal tab, where it can be answered — never granting the
+    /// trust on the user's behalf.
+    private func untrustedDirectoryState(path: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "lock.trianglebadge.exclamationmark")
+                .font(.system(size: 28))
+                .emphasis(.secondary)
+            Text("This directory isn't trusted")
+                .font(.headline)
+            Text("Claude Code needs to ask about \((path as NSString).lastPathComponent) before it can run there, and this chat can't show that prompt.")
+                .font(.callout)
+                .emphasis(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button("Open Terminal Tab") {
+                TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

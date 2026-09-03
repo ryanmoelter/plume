@@ -82,6 +82,7 @@ enum TaskStore {
             HeadlessSessionManager.shared.closeSession(for: tab.id)
             DraftStore.shared.forget(tabID: tab.id)
             TranscriptStore.shared.stopWatching(tabID: tab.id)
+            UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         }
         context.delete(task)
     }
@@ -118,6 +119,7 @@ enum TaskStore {
         TitleStore.shared.forget(tabID: tab.id)
         DraftStore.shared.forget(tabID: tab.id)
         TranscriptStore.shared.stopWatching(tabID: tab.id)
+        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         context.delete(tab)
         reindex(remaining)
     }
