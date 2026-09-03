@@ -135,10 +135,10 @@ One thing to get right: a plan file exists *before* it is ever proposed. `Transc
 
 ### Interactive rows: plans and questions
 
-- [ ] A rejected plan briefly says "Approve or reject in the terminal."
-- [ ] Show one question at a time, with prev/next buttons.
-- [ ] Fix the type scale: question text and the main answer line are both body; the second answer line is caption.
-- [ ] Stop double-tinting the question options. The question area and its options are two stacked backgrounds, and a blue focus ring around the box makes it three. Either hold the question area's tint and drop the options to the regular background, or make one of the two outline-only — a blue outline on the options instead of a grey fill is the candidate.
+- [x] A rejected plan briefly says "Approve or reject in the terminal."
+- [x] Show one question at a time, with prev/next buttons.
+- [x] Fix the type scale: question text and the main answer line are both body; the second answer line is caption.
+- [x] Stop double-tinting the question options. The question area and its options are two stacked backgrounds, and a blue focus ring around the box makes it three. Either hold the question area's tint and drop the options to the regular background, or make one of the two outline-only — a blue outline on the options instead of a grey fill is the candidate.
 
 **The stale hint is a real bug, and the overlay work above retires half of it.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
 
