@@ -26,6 +26,9 @@ nonisolated enum InjectedContent: Equatable {
     case interrupted
     /// Guidance the harness injected, not something the user wrote.
     case systemNote
+    /// The summary a compaction wrote back as context. Thousands of words,
+    /// and none of them the user's.
+    case compactSummary
 
     /// Whether this should render as the user's own prose.
     var isUserProse: Bool { self == .userMessage }
@@ -43,6 +46,7 @@ nonisolated enum InjectedContent: Equatable {
         case .taskNotification: return "Background task finished"
         case .interrupted: return "Interrupted"
         case .systemNote: return "System note"
+        case .compactSummary: return "Compacted context"
         }
     }
 
@@ -56,6 +60,7 @@ nonisolated enum InjectedContent: Equatable {
         case .taskNotification: return "bell"
         case .interrupted: return "hand.raised"
         case .systemNote: return "info.circle"
+        case .compactSummary: return "arrow.down.right.and.arrow.up.left"
         }
     }
 
@@ -63,8 +68,11 @@ nonisolated enum InjectedContent: Equatable {
     ///
     /// `isMeta` alone is not enough: it catches a skill body and the caveat
     /// block, but a slash command's expansion and its stdout are both
-    /// `isMeta: false` and have to be recognized by their wrapper tag.
-    static func classify(text: String, isMeta: Bool) -> InjectedContent {
+    /// `isMeta: false` and have to be recognized by their wrapper tag. A
+    /// compaction summary carries neither marker and is only knowable from
+    /// its own flag, so that is checked first.
+    static func classify(text: String, isMeta: Bool, isCompactSummary: Bool = false) -> InjectedContent {
+        if isCompactSummary { return .compactSummary }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // `<command-name>` and `<command-message>` appear in either order,

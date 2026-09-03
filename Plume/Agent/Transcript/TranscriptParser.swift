@@ -188,7 +188,11 @@ nonisolated enum TranscriptParser {
                 // they classify together rather than block by block.
                 let text = texts.joined(separator: "\n")
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let kind = InjectedContent.classify(text: text, isMeta: entry.isMeta)
+                    let kind = InjectedContent.classify(
+                        text: text,
+                        isMeta: entry.isMeta,
+                        isCompactSummary: entry.isCompactSummary
+                    )
                     otherBlocks.insert(
                         kind.isUserProse ? .markdown(text) : .injected(kind, text: text),
                         at: 0

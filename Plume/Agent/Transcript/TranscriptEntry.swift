@@ -89,6 +89,11 @@ nonisolated struct TranscriptEntry: Decodable {
     /// typed. True for a skill body and a caveat block, but false for a slash
     /// command's expansion and its output — see `InjectedContent`.
     let isMeta: Bool
+    /// Marks the summary a compaction writes back into the conversation. It
+    /// arrives as a `user` line so the model reads it as context, but the
+    /// user did not write it and it runs to thousands of words — the chat
+    /// collapses it rather than attributing it to them.
+    let isCompactSummary: Bool
     let message: TranscriptMessage?
     let attachment: TranscriptAttachment?
     /// Set on `system` lines: `compact_boundary`, `api_error`,
@@ -110,6 +115,7 @@ nonisolated struct TranscriptEntry: Decodable {
         case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
         case permissionMode
         case isMeta
+        case isCompactSummary
         case attachment
         case subtype, level, content, compactMetadata, error
         case isApiErrorMessage
@@ -128,6 +134,7 @@ nonisolated struct TranscriptEntry: Decodable {
         sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         isMeta = try container.decodeIfPresent(Bool.self, forKey: .isMeta) ?? false
+        isCompactSummary = try container.decodeIfPresent(Bool.self, forKey: .isCompactSummary) ?? false
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
         attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
         subtype = try container.decodeIfPresent(String.self, forKey: .subtype)
