@@ -6,7 +6,11 @@ Features we intend to build, in no particular order. This tracks what we want an
 
 Recommendations, not commitments. Reorder freely.
 
-Driving the headless transport moved the ground under this list. It is the default for every new agent tab, and the bugs it turned up are recorded in the chat sections below — several matter more than any unstarted feature here. **Fix those before adding anything.** The two that stand out: chat scrolling doesn't follow a reply at all, and a new tab never starts in the user's own permission mode.
+Read this list in three passes, in this order. They don't conflict today — the bugs sit in the chat, the quick wins don't touch it — but when they do, the earlier pass wins.
+
+1. **The bugs from driving, first.** Headless is the default transport for every new agent tab, and driving it turned up faults that matter more than any unstarted feature here. They're recorded in the chat sections below, each with the file and line. The two that stand out: chat scrolling doesn't follow a reply at all, and a new tab never starts in the user's own permission mode.
+2. **Then the quick wins**, numbered below. Each is felt every day and none is entangled with the chat.
+3. **Then the highest-value feature**, which is notifying on Claude Code events.
 
 **Small, self-contained, and each one is felt every day:**
 
@@ -142,13 +146,7 @@ Left for later:
 
 `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
 
-**The plan overlay never opens on its own.**
-
-- [ ] Show a proposed plan in the overlay too, not only when the Plan button is pressed.
-
-`planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204). So the overlay is a viewer the user opens, never a presentation the agent triggers. The two also read from different sources: the overlay renders `transcript.planFilePath`, a file on disk, while a proposed plan arrives as the `ExitPlanMode` payload and renders inline in the row. Deciding whether a proposal auto-expands means settling which of those the overlay shows, and what happens when a plan is proposed while the user is reading something else — auto-expanding over the conversation is the reason `minimized` exists.
-
-**The plan overlay does both jobs.** Settles the open question above: a proposed plan opens the overlay, and the overlay is where it gets approved.
+**The plan overlay does both jobs.** Today it never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — a proposed plan opens the overlay, and the overlay is where it gets approved.
 
 - [ ] Present a proposed plan in the overlay, with the approval options in it.
 - [ ] Inline, show only a row for the `ExitPlanMode` call — with a button to reopen the overlay while it is unanswered.
