@@ -157,20 +157,14 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 
 ### The composer
 
-- [ ] An edit icon beside a queued message's ✕. It cancels the message and moves its text into the composer.
-- [ ] ↑ from an empty composer does the same, taking the last queued message. The hint becomes "Press ↑ to edit a queued message" while a queue exists.
-- [ ] Scroll the slash-command list to follow the selection. Arrow keys currently move it outside the visible rows, so the selection disappears rather than the list following it.
-- [ ] Put the caret at the end of an accepted slash command. It fills the text but leaves the caret where it was.
-- [ ] Show in the composer that a slash command is recognized — turn the token blue, or similar. Nothing distinguishes a real command from a typo until you send it.
-- [ ] Let ⌘↩ send while the slash-command list is showing.
+- [x] An edit icon beside a queued message's ✕. It cancels the message and moves its text into the composer.
+- [x] ↑ from an empty composer does the same, taking the last queued message. The hint becomes "Press ↑ to edit a queued message" while a queue exists.
+- [x] Scroll the slash-command list to follow the selection. Arrow keys currently move it outside the visible rows, so the selection disappears rather than the list following it.
+- [x] Put the caret at the end of an accepted slash command. It fills the text but leaves the caret where it was.
+- [x] Show in the composer that a slash command is recognized — turn the token blue, or similar. Nothing distinguishes a real command from a typo until you send it.
+- [x] Let ⌘↩ send while the slash-command list is showing.
 - [ ] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
 - [ ] Make the composer content-width rather than bleed-width.
-
-Queued messages otherwise work: they list while the agent is busy, each is removable, and they drain in order when the turn ends. The two edit items are one operation — remove from the queue, put the text in the composer — so build it once and give it two triggers. `HeadlessSession.removeQueuedMessage(at:)` already exists and returns nothing; the edit path needs the text it removed.
-
-The keyboard items have room to land cleanly. `MarkdownComposerTextView.keyDown` already intercepts key code 126 (Up), but only while the slash-command list is showing (`MarkdownComposerTextView.swift:196-217`), and that interception returns early — so an Up with no autocomplete open falls straight through to `super`. The new case belongs after that block, gated on an empty composer so ↑ still moves the caret in a half-typed message. Repeated ↑ walking further back through the queue is worth deciding up front: it is the shell-history behavior the key implies, and building the first one without it tends to hardcode "the last message" in a way that resists the second.
-
-⌘↩ fails for a nearby reason: `keyDown` intercepts Return whenever `autocompleteHandler.isShowing`, before any modifier is examined, so ⌘↩ accepts the selection instead of sending. Check for the command modifier ahead of that block — the send path below it already distinguishes ⌘↩ from plain ↩. For the recognized-command styling, `MarkdownComposerStyler` already styles the composer's text and has an `inlineCode` case to follow (`MarkdownComposerStyler.swift:42`), and the recognized set is `headlessSession?.slashCommands`, which the matcher already reads.
 
 ### The statusline
 

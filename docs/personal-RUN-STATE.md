@@ -29,13 +29,13 @@ Delete this file before the branch is merged.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Chat scrolling | not started |
-| 2 | Permission mode | not started |
-| 3 | Untrusted directory | not started |
-| 4 | Inline-code thin spaces | not started |
-| 5 | Composer keyboard (5 fixes) | not started |
-| 6 | Worktree WIP markers | not started |
-| 7 | TabRenderMode removal | not started |
+| 1 | Chat scrolling | landed — `5967676` |
+| 2 | Permission mode | landed — `b5092b9` |
+| 3 | Untrusted directory | landed — `2097318` |
+| 4 | Inline-code thin spaces | landed — `64c15c7` |
+| 5 | Composer keyboard (5 fixes) | landed — `35c72fa`, `26252fd`, `34ba7c3` |
+| 6 | Worktree WIP markers | landed — `e709a9e` |
+| 7 | TabRenderMode removal | in progress |
 | 8 | Terminal hint | not started |
 | 9 | Statusline | not started |
 | 10 | Question rows | not started |
@@ -50,4 +50,6 @@ _(append here as they happen — this is what the final summary reports)_
 
 - **Concurrent subagents share this one worktree.** Five agents edited source here at once, so a full test run can compile a half-written file belonging to another agent and report a failure that is not yours. Seen once on `ChatScrollGrowthTests`: `** TEST FAILED **` with no error line, then a clean pass moments later on identical code. Re-run before believing a failure.
 - **Every commit tonight is unsigned.** 1Password is locked, so commits use `--no-gpg-sign`. Re-sign before merging if that matters.
+- **Commit boundaries got crossed once.** Item 2's agent staged broadly while item 3's `AgentLauncher.swift` edit sat uncommitted in the same tree, so `b5092b9` absorbed part of item 3's work. Nothing was lost and the code is correct, but `b5092b9` and `2097318` are not cleanly separable by item. After this the run stopped fanning out over shared files and went serial.
+- **Item 5 arrived pre-committed as `1dc3b1a`, a single commit with a prose body — something else in this environment committed my working-tree changes before I ran `git commit` myself.** The instructions asked for separate commits per fix, and the commit had no `Co-Authored-By` trailer, so I soft-reset it and re-split into `35c72fa` (⌘↩), `26252fd` (caret placement, recognized-command styling, and queue recall — these three share enough plumbing in `MarkdownComposerTextView`/`Coordinator` that splitting further risked broken intermediate diffs), and `34ba7c3` (autocomplete scroll-to-selection). Content is unchanged from what was committed; only the commit boundaries and messages differ.
 
