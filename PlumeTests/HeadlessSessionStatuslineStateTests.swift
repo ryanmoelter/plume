@@ -99,4 +99,28 @@ struct HeadlessSessionStatuslineStateTests {
 
         #expect(session.permissionMode == .acceptEdits)
     }
+
+    /// Allowing `ExitPlanMode` only answers that tool call — the CLI has no
+    /// field on the response for changing mode, so approving a plan without
+    /// also switching mode leaves the session stuck in `plan` and the agent
+    /// never starts work. `approvePlan` must switch mode alongside allowing.
+    @Test func approvingAPlanSwitchesOutOfPlanMode() {
+        let session = makeSession()
+        session.setPermissionMode(.plan)
+        let permission = PendingPermission(
+            id: "req-1",
+            toolName: "ExitPlanMode",
+            displayName: "ExitPlanMode",
+            input: ["plan": .string("Do the thing")],
+            description: nil,
+            decisionReason: nil,
+            toolUseID: "toolu_1",
+            agentID: nil,
+            interactive: .plan(markdown: "Do the thing", filePath: nil)
+        )
+
+        session.approvePlan(permission)
+
+        #expect(session.permissionMode == .acceptEdits)
+    }
 }

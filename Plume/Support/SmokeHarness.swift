@@ -143,7 +143,7 @@ enum SmokeHarness {
             }
             session.answer(permission, answers: answers)
         case .plan:
-            session.resolve(permission, with: .allow(updatedInput: permission.input))
+            session.approvePlan(permission)
         case nil:
             session.resolve(permission, with: .allow(updatedInput: permission.input))
         }

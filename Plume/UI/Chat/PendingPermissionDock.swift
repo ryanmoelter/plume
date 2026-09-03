@@ -25,7 +25,7 @@ struct PendingPermissionDock: View {
                 case .questions(let answers):
                     session.answer(permission, answers: answers)
                 case .approvePlan:
-                    session.resolve(permission, with: .allow(updatedInput: permission.input))
+                    session.approvePlan(permission)
                 case .rejectPlan(let reason):
                     session.resolve(permission, with: .deny(message: denialMessage(reason)))
                 }

@@ -179,6 +179,16 @@ final class HeadlessSession {
         send(StreamJSONEncoder.permissionResponse(requestID: permission.id, decision: decision))
     }
 
+    /// Approves an `ExitPlanMode` call. Allowing the call only answers the
+    /// tool; the CLI has no field on that response for changing mode
+    /// (`docs/headless-protocol.md`), so leaving plan mode takes the separate
+    /// `set_permission_mode` request the TUI's Shift+Tab sends on this same
+    /// action. Without it the session stays in `plan` and never starts work.
+    func approvePlan(_ permission: PendingPermission) {
+        resolve(permission, with: .allow(updatedInput: permission.input))
+        setPermissionMode(.acceptEdits)
+    }
+
     /// Answers an `AskUserQuestion`, keyed by question text to chosen labels.
     func answer(_ permission: PendingPermission, answers: [String: String]) {
         let input = StreamJSONEncoder.answeredQuestionInput(
