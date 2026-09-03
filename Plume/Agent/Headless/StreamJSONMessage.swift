@@ -80,14 +80,29 @@ struct TurnResult {
     let outputTokens: Int?
     let permissionDenials: Int
 
-    /// Everything occupying the context window after this turn.
-    ///
-    /// Cached input is the bulk of it in any conversation past the first
-    /// turn — a real turn here reported `input_tokens: 2` against
-    /// `cache_read_input_tokens: 270017`, so counting only the uncached
-    /// input under-reports by three orders of magnitude.
     var contextUsedTokens: Int? {
-        let parts = [inputTokens, cacheReadInputTokens, cacheCreationInputTokens, outputTokens]
+        ContextUsage.total(
+            input: inputTokens,
+            cacheRead: cacheReadInputTokens,
+            cacheCreation: cacheCreationInputTokens,
+            output: outputTokens
+        )
+    }
+}
+
+/// Everything occupying the context window after a turn, from the four token
+/// counts every usage payload reports.
+///
+/// Cached input is the bulk of it in any conversation past the first turn — a
+/// real turn here reported `input_tokens: 2` against
+/// `cache_read_input_tokens: 270017`, so counting only the uncached input
+/// under-reports by three orders of magnitude.
+///
+/// Shared by the stream's `TurnResult` and the transcript's `TranscriptUsage`
+/// so a resumed conversation and a live one report the same number.
+nonisolated enum ContextUsage {
+    static func total(input: Int?, cacheRead: Int?, cacheCreation: Int?, output: Int?) -> Int? {
+        let parts = [input, cacheRead, cacheCreation, output]
         guard parts.contains(where: { $0 != nil }) else { return nil }
         return parts.compactMap { $0 }.reduce(0, +)
     }

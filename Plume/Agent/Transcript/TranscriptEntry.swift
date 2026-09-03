@@ -207,6 +207,15 @@ nonisolated struct TranscriptUsage: Decodable, Equatable {
         case cacheReadInputTokens = "cache_read_input_tokens"
         case outputTokens = "output_tokens"
     }
+
+    var contextUsedTokens: Int? {
+        ContextUsage.total(
+            input: inputTokens,
+            cacheRead: cacheReadInputTokens,
+            cacheCreation: cacheCreationInputTokens,
+            output: outputTokens
+        )
+    }
 }
 
 /// A message's `content` is either a bare string (plain user messages) or an
