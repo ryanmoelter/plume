@@ -112,10 +112,10 @@ struct InteractiveToolRow: View, ThemedView {
                     answeredSummary(earlier)
                 }
             }
+            if questions.count > 1 {
+                pagingControls(current: index, count: questions.count)
+            }
             VStack(alignment: .leading, spacing: 6) {
-                if questions.count > 1 {
-                    pagingControls(current: index, count: questions.count)
-                }
                 if !question.header.isEmpty {
                     Text(question.header.uppercased())
                         .font(typography.caption.semibold)
