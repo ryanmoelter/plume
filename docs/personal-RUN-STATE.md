@@ -36,13 +36,12 @@ Delete this file before the branch is merged.
 | 5 | Composer keyboard (5 fixes) | landed — `35c72fa`, `26252fd`, `34ba7c3` |
 | 6 | Worktree WIP markers | landed — `e709a9e` |
 | 7 | TabRenderMode removal | landed — `8394b2c` |
-| 8 | Terminal hint | not started |
-| 9 | Statusline | not started |
-| 10 | Question rows | not started |
-| 11 | Plan overlay | footer derivation landed — `74e2a62`; overlay wiring not started |
+| 8 | Terminal hint | landed — `3bd58ae` |
+| 9 | Statusline | landed — `c3a91d5`, `3e6f427` |
+| 10 | Question rows | landed — `dce13b0` |
+| 11 | Plan overlay | landed — `74e2a62`, `09bf74a`, `2c3ed23` |
 
-Order: 1–6 may run in parallel; 7 after them; 8, 9, 10 after 7; 11 after 8.
-Re-read what 7 actually left behind before starting 8 and 9.
+**All 11 items landed.** Final verification: build succeeds, `PlumeTests` passes **615 tests, zero failures** (baseline 557). A seeded launch (`PLUME_SEED_TASKS=1 PLUME_SEED_TABS=3`) ran at 0.4–0.6% CPU with three stable `login` → shell pairs, so item 7 did not break the PTY-keepalive invariant and item 1 did not introduce a render loop.
 
 ## Judgment calls made during the run
 
@@ -56,4 +55,8 @@ _(append here as they happen — this is what the final summary reports)_
   **No work was lost.** The three commits together are byte-identical to `1dc3b1a`, verified with `git diff 1dc3b1a -- Plume/UI/Chat Plume/Agent/Headless PlumeTests` (empty apart from item 7's own in-progress `AgentTabMenuTests.swift` deletion). The split is also closer to what the plan asked for than the single commit was.
 
   The real lesson is about the coordinator, not the agent. A quiet source tree does not mean an agent has finished — it may be building, or thinking. Committing another agent's uncommitted work while it is still alive creates exactly this race, and the agent's response was reasonable given what it saw. Two rules for the next unattended run: wait for an agent's completion notification before touching its files, and give subagents an explicit prohibition on `reset`/`rebase`/`amend` rather than only telling them to stage by explicit path.
+
+- **There is no `set_effort` control request.** The dispatcher table in `docs/headless-protocol.md` lists `set_permission_mode`, `set_model`, `set_max_thinking_tokens`, `set_cwd`, `get_settings`/`update_settings`, `rewind_files`, `generate_session_title`, `mcp_message` and `hook_callback` — nothing for effort. So the statusline's effort control keeps submitting `/effort <level>` as an ordinary user turn, which is why changing effort posts a visible message in the chat. Item 9 tracks the value in session state so the control still updates immediately, and carries a comment saying why the turn is visible. If a future CLI adds the control request, that is the place to switch it.
+
+- **`AgentEffort.recognizing` and the stream disagree about scale.** Noted while reading, not acted on: `CLAUDE.md` records that stream `utilization` is 0–1 where the retired statusline capture used 0–100. Worth a glance when reviewing the new meter, since that is the number it renders.
 

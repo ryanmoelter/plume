@@ -108,14 +108,12 @@ Fix the anchor's placement first — move it below the padding, or move the padd
 
 Today the overlay never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — presenting a proposal for approval, and reviewing the plan once approved.
 
-- [ ] Present a proposed plan in the overlay, with the approval options in it.
-- [ ] Inline, show only a row for the `ExitPlanMode` call — with a button to reopen the overlay while it is unanswered.
-- [ ] Hold the approval area to content width, and give it more space above, away from the plan content.
-- [ ] Offer better options than Approve/Reject:
-  - **Approve** — also starts work right away, in auto mode when that's enabled.
-  - **Approve + compact** — the same, but compacts first.
-  - **Reject with an optional reason** — the feedback goes back for a retry.
-  - The CLI's third option (reject with feedback, then auto-approve whatever plan comes back) is worth having, but its UX here is unsettled. One idea: alt+return while typing a rejection.
+- [x] Present a proposed plan in the overlay, with the approval options in it.
+- [x] Inline, show only a row for the `ExitPlanMode` call — with a button to reopen the overlay while it is unanswered.
+- [x] Hold the approval area to content width, and give it more space above, away from the plan content.
+- [x] Offer better options than Approve/Reject. **Approve**, **Approve + compact** and **Reject with an optional reason** all ship.
+- [ ] The CLI's third option — reject with feedback, then auto-approve whatever plan comes back — is still worth having, but its UX here is unsettled. One idea: alt+return while typing a rejection.
+- [ ] Confirm **Approve** starts work in auto mode where that is enabled. It resolves the request and minimizes the overlay; whether auto mode then picks it up was not verified.
 
 **The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
 
