@@ -1,0 +1,48 @@
+import Testing
+@testable import Plume
+
+/// The plan overlay's footer, which must follow the last proposal's answer
+/// rather than the presence of a plan file.
+struct PlanApprovalStateTests {
+    @Test func noProposalIsNotApprovedYet() {
+        #expect(PlanApprovalState.derive(latestProposal: nil) == .notApprovedYet)
+    }
+
+    @Test func anUnansweredProposalAwaitsADecision() {
+        let proposal = PlanApprovalState.Proposal(toolUseID: "tool-1")
+        #expect(PlanApprovalState.derive(latestProposal: proposal) == .awaitingDecision)
+    }
+
+    @Test func anApprovedProposalReadsApproved() {
+        let proposal = PlanApprovalState.Proposal(toolUseID: "tool-1", decision: .approved)
+        #expect(PlanApprovalState.derive(latestProposal: proposal) == .approved)
+    }
+
+    /// A rejection is not called out, because the plan may have been rewritten
+    /// since — so it collapses into the same state as never having proposed.
+    @Test func aRejectedProposalReadsTheSameAsNoProposal() {
+        let proposal = PlanApprovalState.Proposal(toolUseID: "tool-1", decision: .rejected)
+        #expect(PlanApprovalState.derive(latestProposal: proposal) == .notApprovedYet)
+        #expect(PlanApprovalState.derive(latestProposal: proposal)
+            == PlanApprovalState.derive(latestProposal: nil))
+    }
+
+    /// Only the newest proposal decides the footer: a fresh proposal after an
+    /// approval puts the footer back to awaiting a decision.
+    @Test func aNewProposalSupersedesAnEarlierApproval() {
+        let reproposed = PlanApprovalState.Proposal(toolUseID: "tool-2")
+        #expect(PlanApprovalState.derive(latestProposal: reproposed) == .awaitingDecision)
+    }
+
+    @Test func onlyAnAwaitingDecisionShowsTheApprovalOptions() {
+        #expect(PlanApprovalState.awaitingDecision.showsApprovalOptions)
+        #expect(!PlanApprovalState.approved.showsApprovalOptions)
+        #expect(!PlanApprovalState.notApprovedYet.showsApprovalOptions)
+    }
+
+    @Test func onlySettledStatesCarryAFooterLabel() {
+        #expect(PlanApprovalState.awaitingDecision.footerLabel == nil)
+        #expect(PlanApprovalState.approved.footerLabel == "Approved")
+        #expect(PlanApprovalState.notApprovedYet.footerLabel == "Not approved yet")
+    }
+}

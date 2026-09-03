@@ -1,0 +1,59 @@
+import Foundation
+
+/// Where the plan stands, which is what the overlay's footer shows.
+///
+/// Derived from the most recent `ExitPlanMode` call and its answer, never
+/// from whether a plan file exists. `TranscriptParser` records `planFilePath`
+/// from a `plan_mode` line as well as `plan_mode_exit`, so a plan the agent
+/// merely wrote is already on disk and already viewable — file presence says
+/// nothing about whether it was ever proposed.
+enum PlanApprovalState: Equatable {
+    /// Proposed and waiting on the user. The footer offers the approval options.
+    case awaitingDecision
+    case approved
+    /// Never proposed, or proposed and rejected.
+    ///
+    /// One state rather than two: the plan may have been rewritten since a
+    /// rejection, so naming that rejection risks describing a document that no
+    /// longer exists. This speaks only to what is still true.
+    case notApprovedYet
+
+    /// The answer a plan proposal came back with, as far as the footer cares.
+    enum Decision: Equatable {
+        case approved
+        case rejected
+    }
+
+    /// A plan proposal and whatever answer it has so far.
+    struct Proposal: Equatable {
+        let toolUseID: String
+        /// Nil while the user has not answered.
+        let decision: Decision?
+
+        init(toolUseID: String, decision: Decision? = nil) {
+            self.toolUseID = toolUseID
+            self.decision = decision
+        }
+    }
+
+    /// - Parameter latestProposal: the most recent `ExitPlanMode` call, or nil
+    ///   when the conversation has not contained one.
+    static func derive(latestProposal: Proposal?) -> PlanApprovalState {
+        guard let latestProposal else { return .notApprovedYet }
+        switch latestProposal.decision {
+        case .none: return .awaitingDecision
+        case .approved: return .approved
+        case .rejected: return .notApprovedYet
+        }
+    }
+
+    var footerLabel: String? {
+        switch self {
+        case .awaitingDecision: nil
+        case .approved: "Approved"
+        case .notApprovedYet: "Not approved yet"
+        }
+    }
+
+    var showsApprovalOptions: Bool { self == .awaitingDecision }
+}
