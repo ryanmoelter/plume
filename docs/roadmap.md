@@ -29,7 +29,6 @@ Read this list in three passes, in this order. They don't conflict today — the
 
 **Next up:**
 
-- **Drop the chat view on terminal-transport tabs.** Do this before the statusline rework, which would otherwise be built to read from two sources. It deletes more than it adds.
 - **Mermaid diagrams**, the last unstarted item in the chat section, and the one that most needs its approach settled first — WebKit or a native subset. Tables are now wanted too, and they are the same renderer question.
 
 **Also cheap, once you want them:**
@@ -210,18 +209,6 @@ Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:5
 - **Status is hardcoded, not merely wrong.** `ChatMessageRow(message:, isLast: false, status: .unset)` (`SubagentListView.swift:53`) passes both constants, and `ChatMessageRow` gates its working spinner and needs-input indicator on `isLast && status == …` — so neither can ever fire, whatever the subagent is doing.
 - **Freshness would still lag once status is wired.** A subagent's own writes don't trigger the main transcript's watcher, so the list refreshes only when the *main* transcript changes. `SessionJSONLReader` already enumerates the subagent transcripts, so what's missing is a watcher per file, not discovery.
 - **Presentation.** A nested `DisclosureGroup` inside the chat list is a cramped place to read a whole conversation. Worth weighing against the alternatives — a sheet like the plan overlay, or a pane — especially once several subagents run at once, which is the situation that motivates the feature.
-
-### Drop the chat view on terminal-transport tabs
-
-- [ ] Remove `TabRenderMode`. A terminal tab shows the TUI; a headless tab shows the chat. The transport is the choice.
-
-A terminal tab has a pretty mode today, and it is the **default**: `TaskTab.renderMode` defaults to `.chat` (`TaskTab.swift:44`), and `TabContentView` keeps both views mounted in a `ZStack`, toggling opacity (`TabContentView.swift:60-75`). A headless tab is already chat-only — `AgentTabMenu.renderModeAction` returns nil for it (`AgentTabMenu.swift:20`) — so the axis only does anything on the terminal transport.
-
-Removing it avoids the chat reading from two sources forever. It already does, and the seams show: `ChatTabView` falls back from `headlessSession?.contextUsedTokens` to `transcript.latestUsage?.inputTokens`; the statusline bugs above come from displaying transcript state while writing session state; and the interactive rows still carry an "answer in the terminal" path that exists only for this case. Every one of those either disappears or gets simpler.
-
-What it touches: `TabRenderMode` and `TaskTab.renderModeRaw`, `AgentTabMenu.renderModeAction` and its tests, the `ZStack` in `TabContentView`, the "Show Terminal / Show Chat" menu item (`TabStripView.swift:92`), the ⌘/ command (`PlumeCommands.swift:101`, `MainWindow.swift:70`), and `SmokeHarness`'s `PLUME_TOGGLE_RENDER_MODE`. The persisted property stays as a tombstone or gets a migration; everything else deletes.
-
-**Do this before the statusline rework**, which would otherwise be built to satisfy both sources.
 
 ### Mark worktrees as work in progress
 

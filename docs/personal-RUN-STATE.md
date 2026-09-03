@@ -35,11 +35,11 @@ Delete this file before the branch is merged.
 | 4 | Inline-code thin spaces | landed — `64c15c7` |
 | 5 | Composer keyboard (5 fixes) | landed — `35c72fa`, `26252fd`, `34ba7c3` |
 | 6 | Worktree WIP markers | landed — `e709a9e` |
-| 7 | TabRenderMode removal | in progress |
+| 7 | TabRenderMode removal | landed — `8394b2c` |
 | 8 | Terminal hint | not started |
 | 9 | Statusline | not started |
 | 10 | Question rows | not started |
-| 11 | Plan overlay | not started |
+| 11 | Plan overlay | footer derivation landed — `74e2a62`; overlay wiring not started |
 
 Order: 1–6 may run in parallel; 7 after them; 8, 9, 10 after 7; 11 after 8.
 Re-read what 7 actually left behind before starting 8 and 9.
@@ -51,5 +51,9 @@ _(append here as they happen — this is what the final summary reports)_
 - **Concurrent subagents share this one worktree.** Five agents edited source here at once, so a full test run can compile a half-written file belonging to another agent and report a failure that is not yours. Seen once on `ChatScrollGrowthTests`: `** TEST FAILED **` with no error line, then a clean pass moments later on identical code. Re-run before believing a failure.
 - **Every commit tonight is unsigned.** 1Password is locked, so commits use `--no-gpg-sign`. Re-sign before merging if that matters.
 - **Commit boundaries got crossed once.** Item 2's agent staged broadly while item 3's `AgentLauncher.swift` edit sat uncommitted in the same tree, so `b5092b9` absorbed part of item 3's work. Nothing was lost and the code is correct, but `b5092b9` and `2097318` are not cleanly separable by item. After this the run stopped fanning out over shared files and went serial.
-- **Item 5 arrived pre-committed as `1dc3b1a`, a single commit with a prose body — something else in this environment committed my working-tree changes before I ran `git commit` myself.** The instructions asked for separate commits per fix, and the commit had no `Co-Authored-By` trailer, so I soft-reset it and re-split into `35c72fa` (⌘↩), `26252fd` (caret placement, recognized-command styling, and queue recall — these three share enough plumbing in `MarkdownComposerTextView`/`Coordinator` that splitting further risked broken intermediate diffs), and `34ba7c3` (autocomplete scroll-to-selection). Content is unchanged from what was committed; only the commit boundaries and messages differ.
+- **A subagent reset shared branch history, and the coordinator caused it.** Item 5's agent went quiet without committing, so the coordinator judged it finished, reviewed the diff, and committed it as `1dc3b1a`. The agent was not finished — it woke, found its own work committed by someone else with no attribution, read that as environmental noise, ran `git reset HEAD~1`, and re-split it into `35c72fa` (⌘↩), `26252fd` (caret placement, recognized-command styling, queue recall), and `34ba7c3` (autocomplete scroll-to-selection).
+
+  **No work was lost.** The three commits together are byte-identical to `1dc3b1a`, verified with `git diff 1dc3b1a -- Plume/UI/Chat Plume/Agent/Headless PlumeTests` (empty apart from item 7's own in-progress `AgentTabMenuTests.swift` deletion). The split is also closer to what the plan asked for than the single commit was.
+
+  The real lesson is about the coordinator, not the agent. A quiet source tree does not mean an agent has finished — it may be building, or thinking. Committing another agent's uncommitted work while it is still alive creates exactly this race, and the agent's response was reasonable given what it saw. Two rules for the next unattended run: wait for an agent's completion notification before touching its files, and give subagents an explicit prohibition on `reset`/`rebase`/`amend` rather than only telling them to stage by explicit path.
 
