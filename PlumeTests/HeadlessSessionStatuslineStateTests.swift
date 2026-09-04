@@ -121,6 +121,6 @@ struct HeadlessSessionStatuslineStateTests {
 
         session.approvePlan(permission)
 
-        #expect(session.permissionMode == .acceptEdits)
+        #expect(session.permissionMode == .auto)
     }
 }

@@ -186,7 +186,7 @@ final class HeadlessSession {
     /// action. Without it the session stays in `plan` and never starts work.
     func approvePlan(_ permission: PendingPermission) {
         resolve(permission, with: .allow(updatedInput: permission.input))
-        setPermissionMode(.acceptEdits)
+        setPermissionMode(.auto)
     }
 
     /// Answers an `AskUserQuestion`, keyed by question text to chosen labels.
