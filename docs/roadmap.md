@@ -8,21 +8,12 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-1. **S** — Clamp the context meter's label, then work out why it reads a full window. See [The context window meter](#the-context-window-meter).
-2. **S** — Fix the session cost figure: it double-counts, and the error compounds every turn. Confirmed by probing the wire. See [The statusline](#the-statusline).
-3. **S** — Free-form answers to questions, as an option alongside the listed ones. See [Interactive rows: plans and questions](#interactive-rows-plans-and-questions).
-4. **S** — `!` command execution mode in the composer, monospace styling first. See [The composer](#the-composer).
-5. **S** — `/btw` support, as the first case of the local echo for intercepted commands. See [The composer](#the-composer).
-6. **S** — Give a streaming response the same space above it a finished one has. See [Streaming vs. settled spacing](#streaming-vs-settled-spacing).
-7. **S** — Move the stop button out of the statusline, to the left of the send button. See [The statusline](#the-statusline).
-8. **S** — Cap the width of a tab chip with a long name. See [Tabs and window chrome](#tabs-and-window-chrome).
-9. **S** — Copy icon on code blocks, bundled with giving them more padding inside the border. Same view, same edit. See [The markdown renderer](#the-markdown-renderer).
-10. **S** — Remember effort and permission mode per session. See [The statusline](#the-statusline).
-11. **S** — ⌘N opens a task in the current group. See [Groups](#groups).
-12. **S** — Terminal bell, with a dot on tabs that rang one. See [Notifications](#notifications).
-13. **M** — System notification on bell, then on Claude Code events — above all waiting-for-input. See [Notifications](#notifications).
-14. **L** — Subagents as a real view rather than a disclosure row. The case Plume exists to make legible, and currently the weakest part of the chat. See [Subagents](#subagents).
-15. **L** — Mermaid diagrams in the markdown renderer. Blocked on one decision — WebKit or a native subset. See [The markdown renderer](#the-markdown-renderer).
+1. **S** — Terminal bell, with a dot on tabs that rang one. See [Notifications](#notifications).
+2. **M** — System notification on bell, then on Claude Code events — above all waiting-for-input. See [Notifications](#notifications).
+3. **L** — Subagents as a real view rather than a disclosure row. The case Plume exists to make legible, and currently the weakest part of the chat. See [Subagents](#subagents).
+4. **L** — Mermaid diagrams in the markdown renderer. Blocked on one decision — WebKit or a native subset. See [The markdown renderer](#the-markdown-renderer).
+
+Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
 Not queued, and deliberately so: **Renaming "task"** is cheap to do and expensive to redo, so settle the word before it touches more call sites (see [Naming](#naming)). **Directories on tabs instead of tasks** is the widest change on the list and forces a real question about what a task is (see [Task creation and directories](#task-creation-and-directories)). **Strict concurrency** is worth its own pass rather than folding into feature work (see [Concurrency correctness](#concurrency-correctness)).
 
@@ -61,12 +52,12 @@ Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:5
 Shared by the chat, the plan overlay and the file viewer, so none of these are plan-specific.
 
 - [ ] Syntax-highlight code blocks.
-- [ ] Give code blocks more padding inside their border, and a copy icon while hovering them.
+- [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
 - [ ] Mermaid diagrams in the same renderer. Still needs its approach settled — WebKit or a native subset.
 
-Padding and the copy icon are one edit: both land in `MarkdownView`'s `case .codeBlock`, which is a `Text` at `.padding(8)` inside a horizontal `ScrollView` (`MarkdownView.swift:95-103`). The scroll view is the thing to get right — an icon placed inside it scrolls away with the code, so it wants to be an `overlay` on the background container instead, where it stays put. Nothing in the app uses `NSPasteboard` yet, so this introduces that; copy the block's raw `code` string, which is already to hand and unstyled. `.textSelection(.enabled)` is not a substitute here — selecting a horizontally scrolled block by hand is the friction the icon removes.
+Padding and the copy icon shipped together in `MarkdownView`'s `case .codeBlock`. The icon is an `overlay` on the background container rather than inside the horizontal `ScrollView`, so it stays pinned instead of scrolling away with the code, and it reveals on hovering the block rather than the button itself. It copies the block's raw `code` string, and introduced the app's first `NSPasteboard` use.
 
 Tables shipped native and did **not** settle the mermaid question. The two are separate problems: a table's layout is given by its source, so `Grid` is the whole implementation, while a diagram needs a layout *algorithm* — node ranking and edge routing — which is the entire job and shares nothing with tables beyond the fence.
 
@@ -93,24 +84,18 @@ Command mode has a styling half and a behavior half, and the styling half stands
 
 Still open:
 
-- [ ] Stop accumulating `total_cost_usd`. It is already a running conversation total, so `+=` re-adds every prior turn and the displayed figure compounds. Assign it instead, and correct `docs/headless-protocol.md`, which records the wrong semantics.
-- [ ] Move the stop button out of the statusline and put it left of the send button — a circular icon button with a dim background, mirroring send's shape.
+- [x] Stop accumulating `total_cost_usd`. It is already a running conversation total, so `+=` re-adds every prior turn and the displayed figure compounds. Assign it instead, and correct `docs/headless-protocol.md`, which records the wrong semantics.
+- [x] Move the stop button out of the statusline and put it left of the send button — a circular icon button with a dim background, mirroring send's shape.
 - [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
 - [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
-- [ ] Remember effort and permission mode per session, the way the context window already is.
+- [x] Remember effort and permission mode per session, the way the context window already is.
 
-**The session cost double-counts, and the error compounds.** `total_cost_usd` is a **running total for the whole conversation**, re-sent on every `result` event — not a per-turn charge. Plume accumulates it anyway (`sessionCostUSD += cost`, `HeadlessSession.swift:307`), so each turn re-adds every turn before it.
+**The session cost is fixed.** `total_cost_usd` is a running total for the whole conversation, re-sent on every `result` event — Plume accumulated it, so each turn re-added every turn before it. Confirmed on the wire: turn 1 reported $0.2548 and turn 2 $0.2996 for a turn that emitted a single digit. Assigning instead of adding also makes the figure correct across a `--resume`, since the first `result` after resuming already carries the true total. `docs/headless-protocol.md` recorded the opposite and was corrected in the same change.
 
-Verified on the wire rather than from the schema. Feeding several trivial messages into one `claude -p --input-format stream-json` session, the reported total rises turn over turn while `cache_read_input_tokens` climbs — turn 1 reported `$0.028072`, turn 2 `$0.034789` for a turn that produced **8 output tokens**. Eight Haiku tokens cost a fraction of a cent, so a per-turn field would have reported ~`$0.003`, not `$0.035`. The value is cumulative.
+The stop button now sits in the composer beside send — a 22pt circle matching send's shape with a dim fill rather than the accent one, so the pair reads as two related controls. Both show at once: `isWorking` and `hasSendableText` are independent, and stop replacing send would hide the ability to queue a follow-up.
 
-The overcount grows with conversation length: it is 1.0x after one turn, ~1.8x after two, and a 20-turn session whose true cost reaches $5 displays about **$52**. That shape — a figure that lurches by more than the turn could possibly have cost, and lurches harder the longer the session runs — is exactly the reported symptom.
-
-The fix is to assign rather than add, which also makes the number correct across a resume: `sessionCostUSD` is in-memory only and nothing persists it on `TaskTab`, but a cumulative field re-sent each turn means the first `result` after a `--resume` already carries the true total. **`docs/headless-protocol.md:145` states the opposite** and must be corrected in the same change — it is the source of the wrong assumption, and the code comment on `TurnResult.totalCostUSD` repeats it (`StreamJSONMessage.swift:74`). Note the per-model `costUSD` values in `modelUsage` sum to the same figure, so they are cumulative too and are not an independent cross-check.
-
-The stop button is the one control in the strip that isn't a session-wide fact, so moving it finishes the split the rest of the strip already made. It lives in `ChatTabView` rather than `StatuslineStripView` — a `Label("Stop", systemImage: "stop.fill")` shown beside the strip while `headlessSession?.isWorking == true` (`ChatTabView.swift:128-130`, `456-468`) — so it moves into `ChatComposer`'s bottom `HStack`, beside `sendButton`. Send is a 22pt circular `.borderedProminent` (`ChatComposer.swift:151-164`); matching its diameter and `buttonBorderShape(.circle)` with a dim fill instead of the accent one is what makes the pair read as siblings. `isWorking` and `hasSendableText` are independent, so both buttons can show at once — worth deciding whether stop replaces send while a turn runs or sits beside it.
-
-`TaskTab.contextWindowTokens` holds the last window a turn reported, written from `ChatTabView` when the session's value changes — once per turn rather than per stream event, so it stays a snapshot rather than a stream of writes. Effort and permission mode want the same treatment for a different reason: neither survives a relaunch today, and effort has no source at all beyond what this host last sent (there is no `set_effort` control request to report it back), so a resumed tab shows no effort and whatever mode the launch flag supplied. Persisting both means a reopened conversation resumes as it was left, and gives the effort control a value to show instead of its placeholder. A stored mode wins over `AppSettings.defaultPermissionMode`: the tab reopens in the mode it was last in, because that is the mode the user last saw it in. The default only applies to a tab that has never had one, so changing it never retroactively moves an existing conversation.
+`TaskTab` now snapshots permission mode and effort alongside `contextWindowTokens`, written from `ChatTabView` when the session's value changes — once per turn rather than per stream event. Launch resolves the mode tab → task → app default, so a tab reopens in the mode the user last saw it in and the default only fills in for a tab that never had one. Effort has no launch flag and no `set_effort` control request to report it back, so the snapshot is its only record across a relaunch; it seeds `HeadlessSession` directly at construction rather than through `setEffort(_:)`, which would submit a real turn.
 
 ## The plan overlay
 
@@ -137,52 +122,43 @@ One thing to get right: a plan file exists *before* it is ever proposed. `Transc
 
 ## Interactive rows: plans and questions
 
-- [ ] Let a question be answered free-form as well as by option. Claude Code's own prompt always offers an "Other" escape hatch; Plume's card offers only the listed options, so a question whose real answer isn't among them has nowhere to go but the composer.
+- [x] Let a question be answered free-form as well as by option. Claude Code's own prompt always offers an "Other" escape hatch; Plume's card offers only the listed options, so a question whose real answer isn't among them has nowhere to go but the composer.
 - [ ] Settle how a compacted context reads. It arrived rendered as an ordinary message from the user, which it is not; it now collapses to a marker row labelled "Compacted context". Whether that is the right disclosure — a marker, an expandable row, or something else — is still open.
 
-**A free-form answer needs no new wire format.** An `Answer.questions` payload is already question text -> an arbitrary string (`PermissionAnswerState.answers(for:)` just happens to build it by joining chosen labels), so the control plane carries typed text as-is. The work is in the card and in `PermissionAnswerState`: a selection becomes either options or free text, `isComplete` has to accept a non-empty string, and `QuestionPrimaryAction` has to stop treating an empty option set as unanswered. Settled rendering comes back for free — `answers(from:for:)` reads whatever the result text records, without caring where it came from.
+**Free-form answers shipped.** The wire needed nothing new: an `Answer.questions` payload is already question text -> an arbitrary string, so typed text rides the control plane as-is. A question is now answered by chosen options *or* typed text, never both — setting either clears the other, so `isComplete`, `answers(for:)`, the primary button's enabled state and what actually gets sent all read one source of truth per question. The field renders only on an answerable row, leaving the transcript's read-only copy unchanged.
 
 The answers on a settled block come from the tool result's own text, parsed in `InteractiveToolPayload.answers(from:for:)`. The `updatedInput` that carries them to the model never lands back in the transcript, so that text is the only place they survive a reload. It is a fixed-format string rather than JSON, so the parse anchors on each known question's exact text and degrades to showing nothing rather than guessing.
 
-**The stale hint is a real bug, and the plan overlay work retires half of it.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
+**A resolved row still wants a settled state.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure: `PendingPermissionDock` supplies one, `ToolCallRow` does not. While a request is live the dock's answerable row covers for the transcript's read-only copy underneath. What is still missing is a settled presentation for a rejected plan — "Rejected", with the reason — rather than the row simply falling back to its non-answerable rendering. (An earlier note here described a stale `answerHint("Approve or reject in the terminal.")`; no such hint exists in the code.)
 
 ## Streaming vs. settled spacing
 
-- [ ] Give a streaming response the same space above it that a finished one has. A reply sits tighter to the message above while it streams, then shifts down once the transcript takes over — so the text moves as the turn settles.
+- [x] Give a streaming response the same space above it that a finished one has. A reply sits tighter to the message above while it streams, then shifts down once the transcript takes over — so the text moves as the turn settles.
 
-`StreamingBlocks` mounts in two places, and only one of them is padded like a message. Inside `ChatMessageRow.assistantBody` it inherits that body's `.padding(.vertical, 4)` (`ChatMessageRow.swift:96`), which is what a settled assistant row pays on top of the list's own `dimensions.verticalPadding`. Mounted standalone in `ChatMessageList` — the case for a turn that has not produced an assistant message yet (`ChatMessageList.swift:93-95`) — it gets the list padding and nothing else, so it renders 4pt tighter top and bottom. Both mounts already agree horizontally: each takes `.listItemPadding(bleed: true, column: .unpadded)`, and the inset is paid inside by `MarkdownView`'s own per-block `.listItemPadding(vertical: false)`, so this is vertical only.
-
-The fix belongs on `StreamingBlocks` rather than at either call site, so the two mounts cannot drift apart again — but note it would then double up inside `assistantBody`, which already supplies it. Either move that padding out of `assistantBody` onto the blocks it wraps, or have the standalone mount pay it. A row whose height changes as it settles is also what the scroll follow behavior measures against, so check the two together.
+`StreamingBlocks` mounts in two places and only one was padded like a message. Inside `ChatMessageRow.assistantBody` it inherits that body's `.padding(.vertical, 4)`; mounted standalone in `ChatMessageList` — the case for a turn that has not produced an assistant message yet — it got the list padding and nothing else, rendering 4pt tighter. The standalone mount now pays that inset itself. Putting it on `StreamingBlocks` instead was tried and reverted: the view is a mid-stack element inside `assistantBody`, so unconditional padding there would have doubled up and widened the mid-turn gap between settled and streaming text.
 
 ## The context window meter
 
-- [ ] Work out why the meter reads a full window. Seen live as **1M/1M** on a session nowhere near full, so both halves of the fraction are suspect and the number is currently not trustworthy.
+- [x] Work out why the meter reads a full window. **Diagnosed and fixed:** the numerator was measuring throughput, not context size.
 
-Not diagnosed — what follows is where to look, with the one thing that is settled first.
+**Root `usage` on a `result` event accumulates across the round-trips within one turn.** Each round-trip re-reads the whole cached prompt, and the root object sums those re-reads. `ContextUsage.total`'s four-way sum was therefore reporting cumulative token throughput for the turn rather than the size of the context. The two coincide only when a turn makes exactly one round-trip, which is why trivial probes and transcript sampling both looked correct for so long.
 
-**The label is unclamped while the bar is clamped.** `StatuslineMeterMath.fraction` pins the meter to 0–1 (`StatuslineStripView.swift:222-225`), but `tokenLabel` formats `used` and `max` straight through `formatTokenCount` (`StatuslineStripView.swift:141-145`), and `percentage` divides without a ceiling (line 136-139). So an over-count shows as a pinned bar beside a literal "1M/1M" rather than as anything obviously broken — which is why this reads as a wrong number instead of a visible overflow. Worth clamping the label regardless of the cause, so the next miscount announces itself.
+Measured on Opus 5, forcing tool calls:
 
-Two candidates for the number itself, and they are testable separately since the numerator and denominator come from different places:
+```
+num_turns (round-trips): 3
+root usage: input 6 / cache_read 88,334 / cache_creation 28,094 / output 650
+the single element of usage.iterations: cache_read 40,863
+four-way sum: 117,084
+```
 
-- **The denominator.** `contextWindow` is the largest `contextWindow` across the turn's `modelUsage` (`StreamJSONDecoder.swift:117-123`), which deliberately takes the max so a subagent's smaller window does not win. A 1M-context model on the main thread makes 1M the correct denominator, so 1M is not itself evidence of a bug here — but it does mean the numerator has to reach 1M for the fraction to fill, which is the part that does not add up.
-- **The numerator.** `ContextUsage.total` sums `input + cache_read + cache_creation + output` (`StreamJSONMessage.swift:102-106`). Sampling a real 83-turn transcript, this lands where it should — the last turns read `in 2 / cr 169413 / cc 430 / out 694`, totalling ~170K against the model's window, not a full one. So the shared arithmetic is sound on transcript data, and both paths take the *latest* usage rather than accumulating (`TranscriptParser.swift:100`), which rules out the obvious cross-turn double count.
+Root `cache_read` is neither the max nor the sum of the `iterations` present — it exceeds the only iteration by more than 2x. A turn with many tool calls re-reads the prompt dozens of times, which is how the meter reached a reported **1.3M/1M**.
 
-**The cost double-count does not extend to the context numbers, and probing the wire narrowed this further.** Both are read from a `result` event, but from different keys, and only one of the two shapes is cumulative:
+The fix reads the **last element of `usage.iterations`**, falling back to root `usage` when `iterations` is absent — that last round-trip is the prompt that was actually sent. `TranscriptUsage` needed no change: transcripts write one entry per round-trip, so their latest entry is already the last one, and no transcript entry on this machine exceeds 1M. `ContextUsage.total` stays shared between the live and transcript paths so a resumed conversation and a live one agree.
 
-| Source | Shape | What Plume reads it for |
-|---|---|---|
-| `usage{}` at the root | **Per turn** | `contextUsedTokens` — correct |
-| `modelUsage{}` token counts | **Cumulative** | nothing — dodged |
-| `modelUsage{}.contextWindow` | A constant (`200000`) | `contextWindow` — correct |
-| `total_cost_usd` | **Cumulative** | `sessionCostUSD`, wrongly accumulated — see [The statusline](#the-statusline) |
+Ruled out along the way, and worth not re-testing: Plume does not accumulate (`HeadlessSession` and `TranscriptParser` both assign last-wins); the denominator is correct, since Opus 5 genuinely reports `contextWindow: 1000000`; and no model in use has a window below 1M, so a stale-window or model-switch mismatch was never involved.
 
-Measured over two turns of one session: root `usage.input_tokens` stayed 3 and `output_tokens` stayed 4, while `modelUsage`'s `inputTokens` went 3 → 6 and `outputTokens` 4 → 8, and its `cacheReadInputTokens` went 13979 → 42705 (which is 13979 + 28726, the prior turn's total). So `modelUsage` sums across turns and root `usage` does not. `StreamJSONDecoder.turnResult` takes all four token counts from `root["usage"]` (`StreamJSONDecoder.swift:100,107-111`) and only `contextWindow` from `modelUsage`, so the meter's numerator is genuinely per-turn.
-
-That also confirms `ContextUsage.total`'s four-way sum is not a double count *within* a payload: turn 2's `cache_read` (28726) is approximately turn 1's full total (28733), which is what a growing conversation looks like when each turn's context becomes the next turn's cache read. The sum equals the context actually sent.
-
-So the 1M/1M reading is not explained by either mechanism, and both obvious arithmetic suspects are now eliminated. What remains unexplained is a denominator of 1M with a numerator that reached it. Note the probe ran on Haiku, which reports `contextWindow: 200000` — reproducing this needs a 1M-context model, where `largestContextWindow` taking the max across `modelUsage` is worth re-examining, since that is the one place a value from a *different* model than the main thread could win.
-
-That leaves the live stream path as the least-examined half: the numbers above came from `TranscriptUsage`, while the meter prefers `headlessSession?.contextUsedTokens` and only falls back to the transcript (`ChatTabView.swift:118-122`). A `result` payload whose `usage` differs in shape from a transcript entry's — or a `modelUsage` carrying a window that is not the main thread's — would show up here and nowhere in the transcript sampling. Capture a raw `result` event from a session showing a wrong meter before changing any of the arithmetic; the stored `tab.contextWindowTokens` fallback is a third possible source and a stale one persists across relaunches.
+**The label stays unclamped, deliberately.** An earlier plan was to clamp `tokenLabel` and `percentage` so an over-count could not print a literal "1M/1M". That is rejected: the unclamped label is exactly what made this bug visible, and clamping would have hidden it while leaving the arithmetic wrong. `StatuslineMeterMath.fraction` still pins the bar to 0–1; the label is the honest signal and should stay that way.
 
 ## Running inside Plume
 
@@ -229,7 +205,7 @@ What exists:
 
 ## Groups
 
-- [ ] ⌘N opens a new task in the current group.
+- [x] ⌘N opens a new task in the current group.
 - [ ] Icons (SF Symbols, probably by name) and colors for groups.
 - [ ] Maybe colors for individual tasks too — or show the group's color across the whole group.
 
@@ -255,7 +231,7 @@ What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar a
 - [ ] One tab kind. "New Tab" opens a shell; when `claude` is running in it, the tab takes on agent chrome — no agent-vs-terminal prompt at creation.
 - [ ] Remove the unused title bar, or move something into it (task name? directory?).
 - [ ] Rebalance the chat chrome: put the titlebar's empty space to work. The statusline/composer split (see **The statusline**) already moved the next-message controls into the message box; what's left is the titlebar itself.
-- [ ] Cap a tab chip's width, so a long title can't take the whole strip. Much shorter than today's, which grows to fit whatever the title is.
+- [x] Cap a tab chip's width, so a long title can't take the whole strip. Much shorter than today's, which grows to fit whatever the title is.
 - [ ] Drag a tab into another task.
 - [ ] Move a tab out into a new task of its own.
 
