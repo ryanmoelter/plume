@@ -51,7 +51,9 @@ final class HeadlessSession {
     private(set) var streamingThinking = ""
 
     private(set) var rateLimit: RateLimitInfo?
-    /// `total_cost_usd` is per turn, so a session total accumulates.
+    /// `total_cost_usd` is a running total for the whole conversation, so
+    /// each `result` replaces the prior value rather than adding to it —
+    /// that also keeps the figure correct across a `--resume`.
     private(set) var sessionCostUSD: Double = 0
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
@@ -304,7 +306,7 @@ final class HeadlessSession {
     private func endTurn(_ result: TurnResult) {
         isWorking = false
         // The streamed text is not cleared here — see its declaration.
-        if let cost = result.totalCostUSD { sessionCostUSD += cost }
+        if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }
         if result.isError {

@@ -210,6 +210,62 @@ struct StreamJSONDecoderTests {
         #expect(result.contextUsedTokens == 1_500)
     }
 
+    /// Root `usage` sums every round-trip in the turn; the numerator should
+    /// instead reflect only the final round-trip's context footprint.
+    @Test func contextUsageReadsTheLastIterationNotTheRootSum() {
+        let root: [String: JSONValue] = [
+            "type": .string("result"),
+            "usage": .object([
+                "input_tokens": .number(6),
+                "cache_creation_input_tokens": .number(28_094),
+                "cache_read_input_tokens": .number(88_334),
+                "output_tokens": .number(650),
+                "iterations": .array([
+                    .object([
+                        "input_tokens": .number(2),
+                        "cache_creation_input_tokens": .number(9_000),
+                        "cache_read_input_tokens": .number(40_863),
+                        "output_tokens": .number(200)
+                    ]),
+                    .object([
+                        "input_tokens": .number(4),
+                        "cache_creation_input_tokens": .number(28_094),
+                        "cache_read_input_tokens": .number(40_863),
+                        "output_tokens": .number(650)
+                    ])
+                ])
+            ])
+        ]
+        guard case .result(let result)? = StreamJSONDecoder.decode(root: root) else {
+            Issue.record("expected a result message")
+            return
+        }
+        #expect(result.inputTokens == 4)
+        #expect(result.cacheCreationInputTokens == 28_094)
+        #expect(result.cacheReadInputTokens == 40_863)
+        #expect(result.outputTokens == 650)
+        #expect(result.contextUsedTokens == 69_611)
+    }
+
+    /// Older or single-round-trip payloads carry no `iterations` at all; the
+    /// root `usage` object is the only source, and already agrees with it.
+    @Test func contextUsageFallsBackToRootUsageWhenIterationsIsAbsent() {
+        let root: [String: JSONValue] = [
+            "type": .string("result"),
+            "usage": .object([
+                "input_tokens": .number(2),
+                "cache_creation_input_tokens": .number(547),
+                "cache_read_input_tokens": .number(270_017),
+                "output_tokens": .number(158)
+            ])
+        ]
+        guard case .result(let result)? = StreamJSONDecoder.decode(root: root) else {
+            Issue.record("expected a result message")
+            return
+        }
+        #expect(result.contextUsedTokens == 270_724)
+    }
+
     // MARK: - Encoder round-trips
 
     private func decodedRoot(_ line: String?) throws -> [String: JSONValue] {

@@ -71,7 +71,8 @@ struct TurnResult {
     let subtype: String
     let isError: Bool
     let text: String?
-    /// Per turn, so a session total accumulates rather than replaces.
+    /// A running total for the whole conversation, not a per-turn charge —
+    /// each `result` replaces the session's tracked cost rather than adding to it.
     let totalCostUSD: Double?
     let contextWindow: Int?
     let inputTokens: Int?

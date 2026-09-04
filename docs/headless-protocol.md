@@ -142,7 +142,7 @@ Observed in order, from a real run:
 
 Also defined in the schema: `attachment`, `prompt_suggestion`, and an auto-denial advisory event.
 
-`total_cost_usd` is **per turn**, so a session total must accumulate across `result` events rather than replace.
+`total_cost_usd` is a **running total for the whole conversation**, re-sent on every `result` event — a session total must replace its tracked cost with each new value rather than accumulate. Replacing also keeps the figure correct across a `--resume`, since the first `result` after resuming already carries the true running total.
 
 ## What this buys over the TUI
 

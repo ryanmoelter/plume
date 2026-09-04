@@ -97,7 +97,7 @@ enum StreamJSONDecoder {
     }
 
     private static func turnResult(from root: [String: JSONValue]) -> TurnResult {
-        let usage = root["usage"]?.objectValue ?? [:]
+        let usage = effectiveUsage(in: root["usage"]?.objectValue ?? [:])
         return TurnResult(
             subtype: root["subtype"]?.stringValue ?? "",
             isError: root["is_error"]?.boolValue ?? false,
@@ -110,6 +110,19 @@ enum StreamJSONDecoder {
             outputTokens: usage["output_tokens"]?.doubleValue.map(Int.init),
             permissionDenials: root["permission_denials"]?.arrayValue?.count ?? 0
         )
+    }
+
+    /// Root `usage` sums every round-trip in the turn, so a multi-round-trip
+    /// turn overstates context size by that many re-reads of the cached
+    /// prompt. The last entry in `usage.iterations` is the final round-trip
+    /// alone — what's actually left in context — so it takes precedence.
+    /// Falls back to root `usage` for older payloads without `iterations`,
+    /// where the two already agree because there's only one round-trip.
+    private static func effectiveUsage(in usage: [String: JSONValue]) -> [String: JSONValue] {
+        guard let lastIteration = usage["iterations"]?.arrayValue?.last?.objectValue else {
+            return usage
+        }
+        return lastIteration
     }
 
     /// `modelUsage` reports every model the turn touched, subagents included.
