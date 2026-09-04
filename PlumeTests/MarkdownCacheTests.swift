@@ -21,6 +21,11 @@ struct MarkdownCacheTests {
         #expect(MarkdownCache.blocks(for: markdown) == MarkdownBlock.parse(markdown))
     }
 
+    @Test func aTableRoundTripsThroughTheCache() {
+        let markdown = "| a | b |\n| :-- | --: |\n| 1 | 2 |"
+        #expect(MarkdownCache.blocks(for: markdown) == MarkdownBlock.parse(markdown))
+    }
+
     @Test func aRepeatedLookupReturnsTheSameValue() {
         let markdown = "# Title\n\nBody"
         let first = MarkdownCache.blocks(for: markdown)

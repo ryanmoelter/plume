@@ -12,7 +12,7 @@ Read this list in order. The passes don't conflict today — what's left of the 
 
 - **Remember effort and permission mode per session**, described under **The statusline** below. A reopened tab should come back in the mode it was last in; today it comes back on the launch default, and effort comes back blank because nothing reports it. `TaskTab.contextWindowTokens` already establishes the pattern, so this is a short change against a settled design — the behavior question it used to carry is answered.
 
-The bugs from driving the app have all shipped; what they turned up is recorded under **Testing results** below, checked off where it landed. What remains there is the renderer question (tables and mermaid), the `/compact` echo, subagents, and the two presentation questions.
+The bugs from driving the app have all shipped; what they turned up is recorded under **Testing results** below, checked off where it landed. What remains there is the renderer question (mermaid, now that tables have shipped), the `/compact` echo, subagents, and the two presentation questions.
 
 **Then the quick wins — small, self-contained, and each one is felt every day:**
 
@@ -31,7 +31,7 @@ The bugs from driving the app have all shipped; what they turned up is recorded 
 
 **Blocked on a decision, not on time:**
 
-- **Mermaid diagrams**, the one item that most needs its approach settled first — WebKit or a native subset. Tables are now wanted too, and they are the same renderer question.
+- **Mermaid diagrams**, the one item that most needs its approach settled first — WebKit or a native subset. Tables shipped native without settling it; see the markdown renderer section for why they turned out to be a separate question.
 
 **Also cheap, once you want them:**
 
@@ -151,12 +151,16 @@ The answers on a settled block come from the tool result's own text, parsed in `
 Shared by the chat, the plan overlay and the file viewer, so none of these are plan-specific.
 
 - [x] Stop padding inline code spans with space characters. `MarkdownCache.styledInline` inserts a real U+2009 thin space on each side of every span (`MarkdownCache.swift:76`), so the padding is part of the string: copying `foo` yields `\u{2009}foo\u{2009}`, and pasting it into a shell or an editor carries invisible characters that break the paste. Accurate copy matters more than the visual breathing room — if the chip has to hug the glyphs, let it. Only genuine layout padding (which `AttributedString`'s flat `backgroundColor` cannot express) is worth pursuing as a replacement, and not at the cost of the text.
-- [ ] Support tables. Currently unsupported on purpose (`MarkdownBlock.swift:10`) — a table degrades to a paragraph. They're an important visualization tool and the degradation is poor.
+- [x] Support tables. A `.table` block rendered with SwiftUI `Grid`, in the bleed column, with GFM alignment markers.
 - [ ] Syntax-highlight code blocks.
 - [ ] Give code blocks more padding inside their border.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
-- [ ] Mermaid diagrams in the same renderer — the item that most needs its approach settled first, WebKit or a native subset. Tables raise the same question, so decide them together.
+- [ ] Mermaid diagrams in the same renderer. Still needs its approach settled — WebKit or a native subset.
+
+Tables shipped native and did **not** settle the mermaid question. The two are separate problems: a table's layout is given by its source, so `Grid` is the whole implementation, while a diagram needs a layout *algorithm* — node ranking and edge routing — which is the entire job and shares nothing with tables beyond the fence.
+
+What tables leave behind for it: `MarkdownBlock.codeBlock` already carries the fence's `language`, so detecting a mermaid fence costs nothing. `MarkdownView` currently discards that language — that is the seam to branch on. Note that a native subset degrades badly the moment a diagram uses an unsupported shape, which is the main argument for WebKit here even though tables didn't need it.
 
 ### The composer
 
@@ -232,7 +236,7 @@ What exists:
 - A superset is plausible because Plume already reads and rewrites the config rather than passing a path: `GhosttyConfigLoader` finds the file in ghostty's own search order, then hands libghostty *generated contents* with every `theme` line stripped, parsing line by line. Plume-specific keys would be stripped the same way — and they must be, since libghostty emits diagnostics for keys it doesn't recognize and `GhosttyRuntime` already logs them.
 - A different format is worth weighing against the superset, not assumed away. TOML or JSON both express nesting natively, and JSON needs no dependency at all — `Codable` reads it, and the headless stream already parses JSON. TOML reads better by hand but means taking a parser. The cost either way is that Plume's config and ghostty's stop being one file, so the user keeps two — which may be honest rather than unfortunate, since the two configure genuinely different things. A middle path: keep terminal behavior in the ghostty config where it already lives and works, and give Plume's own settings their own structured file, rather than stretching a flat format to hold everything.
 - Two things to settle first if the superset wins. Ghostty takes the first matching config file outright and never merges, so a Plume file that *is* the ghostty file means the user maintains one file for both, while a separate file means deciding precedence. And ghostty's format is flat `key = value` with repeated keys for lists, which suits toggles and paths but has no obvious shape for anything nested — worth checking that every setting worth moving actually fits before committing to the format. `AppSettings` stays the reader either way; a file is a new source for it, not a replacement for the type.
-- The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports — the same discipline that keeps tables degrading gracefully rather than being mangled.
+- The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports. Tables are now safe for a skill to encourage; mermaid is not, until it renders.
 
 ## PR/MR state in the sidebar
 

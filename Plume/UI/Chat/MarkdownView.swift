@@ -116,10 +116,60 @@ struct MarkdownView: View, ThemedView {
             }
             .listItemPadding(vertical: false)
 
+        case let .table(header, alignments, rows):
+            let hasHeader = MarkdownBlock.headerIsMeaningful(header)
+            Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 6) {
+                if hasHeader {
+                    GridRow {
+                        ForEach(header.indices, id: \.self) { column in
+                            Text(inline(header[column]))
+                                .font(prose.body.semibold)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .gridColumnAlignment(gridAlignment(alignments, at: column))
+                        }
+                    }
+                    Rectangle()
+                        .fill(colors.divider)
+                        .frame(height: 1)
+                        .gridCellColumns(max(header.count, 1))
+                }
+                ForEach(rows.indices, id: \.self) { row in
+                    GridRow {
+                        ForEach(rows[row].indices, id: \.self) { column in
+                            let cell = Text(inline(rows[row][column]))
+                                .font(prose.body.font)
+                                .lineSpacing(prose.body.lineSpacing)
+                                .fixedSize(horizontal: false, vertical: true)
+                            // `gridColumnAlignment` binds per column, so
+                            // without a header row the first body row
+                            // carries it.
+                            if hasHeader || row > 0 {
+                                cell
+                            } else {
+                                cell.gridColumnAlignment(gridAlignment(alignments, at: column))
+                            }
+                        }
+                    }
+                }
+            }
+            .listItemPadding(bleed: true, vertical: false)
+
         case .rule:
             Rectangle()
                 .fill(colors.divider)
                 .frame(height: 1)
+        }
+    }
+
+    /// A column's alignment, defaulting to leading for a ragged delimiter row.
+    private func gridAlignment(
+        _ alignments: [MarkdownBlock.ColumnAlignment],
+        at column: Int
+    ) -> HorizontalAlignment {
+        switch alignments.indices.contains(column) ? alignments[column] : .leading {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
         }
     }
 
@@ -175,4 +225,33 @@ struct MarkdownView: View, ThemedView {
     private var quoteBarColor: Color {
         colors.surface(.disabled)
     }
+}
+
+#Preview("Tables") {
+    ScrollView {
+        MarkdownView(
+            """
+            | Item | Count | Cost |
+            | :--- | :---: | ---: |
+            | Widgets with a long descriptive name | 12 | $1.50 |
+            | Gadgets | 3 | $22.00 |
+
+            | | |
+            |---|---|
+            | Package | `libghostty-spm` |
+            | Requirement | `.exact("1.5.0")` |
+
+            | Syntax | Renders |
+            | --- | --- |
+            | `**bold**` | **bold** |
+            | `a \\| b` | a \\| b |
+
+            Prose containing a | pipe stays a paragraph.
+            """,
+            isAgentVoice: true
+        )
+        .padding()
+    }
+    .plumeTheme(bodySize: 16)
+    .frame(width: 700, height: 620)
 }

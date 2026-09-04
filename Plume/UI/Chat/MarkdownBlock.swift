@@ -7,8 +7,8 @@ import Foundation
 /// fenced code, lists, quotes. `parse(_:)` splits the raw text into blocks
 /// by hand; `MarkdownView` then inline-parses each paragraph and list item.
 ///
-/// Deliberately unsupported: nested lists and tables. A table's raw lines
-/// fall through to `.paragraph` rather than being mangled or dropped.
+/// Deliberately unsupported: nested lists. Their raw lines fall through to
+/// `.paragraph` rather than being mangled or dropped.
 nonisolated enum MarkdownBlock: Equatable {
     case heading(level: Int, text: String)
     case paragraph(String)
@@ -16,7 +16,24 @@ nonisolated enum MarkdownBlock: Equatable {
     case numberedList([String])
     case codeBlock(language: String?, code: String)
     case quote(String)
+    case table(header: [String], alignments: [ColumnAlignment], rows: [[String]])
     case rule
+
+    /// How a column's cells sit in their width, from the `:` markers in a
+    /// table's delimiter row.
+    nonisolated enum ColumnAlignment: Equatable {
+        case leading
+        case center
+        case trailing
+    }
+
+    /// Whether a table's header carries anything worth showing.
+    ///
+    /// An all-empty header is the key-value form of a table, where a blank
+    /// row and its rule would float a line above nothing.
+    static func headerIsMeaningful(_ header: [String]) -> Bool {
+        header.contains { !$0.isEmpty }
+    }
 
     static func parse(_ text: String) -> [MarkdownBlock] {
         let lines = text.components(separatedBy: "\n")
@@ -55,6 +72,13 @@ nonisolated enum MarkdownBlock: Equatable {
                 let text = String(trimmed.dropFirst(level)).trimmingCharacters(in: .whitespaces)
                 blocks.append(.heading(level: level, text: text))
                 index += 1
+                continue
+            }
+
+            // Before `isRule`, so a delimiter row is never mistaken for one.
+            if let table = tableAt(index, in: lines) {
+                blocks.append(table.block)
+                index = table.nextIndex
                 continue
             }
 
@@ -115,6 +139,7 @@ nonisolated enum MarkdownBlock: Equatable {
                 if candidateTrimmed.isEmpty
                     || fenceMarker(candidateTrimmed) != nil
                     || headingLevel(candidateTrimmed) != nil
+                    || tableAt(cursor, in: lines) != nil
                     || isRule(candidateTrimmed)
                     || candidateTrimmed.hasPrefix(">")
                     || bulletItemText(candidateTrimmed) != nil
@@ -139,6 +164,102 @@ nonisolated enum MarkdownBlock: Equatable {
             }
         }
         return nil
+    }
+
+    /// A table starting at `index`, or nil if the lines there aren't one.
+    ///
+    /// Needs two lines to decide: a lone pipe-bearing line is prose, so the
+    /// delimiter row underneath is what distinguishes `a | b` in a sentence
+    /// from a real header.
+    private static func tableAt(
+        _ index: Int,
+        in lines: [String]
+    ) -> (block: MarkdownBlock, nextIndex: Int)? {
+        guard index + 1 < lines.count else { return nil }
+        let headerLine = lines[index].trimmingCharacters(in: .whitespaces)
+        let delimiterLine = lines[index + 1].trimmingCharacters(in: .whitespaces)
+        guard headerLine.contains("|"), isDelimiterRow(delimiterLine) else { return nil }
+
+        let header = rowCells(headerLine)
+        let alignments = rowCells(delimiterLine).map(alignment(ofDelimiter:))
+        // GFM requires the two to agree; when they don't it isn't a table.
+        guard alignments.count == header.count else { return nil }
+
+        var rows: [[String]] = []
+        var cursor = index + 2
+        while cursor < lines.count {
+            let candidate = lines[cursor].trimmingCharacters(in: .whitespaces)
+            guard !candidate.isEmpty, candidate.contains("|") else { break }
+            rows.append(fitting(rowCells(candidate), to: header.count))
+            cursor += 1
+        }
+
+        return (.table(header: header, alignments: alignments, rows: rows), cursor)
+    }
+
+    private static func isDelimiterRow(_ trimmed: String) -> Bool {
+        guard trimmed.contains("-") else { return false }
+        return trimmed.allSatisfy { $0 == "-" || $0 == ":" || $0 == "|" || $0 == " " }
+    }
+
+    /// A row's cells, less the empty fields that a leading or trailing pipe
+    /// produces — `| a | b |` and `a | b` are both legal and equivalent.
+    private static func rowCells(_ trimmed: String) -> [String] {
+        var cells = splitOnUnescapedPipes(trimmed)
+        if let first = cells.first, first.trimmingCharacters(in: .whitespaces).isEmpty,
+           trimmed.hasPrefix("|") {
+            cells.removeFirst()
+        }
+        if let last = cells.last, last.trimmingCharacters(in: .whitespaces).isEmpty,
+           trimmed.hasSuffix("|"), !trimmed.hasSuffix("\\|") {
+            cells.removeLast()
+        }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// Splits on `|` while treating `\|` as a literal pipe, unescaping it in
+    /// place so the backslash never reaches the rendered cell.
+    private static func splitOnUnescapedPipes(_ text: String) -> [String] {
+        var cells: [String] = []
+        var current = ""
+        var escaped = false
+        for character in text {
+            if escaped {
+                // Only `\|` is ours; any other escape belongs to the inline
+                // parser and keeps its backslash.
+                if character != "|" { current.append("\\") }
+                current.append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "|" {
+                cells.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if escaped { current.append("\\") }
+        cells.append(current)
+        return cells
+    }
+
+    private static func alignment(ofDelimiter cell: String) -> ColumnAlignment {
+        let trimmed = cell.trimmingCharacters(in: .whitespaces)
+        switch (trimmed.hasPrefix(":"), trimmed.hasSuffix(":")) {
+        case (true, true): return .center
+        case (false, true): return .trailing
+        default: return .leading
+        }
+    }
+
+    /// A ragged row still renders: pad a short one, drop a long one's excess.
+    private static func fitting(_ cells: [String], to count: Int) -> [String] {
+        if cells.count == count { return cells }
+        if cells.count < count {
+            return cells + Array(repeating: "", count: count - cells.count)
+        }
+        return Array(cells.prefix(count))
     }
 
     private static func headingLevel(_ trimmed: String) -> Int? {

@@ -76,11 +76,97 @@ struct MarkdownBlockTests {
         #expect(hasBold)
     }
 
-    @Test func tableDegradesToParagraph() {
-        let table = "| a | b |\n| - | - |\n| 1 | 2 |"
-        let blocks = MarkdownBlock.parse(table)
-        // Tables aren't a supported block kind: keep the raw lines as a
-        // paragraph rather than mangling or dropping them.
-        #expect(blocks == [.paragraph(table)])
+    @Test func table() {
+        let blocks = MarkdownBlock.parse("| a | b |\n| - | - |\n| 1 | 2 |")
+        #expect(blocks == [.table(
+            header: ["a", "b"],
+            alignments: [.leading, .leading],
+            rows: [["1", "2"]]
+        )])
+    }
+
+    @Test func tableWithoutOuterPipesMatchesThePipedForm() {
+        let bare = MarkdownBlock.parse("a | b\n--- | ---\n1 | 2")
+        let piped = MarkdownBlock.parse("| a | b |\n| --- | --- |\n| 1 | 2 |")
+        #expect(bare == piped)
+    }
+
+    @Test func tableAlignmentMarkers() {
+        let blocks = MarkdownBlock.parse("| l | c | r | d |\n| :-- | :-: | --: | --- |\n| 1 | 2 | 3 | 4 |")
+        #expect(blocks == [.table(
+            header: ["l", "c", "r", "d"],
+            alignments: [.leading, .center, .trailing, .leading],
+            rows: [["1", "2", "3", "4"]]
+        )])
+    }
+
+    /// `docs/ghostty-pin.md` uses an empty-header table as a key-value layout.
+    @Test func tableWithEmptyHeaderCells() {
+        let blocks = MarkdownBlock.parse("| | |\n|---|---|\n| Package | libghostty-spm |")
+        #expect(blocks == [.table(
+            header: ["", ""],
+            alignments: [.leading, .leading],
+            rows: [["Package", "libghostty-spm"]]
+        )])
+    }
+
+    @Test func anAllEmptyHeaderIsNotWorthShowing() {
+        #expect(MarkdownBlock.headerIsMeaningful(["a", "b"]))
+        #expect(MarkdownBlock.headerIsMeaningful(["", "b"]))
+        #expect(!MarkdownBlock.headerIsMeaningful(["", ""]))
+        #expect(!MarkdownBlock.headerIsMeaningful([]))
+    }
+
+    @Test func tableRaggedRowsAreFittedToTheHeader() {
+        let blocks = MarkdownBlock.parse("| a | b |\n| - | - |\n| 1 |\n| 1 | 2 | 3 |")
+        #expect(blocks == [.table(
+            header: ["a", "b"],
+            alignments: [.leading, .leading],
+            rows: [["1", ""], ["1", "2"]]
+        )])
+    }
+
+    @Test func tableCellKeepsAnEscapedPipe() {
+        let blocks = MarkdownBlock.parse("| a | b |\n| - | - |\n| x \\| y | z |")
+        #expect(blocks == [.table(
+            header: ["a", "b"],
+            alignments: [.leading, .leading],
+            rows: [["x | y", "z"]]
+        )])
+    }
+
+    @Test func pipeInProseStaysAParagraph() {
+        let text = "Run a | b to pipe.\nThe second line has no delimiter row."
+        #expect(MarkdownBlock.parse(text) == [.paragraph(text)])
+    }
+
+    @Test func delimiterRowDisagreeingWithTheHeaderIsNotATable() {
+        let text = "| a | b |\n| --- |"
+        #expect(MarkdownBlock.parse(text) == [.paragraph(text)])
+    }
+
+    @Test func tableWithNoBodyRows() {
+        let blocks = MarkdownBlock.parse("| a | b |\n| - | - |")
+        #expect(blocks == [.table(
+            header: ["a", "b"],
+            alignments: [.leading, .leading],
+            rows: []
+        )])
+    }
+
+    @Test func tableThenParagraph() {
+        let blocks = MarkdownBlock.parse("| a |\n| - |\n| 1 |\n\nAfter.")
+        #expect(blocks == [
+            .table(header: ["a"], alignments: [.leading], rows: [["1"]]),
+            .paragraph("After.")
+        ])
+    }
+
+    @Test func paragraphThenTable() {
+        let blocks = MarkdownBlock.parse("Before.\n| a |\n| - |\n| 1 |")
+        #expect(blocks == [
+            .paragraph("Before."),
+            .table(header: ["a"], alignments: [.leading], rows: [["1"]])
+        ])
     }
 }
