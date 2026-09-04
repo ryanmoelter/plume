@@ -144,6 +144,7 @@ struct InteractiveToolRow: View, ThemedView {
                 ForEach(question.options) { option in
                     optionRow(option, in: question)
                 }
+                freeTextRow(for: question)
             }
             let action = QuestionPrimaryAction.next(for: questions, in: answerState)
             HStack {
@@ -155,7 +156,7 @@ struct InteractiveToolRow: View, ThemedView {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(answerState.selectedLabels(for: question).isEmpty)
+                .disabled(!answerState.isComplete(for: [question]))
             }
             .font(typography.caption.font)
             .chatTextColumn()
@@ -177,8 +178,12 @@ struct InteractiveToolRow: View, ThemedView {
                         .font(typography.caption.font)
                         .emphasis(.secondary)
                     let liveChosen = answerState.selectedLabels(for: question)
+                    let liveTyped = answerState.freeText(for: question)
                     if !liveChosen.isEmpty {
                         Text(liveChosen.joined(separator: ", "))
+                            .font(typography.caption.semibold)
+                    } else if !liveTyped.isEmpty {
+                        Text(liveTyped)
                             .font(typography.caption.semibold)
                     } else if let recorded = recordedAnswers[question.question] {
                         Text(recorded)
@@ -254,6 +259,31 @@ struct InteractiveToolRow: View, ThemedView {
             .buttonStyle(.plain)
         } else {
             content
+        }
+    }
+
+    /// A typed answer, styled as one more way to answer rather than a
+    /// separate control below the options.
+    @ViewBuilder
+    private func freeTextRow(for question: InteractiveToolPayload.AskedQuestion) -> some View {
+        if isAnswerable {
+            TextField("Or type your own answer…", text: Binding(
+                get: { answerState.freeText(for: question) },
+                set: { answerState.setFreeText($0, for: question) }
+            ), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(typography.body.medium)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(
+                            !answerState.freeText(for: question).isEmpty ? colors.selection : colors.divider,
+                            lineWidth: !answerState.freeText(for: question).isEmpty ? 1.5 : 1
+                        )
+                }
+                .chatTextColumn()
         }
     }
 

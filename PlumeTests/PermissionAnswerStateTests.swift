@@ -60,6 +60,54 @@ struct PermissionAnswerStateTests {
         state.toggle("A", for: answered)
         #expect(state.answers(for: [answered, question("Skipped")]) == ["Answered": "A"])
     }
+
+    @Test func freeTextCompletesAQuestionWithNoOptionChosen() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        #expect(!state.isComplete(for: [question]))
+        state.setFreeText("Something else entirely", for: question)
+        #expect(state.isComplete(for: [question]))
+    }
+
+    @Test func blankOrWhitespaceFreeTextDoesNotComplete() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        state.setFreeText("   ", for: question)
+        #expect(!state.isComplete(for: [question]))
+    }
+
+    @Test func answersReturnsTrimmedFreeTextWhenThatsWhatWasTyped() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        state.setFreeText("  My own answer  ", for: question)
+        #expect(state.answers(for: [question]) == ["Pick one": "My own answer"])
+    }
+
+    @Test func choosingAnOptionAfterTypingClearsTheFreeText() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        state.setFreeText("Something else", for: question)
+        state.toggle("A", for: question)
+        #expect(state.freeText(for: question).isEmpty)
+        #expect(state.answers(for: [question]) == ["Pick one": "A"])
+    }
+
+    @Test func typingAfterChoosingAnOptionClearsTheSelection() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        state.toggle("A", for: question)
+        state.setFreeText("Something else", for: question)
+        #expect(state.selectedLabels(for: question).isEmpty)
+        #expect(state.answers(for: [question]) == ["Pick one": "Something else"])
+    }
+
+    @Test func settingFreeTextToEmptyStringClearsTheAnswer() {
+        let question = question("Pick one")
+        var state = PermissionAnswerState()
+        state.setFreeText("Draft", for: question)
+        state.setFreeText("", for: question)
+        #expect(!state.isComplete(for: [question]))
+    }
 }
 
 struct PlanResolutionTests {

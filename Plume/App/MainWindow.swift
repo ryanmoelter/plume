@@ -33,9 +33,10 @@ struct MainWindow: View {
         }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
         .focusedSceneValue(\.newTaskAction) {
-            let ungrouped = tasks.filter { $0.group == nil }
+            let group = selectedTask?.group
+            let siblings = tasks.filter { $0.group?.id == group?.id }
             let task = TaskStore.createTask(
-                in: context, siblings: ungrouped, defaultsToRecentFolder: true
+                in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
             )
             selection = task.id
         }
