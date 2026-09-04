@@ -84,9 +84,13 @@ struct MainWindow: View {
         } message: {
             Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
         }
+        .onChange(of: selection) { _, id in
+            LastOpenTask.save(id)
+        }
         .task {
             statusPersistence = StatusPersistence(context: context)
             restoreStatusMonitoring()
+            restoreLastOpenTask()
             #if DEBUG
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif
@@ -96,6 +100,13 @@ struct MainWindow: View {
     private var selectedTask: WorkTask? {
         guard let selection else { return nil }
         return tasks.first { $0.id == selection }
+    }
+
+    /// `tasks` excludes archived ones, so a task archived or deleted since the
+    /// last launch simply doesn't match and the pane stays empty.
+    private func restoreLastOpenTask() {
+        guard selection == nil, let id = LastOpenTask.load() else { return }
+        selection = tasks.first { $0.id == id }?.id
     }
 
     private func tabWithResumableSession(in task: WorkTask) -> TaskTab? {
