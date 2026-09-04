@@ -27,6 +27,14 @@ Headless `claude -p`, speaking `stream-json` over stdin/stdout, replaces all of 
 - **Slash-command discovery.** The `initialize` control request's reply carries every slash command with its name, description and argument hint. `SlashCommandMatcher` ranks them for the composer's autocomplete. This was expected to need reconstructing from disk; the handshake already supplies it.
 - **Rendering that isn't specific to headless, but shipped alongside it.** System, error and compaction entries (`ChatNotice`), inline images (`ChatImage`), and Edit/Write diffs (`FileDiff`) all render as their own thing instead of raw tool JSON or dropped content. Injected content — skill bodies, slash-command expansions, `<local-command-stdout>` — renders through `InjectedContentRow`, not as a message from the user.
 
+## How the process launches
+
+Both transports run `claude` inside a login shell, via `LoginShellCommand.wrap`. `claude` typically lives at `~/.local/bin`, which reaches PATH only through the user's shell profile — and a GUI-launched app inherits launchd's minimal PATH, not the profile's. Exec'ing `claude` directly works when the app is launched from a terminal (Xcode included) and fails with `No such file or directory` once it is launched from Finder or the Dock, so the terminal is a misleading place to test it.
+
+`HeadlessCommand.loginShellCommand(arguments:)` shell-quotes each argument and joins them into the wrapped command, keeping a spaced `--settings` path and the stream-json tokens intact as separate words.
+
+One consequence of `-lic`: the user's `.zshrc` runs, and anything it prints lands on stderr. `HeadlessProcess` therefore reports stderr as a failure explanation only for a run that produced no stream-json message at all — a launch that never started. Profile chatter from a session that ran normally explains nothing.
+
 ## What's still missing or degraded
 
 - **Subagents show no live status.** `SubagentListView` always passes `status: .unset` — there's no indicator while a subagent is actually running.
