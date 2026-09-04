@@ -125,9 +125,6 @@ struct ChatTabView: View, ThemedView {
                                     rateLimit: headlessSession?.rateLimit,
                                     sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
                                 )
-                                if headlessSession?.isWorking == true {
-                                    stopButton
-                                }
                                 if let planFilePath, planPresentation != .minimized {
                                     planButton(path: planFilePath)
                                 }
@@ -171,6 +168,14 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: headlessSession?.contextWindow) { _, window in
             guard let window, tab.contextWindowTokens != window else { return }
             tab.contextWindowTokens = window
+        }
+        .onChange(of: headlessSession?.permissionMode) { _, mode in
+            guard let mode, tab.permissionMode != mode else { return }
+            tab.permissionMode = mode
+        }
+        .onChange(of: headlessSession?.effort) { _, effort in
+            guard let effort, tab.effort != effort else { return }
+            tab.effort = effort
         }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .closed }
@@ -453,17 +458,4 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    private var stopButton: some View {
-        Button {
-            headlessSession?.interrupt()
-        } label: {
-            Label("Stop", systemImage: "stop.fill")
-        }
-        .buttonStyle(.plain)
-        .font(.caption)
-        .emphasis(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .help("Stop the current turn")
-    }
 }

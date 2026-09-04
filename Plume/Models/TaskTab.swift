@@ -27,6 +27,15 @@ final class TaskTab {
     /// process, so this snapshot covers the gap.
     var contextWindowTokens: Int?
 
+    /// Snapshot of the session's last-seen permission mode, so a reopened tab
+    /// starts back where the user left it rather than at the task or app
+    /// default. Nil until a headless session reports one.
+    var permissionModeRaw: String?
+    /// Snapshot of the session's last-seen effort. There is no way to read a
+    /// running session's effort back from the CLI, so this is the only record
+    /// of it across a relaunch.
+    var effortRaw: String?
+
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
 
@@ -50,6 +59,16 @@ final class TaskTab {
     var transport: AgentTransport {
         get { transportRaw.flatMap(AgentTransport.init(rawValue:)) ?? .headless }
         set { transportRaw = newValue.rawValue }
+    }
+
+    var permissionMode: PermissionMode? {
+        get { permissionModeRaw.flatMap(PermissionMode.init(rawValue:)) }
+        set { permissionModeRaw = newValue?.rawValue }
+    }
+
+    var effort: AgentEffort? {
+        get { effortRaw.flatMap(AgentEffort.init(rawValue:)) }
+        set { effortRaw = newValue?.rawValue }
     }
 
     var displayTitle: String {

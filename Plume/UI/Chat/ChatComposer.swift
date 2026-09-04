@@ -130,6 +130,9 @@ struct ChatComposer: View, ThemedView {
                         isWorkspaceEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
                             && headlessSession == nil
                     )
+                    if headlessSession?.isWorking == true {
+                        stopButton
+                    }
                     sendButton
                 }
                 .padding(.horizontal, 8)
@@ -162,6 +165,22 @@ struct ChatComposer: View, ThemedView {
         .disabled(!hasSendableText)
         .help("Send")
         .accessibilityLabel("Send")
+    }
+
+    /// Matches `sendButton`'s size and shape but not its accent-colored fill,
+    /// so the pair reads as two related controls with send as the primary.
+    private var stopButton: some View {
+        Button {
+            headlessSession?.interrupt()
+        } label: {
+            Image(systemName: "stop.fill")
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .help("Stop the current turn")
+        .accessibilityLabel("Stop")
     }
 
     private func send() {

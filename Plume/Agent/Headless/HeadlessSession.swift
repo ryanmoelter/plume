@@ -75,9 +75,14 @@ final class HeadlessSession {
     private var process: HeadlessProcess?
     private var nextRequestNumber = 0
 
-    init(tabID: UUID, taskID: UUID) {
+    /// `initialEffort` seeds the displayed value from the tab's last-known
+    /// effort, so a resumed session's control shows it immediately instead of
+    /// the "Effort" placeholder. It only sets the property directly — never
+    /// through `setEffort(_:)`, which submits a real turn to the CLI.
+    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) {
         self.tabID = tabID
         self.taskID = taskID
+        self.effort = initialEffort
     }
 
     // MARK: - Lifecycle

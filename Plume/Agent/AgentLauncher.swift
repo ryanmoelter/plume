@@ -8,6 +8,18 @@ import os
 /// message" rule, so no idle `claude` processes sit around.
 @MainActor
 enum AgentLauncher {
+    /// Tab beats task beats app default: a tab reopens in the mode the user
+    /// last saw it in, and the app default only fills in for a tab that has
+    /// never had one, so changing the default never retroactively moves an
+    /// existing conversation.
+    static func resolvedPermissionMode(
+        tab: PermissionMode?,
+        task: PermissionMode?,
+        appDefault: PermissionMode?
+    ) -> PermissionMode? {
+        tab ?? task ?? appDefault
+    }
+
     static func launch(
         message: String?,
         task: WorkTask,
@@ -69,10 +81,18 @@ enum AgentLauncher {
 
         StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
 
-        let session = HeadlessSessionManager.shared.session(for: tab.id, taskID: task.id)
+        let session = HeadlessSessionManager.shared.session(
+            for: tab.id,
+            taskID: task.id,
+            initialEffort: tab.effort
+        )
         session.start(
             workingDirectory: task.workingDirectoryPath,
-            permissionMode: task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode,
+            permissionMode: resolvedPermissionMode(
+                tab: tab.permissionMode,
+                task: task.permissionMode,
+                appDefault: AppSettings.shared.resolvedDefaultPermissionMode
+            ),
             resumeSessionID: resumeSessionID,
             settingsPath: settingsPath
         )

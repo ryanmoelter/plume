@@ -15,9 +15,9 @@ final class HeadlessSessionManager {
         sessions[tabID]
     }
 
-    func session(for tabID: UUID, taskID: UUID) -> HeadlessSession {
+    func session(for tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) -> HeadlessSession {
         if let existing = sessions[tabID] { return existing }
-        let session = HeadlessSession(tabID: tabID, taskID: taskID)
+        let session = HeadlessSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
         sessions[tabID] = session
         return session
     }
