@@ -94,39 +94,53 @@ struct ChatTabView: View, ThemedView {
                     bottomPadding: dimensions.listBottomPadding,
                     tabID: tab.id
                 )
-                // Above the strip, not below it: the bar reads as the panel
-                // tucked behind the statusline and composer, so it keeps its
-                // top corners and squares off where they meet.
-                if planPresentation == .minimized, let planFilePath {
-                    planDockBar(path: planFilePath)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                Divider()
-                HStack(spacing: 0) {
-                    StatuslineStripView(
-                        // Both arrive on a turn result, so a resumed
-                        // conversation has neither until it takes a turn. The
-                        // transcript's last usage covers the gap; nothing
-                        // records the window, so that stays absent until the
-                        // first result lands.
-                        contextUsedTokens: headlessSession?.contextUsedTokens
-                            ?? transcript.latestUsage?.contextUsedTokens,
-                        contextMaxTokens: headlessSession?.contextWindow,
-                        branch: transcript.gitBranch,
-                        gitState: GitStateStore.shared.state(for: gitDirectory),
-                        rateLimit: headlessSession?.rateLimit,
-                        sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
-                    )
-                    if headlessSession?.isWorking == true {
-                        stopButton
+                // Grouped in one container so the dock bar and the surface
+                // below both glass-render as one panel: without it each gets
+                // its own backdrop sample and the dock's shadow paints onto
+                // the surface it's supposed to read as tucked behind.
+                GlassEffectContainer {
+                    VStack(spacing: 0) {
+                        // Above the strip, not below it: the bar reads as the
+                        // panel tucked behind the statusline and composer, so
+                        // it keeps its top corners and squares off where they
+                        // meet.
+                        if planPresentation == .minimized, let planFilePath {
+                            planDockBar(path: planFilePath)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        VStack(spacing: 0) {
+                            HStack(spacing: 0) {
+                                StatuslineStripView(
+                                    // Both arrive on a turn result, so a resumed
+                                    // conversation has neither until it takes a turn. The
+                                    // transcript's last usage covers the gap; nothing
+                                    // records the window, so that stays absent until the
+                                    // first result lands.
+                                    contextUsedTokens: headlessSession?.contextUsedTokens
+                                        ?? transcript.latestUsage?.contextUsedTokens,
+                                    contextMaxTokens: headlessSession?.contextWindow,
+                                    branch: transcript.gitBranch,
+                                    gitState: GitStateStore.shared.state(for: gitDirectory),
+                                    rateLimit: headlessSession?.rateLimit,
+                                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+                                )
+                                if headlessSession?.isWorking == true {
+                                    stopButton
+                                }
+                                if let planFilePath, planPresentation != .minimized {
+                                    planButton(path: planFilePath)
+                                }
+                            }
+                            .listItemPadding(vertical: false)
+                            Divider()
+                            ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                        }
+                        // A real surface, not just a divider, so it occludes
+                        // the dock's shadow instead of letting it show
+                        // through onto the chat background below.
+                        .glassEffect(planGlass, in: .rect)
                     }
-                    if let planFilePath, planPresentation != .minimized {
-                        planButton(path: planFilePath)
-                    }
                 }
-                .listItemPadding(vertical: false)
-                Divider()
-                ChatComposer(task: task, tab: tab, isVisible: isVisible)
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
