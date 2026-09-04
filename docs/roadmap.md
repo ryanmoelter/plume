@@ -184,6 +184,9 @@ Still open:
 - [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
 - [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
+- [ ] Remember effort and permission mode per session, the way the context window already is.
+
+`TaskTab.contextWindowTokens` holds the last window a turn reported, written from `ChatTabView` when the session's value changes — once per turn rather than per stream event, so it stays a snapshot rather than a stream of writes. Effort and permission mode want the same treatment for a different reason: neither survives a relaunch today, and effort has no source at all beyond what this host last sent (there is no `set_effort` control request to report it back), so a resumed tab shows no effort and whatever mode the launch flag supplied. Persisting both means a reopened conversation resumes as it was left, and gives the effort control a value to show instead of its placeholder. Decide whether a stored mode should override `AppSettings.defaultPermissionMode` at launch or only restore the display — they disagree when the user has changed the default since.
 
 ### Subagents
 
