@@ -80,6 +80,18 @@ nonisolated enum SessionJSONLReader {
         let aiTitle: String?
     }
 
+    /// What to call a session in the UI: Claude's own title when it exists,
+    /// else what the user opened with — the same precedence
+    /// `StoredSession.displayTitle` uses for the resume picker. Claude Code's
+    /// auto-titling only fires for the interactive TUI; a headless (`-p`)
+    /// conversation of any length never gets an `ai-title` line, so without
+    /// this fallback a headless tab would stay untitled indefinitely.
+    static func bestAvailableTitle(atPath path: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        if let title = latestAITitle(in: data) { return title }
+        return firstUserMessage(in: data)
+    }
+
     static func exists(atPath path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }

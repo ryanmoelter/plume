@@ -66,7 +66,7 @@ final class AgentTitleMonitor {
 
     private func read(tabID: UUID) {
         guard let path = paths[tabID],
-              let title = SessionJSONLReader.latestAITitle(atPath: path)
+              let title = SessionJSONLReader.bestAvailableTitle(atPath: path)
         else { return }
         onTitleDiscovered?(tabID, title)
     }

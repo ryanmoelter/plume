@@ -184,3 +184,43 @@ struct SessionAITitleTests {
         #expect(SessionJSONLReader.latestAITitle(atPath: url.path) == "From disk")
     }
 }
+
+/// `bestAvailableTitle` covers a gap real transcripts hit: Claude Code's
+/// auto-titling only fires for the interactive TUI, so a headless (`-p`)
+/// conversation of any length never gets an `ai-title` line.
+struct SessionBestAvailableTitleTests {
+    private func write(_ lines: [String]) throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "plume-best-title-\(UUID().uuidString).jsonl")
+        try Data(lines.joined(separator: "\n").utf8).write(to: url)
+        return url
+    }
+
+    @Test func anAITitleWinsOverTheFirstMessage() throws {
+        let url = try write([
+            #"{"type":"user","message":{"role":"user","content":"Fix the login bug"}}"#,
+            #"{"type":"ai-title","aiTitle":"Fixing login","sessionId":"a"}"#,
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(SessionJSONLReader.bestAvailableTitle(atPath: url.path) == "Fixing login")
+    }
+
+    @Test func withNoAITitleTheFirstUserMessageStandsIn() throws {
+        let url = try write([
+            #"{"type":"user","isSidechain":false,"message":{"role":"user","content":"Fix the login bug"}}"#,
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(SessionJSONLReader.bestAvailableTitle(atPath: url.path) == "Fix the login bug")
+    }
+
+    @Test func withNeitherThereIsNoTitle() throws {
+        let url = try write([
+            #"{"type":"system","subtype":"init"}"#,
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(SessionJSONLReader.bestAvailableTitle(atPath: url.path) == nil)
+    }
+}
