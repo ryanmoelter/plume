@@ -22,6 +22,10 @@ final class TaskTab {
     /// Passed to `claude --resume` when the user resumes this tab.
     var agentSessionID: String?
     var sessionJSONLPath: String?
+    /// The model's context window, as reported by the last completed turn.
+    /// A resumed headless session has no window until it takes a turn in this
+    /// process, so this snapshot covers the gap.
+    var contextWindowTokens: Int?
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?

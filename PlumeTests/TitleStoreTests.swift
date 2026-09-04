@@ -117,6 +117,39 @@ struct TitleStoreTests {
     }
 }
 
+/// `contextWindowTokens` is the same kind of durable snapshot as `title`: a
+/// resumed headless session has neither until it takes a turn in this
+/// process, so both are persisted so a relaunch has something to show.
+@MainActor
+struct TaskTabContextWindowTests {
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        return ModelContext(container)
+    }
+
+    @Test func defaultsToNilForLightweightMigration() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+
+        #expect(task.tabs[0].contextWindowTokens == nil)
+    }
+
+    @Test func aWrittenValueSurvivesAFetch() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].contextWindowTokens = 200_000
+        try context.save()
+
+        let refetched = try #require(
+            try context.fetch(FetchDescriptor<WorkTask>()).first
+        )
+        #expect(refetched.tabs[0].contextWindowTokens == 200_000)
+    }
+}
+
 @MainActor
 struct TabFocusTrackingTests {
     private func makeContext() throws -> ModelContext {

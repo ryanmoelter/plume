@@ -111,14 +111,15 @@ struct ChatTabView: View, ThemedView {
                         VStack(spacing: 0) {
                             HStack(spacing: 0) {
                                 StatuslineStripView(
-                                    // Both arrive on a turn result, so a resumed
-                                    // conversation has neither until it takes a turn. The
-                                    // transcript's last usage covers the gap; nothing
-                                    // records the window, so that stays absent until the
-                                    // first result lands.
+                                    // Both arrive on a turn result, so a
+                                    // resumed conversation has neither until
+                                    // it takes a turn: the transcript's last
+                                    // usage and the tab's stored window cover
+                                    // that gap.
                                     contextUsedTokens: headlessSession?.contextUsedTokens
                                         ?? transcript.latestUsage?.contextUsedTokens,
-                                    contextMaxTokens: headlessSession?.contextWindow,
+                                    contextMaxTokens: headlessSession?.contextWindow
+                                        ?? tab.contextWindowTokens,
                                     branch: transcript.gitBranch,
                                     gitState: GitStateStore.shared.state(for: gitDirectory),
                                     rateLimit: headlessSession?.rateLimit,
@@ -165,6 +166,12 @@ struct ChatTabView: View, ThemedView {
             if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
         }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
+        // Only fires once per completed turn, not per stream event, so this
+        // is already the debounced write the rest of the app requires.
+        .onChange(of: headlessSession?.contextWindow) { _, window in
+            guard let window, tab.contextWindowTokens != window else { return }
+            tab.contextWindowTokens = window
+        }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .closed }
         }
