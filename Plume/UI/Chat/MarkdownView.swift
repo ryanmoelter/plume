@@ -117,42 +117,10 @@ struct MarkdownView: View, ThemedView {
             .listItemPadding(vertical: false)
 
         case let .table(header, alignments, rows):
-            let hasHeader = MarkdownBlock.headerIsMeaningful(header)
-            Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 6) {
-                if hasHeader {
-                    GridRow {
-                        ForEach(header.indices, id: \.self) { column in
-                            Text(inline(header[column]))
-                                .font(prose.body.semibold)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .gridColumnAlignment(gridAlignment(alignments, at: column))
-                        }
-                    }
-                    Rectangle()
-                        .fill(colors.divider)
-                        .frame(height: 1)
-                        .gridCellColumns(max(header.count, 1))
-                }
-                ForEach(rows.indices, id: \.self) { row in
-                    GridRow {
-                        ForEach(rows[row].indices, id: \.self) { column in
-                            let cell = Text(inline(rows[row][column]))
-                                .font(prose.body.font)
-                                .lineSpacing(prose.body.lineSpacing)
-                                .fixedSize(horizontal: false, vertical: true)
-                            // `gridColumnAlignment` binds per column, so
-                            // without a header row the first body row
-                            // carries it.
-                            if hasHeader || row > 0 {
-                                cell
-                            } else {
-                                cell.gridColumnAlignment(gridAlignment(alignments, at: column))
-                            }
-                        }
-                    }
-                }
-            }
-            .listItemPadding(bleed: true, vertical: false)
+            table(header: header, alignments: alignments, rows: rows)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .listItemPadding(bleed: true, vertical: false)
+                .padding(.vertical, 6)
 
         case .rule:
             Rectangle()
@@ -161,11 +129,104 @@ struct MarkdownView: View, ThemedView {
         }
     }
 
+    /// The table, laid out by `TableLayout` so its columns size to their
+    /// content the way an HTML table's do.
+    @ViewBuilder
+    private func table(
+        header: [String],
+        alignments: [MarkdownBlock.ColumnAlignment],
+        rows: [[String]]
+    ) -> some View {
+        let hasHeader = MarkdownBlock.headerIsMeaningful(header)
+        let columnCount = max(header.count, rows.map(\.count).max() ?? 0)
+        // Cells are laid out flat, row-major: `TableLayout` groups them back
+        // into rows. Each draws its own leading and top rule; the outer border
+        // closes the remaining two sides.
+        TableLayout(columnCount: columnCount) {
+            if hasHeader {
+                ForEach(0..<columnCount, id: \.self) { column in
+                    tableCell(
+                        header.indices.contains(column) ? header[column] : "",
+                        font: prose.body.semibold,
+                        alignment: alignment(alignments, at: column),
+                        isFirstColumn: column == 0,
+                        isFirstRow: true,
+                        fill: colors.surfaceTint
+                    )
+                }
+            }
+            // Every row draws all the columns, so a ragged row still carries
+            // its share of the rules.
+            ForEach(rows.indices, id: \.self) { row in
+                ForEach(0..<columnCount, id: \.self) { column in
+                    tableCell(
+                        rows[row].indices.contains(column) ? rows[row][column] : "",
+                        font: prose.body.font,
+                        alignment: alignment(alignments, at: column),
+                        isFirstColumn: column == 0,
+                        isFirstRow: !hasHeader && row == 0,
+                        fill: .clear
+                    )
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.rect(cornerRadius: tableCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: tableCornerRadius)
+                .strokeBorder(colors.divider, lineWidth: 1)
+        }
+    }
+
+    /// One table cell, filling its column and row so its fill and its rules
+    /// cover the whole cell rather than just the text inside it.
+    ///
+    /// Draws only its leading and top rules, and neither in the first column
+    /// or row, so no rule is painted twice and the outer border owns the
+    /// table's edges. Leading and top sit on the cell's own origin, which is
+    /// where neighbouring cells agree; trailing and bottom fall on a computed
+    /// edge and drift apart by a fraction of a point.
+    private func tableCell(
+        _ text: String,
+        font: Font,
+        alignment: Alignment,
+        isFirstColumn: Bool,
+        isFirstRow: Bool,
+        fill: Color
+    ) -> some View {
+        Text(inline(text))
+            .font(font)
+            .lineSpacing(prose.body.lineSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            // Fills the width and height `TableLayout` hands down, which is
+            // what makes the fill and the rules cover the whole cell rather
+            // than just its text. The layout sizes the column itself, so this
+            // never decides how wide the column is.
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: alignment
+            )
+            .background(fill)
+            .overlay(alignment: .leading) {
+                if !isFirstColumn {
+                    Rectangle().fill(colors.divider).frame(width: 1)
+                }
+            }
+            .overlay(alignment: .top) {
+                if !isFirstRow {
+                    Rectangle().fill(colors.divider).frame(height: 1)
+                }
+            }
+    }
+
     /// A column's alignment, defaulting to leading for a ragged delimiter row.
-    private func gridAlignment(
+    private func alignment(
         _ alignments: [MarkdownBlock.ColumnAlignment],
         at column: Int
-    ) -> HorizontalAlignment {
+    ) -> Alignment {
         switch alignments.indices.contains(column) ? alignments[column] : .leading {
         case .leading: return .leading
         case .center: return .center
@@ -225,6 +286,8 @@ struct MarkdownView: View, ThemedView {
     private var quoteBarColor: Color {
         colors.surface(.disabled)
     }
+
+    private var tableCornerRadius: CGFloat { 6 }
 }
 
 #Preview("Tables") {
