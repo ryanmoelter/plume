@@ -137,6 +137,10 @@ One thing to get right: a plan file exists *before* it is ever proposed. `Transc
 - [x] Show one question at a time, with prev/next buttons.
 - [x] Fix the type scale: question text and the main answer line are both body; the second answer line is caption.
 - [x] Stop double-tinting the question options. The question area and its options are two stacked backgrounds, and a blue focus ring around the box makes it three. Either hold the question area's tint and drop the options to the regular background, or make one of the two outline-only — a blue outline on the options instead of a grey fill is the candidate.
+- [x] Show one question at a time while answering, and collapse the block to question-and-answer pairs once it is settled.
+- [ ] Settle how a compacted context reads. It arrived rendered as an ordinary message from the user, which it is not; it now collapses to a marker row labelled "Compacted context". Whether that is the right disclosure — a marker, an expandable row, or something else — is still open.
+
+The answers on a settled block come from the tool result's own text, parsed in `InteractiveToolPayload.answers(from:for:)`. The `updatedInput` that carries them to the model never lands back in the transcript, so that text is the only place they survive a reload. It is a fixed-format string rather than JSON, so the parse anchors on each known question's exact text and degrades to showing nothing rather than guessing.
 
 **The stale hint is a real bug, and the overlay work above retires half of it.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure. `PendingPermissionDock.swift:23` supplies one; `ToolCallRow.swift:18` does not, so the transcript's copy of the same plan always falls through to `answerHint("Approve or reject in the terminal.")` (`InteractiveToolRow.swift:72`). While a request is live the dock's answerable row covers for it. Answering removes the pending entry, the dock's row disappears, and the transcript row underneath — with its terminal hint — is what's left showing until the next transcript parse catches up. So the hint is not merely stale, it is wrong on the headless transport, where the terminal is not where you answer. Fix the hint to reflect the tab's transport, and give the resolved row a settled state ("Rejected", with the reason) rather than an instruction to act.
 
@@ -162,6 +166,10 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Let ⌘↩ send while the slash-command list is showing.
 - [ ] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
 - [ ] Make the composer content-width rather than bleed-width.
+- [ ] Echo a CLI-intercepted slash command locally, and show that it is running.
+- [ ] Decide whether the rejection-feedback submit button belongs inside the text field.
+
+A slash command the CLI handles itself never reaches the transcript, so the chat shows nothing at all while it runs. `/compact` is the case that hurts: this project's transcript holds **11** `compact_boundary` markers and **zero** `/compact` user messages, and compaction takes upwards of a minute and a half with no message, no spinner and no sign the command was received. `submit(text:)` only sends; the chat renders from the transcript, so anything the CLI intercepts vanishes. The fix is a locally-rendered echo plus a working indicator, driven from Plume's own state rather than the transcript — and it generalizes past `/compact` to every intercepted command.
 
 ### The statusline
 
