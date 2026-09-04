@@ -332,10 +332,25 @@ What exists:
 
 - [ ] Shortcuts work while the terminal is focused.
 - [ ] Drag and drop to reorder tabs.
-- [ ] Reopen the last session on launch — restore the selected task and tab instead of starting cold.
+- [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 
 What exists:
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
 - `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
-- On launch, the per-task selected tab already persists (`WorkTask.selectedTabID`), so only the selected *task* is missing. `MainWindow` holds it in plain `@State`, which starts nil every launch, so the app always opens on "No Task Selected" even though the rest of the tree restores. Persisting that one UUID — `AppSettings` or `@SceneStorage` — is most of the item. Decide what happens when the stored task is gone (archived or deleted), and whether a restored agent tab should auto-resume on launch or wait to be selected, since the existing rule deliberately avoids spawning `claude` for every agent tab at startup.
+- Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
+
+## Make the UI drivable
+
+Give the interface an accessibility surface, so both `PlumeUITests` and an
+agent driving the app can find and operate controls by name.
+
+- [ ] Put accessibility identifiers on the controls worth driving: the sidebar's task rows, the tab strip, the composer field and send button, the statusline's dropdowns, and the plan overlay's approve/reject buttons.
+- [ ] Grow `PlumeUITests` past launching the app, now that there is something to query.
+
+What exists:
+
+- The app is effectively opaque to the accessibility tree today. `entire contents of window 1` returns **0** elements and every top-level element's `name` is `missing value`, so nothing can be found by name or role. Coordinate clicks and keyboard shortcuts work; everything else does not.
+- That is the ceiling on automated verification. `PlumeUITests` launches the app and stops there, and an agent checking a change can screenshot the result but cannot operate the control it just changed — so a visual check needs a person to click first.
+- SwiftUI supplies identifiers through `.accessibilityIdentifier(_:)` and labels through `.accessibilityLabel(_:)`. A few of the latter already exist (the composer's send button, for one), so this is extending a pattern rather than introducing one.
+- Worth doing before the next round of UI work rather than after: the chat, statusline and composer are all being reshaped right now, and identifiers added while a view is already open cost far less than a separate pass over settled code.
