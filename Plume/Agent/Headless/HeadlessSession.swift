@@ -98,8 +98,8 @@ final class HeadlessSession {
             onMessage: { [weak self] message in
                 Task { @MainActor in self?.handle(message) }
             },
-            onExit: { [weak self] status in
-                Task { @MainActor in self?.handleExit(status: status) }
+            onExit: { [weak self] status, errorLine in
+                Task { @MainActor in self?.handleExit(status: status, errorLine: errorLine) }
             }
         )
         do {
@@ -136,7 +136,15 @@ final class HeadlessSession {
             return
         }
         beginTurn()
-        send(StreamJSONEncoder.userTurn(text: trimmed))
+        guard send(StreamJSONEncoder.userTurn(text: trimmed)) else {
+            // The process died before the text reached it. Keeping the
+            // message queued means a restart can still deliver it, instead of
+            // losing what the user typed to a silent drop.
+            queuedMessages.append(trimmed)
+            isWorking = false
+            if lastError == nil { lastError = "claude is not running; the message was not sent" }
+            return
+        }
     }
 
     /// Removes and returns the queued message at `index`, so a caller can
@@ -312,24 +320,32 @@ final class HeadlessSession {
         guard !queuedMessages.isEmpty else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
-        send(StreamJSONEncoder.userTurn(text: next))
+        guard send(StreamJSONEncoder.userTurn(text: next)) else {
+            queuedMessages.insert(next, at: 0)
+            isWorking = false
+            return
+        }
     }
 
-    private func handleExit(status: Int32) {
+    private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         isWorking = false
         streamingText = ""
         streamingThinking = ""
         exitStatus = status
         process = nil
+        if status != 0, lastError == nil {
+            lastError = errorLine ?? "claude exited with status \(status)"
+        }
         // Anything still pending will never be answered now.
         pendingPermissions.removeAll()
         StatusEngine.shared.setStatus(status == 0 ? .idle : .error, taskID: taskID, tabID: tabID)
     }
 
-    private func send(_ line: String?) {
-        guard let line else { return }
-        process?.send(line: line)
+    @discardableResult
+    private func send(_ line: String?) -> Bool {
+        guard let line, let process else { return false }
+        return process.send(line: line)
     }
 
     private func nextRequestID() -> String {

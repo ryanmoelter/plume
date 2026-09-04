@@ -17,20 +17,32 @@ final class HeadlessProcess: @unchecked Sendable {
     private var buffer = Data()
     private var isRunning = false
 
+    /// Last stderr line, kept so a nonzero exit can say why it failed. A
+    /// launch that dies before any stream-json arrives (`claude` not on PATH,
+    /// say) has nothing else to report.
+    private var lastErrorLine: String?
+
+    /// Whether any stream-json message arrived. Separates a launch that never
+    /// started from a session that ran and later exited.
+    private var didReceiveMessage = false
+
     private let onMessage: @Sendable (StreamJSONMessage) -> Void
-    private let onExit: @Sendable (Int32) -> Void
+    private let onExit: @Sendable (Int32, String?) -> Void
 
     init(
         onMessage: @escaping @Sendable (StreamJSONMessage) -> Void,
-        onExit: @escaping @Sendable (Int32) -> Void
+        onExit: @escaping @Sendable (Int32, String?) -> Void
     ) {
         self.onMessage = onMessage
         self.onExit = onExit
     }
 
     func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = arguments
+        // `claude` reaches PATH only through the user's shell profile, which a
+        // GUI-launched app does not inherit, so the command runs inside a
+        // login shell exactly as terminal tabs do.
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", HeadlessCommand.loginShellCommand(arguments: arguments)]
         if let workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
         }
@@ -47,12 +59,14 @@ final class HeadlessProcess: @unchecked Sendable {
             guard !data.isEmpty else { return }
             self?.consume(data)
         }
-        errPipe.fileHandleForReading.readabilityHandler = { handle in
+        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { Log.agent.error("claude stderr: \(text, privacy: .public)") }
+            guard !text.isEmpty else { return }
+            Log.agent.error("claude stderr: \(text, privacy: .public)")
+            self?.queue.async { self?.lastErrorLine = text }
         }
         process.terminationHandler = { [weak self] process in
             self?.finish(status: process.terminationStatus)
@@ -62,16 +76,19 @@ final class HeadlessProcess: @unchecked Sendable {
         queue.sync { isRunning = true }
     }
 
-    /// Writes one NDJSON line. Silently drops the write once the process has
-    /// exited — a send racing a crash is expected, not an error worth showing.
-    func send(line: String) {
-        queue.async { [weak self] in
-            guard let self, self.isRunning else { return }
-            guard let data = (line + "\n").data(using: .utf8) else { return }
+    /// Writes one NDJSON line, reporting `false` when the process is already
+    /// gone. A caller sending the user's own text must surface that rather
+    /// than let the message disappear.
+    @discardableResult
+    func send(line: String) -> Bool {
+        queue.sync {
+            guard isRunning, let data = (line + "\n").data(using: .utf8) else { return false }
             do {
-                try self.inPipe.fileHandleForWriting.write(contentsOf: data)
+                try inPipe.fileHandleForWriting.write(contentsOf: data)
+                return true
             } catch {
                 Log.agent.error("Headless write failed: \(error.localizedDescription, privacy: .public)")
+                return false
             }
         }
     }
@@ -98,6 +115,7 @@ final class HeadlessProcess: @unchecked Sendable {
                 self.buffer.removeSubrange(self.buffer.startIndex...newline)
                 let line = String(decoding: lineData, as: UTF8.self)
                 guard let message = StreamJSONDecoder.decode(line: line) else { continue }
+                self.didReceiveMessage = true
                 self.onMessage(message)
             }
         }
@@ -107,7 +125,10 @@ final class HeadlessProcess: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self, self.isRunning else { return }
             self.isRunning = false
-            self.onExit(status)
+            // A run that never produced a message failed to launch, so its
+            // stderr explains why. Once the stream has started, stderr is
+            // just the login shell's own chatter and explains nothing.
+            self.onExit(status, self.didReceiveMessage ? nil : self.lastErrorLine)
         }
     }
 }

@@ -2,9 +2,9 @@ import Foundation
 
 /// Builds the argv for a headless `claude` run.
 ///
-/// Unlike the TUI path this is a real argument array, not a shell string, so
-/// nothing needs quoting and no login shell wraps it. `/usr/bin/env` still
-/// resolves `claude` from PATH.
+/// A real argument array rather than a shell string, so nothing needs quoting
+/// here. `HeadlessProcess` quotes and wraps it in a login shell, which is what
+/// puts `claude` on PATH.
 enum HeadlessCommand {
     static func arguments(
         resumeSessionID: String?,
@@ -41,5 +41,11 @@ enum HeadlessCommand {
             arguments.append(resumeSessionID)
         }
         return arguments
+    }
+
+    /// Renders argv as one login-shell command line, quoting each argument so
+    /// spaces and JSON punctuation survive the trip through the shell.
+    static func loginShellCommand(arguments: [String]) -> String {
+        LoginShellCommand.wrap(arguments.map(shellQuoted).joined(separator: " "))
     }
 }
