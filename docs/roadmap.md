@@ -6,13 +6,15 @@ Features we intend to build, in no particular order. This tracks what we want an
 
 Recommendations, not commitments. Reorder freely.
 
-Read this list in three passes, in this order. They don't conflict today — the bugs sit in the chat, the quick wins don't touch it — but when they do, the earlier pass wins.
+Read this list in order. The passes don't conflict today — what's left of the chat work doesn't touch the quick wins — but when they do, the earlier one wins.
 
-1. **The bugs from driving, first.** Headless is the default transport for every new agent tab, and driving it turned up faults that matter more than any unstarted feature here. They're recorded in the chat sections below, each with the file and line. The two that stand out: chat scrolling doesn't follow a reply at all, and a new tab never starts in the user's own permission mode.
-2. **Then the quick wins**, numbered below. Each is felt every day and none is entangled with the chat.
-3. **Then the highest-value feature**, which is notifying on Claude Code events.
+**Do this next:**
 
-**Small, self-contained, and each one is felt every day:**
+- **Remember effort and permission mode per session**, described under **The statusline** below. A reopened tab should come back in the mode it was last in; today it comes back on the launch default, and effort comes back blank because nothing reports it. `TaskTab.contextWindowTokens` already establishes the pattern, so this is a short change against a settled design — the behavior question it used to carry is answered.
+
+The bugs from driving the app have all shipped; what they turned up is recorded under **Testing results** below, checked off where it landed. What remains there is the renderer question (tables and mermaid), the `/compact` echo, subagents, and the two presentation questions.
+
+**Then the quick wins — small, self-contained, and each one is felt every day:**
 
 1. **⌘N opens a task in the current group.** One call site (`MainWindow.swift`) hardcodes ungrouped; `TaskStore.createTask` already takes a `group:`. Smallest real win on the list.
 2. **Terminal bell + a dot on tabs that rang one.** The wrapper already publishes `bellCount` / `lastBellAt`, and `TerminalSession` already mirrors published fields. Little more than wiring.
@@ -27,9 +29,9 @@ Read this list in three passes, in this order. They don't conflict today — the
 - **⌘T in the current task** already works — it's just labelled "New Agent Tab". Collapsing to one tab kind renames it and finishes the item.
 - **Next/previous tab** is bound to ⌘⇧] / ⌘⇧[. What's missing is next/previous *task*, and making any of it user-assignable.
 
-**Next up:**
+**Blocked on a decision, not on time:**
 
-- **Mermaid diagrams**, the last unstarted item in the chat section, and the one that most needs its approach settled first — WebKit or a native subset. Tables are now wanted too, and they are the same renderer question.
+- **Mermaid diagrams**, the one item that most needs its approach settled first — WebKit or a native subset. Tables are now wanted too, and they are the same renderer question.
 
 **Also cheap, once you want them:**
 
