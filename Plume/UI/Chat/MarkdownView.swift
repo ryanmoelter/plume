@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Renders parsed markdown with a proportional font for prose — monospace is
@@ -12,6 +13,10 @@ struct MarkdownView: View, ThemedView {
     /// else — the user's own message, a tool's output — stays in the system
     /// face so it reads as input rather than published prose.
     let isAgentVoice: Bool
+
+    /// The hovered block's code, so its copy button reveals while the pointer
+    /// is anywhere over the block rather than only over the button itself.
+    @State private var isHoveringCode: String?
 
     init(_ markdown: String, isAgentVoice: Bool = false) {
         self.blocks = MarkdownCache.blocks(for: markdown)
@@ -98,9 +103,13 @@ struct MarkdownView: View, ThemedView {
                 Text(code)
                     .font(typography.body.mono)
                     .foregroundStyle(codeForeground)
-                    .padding(8)
+                    .padding(14)
             }
             .background(codeBackground, in: .rect(cornerRadius: 6))
+            .overlay(alignment: .topTrailing) {
+                CodeBlockCopyButton(code: code, isRevealed: isHoveringCode == code)
+            }
+            .onHover { isHoveringCode = $0 ? code : nil }
             .listItemPadding(bleed: true, vertical: false)
 
         case let .quote(text):
@@ -288,6 +297,41 @@ struct MarkdownView: View, ThemedView {
     }
 
     private var tableCornerRadius: CGFloat { 6 }
+}
+
+/// Copies a code block's raw text to the pasteboard, revealed on hover and
+/// pinned to the block's corner so it never scrolls with the code beneath it.
+private struct CodeBlockCopyButton: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let code: String
+    let isRevealed: Bool
+
+    @State private var didCopy = false
+
+    var body: some View {
+        Button(action: copy) {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(colors.foreground)
+                .padding(6)
+                .background(colors.surface(.backgroundTint), in: .circle)
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        .opacity(isRevealed || didCopy ? 1 : 0)
+        .help("Copy code")
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            didCopy = false
+        }
+    }
 }
 
 #Preview("Tables") {

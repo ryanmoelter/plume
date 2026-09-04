@@ -69,6 +69,7 @@ private struct TabChip: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .font(.callout)
+                .frame(maxWidth: 120, alignment: .leading)
 
             // Reserve the slot so the chip doesn't resize on hover.
             Button(action: close) {

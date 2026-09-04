@@ -92,6 +92,10 @@ struct ChatMessageList: View {
                     }
                     if !attachesToLastMessage, !streaming.isEmpty {
                         StreamingBlocks(overlay: streaming)
+                            // Matches the inset an assistant row pays around
+                            // its body, so a reply doesn't shift as the
+                            // transcript takes over from the stream.
+                            .padding(.vertical, 4)
                             .listItemPadding(bleed: true, column: .unpadded)
                     }
                     SubagentListView(subagents: subagents)
