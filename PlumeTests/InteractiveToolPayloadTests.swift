@@ -78,6 +78,58 @@ struct InteractiveToolPayloadTests {
         #expect(InteractiveToolPayload.decoding(name: "AskUserQuestion", input: input("{}")) == nil)
     }
 
+    /// Real shape from `~/.claude/projects`: `"question"="answer"` pairs
+    /// joined by `, `, wrapped in a fixed sentence.
+    @Test func answersAreRecoveredFromTheToolResultText() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(
+                header: "Scope", question: "How much of the release process do you want set up?",
+                multiSelect: false, options: []
+            ),
+            InteractiveToolPayload.AskedQuestion(
+                header: "Target IDE", question: "Which platform should the published plugin target?",
+                multiSelect: false, options: []
+            )
+        ]
+        let resultText = #"""
+        Your questions have been answered: "How much of the release process do you want set up?"="Full release automation", "Which platform should the published plugin target?"="Both". You can now continue with these answers in mind.
+        """#
+
+        let answers = InteractiveToolPayload.answers(from: resultText, for: questions)
+
+        #expect(answers["How much of the release process do you want set up?"] == "Full release automation")
+        #expect(answers["Which platform should the published plugin target?"] == "Both")
+    }
+
+    /// A multi-select answer's "selected preview" annotation trails the value
+    /// with no closing quote of its own — the parser must stop at the marker
+    /// rather than reading into the preview body.
+    @Test func aSelectedPreviewAnnotationDoesNotLeakIntoTheAnswer() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(
+                header: "", question: "Which slice should I plan?", multiSelect: true, options: []
+            )
+        ]
+        let resultText = #"""
+        Your questions have been answered: "Which slice should I plan?"="Notify on agent needs-input (Recommended)" selected preview:\#nSection "Notifications"\#n  [ toggle ]. You can now continue with these answers in mind.
+        """#
+
+        let answers = InteractiveToolPayload.answers(from: resultText, for: questions)
+
+        #expect(answers["Which slice should I plan?"] == "Notify on agent needs-input (Recommended)")
+    }
+
+    /// A question with no matching answer in the text — dismissed, or the
+    /// text doesn't match at all — degrades to nothing rather than a bogus
+    /// or crashing lookup.
+    @Test func aQuestionWithNoRecordedAnswerIsOmitted() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(header: "", question: "Pick one", multiSelect: false, options: [])
+        ]
+        #expect(InteractiveToolPayload.answers(from: "not a recognized shape at all", for: questions).isEmpty)
+        #expect(InteractiveToolPayload.answers(from: "", for: questions).isEmpty)
+    }
+
     @Test func everyOtherToolHasNoInteractivePayload() {
         #expect(InteractiveToolPayload.decoding(name: "Bash", input: input(#"{"command":"ls"}"#)) == nil)
         #expect(InteractiveToolPayload.decoding(name: "Read", input: input(#"{"plan":"decoy"}"#)) == nil)

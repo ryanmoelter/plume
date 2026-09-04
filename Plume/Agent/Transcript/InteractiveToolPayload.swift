@@ -51,6 +51,47 @@ nonisolated enum InteractiveToolPayload: Equatable {
         }
     }
 
+    /// Recovers what was chosen for each question from the tool result's
+    /// plain-text summary — the only place a settled call still carries the
+    /// answers, since `updatedInput` reaches the model but never lands back
+    /// in the transcript's `tool_use.input`.
+    ///
+    /// The text is fixed-format but not machine-generated JSON: `"question
+    /// text"="chosen labels"` pairs joined by `, `, wrapped in a sentence, and
+    /// a multi-select answer can carry a `selected preview:` annotation after
+    /// its value with no closing quote of its own. Rather than parse that
+    /// generally, this looks for each known question's exact text as a
+    /// literal anchor and reads the answer up to whichever comes first: the
+    /// next question's anchor, the `selected preview:` marker, or the
+    /// sentence's end — which sidesteps quotes embedded in a question or a
+    /// preview body.
+    static func answers(from resultText: String, for questions: [AskedQuestion]) -> [String: String] {
+        var answers: [String: String] = [:]
+        for question in questions {
+            let anchor = "\"\(question.question)\"="
+            guard let anchorRange = resultText.range(of: anchor) else { continue }
+            let afterAnchor = resultText[anchorRange.upperBound...]
+            guard afterAnchor.hasPrefix("\"") else { continue }
+            let valueStart = afterAnchor.index(after: afterAnchor.startIndex)
+
+            let stopMarkers = [" selected preview:", ", \"", "\". You can now continue"]
+            var valueEnd = afterAnchor.endIndex
+            for marker in stopMarkers {
+                if let range = afterAnchor.range(of: marker), range.lowerBound < valueEnd {
+                    valueEnd = range.lowerBound
+                }
+            }
+            guard valueStart < valueEnd else { continue }
+
+            var value = String(afterAnchor[valueStart..<valueEnd])
+            if value.hasSuffix("\"") { value.removeLast() }
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            answers[question.question] = value
+        }
+        return answers
+    }
+
     private static func askedQuestion(from value: JSONValue) -> AskedQuestion? {
         guard case .object(let fields) = value,
               let question = fields["question"]?.stringValue

@@ -164,20 +164,24 @@ struct InteractiveToolRow: View, ThemedView {
 
     /// Every question and what was chosen, one pair each.
     ///
-    /// A row rebuilt from the transcript has no `answerState`, so it shows the
-    /// questions alone — the answers went back to the agent as a tool result
-    /// and are not part of the call this row draws.
+    /// A row still mounted from the live answering session has its choices in
+    /// `answerState`; a row rebuilt from the transcript reads them back out of
+    /// the settled call's tool result, the only place they survive a reload.
     @ViewBuilder
     private func answeredBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
+        let recordedAnswers = resultText.map { InteractiveToolPayload.answers(from: $0, for: questions) } ?? [:]
         VStack(alignment: .leading, spacing: 6) {
             ForEach(questions) { question in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(question.question)
                         .font(typography.caption.font)
                         .emphasis(.secondary)
-                    let chosen = answerState.selectedLabels(for: question)
-                    if !chosen.isEmpty {
-                        Text(chosen.joined(separator: ", "))
+                    let liveChosen = answerState.selectedLabels(for: question)
+                    if !liveChosen.isEmpty {
+                        Text(liveChosen.joined(separator: ", "))
+                            .font(typography.caption.semibold)
+                    } else if let recorded = recordedAnswers[question.question] {
+                        Text(recorded)
                             .font(typography.caption.semibold)
                     }
                 }
