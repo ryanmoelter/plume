@@ -14,9 +14,10 @@ struct MarkdownView: View, ThemedView {
     /// face so it reads as input rather than published prose.
     let isAgentVoice: Bool
 
-    /// The hovered block's code, so its copy button reveals while the pointer
+    /// The hovered block's index, so its copy button reveals while the pointer
     /// is anywhere over the block rather than only over the button itself.
-    @State private var isHoveringCode: String?
+    /// Keyed by position because two blocks can hold identical code.
+    @State private var hoveredBlock: Int?
 
     init(_ markdown: String, isAgentVoice: Bool = false) {
         self.blocks = MarkdownCache.blocks(for: markdown)
@@ -41,7 +42,7 @@ struct MarkdownView: View, ThemedView {
             // rebuilds the whole subtree. A trace caught this rebuilding
             // markdown blocks ~31,000 times over 15 seconds of scrolling.
             ForEach(blocks.indices, id: \.self) { index in
-                render(blocks[index])
+                render(blocks[index], at: index)
                     // A heading opening a message has nothing to separate from.
                     .padding(.top, headingTopSpacing(at: index))
             }
@@ -55,7 +56,7 @@ struct MarkdownView: View, ThemedView {
     }
 
     @ViewBuilder
-    private func render(_ block: MarkdownBlock) -> some View {
+    private func render(_ block: MarkdownBlock, at index: Int) -> some View {
         switch block {
         case let .heading(level, text):
             Text(heading(text, level: level))
@@ -107,9 +108,9 @@ struct MarkdownView: View, ThemedView {
             }
             .background(codeBackground, in: .rect(cornerRadius: 6))
             .overlay(alignment: .topTrailing) {
-                CodeBlockCopyButton(code: code, isRevealed: isHoveringCode == code)
+                CodeBlockCopyButton(code: code, isRevealed: hoveredBlock == index)
             }
-            .onHover { isHoveringCode = $0 ? code : nil }
+            .onHover { hoveredBlock = $0 ? index : nil }
             .listItemPadding(bleed: true, vertical: false)
 
         case let .quote(text):
