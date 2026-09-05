@@ -17,6 +17,7 @@ Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet o
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
 - **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
+- **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
@@ -119,6 +120,7 @@ Still open:
 - [x] Stop accumulating `total_cost_usd`. It is already a running conversation total, so `+=` re-adds every prior turn and the displayed figure compounds. Assign it instead, and correct `docs/headless-protocol.md`, which records the wrong semantics.
 - [x] Move the stop button out of the statusline and put it left of the send button — a circular icon button with a dim background, mirroring send's shape.
 - [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
+- [ ] Make the composer and statusline one floating glass panel rather than a full-width bar: the statusline sits below the composer behind a divider, and the minimized plan panel docks above the composer behind a divider when it is present. Polish the plan overlay's show/hide with a transition that shows continuity between the docked bar and the expanded overlay — a zoom from the bar's frame, probably. `PlanPresentation.minimized` already docks the bar above the composer, and the overlay uses the `planGlass` material, so the panel extends that look rather than inventing one.
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
 - [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
 - [x] Remember effort and permission mode per session, the way the context window already is.
