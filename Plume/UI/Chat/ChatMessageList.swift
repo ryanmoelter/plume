@@ -63,10 +63,9 @@ struct ChatMessageList: View {
         ScrollViewReader { proxy in
             ScrollView {
                 // Lazy so a long transcript only builds the rows on screen.
-                // An earlier lazy stack froze the window while scrolling; the
-                // row-identity and markdown-cache work since then removed
-                // the per-frame rebuilds, and the scroll harness
-                // (`ScrollExercise`) no longer reproduces it.
+                // An earlier lazy stack froze the window while scrolling;
+                // `docs/chat-list-hang.md` records what happened and how to
+                // investigate if it returns.
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         // Only the newest row reflects live status, so only
