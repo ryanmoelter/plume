@@ -129,12 +129,30 @@ private struct MermaidFullScreenView: View, ThemedView {
                 isDark: colorScheme == .dark,
                 foregroundHex: MermaidWebView.hex(colors.foreground),
                 sizing: .fit,
+                role: "fullscreen",
                 onOutcome: { _ in }
             )
+            // A WKWebView has no intrinsic size, so without claiming the
+            // space it collapses and the page's percentage heights resolve
+            // against nothing — a sheet that opens on a blank diagram.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(16)
             .id(colorScheme)
         }
-        .frame(minWidth: 640, minHeight: 480)
+        .frame(
+            minWidth: Self.size.width,
+            maxWidth: .infinity,
+            minHeight: Self.size.height,
+            maxHeight: .infinity
+        )
+    }
+
+    /// Most of the window the chat is in, so a diagram capped inline has room
+    /// to be read. Falls back to a size that suits a small display when there
+    /// is no key window to measure.
+    private static var size: CGSize {
+        guard let frame = NSApp.keyWindow?.frame else { return CGSize(width: 900, height: 650) }
+        return CGSize(width: max(frame.width * 0.8, 900), height: max(frame.height * 0.8, 650))
     }
 
     private var header: some View {
@@ -167,6 +185,9 @@ private struct MermaidWebView: NSViewRepresentable {
     let isDark: Bool
     let foregroundHex: String
     var sizing: MermaidDocument.Sizing = .natural
+    /// Names the pass in the log, so a fullscreen render can be told from the
+    /// inline one it shares a page template with.
+    var role: String = "inline"
     let onOutcome: (Outcome) -> Void
 
     static func hex(_ color: Color) -> String {
@@ -181,7 +202,7 @@ private struct MermaidWebView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onOutcome: onOutcome)
+        Coordinator(role: role, onOutcome: onOutcome)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -190,7 +211,7 @@ private struct MermaidWebView: NSViewRepresentable {
             context.coordinator,
             name: MermaidDocument.messageHandlerName
         )
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = NonScrollingWebView(frame: .zero, configuration: configuration)
         view.setValue(false, forKey: "drawsBackground")
         context.coordinator.load(into: view, document: document)
         return view
@@ -220,9 +241,11 @@ private struct MermaidWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
         var onOutcome: (Outcome) -> Void
+        private let role: String
         private var loaded: String?
 
-        init(onOutcome: @escaping (Outcome) -> Void) {
+        init(role: String, onOutcome: @escaping (Outcome) -> Void) {
+            self.role = role
             self.onOutcome = onOutcome
         }
 
@@ -240,17 +263,36 @@ private struct MermaidWebView: NSViewRepresentable {
                   let kind = payload["kind"] as? String else { return }
             switch kind {
             case "rendered":
-                let height = (payload["height"] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
-                Log.app.info("mermaid rendered, height \(height, privacy: .public)")
+                let number = { (key: String) in (payload[key] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0 }
+                let height = number("height")
+                Log.app.info(
+                    """
+                    mermaid \(self.role, privacy: .public) rendered, height \(height, privacy: .public)                     width \(number("width"), privacy: .public)                     in container \(number("viewportWidth"), privacy: .public)x\(number("viewportHeight"), privacy: .public)
+                    """
+                )
                 onOutcome(.rendered(max(height, 1)))
             case "error":
                 let message = payload["message"] as? String ?? "unknown"
-                Log.app.error("mermaid parse error: \(message, privacy: .public)")
+                Log.app.error("mermaid \(self.role, privacy: .public) parse error: \(message, privacy: .public)")
                 onOutcome(.failed)
             default:
                 break
             }
         }
+    }
+}
+
+/// A web view that never scrolls itself.
+///
+/// WebKit consumes `scrollWheel(with:)` whether or not the page has anywhere
+/// to scroll, which would swallow every wheel event landing on a diagram
+/// instead of scrolling the chat list underneath. Forwarding to the next
+/// responder puts the event back on the chain that reaches the list's scroll
+/// view. The page also sets `overflow: hidden`, so there is nothing to scroll
+/// on either side of this.
+private final class NonScrollingWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
     }
 }
 

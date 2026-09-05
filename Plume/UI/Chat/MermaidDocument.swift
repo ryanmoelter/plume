@@ -37,7 +37,17 @@ nonisolated enum MermaidDocument {
         <!doctype html>
         <html><head><meta charset="utf-8">
         <style>
-          html, body { margin: 0; padding: 0; background: transparent; color: \(foregroundHex); }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: \(foregroundHex);
+            /* The page must have nothing of its own to scroll, so a wheel
+               event over the diagram is left for the chat list. */
+            overflow: hidden;
+            -webkit-overflow-scrolling: auto;
+            overscroll-behavior: none;
+          }
           \(layoutCSS(sizing: sizing))
         </style>
         <script src="mermaid.min.js"></script>
@@ -50,13 +60,22 @@ nonisolated enum MermaidDocument {
           }
           function report() {
             var box = document.getElementById('diagram').getBoundingClientRect();
-            post({ kind: 'rendered', height: Math.ceil(box.height) });
+            post({
+              kind: 'rendered',
+              height: Math.ceil(box.height),
+              width: Math.ceil(box.width),
+              viewportWidth: Math.ceil(document.documentElement.clientWidth),
+              viewportHeight: Math.ceil(document.documentElement.clientHeight)
+            });
           }
           try {
             mermaid.initialize({ startOnLoad: false, theme: '\(theme)', securityLevel: 'strict' });
             mermaid.render('generated', \(jsString(source))).then(function (result) {
               document.getElementById('diagram').innerHTML = result.svg;
               requestAnimationFrame(report);
+              window.addEventListener('resize', function () {
+                requestAnimationFrame(report);
+              });
             }).catch(function (error) {
               post({ kind: 'error', message: String((error && error.message) || error) });
             });
@@ -89,7 +108,7 @@ nonisolated enum MermaidDocument {
               #diagram { display: block; max-width: 100%; max-height: 100%; }
               #diagram svg {
                 max-width: 100%;
-                max-height: 100vh;
+                max-height: 100%;
                 width: auto;
                 height: auto;
                 display: block;
