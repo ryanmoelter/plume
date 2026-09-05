@@ -62,20 +62,16 @@ struct ChatMessageList: View {
         let attachesToLastMessage = messages.last?.role == .assistant
         ScrollViewReader { proxy in
             ScrollView {
-                // Not lazy: a `LazyVStack` chooses which rows to realize
-                // from the content height, and chat rows vary enough in
-                // height that the choice changes the total, which changes the
-                // choice. The two settle into an oscillation the layout can
-                // never resolve, pinning a core with the window frozen.
-                // Laziness is still worth having on a long transcript — it
-                // needs row heights that don't depend on how many rows are
-                // realized.
-                VStack(alignment: .leading, spacing: 0) {
+                // Lazy so a long transcript only builds the rows on screen.
+                // An earlier lazy stack froze the window while scrolling; the
+                // row-identity and markdown-cache work since then removed
+                // the per-frame rebuilds, and the scroll harness
+                // (`ScrollExercise`) no longer reproduces it.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(messages) { message in
                         // Only the newest row reflects live status, so only
                         // it reads `status`. Passing it to every row made a
-                        // status change invalidate the whole list, which
-                        // rebuilds rows the lazy stack had already built.
+                        // status change invalidate the whole list.
                         let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
                             messageID: message.id,
                             lastMessageID: lastMessageID
