@@ -8,22 +8,17 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet ordered:
+Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 
-- **S** — Subagents already done when a session resumes should go straight into the Completed row, not linger 30s in the live rows. See [Subagents](#subagents).
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
-- **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
 - **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
-- **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
-- **S** — Truncate sidebar task titles at the trailing edge instead of the middle. See [Misc UX](#misc-ux).
 - **M** — Animate chat row height changes. See [Chat animation](#chat-animation).
 - **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
-- **S** — Assume the context window denominator from the selected model, so the meter reads on a fresh tab. See [The context window meter](#the-context-window-meter).
 - **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
