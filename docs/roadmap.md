@@ -192,13 +192,13 @@ Ruled out along the way, and worth not re-testing: Plume does not accumulate (`H
 
 Let scripts and Claude itself know they're in Plume, and give Claude the formatting Plume can render.
 
-- [ ] Export an environment variable marking a shell as running inside Plume.
+- [x] Export an environment variable marking a shell as running inside Plume.
 - [ ] Skills that prompt Claude to use richer formatting — diagrams above all — when it's running in Plume.
 - [ ] Put Plume's own configuration in a config file — a superset of ghostty's, or a structured format of its own (TOML or JSON).
 
 What exists:
 
-- Plume already injects `PLUME_TASK_ID`, `PLUME_TAB_ID` and `PLUME_EVENTS_DIR`, but only on an *agent* launch (`ClaudeCodeProvider`), so a plain terminal tab carries no marker at all. A general `PLUME=1`-style variable set on every tab's shell is the missing piece. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam exists — this is the same change the one-tab-kind item needs, and doing it once serves both.
+- **`PLUME=1` shipped.** `LoginShellCommand.plumeEnvironment` (`["PLUME": "1"]`) is merged into the env at every seam that starts a shell — `ClaudeCodeProvider`'s terminal-agent launch, `AgentLauncher.launchHeadless`, and the plain terminal tab's `TerminalSurfaceOptions` in `TabContentView` — so every tab carries it, not just agent launches. `PLUME_TASK_ID` / `PLUME_TAB_ID` / `PLUME_EVENTS_DIR` are unchanged and still agent-only.
 - Hook instrumentation already keys off `$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID`, and those are exactly the per-tab identifiers a general marker would sit beside. A bare `PLUME=1` answers "am I in Plume?" for a shell prompt or a script; it doesn't replace the per-tab IDs, which are what make captured output attributable to a tab.
 - Config today is split: terminal behavior comes from the user's ghostty config, while Plume's own settings (worktree base path, provider, default transport, chat font size, quit confirmations, composer send key) live in `UserDefaults` behind `AppSettings`, reachable only through the Settings window. A file would make them diffable, shareable and version-controllable, which `UserDefaults` never will be.
 - A superset is plausible because Plume already reads and rewrites the config rather than passing a path: `GhosttyConfigLoader` finds the file in ghostty's own search order, then hands libghostty *generated contents* with every `theme` line stripped, parsing line by line. Plume-specific keys would be stripped the same way — and they must be, since libghostty emits diagnostics for keys it doesn't recognize and `GhosttyRuntime` already logs them.
@@ -219,13 +219,14 @@ What exists: nothing uses `gh` or `glab` yet. `WorkTask.integrationsData` is res
 
 Make creating a task cheap, and stop pretending a task has one directory.
 
-- [ ] ⌘N inherits the selected task's working directory instead of leaving the workspace unset.
+- [x] ⌘N inherits the selected task's working directory instead of leaving the workspace unset.
 - [ ] Let the worktree choice happen *after* picking a directory, not before.
 - [ ] Move the working directory onto tabs. A task probably doesn't need one.
 - [ ] Track where an agent actually is — including when Claude uses `EnterWorktree` — and use that as the tab's current directory, e.g. when opening a new tab from it.
 
 What exists:
 
+- **⌘N inheritance shipped.** `TaskStore.createTask(inheritingFrom:)` copies `workingDirectoryPath`, `repoPath` and `branchName` from the selected task and sets `workspaceKind = .directory`; `MainWindow`'s ⌘N handler passes the selected task. A worktree task is inherited as a plain directory — the new task points at the same folder rather than getting a worktree of its own.
 - The directory lives on `WorkTask` today (`workingDirectoryPath`, plus `repoPath` / `branchName` / `workspaceKind`), and it's read in roughly ten places across the sidebar, setup header, launcher and resume path. Moving it to `TaskTab` is the widest change on this list, though most call sites are a mechanical hop from `task.` to `tab.`. The question to settle first is what a task's identity becomes once it no longer owns a directory, and what the sidebar shows when a task's tabs disagree.
 - `TerminalSession` **already tracks the live working directory per tab**, mirrored from the terminal's own reports — so a per-tab cwd is closer to how things already behave than the persisted per-task path is.
 - `EnterWorktree` needs no special handling. Its `tool_use` input records the absolute path, but every transcript line afterwards also carries the new `cwd`, verified on a real session that moved into `.worktrees/…` mid-run. So reading `cwd` from the newest transcript line picks up `EnterWorktree` and every other directory change through one mechanism. `SessionJSONLReader` already reads these files.
@@ -276,9 +277,11 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
-- [ ] ⌘W closes the current tab, not the window.
+- [x] ⌘W closes the current tab, not the window.
 
-What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**. ⌘W is AppKit's window-close default and no command overrides it, so taking it means declaring a `CommandGroup` that claims the binding and falls back to closing the window when the task has no tabs left.
+What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+
+**⌘W shipped.** The old "Close Tab" item sat in `CommandGroup(after: .saveItem)`, so AppKit's own "Close Window" (also ⌘W, since `.saveItem` is the placement that covers closing windows) still won the shortcut. Replacing that group instead of appending to it removes the standard item outright; the one remaining "Close Tab" button closes the selected tab, or the window when the task has none.
 
 ## Naming
 
@@ -304,15 +307,15 @@ What exists:
 - [ ] Shortcuts work while the terminal is focused.
 - [ ] Drag and drop to reorder tabs.
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
-- [ ] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
-- [ ] Focus the composer when a new tab or task opens.
+- [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
+- [x] Focus the composer when a new tab or task opens.
 
 What exists:
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
-- Focus is never placed programmatically today, so a new tab renders with nothing focused and the first keystroke goes nowhere. The two transports need different answers: a headless tab has a real `TextField` to focus, while a terminal tab's focus is the ghostty surface.
+- **Composer focus shipped for both transports.** A headless tab's `ChatComposer` sets `@FocusState` on `isVisible`'s initial arrival, which fires whenever a tab is created or becomes selected; a terminal tab calls `session.state.requestFocus()` on the same trigger in `TerminalTabView`.
 - `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
-- The archive is the one task list that doesn't go through `TitleStore`. `ArchiveView` renders raw `task.title` (`ArchiveView.swift:19`), while the live sidebar uses `TitleStore.shared.displayTitle(for:)` (`TaskRowView.swift:40`), which falls back to the representative tab's title and finally to "Untitled". So a task the user never named renders as an empty string in the archive — not even a placeholder. Switching to `displayTitle(for:)` fixes the blank rows; whether a better name is available is a second question, since the tab title it falls back to is itself gone once the tabs are. The archived row already shows the working directory beneath the title, which is often the more identifying of the two.
+- **Shipped:** `ArchiveView` now renders `TitleStore.shared.displayTitle(for:)` (`ArchiveView.swift:19`) instead of raw `task.title`, matching the live sidebar (`TaskRowView.swift:40`) — an unnamed task falls back to its representative tab's title and finally "Untitled" instead of a blank row. The archived row still shows the working directory beneath the title, which is often the more identifying of the two.
 - Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
 
 ## Make the UI drivable
