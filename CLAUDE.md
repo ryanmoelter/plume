@@ -54,7 +54,7 @@ Plume/
 
 ## Agent transports
 
-An agent tab runs over one of two transports, chosen by `TaskTab.transport` and defaulted by a setting. This is a separate axis from `renderMode`, which only picks a view.
+An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProviderKind`), over one of two transports, chosen by `TaskTab.transport` and defaulted by a setting. Provider and transport are independent axes, and `AgentLauncher.launch` branches on the pair — which is what keeps Claude Code's hook instrumentation, `~/.claude.json` trust check and event watching off the Codex path. The chat renders against the `AgentSession` protocol, so both CLIs share every view.
 
 **Headless (`.headless`, the default).** `claude -p` speaking stream-json over pipes, owned by `HeadlessSession` and keyed by tab ID in `HeadlessSessionManager` — the same shape as `SurfaceManager`, and no PTY at all. **`docs/headless-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Headless/`.
 
