@@ -317,24 +317,62 @@ struct ChatTabView: View, ThemedView {
     ///
     /// Feedback submits the rejection from inside the field, so typing and
     /// sending are one gesture rather than a field plus a distant button.
+    /// ⌥↩ is captioned because nothing else on screen reveals it, and it is
+    /// the only way to reach approve-with-feedback.
     @ViewBuilder
     private var planApprovalOptions: some View {
-        HStack(spacing: 8) {
-            TextField("Feedback (optional)", text: $planRejectionReason)
-                .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                TextField("Feedback (optional)", text: $planRejectionReason, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+                    .font(typography.caption.font)
+                    .onKeyPress(.return, phases: .down) { press in
+                        handleFeedbackReturn(press.modifiers)
+                    }
+                ReservedWidthButton(
+                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
+                    labels: PlanRejectionLabel.allLabels
+                ) {
+                    answerPlan(.reject)
+                }
+                Button("Approve") { answerPlan(.approve) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+            Text("⌥↩ approves with this feedback")
                 .font(typography.caption.font)
-                .onSubmit { answerPlan(.reject) }
-            Button("Give feedback") { answerPlan(.reject) }
-            Button("Approve") { answerPlan(.approve) }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .emphasis(.subtle)
         }
         .font(typography.caption.font)
+    }
+
+    /// Return in the feedback field follows `composerSendKey` exactly as the
+    /// composer does; ⌥ always reaches the third option.
+    private func handleFeedbackReturn(_ modifiers: EventModifiers) -> KeyPress.Result {
+        let key = PlanFeedbackKey.forReturn(
+            sendKey: settings.composerSendKey,
+            command: modifiers.contains(.command),
+            shift: modifiers.contains(.shift),
+            option: modifiers.contains(.option)
+        )
+        switch key {
+        case .submit:
+            answerPlan(.reject)
+            return .handled
+        case .approveWithFeedback:
+            answerPlan(.approveWithFeedback)
+            return .handled
+        case .passThrough:
+            return .ignored
+        }
     }
 
     private enum PlanDecision {
         case approve
         case reject
+        /// Approve, and let the typed note steer the plan that comes back.
+        case approveWithFeedback
     }
 
     /// Answers the live proposal and remembers where it landed, so the footer
@@ -351,6 +389,9 @@ struct ChatTabView: View, ThemedView {
                 with: .deny(message: PlanResolution.denialMessage(reason: planRejectionReason))
             )
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .rejected)
+        case .approveWithFeedback:
+            session.approvePlan(pendingPlan, feedback: planRejectionReason)
+            settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
         planPresentation = .minimized

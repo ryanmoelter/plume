@@ -142,10 +142,10 @@ The seeded value is now visibly a guess. `HeadlessSession.hasReportedModeAndMode
 
 Today the overlay never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — presenting a proposal for approval, and reviewing the plan once approved.
 
-- [ ] Let the feedback field grow to several lines, following the composer's send-key setting.
-- [ ] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key.
-- [ ] Label the reject button "Reject" until the user types, then "Give feedback".
-- [ ] Confirm **Approve** starts work in auto mode where that is enabled. It resolves the request and minimizes the overlay; whether auto mode then picks it up was not verified.
+- [x] Let the feedback field grow to several lines, following the composer's send-key setting. `axis: .vertical` with a 1–6 line limit, and `PlanFeedbackKey` states the composer's Return rule over modifiers alone so a SwiftUI `TextField` can obey `composerSendKey` too.
+- [x] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key. The note cannot ride the permission response: `ExitPlanMode` declares no input fields, so an extra `updatedInput` key is dropped silently, and there is no allow-with-message. It follows the approval as an ordinary user turn, which queues behind the approved turn and lands when that turn ends — exactly when it should steer the next plan. Payload recorded in `docs/headless-protocol.md`.
+- [x] Label the reject button "Reject" until the user types, then "Give feedback". `PlanRejectionLabel` owns the rule, and `ReservedWidthButton` lays out both labels hidden so the button cannot resize under the pointer.
+- [x] Confirm **Approve** starts work in auto mode where that is enabled. `HeadlessSession.approvePlan` sends `set_permission_mode` with `auto` right after allowing the call, so the session leaves plan mode on approval; confirmed from the code path, not from a live run.
 
 **The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
 
