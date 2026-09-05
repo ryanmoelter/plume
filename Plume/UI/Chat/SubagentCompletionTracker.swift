@@ -13,6 +13,12 @@ import Observation
 /// a relaunch re-reads files that finished days ago, and dating them by their
 /// own timestamps would collapse every row the instant the list appeared.
 /// Nothing here is persisted for the same reason.
+///
+/// Only a finish this store *watched happen* earns a linger. A subagent
+/// already finished on the first read of its tab is pre-completed and folds
+/// away at once: resuming a conversation observes every one of them in the
+/// same instant, and lingering them all would fill the live list with work
+/// that ended days ago.
 @MainActor
 @Observable
 final class SubagentCompletionTracker {
@@ -29,6 +35,12 @@ final class SubagentCompletionTracker {
 
     private var completedAt: [Key: ContinuousClock.Instant] = [:]
     private var timers: [Key: Task<Void, Never>] = [:]
+    /// Subagents that were already finished the first time their tab was
+    /// read. They are settled from the start rather than lingering.
+    private var preCompleted: Set<Key> = []
+    /// Tabs this store has read at least once, which is what makes the next
+    /// read's finishes observed transitions rather than history.
+    private var readTabs: Set<UUID> = []
     /// Bumped when a linger elapses. `hasSettled` reads a clock rather than
     /// stored state, so without an observable change to depend on, SwiftUI
     /// would have no reason to re-render when the moment arrives.
@@ -45,7 +57,12 @@ final class SubagentCompletionTracker {
     func observe(_ subagents: [SubagentTranscript], tabID: UUID) {
         let finished = Set(subagents.filter { isFinished($0.status) }.map { Key(tabID: tabID, subagentID: $0.id) })
 
-        for key in finished where completedAt[key] == nil {
+        if readTabs.insert(tabID).inserted {
+            preCompleted.formUnion(finished)
+            return
+        }
+
+        for key in finished where completedAt[key] == nil && !preCompleted.contains(key) {
             completedAt[key] = .now
             // The timer lives here rather than in the view for the same reason
             // the instants do: a view's `.task` is cancelled on unmount, so a
@@ -65,6 +82,7 @@ final class SubagentCompletionTracker {
             completedAt.removeValue(forKey: key)
             timers.removeValue(forKey: key)?.cancel()
         }
+        preCompleted.subtract(preCompleted.filter { $0.tabID == tabID && !finished.contains($0) })
     }
 
     /// Whether a finished subagent has lingered long enough to move into the
@@ -72,7 +90,9 @@ final class SubagentCompletionTracker {
     func hasSettled(_ subagent: SubagentTranscript, tabID: UUID) -> Bool {
         _ = settledGeneration
         let key = Key(tabID: tabID, subagentID: subagent.id)
-        guard isFinished(subagent.status), let since = completedAt[key] else { return false }
+        guard isFinished(subagent.status) else { return false }
+        if preCompleted.contains(key) { return true }
+        guard let since = completedAt[key] else { return false }
         return since.duration(to: .now) >= linger
     }
 
@@ -89,6 +109,8 @@ final class SubagentCompletionTracker {
             completedAt.removeValue(forKey: key)
             timers.removeValue(forKey: key)?.cancel()
         }
+        preCompleted.subtract(preCompleted.filter { $0.tabID == tabID })
+        readTabs.remove(tabID)
     }
 
     private func expire(_ key: Key) {
@@ -97,6 +119,6 @@ final class SubagentCompletionTracker {
     }
 
     private func isFinished(_ status: TaskStatus) -> Bool {
-        status == .done || status == .error
+        status == .done || status == .error || status == .interrupted
     }
 }

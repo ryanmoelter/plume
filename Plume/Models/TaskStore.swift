@@ -89,15 +89,24 @@ enum TaskStore {
     /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
         for tab in task.tabs {
-            SurfaceManager.shared.closeSession(for: tab.id)
-            HeadlessSessionManager.shared.closeSession(for: tab.id)
-            DraftStore.shared.forget(tabID: tab.id)
-            BellStore.shared.forget(tabID: tab.id)
-            SubagentCompletionTracker.shared.forget(tabID: tab.id)
-            TranscriptStore.shared.stopWatching(tabID: tab.id)
-            UntrustedDirectoryStore.shared.clear(tabID: tab.id)
+            forgetTab(tab.id)
         }
         context.delete(task)
+    }
+
+    /// Everything a tab leaves outside SwiftData: its live sessions and every
+    /// in-memory store keyed by tab id. Closing one tab and deleting its whole
+    /// task both go through here, so neither can drift into forgetting less
+    /// than the other.
+    static func forgetTab(_ tabID: UUID) {
+        SurfaceManager.shared.closeSession(for: tabID)
+        HeadlessSessionManager.shared.closeSession(for: tabID)
+        TitleStore.shared.forget(tabID: tabID)
+        DraftStore.shared.forget(tabID: tabID)
+        BellStore.shared.forget(tabID: tabID)
+        SubagentCompletionTracker.shared.forget(tabID: tabID)
+        TranscriptStore.shared.stopWatching(tabID: tabID)
+        UntrustedDirectoryStore.shared.clear(tabID: tabID)
     }
 
     /// Deleting a group would cascade to its tasks, so move them to Ungrouped first.
@@ -112,9 +121,7 @@ enum TaskStore {
     }
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
-        SurfaceManager.shared.closeSession(for: tab.id)
-        HeadlessSessionManager.shared.closeSession(for: tab.id)
-        SubagentCompletionTracker.shared.forget(tabID: tab.id)
+        forgetTab(tab.id)
         guard let task = tab.task else {
             context.delete(tab)
             return
@@ -130,11 +137,6 @@ enum TaskStore {
                 task.selectedTabID = nil
             }
         }
-        TitleStore.shared.forget(tabID: tab.id)
-        DraftStore.shared.forget(tabID: tab.id)
-        BellStore.shared.forget(tabID: tab.id)
-        TranscriptStore.shared.stopWatching(tabID: tab.id)
-        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         context.delete(tab)
         reindex(remaining)
     }

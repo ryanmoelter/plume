@@ -48,14 +48,14 @@ final class StatusEngine {
         tabStatuses[id] ?? .unset
     }
 
-    /// Working subagents raise a settled tab to `working`. `needsInput` and
-    /// `error` outrank that: they need the user either way, and a subagent
-    /// cannot clear them.
+    /// Working subagents raise a settled tab to `working`. `needsInput`,
+    /// `error` and `interrupted` outrank that: they need the user either way,
+    /// and a subagent cannot clear them.
     static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
         guard subagentsWorking else { return own }
         switch own {
         case .unset, .idle, .done, .working: return .working
-        case .needsInput, .error: return own
+        case .needsInput, .error, .interrupted: return own
         }
     }
 

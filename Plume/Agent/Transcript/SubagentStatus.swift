@@ -27,7 +27,9 @@ nonisolated enum SubagentParentSignal: Equatable {
 /// - The parent holds a real completion for the agent — a `toolUseResult` with
 ///   `status: "completed"`, or a `task_status` attachment saying the same.
 ///
-/// Everything softer reads as working. Trailing prose is *not* a signal,
+/// A transcript whose last message is the user's interruption reads as
+/// `interrupted` instead. Everything softer reads as working. Trailing prose
+/// is *not* a signal,
 /// though it looks like one: a subagent narrates between tool calls, so its
 /// file very often ends on an assistant paragraph while the agent is still
 /// mid-task — 49 of 210 transcripts in a sampled corpus, every one of which
@@ -48,7 +50,9 @@ nonisolated enum SubagentStatusDeriver {
         if last.blocks.contains(where: isErrorNotice) { return .error }
         if last.blocks.contains(where: isQuestion) { return .needsInput }
 
-        return isFinished(transcript: transcript, parentSignal: parentSignal) ? .done : .working
+        if isFinished(transcript: transcript, parentSignal: parentSignal) { return .done }
+        if last.blocks.contains(where: isInterruption) { return .interrupted }
+        return .working
     }
 
     /// A parent completion outranks the sidecar, because the sidecar's tail is
@@ -63,6 +67,21 @@ nonisolated enum SubagentStatusDeriver {
     private static func isFinished(transcript: Transcript, parentSignal: SubagentParentSignal?) -> Bool {
         if parentSignal == .completed { return true }
         return transcript.lastStopReason == "end_turn"
+    }
+
+    /// The user pressing escape ends the agent where it stood, so its file
+    /// keeps the `tool_use` stop reason of the step it was on and it would
+    /// otherwise read as working forever — 4 of 215 transcripts in the
+    /// sampled corpus, every one still spinning.
+    ///
+    /// Only the *last* message counts. An interrupted agent that was told to
+    /// carry on has the marker mid-file and goes on to finish normally, which
+    /// is the fifth of those five. And this is checked last, so it can only
+    /// ever replace `working`: a parent completion or an `end_turn` still
+    /// means done, rather than this guessing over a signal that outranks it.
+    private static func isInterruption(_ block: ChatBlock) -> Bool {
+        guard case .injected(let content, _) = block else { return false }
+        return content == .interrupted
     }
 
     /// The two tools that stop and wait for a person.
