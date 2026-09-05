@@ -94,7 +94,7 @@ extension SessionJSONLReader {
             switch InjectedContent.classify(text: text, isMeta: entry.isMeta) {
             case .userMessage:
                 return condensed(text)
-            case .slashCommand(let name) where slashCommand == nil:
+            case .slashCommand(let name, _) where slashCommand == nil:
                 slashCommand = name
             default:
                 continue
