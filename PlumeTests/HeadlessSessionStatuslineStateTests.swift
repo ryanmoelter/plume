@@ -100,6 +100,44 @@ struct HeadlessSessionStatuslineStateTests {
         #expect(session.permissionMode == .acceptEdits)
     }
 
+    /// A resumed tab seeds mode and model from its snapshot, and `init`
+    /// reports what the conversation really resumed with. The seeded pair
+    /// must give way to that report, not survive it.
+    @Test func initializedCorrectsBothSeededValuesAtOnce() {
+        let session = makeSession()
+        session.setPermissionMode(.plan)
+        session.setModel(.sonnet)
+
+        session.handle(.initialized(sessionInit(model: "claude-opus-5", permissionMode: "acceptEdits")))
+
+        #expect(session.model == .opus)
+        #expect(session.permissionMode == .acceptEdits)
+    }
+
+    @Test func modeAndModelAreUnreportedUntilInitArrives() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+
+        #expect(!session.hasReportedModeAndModel)
+
+        session.handle(.initialized(sessionInit(model: "claude-opus-5")))
+
+        #expect(session.hasReportedModeAndModel)
+    }
+
+    /// `init` carrying nothing recognizable still counts as reported: the
+    /// conversation answered, so the values stop being Plume's guess even
+    /// where the answer left them unchanged.
+    @Test func unrecognizedInitStillCountsAsReported() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+
+        session.handle(.initialized(sessionInit(model: "some-future-model")))
+
+        #expect(session.hasReportedModeAndModel)
+        #expect(session.model == .sonnet)
+    }
+
     /// Allowing `ExitPlanMode` only answers that tool call — the CLI has no
     /// field on the response for changing mode, so approving a plan without
     /// also switching mode leaves the session stuck in `plan` and the agent

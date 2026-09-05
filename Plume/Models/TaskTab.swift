@@ -35,6 +35,9 @@ final class TaskTab {
     /// running session's effort back from the CLI, so this is the only record
     /// of it across a relaunch.
     var effortRaw: String?
+    /// The model to launch with, chosen before the tab has a session. Nil
+    /// leaves `--model` off, so the CLI picks its own default.
+    var modelRaw: String?
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
@@ -69,6 +72,11 @@ final class TaskTab {
     var effort: AgentEffort? {
         get { effortRaw.flatMap(AgentEffort.init(rawValue:)) }
         set { effortRaw = newValue?.rawValue }
+    }
+
+    var model: AgentModel? {
+        get { modelRaw.flatMap(AgentModel.init(rawValue:)) }
+        set { modelRaw = newValue?.rawValue }
     }
 
     var displayTitle: String {
