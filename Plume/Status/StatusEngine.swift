@@ -16,6 +16,11 @@ final class StatusEngine {
     /// snapshot can be persisted without this type depending on SwiftData.
     @ObservationIgnored var onTaskStatusChanged: ((UUID, TaskStatus) -> Void)?
 
+    /// Called with the task and tab whenever a tab's own status changes.
+    /// Both transports funnel through `setStatus`, so this is the one place a
+    /// notification layer has to hook.
+    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus) -> Void)?
+
     private var tabsByTask: [UUID: Set<UUID>] = [:]
 
     init() {}
@@ -59,6 +64,7 @@ final class StatusEngine {
         tabStatuses[tabID] = status
         let newTaskStatus = self.status(forTask: taskID)
 
+        onTabStatusChanged?(taskID, tabID, status)
         if newTaskStatus != previousTaskStatus {
             onTaskStatusChanged?(taskID, newTaskStatus)
         }

@@ -58,7 +58,7 @@ private struct AgentTabContent: View {
             HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible)
         case .terminal:
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session, isVisible: isVisible)
+                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible)
             } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                 AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
             } else {
@@ -133,7 +133,7 @@ private struct TerminalTabHost: View {
     var body: some View {
         Group {
             if let session {
-                TerminalTabView(session: session, isVisible: isVisible)
+                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible)
                     .onChange(of: session.title, initial: true) { _, title in
                         TitleStore.shared.setTitle(title, forTab: tab.id)
                     }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -7,6 +8,7 @@ struct MainWindow: View {
     @State private var selection: UUID?
     @State private var renamingTaskID: UUID?
     @State private var statusPersistence: StatusPersistence?
+    @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
     @State private var tabPendingStartFresh: TaskTab?
 
@@ -88,14 +90,48 @@ struct MainWindow: View {
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
+        .onChange(of: Notifier.shared.pendingRoute) { _, route in
+            guard let route else { return }
+            follow(route)
+            Notifier.shared.pendingRoute = nil
+        }
         .task {
             statusPersistence = StatusPersistence(context: context)
+            installNotifications()
             restoreStatusMonitoring()
             restoreLastOpenTask()
             #if DEBUG
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif
         }
+    }
+
+    /// Both closures read live view state, so they are installed here rather
+    /// than captured anywhere longer-lived.
+    private func installNotifications() {
+        Notifier.shared.audience = {
+            NotificationAudience(
+                isAppActive: NSApp.isActive,
+                selectedTaskID: selection,
+                selectedTabID: selectedTask?.selectedTabID
+            )
+        }
+        statusNotifier = StatusNotifier { tabID in
+            TitleStore.shared.title(forTab: tabID)
+                ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
+                ?? "Plume"
+        }
+    }
+
+    /// A notification click selects its task, then its tab within that task.
+    /// A task or tab deleted since the notification went out doesn't match,
+    /// and the click does nothing.
+    private func follow(_ route: Notifier.Route) {
+        guard let task = tasks.first(where: { $0.id == route.taskID }) else { return }
+        selection = task.id
+        guard let tab = task.orderedTabs.first(where: { $0.id == route.tabID }) else { return }
+        TaskStore.selectTab(tab, in: task)
+        BellStore.shared.markSeen(tabID: tab.id)
     }
 
     private var selectedTask: WorkTask? {
