@@ -24,11 +24,12 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     // MARK: - Presets
 
-    /// The 1M-context variants, which is what the composer's top-level menu
-    /// offers. The bare `opus`/`sonnet`/`fable` aliases resolve to the 256K
-    /// models instead — see "Model aliases" in docs/headless-protocol.md — so
-    /// these send the explicit `[1m]` IDs.
-    static let fable = AgentModel(id: "claude-fable-5-1[1m]", label: "Fable 1M")
+    /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`
+    /// aliases resolve to the 256K models, so Opus and Sonnet send the
+    /// explicit `[1m]` IDs. Fable has no 1M variant — passing the suffix gets
+    /// `claude-fable-5-1` back — so it sends the plain ID and is labelled
+    /// without one. See "Model aliases" in docs/headless-protocol.md.
+    static let fable = AgentModel(id: "claude-fable-5-1", label: "Fable")
     static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus 1M")
     static let sonnet = AgentModel(id: "claude-sonnet-5[1m]", label: "Sonnet 1M")
 
@@ -39,10 +40,10 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// not models. So it is maintained by hand from `claude --help`'s aliases
     /// and the IDs the CLI accepted when probed.
     static let more: [AgentModel] = [
-        AgentModel(id: "claude-fable-5-1", label: "Fable"),
-        AgentModel(id: "claude-opus-5", label: "Opus"),
-        AgentModel(id: "claude-sonnet-5", label: "Sonnet"),
-        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5")
+        AgentModel(id: "claude-opus-5", label: "Opus 256K"),
+        AgentModel(id: "claude-sonnet-5", label: "Sonnet 256K"),
+        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5"),
+        AgentModel(id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 1M")
     ]
 
     /// Everything the menu can offer, top-level items first.
@@ -63,28 +64,38 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
         if let exact = selectable.first(where: { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }) {
             return exact
         }
-        if let alias = aliases[trimmed.lowercased()] {
-            return alias
+        let isOneMillion = trimmed.hasSuffix(contextSuffix)
+        let bare = String(trimmed.dropLast(isOneMillion ? contextSuffix.count : 0))
+        if let alias = aliases[bare.lowercased()] {
+            return isOneMillion ? alias.oneMillionVariant : alias
         }
         return AgentModel(unrecognizedID: trimmed)
     }
 
     /// Short names and display strings the CLI or a statusline may report in
-    /// place of a full ID.
+    /// place of a full ID, each mapped to its 256K form. A `[1m]` suffix on
+    /// the reported string promotes the result to the 1M variant.
     private static let aliases: [String: AgentModel] = [
-        "fable": .fable, "fable 5": .fable, "fable 5.1": .fable,
-        "opus": .opus, "opus 5": .opus,
-        "sonnet": .sonnet, "sonnet 5": .sonnet,
-        "haiku": AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5"),
-        "claude-fable-5": .fable
+        "fable": .fable, "fable 5": .fable, "fable 5.1": .fable, "claude-fable-5": .fable,
+        "opus": more[0], "opus 5": more[0],
+        "sonnet": more[1], "sonnet 5": more[1],
+        "haiku": more[2], "haiku 4.5": more[2]
     ]
 
-    /// Trims the `claude-` prefix and a dated suffix so an unknown ID reads as
-    /// a name rather than a slug.
+    private static let contextSuffix = "[1m]"
+
+    /// The 1M-context sibling of this model, or the model itself when it has
+    /// no 1M form — Fable, whose suffixed ID the CLI reports back plain.
+    private var oneMillionVariant: AgentModel {
+        let suffixed = id + AgentModel.contextSuffix
+        return AgentModel.selectable.first { $0.id == suffixed } ?? self
+    }
+
+    /// Trims the `claude-` prefix so an unknown ID reads as a name rather
+    /// than a slug. The rest is kept verbatim — a wrong-but-pretty label
+    /// would be worse than an ugly true one.
     private static func shortenedLabel(for id: String) -> String {
-        var name = id
-        if name.hasPrefix("claude-") { name.removeFirst("claude-".count) }
-        return name
+        id.hasPrefix("claude-") ? String(id.dropFirst("claude-".count)) : id
     }
 }
 
