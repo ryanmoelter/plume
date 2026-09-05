@@ -59,7 +59,11 @@ nonisolated enum MermaidDocument {
             window.webkit.messageHandlers.\(messageHandlerName).postMessage(payload);
           }
           function report() {
-            var box = document.getElementById('diagram').getBoundingClientRect();
+            // The SVG's own box, not the wrapper's: `#diagram` is a flex item
+            // that can measure zero while the diagram inside it paints fine.
+            var diagram = document.getElementById('diagram');
+            var drawn = diagram.querySelector('svg') || diagram;
+            var box = drawn.getBoundingClientRect();
             post({
               kind: 'rendered',
               height: Math.ceil(box.height),
@@ -73,6 +77,13 @@ nonisolated enum MermaidDocument {
             mermaid.render('generated', \(jsString(source))).then(function (result) {
               document.getElementById('diagram').innerHTML = result.svg;
               requestAnimationFrame(report);
+              // A sheet measures zero while it animates in, so report again
+              // once its viewport has settled as well as on any later resize.
+              if (window.ResizeObserver) {
+                new ResizeObserver(function () {
+                  requestAnimationFrame(report);
+                }).observe(document.documentElement);
+              }
               window.addEventListener('resize', function () {
                 requestAnimationFrame(report);
               });
@@ -105,14 +116,22 @@ nonisolated enum MermaidDocument {
             return """
             html, body { width: 100%; height: 100%; }
               body { display: flex; align-items: center; justify-content: center; }
-              #diagram { display: block; max-width: 100%; max-height: 100%; }
+              /* Viewport units, not percentages: `#diagram` is a flex item
+                 whose own height is indefinite, so a percentage max-height
+                 resolves against nothing and collapses the SVG to zero. */
+              #diagram { display: block; width: 100%; height: 100%; }
+              /* Mermaid emits width="100%" with no height attribute and its
+                 own `max-width` cap, so the SVG's height comes only from the
+                 viewBox aspect ratio. `width: auto` leaves it nothing to
+                 resolve against and it collapses; filling both axes and
+                 letting `object-fit` letterbox it scales it to the panel. */
               #diagram svg {
-                max-width: 100%;
-                max-height: 100%;
-                width: auto;
-                height: auto;
+                width: 100%;
+                height: 100%;
+                max-width: none;
+                max-height: none;
+                object-fit: contain;
                 display: block;
-                margin: 0 auto;
               }
             """
         }

@@ -289,10 +289,9 @@ private struct MermaidWebView: NSViewRepresentable {
             case "rendered":
                 let number = { (key: String) in (payload[key] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0 }
                 let height = number("height")
+                let container = "\(number("viewportWidth"))x\(number("viewportHeight"))"
                 Log.app.info(
-                    """
-                    mermaid \(self.role, privacy: .public) rendered, height \(height, privacy: .public)                     width \(number("width"), privacy: .public)                     in container \(number("viewportWidth"), privacy: .public)x\(number("viewportHeight"), privacy: .public)
-                    """
+                    "mermaid \(self.role, privacy: .public) rendered, height \(height, privacy: .public) width \(number("width"), privacy: .public) in container \(container, privacy: .public)"
                 )
                 onOutcome(.rendered(max(height, 1)))
             case "error":
