@@ -92,6 +92,7 @@ enum TaskStore {
             SurfaceManager.shared.closeSession(for: tab.id)
             HeadlessSessionManager.shared.closeSession(for: tab.id)
             DraftStore.shared.forget(tabID: tab.id)
+            BellStore.shared.forget(tabID: tab.id)
             TranscriptStore.shared.stopWatching(tabID: tab.id)
             UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         }
@@ -129,6 +130,7 @@ enum TaskStore {
         }
         TitleStore.shared.forget(tabID: tab.id)
         DraftStore.shared.forget(tabID: tab.id)
+        BellStore.shared.forget(tabID: tab.id)
         TranscriptStore.shared.stopWatching(tabID: tab.id)
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         context.delete(tab)

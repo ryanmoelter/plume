@@ -36,6 +36,20 @@ final class TerminalSession {
     /// task switch is what proves the surface was never rebuilt.
     private(set) var scrollbar: TerminalScrollbar?
 
+    /// Mirrored for the same reason as `title`. `bellCount` only ever rises,
+    /// so a change to it is a bell; the count itself is not shown anywhere.
+    private(set) var bellCount = 0
+
+    /// The last OSC 9 / OSC 777 desktop notification the program asked for.
+    /// Mirrored as one value so a title and body always arrive together.
+    private(set) var desktopNotification: DesktopNotification?
+
+    struct DesktopNotification: Equatable {
+        var title: String
+        var body: String
+        var at: Date
+    }
+
     /// The platform view presenting this session, held strongly.
     ///
     /// The view owns the Ghostty surface, which owns the PTY child, and
@@ -69,6 +83,13 @@ final class TerminalSession {
             .store(in: &cancellables)
         state.$scrollbar
             .sink { [weak self] in self?.scrollbar = $0 }
+            .store(in: &cancellables)
+        state.$bellCount
+            .sink { [weak self] in self?.bellCount = $0 }
+            .store(in: &cancellables)
+        state.$lastDesktopNotificationAt
+            .compactMap { $0 }
+            .sink { [weak self] at in self?.captureDesktopNotification(at: at) }
             .store(in: &cancellables)
     }
 
@@ -128,6 +149,17 @@ final class TerminalSession {
         state.makePlatformView = nil
         hostedView?.removeFromSuperview()
         hostedView = nil
+    }
+
+    /// The wrapper publishes title, body and timestamp as three separate
+    /// properties. The timestamp is written last, so reading the other two
+    /// when it changes is what keeps a notification whole.
+    private func captureDesktopNotification(at: Date) {
+        desktopNotification = DesktopNotification(
+            title: state.lastDesktopNotificationTitle ?? "",
+            body: state.lastDesktopNotificationBody ?? "",
+            at: at
+        )
     }
 
     private func markExited(processAlive: Bool) {

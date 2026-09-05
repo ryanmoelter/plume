@@ -29,10 +29,19 @@ Not queued, and deliberately so: **Renaming "task"** is cheap to do and expensiv
 
 Tell me when I need to pay attention to tasks.
 
-- [ ] Terminal bell support, with a dot next to chats that have rung one.
-- [ ] System notification on bell.
+- [x] Terminal bell support, with a dot next to chats that have rung one.
+- [x] System notification on bell.
 - [ ] Let the command line send a notification (title + description), like `cmux notify`.
-- [ ] Notify automatically on Claude Code events — above all, waiting for input.
+- [x] Notify automatically on Claude Code events — above all, waiting for input.
+
+What shipped:
+
+- `BellStore` holds the tabs with an unseen bell, and `TabStripView` draws a dot on their chips. A bell rung in the tab on screen is already seen and leaves no dot; the mark clears when the tab comes on screen, and when a notification click lands on it.
+- `TerminalSession` mirrors `bellCount` and the OSC 9 / OSC 777 notification into observable storage, alongside `title` and `workingDirectory`.
+- `Notifier` (`Plume/Support/`) is the delivery layer over `UNUserNotificationCenter`. It asks for authorization the first time something wants to notify, queues that first post until the answer arrives, and no-ops afterwards if the answer was no. It also no-ops in a process with no bundle identity, which is what keeps the test host safe.
+- **The suppression rule**: a notification is dropped only when Plume is frontmost *and* the event's tab is the one on screen. A background tab, a background task, or any tab while Plume is behind another app all notify. `NotificationSuppression` holds the rule on its own, and is unit-tested.
+- `StatusNotifier` hooks `StatusEngine.onTabStatusChanged`, so both transports are covered at once. `needsInput`, `done` and `error` notify; `working`, `idle` and `unset` do not.
+- Clicking a notification activates Plume and selects the task and tab it came from.
 
 What exists:
 

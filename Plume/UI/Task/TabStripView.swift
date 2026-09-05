@@ -71,6 +71,14 @@ private struct TabChip: View {
                 .font(.callout)
                 .frame(maxWidth: 120, alignment: .leading)
 
+            if BellStore.shared.hasUnseenBell(tabID: tab.id) {
+                Circle()
+                    .fill(.tint)
+                    .frame(width: 6, height: 6)
+                    .help("This terminal rang a bell")
+                    .transition(.opacity)
+            }
+
             // Reserve the slot so the chip doesn't resize on hover.
             Button(action: close) {
                 Image(systemName: "xmark")
