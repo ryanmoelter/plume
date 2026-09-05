@@ -59,8 +59,8 @@ nonisolated enum MermaidDocument {
             window.webkit.messageHandlers.\(messageHandlerName).postMessage(payload);
           }
           function report() {
-            // The SVG's own box, not the wrapper's: `#diagram` is a flex item
-            // that can measure zero while the diagram inside it paints fine.
+            // The SVG's own box, not the wrapper's, which fills the page in
+            // fit mode and so measures the container rather than the diagram.
             var diagram = document.getElementById('diagram');
             var drawn = diagram.querySelector('svg') || diagram;
             var box = drawn.getBoundingClientRect();
@@ -99,8 +99,8 @@ nonisolated enum MermaidDocument {
         """
     }
 
-    /// Both modes center the diagram; they differ in whether the SVG may grow
-    /// past the viewport's height.
+    /// Both modes center the diagram; they differ in whether the SVG keeps
+    /// its natural height or scales to the space the page is given.
     ///
     /// `body` is the flex container rather than `#diagram` so the centering
     /// survives an SVG narrower than the page, which is the common case.
@@ -116,15 +116,11 @@ nonisolated enum MermaidDocument {
             return """
             html, body { width: 100%; height: 100%; }
               body { display: flex; align-items: center; justify-content: center; }
-              /* Viewport units, not percentages: `#diagram` is a flex item
-                 whose own height is indefinite, so a percentage max-height
-                 resolves against nothing and collapses the SVG to zero. */
               #diagram { display: block; width: 100%; height: 100%; }
               /* Mermaid emits width="100%" with no height attribute and its
-                 own `max-width` cap, so the SVG's height comes only from the
-                 viewBox aspect ratio. `width: auto` leaves it nothing to
-                 resolve against and it collapses; filling both axes and
-                 letting `object-fit` letterbox it scales it to the panel. */
+                 own `max-width` cap, so the SVG's height follows only from
+                 the viewBox aspect ratio. Filling both axes and letting
+                 `object-fit` letterbox it is what scales it to the panel. */
               #diagram svg {
                 width: 100%;
                 height: 100%;
