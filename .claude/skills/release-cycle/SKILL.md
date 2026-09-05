@@ -64,7 +64,7 @@ git merge --no-ff ryanm/<slug>     # smallest package first, largest last
 
 If an agent used the auto-generated `worktree-agent-*` branch instead of creating `ryanm/<slug>`, merge that branch by name; the worktree list shows which is which. A trivial conflict you resolve yourself. A non-trivial one goes to a Sonnet agent with both sides and the two package summaries. Build after the last merge before moving on.
 
-Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout ryanm/release-<version>` (or `git merge ryanm/release-<version>` into its branch) before editing, or its annotations land on stale files and every shared file conflicts. Merge it the same way.
+Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
 Prune the Up Next list in `docs/roadmap.md`: remove shipped lines, renumber, keep the deferred and not-queued paragraphs. Commit.
 
