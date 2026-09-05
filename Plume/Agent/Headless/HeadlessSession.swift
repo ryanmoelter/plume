@@ -57,6 +57,9 @@ final class HeadlessSession {
     private(set) var sessionCostUSD: Double = 0
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
+    /// `model`'s assumed window, so the meter has a denominator as soon as a
+    /// model is picked — before `contextWindow` has anything reported.
+    var nominalContextWindow: Int? { model?.nominalContextWindow }
     private(set) var slashCommands: [SlashCommand] = []
     private(set) var lastError: String?
 

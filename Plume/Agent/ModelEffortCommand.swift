@@ -22,6 +22,17 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     var token: String { id }
 
+    /// The context window this model implies before any turn has reported
+    /// the real one — `more`'s bare IDs are the 256K variants (measured at
+    /// 200,000), everything else in `selectable` is the 1M variant. Nil
+    /// outside `selectable`: a model this build has never heard of assumes
+    /// nothing.
+    var nominalContextWindow: Int? {
+        if AgentModel.more.contains(where: { $0.id == id }) { return 200_000 }
+        if AgentModel.selectable.contains(where: { $0.id == id }) { return 1_000_000 }
+        return nil
+    }
+
     // MARK: - Presets
 
     /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`/`haiku`
