@@ -137,6 +137,11 @@ private struct MermaidExpandButton: View, ThemedView {
 /// One diagram filling a panel over the chat, scaled to fit rather than
 /// reporting a height — the container decides the size here, so the page
 /// never drives a frame and there is no loop to reopen.
+///
+/// Unlike the inline block this hosts a plain, magnifying `WKWebView`: pinch
+/// and ⌘+/⌘-/⌘0 zoom the diagram, and once zoomed past 1x a two-finger scroll
+/// pans it, since `.fitZoomable` lets the page overflow its viewport instead
+/// of clipping.
 private struct MermaidFullScreenView: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -144,17 +149,17 @@ private struct MermaidFullScreenView: View, ThemedView {
     let source: String
     let onClose: () -> Void
 
+    @State private var zoomController = MermaidZoomController()
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            MermaidWebView(
+            MermaidZoomableWebView(
                 source: source,
                 isDark: colorScheme == .dark,
                 foregroundHex: MermaidWebView.hex(colors.foreground),
-                sizing: .fit,
-                role: "fullscreen",
-                onOutcome: { _ in }
+                controller: zoomController
             )
             // A WKWebView has no intrinsic size, so without claiming the
             // space it collapses and the page's percentage heights resolve
@@ -184,6 +189,7 @@ private struct MermaidFullScreenView: View, ThemedView {
             Text("Diagram")
                 .font(.headline)
             Spacer()
+            zoomControls
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
@@ -195,6 +201,112 @@ private struct MermaidFullScreenView: View, ThemedView {
             .accessibilityIdentifier(AccessibilityID.mermaidFullScreenClose)
         }
         .padding(12)
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 4) {
+            Button(action: { zoomController.zoomOut() }) {
+                Image(systemName: "minus")
+            }
+            .help("Zoom out")
+            .keyboardShortcut("-", modifiers: .command)
+
+            Button(action: { zoomController.resetToFit() }) {
+                Text("Fit")
+            }
+            .help("Reset to fit")
+            .keyboardShortcut("0", modifiers: .command)
+
+            Button(action: { zoomController.zoomIn() }) {
+                Image(systemName: "plus")
+            }
+            .help("Zoom in")
+            .keyboardShortcut("+", modifiers: .command)
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(colors.foreground)
+        .padding(.horizontal, 8)
+    }
+}
+
+/// The zoom range `MermaidZoomController` clamps to, and the step ⌘+/⌘- move
+/// by. `WKWebView.magnification` itself has no built-in limits.
+enum MermaidZoom {
+    static let range: ClosedRange<CGFloat> = 0.25...4
+    static let step: CGFloat = 0.25
+}
+
+/// SwiftUI's hook into the fullscreen `WKWebView`'s magnification — the
+/// toolbar buttons drive this rather than touching the web view directly,
+/// since the view is only reachable inside the `NSViewRepresentable`.
+@MainActor
+@Observable
+final class MermaidZoomController {
+    fileprivate weak var webView: WKWebView?
+
+    func zoomIn() { setMagnification(currentMagnification + MermaidZoom.step) }
+    func zoomOut() { setMagnification(currentMagnification - MermaidZoom.step) }
+    func resetToFit() { setMagnification(1) }
+
+    private var currentMagnification: CGFloat {
+        webView?.magnification ?? 1
+    }
+
+    private func setMagnification(_ value: CGFloat) {
+        webView?.magnification = min(max(value, MermaidZoom.range.lowerBound), MermaidZoom.range.upperBound)
+    }
+}
+
+/// The fullscreen sheet's own web view: a plain, magnifying `WKWebView`
+/// rather than the inline block's non-scrolling one, since panning a zoomed
+/// diagram needs the page's own scrolling. `.fitZoomable` is what makes that
+/// safe at 1x — see `MermaidDocument.Sizing`.
+private struct MermaidZoomableWebView: NSViewRepresentable {
+    let source: String
+    let isDark: Bool
+    let foregroundHex: String
+    let controller: MermaidZoomController
+
+    func makeCoordinator() -> MermaidWebView.Coordinator {
+        MermaidWebView.Coordinator(role: "fullscreen", onOutcome: { _ in })
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(
+            context.coordinator,
+            name: MermaidDocument.messageHandlerName
+        )
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.setValue(false, forKey: "drawsBackground")
+        view.allowsMagnification = true
+        view.magnification = 1
+        context.coordinator.load(into: view, document: document)
+        controller.webView = view
+        return view
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        // Only a changed document reloads. Re-loading on every SwiftUI pass
+        // would restart mermaid and reset the user's zoom.
+        context.coordinator.load(into: view, document: document)
+        controller.webView = view
+    }
+
+    static func dismantleNSView(_ view: WKWebView, coordinator: MermaidWebView.Coordinator) {
+        view.configuration.userContentController.removeScriptMessageHandler(
+            forName: MermaidDocument.messageHandlerName
+        )
+    }
+
+    private var document: String {
+        MermaidDocument.html(
+            source: source,
+            isDark: isDark,
+            foregroundHex: foregroundHex,
+            sizing: .fitZoomable
+        )
     }
 }
 
