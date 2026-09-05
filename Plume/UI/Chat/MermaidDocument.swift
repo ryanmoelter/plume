@@ -37,7 +37,17 @@ nonisolated enum MermaidDocument {
         <!doctype html>
         <html><head><meta charset="utf-8">
         <style>
-          html, body { margin: 0; padding: 0; background: transparent; color: \(foregroundHex); }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: \(foregroundHex);
+            /* The page must have nothing of its own to scroll, so a wheel
+               event over the diagram is left for the chat list. */
+            overflow: hidden;
+            -webkit-overflow-scrolling: auto;
+            overscroll-behavior: none;
+          }
           \(layoutCSS(sizing: sizing))
         </style>
         <script src="mermaid.min.js"></script>
@@ -49,14 +59,34 @@ nonisolated enum MermaidDocument {
             window.webkit.messageHandlers.\(messageHandlerName).postMessage(payload);
           }
           function report() {
-            var box = document.getElementById('diagram').getBoundingClientRect();
-            post({ kind: 'rendered', height: Math.ceil(box.height) });
+            // The SVG's own box, not the wrapper's, which fills the page in
+            // fit mode and so measures the container rather than the diagram.
+            var diagram = document.getElementById('diagram');
+            var drawn = diagram.querySelector('svg') || diagram;
+            var box = drawn.getBoundingClientRect();
+            post({
+              kind: 'rendered',
+              height: Math.ceil(box.height),
+              width: Math.ceil(box.width),
+              viewportWidth: Math.ceil(document.documentElement.clientWidth),
+              viewportHeight: Math.ceil(document.documentElement.clientHeight)
+            });
           }
           try {
             mermaid.initialize({ startOnLoad: false, theme: '\(theme)', securityLevel: 'strict' });
             mermaid.render('generated', \(jsString(source))).then(function (result) {
               document.getElementById('diagram').innerHTML = result.svg;
               requestAnimationFrame(report);
+              // A sheet measures zero while it animates in, so report again
+              // once its viewport has settled as well as on any later resize.
+              if (window.ResizeObserver) {
+                new ResizeObserver(function () {
+                  requestAnimationFrame(report);
+                }).observe(document.documentElement);
+              }
+              window.addEventListener('resize', function () {
+                requestAnimationFrame(report);
+              });
             }).catch(function (error) {
               post({ kind: 'error', message: String((error && error.message) || error) });
             });
@@ -69,8 +99,8 @@ nonisolated enum MermaidDocument {
         """
     }
 
-    /// Both modes center the diagram; they differ in whether the SVG may grow
-    /// past the viewport's height.
+    /// Both modes center the diagram; they differ in whether the SVG keeps
+    /// its natural height or scales to the space the page is given.
     ///
     /// `body` is the flex container rather than `#diagram` so the centering
     /// survives an SVG narrower than the page, which is the common case.
@@ -86,14 +116,18 @@ nonisolated enum MermaidDocument {
             return """
             html, body { width: 100%; height: 100%; }
               body { display: flex; align-items: center; justify-content: center; }
-              #diagram { display: block; max-width: 100%; max-height: 100%; }
+              #diagram { display: block; width: 100%; height: 100%; }
+              /* Mermaid emits width="100%" with no height attribute and its
+                 own `max-width` cap, so the SVG's height follows only from
+                 the viewBox aspect ratio. Filling both axes and letting
+                 `object-fit` letterbox it is what scales it to the panel. */
               #diagram svg {
-                max-width: 100%;
-                max-height: 100vh;
-                width: auto;
-                height: auto;
+                width: 100%;
+                height: 100%;
+                max-width: none;
+                max-height: none;
+                object-fit: contain;
                 display: block;
-                margin: 0 auto;
               }
             """
         }

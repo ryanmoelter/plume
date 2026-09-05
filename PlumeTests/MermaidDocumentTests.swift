@@ -65,8 +65,10 @@ struct MermaidDocumentTests {
                 foregroundHex: "#000000",
                 sizing: sizing
             )
+            // Natural centers the block with auto margins; fit fills the
+            // panel and centers through its flex container.
             #expect(html.contains("justify-content: center"))
-            #expect(html.contains("margin: 0 auto"))
+            #expect(html.contains(sizing == .natural ? "margin: 0 auto" : "align-items: center"))
         }
     }
 
@@ -76,6 +78,8 @@ struct MermaidDocumentTests {
         // Capping the height here would stop the reported height being the
         // diagram's own, which is what the row's frame is taken from.
         #expect(!html.contains("max-height"))
+        // The page still cannot scroll; only its height is uncapped.
+        #expect(html.contains("overflow: hidden"))
     }
 
     @Test func fitSizingScalesTheDiagramToTheViewport() {
@@ -85,9 +89,42 @@ struct MermaidDocumentTests {
             foregroundHex: "#000000",
             sizing: .fit
         )
-        #expect(html.contains("max-height: 100vh"))
+        // Mermaid's SVG has no height attribute and caps its own width, so
+        // fitting means filling both axes and letterboxing, not `auto`.
+        #expect(html.contains("object-fit: contain"))
+        #expect(html.contains("max-width: none"))
+        #expect(html.contains("max-height: none"))
         #expect(html.contains("align-items: center"))
         #expect(html.contains("height: 100%"))
+    }
+
+    @Test func neitherSizingModeLetsThePageScroll() {
+        // A page with something to scroll swallows the wheel event that
+        // should reach the chat list.
+        for sizing in [MermaidDocument.Sizing.natural, .fit] {
+            let html = MermaidDocument.html(
+                source: "graph TD; A-->B;",
+                isDark: false,
+                foregroundHex: "#000000",
+                sizing: sizing
+            )
+            #expect(html.contains("overflow: hidden"))
+            #expect(html.contains("overscroll-behavior: none"))
+            #expect(!html.contains("-webkit-overflow-scrolling: touch"))
+        }
+    }
+
+    @Test func renderReportCarriesTheContainerSize() {
+        let html = MermaidDocument.html(
+            source: "graph TD;",
+            isDark: false,
+            foregroundHex: "#000000",
+            sizing: .fit
+        )
+        #expect(html.contains("viewportWidth"))
+        #expect(html.contains("viewportHeight"))
+        // A container sized after the first layout still reports once it is.
+        #expect(html.contains("addEventListener('resize'"))
     }
 
     @Test func bothSizingModesStillReportAndCarryTheSource() {
