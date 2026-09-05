@@ -61,6 +61,19 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("New agent tabs think at", selection: $settings.defaultEffort) {
+                    ForEach(AgentEffort.allCases) { effort in
+                        Text(effort.label).tag(effort)
+                    }
+                }
+            } header: {
+                Text("Default Effort")
+            } footer: {
+                Text("A tab's own effort, set from its chat, overrides this. Claude Code never reports effort back, so this is also what the composer shows until the tab sets one.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack {
                     Slider(
                         value: $settings.chatFontSize,

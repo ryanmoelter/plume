@@ -107,6 +107,7 @@ final class HeadlessSession {
         resumeSessionID: String?,
         settingsPath: String?,
         model: AgentModel? = nil,
+        isModelExplicitlyChosen: Bool = true,
         environment: [String: String] = [:]
     ) {
         guard process == nil else { return }
@@ -116,7 +117,8 @@ final class HeadlessSession {
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
             settingsPath: settingsPath,
-            model: model
+            model: model,
+            isModelExplicitlyChosen: isModelExplicitlyChosen
         )
         let handler = HeadlessProcess(
             onMessage: { [weak self] message in

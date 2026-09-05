@@ -38,6 +38,23 @@ The reply carries the session's capabilities — `commands` (every slash command
 
 Other fields `initialize` accepts, all optional: `sdkMcpServers`, `sdkMcpServerConfigs`, `skills`, `agents`, `title`, `systemPrompt`, `appendSystemPrompt`, `planModeInstructions`, `toolAliases`, `forwardSubagentText`, `promptSuggestions`, `agentProgressSummaries`.
 
+## Model on resume
+
+A bare `--resume` restores the model the conversation already used; it does **not** fall back to the CLI's default. Passing `--model` on a resume overrides it. Observed by driving the real binary — the three `init` events, verbatim:
+
+```
+# fresh, --model sonnet
+{"subtype":"init","session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-sonnet-5","permissionMode":"plan"}
+# --resume b13e49d1-…, no --model
+{"session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-sonnet-5"}
+# --resume b13e49d1-…, --model opus
+{"session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-opus-5"}
+```
+
+The default is a separate value again: a *fresh* run with no `--model` reported `claude-opus-5[1m]`, from `model` in `~/.claude/settings.json`. So the conversation's model, the CLI's default, and any flag are three distinct things, and only the flag overrides.
+
+**What Plume does with this.** On a resume `--model` is omitted unless the user picked a model on that tab since the conversation last ran. The tab's snapshot is a record of what the conversation used, not a choice, so passing it back would be a no-op at best and would override a model the user changed inside the CLI at worst. `HeadlessCommand.arguments` takes `isModelExplicitlyChosen` for exactly this.
+
 ## Sending a turn
 
 ```json

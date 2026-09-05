@@ -68,6 +68,21 @@ struct AppSettingsTests {
         settings.defaultPermissionMode = .bypassPermissions
         #expect(settings.resolvedDefaultPermissionMode == .bypassPermissions)
     }
+
+    /// Never nil, so the composer's effort control always has a value to show.
+    @Test func defaultEffortFallsBackToMedium() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.defaultEffort == .medium)
+    }
+
+    @Test func defaultEffortPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.defaultEffort = .xhigh
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.defaultEffort == .xhigh)
+    }
 }
 
 @MainActor

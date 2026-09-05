@@ -30,11 +30,19 @@ struct ComposerControlsRow: View, ThemedView {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
                 .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
             Spacer(minLength: 8)
-            ModelControl(state: .init(session: headlessSession, tab: tab))
-            EffortControl(state: .init(session: headlessSession, tab: tab))
-            PermissionModeControl(state: .init(session: headlessSession, tab: tab))
+            ModelControl(state: settings)
+            EffortControl(state: settings)
+            PermissionModeControl(state: settings)
         }
         .font(typography.caption.font)
+    }
+
+    private var settings: ComposerSettings {
+        ComposerSettings(
+            session: headlessSession,
+            tab: tab,
+            defaults: .resolved(task: task)
+        )
     }
 }
 
@@ -88,11 +96,13 @@ private struct ModelControl: View, ThemedView {
                 Button(option.label) { state.setModel(option) }
             }
         } label: {
-            // A tab that has never chosen one launches without `--model`, so
-            // there is no value to name until the CLI reports its own.
+            // A tab that has never chosen one launches without `--model` and
+            // runs on the CLI's configured model, so the label names that
+            // rather than going blank. "(default)" keeps it honest: nothing
+            // has been pinned, and the flag stays off the command line.
             segmentLabel(
-                state.model?.label ?? "Model",
-                foreground: state.model == nil
+                label,
+                foreground: state.isModelDefaulted
                     ? colors.foreground.opacity(colors.emphasis[.secondary])
                     : colors.foreground
             )
@@ -102,6 +112,11 @@ private struct ModelControl: View, ThemedView {
         .fixedSize()
         .help(state.modeAndModelHelp("Model"))
         .accessibilityIdentifier(AccessibilityID.composerModelControl)
+    }
+
+    private var label: String {
+        guard let model = state.model else { return "Model" }
+        return state.isModelDefaulted ? "\(model.label) (default)" : model.label
     }
 }
 
@@ -116,13 +131,11 @@ private struct EffortControl: View, ThemedView {
             }
         } label: {
             // Nothing reports the CLI's own effort back (see `HeadlessSession.
-            // setEffort`), so until this host sets one there is no value to
-            // show. The control still renders — a value the user cannot see
-            // is no reason to take away the only way to set it.
+            // setEffort`), so an untouched tab shows the app default, which is
+            // also what seeds the session.
             segmentLabel(
-                state.effort?.label ?? "Effort",
-                foreground: state.effort.map { foreground(for: attention($0)) }
-                    ?? colors.foreground.opacity(colors.emphasis[.secondary])
+                state.effort.label,
+                foreground: foreground(for: attention(state.effort))
             )
         }
         .menuStyle(.borderlessButton)

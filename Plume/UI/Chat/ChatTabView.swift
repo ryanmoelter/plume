@@ -186,6 +186,9 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: headlessSession?.model) { _, model in
             guard let model, tab.model != model else { return }
             tab.model = model
+            // The conversation reported this, so it is a snapshot again: a
+            // resume should let the conversation restore it rather than pin it.
+            tab.isModelUserChosen = false
         }
         .onChange(of: headlessSession?.effort) { _, effort in
             guard let effort, tab.effort != effort else { return }
