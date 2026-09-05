@@ -39,7 +39,7 @@ struct TaskRowView: View {
                 } else {
                     Text(TitleStore.shared.displayTitle(for: task))
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                        .truncationMode(.tail)
                 }
 
                 ForEach(detailLines, id: \.self) { line in
