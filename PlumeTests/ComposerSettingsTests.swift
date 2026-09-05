@@ -139,4 +139,54 @@ struct ComposerSettingsTests {
         #expect(tab.model == .sonnet)
         #expect(tab.isModelUserChosen)
     }
+
+    /// The menu's Default item has to undo a pick completely — a leftover
+    /// `isModelUserChosen` would keep `--model` on the command line.
+    @Test func choosingDefaultUnpinsTheTab() {
+        let tab = makeTab()
+        let state = makeSettings(session: nil, tab: tab)
+        state.setModel(.sonnet)
+
+        state.clearModel()
+
+        #expect(tab.model == nil)
+        #expect(tab.modelRaw == nil)
+        #expect(!tab.isModelUserChosen)
+        #expect(state.model == defaults.model)
+        #expect(state.isModelDefaulted)
+    }
+
+    /// A running conversation is already on some model, so Default switches it
+    /// to the resolved one rather than leaving it wherever the pick left it.
+    @Test func choosingDefaultMovesARunningSessionToTheResolvedModel() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+        let state = makeSettings(session: session, tab: makeTab())
+
+        state.clearModel()
+
+        #expect(session.model == defaults.model)
+    }
+
+    /// The Default menu item names the model the launch will resolve to.
+    @Test func theDefaultModelIsTheResolvedOne() {
+        #expect(makeSettings(session: nil, tab: makeTab()).defaultModel == defaults.model)
+    }
+
+    /// A model the CLI reports that this build has no preset for still has to
+    /// display, or the control would silently name the wrong model.
+    @Test func anUnknownReportedModelDisplaysAsItsOwnID() throws {
+        let session = makeSession()
+        session.handle(.initialized(SessionInit(
+            sessionID: "session-1",
+            cwd: nil,
+            model: "claude-next-7",
+            permissionMode: "acceptEdits",
+            tools: [],
+            slashCommands: []
+        )))
+        let state = makeSettings(session: session, tab: makeTab())
+
+        #expect(try #require(state.model).id == "claude-next-7")
+    }
 }
