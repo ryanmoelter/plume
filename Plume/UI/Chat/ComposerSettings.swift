@@ -74,6 +74,13 @@ struct ComposerSettings {
         session?.hasReportedModeAndModel != true
     }
 
+    /// True only while a *running* session has yet to report. Before launch
+    /// there is nothing to disagree with the displayed value, so dimming it
+    /// would read as a disabled control rather than a pending one.
+    var isModelAwaitingConfirmation: Bool {
+        session != nil && isModeAndModelUnconfirmed
+    }
+
     func modeAndModelHelp(_ label: String) -> String {
         isModeAndModelUnconfirmed ? "\(label) (not yet confirmed by Claude Code)" : label
     }

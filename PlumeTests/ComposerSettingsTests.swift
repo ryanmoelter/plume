@@ -168,6 +168,26 @@ struct ComposerSettingsTests {
         #expect(session.model == defaults.model)
     }
 
+    /// Dimming a pre-launch model reads as a disabled control, and there is
+    /// nothing running that could disagree with it yet.
+    @Test func theModelAwaitsConfirmationOnlyOnceASessionRuns() {
+        #expect(!makeSettings(session: nil, tab: makeTab()).isModelAwaitingConfirmation)
+
+        let session = makeSession()
+        let state = makeSettings(session: session, tab: makeTab())
+        #expect(state.isModelAwaitingConfirmation)
+
+        session.handle(.initialized(SessionInit(
+            sessionID: "session-1",
+            cwd: nil,
+            model: "claude-opus-5",
+            permissionMode: "acceptEdits",
+            tools: [],
+            slashCommands: []
+        )))
+        #expect(!state.isModelAwaitingConfirmation)
+    }
+
     /// The Default menu item names the model the launch will resolve to.
     @Test func theDefaultModelIsTheResolvedOne() {
         #expect(makeSettings(session: nil, tab: makeTab()).defaultModel == defaults.model)

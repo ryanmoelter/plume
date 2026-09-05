@@ -111,7 +111,7 @@ private struct ModelControl: View, ThemedView {
             }
         } label: {
             segmentLabel(label, foreground: colors.foreground)
-                .unconfirmed(state.isModeAndModelUnconfirmed)
+                .unconfirmed(state.isModelAwaitingConfirmation)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()

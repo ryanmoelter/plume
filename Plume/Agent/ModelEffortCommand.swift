@@ -53,11 +53,10 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     /// Maps a transcript- or statusline-reported model string onto a selection.
     ///
-    /// An exact ID match wins. Otherwise the `[1m]` suffix is dropped and the
-    /// remainder matched against the non-1M presets and their short aliases,
-    /// so a reported name this build has no preset for still lands on the
-    /// right family. An unfamiliar ID comes back as itself rather than nil, so
-    /// the control can display what the session actually runs on.
+    /// An exact ID match wins. Otherwise a short alias matches, with a `[1m]`
+    /// suffix promoting the result to that model's 1M variant. An unfamiliar
+    /// ID comes back as itself rather than nil, so the control can display
+    /// what the session actually runs on.
     static func recognizing(_ reported: String) -> AgentModel? {
         let trimmed = reported.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
