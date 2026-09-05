@@ -103,7 +103,7 @@ struct MarkdownView: View, ThemedView {
         case let .codeBlock(language, code):
             if MermaidDocument.isMermaidFence(language: language) {
                 // Copying still yields the source, not the drawn diagram.
-                MermaidBlock(source: code) {
+                MermaidBlock(source: code, isRevealed: hoveredBlock == index) {
                     codeBlock(code)
                 }
                 .overlay(alignment: .topTrailing) {
@@ -134,8 +134,11 @@ struct MarkdownView: View, ThemedView {
             .listItemPadding(vertical: false)
 
         case let .table(header, alignments, rows):
+            // Centered rather than pinned leading: `TableLayout` sizes columns
+            // to their content, so a narrow table otherwise sits against one
+            // edge of a much wider column.
             table(header: header, alignments: alignments, rows: rows)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .listItemPadding(bleed: true, vertical: false)
                 .padding(.vertical, 6)
 

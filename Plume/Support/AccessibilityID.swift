@@ -48,6 +48,11 @@ enum AccessibilityID {
     static let questionOption = "question-option"
     static let questionFreeTextField = "question-free-text-field"
 
+    // MARK: Markdown
+
+    static let mermaidExpandButton = "mermaid-expand-button"
+    static let mermaidFullScreenClose = "mermaid-full-screen-close"
+
     // MARK: Subagents
 
     static let subagentRow = "subagent-row"
