@@ -171,7 +171,10 @@ struct ChatTabView: View, ThemedView {
         .overlay {
             if planPresentation == .expanded, let planFilePath {
                 planPanel(path: planFilePath)
-                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
+                    // The bar is the source whenever it exists, so the panel
+                    // grows out of it; opened straight from the Plan button
+                    // there is none, and the effect is a no-op.
+                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
                     .transition(.opacity)
             }
         }
@@ -311,7 +314,7 @@ struct ChatTabView: View, ThemedView {
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .listItemPadding(bleed: true)
-        .padding(.vertical, 8)
+        .padding(.vertical, dimensions.panelInset)
     }
 
     /// The approval options while a proposal is live, and where the plan

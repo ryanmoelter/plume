@@ -102,15 +102,21 @@ The fullscreen sheet then gained pinch-to-zoom and scroll-to-pan, on top of that
 
 ## The composer
 
-- [ ] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
-- [ ] Make the composer content-width rather than bleed-width.
+- [x] Give the first message a nicer intermediate state. The composer currently disappears before the message appears; disabling it in place would read better.
+- [x] Make the composer content-width rather than bleed-width.
 - [ ] Echo a CLI-intercepted slash command locally, and show that it is running.
 - [ ] `/btw` support — confirm the note is actually filed, and show it in the chat. It takes no turn, so today nothing in the UI changes when you send one.
 - [x] Tell `<local-command-caveat>` apart from `<local-command-stdout>`. They share one case, so the caveat's boilerplate and the real output render alike.
 - [x] Title a command-output row with the command that produced it.
 - [x] Render a command-output body as markdown. It is monospaced plain text today, so a `/context` dump shows raw table source.
-- [ ] Decide whether the rejection-feedback submit button belongs inside the text field.
+- [x] Decide whether the rejection-feedback submit button belongs inside the text field. It stays beside it.
 - [ ] Command execution mode. A leading `!` means "run this rather than say it", the way the CLI's bash mode does. While the message starts with `!`, style the rest of it monospaced — plain monospace, no code-chip background, so it reads as a different mode rather than as an inline code span.
+
+**The composer box now reads as one field with a control strip.** It takes the content column through `chatTextColumn()` rather than the bleed one, so it wraps at the same measure as the prose above it, and steps in from the floating panel's edge by `panelContentInset`. Its corner radius is `ComposerPanelMetrics.concentricRadius` of the panel's, so the two curves stay parallel; the queued-messages strip and the slash-command popup take that same radius, and the popup's rows take one concentric with it. A single `composerFieldInset` sets both rows' horizontal inset — the text view's own line-fragment padding comes out of its share, so the first glyph sits over the control strip's left edge rather than beside it — and the text view's built-in vertical inset is the field's top padding. `ComposerControlsRow`'s segments take `composerControlHeight`, the 22pt the send and stop circles already used, so the strip is one band rather than labels of assorted heights.
+
+**The composer stays put through the first message.** `emptyState` keeps it mounted and `disabled` once a session exists rather than dropping it, so it no longer vanishes between sending and the first line of transcript arriving.
+
+**The rejection-feedback button stays beside the field.** Return does submit from inside the field, so an inline button would duplicate that gesture — but the button is not only a submit control. Its label flips Reject → "Give feedback" the moment the user types (`PlanRejectionLabel`), and that is the only thing on screen that says what Return will do. It also has to sit next to Approve for the two decisions to read as a pair; inside the field, one of two equal options would hide inside the input for the other.
 
 A slash command the CLI handles itself never reaches the transcript, so the chat shows nothing at all while it runs. `/compact` is the case that hurts: this project's transcript holds **11** `compact_boundary` markers and **zero** `/compact` user messages, and compaction takes upwards of a minute and a half with no message, no spinner and no sign the command was received. `submit(text:)` only sends; the chat renders from the transcript, so anything the CLI intercepts vanishes. The fix is a locally-rendered echo plus a working indicator, driven from Plume's own state rather than the transcript — and it generalizes past `/compact` to every intercepted command.
 
@@ -130,15 +136,21 @@ Still open:
 
 - [x] Stop accumulating `total_cost_usd`. It is already a running conversation total, so `+=` re-adds every prior turn and the displayed figure compounds. Assign it instead, and correct `docs/headless-protocol.md`, which records the wrong semantics.
 - [x] Move the stop button out of the statusline and put it left of the send button — a circular icon button with a dim background, mirroring send's shape.
-- [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
-- [ ] Make the composer and statusline one floating glass panel rather than a full-width bar: the statusline sits below the composer behind a divider, and the minimized plan panel docks above the composer behind a divider when it is present. Polish the plan overlay's show/hide with a transition that shows continuity between the docked bar and the expanded overlay — a zoom from the bar's frame, probably. `PlanPresentation.minimized` already docks the bar above the composer, and the overlay uses the `planGlass` material, so the panel extends that look rather than inventing one.
+- [x] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport. It sits below the composer instead.
+- [x] Make the composer and statusline one floating glass panel rather than a full-width bar: the statusline sits below the composer behind a divider, and the minimized plan panel docks above the composer behind a divider when it is present. Polish the plan overlay's show/hide with a transition that shows continuity between the docked bar and the expanded overlay — a zoom from the bar's frame, probably. `PlanPresentation.minimized` already docks the bar above the composer, and the overlay uses the `planGlass` material, so the panel extends that look rather than inventing one.
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
-- [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
+- [x] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
 - [x] Remember effort and permission mode per session, the way the context window already is.
 - [x] Offer model, effort and permission mode before the first message, when a tab has no session yet. All three controls now read and write the tab until a session exists.
 - [x] Confirm a resumed tab ends up on the conversation's real model and permission mode, not the seeded snapshot. Verified by reading the code; the seeded pair now dims until `init` confirms it.
 - [ ] Take effort from the resumed conversation too, once the CLI reports it back at all.
 - [x] Show the values a fresh tab will actually start with, rather than blank controls. All three now fall back to the resolution the launch performs.
+
+**The bottom chrome is one floating panel.** The statusline and composer surface no longer spans the pane edge to edge: it takes the bleed column, rounds all four corners to `panelCornerRadius`, and leaves `panelInset` below itself, so it reads as a panel resting over the chat. Every other measurement derives from that one radius through `ComposerPanelMetrics`, which is why the panel's inset, the composer box's rounding and the dock bar's tuck are one decision rather than three literals. It all stays inside the existing `GlassEffectContainer`, which is what keeps the dock's shadow off the surface below it.
+
+**The strip moved below the composer, and stayed a strip.** The panel now runs composer, divider, then the session facts — context, quota, cost, branch, and the "Plan" button when a plan is closed. Folding the strip into the composer box was weighed against that at a narrow width and lost: the controls row already fills the box with a workspace picker and three menus, so a compact form has nowhere to put four more segments but a second line inside the field — which is the two-row split again, one row deeper, and it puts what the session has spent inside the box for the message being written. As a footer the strip truncates gracefully instead, and the divider keeps the two readings apart.
+
+**The plan bar tucks by construction.** Its top corners take the panel's radius and its bottom squares off where they meet, as before, but both come from `panelCornerRadius` now. It also steps in horizontally by `ComposerPanelMetrics.tuckedInset`, which is the panel's radius: any narrower and its square bottom corners fall in the panel's rounding and poke out of it. Expanding it is a `matchedGeometryEffect` zoom from the bar's frame rather than a generic scale — the namespace lives on `ChatTabView`, since the bar and the overlay are separate view trees, and the bar's own transition dropped to opacity so it does not fight the frame the zoom interpolates.
 
 **The session cost is fixed.** `total_cost_usd` is a running total for the whole conversation, re-sent on every `result` event — Plume accumulated it, so each turn re-added every turn before it. Confirmed on the wire: turn 1 reported $0.2548 and turn 2 $0.2996 for a turn that emitted a single digit. Assigning instead of adding also makes the figure correct across a `--resume`, since the first `result` after resuming already carries the true total. `docs/headless-protocol.md` recorded the opposite and was corrected in the same change.
 
