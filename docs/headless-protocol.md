@@ -103,6 +103,21 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
 
+### Approving a plan with feedback
+
+There is no allow-with-message on this wire, and no plan-specific allow field. The documented allow surface is `updatedInput` and `updatedPermissions` and nothing else, and `ExitPlanMode` declares **no input fields at all** — it reads the plan from `planFilePath` — so an extra key on `updatedInput` is discarded with no diagnostic. Feedback therefore cannot ride the permission response.
+
+Plume sends the approval unchanged and follows it with an ordinary user turn:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"<id>",
+ "response":{"behavior":"allow","updatedInput":{ …the request's own input, unchanged… }}}}
+{"type":"control_request","request_id":"<n>","request":{"subtype":"set_permission_mode","mode":"auto"}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<the typed feedback>"}]}}
+```
+
+The user turn is queued while the approved turn runs and is sent when that turn's `result` arrives, so the note steers the next plan instead of interrupting the one being approved. Blank feedback sends no third line.
+
 ## Interrupt
 
 ```json

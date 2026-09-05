@@ -292,6 +292,8 @@ struct ChatTabView: View, ThemedView {
     ///
     /// Feedback submits the rejection from inside the field, so typing and
     /// sending are one gesture rather than a field plus a distant button.
+    /// ⌥↩ is captioned because nothing else on screen reveals it, and it is
+    /// the only way to reach approve-with-feedback.
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -313,6 +315,9 @@ struct ChatTabView: View, ThemedView {
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }
+            Text("⌥↩ approves with this feedback")
+                .font(typography.caption.font)
+                .emphasis(.subtle)
         }
         .font(typography.caption.font)
     }
@@ -330,7 +335,10 @@ struct ChatTabView: View, ThemedView {
         case .submit:
             answerPlan(.reject)
             return .handled
-        case .approveWithFeedback, .passThrough:
+        case .approveWithFeedback:
+            answerPlan(.approveWithFeedback)
+            return .handled
+        case .passThrough:
             return .ignored
         }
     }
@@ -338,6 +346,8 @@ struct ChatTabView: View, ThemedView {
     private enum PlanDecision {
         case approve
         case reject
+        /// Approve, and let the typed note steer the plan that comes back.
+        case approveWithFeedback
     }
 
     /// Answers the live proposal and remembers where it landed, so the footer
@@ -354,6 +364,9 @@ struct ChatTabView: View, ThemedView {
                 with: .deny(message: PlanResolution.denialMessage(reason: planRejectionReason))
             )
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .rejected)
+        case .approveWithFeedback:
+            session.approvePlan(pendingPlan, feedback: planRejectionReason)
+            settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
         planPresentation = .minimized
