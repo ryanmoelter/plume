@@ -62,6 +62,10 @@ struct ComposerSettings {
     /// choice, so a control can label it as one.
     var isModelDefaulted: Bool { session?.model == nil && tab.model == nil }
 
+    /// What a launch passing no `--model` lands on, for the menu's Default
+    /// item to name.
+    var defaultModel: AgentModel? { defaults.model }
+
     /// Mode and model are both corrected by the `init` event, so until it
     /// lands the displayed pair is a guess: the tab's snapshot before launch,
     /// and the value the launch asked for until the CLI answers. Effort is
@@ -78,6 +82,18 @@ struct ComposerSettings {
         tab.model = model
         tab.isModelUserChosen = true
         session?.setModel(model)
+    }
+
+    /// Returns the tab to running on whatever the CLI resolves for itself, so
+    /// no `--model` reaches the command line. A running session cannot be
+    /// un-pinned — it is already on some model — so it is switched to the
+    /// resolved default instead.
+    func clearModel() {
+        tab.model = nil
+        tab.isModelUserChosen = false
+        if let session, let fallback = defaults.model {
+            session.setModel(fallback)
+        }
     }
 
     func setEffort(_ effort: AgentEffort) {
