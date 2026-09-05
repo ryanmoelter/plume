@@ -168,6 +168,26 @@ struct ComposerSettingsTests {
         #expect(session.model == defaults.model)
     }
 
+    /// Tabs stored before the model list carried IDs hold a bare alias, which
+    /// named the 256K model the CLI resolved it to. It has to keep reading
+    /// that way rather than being promoted to a 1M variant the tab never ran.
+    @Test func aTabStoringABareAliasKeepsItsPlainModel() throws {
+        let tab = makeTab()
+        tab.modelRaw = "opus"
+
+        #expect(try #require(tab.model).id == "claude-opus-5")
+    }
+
+    /// Round-tripping a pick through the store must not change which model it
+    /// names, suffix included.
+    @Test func aPickedModelSurvivesTheStore() throws {
+        let tab = makeTab()
+        tab.model = .opus
+
+        #expect(tab.modelRaw == "claude-opus-5[1m]")
+        #expect(tab.model == .opus)
+    }
+
     /// Dimming a pre-launch model reads as a disabled control, and there is
     /// nothing running that could disagree with it yet.
     @Test func theModelAwaitsConfirmationOnlyOnceASessionRuns() {
