@@ -39,6 +39,16 @@ cp -R "$(xcodebuild -scheme Plume -configuration Release -destination 'platform=
 
 **Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process.
 
+Check with `ps`, not `pgrep`:
+
+```
+ps -ef | grep '[M]acOS/Plume'
+```
+
+`pgrep -x Plume` does not reliably match the installed app's own process — it has come back empty while `/Applications/Plume.app` was running, and it matches unrelated test-harness bundles instead. Trust `ps`.
+
+Releasing from a session hosted *inside* Plume is the case to watch: quitting the app kills the agent doing the release. `echo $PLUME` says whether you are in one.
+
 When reading the test output, confirm test names actually scroll past. A `-only-testing` argument that matches nothing prints `** TEST SUCCEEDED **` having run zero tests.
 
 ### 3. Verify the bundle
@@ -54,7 +64,8 @@ Expect the version you just set, a silent `codesign` (it only speaks up on failu
 Then launch it and open a terminal tab. Verify the processes rather than a screenshot — surfaces are real PTYs, so the process tree is the better evidence:
 
 ```
-PID=$(pgrep -x Plume); for l in $(pgrep -P $PID); do pgrep -P $l; done
+PID=$(ps -ef | awk '/[M]acOS\/Plume/ {print $2; exit}')
+for l in $(pgrep -P $PID); do pgrep -P $l; done
 ```
 
 Expect one `login` → `-zsh` per surface. Always walk down from Plume's own PID; a global `pgrep` for `claude` matches the Claude desktop app's helpers and will convince you an agent launched when none did.
