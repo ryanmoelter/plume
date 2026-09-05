@@ -346,6 +346,7 @@ What exists:
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
+- [ ] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.closeTab` forgets the subagent completion tracker (added in 0.3.0) but leaves `DraftStore`, `BellStore` and `TranscriptStore` entries behind; `TaskStore.delete` clears all of them. One `forgetTab(_:)` seam that both paths call is the shape.
 - [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. The archive and sidebar buttons beside it follow the appearance correctly, so the difference is in how the add button is built: `SidebarView` makes it a `Menu` where the neighbours are plain `Button`s, so look at the menu's label styling and any explicit tint rather than at `ThemeChrome`.
 
 What exists:
