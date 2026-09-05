@@ -29,10 +29,14 @@ nonisolated enum SubagentStatusDeriver {
         let completed = parentResult.map { !$0.contains(launchAcknowledgement) } ?? false
         if completed { return .done }
 
-        // Trailing prose from the agent is its report, so a spawn whose
-        // result we never saw still reads as finished rather than stuck.
-        if last.role == .assistant, last.blocks.contains(where: isProse) { return .done }
-        return .working
+        // The *last* block decides, not merely the presence of prose: the
+        // parser folds a run of assistant lines into one message, so a
+        // message that opens with the agent narrating and ends on a tool call
+        // is mid-step, not finished.
+        guard last.role == .assistant, let final = last.blocks.last, isProse(final) else { return .working }
+        // Trailing prose is the agent's report, so a spawn whose result we
+        // never saw still reads as finished rather than stuck.
+        return .done
     }
 
     /// The two tools that stop and wait for a person.
