@@ -10,6 +10,8 @@ The queue, highest priority first. Each line points at the section holding the d
 
 Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet ordered:
 
+- **S** — Subagents already done when a session resumes should go straight into the Completed row, not linger 30s in the live rows. See [Subagents](#subagents).
+- **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
 - **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
@@ -69,6 +71,8 @@ Four things worth knowing for anything that builds on this:
 - **A finished subagent lingers 30s before folding away, across task switches.** `SubagentCompletionTracker.shared` is keyed by tab then subagent id, in memory only, like `SurfaceManager` and `BellStore`. It has to be shared because selecting another task unmounts the chat: held in the view, both the record of when a row finished and the timer that moves it died with it, and coming back restarted every countdown. The timer belongs to the store for the same reason — a view's `.task` is cancelled on unmount, so a linger that elapsed off screen would never fire. The clock starts from the moment Plume *observes* the status, never from the transcript's mtime, since dating rows by their own timestamps would collapse every one the instant a relaunch re-read old files. `SubagentListView` observes it from `.onChange` rather than `body`, keyed on a status signature so transcript growth alone does not restart a linger, and `TaskStore` forgets a tab's rows when the tab or its task is deleted.
 
 Freshness is a `FileWatcher` per subagent file, reconciled after each parent read (`TranscriptStore.syncSubagentWatchers`) — a new subagent's file always follows a parent write, so no timer is needed.
+
+**Resume shows everything as fresh.** `SubagentCompletionTracker` records the instant Plume first observes a subagent as done, so resuming a tab observes every finished subagent at once and starts a 30-second linger for all of them. A subagent that is already done on the *first* read of a tab should count as pre-completed and land in the collapsed row directly; only a transition observed while the tab is open earns a linger.
 
 ## The markdown renderer
 
@@ -151,6 +155,8 @@ The seeded value is now visibly a guess. `HeadlessSession.hasReportedModeAndMode
 Displaying a default never writes one. The tab stays unset until the user picks, which is what keeps `--model` off the command line — the "omit when unchosen" rule is unchanged.
 
 **`--model` is omitted on a resume unless the user picked the model since.** Established by experiment, not documentation: a bare `--resume` restores the model the conversation already used, and `--model` on a resume overrides it (the three `init` events are recorded under "Model on resume" in `docs/headless-protocol.md`). That makes replaying a snapshot actively wrong — `tab.model` is overwritten by whatever the session reports, so it records what the conversation ran on, not what the user wants. `TaskTab.isModelUserChosen` separates the two: `ComposerSettings.setModel` sets it, the session's write-back in `ChatTabView` clears it, and `HeadlessCommand.arguments` passes `--model` on a resume only when it is set. A cold launch is unaffected, having no conversation to restore from.
+
+**Seen live on 2026-09-05:** switching a running tab from the terminal transport to headless resumed the conversation in plan mode although it had been running in auto mode. Either the tab snapshot seeded a stale mode that the `init` correction did not override, or the resume command passed a mode flag the CLI honored over the conversation's own. Reproduce with a tab whose mode was changed mid-conversation, then resume it, and compare the `init` event's `permissionMode` with what the control shows.
 
 ## The plan overlay
 
