@@ -81,8 +81,8 @@ final class TaskTab {
     }
 
     var model: AgentModel? {
-        get { modelRaw.flatMap(AgentModel.init(rawValue:)) }
-        set { modelRaw = newValue?.rawValue }
+        get { modelRaw.flatMap(AgentModel.recognizing) }
+        set { modelRaw = newValue?.id }
     }
 
     var displayTitle: String {
