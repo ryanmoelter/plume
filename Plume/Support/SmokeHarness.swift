@@ -79,6 +79,17 @@ enum SmokeHarness {
             }
         }
 
+        // PLUME_SEED_PROVIDER puts every agent tab on one CLI, so a seeded
+        // run can exercise Codex instead of Claude Code.
+        if let raw = environment["PLUME_SEED_PROVIDER"],
+           let provider = AgentProviderKind(rawValue: raw) {
+            for task in tasks {
+                for agentTab in task.orderedTabs where agentTab.kind == .agent {
+                    agentTab.provider = provider
+                }
+            }
+        }
+
         selection.wrappedValue = tasks.first?.id
         Log.app.info("Smoke harness seeded \(tasks.count) task(s)")
 
