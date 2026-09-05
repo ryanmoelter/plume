@@ -186,7 +186,7 @@ struct TranscriptStoreTests {
 
         let subagentsDir = dir.appending(path: "session/subagents")
         write(
-            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Here is the report.\"}]}}\n",
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\"Here is the report.\"}]}}\n",
             to: subagentsDir.appending(path: "agent-abc123.jsonl")
         )
         write(
@@ -225,7 +225,7 @@ struct TranscriptStoreTests {
 
         // Only the subagent's file changes — the main transcript is untouched.
         append(
-            "{\"type\":\"assistant\",\"uuid\":\"a2\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Report.\"}]}}\n",
+            "{\"type\":\"assistant\",\"uuid\":\"a2\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\"Report.\"}]}}\n",
             to: subagentPath
         )
 

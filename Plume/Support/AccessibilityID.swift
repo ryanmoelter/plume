@@ -56,5 +56,6 @@ enum AccessibilityID {
     // MARK: Subagents
 
     static let subagentRow = "subagent-row"
+    static let completedSubagentsToggle = "completed-subagents-toggle"
     static let subagentTranscriptClose = "subagent-transcript-close"
 }

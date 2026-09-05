@@ -181,6 +181,10 @@ nonisolated struct TranscriptMessage: Decodable {
     let model: String?
     let usage: TranscriptUsage?
     let content: TranscriptContent?
+    /// Why the model stopped this turn — `end_turn` when it finished
+    /// speaking, `tool_use` when it stopped to call a tool. Only the line
+    /// closing an API response carries it, so most lines leave it nil.
+    let stopReason: String?
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -188,10 +192,12 @@ nonisolated struct TranscriptMessage: Decodable {
         model = try container.decodeIfPresent(String.self, forKey: .model)
         usage = try container.decodeIfPresent(TranscriptUsage.self, forKey: .usage)
         content = try container.decodeIfPresent(TranscriptContent.self, forKey: .content)
+        stopReason = try? container.decodeIfPresent(String.self, forKey: .stopReason)
     }
 
     enum CodingKeys: String, CodingKey {
         case role, model, usage, content
+        case stopReason = "stop_reason"
     }
 }
 

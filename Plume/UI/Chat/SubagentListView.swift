@@ -7,6 +7,11 @@ import SwiftUI
 /// full transcript in an overlay rather than expanding in place; several
 /// subagents running at once is the case this is for, and a nested disclosure
 /// made the list unreadable at exactly that moment.
+///
+/// A finished subagent stays among the live rows for
+/// `SubagentCompletionTracker.lingerDuration` so its result is seen landing,
+/// then folds into a collapsed section that keeps the live list short on a
+/// long session.
 struct SubagentListView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -15,19 +20,77 @@ struct SubagentListView: View, ThemedView {
     /// which owns the space to draw it over.
     var onOpen: (SubagentTranscript) -> Void = { _ in }
 
+    @State private var tracker = SubagentCompletionTracker()
+    @State private var showsCompleted = false
+
+    private var live: [SubagentTranscript] {
+        subagents.filter { !tracker.hasSettled($0) }
+    }
+
+    private var completed: [SubagentTranscript] {
+        subagents.filter { tracker.hasSettled($0) }
+    }
+
     var body: some View {
         if !subagents.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(subagents.count) subagent\(subagents.count == 1 ? "" : "s")")
-                    .font(typography.caption.font)
-                    .emphasis(.subtle)
-                    .padding(.bottom, 2)
-                ForEach(subagents) { subagent in
+                if !live.isEmpty {
+                    Text("\(live.count) subagent\(live.count == 1 ? "" : "s")")
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                        .padding(.bottom, 2)
+                }
+                ForEach(live) { subagent in
                     SubagentRow(subagent: subagent) { onOpen(subagent) }
+                        .id(subagent.id)
+                }
+                if !completed.isEmpty {
+                    completedSection
                 }
             }
             .padding(.vertical, 6)
+            // Writing tracker state from `body` would make the render
+            // invalidate itself, so every observation happens here.
+            .onChange(of: statusSignature, initial: true) {
+                tracker.observe(subagents)
+            }
         }
+    }
+
+    private var completedSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                showsCompleted.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(typography.caption.font)
+                        .rotationEffect(.degrees(showsCompleted ? 90 : 0))
+                    Text("Completed subagents (\(completed.count))")
+                        .font(typography.caption.font)
+                    Spacer(minLength: 0)
+                }
+                .emphasis(.subtle)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .contentShape(.rect(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.completedSubagentsToggle)
+
+            if showsCompleted {
+                ForEach(completed) { subagent in
+                    SubagentRow(subagent: subagent) { onOpen(subagent) }
+                        .id(subagent.id)
+                }
+            }
+        }
+    }
+
+    /// Only a status change can move a row between the sections, so the
+    /// tracker ignores the far more frequent transcript growth.
+    private var statusSignature: [String] {
+        subagents.map { "\($0.id):\($0.status.rawValue)" }
     }
 }
 
