@@ -24,7 +24,8 @@ final class TaskTab {
     /// relaunch. Nil until the tab reports, so a new tab starts at its task's
     /// folder. `TabDirectoryStore` owns the live value and writes through here.
     var workingDirectoryPath: String?
-    /// Passed to `claude --resume` when the user resumes this tab.
+    /// The CLI's own identifier for this conversation, passed back to it to
+    /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?
     var sessionJSONLPath: String?
     /// The model's context window, as reported by the last completed turn.
@@ -59,6 +60,7 @@ final class TaskTab {
         self.orderIndex = orderIndex
         self.task = task
         self.providerID = kind == .agent ? ClaudeCodeProviderID : nil
+
     }
 
     var kind: TabKind {
@@ -73,6 +75,14 @@ final class TaskTab {
     var transport: AgentTransport {
         get { transportRaw.flatMap(AgentTransport.init(rawValue:)) ?? .headless }
         set { transportRaw = newValue.rawValue }
+    }
+
+    /// Only meaningful for an agent tab. A nil or unrecognized `providerID`
+    /// reads as Claude Code, which is what carries tabs written before this
+    /// field meant anything.
+    var provider: AgentProviderKind {
+        get { providerID.flatMap(AgentProviderKind.init(rawValue:)) ?? .claudeCode }
+        set { providerID = newValue.rawValue }
     }
 
     var permissionMode: PermissionMode? {
@@ -96,4 +106,4 @@ final class TaskTab {
     }
 }
 
-let ClaudeCodeProviderID = "claude-code"
+let ClaudeCodeProviderID = AgentProviderKind.claudeCode.rawValue

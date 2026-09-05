@@ -114,9 +114,25 @@ enum TabKind: String, CaseIterable, Sendable {
     case terminal
 }
 
-/// How an agent tab talks to `claude`. `headless` drives `claude -p` over
-/// stream-json and always renders as chat; `terminal` keeps the PTY/TUI as
-/// the escape hatch and always renders as a terminal.
+/// Which coding-agent CLI an agent tab runs. Orthogonal to `AgentTransport`,
+/// which picks how Plume talks to it.
+enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
+    case claudeCode = "claude-code"
+    case codex
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+}
+
+/// How an agent tab talks to its CLI. `headless` drives it over a JSON
+/// protocol on pipes and always renders as chat; `terminal` keeps the PTY/TUI
+/// as the escape hatch and always renders as a terminal.
 enum AgentTransport: String, CaseIterable, Sendable {
     case headless
     case terminal

@@ -26,11 +26,15 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String? = nil
     ) {
-        switch tab.transport {
-        case .headless:
-            launchHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
-        case .terminal:
-            launchTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        switch (tab.provider, tab.transport) {
+        case (.claudeCode, .headless):
+            launchClaudeHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.claudeCode, .terminal):
+            launchClaudeTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.codex, .headless):
+            launchCodexHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.codex, .terminal):
+            launchCodexTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
         }
     }
 
@@ -53,7 +57,7 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 
-    private static func launchHeadless(
+    private static func launchClaudeHeadless(
         message: String?,
         task: WorkTask,
         tab: TaskTab,
@@ -118,7 +122,45 @@ enum AgentLauncher {
         }
     }
 
-    private static func launchTerminal(
+    /// Codex reports over its own protocol, so this launch carries none of
+    /// Claude Code's hook instrumentation or folder-trust check.
+    private static func launchCodexTerminal(
+        message: String?,
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String?
+    ) {
+        let provider = AgentProviderRegistry.provider(for: .codex, settingsPath: nil)
+        let launch = provider.launchCommand(
+            firstMessage: message,
+            resumeSessionID: resumeSessionID,
+            taskID: nil,
+            tabID: nil,
+            permissionMode: nil
+        )
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+        SurfaceManager.shared.session(
+            for: tab.id,
+            options: TerminalSurfaceOptions(
+                workingDirectory: task.workingDirectoryPath,
+                envVars: launch.environment,
+                command: launch.command
+            )
+        )
+    }
+
+    private static func launchCodexHeadless(
+        message: String?,
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String?
+    ) {
+        // Lands with the app-server client. Until then a headless Codex tab
+        // is unreachable: no menu item creates one.
+        Log.agent.error("Headless Codex is not implemented yet")
+    }
+
+    private static func launchClaudeTerminal(
         message: String?,
         task: WorkTask,
         tab: TaskTab,
@@ -131,16 +173,13 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = AgentProviderRegistry.provider(
-            for: AppSettings.shared.providerID,
-            settingsPath: settingsPath
-        )
+        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: settingsPath)
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,
             taskID: settingsPath == nil ? nil : task.id,
             tabID: settingsPath == nil ? nil : tab.id,
-            permissionMode: task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode
+            permissionMode: (task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode)?.token
         )
 
         if settingsPath != nil {

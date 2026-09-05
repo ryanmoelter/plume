@@ -30,6 +30,12 @@ enum LoginShellCommand {
         return "\(resolvedShell) -lic \(shellQuoted(command))"
     }
 
+    /// Renders argv as one login-shell command line, quoting each argument so
+    /// spaces and JSON punctuation survive the trip through the shell.
+    static func wrap(arguments: [String]) -> String {
+        wrap(arguments.map(shellQuoted).joined(separator: " "))
+    }
+
     /// A bare login, interactive shell with no inner command — for plain
     /// terminal tabs, where the "command" is just an interactive prompt.
     static func loginShell(shell: String? = ProcessInfo.processInfo.environment["SHELL"]) -> String {

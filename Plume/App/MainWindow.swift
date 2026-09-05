@@ -246,12 +246,13 @@ struct MainWindow: View {
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
-                switch tab.transport {
-                case .terminal:
+                switch (tab.provider, tab.transport) {
+                case (.claudeCode, .terminal):
                     AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
-                case .headless:
+                case (.claudeCode, .headless), (.codex, _):
                     // The stream carries status directly once resumed; hook
-                    // events are a TUI-only concern.
+                    // events are a Claude Code TUI concern, and Codex has no
+                    // hook mechanism to watch at all.
                     break
                 }
                 StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)

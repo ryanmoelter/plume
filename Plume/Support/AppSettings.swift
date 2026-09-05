@@ -61,7 +61,8 @@ final class AppSettings {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
-        self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
+        self.defaultProvider = defaults.string(forKey: Key.providerID)
+            .flatMap(AgentProviderKind.init(rawValue:)) ?? .claudeCode
 
         // `double(forKey:)` returns 0 for an unset key, so 0 (and anything
         // outside the clamped range) falls back to the default.
@@ -152,11 +153,11 @@ final class AppSettings {
         }
     }
 
-    /// The agent provider to launch. Only `claude-code` is implemented in v1;
-    /// this persists and is read by `AgentLauncher`, ready for more providers.
-    var providerID: String {
+    /// Which CLI a new agent tab runs. A tab records its own provider at
+    /// creation, so changing this never moves an existing conversation.
+    var defaultProvider: AgentProviderKind {
         didSet {
-            defaults.set(providerID, forKey: Key.providerID)
+            defaults.set(defaultProvider.rawValue, forKey: Key.providerID)
         }
     }
 

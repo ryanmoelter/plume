@@ -67,7 +67,7 @@ struct InstrumentedLaunchTests {
         let provider = ClaudeCodeProvider(settingsPath: "/tmp/settings.json")
 
         let launch = provider.launchCommand(
-            firstMessage: "hi", resumeSessionID: nil, taskID: taskID, tabID: tabID
+            firstMessage: "hi", resumeSessionID: nil, taskID: taskID, tabID: tabID, permissionMode: nil
         )
 
         #expect(launch.command == loginWrapped("claude --settings '/tmp/settings.json' 'hi'"))
@@ -94,7 +94,7 @@ struct InstrumentedLaunchTests {
     @Test func resumeKeepsInstrumentation() {
         let provider = ClaudeCodeProvider(settingsPath: "/s.json")
         let launch = provider.launchCommand(
-            firstMessage: nil, resumeSessionID: "sess-1", taskID: UUID(), tabID: UUID()
+            firstMessage: nil, resumeSessionID: "sess-1", taskID: UUID(), tabID: UUID(), permissionMode: nil
         )
         #expect(launch.command == loginWrapped("claude --settings '/s.json' --resume 'sess-1'"))
     }

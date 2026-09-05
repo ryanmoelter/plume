@@ -24,7 +24,11 @@ struct TabStripView: View {
             }
 
             Menu {
-                Button("Agent Tab") { TaskStore.addTab(to: task, kind: .agent, in: context) }
+                ForEach(AgentProviderKind.allCases) { provider in
+                    Button("Agent Tab (\(provider.displayName))") {
+                        TaskStore.addTab(to: task, kind: .agent, provider: provider, in: context)
+                    }
+                }
                 Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, in: context) }
             } label: {
                 Image(systemName: "plus")

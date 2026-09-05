@@ -61,10 +61,16 @@ enum TaskStore {
     }
 
     @discardableResult
-    static func addTab(to task: WorkTask, kind: TabKind, in context: ModelContext) -> TaskTab {
+    static func addTab(
+        to task: WorkTask,
+        kind: TabKind,
+        provider: AgentProviderKind? = nil,
+        in context: ModelContext
+    ) -> TaskTab {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs), task: task)
         if kind == .agent {
             tab.transport = AppSettings.shared.defaultAgentTransport
+            tab.provider = provider ?? AppSettings.shared.defaultProvider
         }
         context.insert(tab)
         task.tabs.append(tab)

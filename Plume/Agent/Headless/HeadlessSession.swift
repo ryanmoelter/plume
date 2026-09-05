@@ -99,7 +99,7 @@ final class HeadlessSession {
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [String] = []
 
-    private var process: HeadlessProcess?
+    private var process: AgentProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var nextRequestNumber = 0
 
@@ -144,8 +144,10 @@ final class HeadlessSession {
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen
         )
-        let handler = HeadlessProcess(
-            onMessage: { [weak self] message in
+        let handler = AgentProcess(
+            label: "claude",
+            onLine: { [weak self] line in
+                guard let message = StreamJSONDecoder.decode(line: line) else { return }
                 Task { @MainActor in self?.handle(message) }
             },
             onExit: { [weak self] status, errorLine in

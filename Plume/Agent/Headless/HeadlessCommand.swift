@@ -3,7 +3,7 @@ import Foundation
 /// Builds the argv for a headless `claude` run.
 ///
 /// A real argument array rather than a shell string, so nothing needs quoting
-/// here. `HeadlessProcess` quotes and wraps it in a login shell, which is what
+/// here. `AgentProcess` quotes and wraps it in a login shell, which is what
 /// puts `claude` on PATH.
 enum HeadlessCommand {
     /// `isModelExplicitlyChosen` distinguishes a model the user picked from
@@ -58,11 +58,5 @@ enum HeadlessCommand {
             arguments.append(resumeSessionID)
         }
         return arguments
-    }
-
-    /// Renders argv as one login-shell command line, quoting each argument so
-    /// spaces and JSON punctuation survive the trip through the shell.
-    static func loginShellCommand(arguments: [String]) -> String {
-        LoginShellCommand.wrap(arguments.map(shellQuoted).joined(separator: " "))
     }
 }

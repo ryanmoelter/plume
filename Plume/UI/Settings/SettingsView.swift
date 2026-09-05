@@ -31,11 +31,13 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Provider", selection: $settings.providerID) {
-                    Text("Claude Code").tag(ClaudeCodeProviderID)
+                Picker("New agent tabs run", selection: $settings.defaultProvider) {
+                    ForEach(AgentProviderKind.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
                 }
             } footer: {
-                Text("Claude Code is the only provider available in v1.")
+                Text("A tab records the CLI it was created with, so changing this never moves an existing conversation.")
                     .foregroundStyle(.secondary)
             }
 
