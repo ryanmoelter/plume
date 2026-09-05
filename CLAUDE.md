@@ -65,6 +65,8 @@ An agent tab runs over one of two transports, chosen by `TaskTab.transport` and 
 - **`/rc` is served by Plume, not the CLI.** `remote-control` is an interactive TUI command with no non-interactive variant, so it never reaches the headless `commands` list. `PlumeSlashCommand` supplies it and `ChatComposer.send()` intercepts it — only on this transport, since a terminal tab's real TUI already has a working `/rc`.
 - Status, quota and cost arrive as events, so headless tabs start no hook watch. `total_cost_usd` is per turn and accumulates; stream `utilization` is 0–1 where the retired statusline capture used 0–100.
 
+**Codex.** `codex app-server` speaking JSON-RPC over pipes, owned by `CodexAppServerClient`. **`docs/codex-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Codex/`. The envelope carries no `jsonrpc` field, every server request must be answered or the turn stalls, and history comes from `thread/items/list` rather than the rollout files on disk.
+
 **Terminal (`.terminal`).** The Claude Code TUI hosted in a real PTY, kept as an escape hatch. Input reaches it as a paste plus a synthetic Enter, so it cannot answer a running `AskUserQuestion` — that ceiling is why the headless transport exists. `docs/agent-transport.md` records it.
 
 Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.
