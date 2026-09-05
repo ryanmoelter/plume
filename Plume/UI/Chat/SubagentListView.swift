@@ -65,5 +65,6 @@ private struct SubagentRow: View, ThemedView {
                     .truncationMode(.tail)
             }
         }
+        .accessibilityIdentifier(AccessibilityID.subagentRow)
     }
 }
