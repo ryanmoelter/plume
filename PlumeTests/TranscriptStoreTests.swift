@@ -176,6 +176,92 @@ struct TranscriptStoreTests {
         #expect(store.subagents(forTab: UUID()).isEmpty)
     }
 
+    /// The subagent transcript is all sidechain lines, so this also covers the
+    /// store parsing them with `includeSidechain`.
+    @Test func aSubagentIsDescribedAndScoredFromItsSidecar() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(userLine("Main session"), to: path)
+
+        let subagentsDir = dir.appending(path: "session/subagents")
+        write(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Here is the report.\"}]}}\n",
+            to: subagentsDir.appending(path: "agent-abc123.jsonl")
+        )
+        write(
+            "{\"agentType\":\"Explore\",\"description\":\"Find the leak\",\"toolUseId\":\"toolu_1\"}",
+            to: subagentsDir.appending(path: "agent-abc123.meta.json")
+        )
+
+        let store = TranscriptStore(debounce: .milliseconds(10))
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).count == 1 }
+
+        let subagent = store.subagents(forTab: tab).first
+        #expect(subagent?.title == "Explore: Find the leak")
+        #expect(subagent?.status == .done)
+        #expect(subagent?.transcript.messages.count == 1)
+    }
+
+    /// A subagent writes only its own file, so without a watcher per subagent
+    /// the list would go stale until the main transcript happened to change.
+    @Test func aSubagentsOwnWriteRefreshesTheList() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(userLine("Main session"), to: path)
+
+        let subagentPath = dir.appending(path: "session/subagents/agent-abc123.jsonl")
+        let working = "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n"
+        write(working, to: subagentPath)
+
+        let store = TranscriptStore(debounce: .milliseconds(10))
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).first?.status == .working }
+        #expect(store.subagents(forTab: tab).first?.status == .working)
+
+        // Only the subagent's file changes — the main transcript is untouched.
+        append(
+            "{\"type\":\"assistant\",\"uuid\":\"a2\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Report.\"}]}}\n",
+            to: subagentPath
+        )
+
+        await waitUntil { store.subagents(forTab: tab).first?.status == .done }
+        #expect(
+            store.subagents(forTab: tab).first?.status == .done,
+            "a subagent's own write did not refresh the list"
+        )
+    }
+
+    /// Without a sidecar the description comes from the parent's spawning
+    /// tool call, matched to the agent id its result reports.
+    @Test func aSubagentWithNoSidecarIsDescribedFromTheParent() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        let spawn = "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":false,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Task\",\"input\":{\"description\":\"Check the parser\",\"subagent_type\":\"Explore\"}}]}}\n"
+        let launched = "{\"type\":\"user\",\"uuid\":\"u1\",\"isSidechain\":false,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_1\",\"content\":\"Async agent launched successfully.\\nagentId: abc123\"}]}}\n"
+        write(spawn + launched, to: path)
+
+        write(
+            "{\"type\":\"assistant\",\"uuid\":\"s1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n",
+            to: dir.appending(path: "session/subagents/agent-abc123.jsonl")
+        )
+
+        let store = TranscriptStore(debounce: .milliseconds(10))
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).count == 1 }
+
+        let subagent = store.subagents(forTab: tab).first
+        #expect(subagent?.title == "Explore: Check the parser")
+        // The launch acknowledgement is not completion.
+        #expect(subagent?.status == .working)
+    }
+
     /// Reading subagents must not touch the disk: a SwiftUI view asks for them
     /// from `body`, which re-evaluates on every scroll frame. A subagent file
     /// appearing after the last transcript read is therefore invisible until
