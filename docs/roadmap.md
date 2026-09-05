@@ -77,7 +77,11 @@ Four things worth knowing for anything that builds on this:
 
 Freshness is a `FileWatcher` per subagent file, reconciled after each parent read (`TranscriptStore.syncSubagentWatchers`) — a new subagent's file always follows a parent write, so no timer is needed.
 
-**Resume shows everything as fresh.** `SubagentCompletionTracker` records the instant Plume first observes a subagent as done, so resuming a tab observes every finished subagent at once and starts a 30-second linger for all of them. A subagent that is already done on the *first* read of a tab should count as pre-completed and land in the collapsed row directly; only a transition observed while the tab is open earns a linger.
+**Resume no longer shows everything as fresh.** `SubagentCompletionTracker` records which tabs it has read, and a subagent already finished on the *first* read of its tab is pre-completed: settled from the start, with no instant recorded and no timer. Only a finish observed on a later read earns a linger. The read is per tab and lives in the shared store, so remounting the chat — which selecting another task does — is not a first read and a row mid-linger keeps its linger. A pre-completed subagent that goes back to work loses that standing and earns a real linger when it finishes again. The clock is still never derived from the transcript's mtime.
+
+**`TaskStatus.interrupted` shipped.** A subagent the user killed mid-turn kept the `tool_use` stop reason of the step it was on and read `working` forever — 4 of the 215 subagent transcripts on this machine, every one still spinning. `SubagentStatusDeriver` now reads an `[Request interrupted by user]` line in the transcript's **last message** as `interrupted`. Two things keep it conservative. It is checked last, so it can only ever replace `working`: a parent completion, an `end_turn`, a pending question and a failure all still win. And only the last message counts — the fifth of those five transcripts carried the marker mid-file, was told to carry on, and ended `end_turn`. The parent is no help here: its recorded statuses are only `async_launched`, `completed` and `forked`, and nothing like "cancelled" appears anywhere in the corpus, so an interruption is knowable from the subagent's own file alone.
+
+An interrupted subagent is finished as far as the rest of the app is concerned: it stops holding its tab at `working` (`TranscriptStore` counts only `working` subagents as activity), it lingers and folds into the completed row like a success or a failure, and it notifies nobody — the user did the interrupting. `StatusEngine.effectiveStatus` groups it with `needsInput` and `error`, since a working subagent cannot undo an interruption. It aggregates between `done` and `error`.
 
 ## The markdown renderer
 
@@ -391,7 +395,7 @@ What exists:
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
-- [ ] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.closeTab` forgets the subagent completion tracker (added in 0.3.0) but leaves `DraftStore`, `BellStore` and `TranscriptStore` entries behind; `TaskStore.delete` clears all of them. One `forgetTab(_:)` seam that both paths call is the shape.
+- [x] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.forgetTab(_:)` is the one seam, and `closeTab` and `delete` both call it — so neither can drift into forgetting less than the other. It covers both session managers plus `TitleStore`, `DraftStore`, `BellStore`, `SubagentCompletionTracker`, `TranscriptStore` and `UntrustedDirectoryStore`, which is a superset of what either path cleared before.
 - [x] Truncate a sidebar task title at the trailing edge, not the middle.
 - [x] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably.
 

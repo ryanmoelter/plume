@@ -69,6 +69,29 @@ struct TaskStoreTests {
         #expect(task.selectedTabID == first.id)
     }
 
+    /// Closing one tab used to forget less than deleting its whole task did,
+    /// so a reused id could come back holding another tab's draft.
+    @Test func closingATabAndDeletingATaskBothClearThePerTabStores() throws {
+        let context = try makeContext()
+        let closed = TaskStore.createTask(in: context, siblings: [])
+        let deleted = TaskStore.createTask(in: context, siblings: [closed])
+        let closedTab = try #require(closed.tabs.first)
+        let deletedTab = try #require(deleted.tabs.first)
+
+        for tab in [closedTab, deletedTab] {
+            DraftStore.shared.setDraft("half a message", forTab: tab.id)
+            BellStore.shared.recordBell(tabID: tab.id, isOnScreen: false)
+        }
+
+        TaskStore.closeTab(closedTab, in: context)
+        TaskStore.delete(deleted, in: context)
+
+        for id in [closedTab.id, deletedTab.id] {
+            #expect(DraftStore.shared.draft(forTab: id).isEmpty)
+            #expect(!BellStore.shared.hasUnseenBell(tabID: id))
+        }
+    }
+
     @Test func newTaskInheritsTheSourceTasksWorkspace() throws {
         let context = try makeContext()
         let source = TaskStore.createTask(in: context, siblings: [])
@@ -119,6 +142,15 @@ struct TaskStatusTests {
 
     @Test func workingOutranksErrorAndDone() {
         #expect(TaskStatus.aggregate([.done, .error, .working]) == .working)
+    }
+
+    /// An interruption is a settled state, so it loses to anything still
+    /// running — but it outranks a `done` on a sibling tab, since a tab the
+    /// user stopped is the one worth going back to.
+    @Test func interruptedSitsBetweenDoneAndError() {
+        #expect(TaskStatus.aggregate([.done, .interrupted]) == .interrupted)
+        #expect(TaskStatus.aggregate([.interrupted, .error]) == .error)
+        #expect(TaskStatus.aggregate([.interrupted, .working]) == .working)
     }
 
     @Test func emptyAggregatesToUnset() {

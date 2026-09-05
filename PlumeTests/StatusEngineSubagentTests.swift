@@ -21,6 +21,7 @@ struct StatusEngineSubagentTests {
         (.working, .working),
         (.needsInput, .needsInput),
         (.error, .error),
+        (.interrupted, .interrupted),
     ])
     func workingSubagentsRaiseOnlyTheSettledStatuses(own: TaskStatus, expected: TaskStatus) {
         #expect(StatusEngine.effectiveStatus(own: own, subagentsWorking: true) == expected)

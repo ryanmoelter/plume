@@ -7,6 +7,9 @@ enum TaskStatus: String, CaseIterable, Sendable {
     case working
     case needsInput
     case done
+    /// Stopped mid-turn because the user said so. Distinct from `done`, which
+    /// claims the work finished, and from `error`, which blames the agent.
+    case interrupted
     case error
 
     /// Higher wins when aggregating tab statuses into a task status.
@@ -15,9 +18,10 @@ enum TaskStatus: String, CaseIterable, Sendable {
         case .unset: 0
         case .idle: 1
         case .done: 2
-        case .error: 3
-        case .working: 4
-        case .needsInput: 5
+        case .interrupted: 3
+        case .error: 4
+        case .working: 5
+        case .needsInput: 6
         }
     }
 
