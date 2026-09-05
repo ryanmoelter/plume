@@ -13,6 +13,8 @@ Plume currently ships one way: a local install on the machine that builds it. Th
 
 A Development-signed app runs freely on the Mac that signed it, so Gatekeeper never enters the picture. That is the whole reason this path is so short.
 
+**A release is per-machine.** Plume is developed on more than one Mac, and a build never leaves the one that made it. Tag the version once and push it, then build and install separately on each Mac that wants it. The two installs share nothing — separate bundles, separate stores, separate signatures — so `/Applications/Plume.app` can sit at different versions on each, and the tag says nothing about what is installed anywhere. Check the installed version on the machine in front of you rather than inferring it from the latest tag.
+
 **Release links Ghostty statically.** The Release binary is one self-contained ~13 MB executable: there is no `Contents/Frameworks`, and `otool -L` reports no non-system dylibs. Nothing needs embedding, re-signing, or bundling. If you ever find yourself hunting for a framework to copy, something has changed — check that first.
 
 This is a Release-only property. In Debug the real code lives in `Plume.debug.dylib` beside a small launcher stub, which is why `nm` on a Debug binary looks empty.

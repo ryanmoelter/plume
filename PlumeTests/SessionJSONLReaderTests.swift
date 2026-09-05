@@ -79,16 +79,15 @@ struct SessionJSONLReaderTests {
         #expect(SessionJSONLReader.lastModified(atPath: "/nope/missing.jsonl") == nil)
     }
 
-    /// Encoding a directory that Claude Code has actually run in must name an
-    /// existing transcript directory. Catches a change to Claude Code's
-    /// encoding scheme, which is otherwise invisible until chat rendering
-    /// silently reads nothing.
+    /// Encoding a directory that Claude Code has actually run in must name the
+    /// transcript directory holding its sessions. Catches a change to Claude
+    /// Code's encoding scheme, which is otherwise invisible until chat
+    /// rendering silently reads nothing.
+    ///
+    /// Skips where Claude Code has never run in this checkout — a worktree, or
+    /// a machine that has only just cloned it — since no transcript directory
+    /// exists to match yet.
     @Test func encodingResolvesADirectoryClaudeCodeHasUsed() throws {
-        let existing = Set((try? FileManager.default.contentsOfDirectory(
-            atPath: SessionJSONLReader.projectsDirectory.path
-        )) ?? [])
-        try #require(!existing.isEmpty, "no transcript directories on this machine")
-
         // Derive the repo from this file's own path rather than the cwd,
         // which for a test host is `/`.
         let repositoryPath = URL(fileURLWithPath: #filePath)
@@ -96,11 +95,57 @@ struct SessionJSONLReaderTests {
             .deletingLastPathComponent()  // repo root
             .path
 
+        // Claude Code stamps each transcript with the cwd it ran in. Finding the
+        // repo that way is independent of the encoding under test, so the
+        // assertion below still has teeth.
+        let owningDirectory = try #require(
+            Self.transcriptDirectory(recordingCWD: repositoryPath),
+            "Claude Code has not run in \(repositoryPath)"
+        )
+
         let encoded = SessionJSONLReader.encodedProjectDirectory(for: repositoryPath)
         #expect(
-            existing.contains(encoded),
-            "encoded \(repositoryPath) as \(encoded), which is not among the real transcript directories"
+            encoded == owningDirectory,
+            "encoded \(repositoryPath) as \(encoded), but its transcripts live in \(owningDirectory)"
         )
+    }
+
+    /// Name of the transcript directory holding a session whose recorded `cwd`
+    /// is `path`, or nil where Claude Code has never run there.
+    private static func transcriptDirectory(recordingCWD path: String) -> String? {
+        let root = SessionJSONLReader.projectsDirectory
+        let directories = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        for directory in directories {
+            let sessions = (try? FileManager.default.contentsOfDirectory(
+                atPath: root.appending(path: directory).path
+            )) ?? []
+            for session in sessions where session.hasSuffix(".jsonl") {
+                // Transcripts reach hundreds of megabytes, and `cwd` rides the
+                // opening lines, so read a prefix rather than the whole file.
+                guard let handle = try? FileHandle(
+                    forReadingFrom: root.appending(path: directory).appending(path: session)
+                ) else { continue }
+                defer { try? handle.close() }
+                // Cutting at a fixed byte count can split a multi-byte
+                // character, so decode only up to the last complete line.
+                guard var prefix = try? handle.read(upToCount: 64 * 1024),
+                      let lastNewline = prefix.lastIndex(of: UInt8(ascii: "\n"))
+                else { continue }
+                prefix = prefix[..<lastNewline]
+                guard let text = String(data: prefix, encoding: .utf8) else { continue }
+
+                for line in text.split(separator: "\n") {
+                    guard let object = try? JSONSerialization.jsonObject(
+                        with: Data(line.utf8)
+                    ) as? [String: Any] else { continue }
+                    if let cwd = object["cwd"] as? String {
+                        if cwd == path { return directory }
+                        break
+                    }
+                }
+            }
+        }
+        return nil
     }
 }
 
