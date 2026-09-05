@@ -57,6 +57,54 @@ struct MermaidDocumentTests {
         #expect(escaped.contains("\\n"))
     }
 
+    @Test func bothSizingModesCenterTheDiagram() {
+        for sizing in [MermaidDocument.Sizing.natural, .fit] {
+            let html = MermaidDocument.html(
+                source: "graph TD;",
+                isDark: false,
+                foregroundHex: "#000000",
+                sizing: sizing
+            )
+            #expect(html.contains("justify-content: center"))
+            #expect(html.contains("margin: 0 auto"))
+        }
+    }
+
+    @Test func naturalSizingLetsTheDiagramKeepItsHeight() {
+        let html = MermaidDocument.html(source: "graph TD;", isDark: false, foregroundHex: "#000000")
+        #expect(html.contains("height: auto"))
+        // Capping the height here would stop the reported height being the
+        // diagram's own, which is what the row's frame is taken from.
+        #expect(!html.contains("max-height"))
+    }
+
+    @Test func fitSizingScalesTheDiagramToTheViewport() {
+        let html = MermaidDocument.html(
+            source: "graph TD;",
+            isDark: false,
+            foregroundHex: "#000000",
+            sizing: .fit
+        )
+        #expect(html.contains("max-height: 100vh"))
+        #expect(html.contains("align-items: center"))
+        #expect(html.contains("height: 100%"))
+    }
+
+    @Test func bothSizingModesStillReportAndCarryTheSource() {
+        for sizing in [MermaidDocument.Sizing.natural, .fit] {
+            let html = MermaidDocument.html(
+                source: "graph TD; A-->B;",
+                isDark: true,
+                foregroundHex: "#ffffff",
+                sizing: sizing
+            )
+            #expect(html.contains("graph TD; A-->B;"))
+            #expect(html.contains("kind: 'rendered'"))
+            #expect(html.contains(MermaidDocument.messageHandlerName))
+            #expect(html.contains("theme: 'dark'"))
+        }
+    }
+
     @Test func closingScriptTagInSourceCannotEndTheBlock() {
         let html = MermaidDocument.html(
             source: "</script><script>alert(1)</script>",
