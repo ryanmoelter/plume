@@ -268,6 +268,8 @@ struct ChatTabView: View, ThemedView {
                 }
                 .buttonStyle(.plain)
                 .help("Minimize")
+                .accessibilityLabel("Minimize")
+                .accessibilityIdentifier(AccessibilityID.planMinimizeButton)
                 Button {
                     planPresentation = .closed
                 } label: {
@@ -277,6 +279,8 @@ struct ChatTabView: View, ThemedView {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 .help("Close")
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
             .padding(12)
             Divider()
@@ -330,15 +334,18 @@ struct ChatTabView: View, ThemedView {
                     .onKeyPress(.return, phases: .down) { press in
                         handleFeedbackReturn(press.modifiers)
                     }
+                    .accessibilityIdentifier(AccessibilityID.planFeedbackField)
                 ReservedWidthButton(
                     title: PlanRejectionLabel.label(forReason: planRejectionReason),
                     labels: PlanRejectionLabel.allLabels
                 ) {
                     answerPlan(.reject)
                 }
+                .accessibilityIdentifier(AccessibilityID.planRejectButton)
                 Button("Approve") { answerPlan(.approve) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier(AccessibilityID.planApproveButton)
             }
             Text("⌥↩ approves with this feedback")
                 .font(typography.caption.font)
@@ -417,6 +424,8 @@ struct ChatTabView: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Expand the plan")
+            .accessibilityLabel("Expand the plan")
+            .accessibilityIdentifier(AccessibilityID.planExpandButton)
 
             Button {
                 planPresentation = .closed
@@ -426,6 +435,8 @@ struct ChatTabView: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Close")
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
         .padding(.horizontal, 12)

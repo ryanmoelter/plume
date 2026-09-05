@@ -72,6 +72,7 @@ struct SubagentTranscriptOverlay: View, ThemedView {
             .buttonStyle(.plain)
             .keyboardShortcut(.cancelAction)
             .help("Close")
+            .accessibilityIdentifier(AccessibilityID.subagentTranscriptClose)
         }
         .padding(12)
     }

@@ -57,6 +57,7 @@ struct TaskRowView: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier(AccessibilityID.taskRow)
     }
 
     private var accessibilityLabel: String {

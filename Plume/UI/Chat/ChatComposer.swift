@@ -122,6 +122,7 @@ struct ChatComposer: View, ThemedView {
                 )
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
+                .accessibilityIdentifier(AccessibilityID.composerField)
 
                 HStack(spacing: 8) {
                     ComposerControlsRow(
@@ -166,6 +167,7 @@ struct ChatComposer: View, ThemedView {
         .disabled(!hasSendableText)
         .help("Send")
         .accessibilityLabel("Send")
+        .accessibilityIdentifier(AccessibilityID.composerSendButton)
     }
 
     /// Matches `sendButton`'s size and shape but not its accent-colored fill,
@@ -182,6 +184,7 @@ struct ChatComposer: View, ThemedView {
         .buttonBorderShape(.circle)
         .help("Stop the current turn")
         .accessibilityLabel("Stop")
+        .accessibilityIdentifier(AccessibilityID.composerStopButton)
     }
 
     private func send() {

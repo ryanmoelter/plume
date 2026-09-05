@@ -71,6 +71,7 @@ private struct SubagentRow: View, ThemedView {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
+        .accessibilityIdentifier(AccessibilityID.subagentRow)
     }
 }
 

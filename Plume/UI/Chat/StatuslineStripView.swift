@@ -54,6 +54,7 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     barWidth: StatuslineMeterWidth.shortQuota
                 )
+                .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
             if let sevenDay = rateLimit?.sevenDay {
                 StatuslineMeterSegment(
@@ -62,12 +63,15 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     barWidth: StatuslineMeterWidth.quota
                 )
+                .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
             }
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
+                    .accessibilityIdentifier(AccessibilityID.statuslineCost)
             }
             if let branch, !branch.isEmpty {
                 branchSegment(branch)
+                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
             }
             Spacer(minLength: 0)
         }

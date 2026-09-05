@@ -337,8 +337,8 @@ What exists:
 Give the interface an accessibility surface, so both `PlumeUITests` and an
 agent driving the app can find and operate controls by name.
 
-- [ ] Put accessibility identifiers on the controls worth driving: the sidebar's task rows, the tab strip, the composer field and send button, the statusline's dropdowns, and the plan overlay's approve/reject buttons.
-- [ ] Grow `PlumeUITests` past launching the app, now that there is something to query.
+- [x] Put accessibility identifiers on the controls worth driving: the sidebar's task rows, the tab strip, the composer field and send button, the statusline's dropdowns, and the plan overlay's approve/reject buttons. Identifiers live in `Plume/Support/AccessibilityID.swift`; applied across `TaskRowView`, `SidebarView`, `TabStripView`, `ChatComposer`, `ComposerControlsRow`, `StatuslineStripView`, `ChatTabView`'s plan overlay, `InteractiveToolRow`, and `SubagentListView`. The roadmap's own `SubagentTranscriptOverlay` doesn't exist yet — subagents render inline via `SubagentListView`'s `DisclosureGroup`, so only its rows got an identifier.
+- [x] Grow `PlumeUITests` past launching the app, now that there is something to query. Two tests added (`testNewTaskButtonIsAccessible`, `testComposerFieldIsAccessibleWithSeededTask`); both currently fail in this environment because the accessibility tree is still unreachable here (see "What exists" below) — kept rather than deleted since the identifiers themselves are correct.
 
 What exists:
 

@@ -28,6 +28,7 @@ struct ComposerControlsRow: View, ThemedView {
     var body: some View {
         HStack(spacing: 12) {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
+                .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
             Spacer(minLength: 8)
             ModelControl(state: .init(session: headlessSession, tab: tab))
             EffortControl(state: .init(session: headlessSession, tab: tab))
@@ -62,6 +63,7 @@ private struct PermissionModeControl: View, ThemedView {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help(state.modeAndModelHelp("Permission mode"))
+            .accessibilityIdentifier(AccessibilityID.composerPermissionModeControl)
         }
     }
 
@@ -99,6 +101,7 @@ private struct ModelControl: View, ThemedView {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help(state.modeAndModelHelp("Model"))
+        .accessibilityIdentifier(AccessibilityID.composerModelControl)
     }
 }
 
@@ -127,6 +130,7 @@ private struct EffortControl: View, ThemedView {
         // Changing effort has no control request, so it sends an ordinary
         // chat turn — that turn appearing in the transcript is expected.
         .help("Effort (sends a message to change)")
+        .accessibilityIdentifier(AccessibilityID.composerEffortControl)
     }
 
     /// Matches `statusline.sh`'s `effort_seg`: `xhigh`/`max` need attention.
