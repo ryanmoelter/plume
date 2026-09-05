@@ -99,7 +99,7 @@ private struct ModelControl: View, ThemedView {
                 Button("Default (\(resolved.label))") { state.clearModel() }
                 Divider()
             }
-            ForEach([AgentModel.fable, .opus, .sonnet]) { option in
+            ForEach([AgentModel.fable, .opus, .sonnet, .haiku]) { option in
                 Button(option.label) { state.setModel(option) }
             }
             Menu("More") {

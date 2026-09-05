@@ -24,14 +24,16 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     // MARK: - Presets
 
-    /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`
-    /// aliases resolve to the 256K models, so Opus and Sonnet send the
-    /// explicit `[1m]` IDs. Fable has no 1M variant — passing the suffix gets
-    /// `claude-fable-5-1` back — so it sends the plain ID and is labelled
-    /// without one. See "Model aliases" in docs/headless-protocol.md.
+    /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`/`haiku`
+    /// aliases resolve to the 256K models, so these send the explicit `[1m]`
+    /// IDs. Fable has no 1M variant — passing the suffix gets
+    /// `claude-fable-5-1` back — so it sends the plain ID. An unspecified
+    /// context window means 1M, so only the 256K variants carry a suffix; see
+    /// "Model aliases" in docs/headless-protocol.md.
     static let fable = AgentModel(id: "claude-fable-5-1", label: "Fable")
-    static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus 1M")
-    static let sonnet = AgentModel(id: "claude-sonnet-5[1m]", label: "Sonnet 1M")
+    static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus")
+    static let sonnet = AgentModel(id: "claude-sonnet-5[1m]", label: "Sonnet")
+    static let haiku = AgentModel(id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5")
 
     /// The models the "More" submenu offers.
     ///
@@ -42,12 +44,11 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     static let more: [AgentModel] = [
         AgentModel(id: "claude-opus-5", label: "Opus 256K"),
         AgentModel(id: "claude-sonnet-5", label: "Sonnet 256K"),
-        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5"),
-        AgentModel(id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 1M")
+        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 256K")
     ]
 
     /// Everything the menu can offer, top-level items first.
-    static let selectable: [AgentModel] = [fable, opus, sonnet] + more
+    static let selectable: [AgentModel] = [fable, opus, sonnet, haiku] + more
 
     // MARK: - Recognition
 
