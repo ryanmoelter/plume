@@ -43,17 +43,21 @@ What exists:
 
 ## Subagents
 
-Was marked done and is not: the old checkbox covered the *list*, while the status half never worked. Driven now, and it is well short of useful. Parallel subagents are the case Plume exists to make legible, so this deserves to be a real view rather than a patched-up disclosure row.
+Parallel subagents are the case Plume exists to make legible, so this is a real view rather than the patched-up disclosure row it started as.
 
-- [ ] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
-- [ ] Show each one's live status — working, waiting for input, done, failed.
-- [ ] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
+- [x] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
+- [x] Show each one's live status — working, waiting for input, done, failed.
+- [x] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
 
-Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:59`) — over a one-line tail of the last message. `SubagentTranscript` carries only `id`, `transcript` and `modifiedAt` (`TranscriptStore.swift:6-10`), so neither a task description nor a status has anywhere to live yet; both want adding there. The description is recoverable: a subagent is spawned by a `Task`/`Agent` tool call in the parent transcript, whose input carries the prompt and a short description, and the transcript parser already reads those calls.
+What shipped: `SubagentTranscript` now carries a `descriptor` and a `status` beside its transcript. `SubagentListView` is a flat list of one compact row each — status badge, description, message count — and a row opens `SubagentTranscriptOverlay`, which renders the whole conversation through the same `ChatMessageRow` the main chat uses. `ChatTabView` hosts that overlay beside the plan one and holds the open subagent by **id**, so the panel follows the subagent's live re-reads instead of freezing at the moment it was opened.
 
-- **Status is hardcoded, not merely wrong.** `ChatMessageRow(message:, isLast: false, status: .unset)` (`SubagentListView.swift:53`) passes both constants, and `ChatMessageRow` gates its working spinner and needs-input indicator on `isLast && status == …` — so neither can ever fire, whatever the subagent is doing.
-- **Freshness would still lag once status is wired.** A subagent's own writes don't trigger the main transcript's watcher, so the list refreshes only when the *main* transcript changes. `SessionJSONLReader` already enumerates the subagent transcripts, so what's missing is a watcher per file, not discovery.
-- **Presentation.** A nested `DisclosureGroup` inside the chat list is a cramped place to read a whole conversation. Worth weighing against the alternatives — a sheet like the plan overlay, or a pane — especially once several subagents run at once, which is the situation that motivates the feature.
+Three things worth knowing for anything that builds on this:
+
+- **A subagent transcript is entirely `isSidechain`, and the parser dropped those lines.** So the old view rendered nothing at all — a step past what the checkbox described. `TranscriptParser.parse` takes `includeSidechain:` and the subagent read passes it; the default keeps a main transcript's sidechains out as before.
+- **The description comes from a `.meta.json` sidecar, not from the parent scan.** Claude Code writes `agent-<id>.meta.json` beside each transcript carrying `description`, `agentType` and `toolUseId`. `SubagentSpawnScanner` is the fallback for transcripts written before it existed, and it has to match a `Task` call to its agent through the *result* — the `tool_use` itself names no agent id.
+- **A tool_result on the spawning call does not mean done.** An async spawn is answered immediately with "Async agent launched successfully", so `SubagentStatusDeriver` reads status from the subagent's own tail first and treats only a non-launch result as completion. The tail's **last** block decides, because the parser folds a run of assistant lines into one message.
+
+Freshness is a `FileWatcher` per subagent file, reconciled after each parent read (`TranscriptStore.syncSubagentWatchers`) — a new subagent's file always follows a parent write, so no timer is needed.
 
 ## The markdown renderer
 
