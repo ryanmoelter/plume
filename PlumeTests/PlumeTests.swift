@@ -68,6 +68,48 @@ struct TaskStoreTests {
 
         #expect(task.selectedTabID == first.id)
     }
+
+    @Test func newTaskInheritsTheSourceTasksWorkspace() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.workingDirectoryPath = "/tmp/repo"
+        source.repoPath = "/tmp/repo"
+        source.branchName = "main"
+        source.workspaceKind = .directory
+
+        let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
+
+        #expect(task.workingDirectoryPath == "/tmp/repo")
+        #expect(task.repoPath == "/tmp/repo")
+        #expect(task.branchName == "main")
+        #expect(task.workspaceKind == .directory)
+    }
+
+    /// A worktree task is inherited as a plain directory, not a new worktree
+    /// of its own — the new task just points at the same folder.
+    @Test func inheritingFromAWorktreeTaskYieldsAPlainDirectory() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.workingDirectoryPath = "/tmp/repo/.worktrees/feature"
+        source.repoPath = "/tmp/repo"
+        source.branchName = "plume/feature"
+        source.workspaceKind = .worktree
+
+        let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
+
+        #expect(task.workingDirectoryPath == "/tmp/repo/.worktrees/feature")
+        #expect(task.workspaceKind == .directory)
+    }
+
+    @Test func inheritingFromATaskWithNoWorkspaceLeavesItUnset() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+
+        let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
+
+        #expect(task.workingDirectoryPath == nil)
+        #expect(task.workspaceKind == .unset)
+    }
 }
 
 struct TaskStatusTests {

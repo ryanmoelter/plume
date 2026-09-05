@@ -36,7 +36,11 @@ struct MainWindow: View {
             let group = selectedTask?.group
             let siblings = tasks.filter { $0.group?.id == group?.id }
             let task = TaskStore.createTask(
-                in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
+                in: context,
+                group: group,
+                siblings: siblings,
+                defaultsToRecentFolder: true,
+                inheritingFrom: selectedTask
             )
             selection = task.id
         }
