@@ -29,7 +29,9 @@ nonisolated enum TranscriptParser {
         case flushedMessage(messageIndex: Int, blockIndex: Int)
     }
 
-    static func parse(_ data: Data) -> Transcript {
+    /// A subagent's own transcript file marks every line `isSidechain`, so
+    /// parsing one needs `includeSidechain` or it yields nothing at all.
+    static func parse(_ data: Data, includeSidechain: Bool = false) -> Transcript {
         let decoder = JSONDecoder()
         var transcript = Transcript()
 
@@ -95,7 +97,7 @@ nonisolated enum TranscriptParser {
             guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
                 continue
             }
-            if entry.isSidechain { continue }
+            if entry.isSidechain, !includeSidechain { continue }
 
             if let usage = entry.message?.usage { transcript.latestUsage = usage }
             if let model = entry.message?.model { transcript.model = model }

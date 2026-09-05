@@ -19,6 +19,10 @@ struct ChatTabView: View, ThemedView {
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
     @State private var resumeSheetShown = false
+    /// The subagent whose transcript is open over the chat, by id — held as an
+    /// id rather than the value so the overlay follows the subagent's live
+    /// re-reads instead of freezing at the moment it was opened.
+    @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
 
     private var untrustedPath: String? {
@@ -68,6 +72,11 @@ struct ChatTabView: View, ThemedView {
         TranscriptStore.shared.subagents(forTab: tab.id)
     }
 
+    private var openSubagent: SubagentTranscript? {
+        guard let openSubagentID else { return nil }
+        return subagents.first { $0.id == openSubagentID }
+    }
+
     /// The transcript's own `cwd` follows the agent, including through
     /// `EnterWorktree`; the task's path only covers the window before any
     /// transcript exists.
@@ -92,7 +101,8 @@ struct ChatTabView: View, ThemedView {
                     subagents: subagents,
                     status: status,
                     bottomPadding: dimensions.listBottomPadding,
-                    tabID: tab.id
+                    tabID: tab.id,
+                    onOpenSubagent: { openSubagentID = $0.id }
                 )
                 // Grouped in one container so the dock bar and the surface
                 // below both glass-render as one panel: without it each gets
@@ -197,7 +207,18 @@ struct ChatTabView: View, ThemedView {
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .overlay {
+            if let openSubagent {
+                SubagentTranscriptOverlay(subagent: openSubagent, glass: planGlass) {
+                    openSubagentID = nil
+                }
+                .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+                .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+        }
         .animation(.snappy(duration: 0.22), value: planPresentation)
+        .animation(.snappy(duration: 0.22), value: openSubagentID)
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(

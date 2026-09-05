@@ -7,6 +7,16 @@ struct SubagentTranscript: Identifiable, Equatable {
     let id: String
     let transcript: Transcript
     let modifiedAt: Date?
+    /// What the subagent was asked to do, from its `.meta.json` sidecar or
+    /// the parent's spawning tool call. Nil when neither names it.
+    var descriptor: SubagentDescriptor?
+    var status: TaskStatus = .unset
+
+    /// What to call this subagent in the list. Falls back to the raw id only
+    /// when nothing describes it.
+    var title: String {
+        descriptor?.label(fallback: id) ?? id
+    }
 }
 
 /// Watches agent transcripts and republishes their parsed content live.
@@ -26,6 +36,8 @@ final class TranscriptStore {
     private(set) var subagentTranscripts: [UUID: [SubagentTranscript]] = [:]
 
     private var watchers: [UUID: FileWatcher] = [:]
+    /// One watcher per subagent transcript, keyed by tab then by file path.
+    private var subagentWatchers: [UUID: [String: FileWatcher]] = [:]
     private var paths: [UUID: String] = [:]
     private var pending: [UUID: Task<Void, Never>] = [:]
     /// Tabs with a parse in flight, so a burst of writes cannot stack reads.
@@ -62,6 +74,7 @@ final class TranscriptStore {
 
     func stopWatching(tabID: UUID) {
         watchers.removeValue(forKey: tabID)?.stop()
+        stopSubagentWatchers(tabID: tabID)
         pending.removeValue(forKey: tabID)?.cancel()
         inFlight.remove(tabID)
         paths.removeValue(forKey: tabID)
@@ -71,8 +84,12 @@ final class TranscriptStore {
 
     func stopAll() {
         for watcher in watchers.values { watcher.stop() }
+        for tabWatchers in subagentWatchers.values {
+            for watcher in tabWatchers.values { watcher.stop() }
+        }
         for task in pending.values { task.cancel() }
         watchers.removeAll()
+        subagentWatchers.removeAll()
         pending.removeAll()
         inFlight.removeAll()
         paths.removeAll()
@@ -94,22 +111,52 @@ final class TranscriptStore {
         subagentTranscripts[tabID] ?? []
     }
 
-    /// A subagent's own writes do not touch the main transcript, so its
-    /// watcher never fires for them. Freshness is therefore bounded by main
-    /// transcript activity rather than by subagent activity itself.
-    private nonisolated static func readSubagents(transcriptPath: String) -> [SubagentTranscript] {
-        SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath).map { subagentPath in
-            let id = (subagentPath as NSString)
-                .lastPathComponent
-                .replacingOccurrences(of: "agent-", with: "")
-                .replacingOccurrences(of: ".jsonl", with: "")
+    /// Parses every subagent transcript for a session, describing and scoring
+    /// each against the parent's own bytes.
+    ///
+    /// `parentData` is passed in rather than re-read: the caller has just read
+    /// it to parse the main transcript, and the spawn scan is a fallback that
+    /// only runs when a subagent has no sidecar.
+    nonisolated static func readSubagents(transcriptPath: String, parentData: Data) -> [SubagentTranscript] {
+        let paths = SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath)
+        guard !paths.isEmpty else { return [] }
+
+        let results = SubagentSpawnResults(parentData: parentData)
+        // Scanning the parent for spawn calls costs a second full pass, so it
+        // only happens when a sidecar is actually missing.
+        var scanned: [String: SubagentDescriptor]?
+
+        return paths.map { subagentPath in
+            let id = Self.subagentID(forPath: subagentPath)
             let data = FileManager.default.contents(atPath: subagentPath) ?? Data()
+            let transcript = TranscriptParser.parse(data, includeSidechain: true)
+
+            var descriptor = SubagentMetadataReader.read(forSubagentPath: subagentPath)
+            if descriptor == nil {
+                let table = scanned ?? SubagentSpawnScanner.descriptors(in: parentData)
+                scanned = table
+                descriptor = table[id]
+            }
+
+            let result = descriptor?.toolUseID.flatMap { results.result(forToolUseID: $0) }
             return SubagentTranscript(
                 id: id,
-                transcript: TranscriptParser.parse(data),
-                modifiedAt: SessionJSONLReader.lastModified(atPath: subagentPath)
+                transcript: transcript,
+                modifiedAt: SessionJSONLReader.lastModified(atPath: subagentPath),
+                descriptor: descriptor,
+                status: SubagentStatusDeriver.derive(
+                    transcript: transcript,
+                    parentResult: result
+                )
             )
         }
+    }
+
+    nonisolated static func subagentID(forPath path: String) -> String {
+        (path as NSString)
+            .lastPathComponent
+            .replacingOccurrences(of: "agent-", with: "")
+            .replacingOccurrences(of: ".jsonl", with: "")
     }
 
     private func scheduleRead(tabID: UUID) {
@@ -132,7 +179,10 @@ final class TranscriptStore {
         inFlight.insert(tabID)
         Task.detached(priority: .utility) {
             let parsed = FileManager.default.contents(atPath: path).map {
-                (TranscriptParser.parse($0), Self.readSubagents(transcriptPath: path))
+                (
+                    TranscriptParser.parse($0),
+                    Self.readSubagents(transcriptPath: path, parentData: $0)
+                )
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -142,7 +192,38 @@ final class TranscriptStore {
                 guard let parsed, self.paths[tabID] == path else { return }
                 self.transcripts[tabID] = parsed.0
                 self.subagentTranscripts[tabID] = parsed.1
+                self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
             }
         }
+    }
+
+    /// A subagent writes only its own file, so the parent's watcher never
+    /// fires for it. Without a watch per subagent the list would refresh only
+    /// when the main transcript happened to change.
+    ///
+    /// The set is reconciled after each read rather than on a timer, because a
+    /// new subagent's file appearing is itself preceded by a parent write —
+    /// the spawning tool call.
+    private func syncSubagentWatchers(tabID: UUID, transcriptPath: String) {
+        let paths = Set(SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath))
+        var watchers = subagentWatchers[tabID] ?? [:]
+
+        for (path, watcher) in watchers where !paths.contains(path) {
+            watcher.stop()
+            watchers.removeValue(forKey: path)
+        }
+        for path in paths where watchers[path] == nil {
+            let watcher = FileWatcher(url: URL(fileURLWithPath: path)) { [weak self] in
+                self?.scheduleRead(tabID: tabID)
+            }
+            watcher.start()
+            watchers[path] = watcher
+        }
+
+        subagentWatchers[tabID] = watchers.isEmpty ? nil : watchers
+    }
+
+    private func stopSubagentWatchers(tabID: UUID) {
+        subagentWatchers.removeValue(forKey: tabID)?.values.forEach { $0.stop() }
     }
 }
