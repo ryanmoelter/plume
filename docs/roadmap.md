@@ -72,13 +72,15 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
-- [ ] Mermaid diagrams in the same renderer. Still needs its approach settled — WebKit or a native subset.
+- [x] Mermaid diagrams in the same renderer.
 
 Padding and the copy icon shipped together in `MarkdownView`'s `case .codeBlock`. The icon is an `overlay` on the background container rather than inside the horizontal `ScrollView`, so it stays pinned instead of scrolling away with the code, and it reveals on hovering the block rather than the button itself. It copies the block's raw `code` string, and introduced the app's first `NSPasteboard` use.
 
 Tables shipped native and did **not** settle the mermaid question. The two are separate problems: a table's layout is given by its source, so `Grid` is the whole implementation, while a diagram needs a layout *algorithm* — node ranking and edge routing — which is the entire job and shares nothing with tables beyond the fence.
 
-What tables leave behind for it: `MarkdownBlock.codeBlock` already carries the fence's `language`, so detecting a mermaid fence costs nothing. `MarkdownView` currently discards that language — that is the seam to branch on. Note that a native subset degrades badly the moment a diagram uses an unsupported shape, which is the main argument for WebKit here even though tables didn't need it.
+**Mermaid shipped on WebKit**, which was the open decision. A native subset degrades badly the moment a diagram uses an unsupported shape, and that argument decided it. `MarkdownView`'s `case .codeBlock` branches on the `language` the fence already carried, so the parser did not change; `MermaidBlock` renders the diagram and `MermaidDocument` builds its page. mermaid **11.4.1** is vendored under `Plume/Resources/Mermaid/` with its MIT license, so rendering works offline. Synchronized groups flatten resources into `Contents/Resources`, so the page loads through `loadHTMLString(_:baseURL:)` with that directory as its base and a relative `<script src>` resolves against it — no `WKWebViewConfiguration` tweak, no entitlement, and no file-access preference was needed.
+
+Sizing is what keeps the chat safe. The page posts its rendered height back over a `WKScriptMessageHandler` once mermaid resolves, and the row takes an explicit frame from it, so a row settles at one height rather than resizing — a view that kept resizing would reopen the placement loop in `docs/chat-list-hang.md`. Until that height arrives, and permanently if mermaid rejects the source, the existing code-block rendering shows the raw fence instead, so the row is never blank. Copying still yields the source rather than the drawn diagram. Both outcomes log to `Log.app`, which is how rendering is verified without a screenshot.
 
 ## The composer
 
