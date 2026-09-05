@@ -8,22 +8,17 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet ordered:
+Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 
-- **S** — Subagents already done when a session resumes should go straight into the Completed row, not linger 30s in the live rows. See [Subagents](#subagents).
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
-- **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
 - **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
-- **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
-- **S** — Truncate sidebar task titles at the trailing edge instead of the middle. See [Misc UX](#misc-ux).
 - **M** — Animate chat row height changes. See [Chat animation](#chat-animation).
 - **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
-- **S** — Assume the context window denominator from the selected model, so the meter reads on a fresh tab. See [The context window meter](#the-context-window-meter).
 - **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
@@ -77,7 +72,11 @@ Four things worth knowing for anything that builds on this:
 
 Freshness is a `FileWatcher` per subagent file, reconciled after each parent read (`TranscriptStore.syncSubagentWatchers`) — a new subagent's file always follows a parent write, so no timer is needed.
 
-**Resume shows everything as fresh.** `SubagentCompletionTracker` records the instant Plume first observes a subagent as done, so resuming a tab observes every finished subagent at once and starts a 30-second linger for all of them. A subagent that is already done on the *first* read of a tab should count as pre-completed and land in the collapsed row directly; only a transition observed while the tab is open earns a linger.
+**Resume no longer shows everything as fresh.** `SubagentCompletionTracker` records which tabs it has read, and a subagent already finished on the *first* read of its tab is pre-completed: settled from the start, with no instant recorded and no timer. Only a finish observed on a later read earns a linger. The read is per tab and lives in the shared store, so remounting the chat — which selecting another task does — is not a first read and a row mid-linger keeps its linger. A pre-completed subagent that goes back to work loses that standing and earns a real linger when it finishes again. The clock is still never derived from the transcript's mtime.
+
+**`TaskStatus.interrupted` shipped.** A subagent the user killed mid-turn kept the `tool_use` stop reason of the step it was on and read `working` forever — 4 of the 215 subagent transcripts on this machine, every one still spinning. `SubagentStatusDeriver` now reads an `[Request interrupted by user]` line in the transcript's **last message** as `interrupted`. Two things keep it conservative. It is checked last, so it can only ever replace `working`: a parent completion, an `end_turn`, a pending question and a failure all still win. And only the last message counts — the fifth of those five transcripts carried the marker mid-file, was told to carry on, and ended `end_turn`. The parent is no help here: its recorded statuses are only `async_launched`, `completed` and `forked`, and nothing like "cancelled" appears anywhere in the corpus, so an interruption is knowable from the subagent's own file alone.
+
+An interrupted subagent is finished as far as the rest of the app is concerned: it stops holding its tab at `working` (`TranscriptStore` counts only `working` subagents as activity), it lingers and folds into the completed row like a success or a failure, and it notifies nobody — the user did the interrupting. `StatusEngine.effectiveStatus` groups it with `needsInput` and `error`, since a working subagent cannot undo an interruption. It aggregates between `done` and `error`.
 
 ## The markdown renderer
 
@@ -107,9 +106,9 @@ The fullscreen sheet then gained pinch-to-zoom and scroll-to-pan, on top of that
 - [ ] Make the composer content-width rather than bleed-width.
 - [ ] Echo a CLI-intercepted slash command locally, and show that it is running.
 - [ ] `/btw` support — confirm the note is actually filed, and show it in the chat. It takes no turn, so today nothing in the UI changes when you send one.
-- [ ] Tell `<local-command-caveat>` apart from `<local-command-stdout>`. They share one case, so the caveat's boilerplate and the real output render alike.
-- [ ] Title a command-output row with the command that produced it.
-- [ ] Render a command-output body as markdown. It is monospaced plain text today, so a `/context` dump shows raw table source.
+- [x] Tell `<local-command-caveat>` apart from `<local-command-stdout>`. They share one case, so the caveat's boilerplate and the real output render alike.
+- [x] Title a command-output row with the command that produced it.
+- [x] Render a command-output body as markdown. It is monospaced plain text today, so a `/context` dump shows raw table source.
 - [ ] Decide whether the rejection-feedback submit button belongs inside the text field.
 - [ ] Command execution mode. A leading `!` means "run this rather than say it", the way the CLI's bash mode does. While the message starts with `!`, style the rest of it monospaced — plain monospace, no code-chip background, so it reads as a different mode rather than as an inline code span.
 
@@ -120,6 +119,8 @@ Command mode has a styling half and a behavior half, and the styling half stands
 `/btw` is the sharpest case of that same problem, and needs nothing new to *send*. Slash commands are discovered rather than hardcoded — `HeadlessSession` reads them from the `initialize` reply's `commands` array (`HeadlessSession.swift:283-293`), so `/btw` already autocompletes and already styles as recognized if the CLI reports it. What it lacks is any evidence of having worked: it files a note without taking a turn, so there is no assistant message, no tool call and no transcript line to render — the composer just empties and the chat looks identical. That makes it a better first case for the local echo than `/compact`, which at least has a `compact_boundary` marker to anchor on. Worth checking first whether the note is filed at all on this transport, since a silent no-op and a working command are indistinguishable from the UI today.
 
 A command's *output* is already classified and already rendered: `<local-command-stdout>` and `<local-command-caveat>` both become `InjectedContent.commandOutput` (`InjectedContent.swift:18`, classified at lines 86-88), and `ChatMessageRow` sends every injected block to `InjectedContentRow` — the same collapsed marker row the "Compacted context" summary gets, full-width rather than in a user bubble. So these three extend a working path. Sharing one case is what costs the caveat and the output their distinct labels, and `command-args` is parsed nowhere, so a row cannot name the command it came from. The markdown item carries the only real decision: the expanded body is a monospaced `Text` (`InjectedContentRow.swift:36-44`), and swapping in `MarkdownView` would change every injected kind at once — shell output and skill bodies included, where monospace is right. It wants to be per-kind. Note also that this row hand-builds its disclosure from a `Button` and a chevron while `ToolCallRow` and `SubagentListView` use `DisclosureGroup`; settle on one before a third caller arrives.
+
+**All three shipped, and the disclosure settled on `DisclosureGroup`.** `commandCaveat` is now its own case, labelled "Command caveat", so the boilerplate no longer reads as output. `classify` parses `<command-args>`, which the slash-command label appends to the name, and `TranscriptParser` carries the last slash command forward as `precedingCommand` so a `<local-command-stdout>` line — which names nothing itself — titles as "Output of /context". The carried command clears on the next injected line other than the caveat, which sits between a command and its output, so a stray stdout cannot borrow an old title. Body rendering is a per-kind `InjectedContent.BodyStyle`: markdown for `commandOutput`, `commandCaveat` and `compactSummary`, monospace for everything else, since a skill body, a `<system-reminder>` and shell output are all literal blocks where the wrapper tags matter. A markdown body first drops its wrapper element through `bodyText(_:)`, which unwraps all-or-nothing so anything that is not one whole `<tag>…</tag>` is left untouched.
 
 ## The statusline
 
@@ -239,7 +240,9 @@ What exists, and why this is harder than the chat side:
 ## The context window meter
 
 - [x] Work out why the meter reads a full window. **Diagnosed and fixed:** the numerator was measuring throughput, not context size.
-- [ ] Assume the denominator from the selected model, so the meter reads before the first turn completes.
+- [x] Assume the denominator from the selected model, so the meter reads before the first turn completes.
+
+What shipped: `AgentModel.nominalContextWindow` derives the assumed window from the ID — 1M for everything in `selectable` except `more`'s bare 256K variants, which report 200,000 (matching the real `modelUsage` figure the fixture carries). Nil outside `selectable`, so an unrecognized model assumes nothing. `HeadlessSession.nominalContextWindow` exposes `model?.nominalContextWindow`, and `ChatTabView`'s `StatuslineStripView` call now falls back to it, then to `tab.model?.nominalContextWindow`, only after both measured sources (`headlessSession?.contextWindow`, `tab.contextWindowTokens`) come up nil — a reported window still wins. The label stays undistinguished between measured and assumed, per plan.
 
 **Root `usage` on a `result` event accumulates across the round-trips within one turn.** Each round-trip re-reads the whole cached prompt, and the root object sums those re-reads. `ContextUsage.total`'s four-way sum was therefore reporting cumulative token throughput for the turn rather than the size of the context. The two coincide only when a turn makes exactly one round-trip, which is why trivial probes and transcript sampling both looked correct for so long.
 
@@ -355,7 +358,9 @@ What exists:
 - [ ] ⌘T opens a new tab in the current task.
 - [x] ⌘W closes the current tab, not the window.
 
-What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+
+**Next/previous task shipped**, hardcoded to ⌘] / ⌘[ — the same keys as the tab commands, minus shift, and free of any existing binding. `PlumeCommands`' `Tab` menu gets two more items backed by a new `selectAdjacentTask` focused value; `MainWindow` supplies it from a `navigableTasks` list (groups in order, then ungrouped) walked with the same `SidebarKeyboardNavigation.destination` helper the sidebar's arrow keys already use, so ⌘] / ⌘[ land on the same task an arrow key would and don't wrap at either end. Unlike the per-task `TaskCommands`, this focused value stays available with nothing selected, so it can select the first task the way an arrow key does. Assignability is still unaddressed — out of scope for this pass.
 
 **⌘W shipped.** The old "Close Tab" item sat in `CommandGroup(after: .saveItem)`, so AppKit's own "Close Window" (also ⌘W, since `.saveItem` is the placement that covers closing windows) still won the shortcut. Replacing that group instead of appending to it removes the standard item outright; the one remaining "Close Tab" button closes the selected tab, or the window when the task has none.
 
@@ -385,11 +390,14 @@ What exists:
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
-- [ ] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.closeTab` forgets the subagent completion tracker (added in 0.3.0) but leaves `DraftStore`, `BellStore` and `TranscriptStore` entries behind; `TaskStore.delete` clears all of them. One `forgetTab(_:)` seam that both paths call is the shape.
-- [ ] Truncate a sidebar task title at the trailing edge, not the middle. `TaskRowView` sets `.truncationMode(.middle)` on the title (`TaskRowView.swift:42`), so a long one reads "I'm going to st...t to go smoo..." where trailing would give "I'm going to start to move this to…" — the beginning of a title is what identifies it. The same modifier on the detail lines below it (`TaskRowView.swift:50`) is a separate call: those carry a branch and a working directory, where the tail is the distinguishing part, so trailing would be the wrong default there. `ArchiveView`'s `.truncationMode(.head)` on its path line (`ArchiveView.swift:25`) is right as it stands, for the same reason.
-- [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. The archive and sidebar buttons beside it follow the appearance correctly, so the difference is in how the add button is built: `SidebarView` makes it a `Menu` where the neighbours are plain `Button`s, so look at the menu's label styling and any explicit tint rather than at `ThemeChrome`.
+- [x] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.forgetTab(_:)` is the one seam, and `closeTab` and `delete` both call it — so neither can drift into forgetting less than the other. It covers both session managers plus `TitleStore`, `DraftStore`, `BellStore`, `SubagentCompletionTracker`, `TranscriptStore` and `UntrustedDirectoryStore`, which is a superset of what either path cleared before.
+- [x] Truncate a sidebar task title at the trailing edge, not the middle.
+- [x] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably.
 
 What exists:
+
+- **Title truncation shipped.** `TaskRowView`'s title `Text` now sets `.truncationMode(.tail)` (`TaskRowView.swift:42`), so a long title reads "I'm going to start to move this to…" instead of eating both ends. The detail lines below it keep `.truncationMode(.middle)` — those carry a branch and a working directory, where the tail is the distinguishing part.
+- **Add button tint shipped.** The `Menu` in `SidebarView`'s toolbar (label + `primaryAction`) rendered as an AppKit split-button bezel that didn't track appearance changes the way a plain `Button` does. `.menuStyle(.borderlessButton)` plus `.labelStyle(.iconOnly)` on the label strips that bezel so it matches the neighbouring Archive button's plain icon styling. Not verified visually in this pass — worth a quick look in both appearances.
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
 - **Composer focus shipped for both transports.** A headless tab's `ChatComposer` sets `@FocusState` on `isVisible`'s initial arrival, which fires whenever a tab is created or becomes selected; a terminal tab calls `session.state.requestFocus()` on the same trigger in `TerminalTabView`.

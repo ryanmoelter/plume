@@ -36,7 +36,10 @@ struct InjectedContentTests {
         <command-name>/implement-ticket</command-name>
         <command-args>DROID-344</command-args>
         """
-        #expect(InjectedContent.classify(text: text, isMeta: false) == .slashCommand(name: "/implement-ticket"))
+        #expect(
+            InjectedContent.classify(text: text, isMeta: false)
+                == .slashCommand(name: "/implement-ticket", arguments: "DROID-344")
+        )
     }
 
     @Test func anInterruptionForToolUseIsRecognized() {
@@ -49,14 +52,76 @@ struct InjectedContentTests {
     /// The case `isMeta` alone would miss — a command's stdout is not meta.
     @Test func commandOutputIsRecognizedDespiteNotBeingMeta() {
         let text = "<local-command-stdout>Compacted (ctrl+o to see full summary)</local-command-stdout>"
-        #expect(InjectedContent.classify(text: text, isMeta: false) == .commandOutput)
+        #expect(InjectedContent.classify(text: text, isMeta: false) == .commandOutput())
     }
 
-    @Test func aCaveatBlockIsCommandOutput() {
+    @Test func aCaveatBlockIsItsOwnKind() {
         #expect(
             InjectedContent.classify(text: "<local-command-caveat>Caveat: …</local-command-caveat>", isMeta: true)
-                == .commandOutput
+                == .commandCaveat
         )
+    }
+
+    @Test func commandOutputTakesItsTitleFromThePrecedingCommand() {
+        let kind = InjectedContent.classify(
+            text: "<local-command-stdout>Context low</local-command-stdout>",
+            isMeta: false,
+            precedingCommand: "/context"
+        )
+        #expect(kind == .commandOutput(command: "/context"))
+        #expect(kind.markerLabel == "Output of /context")
+    }
+
+    @Test func commandOutputWithNoKnownCommandKeepsAGenericLabel() {
+        #expect(InjectedContent.commandOutput().markerLabel == "Command output")
+    }
+
+    @Test func aSlashCommandLabelCarriesItsArguments() {
+        #expect(
+            InjectedContent.slashCommand(name: "/implement-ticket", arguments: "DROID-344").markerLabel
+                == "/implement-ticket DROID-344"
+        )
+        #expect(InjectedContent.slashCommand(name: "/compact").markerLabel == "/compact")
+    }
+
+    /// Empty `<command-args>` is the common case and must not become a
+    /// trailing space in the label.
+    @Test func emptyArgumentsAreDropped() {
+        let text = "<command-name>/compact</command-name><command-args></command-args>"
+        #expect(InjectedContent.classify(text: text, isMeta: false) == .slashCommand(name: "/compact"))
+    }
+
+    @Test func onlyProseKindsRenderAsMarkdown() {
+        let markdown: [InjectedContent] = [.commandOutput(), .commandCaveat, .compactSummary]
+        for kind in markdown {
+            #expect(kind.bodyStyle == .markdown, "\(kind) should render as markdown")
+        }
+        let monospaced: [InjectedContent] = [
+            .skill(name: "debug"), .slashCommand(name: "/compact"), .shellCommand(command: "ls"),
+            .shellOutput, .taskNotification, .interrupted, .systemNote,
+        ]
+        for kind in monospaced {
+            #expect(kind.bodyStyle == .monospaced, "\(kind) should stay monospaced")
+        }
+    }
+
+    @Test func aMarkdownBodyLosesItsWrapperTag() {
+        let raw = "<local-command-stdout>| a | b |\n| --- | --- |</local-command-stdout>"
+        #expect(InjectedContent.commandOutput().bodyText(raw) == "| a | b |\n| --- | --- |")
+    }
+
+    @Test func aMonospacedBodyKeepsItsRawText() {
+        let raw = "<bash-stdout>total 0</bash-stdout>"
+        #expect(InjectedContent.shellOutput.bodyText(raw) == raw)
+    }
+
+    /// Unwrapping is all-or-nothing: text that is not one whole element keeps
+    /// every character, so nothing is silently dropped.
+    @Test func partialOrMismatchedWrappersAreLeftAlone() {
+        #expect(InjectedContent.compactSummary.bodyText("# Summary") == "# Summary")
+        #expect(InjectedContent.commandOutput().bodyText("<a>one</a> plus <b>two</b>") == "<a>one</a> plus <b>two</b>")
+        #expect(InjectedContent.commandOutput().bodyText("<open>unclosed") == "<open>unclosed")
+        #expect(InjectedContent.commandOutput().bodyText("<empty></empty>") == "")
     }
 
     @Test func aShellCommandKeepsItsCommandLine() {
@@ -98,7 +163,7 @@ struct InjectedContentTests {
 
     @Test func everyInjectedKindHasAMarkerLabel() {
         let injected: [InjectedContent] = [
-            .skill(name: "debug"), .slashCommand(name: "/compact"), .commandOutput,
+            .skill(name: "debug"), .slashCommand(name: "/compact"), .commandOutput(), .commandCaveat,
             .shellCommand(command: "ls"), .shellOutput, .taskNotification, .interrupted, .systemNote,
         ]
         for kind in injected {

@@ -144,8 +144,10 @@ struct RealTranscriptCorpusTests {
             return session.title == nil && session.firstUserMessage == nil
         }
 
+        // Cross-multiplied rather than `< count / 20`: integer division put the bound on a whole
+        // session, so a corpus of 51 rejected 2 unlabelled (3.9%) for tying it.
         #expect(
-            unlabelled.count < substantial.count / 20,
+            unlabelled.count * 20 <= substantial.count,
             "\(unlabelled.count) of \(substantial.count) sessions would list as a bare UUID"
         )
     }

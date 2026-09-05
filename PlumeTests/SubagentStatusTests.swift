@@ -30,6 +30,12 @@ struct SubagentStatusTests {
         #"{"type":"user","uuid":"\#(UUID().uuidString)","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"\#(id)","content":"\#(content)"}]}}"#
     }
 
+    /// Escape mid-turn writes exactly this line, in every one of the five
+    /// interrupted transcripts in the sampled corpus.
+    private func interruption() -> String {
+        #"{"type":"user","uuid":"\#(UUID().uuidString)","isSidechain":true,"message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
+    }
+
     @Test func anEmptyTranscriptHasNoStatus() {
         #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .unset)
     }
@@ -118,6 +124,53 @@ struct SubagentStatusTests {
         )
 
         #expect(status == .working)
+    }
+
+    /// The user killed it mid-step, so the file keeps the `tool_use` stop
+    /// reason of the step it was on and would otherwise spin forever.
+    @Test func anInterruptionInTheTailIsInterrupted() {
+        let lines = [
+            toolUse(id: "t1", name: "Bash", stopReason: "tool_use"),
+            toolResult(id: "t1", content: "ok"),
+            interruption(),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .interrupted)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .launched) == .interrupted)
+    }
+
+    /// An interrupted agent told to carry on finishes normally, so only an
+    /// interruption in the last message counts.
+    @Test func anInterruptionTheAgentWorkedPastIsNotInterrupted() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([
+                toolUse(id: "t1", name: "Bash", stopReason: "tool_use"),
+                interruption(),
+                assistantText("Picking it back up.", stopReason: "end_turn"),
+            ]),
+            parentSignal: nil
+        )
+
+        #expect(status == .done)
+    }
+
+    /// Interruption is checked last, so it can only ever replace `working`.
+    @Test func aParentCompletionOutranksATrailingInterruption() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([toolUse(id: "t1", name: "Bash", stopReason: "tool_use"), interruption()]),
+            parentSignal: .completed
+        )
+
+        #expect(status == .done)
+    }
+
+    @Test func aFailedSpawnOutranksATrailingInterruption() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([toolUse(id: "t1", name: "Bash", stopReason: "tool_use"), interruption()]),
+            parentSignal: .failed
+        )
+
+        #expect(status == .error)
     }
 
     @Test func anErroredParentResultIsAFailure() {

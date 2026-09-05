@@ -13,9 +13,12 @@ nonisolated enum InjectedContent: Equatable {
     /// A skill's body, injected when the skill is invoked.
     case skill(name: String)
     /// A slash command the user ran, from its `<command-name>` block.
-    case slashCommand(name: String)
-    /// A slash command's output.
-    case commandOutput
+    case slashCommand(name: String, arguments: String? = nil)
+    /// A slash command's output, named by the command that produced it when
+    /// the preceding line identified one.
+    case commandOutput(command: String? = nil)
+    /// The boilerplate Claude Code prepends when a local command runs.
+    case commandCaveat
     /// A shell command run from the composer with `!`.
     case shellCommand(command: String)
     /// That shell command's output.
@@ -39,8 +42,13 @@ nonisolated enum InjectedContent: Equatable {
         switch self {
         case .userMessage: return nil
         case .skill(let name): return "Skill: \(name)"
-        case .slashCommand(let name): return name
-        case .commandOutput: return "Command output"
+        case .slashCommand(let name, let arguments):
+            guard let arguments else { return name }
+            return "\(name) \(arguments)"
+        case .commandOutput(let command):
+            guard let command else { return "Command output" }
+            return "Output of \(command)"
+        case .commandCaveat: return "Command caveat"
         case .shellCommand(let command): return command
         case .shellOutput: return "Shell output"
         case .taskNotification: return "Background task finished"
@@ -56,12 +64,52 @@ nonisolated enum InjectedContent: Equatable {
         case .userMessage: return "person"
         case .skill: return "wand.and.stars"
         case .slashCommand, .commandOutput: return "chevron.forward.square"
+        case .commandCaveat: return "info.circle"
         case .shellCommand, .shellOutput: return "terminal"
         case .taskNotification: return "bell"
         case .interrupted: return "hand.raised"
         case .systemNote: return "info.circle"
         case .compactSummary: return "arrow.down.right.and.arrow.up.left"
         }
+    }
+
+    /// How an expanded body reads.
+    enum BodyStyle {
+        case monospaced
+        case markdown
+    }
+
+    /// A command's output is prose and tables — a `/context` dump is a
+    /// markdown table — as is a compaction summary. The rest are literal
+    /// wrapper blocks and command output that monospace serves better.
+    var bodyStyle: BodyStyle {
+        switch self {
+        case .commandOutput, .commandCaveat, .compactSummary: return .markdown
+        default: return .monospaced
+        }
+    }
+
+    /// The text to show in the expanded body. A markdown body loses its
+    /// wrapper tag, so the row renders the content rather than the
+    /// transcript's XML.
+    func bodyText(_ raw: String) -> String {
+        bodyStyle == .markdown ? Self.unwrapped(raw) : raw
+    }
+
+    /// The contents of a string that is entirely one `<tag>…</tag>` element,
+    /// or the string unchanged when it is anything else.
+    private static func unwrapped(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("<"), !trimmed.hasPrefix("</"),
+              let openEnd = trimmed.firstIndex(of: ">")
+        else { return text }
+        let name = trimmed[trimmed.index(after: trimmed.startIndex)..<openEnd].prefix { !$0.isWhitespace }
+        let close = "</\(name)>"
+        guard !name.isEmpty, trimmed.hasSuffix(close) else { return text }
+        let bodyEnd = trimmed.index(trimmed.endIndex, offsetBy: -close.count)
+        let openAfter = trimmed.index(after: openEnd)
+        guard openAfter <= bodyEnd else { return text }
+        return trimmed[openAfter..<bodyEnd].trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Classifies one user line from its text and `isMeta` flag.
@@ -71,20 +119,31 @@ nonisolated enum InjectedContent: Equatable {
     /// `isMeta: false` and have to be recognized by their wrapper tag. A
     /// compaction summary carries neither marker and is only knowable from
     /// its own flag, so that is checked first.
-    static func classify(text: String, isMeta: Bool, isCompactSummary: Bool = false) -> InjectedContent {
+    static func classify(
+        text: String,
+        isMeta: Bool,
+        isCompactSummary: Bool = false,
+        precedingCommand: String? = nil
+    ) -> InjectedContent {
         if isCompactSummary { return .compactSummary }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // `<command-name>` and `<command-message>` appear in either order,
         // so the name is searched for rather than expected at the front.
         if trimmed.hasPrefix("<command-name>") || trimmed.hasPrefix("<command-message>") {
-            return .slashCommand(name: tagged(trimmed, "command-name") ?? "Slash command")
+            return .slashCommand(
+                name: tagged(trimmed, "command-name") ?? "Slash command",
+                arguments: tagged(trimmed, "command-args")
+            )
         }
         if trimmed.hasPrefix("<bash-input>") {
             return .shellCommand(command: tagged(trimmed, "bash-input") ?? "Shell command")
         }
-        if trimmed.hasPrefix("<local-command-stdout") || trimmed.hasPrefix("<local-command-caveat") {
-            return .commandOutput
+        if trimmed.hasPrefix("<local-command-caveat") {
+            return .commandCaveat
+        }
+        if trimmed.hasPrefix("<local-command-stdout") {
+            return .commandOutput(command: precedingCommand)
         }
         if trimmed.hasPrefix("<bash-stdout") || trimmed.hasPrefix("<bash-stderr") {
             return .shellOutput

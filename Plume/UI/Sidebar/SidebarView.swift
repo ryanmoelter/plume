@@ -69,9 +69,11 @@ struct SidebarView: View {
                     .accessibilityIdentifier(AccessibilityID.newGroupButton)
                 } label: {
                     Label("Add", systemImage: "plus")
+                        .labelStyle(.iconOnly)
                 } primaryAction: {
                     createTask(in: nil)
                 }
+                .menuStyle(.borderlessButton)
                 .accessibilityIdentifier(AccessibilityID.newTaskButton)
             }
             ToolbarItem {

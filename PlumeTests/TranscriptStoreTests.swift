@@ -281,4 +281,30 @@ struct TranscriptStoreTests {
         write(userLine("Late subagent"), to: dir.appending(path: "session/subagents/agent-late.jsonl"))
         #expect(store.subagents(forTab: tab).isEmpty)
     }
+
+    /// A subagent the user killed is not running, so the tab it belongs to
+    /// settles instead of reading working forever.
+    @Test func anInterruptedSubagentReleasesItsTab() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(userLine("Main session"), to: path)
+        write(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n"
+                + "{\"type\":\"user\",\"uuid\":\"u1\",\"isSidechain\":true,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Request interrupted by user]\"}]}}\n",
+            to: dir.appending(path: "session/subagents/agent-abc123.jsonl")
+        )
+
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.register(tabID: tab, taskID: task)
+        engine.setStatus(.done, taskID: task, tabID: tab)
+
+        let store = TranscriptStore(debounce: .milliseconds(10), statusEngine: engine)
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).count == 1 }
+
+        #expect(store.subagents(forTab: tab).first?.status == .interrupted)
+        #expect(engine.status(forTab: tab) == .done)
+    }
 }

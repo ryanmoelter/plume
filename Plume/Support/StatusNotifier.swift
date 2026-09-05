@@ -44,7 +44,8 @@ final class StatusNotifier {
         case .needsInput: "Waiting for your input."
         case .done: "Finished its turn."
         case .error: "The agent stopped unexpectedly."
-        case .working, .idle, .unset: nil
+        // An interruption is the user's own doing, so it needs no telling.
+        case .working, .idle, .unset, .interrupted: nil
         }
     }
 }

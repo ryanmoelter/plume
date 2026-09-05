@@ -14,36 +14,38 @@ struct InjectedContentRow: View, ThemedView {
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: kind.markerSymbol)
-                        .imageScale(.small)
-                    Text(kind.markerLabel ?? "")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .imageScale(.small)
-                        .emphasis(.subtle)
-                }
-                .font(typography.caption.mono(when: monospacedLabel))
-                .emphasis(.secondary)
+        DisclosureGroup(isExpanded: $isExpanded) {
+            expandedBody
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(washColor, in: .rect(cornerRadius: 6))
+                .padding(.top, 4)
+        } label: {
+            Label {
+                Text(kind.markerLabel ?? "")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } icon: {
+                Image(systemName: kind.markerSymbol)
+                    .imageScale(.small)
             }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                Text(text)
-                    .font(typography.caption.mono)
-                    .emphasis(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(washColor, in: .rect(cornerRadius: 6))
-            }
+            .font(typography.caption.mono(when: monospacedLabel))
+            .emphasis(.secondary)
         }
         .listItemPadding(vertical: false)
+    }
+
+    @ViewBuilder
+    private var expandedBody: some View {
+        switch kind.bodyStyle {
+        case .markdown:
+            MarkdownView(kind.bodyText(text))
+        case .monospaced:
+            Text(text)
+                .font(typography.caption.mono)
+                .emphasis(.secondary)
+                .textSelection(.enabled)
+        }
     }
 
     /// A shell command reads as code; the rest read as labels.

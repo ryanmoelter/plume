@@ -14,6 +14,8 @@ struct StatusBadge: View {
             WorkingIndicator()
         case .needsInput:
             Image(systemName: "bell.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .interrupted:
+            Image(systemName: "hand.raised.fill").foregroundStyle(Emphasis.subtle.textHierarchy)
         case .done:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success(for: colorScheme))
         case .error:

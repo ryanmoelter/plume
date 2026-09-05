@@ -97,6 +97,10 @@ nonisolated enum TranscriptParser {
             ))
         }
 
+        // A `<local-command-stdout>` line names no command, so the row takes
+        // its title from the `<command-name>` line that preceded it.
+        var lastSlashCommand: String?
+
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
                 continue
@@ -198,8 +202,15 @@ nonisolated enum TranscriptParser {
                     let kind = InjectedContent.classify(
                         text: text,
                         isMeta: entry.isMeta,
-                        isCompactSummary: entry.isCompactSummary
+                        isCompactSummary: entry.isCompactSummary,
+                        precedingCommand: lastSlashCommand
                     )
+                    switch kind {
+                    case .slashCommand: lastSlashCommand = kind.markerLabel
+                    // The caveat sits between a command and its output.
+                    case .commandCaveat: break
+                    default: lastSlashCommand = nil
+                    }
                     otherBlocks.insert(
                         kind.isUserProse ? .markdown(text) : .injected(kind, text: text),
                         at: 0

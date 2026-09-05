@@ -9,6 +9,13 @@ struct ShowArchiveActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+/// Moves the sidebar selection by `offset` tasks, following sidebar order.
+/// Unlike `TaskCommands`, this stays available with nothing selected, so it
+/// can select the first task the same way an arrow key does.
+struct SelectAdjacentTaskKey: FocusedValueKey {
+    typealias Value = (Int) -> Void
+}
+
 /// Actions the menu bar performs on the selected task. Nil when nothing is
 /// selected, which disables the whole Task menu.
 struct TaskCommands {
@@ -38,6 +45,11 @@ extension FocusedValues {
         set { self[ShowArchiveActionKey.self] = newValue }
     }
 
+    var selectAdjacentTask: ((Int) -> Void)? {
+        get { self[SelectAdjacentTaskKey.self] }
+        set { self[SelectAdjacentTaskKey.self] = newValue }
+    }
+
     var taskCommands: TaskCommands? {
         get { self[TaskCommandsKey.self] }
         set { self[TaskCommandsKey.self] = newValue }
@@ -48,6 +60,7 @@ struct PlumeCommands: Commands {
     @FocusedValue(\.newTaskAction) private var newTask
     @FocusedValue(\.showArchiveAction) private var showArchive
     @FocusedValue(\.taskCommands) private var task
+    @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -95,6 +108,15 @@ struct PlumeCommands: Commands {
             Button("Previous Tab") { task?.cycleTab(-1) }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
                 .disabled(task == nil)
+
+            Divider()
+
+            Button("Next Task") { selectAdjacentTask?(1) }
+                .keyboardShortcut("]", modifiers: [.command])
+                .disabled(selectAdjacentTask == nil)
+            Button("Previous Task") { selectAdjacentTask?(-1) }
+                .keyboardShortcut("[", modifiers: [.command])
+                .disabled(selectAdjacentTask == nil)
 
             Divider()
 
