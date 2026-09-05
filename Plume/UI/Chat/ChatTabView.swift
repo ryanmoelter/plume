@@ -201,9 +201,10 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
-    /// The bottom chrome as one floating panel: the composer, the session
-    /// facts under it, and the plan bar tucked behind them when a plan is
-    /// minimized.
+    /// The bottom chrome as one floating panel, content width like the prose
+    /// above it: the composer, the session facts under it, and the plan bar
+    /// tucked behind them when a plan is minimized. The composer paints no
+    /// surface of its own — this glass is the only one.
     ///
     /// Grouped in one `GlassEffectContainer` so the dock bar and the surface
     /// below both glass-render as one panel: without it each gets its own
@@ -223,7 +224,7 @@ struct ChatTabView: View, ThemedView {
                 }
                 .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
             }
-            .listItemPadding(bleed: true, vertical: false)
+            .listItemPadding(vertical: false)
             .padding(.bottom, dimensions.panelInset)
         }
     }
@@ -512,7 +513,7 @@ struct ChatTabView: View, ThemedView {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
                     .disabled(!isComposerEnabled)
                     .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                    .listItemPadding(bleed: true, vertical: false)
+                    .listItemPadding(vertical: false)
                     .padding(.bottom, dimensions.panelInset)
             }
         }

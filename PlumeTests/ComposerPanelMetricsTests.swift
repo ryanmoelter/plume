@@ -28,7 +28,7 @@ struct ComposerPanelMetricsTests {
             dimensions.composerFieldCornerRadius
                 == ComposerPanelMetrics.concentricRadius(
                     outer: dimensions.panelCornerRadius,
-                    inset: dimensions.panelContentInset
+                    inset: dimensions.composerFieldInset
                 )
         )
         #expect(dimensions.composerFieldCornerRadius > 0)

@@ -35,12 +35,6 @@ struct ChatComposer: View, ThemedView {
         )
     }
 
-    /// The terminal's own background, so the field matches the surface it
-    /// sends to. Falls back to standard chrome when no theme is configured.
-    private var fieldBackground: AnyShapeStyle {
-        colors.background.map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
-    }
-
     /// Tracked separately from the draft text so a keystroke does not
     /// invalidate this whole body. The draft changes on every character; only
     /// its emptiness matters here, and that flips twice a message.
@@ -120,11 +114,11 @@ struct ChatComposer: View, ThemedView {
                     },
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
                 )
-                // Its own line-fragment padding covers the rest of the
-                // field's inset, so the first glyph lands over the control
-                // strip's left edge rather than beside it. The text view's
-                // vertical inset is the field's top padding.
-                .padding(.horizontal, dimensions.composerFieldInset - Self.lineFragmentPadding)
+                // Its own line-fragment padding already covers part of the
+                // composer's inset, so the first glyph lands over the control
+                // strip's left edge rather than beside it. Its vertical inset
+                // comes from its own `textContainerInset`, not from here.
+                .padding(.horizontal, -Self.lineFragmentPadding)
                 .accessibilityIdentifier(AccessibilityID.composerField)
 
                 HStack(spacing: dimensions.panelContentInset) {
@@ -140,17 +134,13 @@ struct ChatComposer: View, ThemedView {
                     }
                     sendButton
                 }
-                .padding(.horizontal, dimensions.composerFieldInset)
-                .padding(.bottom, dimensions.composerFieldInset)
+                .padding(.top, dimensions.panelContentInset)
             }
-            .background(fieldBackground, in: fieldShape)
-            .overlay(fieldShape.strokeBorder(.separator))
         }
-        // Content width, matching the prose above it, and inset from the
-        // panel's own edge by the same gap the field's rounding is cut to.
-        .chatTextColumn()
-        .padding(.horizontal, dimensions.panelContentInset)
-        .padding(.vertical, dimensions.panelContentInset)
+        // The composer's whole content sits at one inset from the glass
+        // edge, on every side — the text view's own correction above is what
+        // keeps its glyphs level with the controls below it.
+        .padding(dimensions.composerFieldInset)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in
@@ -162,12 +152,8 @@ struct ChatComposer: View, ThemedView {
     }
 
     /// `NSTextView` draws its first glyph one line-fragment padding in from
-    /// its frame, which the field's own inset has to account for.
+    /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
-
-    private var fieldShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
-    }
 
     private var sendButton: some View {
         Button(action: send) {

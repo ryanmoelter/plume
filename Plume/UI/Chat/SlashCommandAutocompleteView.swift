@@ -32,8 +32,10 @@ struct SlashCommandAutocompleteView: View, ThemedView {
         .overlay { shape.strokeBorder(.separator) }
     }
 
-    /// The popup is a sibling of the composer's field box, so it takes the
-    /// same rounding; its rows are inset inside it and take a concentric one.
+    /// Floats over the glass panel at the composer's own inset, so its
+    /// corner takes the radius concentric with the panel at that inset — the
+    /// same one the queued-messages strip uses. Its rows are inset inside it
+    /// and take a concentric radius of their own.
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
     }
