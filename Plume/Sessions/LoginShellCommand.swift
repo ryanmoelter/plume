@@ -11,6 +11,12 @@ import Foundation
 /// `$SHELL -lic '<command>'` restores login-shell semantics for both plain
 /// terminals and agent tabs.
 enum LoginShellCommand {
+    /// Set on every tab's shell — terminal and agent, both transports — so a
+    /// script or prompt can tell it's running inside Plume. Callers merge
+    /// this into their own env dict; `wrap`/`loginShell` only build the
+    /// command string and have no environment to carry it in.
+    static let plumeEnvironment: [String: String] = ["PLUME": "1"]
+
     /// Builds `<shell> -lic '<command>'`, quoting `command` as a single
     /// argument so its own quoting is unaffected.
     ///

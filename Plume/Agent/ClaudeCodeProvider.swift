@@ -48,7 +48,7 @@ struct ClaudeCodeProvider: AgentProvider {
             }
         }
 
-        var environment: [String: String] = [:]
+        var environment = LoginShellCommand.plumeEnvironment
         if let taskID, let tabID {
             environment["PLUME_TASK_ID"] = taskID.uuidString
             environment["PLUME_TAB_ID"] = tabID.uuidString

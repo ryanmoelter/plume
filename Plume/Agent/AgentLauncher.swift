@@ -94,7 +94,8 @@ enum AgentLauncher {
                 appDefault: AppSettings.shared.resolvedDefaultPermissionMode
             ),
             resumeSessionID: resumeSessionID,
-            settingsPath: settingsPath
+            settingsPath: settingsPath,
+            environment: LoginShellCommand.plumeEnvironment
         )
         if let message {
             session.submit(text: message)
