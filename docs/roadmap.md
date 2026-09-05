@@ -239,7 +239,9 @@ What exists, and why this is harder than the chat side:
 ## The context window meter
 
 - [x] Work out why the meter reads a full window. **Diagnosed and fixed:** the numerator was measuring throughput, not context size.
-- [ ] Assume the denominator from the selected model, so the meter reads before the first turn completes.
+- [x] Assume the denominator from the selected model, so the meter reads before the first turn completes.
+
+What shipped: `AgentModel.nominalContextWindow` derives the assumed window from the ID — 1M for everything in `selectable` except `more`'s bare 256K variants, which report 200,000 (matching the real `modelUsage` figure the fixture carries). Nil outside `selectable`, so an unrecognized model assumes nothing. `HeadlessSession.nominalContextWindow` exposes `model?.nominalContextWindow`, and `ChatTabView`'s `StatuslineStripView` call now falls back to it, then to `tab.model?.nominalContextWindow`, only after both measured sources (`headlessSession?.contextWindow`, `tab.contextWindowTokens`) come up nil — a reported window still wins. The label stays undistinguished between measured and assumed, per plan.
 
 **Root `usage` on a `result` event accumulates across the round-trips within one turn.** Each round-trip re-reads the whole cached prompt, and the root object sums those re-reads. `ContextUsage.total`'s four-way sum was therefore reporting cumulative token throughput for the turn rather than the size of the context. The two coincide only when a turn makes exactly one round-trip, which is why trivial probes and transcript sampling both looked correct for so long.
 

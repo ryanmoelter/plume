@@ -154,4 +154,26 @@ struct ModelEffortCommandTests {
             "claude-haiku-4-5-20251001",
         ])
     }
+
+    /// 200,000 and 1,000,000 are the exact figures a real `modelUsage` entry
+    /// reports for a 256K and a 1M model, per `basic.ndjson`
+    /// (`StreamJSONDecoderTests.largestContextWindowPicksTheMaxAcrossModelUsage`).
+    @Test(arguments: [
+        (AgentModel.fable, 1_000_000),
+        (AgentModel.opus, 1_000_000),
+        (AgentModel.sonnet, 1_000_000),
+        (AgentModel.haiku, 1_000_000),
+        (AgentModel.more[0], 200_000),
+        (AgentModel.more[1], 200_000),
+        (AgentModel.more[2], 200_000),
+    ])
+    func nominalContextWindowMatchesTheRealFigure(model: AgentModel, expected: Int) {
+        #expect(model.nominalContextWindow == expected)
+    }
+
+    /// A model this build has never heard of assumes nothing, rather than
+    /// guessing at a window it has no basis for.
+    @Test func nominalContextWindowIsNilForAnUnrecognizedModel() {
+        #expect(AgentModel(unrecognizedID: "claude-newthing-9").nominalContextWindow == nil)
+    }
 }

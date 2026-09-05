@@ -141,6 +141,17 @@ struct HeadlessSessionStatuslineStateTests {
         #expect(session.hasReportedModeAndModel)
     }
 
+    /// The window follows the optimistic model immediately, before any turn
+    /// reports a real one — that's the whole point of assuming it.
+    @Test func nominalContextWindowFollowsTheOptimisticModel() {
+        let session = makeSession()
+        #expect(session.nominalContextWindow == nil)
+
+        session.setModel(.opus)
+
+        #expect(session.nominalContextWindow == 1_000_000)
+    }
+
     /// Allowing `ExitPlanMode` only answers that tool call — the CLI has no
     /// field on the response for changing mode, so approving a plan without
     /// also switching mode leaves the session stuck in `plan` and the agent

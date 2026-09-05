@@ -5,8 +5,10 @@ import Foundation
 /// branch — a native equivalent of `~/.scripts/.claude/statusline.sh`.
 ///
 /// Everything is a plain parameter so it previews and renders without a
-/// store. Context is transcript-derived; quota and cost only reach a headless
-/// session, so those segments render only when the stream has pushed them.
+/// store. `contextMaxTokens` may be a measured value or the model's assumed
+/// window — the label makes no distinction, by design. Quota and cost only
+/// reach a headless session, so those segments render only when the stream
+/// has pushed them.
 ///
 /// What a message will do next — permission mode, model, effort — lives in
 /// `ChatComposer` instead: those describe the *next* turn, not the session as

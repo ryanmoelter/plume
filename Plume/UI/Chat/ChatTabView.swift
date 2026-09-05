@@ -125,11 +125,15 @@ struct ChatTabView: View, ThemedView {
                                     // resumed conversation has neither until
                                     // it takes a turn: the transcript's last
                                     // usage and the tab's stored window cover
-                                    // that gap.
+                                    // that gap. contextMaxTokens falls back
+                                    // further still, to the model's nominal
+                                    // window — known before either does.
                                     contextUsedTokens: headlessSession?.contextUsedTokens
                                         ?? transcript.latestUsage?.contextUsedTokens,
                                     contextMaxTokens: headlessSession?.contextWindow
-                                        ?? tab.contextWindowTokens,
+                                        ?? tab.contextWindowTokens
+                                        ?? headlessSession?.nominalContextWindow
+                                        ?? tab.model?.nominalContextWindow,
                                     branch: transcript.gitBranch,
                                     gitState: GitStateStore.shared.state(for: gitDirectory),
                                     rateLimit: headlessSession?.rateLimit,
