@@ -32,7 +32,6 @@ struct WorkspacePickerView: View {
                     .help("This directory no longer exists.")
             }
         }
-        .padding(.horizontal, 4)
         .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
         .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
             handleDrop(providers)

@@ -255,7 +255,8 @@ struct ChatTabView: View, ThemedView {
                 planButton(path: planFilePath)
             }
         }
-        .padding(.horizontal, dimensions.panelContentInset)
+        // The one leading edge the composer's text and controls also sit on.
+        .padding(.horizontal, dimensions.composerFieldInset)
     }
 
     private func planButton(path: String) -> some View {
@@ -267,7 +268,7 @@ struct ChatTabView: View, ThemedView {
         .buttonStyle(.plain)
         .font(.caption)
         .emphasis(.secondary)
-        .padding(.horizontal, 10)
+        .padding(.leading, dimensions.panelContentInset)
         .padding(.vertical, 4)
     }
 
