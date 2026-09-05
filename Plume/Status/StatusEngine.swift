@@ -54,8 +54,8 @@ final class StatusEngine {
     static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
         guard subagentsWorking else { return own }
         switch own {
-        case .unset, .idle, .done, .working: .working
-        case .needsInput, .error: own
+        case .unset, .idle, .done, .working: return .working
+        case .needsInput, .error: return own
         }
     }
 
@@ -96,8 +96,12 @@ final class StatusEngine {
 
     /// Records whether a tab's conversation still has subagents working.
     /// Fed from `TranscriptStore`, which watches each subagent transcript.
-    func setSubagentActivity(tabID: UUID, taskID: UUID, working: Bool) {
-        tabsByTask[taskID, default: []].insert(tabID)
+    ///
+    /// The task is resolved here because the transcript layer only knows tab
+    /// IDs. A tab that never registered has no task to aggregate into, so its
+    /// activity is dropped rather than inventing one.
+    func setSubagentActivity(tabID: UUID, working: Bool) {
+        guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return }
         guard tabsWithWorkingSubagents.contains(tabID) != working else { return }
 
         let previousTabStatus = self.status(forTab: tabID)
