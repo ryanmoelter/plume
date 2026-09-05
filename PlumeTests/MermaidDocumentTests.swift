@@ -57,16 +57,17 @@ struct MermaidDocumentTests {
         #expect(escaped.contains("\\n"))
     }
 
-    @Test func bothSizingModesCenterTheDiagram() {
-        for sizing in [MermaidDocument.Sizing.natural, .fit] {
+    @Test func allSizingModesCenterTheDiagram() {
+        for sizing in [MermaidDocument.Sizing.natural, .fit, .fitZoomable] {
             let html = MermaidDocument.html(
                 source: "graph TD;",
                 isDark: false,
                 foregroundHex: "#000000",
                 sizing: sizing
             )
-            // Natural centers the block with auto margins; fit fills the
-            // panel and centers through its flex container.
+            // Natural centers the block with auto margins; fit and
+            // fitZoomable fill the panel and center through their flex
+            // container.
             #expect(html.contains("justify-content: center"))
             #expect(html.contains(sizing == .natural ? "margin: 0 auto" : "align-items: center"))
         }
@@ -98,7 +99,7 @@ struct MermaidDocumentTests {
         #expect(html.contains("height: 100%"))
     }
 
-    @Test func neitherSizingModeLetsThePageScroll() {
+    @Test func naturalAndFitDoNotLetThePageScroll() {
         // A page with something to scroll swallows the wheel event that
         // should reach the chat list.
         for sizing in [MermaidDocument.Sizing.natural, .fit] {
@@ -112,6 +113,22 @@ struct MermaidDocumentTests {
             #expect(html.contains("overscroll-behavior: none"))
             #expect(!html.contains("-webkit-overflow-scrolling: touch"))
         }
+    }
+
+    @Test func fitZoomableAllowsOverflowForPanningButHidesItsScrollbar() {
+        // The fullscreen sheet's own WKWebView pans a zoomed diagram by
+        // scrolling the page itself, so unlike natural/fit it must not clip.
+        let html = MermaidDocument.html(
+            source: "graph TD; A-->B;",
+            isDark: false,
+            foregroundHex: "#000000",
+            sizing: .fitZoomable
+        )
+        #expect(html.contains("overflow: auto"))
+        #expect(!html.contains("overflow: hidden"))
+        #expect(html.contains("overscroll-behavior: none"))
+        #expect(html.contains("scrollbar-width: none"))
+        #expect(html.contains("::-webkit-scrollbar { display: none; }"))
     }
 
     @Test func renderReportCarriesTheContainerSize() {

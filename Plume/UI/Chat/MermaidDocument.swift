@@ -24,6 +24,14 @@ nonisolated enum MermaidDocument {
         /// The SVG scales down to fit the viewport in both axes. The page
         /// still reports, but the host already knows its own height.
         case fit
+        /// Same initial layout as `.fit`, but the page allows itself to
+        /// overflow instead of clipping. `WKWebView` magnification scales the
+        /// whole page, so once zoomed past 1x the page grows past its
+        /// viewport — this is what lets a two-finger scroll pan the zoomed
+        /// result instead of the page just clipping it. Scrollbars are
+        /// hidden and bounce is disabled so magnification 1.0 still looks
+        /// exactly like `.fit`.
+        case fitZoomable
     }
 
     static func html(
@@ -42,11 +50,7 @@ nonisolated enum MermaidDocument {
             padding: 0;
             background: transparent;
             color: \(foregroundHex);
-            /* The page must have nothing of its own to scroll, so a wheel
-               event over the diagram is left for the chat list. */
-            overflow: hidden;
-            -webkit-overflow-scrolling: auto;
-            overscroll-behavior: none;
+            \(overflowCSS(sizing: sizing))
           }
           \(layoutCSS(sizing: sizing))
         </style>
@@ -99,8 +103,31 @@ nonisolated enum MermaidDocument {
         """
     }
 
-    /// Both modes center the diagram; they differ in whether the SVG keeps
-    /// its natural height or scales to the space the page is given.
+    /// The page must have nothing of its own to scroll in `.natural` and
+    /// `.fit`, so a wheel event over the diagram is left for the chat list.
+    /// `.fitZoomable` is the fullscreen sheet's own `WKWebView`, which is
+    /// meant to pan once magnification grows the page past its viewport, so
+    /// it allows overflow instead — with its scrollbar hidden and bounce
+    /// disabled so magnification 1.0 still looks exactly like `.fit`.
+    private static func overflowCSS(sizing: Sizing) -> String {
+        switch sizing {
+        case .natural, .fit:
+            return """
+            overflow: hidden;
+                -webkit-overflow-scrolling: auto;
+                overscroll-behavior: none;
+            """
+        case .fitZoomable:
+            return """
+            overflow: auto;
+                overscroll-behavior: none;
+                scrollbar-width: none;
+            """
+        }
+    }
+
+    /// All three modes center the diagram; they differ in whether the SVG
+    /// keeps its natural height or scales to the space the page is given.
     ///
     /// `body` is the flex container rather than `#diagram` so the centering
     /// survives an SVG narrower than the page, which is the common case.
@@ -112,7 +139,7 @@ nonisolated enum MermaidDocument {
               #diagram { display: block; max-width: 100%; }
               #diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
             """
-        case .fit:
+        case .fit, .fitZoomable:
             return """
             html, body { width: 100%; height: 100%; }
               body { display: flex; align-items: center; justify-content: center; }
@@ -129,6 +156,9 @@ nonisolated enum MermaidDocument {
                 object-fit: contain;
                 display: block;
               }
+              /* Hides the scrollbar for `.fitZoomable`; a no-op elsewhere
+                 since nothing overflows there. */
+              ::-webkit-scrollbar { display: none; }
             """
         }
     }
