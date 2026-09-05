@@ -36,7 +36,11 @@ struct MainWindow: View {
             let group = selectedTask?.group
             let siblings = tasks.filter { $0.group?.id == group?.id }
             let task = TaskStore.createTask(
-                in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
+                in: context,
+                group: group,
+                siblings: siblings,
+                defaultsToRecentFolder: true,
+                inheritingFrom: selectedTask
             )
             selection = task.id
         }
@@ -58,8 +62,9 @@ struct MainWindow: View {
                 },
                 closeSelectedTab: {
                     guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
-                    else { return }
+                    else { return false }
                     TaskStore.closeTab(tab, in: context)
+                    return true
                 },
                 archiveSelectedTask: {
                     task.isArchived = true

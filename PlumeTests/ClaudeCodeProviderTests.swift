@@ -70,11 +70,18 @@ struct ClaudeCodeProviderTests {
         #expect(launch.environment["PLUME_EVENTS_DIR"] == AppPaths.eventsDirectory.path)
     }
 
-    @Test func missingTaskOrTabIDOmitsEnvironment() {
+    @Test func missingTaskOrTabIDOmitsHookEnvironment() {
         let launch = provider.launchCommand(
             firstMessage: nil, resumeSessionID: nil, taskID: nil, tabID: UUID()
         )
-        #expect(launch.environment.isEmpty)
+        #expect(launch.environment["PLUME_TASK_ID"] == nil)
+        #expect(launch.environment["PLUME_TAB_ID"] == nil)
+        #expect(launch.environment["PLUME_EVENTS_DIR"] == nil)
+    }
+
+    @Test func everyLaunchMarksItselfAsRunningInPlume() {
+        let launch = provider.launchCommand(firstMessage: nil, resumeSessionID: nil)
+        #expect(launch.environment["PLUME"] == "1")
     }
 
     @Test func resumeViaTheFourArgumentOverloadStillQuotesTheSessionID() {

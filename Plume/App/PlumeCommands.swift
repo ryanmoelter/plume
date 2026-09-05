@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct NewTaskActionKey: FocusedValueKey {
@@ -14,7 +15,9 @@ struct TaskCommands {
     let addTab: (TabKind) -> Void
     let selectTab: (Int) -> Void
     let cycleTab: (Int) -> Void
-    let closeSelectedTab: () -> Void
+    /// Returns whether a tab was actually closed, so ⌘W can fall back to
+    /// closing the window when the task has none.
+    let closeSelectedTab: () -> Bool
     let archiveSelectedTask: () -> Void
     /// Nil when the selected tab has no stored session to discard.
     let startFreshSelectedTab: (() -> Void)?
@@ -67,10 +70,18 @@ struct PlumeCommands: Commands {
                 .disabled(showArchive == nil)
         }
 
-        CommandGroup(after: .saveItem) {
-            Button("Close Tab") { task?.closeSelectedTab() }
-                .keyboardShortcut("w")
-                .disabled(task == nil)
+        // Replaces rather than inserts after: `.saveItem` is where AppKit's
+        // own "Close Window" lives, and two items sharing ⌘W leaves AppKit's
+        // in charge. This item covers both cases itself — closing the
+        // selected tab when there is one, the window otherwise — so it
+        // never needs to be disabled.
+        CommandGroup(replacing: .saveItem) {
+            Button("Close Tab") {
+                if task?.closeSelectedTab() != true {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+            }
+            .keyboardShortcut("w")
 
             Button("Archive Task") { task?.archiveSelectedTask() }
                 .keyboardShortcut("a", modifiers: [.command, .control])

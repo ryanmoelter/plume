@@ -147,6 +147,7 @@ private struct TerminalTabHost: View {
                 for: tab.id,
                 options: TerminalSurfaceOptions(
                     workingDirectory: task.workingDirectoryPath,
+                    envVars: LoginShellCommand.plumeEnvironment,
                     command: LoginShellCommand.loginShell()
                 )
             )
