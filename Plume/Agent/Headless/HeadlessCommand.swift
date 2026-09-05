@@ -9,7 +9,8 @@ enum HeadlessCommand {
     static func arguments(
         resumeSessionID: String?,
         permissionMode: PermissionMode?,
-        settingsPath: String?
+        settingsPath: String?,
+        model: AgentModel? = nil
     ) -> [String] {
         var arguments = [
             "claude",
@@ -31,6 +32,13 @@ enum HeadlessCommand {
         // preferred mode.
         arguments.append("--permission-mode")
         arguments.append((permissionMode ?? .acceptEdits).token)
+
+        // Left off entirely when unset, so the CLI keeps its own default
+        // rather than being pinned to a guess.
+        if let model {
+            arguments.append("--model")
+            arguments.append(model.token)
+        }
 
         if let settingsPath {
             arguments.append("--settings")

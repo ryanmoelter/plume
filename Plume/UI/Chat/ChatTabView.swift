@@ -173,6 +173,10 @@ struct ChatTabView: View, ThemedView {
             guard let mode, tab.permissionMode != mode else { return }
             tab.permissionMode = mode
         }
+        .onChange(of: headlessSession?.model) { _, model in
+            guard let model, tab.model != model else { return }
+            tab.model = model
+        }
         .onChange(of: headlessSession?.effort) { _, effort in
             guard let effort, tab.effort != effort else { return }
             tab.effort = effort

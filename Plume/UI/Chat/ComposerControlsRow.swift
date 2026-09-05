@@ -7,6 +7,11 @@ import SwiftUI
 /// these describe the turn about to be sent, so they live beside the send
 /// button instead.
 ///
+/// Before a session exists the same three controls read and write the tab's
+/// own persisted values, which is what `AgentLauncher` launches from — so the
+/// first turn, the only one whose settings are free to choose, is settable
+/// too. Once launched the session's live values take over.
+///
 /// Each segment is self-contained — it reads and writes only its own piece of
 /// session state — so the row can later become reorderable/hideable without
 /// special-casing any one of them.
@@ -14,6 +19,7 @@ struct ComposerControlsRow: View, ThemedView {
     @Environment(\.theme) var theme
 
     @Bindable var task: WorkTask
+    @Bindable var tab: TaskTab
     let headlessSession: HeadlessSession?
     /// False once an agent is running: the working directory is fixed at
     /// launch, so the workspace chips render as labels.
@@ -23,11 +29,9 @@ struct ComposerControlsRow: View, ThemedView {
         HStack(spacing: 12) {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
             Spacer(minLength: 8)
-            if let headlessSession {
-                ModelControl(session: headlessSession)
-                EffortControl(session: headlessSession)
-                PermissionModeControl(session: headlessSession)
-            }
+            ModelControl(state: .init(session: headlessSession, tab: tab))
+            EffortControl(state: .init(session: headlessSession, tab: tab))
+            PermissionModeControl(state: .init(session: headlessSession, tab: tab))
         }
         .font(typography.caption.font)
     }
@@ -43,20 +47,21 @@ private func segmentLabel(_ text: String, foreground: Color) -> some View {
 /// truthful unfamiliar label than a familiar wrong one.
 private struct PermissionModeControl: View, ThemedView {
     @Environment(\.theme) var theme
-    @Bindable var session: HeadlessSession
+    let state: ComposerSettings
 
     var body: some View {
-        if let mode = session.permissionMode {
+        if let mode = state.permissionMode {
             Menu {
                 ForEach(PermissionMode.allCases) { option in
-                    Button(option.label) { session.setPermissionMode(option) }
+                    Button(option.label) { state.setPermissionMode(option) }
                 }
             } label: {
                 segmentLabel(mode.label, foreground: foreground(for: attention(mode)))
+                    .unconfirmed(state.isModeAndModelUnconfirmed)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help("Permission mode")
+            .help(state.modeAndModelHelp("Permission mode"))
         }
     }
 
@@ -73,32 +78,38 @@ private struct PermissionModeControl: View, ThemedView {
 
 private struct ModelControl: View, ThemedView {
     @Environment(\.theme) var theme
-    @Bindable var session: HeadlessSession
+    let state: ComposerSettings
 
     var body: some View {
-        if let model = session.model {
-            Menu {
-                ForEach(AgentModel.allCases) { option in
-                    Button(option.label) { session.setModel(option) }
-                }
-            } label: {
-                segmentLabel(model.label, foreground: colors.foreground)
+        Menu {
+            ForEach(AgentModel.allCases) { option in
+                Button(option.label) { state.setModel(option) }
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Model")
+        } label: {
+            // A tab that has never chosen one launches without `--model`, so
+            // there is no value to name until the CLI reports its own.
+            segmentLabel(
+                state.model?.label ?? "Model",
+                foreground: state.model == nil
+                    ? colors.foreground.opacity(colors.emphasis[.secondary])
+                    : colors.foreground
+            )
+            .unconfirmed(state.isModeAndModelUnconfirmed)
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(state.modeAndModelHelp("Model"))
     }
 }
 
 private struct EffortControl: View, ThemedView {
     @Environment(\.theme) var theme
-    @Bindable var session: HeadlessSession
+    let state: ComposerSettings
 
     var body: some View {
         Menu {
             ForEach(AgentEffort.allCases) { option in
-                Button(option.label) { session.setEffort(option) }
+                Button(option.label) { state.setEffort(option) }
             }
         } label: {
             // Nothing reports the CLI's own effort back (see `HeadlessSession.
@@ -106,8 +117,8 @@ private struct EffortControl: View, ThemedView {
             // show. The control still renders — a value the user cannot see
             // is no reason to take away the only way to set it.
             segmentLabel(
-                session.effort?.label ?? "Effort",
-                foreground: session.effort.map { foreground(for: attention($0)) }
+                state.effort?.label ?? "Effort",
+                foreground: state.effort.map { foreground(for: attention($0)) }
                     ?? colors.foreground.opacity(colors.emphasis[.secondary])
             )
         }
@@ -131,9 +142,18 @@ private struct EffortControl: View, ThemedView {
     }
 }
 
+private extension View {
+    /// Dims a label whose value is Plume's own guess rather than something the
+    /// conversation has reported.
+    func unconfirmed(_ isUnconfirmed: Bool) -> some View {
+        opacity(isUnconfirmed ? 0.55 : 1)
+    }
+}
+
 #Preview {
     ComposerControlsRow(
         task: WorkTask(title: "Preview", orderIndex: 0),
+        tab: TaskTab(kind: .agent, orderIndex: 0),
         headlessSession: nil
     )
     .padding()

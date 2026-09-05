@@ -126,6 +126,7 @@ struct ChatComposer: View, ThemedView {
                 HStack(spacing: 8) {
                     ComposerControlsRow(
                         task: task,
+                        tab: tab,
                         headlessSession: headlessSession,
                         isWorkspaceEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
                             && headlessSession == nil

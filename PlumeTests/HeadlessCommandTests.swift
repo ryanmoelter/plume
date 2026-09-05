@@ -58,6 +58,38 @@ struct HeadlessCommandTests {
     }
 }
 
+/// `--model` carries the tab's pre-launch choice, so the first turn runs on
+/// the model the user picked rather than the CLI's default.
+struct HeadlessCommandModelTests {
+    private func modelToken(in arguments: [String]) -> String? {
+        guard let flagIndex = arguments.firstIndex(of: "--model") else { return nil }
+        let tokenIndex = arguments.index(after: flagIndex)
+        return arguments.indices.contains(tokenIndex) ? arguments[tokenIndex] : nil
+    }
+
+    @Test func passesTheChosenModel() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            model: .opus
+        )
+        #expect(modelToken(in: arguments) == "opus")
+    }
+
+    /// No choice means no flag, so the CLI keeps its own default rather than
+    /// being pinned to a guess Plume invented.
+    @Test func omitsTheFlagWhenNoModelIsChosen() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            model: nil
+        )
+        #expect(!arguments.contains("--model"))
+    }
+}
+
 /// Locks down the login-shell wrap that puts `claude` on PATH. A GUI-launched
 /// app inherits launchd's minimal PATH, so exec'ing `claude` directly fails
 /// with "No such file or directory" even though a terminal finds it.

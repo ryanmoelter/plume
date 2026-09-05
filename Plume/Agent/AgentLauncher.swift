@@ -95,7 +95,8 @@ enum AgentLauncher {
             ),
             resumeSessionID: resumeSessionID,
             settingsPath: settingsPath,
-            environment: LoginShellCommand.plumeEnvironment
+            environment: LoginShellCommand.plumeEnvironment,
+            model: tab.model
         )
         if let message {
             session.submit(text: message)

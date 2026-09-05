@@ -69,6 +69,11 @@ final class HeadlessSession {
     private(set) var model: AgentModel?
     private(set) var effort: AgentEffort?
 
+    /// False while `model`/`permissionMode` are still Plume's own guess —
+    /// seeded from the tab, or asked for at launch — so the UI can show them
+    /// as unconfirmed until `init` reports what the conversation really has.
+    private(set) var hasReportedModeAndModel = false
+
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [String] = []
 
@@ -101,14 +106,17 @@ final class HeadlessSession {
         permissionMode: PermissionMode?,
         resumeSessionID: String?,
         settingsPath: String?,
+        model: AgentModel? = nil,
         environment: [String: String] = [:]
     ) {
         guard process == nil else { return }
         self.permissionMode = permissionMode
+        if let model { self.model = model }
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
-            settingsPath: settingsPath
+            settingsPath: settingsPath,
+            model: model
         )
         let handler = HeadlessProcess(
             onMessage: { [weak self] message in
@@ -233,6 +241,7 @@ final class HeadlessSession {
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
+            hasReportedModeAndModel = true
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
             }
