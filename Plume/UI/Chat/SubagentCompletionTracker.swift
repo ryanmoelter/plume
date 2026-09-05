@@ -76,6 +76,12 @@ final class SubagentCompletionTracker {
         return since.duration(to: .now) >= linger
     }
 
+    /// When a row's linger started, so a test can assert the clock without
+    /// waiting one out.
+    func completionInstant(forSubagentID subagentID: String, tabID: UUID) -> ContinuousClock.Instant? {
+        completedAt[Key(tabID: tabID, subagentID: subagentID)]
+    }
+
     /// Drops a closed tab's rows, alongside the other per-tab stores a delete
     /// clears.
     func forget(tabID: UUID) {

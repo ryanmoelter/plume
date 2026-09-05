@@ -86,18 +86,19 @@ struct SubagentCompletionTrackerTests {
     /// restarted its countdown on the way back. A lookup from a fresh view has
     /// to find the linger already part-elapsed.
     @Test func aLingerSurvivesTheViewThatStartedIt() async throws {
-        let tracker = SubagentCompletionTracker(linger: .milliseconds(60))
+        // Long enough that no scheduling delay can elapse it mid-test; the
+        // point is that re-observing does not reset the clock, not the timing.
+        let tracker = SubagentCompletionTracker(linger: .seconds(30))
         let done = subagent("a1", .done)
 
         tracker.observe([done], tabID: tab)
-        try await Task.sleep(for: .milliseconds(40))
+        let started = tracker.completionInstant(forSubagentID: "a1", tabID: tab)
 
         // Coming back to the task re-observes from scratch.
         tracker.observe([done], tabID: tab)
-        #expect(!tracker.hasSettled(done, tabID: tab))
 
-        try await Task.sleep(for: .milliseconds(60))
-        #expect(tracker.hasSettled(done, tabID: tab))
+        #expect(tracker.completionInstant(forSubagentID: "a1", tabID: tab) == started)
+        #expect(!tracker.hasSettled(done, tabID: tab))
     }
 
     /// The timer has to live in the store too, so a row whose linger elapsed
