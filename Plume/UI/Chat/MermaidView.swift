@@ -74,8 +74,32 @@ struct MermaidBlock<Fallback: View>: View, ThemedView {
         .sheet(isPresented: $isFullScreen) {
             MermaidFullScreenView(source: source) { isFullScreen = false }
         }
+        #if DEBUG
+        .onAppear {
+            if MermaidFullScreenHarness.claimsFirstBlock() { isFullScreen = true }
+        }
+        #endif
     }
 }
+
+#if DEBUG
+/// `PLUME_OPEN_MERMAID_FULLSCREEN=1` opens the first diagram's sheet as it
+/// appears, so the fullscreen render can be read from the log without the UI
+/// scripting this environment has no permission for.
+@MainActor
+enum MermaidFullScreenHarness {
+    private static var claimed = false
+
+    static func claimsFirstBlock() -> Bool {
+        guard !claimed,
+              ProcessInfo.processInfo.environment["PLUME_OPEN_MERMAID_FULLSCREEN"] != nil
+        else { return false }
+        claimed = true
+        Log.app.info("Smoke harness opening the first mermaid diagram full screen")
+        return true
+    }
+}
+#endif
 
 enum MermaidLayout {
     /// Past this a diagram is taller than a comfortable row, so the inline
