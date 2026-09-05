@@ -88,6 +88,45 @@ struct HeadlessCommandModelTests {
         )
         #expect(!arguments.contains("--model"))
     }
+
+    /// A bare `--resume` restores the model the conversation already used, so
+    /// replaying an unchosen snapshot could only override a model changed
+    /// elsewhere. See "Model on resume" in docs/headless-protocol.md.
+    @Test func omitsTheFlagWhenResumingWithAnUnchosenModel() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: "session-1",
+            permissionMode: nil,
+            settingsPath: nil,
+            model: .sonnet,
+            isModelExplicitlyChosen: false
+        )
+        #expect(!arguments.contains("--model"))
+        #expect(arguments.contains("--resume"))
+    }
+
+    @Test func passesTheFlagWhenResumingAfterTheUserPickedAModel() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: "session-1",
+            permissionMode: nil,
+            settingsPath: nil,
+            model: .opus,
+            isModelExplicitlyChosen: true
+        )
+        #expect(modelToken(in: arguments) == "opus")
+    }
+
+    /// The rule is about resuming only: a cold launch has no conversation to
+    /// restore from, so the snapshot is the best guess available.
+    @Test func passesAnUnchosenModelOnAColdLaunch() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            model: .sonnet,
+            isModelExplicitlyChosen: false
+        )
+        #expect(modelToken(in: arguments) == "sonnet")
+    }
 }
 
 /// Locks down the login-shell wrap that puts `claude` on PATH. A GUI-launched

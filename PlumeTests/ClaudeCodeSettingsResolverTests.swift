@@ -43,4 +43,49 @@ struct ClaudeCodeSettingsResolverTests {
         """)
         #expect(ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode(settingsPath: path) == nil)
     }
+
+    private func resolvedModel(shared: String?, local: String? = nil) -> AgentModel? {
+        ClaudeCodeSettingsResolver.resolvedDefaultModel(
+            settingsPath: writeFixture(shared),
+            localSettingsPath: writeFixture(local)
+        )
+    }
+
+    @Test func resolvesTheConfiguredModelAlias() {
+        #expect(resolvedModel(shared: #"{ "model": "sonnet" }"#) == .sonnet)
+    }
+
+    /// The context-window suffix names a variant of the same model.
+    @Test func resolvesAnAliasCarryingAContextSuffix() {
+        #expect(resolvedModel(shared: #"{ "model": "opus[1m]" }"#) == .opus)
+    }
+
+    @Test func resolvesAFullModelID() {
+        #expect(resolvedModel(shared: #"{ "model": "claude-opus-5" }"#) == .opus)
+    }
+
+    @Test func theLocalFileOverridesTheSharedOne() {
+        let model = resolvedModel(
+            shared: #"{ "model": "sonnet" }"#,
+            local: #"{ "model": "opus" }"#
+        )
+        #expect(model == .opus)
+    }
+
+    /// A local file that configures no model leaves the shared one standing.
+    @Test func theSharedFileStandsWhenTheLocalOneOmitsTheKey() {
+        #expect(resolvedModel(shared: #"{ "model": "sonnet" }"#, local: "{}") == .sonnet)
+    }
+
+    @Test func missingModelKeyResolvesToNil() {
+        #expect(resolvedModel(shared: "{}") == nil)
+    }
+
+    @Test func unrecognizedModelResolvesToNil() {
+        #expect(resolvedModel(shared: #"{ "model": "gpt-9" }"#) == nil)
+    }
+
+    @Test func missingFilesResolveTheModelToNil() {
+        #expect(resolvedModel(shared: nil) == nil)
+    }
 }
