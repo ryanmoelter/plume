@@ -339,7 +339,7 @@ What exists:
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
-- [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. `SidebarView` builds it as a `Menu`; check whether its tint comes from `ThemeChrome` (which follows the resolved ghostty theme, not the system appearance) or from a hardcoded color.
+- [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. The archive and sidebar buttons beside it follow the appearance correctly, so the difference is in how the add button is built: `SidebarView` makes it a `Menu` where the neighbours are plain `Button`s, so look at the menu's label styling and any explicit tint rather than at `ThemeChrome`.
 
 What exists:
 
@@ -362,6 +362,7 @@ What exists:
 
 - Nothing in the app calls `IOPMAssertionCreateWithName` or spawns `caffeinate` yet. An `IOPMAssertion` of type `PreventUserIdleSystemSleep` is the whole mechanism; a single owner that counts reasons and holds one assertion while the count is non-zero is the shape.
 - Every signal already flows through in-memory state: `StatusEngine` knows every tab's `working` status across both transports, `SubagentTranscript.status` (new in 0.3.0) knows each subagent's, and a monitor is a tool call whose `tool_result` has not arrived, which the transcript parser already tracks for the tool-call row's spinner. The Ghostty wrapper reports `COMMAND_FINISHED` / `PROGRESS_REPORT`, which is what a terminal-command reason would key on.
+- **Remote control is a separate layer on top.** Someone driving Plume from a phone wants the Mac awake until they say otherwise, regardless of what is running. That points at a whole remote-control feature: show `/rc` status; give each session a three-way toggle — not caffeinated / caffeinated / caffeinated for a remote session; and a CLI Claude can call to set that state, alongside the notify helper under **Notifications**. The automatic reasons above and this manual override should share the one assertion owner.
 - Worth deciding: whether "waiting for input" keeps the Mac awake. It probably should not — the user is the one who is away — but a notification on wake-up (see **Notifications**) makes that safe to get wrong.
 
 ## Make the UI drivable
