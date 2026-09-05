@@ -21,18 +21,24 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                             .onTapGesture { onSelect(index) }
                     }
                 }
-                .padding(4)
+                .padding(rowInset)
             }
             .onChange(of: selectedIndex, initial: true) { _, newValue in
                 proxy.scrollTo(newValue)
             }
         }
         .frame(maxHeight: 200)
-        .background(washColor, in: .rect(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8).strokeBorder(.separator)
-        }
+        .background(washColor, in: shape)
+        .overlay { shape.strokeBorder(.separator) }
     }
+
+    /// The popup is a sibling of the composer's field box, so it takes the
+    /// same rounding; its rows are inset inside it and take a concentric one.
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
+    }
+
+    private let rowInset: CGFloat = 4
 
     private func row(_ command: SlashCommand, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
@@ -46,11 +52,17 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, dimensions.panelContentInset)
         .padding(.vertical, 5)
         .background(
             isSelected ? colors.selection.emphasized(.divider, in: colors) : .clear,
-            in: .rect(cornerRadius: 5)
+            in: .rect(
+                cornerRadius: ComposerPanelMetrics.concentricRadius(
+                    outer: dimensions.composerFieldCornerRadius,
+                    inset: rowInset
+                ),
+                style: .continuous
+            )
         )
         .contentShape(.rect)
     }

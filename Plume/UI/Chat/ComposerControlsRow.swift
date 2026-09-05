@@ -26,15 +26,18 @@ struct ComposerControlsRow: View, ThemedView {
     var isWorkspaceEditable = true
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: dimensions.panelContentInset) {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
                 .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
-            Spacer(minLength: 8)
+            Spacer(minLength: dimensions.panelContentInset)
             ModelControl(state: settings)
             EffortControl(state: settings)
             PermissionModeControl(state: settings)
         }
         .font(typography.caption.font)
+        // The row sits level with the send and stop circles beside it, so
+        // every segment takes their height rather than its own text's.
+        .frame(minHeight: dimensions.composerControlHeight)
     }
 
     private var settings: ComposerSettings {
@@ -48,8 +51,10 @@ struct ComposerControlsRow: View, ThemedView {
 
 /// A real dropdown — `.menuStyle(.borderlessButton)` supplies the one chevron
 /// this label needs, so `segmentLabel` never draws its own.
-private func segmentLabel(_ text: String, foreground: Color) -> some View {
-    Text(text).foregroundStyle(foreground)
+private func segmentLabel(_ text: String, foreground: Color, height: CGFloat) -> some View {
+    Text(text)
+        .foregroundStyle(foreground)
+        .frame(height: height)
 }
 
 /// A mode this UI does not offer still shows its reported name — better a
@@ -65,8 +70,12 @@ private struct PermissionModeControl: View, ThemedView {
                     Button(option.label) { state.setPermissionMode(option) }
                 }
             } label: {
-                segmentLabel(mode.label, foreground: foreground(for: attention(mode)))
-                    .unconfirmed(state.isModeAndModelUnconfirmed)
+                segmentLabel(
+                    mode.label,
+                    foreground: foreground(for: attention(mode)),
+                    height: dimensions.composerControlHeight
+                )
+                .unconfirmed(state.isModeAndModelUnconfirmed)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -110,7 +119,7 @@ private struct ModelControl: View, ThemedView {
                 Button("Other…") { isAskingForCustomID = true }
             }
         } label: {
-            segmentLabel(label, foreground: colors.foreground)
+            segmentLabel(label, foreground: colors.foreground, height: dimensions.composerControlHeight)
                 .unconfirmed(state.isModelAwaitingConfirmation)
         }
         .menuStyle(.borderlessButton)
@@ -180,7 +189,8 @@ private struct EffortControl: View, ThemedView {
             // also what seeds the session.
             segmentLabel(
                 state.effort.label,
-                foreground: foreground(for: attention(state.effort))
+                foreground: foreground(for: attention(state.effort)),
+                height: dimensions.composerControlHeight
             )
         }
         .menuStyle(.borderlessButton)

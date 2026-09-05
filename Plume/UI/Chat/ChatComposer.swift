@@ -83,7 +83,7 @@ struct ChatComposer: View, ThemedView {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: dimensions.panelContentInset) {
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -120,11 +120,14 @@ struct ChatComposer: View, ThemedView {
                     },
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
                 )
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
+                // Its own line-fragment padding covers the rest of the
+                // field's inset, so the first glyph lands over the control
+                // strip's left edge rather than beside it. The text view's
+                // vertical inset is the field's top padding.
+                .padding(.horizontal, dimensions.composerFieldInset - Self.lineFragmentPadding)
                 .accessibilityIdentifier(AccessibilityID.composerField)
 
-                HStack(spacing: 8) {
+                HStack(spacing: dimensions.panelContentInset) {
                     ComposerControlsRow(
                         task: task,
                         tab: tab,
@@ -137,13 +140,17 @@ struct ChatComposer: View, ThemedView {
                     }
                     sendButton
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, dimensions.composerFieldInset)
+                .padding(.bottom, dimensions.composerFieldInset)
             }
-            .background(fieldBackground, in: .rect(cornerRadius: 6, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))
+            .background(fieldBackground, in: fieldShape)
+            .overlay(fieldShape.strokeBorder(.separator))
         }
-        .listItemPadding()
+        // Content width, matching the prose above it, and inset from the
+        // panel's own edge by the same gap the field's rounding is cut to.
+        .chatTextColumn()
+        .padding(.horizontal, dimensions.panelContentInset)
+        .padding(.vertical, dimensions.panelContentInset)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in
@@ -154,13 +161,19 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
-    private static let sendButtonDiameter: CGFloat = 22
+    /// `NSTextView` draws its first glyph one line-fragment padding in from
+    /// its frame, which the field's own inset has to account for.
+    private static let lineFragmentPadding: CGFloat = 5
+
+    private var fieldShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
+    }
 
     private var sendButton: some View {
         Button(action: send) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 11, weight: .bold))
-                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
@@ -178,7 +191,7 @@ struct ChatComposer: View, ThemedView {
         } label: {
             Image(systemName: "stop.fill")
                 .font(.system(size: 11, weight: .bold))
-                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
@@ -229,9 +242,9 @@ struct ChatComposer: View, ThemedView {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.quaternary, in: .rect(cornerRadius: 6))
+        .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.panelContentInset)
+        .background(.quaternary, in: .rect(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous))
     }
 }
 
