@@ -21,7 +21,7 @@ This is a Release-only property. In Debug the real code lives in `Plume.debug.dy
 
 ### 1. Bump the version
 
-`MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `Plume.xcodeproj/project.pbxproj`. Each appears once per build configuration, for **all three targets** — only the two blocks carrying `PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume` (the app's Debug and Release) matter. Leave the `PlumeTests` and `PlumeUITests` copies alone; they never reach the shipped bundle.
+`MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `Plume.xcodeproj/project.pbxproj`. Each appears once per build configuration, for **all three targets** — only the app target's own Debug and Release blocks matter (their bundle identifiers are `com.ryanmoelter.Plume.debug` and `com.ryanmoelter.Plume`). Leave the `PlumeTests` and `PlumeUITests` copies alone; they never reach the shipped bundle.
 
 - `MARKETING_VERSION` is the human version (`0.1.0`) and becomes `CFBundleShortVersionString`.
 - `CURRENT_PROJECT_VERSION` is the build number and becomes `CFBundleVersion`. Bump it when you want to tell two installs of the same version apart.
@@ -72,7 +72,7 @@ Plume's SwiftData store lives at `~/Library/Application Support/Plume/Plume.stor
 
 Installing a new build does not touch it — that is the point, and it is what makes upgrading safe. Two consequences:
 
-- **Debug and Release share the store.** A debug run writes the data the installed app then reads. Convenient for seeding, but remember it cuts both ways.
+- **Debug and Release keep separate stores.** The Debug bundle identifier carries a `.debug` suffix and `AppPaths.directoryName` keys off it, so a debug run writes to `Plume.debug/` and the two can run side by side. The catch is that debug testing never exercises the installed app's store, so a schema change meets the real data for the first time when you launch the release.
 - **A schema change can outrun lightweight migration.** If the store fails to open, `PlumeApp` moves it aside as `Plume.store.<timestamp>.bak` and starts empty rather than refusing to launch. You get a working app and a recoverable file, not a crash loop. Watch for it:
 
   ```
