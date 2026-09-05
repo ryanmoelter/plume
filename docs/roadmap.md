@@ -19,6 +19,9 @@ Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet o
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
 - **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
 - **S** — Truncate sidebar task titles at the trailing edge instead of the middle. See [Misc UX](#misc-ux).
+- **M** — Animate chat row height changes. See [Chat animation](#chat-animation).
+- **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
+- **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
 - **S** — Assume the context window denominator from the selected model, so the meter reads on a fresh tab. See [The context window meter](#the-context-window-meter).
 - **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
@@ -207,6 +210,31 @@ The answers on a settled block come from the tool result's own text, parsed in `
 - [x] Give a streaming response the same space above it that a finished one has. A reply sits tighter to the message above while it streams, then shifts down once the transcript takes over — so the text moves as the turn settles.
 
 `StreamingBlocks` mounts in two places and only one was padded like a message. Inside `ChatMessageRow.assistantBody` it inherits that body's `.padding(.vertical, 4)`; mounted standalone in `ChatMessageList` — the case for a turn that has not produced an assistant message yet — it got the list padding and nothing else, rendering 4pt tighter. The standalone mount now pays that inset itself. Putting it on `StreamingBlocks` instead was tried and reverted: the view is a mid-stack element inside `assistantBody`, so unconditional padding there would have doubled up and widened the mid-turn gap between settled and streaming text.
+
+## Chat animation
+
+Two separate animations, to be taken one at a time and iterated on.
+
+- [ ] Animate the height of a chat row as it changes, so a row that grows or collapses eases into its new size instead of jumping.
+- [ ] Reveal streamed characters one at a time, rather than a whole paragraph appearing at once. Nothing fancy — the point is that text arrives at a readable pace.
+
+What exists, and the constraint both items run into:
+
+- **The chat list is a `LazyVStack` that must not be driven programmatically.** `docs/chat-list-hang.md` records a hang where an animation in flight inside the lazy stack's placement pass never reached a fixed point: each pass moved the target, the prefetch asked for another, and the content grew underneath. The list now follows content through `defaultScrollAnchor(.bottom, for: .sizeChanges)` alone (`ChatMessageList.swift:113-114`), with no `ScrollViewReader`, no per-row `.id()`, no `scrollTo`. Row-height animation is the item closest to that failure — an animated height *is* a size change the anchor reacts to, on rows the stack is still estimating — so it wants the harness in that doc pointed at it before it is called done.
+- **A per-tick animation next to this list has already been measured as expensive.** `ChatMessageRow.swift:155-161` explains why the working dot derives opacity from a `TimelineView` clock instead of using `phaseAnimator` or a `repeatForever` opacity animation: those rebuilt the whole chat tree ~37,000 times over 15 seconds. A character reveal is the same shape of risk, and the same escape hatch (drive from a clock, keep the redraw inside one view) is the thing to reach for.
+- **The text to reveal already accumulates in one place.** `HeadlessSession.streamingText` appends `textDelta`s (`HeadlessSession.swift:281`), and a delta can carry many characters at once — which is exactly why a paragraph can land whole today. `ChatStreamHandoff.Overlay.text` is what `StreamingBlocks` draws, so the reveal is a rendering concern over a growing buffer rather than a change to the transport.
+- **It can be driven without a live model.** `HeadlessSession.debugStream(text:restart:)` (DEBUG only, `HeadlessSession.swift:96-99`) feeds the live-text path with no process, so `SmokeHarness` can exercise a reveal against a transcript on disk.
+
+## Terminal history restore
+
+- [ ] Store a terminal tab's output and restore it, so reopening a tab shows what the last session printed.
+
+What exists, and why this is harder than the chat side:
+
+- **Nothing survives today.** Surfaces live across tab and task switches, since `TabContentView` keeps every tab mounted and only toggles visibility, and `SurfaceManager` returns the cached session. But `SurfaceManager` is in-memory only and holds no persistence, so a relaunch gives every terminal tab a fresh PTY with empty scrollback. `TaskTab` persists only small scalars — no bulk text, and there is no tee, ring buffer or recorder capturing PTY output anywhere in the app.
+- **The chat's restore model does not transfer.** A chat tab restores because *Claude Code* writes a structured JSONL transcript and Plume stores only its path, watches it, and re-parses it (`SessionJSONLReader`, `TranscriptStore`, `TranscriptParser`). A plain shell has no equivalent — its history is rendered terminal output, already interpreted into a grid, with nobody writing a semantic log of it.
+- **The C API supports both halves; the Swift wrapper exposes neither on the surface Plume uses.** `ghostty.h` declares `ghostty_surface_read_text` (with a `GHOSTTY_POINT_SCREEN` tag that reaches scrollback, not just the viewport) and `ghostty_surface_write_buffer`, which paints bytes into the grid for display without them reaching the child process. In the wrapper, both are called only from `InMemoryTerminalSession`, a separate headless backend Plume does not use at all; the real `TerminalSurface` wraps only `ghostty_surface_read_selection`, which returns a user's current selection and nothing without one. So capture and replay each need wrapper work before either is reachable — and per the "All `ghostty_*` calls stay in `Plume/Ghostty/`" rule, that work belongs in one folder.
+- **`paste(text:)` is not the replay path.** It frames its argument as a bracketed paste into the running program's edit line, so restored scrollback would land as input to the shell rather than as prior output on screen.
 
 ## The context window meter
 
