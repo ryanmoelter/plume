@@ -7,7 +7,7 @@ struct PendingPermissionDock: View {
     let tabID: UUID
 
     var body: some View {
-        if let session = HeadlessSessionManager.shared.existingSession(for: tabID),
+        if let session = AgentSessionManager.shared.existingSession(for: tabID),
            !session.pendingPermissions.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(session.pendingPermissions) { permission in
@@ -18,7 +18,7 @@ struct PendingPermissionDock: View {
     }
 
     @ViewBuilder
-    private func row(for permission: PendingPermission, in session: HeadlessSession) -> some View {
+    private func row(for permission: PendingPermission, in session: any AgentSession) -> some View {
         if let interactive = permission.interactive {
             InteractiveToolRow(payload: interactive, isPending: true) { answer in
                 switch answer {

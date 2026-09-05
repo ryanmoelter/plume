@@ -70,7 +70,7 @@ private struct AgentTabContent: View {
 
 /// A headless agent tab: always chat, auto-resuming its session the first
 /// time it becomes visible — mirrors `AutoResumingAgentTabView`'s timing, but
-/// against `HeadlessSessionManager` instead of `SurfaceManager`.
+/// against `AgentSessionManager` instead of `SurfaceManager`.
 private struct HeadlessAgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -79,7 +79,7 @@ private struct HeadlessAgentTabContent: View {
     @State private var hasResumed = false
 
     /// Only the visible tab builds its chat. Nothing here owns a process —
-    /// `HeadlessSessionManager` does — so unmounting costs a rebuild on the
+    /// `AgentSessionManager` does — so unmounting costs a rebuild on the
     /// way back, where staying mounted costs a live `ScrollView` per hidden
     /// tab, each still laying out against a zero-height viewport.
     var body: some View {
@@ -107,7 +107,7 @@ private struct HeadlessAgentTabContent: View {
         guard AgentAutoResume.shouldResume(
             agentSessionID: tab.agentSessionID,
             workingDirectoryPath: task.workingDirectoryPath,
-            hasExistingSurfaceSession: HeadlessSessionManager.shared.existingSession(for: tab.id) != nil,
+            hasExistingSurfaceSession: AgentSessionManager.shared.existingSession(for: tab.id) != nil,
             directoryExists: { FileManager.default.fileExists(atPath: $0) }
         ) else { return }
 

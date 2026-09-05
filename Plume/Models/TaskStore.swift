@@ -69,8 +69,11 @@ enum TaskStore {
     ) -> TaskTab {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs), task: task)
         if kind == .agent {
-            tab.transport = AppSettings.shared.defaultAgentTransport
-            tab.provider = provider ?? AppSettings.shared.defaultProvider
+            let provider = provider ?? AppSettings.shared.defaultProvider
+            tab.provider = provider
+            tab.transport = provider.resolvedTransport(
+                preferring: AppSettings.shared.defaultAgentTransport
+            )
         }
         context.insert(tab)
         task.tabs.append(tab)
@@ -148,7 +151,7 @@ enum TaskStore {
         AgentEventMonitor.shared.stopWatching(tabID: tabID)
         AgentTitleMonitor.shared.stopWatching(tabID: tabID)
         SurfaceManager.shared.closeSession(for: tabID)
-        HeadlessSessionManager.shared.closeSession(for: tabID)
+        AgentSessionManager.shared.closeSession(for: tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)

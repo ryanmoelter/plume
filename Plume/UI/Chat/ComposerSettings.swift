@@ -38,11 +38,11 @@ struct ComposerSettings {
         }
     }
 
-    private let session: HeadlessSession?
+    private let session: (any AgentSession)?
     private let tab: TaskTab
     private let defaults: Defaults
 
-    init(session: HeadlessSession?, tab: TaskTab, defaults: Defaults) {
+    init(session: (any AgentSession)?, tab: TaskTab, defaults: Defaults) {
         self.session = session
         self.tab = tab
         self.defaults = defaults

@@ -131,9 +131,9 @@ struct ChatTabView: View, ThemedView {
         StatusEngine.shared.ownStatus(forTab: tab.id)
     }
 
-    private var headlessSession: HeadlessSession? {
+    private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
-        return HeadlessSessionManager.shared.existingSession(for: tab.id)
+        return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
     /// Which of the tab's states is on screen. An optimistic first message is
@@ -145,10 +145,10 @@ struct ChatTabView: View, ThemedView {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
-        } else if let startFailure = headlessSession?.startFailure {
+        } else if let startFailure = agentSession?.startFailure {
             startFailureState(startFailure)
         } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
-            || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
             || (tab.agentSessionID?.isEmpty == false) {
             // A process (or a resumable session) exists but has written no
             // transcript content yet — nothing to show but a quiet wait.
@@ -165,7 +165,7 @@ struct ChatTabView: View, ThemedView {
             content
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
-                    startFailure: headlessSession?.startFailure,
+                    startFailure: agentSession?.startFailure,
                     pending: $pendingFirstMessage
                 ))
         }
@@ -294,7 +294,7 @@ struct ChatTabView: View, ThemedView {
     /// it, rather than the transcript's wider bleed column a sent bubble
     /// sits in. Sharing the panel's edge instead of a sent message's is part
     /// of what says "not sent yet".
-    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
+    private func queuedMessagesView(_ session: any AgentSession) -> some View {
         VStack(spacing: 6) {
             ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
                 QueuedMessageChip(

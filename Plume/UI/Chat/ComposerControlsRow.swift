@@ -21,7 +21,7 @@ struct ComposerControlsRow: View, ThemedView {
 
     @Bindable var task: WorkTask
     @Bindable var tab: TaskTab
-    let headlessSession: HeadlessSession?
+    let headlessSession: (any AgentSession)?
     /// The plan a conversation has produced, when it's closed rather than
     /// docked or expanded — `ChatTabView` owns `PlanPresentation` and decides
     /// when that's true. A docked plan keeps its own bar above the composer;

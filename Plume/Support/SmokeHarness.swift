@@ -98,7 +98,7 @@ enum SmokeHarness {
            let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(Double(environment["PLUME_SEND_MESSAGE_2_DELAY"] ?? "") ?? 25))
-                HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id).submit(text: second)
+                AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id).submit(text: second)
                 Log.app.info("Smoke harness sent second message")
             }
         }
@@ -114,7 +114,7 @@ enum SmokeHarness {
            let first = tasks.first,
            let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
             Task { @MainActor in
-                let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+                let session = AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id)
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     guard let permission = session.pendingPermissions.first else { continue }
@@ -131,8 +131,8 @@ enum SmokeHarness {
         if let tickValue = environment["PLUME_FAKE_STREAM"],
            let tick = Double(tickValue), tick > 0,
            let first = tasks.first,
-           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
-            let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }),
+           let session = AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id) as? HeadlessSession {
             Task { @MainActor in
                 let chunks = ["Streaming ", "some **bold** ", "text, ", "with `code` ", "and a\n\n", "new paragraph. ", "- a list item\n", "- another\n\n"]
                 var index = 0
@@ -171,7 +171,7 @@ enum SmokeHarness {
     /// anything else as-is — whatever answers the specific pending request so
     /// the turn can proceed, since the point is exercising the resume path,
     /// not the choice made.
-    private static func autoAnswer(_ permission: PendingPermission, in session: HeadlessSession) {
+    private static func autoAnswer(_ permission: PendingPermission, in session: any AgentSession) {
         switch permission.interactive {
         case .questions(let questions):
             var answers: [String: String] = [:]

@@ -39,9 +39,9 @@ struct ChatComposer: View, ThemedView {
     @State private var pendingCaretLocation: Int?
     @State private var autocomplete = ComposerAutocompleteController()
 
-    private var headlessSession: HeadlessSession? {
+    private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
-        return HeadlessSessionManager.shared.existingSession(for: tab.id)
+        return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
     private var message: Binding<String> {

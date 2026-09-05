@@ -1,21 +1,21 @@
 import Foundation
 
-/// Owns every live headless conversation, keyed by tab ID.
+/// Owns every live agent conversation, keyed by tab ID.
 ///
 /// The counterpart to `SurfaceManager` for the headless transport: views ask
 /// for a session and render it, they never create or tear one down.
 @MainActor
 @Observable
-final class HeadlessSessionManager {
-    static let shared = HeadlessSessionManager()
+final class AgentSessionManager {
+    static let shared = AgentSessionManager()
 
-    private var sessions: [UUID: HeadlessSession] = [:]
+    private var sessions: [UUID: any AgentSession] = [:]
 
-    func existingSession(for tabID: UUID) -> HeadlessSession? {
+    func existingSession(for tabID: UUID) -> (any AgentSession)? {
         sessions[tabID]
     }
 
-    func session(for tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) -> HeadlessSession {
+    func session(for tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) -> any AgentSession {
         if let existing = sessions[tabID] { return existing }
         let session = HeadlessSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
         sessions[tabID] = session

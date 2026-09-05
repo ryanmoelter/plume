@@ -27,7 +27,7 @@ struct PendingPermission: Identifiable, Equatable {
 /// streaming text, and quota pushed as events.
 @MainActor
 @Observable
-final class HeadlessSession {
+final class HeadlessSession: AgentSession {
     let tabID: UUID
     let taskID: UUID
 
@@ -58,7 +58,7 @@ final class HeadlessSession {
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
     /// that also keeps the figure correct across a `--resume`.
-    private(set) var sessionCostUSD: Double = 0
+    private(set) var sessionCostUSD: Double?
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
     /// `model`'s assumed window, so the meter has a denominator as soon as a
@@ -98,6 +98,9 @@ final class HeadlessSession {
 
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [String] = []
+
+    /// Claude Code proposes plans through `ExitPlanMode`.
+    let supportsPlanApproval = true
 
     private var process: AgentProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]

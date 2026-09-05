@@ -49,7 +49,7 @@ enum AgentLauncher {
         let newTransport = AgentTabMenu.targetTransport(switchingFrom: tab.transport)
         switch tab.transport {
         case .headless:
-            HeadlessSessionManager.shared.closeSession(for: tab.id)
+            AgentSessionManager.shared.closeSession(for: tab.id)
         case .terminal:
             SurfaceManager.shared.closeSession(for: tab.id)
         }
@@ -99,11 +99,15 @@ enum AgentLauncher {
 
         StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
 
-        let session = HeadlessSessionManager.shared.session(
+        let existing = AgentSessionManager.shared.session(
             for: tab.id,
             taskID: task.id,
             initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
         )
+        guard let session = existing as? HeadlessSession else {
+            Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
+            return
+        }
         session.start(
             workingDirectory: task.workingDirectoryPath,
             permissionMode: resolvedPermissionMode(

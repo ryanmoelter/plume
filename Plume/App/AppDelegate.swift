@@ -96,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is what tells them to exit. Without this they outlive the app until
     /// they notice the pipe has gone.
     func applicationWillTerminate(_ notification: Notification) {
-        HeadlessSessionManager.shared.closeAll()
+        AgentSessionManager.shared.closeAll()
         KeepAwakeCoordinator.shared.releaseForTermination()
     }
 

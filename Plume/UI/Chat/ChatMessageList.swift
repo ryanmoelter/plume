@@ -58,9 +58,9 @@ struct ChatMessageList: View, ThemedView {
     /// which is one per tab.
     @State private var revealClock = RevealClock()
 
-    private var session: HeadlessSession? {
+    private var session: (any AgentSession)? {
         guard let tabID else { return nil }
-        return HeadlessSessionManager.shared.existingSession(for: tabID)
+        return AgentSessionManager.shared.existingSession(for: tabID)
     }
 
     /// Exact, when the headless session knows which calls are stalled.
