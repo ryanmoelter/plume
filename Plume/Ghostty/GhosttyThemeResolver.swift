@@ -107,7 +107,8 @@ enum GhosttyThemeResolver {
 
     private static func parseThemeValue(_ value: String) -> ThemeNames {
         guard value.contains(":") else {
-            return ThemeNames(light: value, dark: value)
+            let name = value.trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+            return ThemeNames(light: name, dark: name)
         }
 
         var names = ThemeNames()

@@ -91,6 +91,21 @@ From `preferredDefaultFilePath()` in ghostty's [`src/config/file_load.zig`](http
 
 Application Support outranks XDG on macOS — the reverse of what ghostty's own docs page suggests, and a known source of confusion ([#3456](https://github.com/ghostty-org/ghostty/issues/3456)). `GhosttyConfigLoaderTests` locks this ordering down.
 
+### `config-file` includes
+
+The winning file is only the entry point. A config may pull in others with `config-file`, and `GhosttyConfigLoader.expandConfig` follows those the way ghostty documents:
+
+- Repeatable, and included files may include further files.
+- A relative path is relative to the file that named it, not to the root config or the cwd.
+- A `?` prefix on the path (`config-file = ?auto/theme.ghostty`) suppresses the error when the file is missing.
+- An included file is applied **after** the whole file that named it, so its values beat directives set later in the including file. Expansion appends the include's lines rather than splicing them at the directive.
+
+A missing, cyclic, or too-deeply-nested include is skipped and logged, never fatal.
+
+This matters more than it looks. A config that is nothing but `config-file = "~/.config/ghostty/ghostty-config"` is a supported setup, and without expansion Plume loaded a config with no theme, font, or keybinds at all.
+
+Because the theme may be declared in an included file, `themesDirectory(forConfigPath:)` must be given `winningThemeSourcePath(in:)` — the file that actually declared the last `theme` directive — not the discovered root. A root that only redirects has no `themes/` of its own.
+
 ## Upgrade procedure
 
 1. Check the package's tags and read its changelog for C-API-affecting changes.

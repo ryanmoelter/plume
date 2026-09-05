@@ -100,6 +100,8 @@ Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, p
 
 The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfigLoader` finds the user's config itself. Its ordering (Application Support before XDG) is deliberate and test-locked — don't "fix" it to match ghostty's docs page, which is wrong.
 
+**The discovered file is only the entry point.** `expandConfig` follows `config-file` includes recursively, and that is load-bearing: a config that only redirects (`config-file = "~/.config/ghostty/ghostty-config"`) is a supported setup that otherwise loads nothing. An include applies *after* the file that named it, and a relative path is relative to that file. Resolve themes against `winningThemeSourcePath(in:)`, not the root config — the theme is often declared in an included file whose directory is where `themes/` lives.
+
 The config reaches libghostty as **generated contents with every `theme` directive stripped**, never as a file path. `GhosttyThemeResolver` applies the theme in Swift instead. Passing `theme` through breaks terminal launching outright — surfaces silently spawn a login shell instead of their command, with no diagnostic. `GhosttyConfigLoader.configContentsForGhostty` documents the mechanism.
 
 ## Conventions

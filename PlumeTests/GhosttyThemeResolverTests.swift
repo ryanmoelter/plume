@@ -190,4 +190,9 @@ struct GhosttyThemeResolverTests {
         #expect(theme?.light == expected)
         #expect(theme?.dark == expected)
     }
+
+    @Test func plainThemeValueStripsSurroundingQuotes() {
+        let names = GhosttyThemeResolver.parseThemeDirective(#"theme = "Nord""#)
+        #expect(names == GhosttyThemeResolver.ThemeNames(light: "Nord", dark: "Nord"))
+    }
 }

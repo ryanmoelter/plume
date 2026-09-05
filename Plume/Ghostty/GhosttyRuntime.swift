@@ -35,33 +35,24 @@ final class GhosttyRuntime {
 
         loadedConfigPath = GhosttyConfigLoader.userConfigPath()
 
-        // The wrapper never resolves a config file's `theme = name` directive
-        // itself — see GhosttyThemeResolver — so do it before creating the
-        // controller and pass the result in as an explicit TerminalTheme.
         var resolvedTheme = TerminalTheme()
-        if let loadedConfigPath,
-           let contents = try? String(contentsOfFile: loadedConfigPath, encoding: .utf8) {
-            let themesDirectory = GhosttyConfigLoader.themesDirectory(forConfigPath: loadedConfigPath)
-            resolvedThemeDefinitions = GhosttyThemeResolver.resolveDefinitions(
-                configContents: contents,
-                userThemesDirectory: themesDirectory
-            )
-            if let theme = resolvedThemeDefinitions.map({
-                TerminalTheme(
-                    light: $0.light?.toTerminalConfiguration() ?? .init(),
-                    dark: $0.dark?.toTerminalConfiguration() ?? .init()
-                )
-            }) {
-                resolvedTheme = theme
-            }
-        }
+        var configSource: TerminalController.ConfigSource = .none
 
-        // The config reaches libghostty as generated contents, not as a file
-        // path, so the `theme` directive can be stripped first — see
-        // GhosttyConfigLoader.configContentsForGhostty.
-        let configSource: TerminalController.ConfigSource = loadedConfigPath
-            .flatMap { GhosttyConfigLoader.configContentsForGhostty(atPath: $0) }
-            .map { .generated($0) } ?? .none
+        if let loadedConfigPath,
+           let expanded = GhosttyConfigLoader.expandConfig(rootPath: loadedConfigPath) {
+            resolvedThemeDefinitions = resolveThemeDefinitions(in: expanded)
+            if let definitions = resolvedThemeDefinitions {
+                resolvedTheme = TerminalTheme(
+                    light: definitions.light?.toTerminalConfiguration() ?? .init(),
+                    dark: definitions.dark?.toTerminalConfiguration() ?? .init()
+                )
+            }
+
+            // The config reaches libghostty as generated contents, not as a
+            // file path, so the `theme` directive can be stripped first — see
+            // GhosttyConfigLoader.flattenedContentsForGhostty.
+            configSource = .generated(GhosttyConfigLoader.flattenedContentsForGhostty(expanded))
+        }
 
         let controller = TerminalController(configSource: configSource, theme: resolvedTheme)
         self.controller = controller
@@ -72,6 +63,31 @@ final class GhosttyRuntime {
         }
 
         Log.ghostty.info("Ghostty runtime started (config: \(self.loadedConfigPath ?? "built-in defaults", privacy: .public))")
+    }
+
+    /// The wrapper never resolves a config file's `theme = name` directive
+    /// itself — see GhosttyThemeResolver — so do it before creating the
+    /// controller. Themes resolve against the directory of the file that
+    /// declared the directive, which an including config's own directory need
+    /// not be.
+    private func resolveThemeDefinitions(
+        in expanded: GhosttyConfigLoader.ExpandedConfig
+    ) -> GhosttyThemeResolver.ResolvedDefinitions? {
+        guard let themeSourcePath = GhosttyConfigLoader.winningThemeSourcePath(in: expanded) else {
+            Log.ghostty.info("Ghostty config declares no theme; using default colors")
+            return nil
+        }
+
+        guard let definitions = GhosttyThemeResolver.resolveDefinitions(
+            configContents: expanded.rawContents,
+            userThemesDirectory: GhosttyConfigLoader.themesDirectory(forConfigPath: themeSourcePath)
+        ) else {
+            Log.ghostty.error("Ghostty theme in \(themeSourcePath, privacy: .public) resolved to nothing; using default colors")
+            return nil
+        }
+
+        Log.ghostty.info("Ghostty theme resolved from \(themeSourcePath, privacy: .public)")
+        return definitions
     }
 
     /// The controller, starting the runtime if a surface is requested before

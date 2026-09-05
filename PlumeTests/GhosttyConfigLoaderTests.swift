@@ -94,4 +94,181 @@ struct GhosttyConfigLoaderTests {
         #expect(stripped.contains("theme-ish = keep"))
         #expect(stripped.contains("# theme = commented"))
     }
+
+    // MARK: - config-file expansion
+
+    /// Ghostty loads an included file after the whole file that named it, so
+    /// the include wins over a directive set later in the including file.
+    @Test func expandConfigAppendsIncludedFileAfterTheIncludingFile() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child\nfont-size = 15"
+            case "/b/child": "font-size = 20"
+            default: nil
+            }
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 15", "font-size = 20"])
+    }
+
+    @Test func expandConfigDropsTheConfigFileLineItself() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            $0 == "/a/config" ? "config-file = /b/child" : "font-size = 20"
+        })
+
+        #expect(!expanded.rawContents.contains("config-file"))
+    }
+
+    @Test func expandConfigTagsEachLineWithItsOwnFile() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child"
+            case "/b/child": "theme = Nord"
+            default: nil
+            }
+        })
+
+        #expect(expanded.lines.map(\.sourcePath) == ["/b/child"])
+    }
+
+    @Test func expandConfigResolvesRelativeIncludeAgainstTheIncludingFilesDirectory() throws {
+        var requested: [String] = []
+        _ = GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            requested.append(path)
+            return path == "/a/config" ? "config-file = sub/child" : nil
+        }
+
+        #expect(requested.contains("/a/sub/child"))
+    }
+
+    /// A nested relative include is relative to *its* file, not to the root —
+    /// the distinction this whole expansion exists to get right.
+    @Test func expandConfigResolvesNestedRelativeIncludeAgainstItsOwnFile() throws {
+        var requested: [String] = []
+        _ = GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            requested.append(path)
+            switch path {
+            case "/a/config": return "config-file = /b/child"
+            case "/b/child": return "config-file = sub/grandchild"
+            default: return nil
+            }
+        }
+
+        #expect(requested.contains("/b/sub/grandchild"))
+        #expect(!requested.contains("/a/sub/grandchild"))
+    }
+
+    @Test func expandConfigExpandsTildeInIncludePath() {
+        var requested: [String] = []
+        _ = GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            requested.append(path)
+            return path == "/a/config" ? #"config-file = "~/ghostty-extra""# : nil
+        }
+
+        #expect(requested.contains("\(home)/ghostty-extra"))
+    }
+
+    @Test func expandConfigSkipsMissingIncludeWithoutFailingTheLoad() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            $0 == "/a/config" ? "config-file = /gone\nfont-size = 15" : nil
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 15"])
+    }
+
+    @Test func expandConfigSkipsMissingOptionalIncludeMarkedWithQuestionMark() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            $0 == "/a/config" ? "config-file = ?/gone\nfont-size = 15" : nil
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 15"])
+    }
+
+    @Test func expandConfigReturnsNilWhenTheRootIsUnreadable() {
+        #expect(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in nil } == nil)
+    }
+
+    @Test func expandConfigStopsOnDirectSelfReference() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            $0 == "/a/config" ? "config-file = /a/config\nfont-size = 15" : nil
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 15"])
+    }
+
+    @Test func expandConfigStopsOnIndirectCycle() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child\nfont-size = 15"
+            case "/b/child": "config-file = /a/config\nfont-size = 20"
+            default: nil
+            }
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 15", "font-size = 20"])
+    }
+
+    @Test func expandConfigCapsRecursionDepth() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(
+            rootPath: "/depth/0",
+            readFile: { path in
+                guard let index = Int(path.replacingOccurrences(of: "/depth/", with: "")) else {
+                    return nil
+                }
+                return "font-size = \(index)\nconfig-file = /depth/\(index + 1)"
+            },
+            maxDepth: 2
+        ))
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 0", "font-size = 1", "font-size = 2"])
+    }
+
+    @Test func expandConfigFollowsRepeatedConfigFileDirectivesInOrder() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/first\nconfig-file = /b/second"
+            case "/b/first": "font-size = 1"
+            case "/b/second": "font-size = 2"
+            default: nil
+            }
+        })
+
+        #expect(expanded.lines.map(\.content) == ["font-size = 1", "font-size = 2"])
+    }
+
+    @Test func winningThemeSourcePathPicksTheIncludedFileWhenItDeclaresThemeLast() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child\ntheme = Nord"
+            case "/b/child": "theme = Lum dark"
+            default: nil
+            }
+        })
+
+        #expect(GhosttyConfigLoader.winningThemeSourcePath(in: expanded) == "/b/child")
+    }
+
+    @Test func winningThemeSourcePathIsNilWithoutAThemeDirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-size = 15"
+        })
+
+        #expect(GhosttyConfigLoader.winningThemeSourcePath(in: expanded) == nil)
+    }
+
+    @Test func flattenedContentsForGhosttyStripsThemeAndConfigFileKeys() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child\nfont-size = 15"
+            case "/b/child": "theme = Nord\nfont-family = Cascadia Code NF"
+            default: nil
+            }
+        })
+
+        let flattened = GhosttyConfigLoader.flattenedContentsForGhostty(expanded)
+        #expect(!flattened.contains("theme"))
+        #expect(!flattened.contains("config-file"))
+        #expect(flattened.contains("font-size = 15"))
+        #expect(flattened.contains("font-family = Cascadia Code NF"))
+    }
 }
