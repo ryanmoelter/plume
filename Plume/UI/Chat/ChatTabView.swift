@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The chat rendering of an agent tab: messages, the statusline strip, the
-/// plan dock when a plan is minimized, then the composer.
+/// The chat rendering of an agent tab: the messages, then a floating panel
+/// carrying the composer over the statusline strip, with the plan dock tucked
+/// behind it when a plan is minimized.
 struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -24,6 +25,9 @@ struct ChatTabView: View, ThemedView {
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
+    /// The dock bar and the expanded overlay are separate view trees, so the
+    /// namespace the zoom between them matches on lives here, above both.
+    @Namespace private var planZoom
 
     private var untrustedPath: String? {
         untrustedDirectoryStore.path(forTab: tab.id)
@@ -104,55 +108,7 @@ struct ChatTabView: View, ThemedView {
                     tabID: tab.id,
                     onOpenSubagent: { openSubagentID = $0.id }
                 )
-                // Grouped in one container so the dock bar and the surface
-                // below both glass-render as one panel: without it each gets
-                // its own backdrop sample and the dock's shadow paints onto
-                // the surface it's supposed to read as tucked behind.
-                GlassEffectContainer {
-                    VStack(spacing: 0) {
-                        // Above the strip, not below it: the bar reads as the
-                        // panel tucked behind the statusline and composer, so
-                        // it keeps its top corners and squares off where they
-                        // meet.
-                        if planPresentation == .minimized, let planFilePath {
-                            planDockBar(path: planFilePath)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                        VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                StatuslineStripView(
-                                    // Both arrive on a turn result, so a
-                                    // resumed conversation has neither until
-                                    // it takes a turn: the transcript's last
-                                    // usage and the tab's stored window cover
-                                    // that gap. contextMaxTokens falls back
-                                    // further still, to the model's nominal
-                                    // window — known before either does.
-                                    contextUsedTokens: headlessSession?.contextUsedTokens
-                                        ?? transcript.latestUsage?.contextUsedTokens,
-                                    contextMaxTokens: headlessSession?.contextWindow
-                                        ?? tab.contextWindowTokens
-                                        ?? headlessSession?.nominalContextWindow
-                                        ?? tab.model?.nominalContextWindow,
-                                    branch: transcript.gitBranch,
-                                    gitState: GitStateStore.shared.state(for: gitDirectory),
-                                    rateLimit: headlessSession?.rateLimit,
-                                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
-                                )
-                                if let planFilePath, planPresentation != .minimized {
-                                    planButton(path: planFilePath)
-                                }
-                            }
-                            .listItemPadding(vertical: false)
-                            Divider()
-                            ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                        }
-                        // A real surface, not just a divider, so it occludes
-                        // the dock's shadow instead of letting it show
-                        // through onto the chat background below.
-                        .glassEffect(planGlass, in: .rect)
-                    }
-                }
+                composerPanel(transcript: transcript)
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
@@ -160,9 +116,9 @@ struct ChatTabView: View, ThemedView {
                 || (tab.agentSessionID?.isEmpty == false) {
                 // A process (or a resumable session) exists but has written no
                 // transcript content yet — nothing to show but a quiet wait.
-                emptyState(showsComposer: false)
+                emptyState(isComposerEnabled: false)
             } else {
-                emptyState(showsComposer: true)
+                emptyState(isComposerEnabled: true)
             }
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
@@ -215,7 +171,8 @@ struct ChatTabView: View, ThemedView {
         .overlay {
             if planPresentation == .expanded, let planFilePath {
                 planPanel(path: planFilePath)
-                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
+                    .transition(.opacity)
             }
         }
         .overlay {
@@ -239,6 +196,62 @@ struct ChatTabView: View, ThemedView {
                 )
             }
         }
+    }
+
+    /// The bottom chrome as one floating panel: the composer, the session
+    /// facts under it, and the plan bar tucked behind them when a plan is
+    /// minimized.
+    ///
+    /// Grouped in one `GlassEffectContainer` so the dock bar and the surface
+    /// below both glass-render as one panel: without it each gets its own
+    /// backdrop sample and the dock's shadow paints onto the surface it's
+    /// supposed to read as tucked behind.
+    private func composerPanel(transcript: Transcript) -> some View {
+        GlassEffectContainer {
+            VStack(spacing: 0) {
+                if planPresentation == .minimized, let planFilePath {
+                    planDockBar(path: planFilePath)
+                        .transition(.opacity)
+                }
+                VStack(spacing: 0) {
+                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                    Divider()
+                    statuslineFooter(transcript: transcript)
+                }
+                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+            }
+            .listItemPadding(bleed: true, vertical: false)
+            .padding(.bottom, dimensions.panelInset)
+        }
+    }
+
+    /// Session-wide facts, below the composer rather than above it: what the
+    /// conversation has spent reads as a footnote to the message being
+    /// written rather than as a heading over it.
+    private func statuslineFooter(transcript: Transcript) -> some View {
+        HStack(spacing: 0) {
+            StatuslineStripView(
+                // Both arrive on a turn result, so a resumed conversation has
+                // neither until it takes a turn: the transcript's last usage
+                // and the tab's stored window cover that gap.
+                // contextMaxTokens falls back further still, to the model's
+                // nominal window — known before either does.
+                contextUsedTokens: headlessSession?.contextUsedTokens
+                    ?? transcript.latestUsage?.contextUsedTokens,
+                contextMaxTokens: headlessSession?.contextWindow
+                    ?? tab.contextWindowTokens
+                    ?? headlessSession?.nominalContextWindow
+                    ?? tab.model?.nominalContextWindow,
+                branch: transcript.gitBranch,
+                gitState: GitStateStore.shared.state(for: gitDirectory),
+                rateLimit: headlessSession?.rateLimit,
+                sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+            )
+            if let planFilePath, planPresentation != .minimized {
+                planButton(path: planFilePath)
+            }
+        }
+        .padding(.horizontal, dimensions.panelContentInset)
     }
 
     private func planButton(path: String) -> some View {
@@ -296,7 +309,7 @@ struct ChatTabView: View, ThemedView {
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
-        .glassEffect(planGlass, in: .rect(cornerRadius: 12))
+        .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .listItemPadding(bleed: true)
         .padding(.vertical, 8)
     }
@@ -446,41 +459,58 @@ struct ChatTabView: View, ThemedView {
             .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // Square where it meets the statusline below, so the bar reads as the
-        // panel tucked behind it rather than a separate floating pill.
+        .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.panelContentInset)
+        // Rounded like the panel on top and square where it meets it, so the
+        // bar reads as tucked behind the panel rather than as a pill of its
+        // own.
         .glassEffect(
             planGlass,
-            in: .rect(topLeadingRadius: 10, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 10)
+            in: .rect(
+                topLeadingRadius: dimensions.panelCornerRadius,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: dimensions.panelCornerRadius
+            )
         )
-        .listItemPadding(bleed: true, vertical: false)
-        .padding(.top, 8)
+        .padding(.horizontal, ComposerPanelMetrics.tuckedInset(panelCornerRadius: dimensions.panelCornerRadius))
+        .padding(.top, dimensions.panelInset)
+        .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
     }
+
+    /// One id: only one plan surface is ever on screen.
+    private static let planZoomID = "plan"
 
     private var planGlass: Glass {
         planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
-    private func emptyState(showsComposer: Bool) -> some View {
+    /// The composer stays mounted once a session exists, disabled rather than
+    /// removed: dropping it left a gap between sending the first message and
+    /// the first line of transcript arriving.
+    private func emptyState(isComposerEnabled: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 28))
                 .emphasis(.secondary)
-            Text(showsComposer ? "Start a conversation" : "Waiting for the first message…")
+            Text(isComposerEnabled ? "Start a conversation" : "Waiting for the first message…")
                 .font(.headline)
                 .emphasis(.secondary)
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
-            if showsComposer, canResume {
+            if isComposerEnabled, canResume {
                 Button("Resume…") { resumeSheetShown = true }
                     .buttonStyle(.link)
                     .help("Continue a past Claude conversation in this folder")
             }
             Spacer()
-            if showsComposer {
+            GlassEffectContainer {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                    .disabled(!isComposerEnabled)
+                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                    .listItemPadding(bleed: true, vertical: false)
+                    .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
