@@ -58,8 +58,9 @@ struct MainWindow: View {
                 },
                 closeSelectedTab: {
                     guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
-                    else { return }
+                    else { return false }
                     TaskStore.closeTab(tab, in: context)
+                    return true
                 },
                 archiveSelectedTask: {
                     task.isArchived = true
