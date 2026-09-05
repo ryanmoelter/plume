@@ -17,6 +17,10 @@ nonisolated struct Transcript: Equatable {
     /// The session's current permission mode, from the latest
     /// `permission-mode` line.
     var permissionMode: String?
+    /// The `stop_reason` of the most recent assistant turn to carry one.
+    /// `end_turn` means the model finished speaking; `tool_use` means it
+    /// stopped to call a tool and the turn continues.
+    var lastStopReason: String?
 }
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
@@ -100,6 +104,7 @@ nonisolated enum TranscriptParser {
             if entry.isSidechain, !includeSidechain { continue }
 
             if let usage = entry.message?.usage { transcript.latestUsage = usage }
+            if let stopReason = entry.message?.stopReason { transcript.lastStopReason = stopReason }
             if let model = entry.message?.model { transcript.model = model }
             if let effort = entry.effort { transcript.effort = effort }
             if let gitBranch = entry.gitBranch { transcript.gitBranch = gitBranch }

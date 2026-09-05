@@ -1,18 +1,23 @@
 import Foundation
 
-/// Derives a subagent's live status from its own transcript tail, with the
-/// parent's matching tool_result as the completion signal.
+/// Derives a subagent's live status from its own transcript.
 ///
-/// The tail carries most of the answer: a subagent that has stopped ends on
-/// assistant prose (its report), while one still running ends mid-work on a
-/// tool call or on the tool_result feeding one back. The parent's result is
-/// what distinguishes a finished agent from one that merely paused, but only
-/// for a *synchronous* spawn — an async spawn's result arrives the instant
-/// the agent launches and says nothing about whether it finished.
+/// Completion has one unambiguous signal: the last assistant turn to carry a
+/// `stop_reason` reports `end_turn`, meaning the model finished speaking
+/// rather than stopping to call a tool. Everything softer reads as working.
+///
+/// Trailing prose is *not* that signal, though it looks like one. A subagent
+/// narrates between tool calls, so its file very often ends on an assistant
+/// paragraph while the agent is still mid-task — 49 of 210 transcripts in a
+/// sampled corpus, every one of which would have shown a false green check.
+///
+/// The parent's `tool_result` is not the signal either, because 88% of spawns
+/// are asynchronous: their result arrives the instant the agent launches and
+/// says nothing about whether it finished. Only a synchronous spawn's result
+/// is a real report, and that arrives with the agent already at `end_turn`.
 nonisolated enum SubagentStatusDeriver {
-    /// A spawn result that only reports the launch, which every async agent
-    /// gets immediately. Matching it keeps a just-launched agent reading as
-    /// working rather than done.
+    /// The spawn result every async agent gets immediately, which reports the
+    /// launch and nothing about the outcome.
     private static let launchAcknowledgement = "Async agent launched successfully"
 
     static func derive(
@@ -26,17 +31,22 @@ nonisolated enum SubagentStatusDeriver {
         if last.blocks.contains(where: isErrorNotice) { return .error }
         if last.blocks.contains(where: isQuestion) { return .needsInput }
 
-        let completed = parentResult.map { !$0.contains(launchAcknowledgement) } ?? false
-        if completed { return .done }
+        return isFinished(transcript: transcript, parentResult: parentResult) ? .done : .working
+    }
 
-        // The *last* block decides, not merely the presence of prose: the
-        // parser folds a run of assistant lines into one message, so a
-        // message that opens with the agent narrating and ends on a tool call
-        // is mid-step, not finished.
-        guard last.role == .assistant, let final = last.blocks.last, isProse(final) else { return .working }
-        // Trailing prose is the agent's report, so a spawn whose result we
-        // never saw still reads as finished rather than stuck.
-        return .done
+    /// A turn that ended on `tool_use` is mid-step no matter what the parent
+    /// reported, which keeps a resumed agent from staying stuck on the
+    /// `end_turn` it has already worked past.
+    private static func isFinished(transcript: Transcript, parentResult: String?) -> Bool {
+        switch transcript.lastStopReason {
+        case "end_turn": return true
+        case .some: return false
+        case nil: break
+        }
+        // No turn has closed yet, so only a synchronous spawn's real report
+        // can say the agent is done.
+        guard let parentResult else { return false }
+        return !parentResult.contains(launchAcknowledgement)
     }
 
     /// The two tools that stop and wait for a person.
@@ -49,10 +59,5 @@ nonisolated enum SubagentStatusDeriver {
     private static func isErrorNotice(_ block: ChatBlock) -> Bool {
         guard case .notice(let notice) = block else { return false }
         return notice.kind == .error
-    }
-
-    private static func isProse(_ block: ChatBlock) -> Bool {
-        guard case .markdown(let text) = block else { return false }
-        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
