@@ -146,7 +146,6 @@ final class TranscriptStore {
                 descriptor = table[id]
             }
 
-            let result = descriptor?.toolUseID.flatMap { results.result(forToolUseID: $0) }
             return SubagentTranscript(
                 id: id,
                 transcript: transcript,
@@ -154,7 +153,7 @@ final class TranscriptStore {
                 descriptor: descriptor,
                 status: SubagentStatusDeriver.derive(
                     transcript: transcript,
-                    parentResult: result
+                    parentSignal: results.signal(forAgentID: id)
                 )
             )
         }

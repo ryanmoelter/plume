@@ -103,15 +103,16 @@ struct SubagentDescriptorTests {
         #expect(descriptors.isEmpty)
     }
 
-    @Test func spawnResultsAreLookedUpByToolUseID() {
+    /// The spawning call's `tool_result` block names no agent, so an outcome
+    /// only counts when the structured `toolUseResult` beside it does.
+    @Test func aSpawnResultWithoutAnAgentIDYieldsNoSignal() {
         let results = SubagentSpawnResults(parentData: data([
             #"""
             {"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"the report"}]}}
             """#,
         ]))
 
-        #expect(results.result(forToolUseID: "toolu_1") == "the report")
-        #expect(results.result(forToolUseID: "toolu_missing") == nil)
+        #expect(results.signal(forAgentID: "toolu_1") == nil)
     }
 
     /// Every line of a subagent's own transcript is marked `isSidechain`, so
