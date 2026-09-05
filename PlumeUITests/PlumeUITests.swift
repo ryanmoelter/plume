@@ -40,4 +40,34 @@ final class PlumeUITests: XCTestCase {
             XCUIApplication().launch()
         }
     }
+
+    /// UI tests run out-of-process, so they can't import `Plume` to read
+    /// `AccessibilityID` — these mirror its strings by hand.
+    private enum AccessibilityID {
+        static let newTaskButton = "new-task-button"
+        static let composerField = "composer-field"
+    }
+
+    /// The sidebar's "New Task" affordance should be findable by identifier
+    /// with no seeded state at all.
+    @MainActor
+    func testNewTaskButtonIsAccessible() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let newTaskButton = app.buttons[AccessibilityID.newTaskButton].firstMatch
+        XCTAssertTrue(newTaskButton.waitForExistence(timeout: 10))
+    }
+
+    /// `PLUME_SEED_TASKS=1` seeds a task with a default agent tab, so the
+    /// composer should be on screen and queryable by identifier.
+    @MainActor
+    func testComposerFieldIsAccessibleWithSeededTask() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["PLUME_SEED_TASKS"] = "1"
+        app.launch()
+
+        let composerField = app.descendants(matching: .any)[AccessibilityID.composerField].firstMatch
+        XCTAssertTrue(composerField.waitForExistence(timeout: 10))
+    }
 }
