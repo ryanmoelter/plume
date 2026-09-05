@@ -10,14 +10,13 @@ nonisolated enum CodexCommand {
     }
 
     /// Notifications Plume never reads, declined at the handshake so the
-    /// process stops writing them. Prefixes, matched against the method name.
-    static let ignoredNotificationPrefixes = [
-        "thread/realtime/",
-        "fuzzyFileSearch/",
-        "process/",
-        "plugin/",
-        "remoteControl/",
-        "app/",
-        "fs/"
+    /// process stops writing them.
+    ///
+    /// `optOutNotificationMethods` matches **exact** method names, not
+    /// prefixes, so a pattern here silently suppresses nothing. These are the
+    /// ones a real session was seen to emit unprompted.
+    static let ignoredNotifications = [
+        "mcpServer/startupStatus/updated",
+        "remoteControl/status/changed"
     ]
 }

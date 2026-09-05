@@ -129,14 +129,8 @@ enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Transports this CLI can run on. Codex has no headless client yet, so a
-    /// Codex tab opens as a TUI whatever the app default says.
-    var supportedTransports: [AgentTransport] {
-        switch self {
-        case .claudeCode: AgentTransport.allCases
-        case .codex: [.terminal]
-        }
-    }
+    /// Transports this CLI can run on.
+    var supportedTransports: [AgentTransport] { AgentTransport.allCases }
 
     func resolvedTransport(preferring preferred: AgentTransport) -> AgentTransport {
         supportedTransports.contains(preferred) ? preferred : supportedTransports[0]

@@ -819,6 +819,9 @@ struct ChatTabView: View, ThemedView {
     private func persistHeadlessSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
         tab.agentSessionID = sessionID
+        // Only Claude Code keeps a transcript on disk; Codex serves its
+        // history over the protocol, so a Codex tab has no path to derive.
+        guard tab.provider == .claudeCode else { return }
         guard let workingDirectory = task.workingDirectoryPath else { return }
         tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,

@@ -102,6 +102,7 @@ enum AgentLauncher {
         let existing = AgentSessionManager.shared.session(
             for: tab.id,
             taskID: task.id,
+            provider: .claudeCode,
             initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
         )
         guard let session = existing as? HeadlessSession else {
@@ -159,9 +160,27 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        // Lands with the app-server client. Until then a headless Codex tab
-        // is unreachable: no menu item creates one.
-        Log.agent.error("Headless Codex is not implemented yet")
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+
+        let existing = AgentSessionManager.shared.session(
+            for: tab.id,
+            taskID: task.id,
+            provider: .codex,
+            initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+        )
+        guard let session = existing as? CodexSession else {
+            Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
+            return
+        }
+        session.start(
+            workingDirectory: task.workingDirectoryPath,
+            resumeThreadID: resumeSessionID,
+            model: tab.model,
+            environment: LoginShellCommand.plumeEnvironment
+        )
+        if let message {
+            session.submit(text: message)
+        }
     }
 
     private static func launchClaudeTerminal(

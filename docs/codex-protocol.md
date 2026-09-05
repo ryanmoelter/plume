@@ -46,8 +46,9 @@ Three things about the envelope, all confirmed by hand against a live server:
 `InitializeCapabilities` has an `experimentalApi` flag. **The `thread/*` surface
 does not need it** — `thread/start` was verified to work with capabilities left
 empty — so Plume does not opt in. `optOutNotificationMethods` on the same
-struct declines notifications the client never reads; `CodexCommand`
-lists the prefixes Plume ignores.
+struct declines notifications the client never reads. It matches **exact
+method names, not prefixes** — a pattern there suppresses nothing, silently.
+`CodexCommand.ignoredNotifications` lists them.
 
 ## Threads and turns
 
