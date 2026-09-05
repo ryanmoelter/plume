@@ -8,18 +8,11 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-1. **S** — Terminal bell, with a dot on tabs that rang one. See [Notifications](#notifications).
-2. **M** — System notification on bell, then on Claude Code events — above all waiting-for-input. See [Notifications](#notifications).
-3. **L** — Subagents as a real view rather than a disclosure row. The case Plume exists to make legible, and currently the weakest part of the chat. See [Subagents](#subagents).
-4. **L** — Mermaid diagrams in the markdown renderer. Blocked on one decision — WebKit or a native subset. See [The markdown renderer](#the-markdown-renderer).
-5. **S** — ⌘W closes the current tab, not the window. See [Shortcuts](#shortcuts).
-6. **S** — Focus the composer on opening a new tab or task. See [Misc UX](#misc-ux).
-7. **S** — ⌘N inherits the selected task's working directory. See [Task creation and directories](#task-creation-and-directories).
-8. **S** — A multi-line plan feedback field, following the composer's send-key setting. See [The plan overlay](#the-plan-overlay).
-9. **S** — Label the reject button "Reject" until the user types. See [The plan overlay](#the-plan-overlay).
-10. **M** — ⌥↩ approves with feedback, captioned beneath the field. See [The plan overlay](#the-plan-overlay).
-11. **M** — Set model, effort and permission mode before the first message in an agent tab. See [The statusline](#the-statusline).
-12. **S** — Confirm a resumed tab shows the conversation's real mode and model, not the stale snapshot. See [The statusline](#the-statusline).
+Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet ordered:
+
+- **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
+- **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
+- **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
