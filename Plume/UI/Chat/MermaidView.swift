@@ -11,6 +11,10 @@ import WebKit
 /// changing — a view that kept resizing would reopen the placement loop in
 /// `docs/chat-list-hang.md`. Until that height lands the fallback occupies the
 /// row, so it is never blank.
+///
+/// Past `MermaidLayout.maximumInlineHeight` the row keeps that height and the
+/// diagram scales to fit inside it, so one tall diagram cannot own the whole
+/// viewport. Reading it in full is what the expand button is for.
 struct MermaidBlock<Fallback: View>: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
