@@ -46,9 +46,11 @@ final class TranscriptStore {
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
     private let debounce: Duration
+    private let statusEngine: StatusEngine
 
-    init(debounce: Duration = .milliseconds(250)) {
+    init(debounce: Duration = .milliseconds(250), statusEngine: StatusEngine = .shared) {
         self.debounce = debounce
+        self.statusEngine = statusEngine
     }
 
     /// Starts watching a tab's transcript and parses whatever it already
@@ -80,6 +82,9 @@ final class TranscriptStore {
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
         subagentTranscripts.removeValue(forKey: tabID)
+        // Nothing watches this tab now, so a subagent that was working when
+        // the watch stopped would otherwise pin the task at working forever.
+        statusEngine.setSubagentActivity(tabID: tabID, working: false)
     }
 
     func stopAll() {
@@ -94,6 +99,9 @@ final class TranscriptStore {
         inFlight.removeAll()
         paths.removeAll()
         transcripts.removeAll()
+        for tabID in subagentTranscripts.keys {
+            statusEngine.setSubagentActivity(tabID: tabID, working: false)
+        }
         subagentTranscripts.removeAll()
     }
 
@@ -192,9 +200,19 @@ final class TranscriptStore {
                 guard let parsed, self.paths[tabID] == path else { return }
                 self.transcripts[tabID] = parsed.0
                 self.subagentTranscripts[tabID] = parsed.1
+                self.publishSubagentActivity(tabID: tabID, subagents: parsed.1)
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
             }
         }
+    }
+
+    /// This is the only place that sees every subagent's status per tab, so
+    /// it is what tells `StatusEngine` a finished turn is still not done.
+    private func publishSubagentActivity(tabID: UUID, subagents: [SubagentTranscript]) {
+        statusEngine.setSubagentActivity(
+            tabID: tabID,
+            working: subagents.contains { $0.status == .working }
+        )
     }
 
     /// A subagent writes only its own file, so the parent's watcher never
