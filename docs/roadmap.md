@@ -16,6 +16,7 @@ Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet o
 - **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
 - **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
+- **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
@@ -364,6 +365,17 @@ What exists:
 - Every signal already flows through in-memory state: `StatusEngine` knows every tab's `working` status across both transports, `SubagentTranscript.status` (new in 0.3.0) knows each subagent's, and a monitor is a tool call whose `tool_result` has not arrived, which the transcript parser already tracks for the tool-call row's spinner. The Ghostty wrapper reports `COMMAND_FINISHED` / `PROGRESS_REPORT`, which is what a terminal-command reason would key on.
 - **Remote control is a separate layer on top.** Someone driving Plume from a phone wants the Mac awake until they say otherwise, regardless of what is running. That points at a whole remote-control feature: show `/rc` status; give each session a three-way toggle — not caffeinated / caffeinated / caffeinated for a remote session; and a CLI Claude can call to set that state, alongside the notify helper under **Notifications**. The automatic reasons above and this manual override should share the one assertion owner.
 - Worth deciding: whether "waiting for input" keeps the Mac awake. It probably should not — the user is the one who is away — but a notification on wake-up (see **Notifications**) makes that safe to get wrong.
+
+## Infrastructure
+
+Tooling for the agents that build Plume, rather than for Plume itself.
+
+- [ ] A screenshot lease, so only one agent at a time can try to capture the screen. There is one screen, so the lease is short-lived: an agent asks for a single screenshot, gets the capture, and the lease releases on its own shortly after. A skill or a small CLI (`screenshot-lease take`, say) that blocks until the lease is free, captures, and releases is the shape; parallel `screencapture` calls from several agents fail today.
+
+What exists:
+
+- Nothing. Each agent calls `screencapture` directly, and the 0.3.0 sweep hit the collision — two agents captured at once and both failed. The per-project memory records the rule ("one agent may screenshot at a time") but nothing enforces it.
+- The lease wants to live outside the repo, beside `papercut` and `distress-call` in the dotfiles, since every project's agents share the one screen. A lock file with a timeout under `~/.local/state` is enough; there is no cross-machine case.
 
 ## Make the UI drivable
 
