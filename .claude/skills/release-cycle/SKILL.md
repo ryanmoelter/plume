@@ -47,7 +47,7 @@ Read CLAUDE.md at your worktree root first and follow it. Read the roadmap secti
 - `distress-call "<question>" "<context>"` for decisions only the user can make (blocks; exit 3 =
   dismissed, decide and state the assumption). `papercut add "<title>" "<expected vs got>"` for
   friction; keep going.
-- Do not take screenshots.
+- Do not take screenshots. (Only one agent may screenshot at a time on this machine; the coordinator runs any visual check as a single serial pass after the merge.)
 
 Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph summary, test
 results, and anything left unverified.
