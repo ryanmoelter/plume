@@ -49,7 +49,7 @@ struct Dimensions {
     /// shared by its text, its control strip, and the queued-messages strip
     /// that floats above them. Also what `composerFieldCornerRadius` cuts
     /// concentric to.
-    let composerFieldInset: CGFloat = 10
+    let composerFieldInset: CGFloat = 14
 
     /// The height the composer's control segments share with the send and
     /// stop circles.
