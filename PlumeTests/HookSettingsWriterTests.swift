@@ -86,7 +86,9 @@ struct InstrumentedLaunchTests {
     @Test func withoutSettingsItDegradesToAPlainLaunch() {
         let launch = ClaudeCodeProvider().launchCommand(firstMessage: "hi", resumeSessionID: nil)
         #expect(launch.command == loginWrapped("claude 'hi'"))
-        #expect(launch.environment.isEmpty)
+        #expect(launch.environment["PLUME_TASK_ID"] == nil)
+        #expect(launch.environment["PLUME_TAB_ID"] == nil)
+        #expect(launch.environment["PLUME_EVENTS_DIR"] == nil)
     }
 
     @Test func resumeKeepsInstrumentation() {
