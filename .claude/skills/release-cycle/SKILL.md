@@ -85,6 +85,7 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only. Commit on the release branch.
 - Merge the release branch into `main` (`--no-ff`).
 - Quit any running Plume, then delegate steps 2 and 3 of `docs/releasing.md` to Sonnet: Release build, tests, copy to `/Applications`, PlistBuddy, codesign, otool, process-tree check.
+- **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders first (`git rebase --force-rebase --rebase-merges <base>` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit).
 - Tag `v<version>` on the bump commit and push `main` with the tag.
 - `git worktree remove` each agent worktree, `git worktree prune`, delete merged `ryanm/*` branches.
 
@@ -96,4 +97,5 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Overwriting a running `/Applications/Plume.app` corrupts the process. Quit first.
 - A schema change meets the installed store for the first time on the release launch. Watch the log for a `Plume.store.<timestamp>.bak` move.
 - Roadmap edits: agents own their sections, the coordinator owns Up Next. Both editing Up Next is a guaranteed conflict.
+- The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
 - Six parallel `xcodebuild`s are slow but each worktree gets its own DerivedData. Do not try to share one.
