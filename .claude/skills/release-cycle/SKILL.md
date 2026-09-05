@@ -33,7 +33,9 @@ under that root. Never cd out of it, never touch the parent repo or sibling work
 
 Read CLAUDE.md at your worktree root first and follow it. Read the roadmap section(s) for your items.
 
-- Create a branch: `git checkout -b ryanm/<slug>`. Commit on it (signing works normally).
+- Create a branch: `git checkout -b ryanm/<slug>`. Commit on it (signing works normally), early and often.
+- NEVER run `git stash`. The stash ref is shared by every worktree, so a concurrent agent's pop takes your
+  entry and you get theirs. Use `git worktree`-local means instead: commit a WIP, or copy files aside.
 - Verify with `xcodebuild -scheme Plume -destination 'platform=macOS' build` and
   `xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests`.
   Confirm test names scroll past. Two suites fail in ANY worktree for environmental reasons:
@@ -87,6 +89,8 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - `git worktree remove` each agent worktree, `git worktree prune`, delete merged `ryanm/*` branches.
 
 ## Gotchas
+
+- `git stash` is shared across worktrees. In the first run, three agents stashed to measure a test baseline and popped each other's work; one recovered from `git fsck --unreachable`. The rule block now forbids it. If it happens anyway, `git stash list` labels usually say whose work an entry holds; restore with `git checkout <stash> -- <paths>`.
 
 - `-only-testing` with a name matching nothing prints `** TEST SUCCEEDED **` having run nothing. Confirm names scrolled past.
 - Overwriting a running `/Applications/Plume.app` corrupts the process. Quit first.
