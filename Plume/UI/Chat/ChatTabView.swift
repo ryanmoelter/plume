@@ -294,17 +294,45 @@ struct ChatTabView: View, ThemedView {
     /// sending are one gesture rather than a field plus a distant button.
     @ViewBuilder
     private var planApprovalOptions: some View {
-        HStack(spacing: 8) {
-            TextField("Feedback (optional)", text: $planRejectionReason)
-                .textFieldStyle(.roundedBorder)
-                .font(typography.caption.font)
-                .onSubmit { answerPlan(.reject) }
-            Button("Give feedback") { answerPlan(.reject) }
-            Button("Approve") { answerPlan(.approve) }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                TextField("Feedback (optional)", text: $planRejectionReason, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+                    .font(typography.caption.font)
+                    .onKeyPress(.return, phases: .down) { press in
+                        handleFeedbackReturn(press.modifiers)
+                    }
+                ReservedWidthButton(
+                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
+                    labels: PlanRejectionLabel.allLabels
+                ) {
+                    answerPlan(.reject)
+                }
+                Button("Approve") { answerPlan(.approve) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
         }
         .font(typography.caption.font)
+    }
+
+    /// Return in the feedback field follows `composerSendKey` exactly as the
+    /// composer does; ⌥ always reaches the third option.
+    private func handleFeedbackReturn(_ modifiers: EventModifiers) -> KeyPress.Result {
+        let key = PlanFeedbackKey.forReturn(
+            sendKey: settings.composerSendKey,
+            command: modifiers.contains(.command),
+            shift: modifiers.contains(.shift),
+            option: modifiers.contains(.option)
+        )
+        switch key {
+        case .submit:
+            answerPlan(.reject)
+            return .handled
+        case .approveWithFeedback, .passThrough:
+            return .ignored
+        }
     }
 
     private enum PlanDecision {
