@@ -61,17 +61,20 @@ enum SmokeHarness {
             agentTab.agentSessionID = sessionID
         }
 
-        // PLUME_SEED_TRANSCRIPT_PATH points every agent tab at an existing
-        // transcript, so a full chat renders with no `claude` process. The
-        // watch starts here because the launch-time restore ran before the
-        // tabs were seeded.
-        if let path = environment["PLUME_SEED_TRANSCRIPT_PATH"] {
-            let expanded = NSString(string: path).expandingTildeInPath
-            for task in tasks {
+        // PLUME_SEED_TRANSCRIPT_PATH points agent tabs at existing
+        // transcripts, so full chats render with no `claude` process. A
+        // comma-separated list gives each task its own, in order, the last
+        // one repeating. The watch starts here because the launch-time
+        // restore ran before the tabs were seeded.
+        if let paths = environment["PLUME_SEED_TRANSCRIPT_PATH"] {
+            let expanded = paths.split(separator: ",").map { NSString(string: String($0)).expandingTildeInPath }
+            for (index, task) in tasks.enumerated() {
+                let path = expanded[min(index, expanded.count - 1)]
+                task.title = "Task \(index + 1): \((path as NSString).lastPathComponent)"
                 for agentTab in task.orderedTabs where agentTab.kind == .agent {
                     agentTab.transport = .headless
-                    agentTab.sessionJSONLPath = expanded
-                    TranscriptStore.shared.watch(tabID: agentTab.id, transcriptPath: expanded)
+                    agentTab.sessionJSONLPath = path
+                    TranscriptStore.shared.watch(tabID: agentTab.id, transcriptPath: path)
                 }
             }
         }
@@ -117,6 +120,27 @@ enum SmokeHarness {
                     guard let permission = session.pendingPermissions.first else { continue }
                     autoAnswer(permission, in: session)
                     Log.app.info("Smoke harness auto-answered a pending permission")
+                }
+            }
+        }
+
+        // PLUME_FAKE_STREAM=<seconds> appends a chunk of markdown to the first
+        // agent tab's live text on that interval, restarting the message every
+        // 400 chunks, so the streaming overlay and its follow-bottom scroll
+        // run against a transcript rendered from disk with no process.
+        if let tickValue = environment["PLUME_FAKE_STREAM"],
+           let tick = Double(tickValue), tick > 0,
+           let first = tasks.first,
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+            Task { @MainActor in
+                let chunks = ["Streaming ", "some **bold** ", "text, ", "with `code` ", "and a\n\n", "new paragraph. ", "- a list item\n", "- another\n\n"]
+                var index = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(tick))
+                    session.debugStream(text: chunks[index % chunks.count], restart: index % 400 == 0)
+                    index += 1
+                    if index % 100 == 0 { Log.app.info("Smoke harness streamed \(index) chunks") }
                 }
             }
         }

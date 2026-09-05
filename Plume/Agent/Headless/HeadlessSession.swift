@@ -85,6 +85,15 @@ final class HeadlessSession {
         self.effort = initialEffort
     }
 
+    #if DEBUG
+    /// Feeds the live-text path without a process, so `SmokeHarness` can
+    /// stream into a chat rendered from a transcript on disk.
+    func debugStream(text delta: String, restart: Bool = false) {
+        if restart { streamingText = "" }
+        streamingText += delta
+    }
+    #endif
+
     // MARK: - Lifecycle
 
     func start(

@@ -20,7 +20,9 @@ fi
 peak=0
 streak=0
 for ((i = 0; i < DURATION; i++)); do
-  cpu="$(ps -o %cpu= -p "$PID" | tr -d ' ')"
+  # Main thread only: the transcript parser runs hot on a background thread
+  # while a live session writes, and that is not a hang.
+  cpu="$(ps -M -p "$PID" | awk 'NR == 2 { print $4 }')"
   if [ -z "$cpu" ]; then
     echo "EXITED: pid $PID is gone after ${i}s (peak ${peak}%)"
     exit 3
