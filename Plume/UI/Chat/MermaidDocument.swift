@@ -16,15 +16,29 @@ nonisolated enum MermaidDocument {
     /// The name the page posts its rendered height and its errors under.
     static let messageHandlerName = "plumeMermaid"
 
-    static func html(source: String, isDark: Bool, foregroundHex: String) -> String {
+    /// How the drawn SVG relates to the space the page is given.
+    enum Sizing {
+        /// The SVG keeps its natural height and the page reports it, so the
+        /// row can take an explicit frame and stop resizing.
+        case natural
+        /// The SVG scales down to fit the viewport in both axes. The page
+        /// still reports, but the host already knows its own height.
+        case fit
+    }
+
+    static func html(
+        source: String,
+        isDark: Bool,
+        foregroundHex: String,
+        sizing: Sizing = .natural
+    ) -> String {
         let theme = isDark ? "dark" : "default"
         return """
         <!doctype html>
         <html><head><meta charset="utf-8">
         <style>
           html, body { margin: 0; padding: 0; background: transparent; color: \(foregroundHex); }
-          #diagram { display: inline-block; }
-          #diagram svg { max-width: 100%; height: auto; display: block; }
+          \(layoutCSS(sizing: sizing))
         </style>
         <script src="mermaid.min.js"></script>
         </head>
@@ -53,6 +67,36 @@ nonisolated enum MermaidDocument {
         </script>
         </body></html>
         """
+    }
+
+    /// Both modes center the diagram; they differ in whether the SVG may grow
+    /// past the viewport's height.
+    ///
+    /// `body` is the flex container rather than `#diagram` so the centering
+    /// survives an SVG narrower than the page, which is the common case.
+    private static func layoutCSS(sizing: Sizing) -> String {
+        switch sizing {
+        case .natural:
+            return """
+            body { display: flex; justify-content: center; }
+              #diagram { display: block; max-width: 100%; }
+              #diagram svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+            """
+        case .fit:
+            return """
+            html, body { width: 100%; height: 100%; }
+              body { display: flex; align-items: center; justify-content: center; }
+              #diagram { display: block; max-width: 100%; max-height: 100%; }
+              #diagram svg {
+                max-width: 100%;
+                max-height: 100vh;
+                width: auto;
+                height: auto;
+                display: block;
+                margin: 0 auto;
+              }
+            """
+        }
     }
 
     /// The source as a JavaScript string literal. JSON's escaping is a subset
