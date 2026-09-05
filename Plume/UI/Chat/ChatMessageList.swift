@@ -161,6 +161,11 @@ struct ChatMessageList: View {
             .onAppear {
                 proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
+            #if DEBUG
+            .task(id: messages.count) {
+                await ScrollExercise.run(messages: messages, proxy: proxy)
+            }
+            #endif
             // Always mounted, shown by opacity. Inserting it on demand
             // resizes the scroll view, which reports new geometry, which
             // toggles it again.

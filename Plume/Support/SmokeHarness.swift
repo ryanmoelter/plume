@@ -61,6 +61,21 @@ enum SmokeHarness {
             agentTab.agentSessionID = sessionID
         }
 
+        // PLUME_SEED_TRANSCRIPT_PATH points every agent tab at an existing
+        // transcript, so a full chat renders with no `claude` process. The
+        // watch starts here because the launch-time restore ran before the
+        // tabs were seeded.
+        if let path = environment["PLUME_SEED_TRANSCRIPT_PATH"] {
+            let expanded = NSString(string: path).expandingTildeInPath
+            for task in tasks {
+                for agentTab in task.orderedTabs where agentTab.kind == .agent {
+                    agentTab.transport = .headless
+                    agentTab.sessionJSONLPath = expanded
+                    TranscriptStore.shared.watch(tabID: agentTab.id, transcriptPath: expanded)
+                }
+            }
+        }
+
         selection.wrappedValue = tasks.first?.id
         Log.app.info("Smoke harness seeded \(tasks.count) task(s)")
 
