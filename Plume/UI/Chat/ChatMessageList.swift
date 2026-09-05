@@ -98,9 +98,9 @@ struct ChatMessageList: View {
                         .padding(.vertical, 4)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }
-                SubagentListView(subagents: subagents, onOpen: onOpenSubagent)
-                    .listItemPadding(bleed: true, column: .unpadded)
                 if let tabID {
+                    SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
+                        .listItemPadding(bleed: true, column: .unpadded)
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }

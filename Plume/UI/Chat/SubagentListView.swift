@@ -11,24 +11,28 @@ import SwiftUI
 /// A finished subagent stays among the live rows for
 /// `SubagentCompletionTracker.lingerDuration` so its result is seen landing,
 /// then folds into a collapsed section that keeps the live list short on a
-/// long session.
+/// long session. That timing lives in the shared tracker rather than here,
+/// because selecting another task unmounts this view.
 struct SubagentListView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let subagents: [SubagentTranscript]
+    /// Which tab's rows these are. The tracker outlives this view, so it needs
+    /// the key the view itself no longer holds once the task changes.
+    let tabID: UUID
     /// Opens a subagent's transcript. The overlay is hosted by `ChatTabView`,
     /// which owns the space to draw it over.
     var onOpen: (SubagentTranscript) -> Void = { _ in }
 
-    @State private var tracker = SubagentCompletionTracker()
+    private var tracker: SubagentCompletionTracker { .shared }
     @State private var showsCompleted = false
 
     private var live: [SubagentTranscript] {
-        subagents.filter { !tracker.hasSettled($0) }
+        subagents.filter { !tracker.hasSettled($0, tabID: tabID) }
     }
 
     private var completed: [SubagentTranscript] {
-        subagents.filter { tracker.hasSettled($0) }
+        subagents.filter { tracker.hasSettled($0, tabID: tabID) }
     }
 
     var body: some View {
@@ -52,7 +56,7 @@ struct SubagentListView: View, ThemedView {
             // Writing tracker state from `body` would make the render
             // invalidate itself, so every observation happens here.
             .onChange(of: statusSignature, initial: true) {
-                tracker.observe(subagents)
+                tracker.observe(subagents, tabID: tabID)
             }
         }
     }
@@ -139,24 +143,27 @@ private struct SubagentRow: View, ThemedView {
 }
 
 #Preview {
-    SubagentListView(subagents: [
-        SubagentTranscript(
-            id: "a1",
-            transcript: Transcript(messages: [
-                ChatMessage(id: "m1", role: .assistant, blocks: [.markdown("Looking")], timestamp: nil)
-            ]),
-            modifiedAt: nil,
-            descriptor: SubagentDescriptor(description: "Explore the status engine", agentType: "Explore"),
-            status: .working
-        ),
-        SubagentTranscript(
-            id: "a2",
-            transcript: Transcript(),
-            modifiedAt: nil,
-            descriptor: SubagentDescriptor(description: "Design the notification layer", agentType: "Plan"),
-            status: .done
-        ),
-    ])
+    SubagentListView(
+        subagents: [
+            SubagentTranscript(
+                id: "a1",
+                transcript: Transcript(messages: [
+                    ChatMessage(id: "m1", role: .assistant, blocks: [.markdown("Looking")], timestamp: nil)
+                ]),
+                modifiedAt: nil,
+                descriptor: SubagentDescriptor(description: "Explore the status engine", agentType: "Explore"),
+                status: .working
+            ),
+            SubagentTranscript(
+                id: "a2",
+                transcript: Transcript(),
+                modifiedAt: nil,
+                descriptor: SubagentDescriptor(description: "Design the notification layer", agentType: "Plan"),
+                status: .done
+            ),
+        ],
+        tabID: UUID()
+    )
     .padding()
     .frame(width: 420)
 }

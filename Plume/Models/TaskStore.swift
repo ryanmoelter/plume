@@ -93,6 +93,7 @@ enum TaskStore {
             HeadlessSessionManager.shared.closeSession(for: tab.id)
             DraftStore.shared.forget(tabID: tab.id)
             BellStore.shared.forget(tabID: tab.id)
+            SubagentCompletionTracker.shared.forget(tabID: tab.id)
             TranscriptStore.shared.stopWatching(tabID: tab.id)
             UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         }
@@ -113,6 +114,7 @@ enum TaskStore {
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
         SurfaceManager.shared.closeSession(for: tab.id)
         HeadlessSessionManager.shared.closeSession(for: tab.id)
+        SubagentCompletionTracker.shared.forget(tabID: tab.id)
         guard let task = tab.task else {
             context.delete(tab)
             return
