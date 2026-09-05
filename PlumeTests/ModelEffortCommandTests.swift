@@ -6,6 +6,7 @@ struct ModelEffortCommandTests {
         (AgentModel.fable, "/model claude-fable-5-1"),
         (AgentModel.opus, "/model claude-opus-5[1m]"),
         (AgentModel.sonnet, "/model claude-sonnet-5[1m]"),
+        (AgentModel.haiku, "/model claude-haiku-4-5-20251001[1m]"),
     ])
     func setModelBuildsExactCommand(model: AgentModel, expected: String) {
         #expect(ModelEffortCommand.setModel(model) == expected)
@@ -72,6 +73,7 @@ struct ModelEffortCommandTests {
         ("claude-opus-5[1m]", AgentModel.opus),
         ("opus[1m]", AgentModel.opus),
         ("sonnet[1m]", AgentModel.sonnet),
+        ("haiku[1m]", AgentModel.haiku),
     ])
     func recognizingPromotesAContextSuffixToTheOneMillionVariant(
         reported: String,
@@ -126,5 +128,30 @@ struct ModelEffortCommandTests {
     @Test
     func recognizingReturnsNilForAnUnrecognizedEffortString() {
         #expect(AgentEffort.recognizing("ultra") == nil)
+    }
+
+    /// An unspecified context window means 1M, so only the 256K models carry
+    /// a suffix. Fable has no 1M variant at all, so it carries none either.
+    @Test(arguments: [
+        (AgentModel.fable, "Fable"),
+        (AgentModel.opus, "Opus"),
+        (AgentModel.sonnet, "Sonnet"),
+        (AgentModel.haiku, "Haiku 4.5"),
+        (AgentModel.more[0], "Opus 256K"),
+        (AgentModel.more[1], "Sonnet 256K"),
+        (AgentModel.more[2], "Haiku 4.5 256K"),
+    ])
+    func labelsFollowTheContextWindowNamingRule(model: AgentModel, expectedLabel: String) {
+        #expect(model.label == expectedLabel)
+    }
+
+    /// The primary menu is Default/Fable/Opus/Sonnet/Haiku 4.5; More holds
+    /// exactly the three 256K variants.
+    @Test func moreHoldsExactlyThe256KVariants() {
+        #expect(AgentModel.more.map(\.id) == [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-haiku-4-5-20251001",
+        ])
     }
 }
