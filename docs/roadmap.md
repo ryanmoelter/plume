@@ -12,6 +12,14 @@ The queue, highest priority first. Each line points at the section holding the d
 2. **M** — System notification on bell, then on Claude Code events — above all waiting-for-input. See [Notifications](#notifications).
 3. **L** — Subagents as a real view rather than a disclosure row. The case Plume exists to make legible, and currently the weakest part of the chat. See [Subagents](#subagents).
 4. **L** — Mermaid diagrams in the markdown renderer. Blocked on one decision — WebKit or a native subset. See [The markdown renderer](#the-markdown-renderer).
+5. **S** — ⌘W closes the current tab, not the window. See [Shortcuts](#shortcuts).
+6. **S** — Focus the composer on opening a new tab or task. See [Misc UX](#misc-ux).
+7. **S** — ⌘N inherits the selected task's working directory. See [Task creation and directories](#task-creation-and-directories).
+8. **S** — A multi-line plan feedback field, following the composer's send-key setting. See [The plan overlay](#the-plan-overlay).
+9. **S** — Label the reject button "Reject" until the user types. See [The plan overlay](#the-plan-overlay).
+10. **M** — ⌥↩ approves with feedback, captioned beneath the field. See [The plan overlay](#the-plan-overlay).
+11. **M** — Set model, effort and permission mode before the first message in an agent tab. See [The statusline](#the-statusline).
+12. **S** — Confirm a resumed tab shows the conversation's real mode and model, not the stale snapshot. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
@@ -95,6 +103,9 @@ Still open:
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
 - [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
 - [x] Remember effort and permission mode per session, the way the context window already is.
+- [ ] Offer model, effort and permission mode before the first message, when a tab has no session yet.
+- [ ] Confirm a resumed tab ends up on the conversation's real model and permission mode, not the seeded snapshot.
+- [ ] Take effort from the resumed conversation too, once the CLI reports it back at all.
 
 **The session cost is fixed.** `total_cost_usd` is a running total for the whole conversation, re-sent on every `result` event — Plume accumulated it, so each turn re-added every turn before it. Confirmed on the wire: turn 1 reported $0.2548 and turn 2 $0.2996 for a turn that emitted a single digit. Assigning instead of adding also makes the figure correct across a `--resume`, since the first `result` after resuming already carries the true total. `docs/headless-protocol.md` recorded the opposite and was corrected in the same change.
 
@@ -102,11 +113,17 @@ The stop button now sits in the composer beside send — a 22pt circle matching 
 
 `TaskTab` now snapshots permission mode and effort alongside `contextWindowTokens`, written from `ChatTabView` when the session's value changes — once per turn rather than per stream event. Launch resolves the mode tab → task → app default, so a tab reopens in the mode the user last saw it in and the default only fills in for a tab that never had one. Effort has no launch flag and no `set_effort` control request to report it back, so the snapshot is its only record across a relaunch; it seeds `HeadlessSession` directly at construction rather than through `setEffort(_:)`, which would submit a real turn.
 
+**The controls are missing until the first message.** `ComposerControlsRow` renders model, effort and permission mode behind `if let headlessSession` (`ComposerControlsRow.swift:26-30`), and a tab has no session until one is launched — `existingSession(for:)` never creates one. So a fresh agent tab shows the workspace chips and nothing else, and the first message is the one turn whose model and mode cannot be chosen, which is backwards: it is the turn most worth setting, and the only one where the choice is free. Everything the fix writes to already exists — `tab.permissionMode` and `tab.effort` are persisted, and `AgentLauncher` already resolves the mode tab → task → app default (`AgentLauncher.swift:91-93`) and passes `initialEffort: tab.effort`. So the controls need to read and write the tab's own values before a session exists, then hand over to the session's once launched, with the pre-launch state seeding the launch it already feeds. Model is the one gap in that chain: unlike mode and effort it has no `TaskTab` field, so offering it pre-launch means persisting it and giving `AgentLauncher` a flag for it.
+
+**Resuming already corrects two of the three, and cannot correct the third.** Resume is not a separate path — `launchHeadless` takes a `resumeSessionID` and otherwise seeds from `tab.*` exactly as a cold launch does, so both a relaunched app and a chat resumed into a new tab start from the snapshot rather than from the conversation. That snapshot is only a starting guess, and the stream fixes it for `model` and `permissionMode`: the `init` event reports both, and `handle(_:)` overwrites the seeded values with whatever the CLI actually resumed with (`HeadlessSession.swift:227-232`). Effort is the exception, and structurally so — no `set_effort` control request exists and nothing reports effort back, so `initialEffort` is never corrected and the control shows what this host last sent, which a `/effort` typed straight into the CLI would silently contradict. Until the protocol reports effort, the snapshot is the best available answer rather than a bug to fix; what is worth checking is that the seeded value is visibly a guess and that the `init` correction is not itself overwritten by a stale write-back of the snapshot.
+
 ## The plan overlay
 
 Today the overlay never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — presenting a proposal for approval, and reviewing the plan once approved.
 
-- [ ] The CLI's third option — reject with feedback, then auto-approve whatever plan comes back — is still worth having, but its UX here is unsettled. One idea: alt+return while typing a rejection.
+- [ ] Let the feedback field grow to several lines, following the composer's send-key setting.
+- [ ] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key.
+- [ ] Label the reject button "Reject" until the user types, then "Give feedback".
 - [ ] Confirm **Approve** starts work in auto mode where that is enabled. It resolves the request and minimizes the overlay; whether auto mode then picks it up was not verified.
 
 **The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
@@ -122,6 +139,12 @@ Today the overlay never opens on its own: `planPresentation` starts `.closed` (`
 | Any other time — before a proposal, or after a rejection | "Not approved yet" |
 
 "Not approved yet" deliberately covers both of the third state's situations — never proposed, and proposed then rejected — because the plan may have been rewritten since the rejection, so saying anything about that rejection risks describing a document that no longer exists. It speaks only to the state that is still true.
+
+**The feedback field is single-line today.** `TextField("Feedback (optional)", …)` in `planApprovalOptions` (`ChatTabView.swift:298`) takes no `axis`, so a long rejection scrolls sideways in one line — where `ChatComposer` and the AskUserQuestion field (`InteractiveToolRow.swift:270`) both pass `axis: .vertical` and grow. The keys follow `AppSettings.composerSendKey` like the composer does, so one setting governs both fields and the pair stays consistent however it is set. That replaces today's binding, where Return is wired to `.onSubmit { answerPlan(.reject) }` and sends the rejection outright. No caption is needed for a newline the composer already teaches.
+
+**⌥↩ is the one key worth captioning**, because nothing on screen reveals it and it is the only way to reach the third option. It resolves the request as an approval while passing the typed note along, so it needs a control request that carries both — unlike **Approve**, which sends no message, and **Give feedback**, which denies through `PlanResolution.denialMessage`. Settle what the caption says once the binding exists.
+
+**"Give feedback" mislabels an empty field.** With nothing typed the button is a plain rejection, and `denialMessage(reason:)` already says so on the wire — it trims the reason and falls back to a bare rejection prefix when it is blank (`PermissionAnswerState.swift:98-102`). So the label should read "Reject" until `planRejectionReason` is non-empty and "Give feedback" after, matching a distinction the wire format already makes. Watch the button width changing mid-type; the tab chip's reserved close-button slot is the precedent for keeping a control from resizing under the pointer.
 
 One thing to get right: a plan file exists *before* it is ever proposed. `TranscriptParser` records `planFilePath` from a `plan_mode` line as well as `plan_mode_exit` (`TranscriptEntry.swift:238`), so the agent writing a plan is enough to make it viewable. That is the same third state, and it means the footer cannot be derived from the file's existence — it needs the state of the most recent `ExitPlanMode` call and its answer.
 
@@ -196,7 +219,7 @@ What exists: nothing uses `gh` or `glab` yet. `WorkTask.integrationsData` is res
 
 Make creating a task cheap, and stop pretending a task has one directory.
 
-- [ ] ⌘N defaults to the current directory instead of leaving the workspace unset.
+- [ ] ⌘N inherits the selected task's working directory instead of leaving the workspace unset.
 - [ ] Let the worktree choice happen *after* picking a directory, not before.
 - [ ] Move the working directory onto tabs. A task probably doesn't need one.
 - [ ] Track where an agent actually is — including when Claude uses `EnterWorktree` — and use that as the tab's current directory, e.g. when opening a new tab from it.
@@ -253,8 +276,9 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
+- [ ] ⌘W closes the current tab, not the window.
 
-What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**. ⌘W is AppKit's window-close default and no command overrides it, so taking it means declaring a `CommandGroup` that claims the binding and falls back to closing the window when the task has no tabs left.
 
 ## Naming
 
@@ -281,10 +305,12 @@ What exists:
 - [ ] Drag and drop to reorder tabs.
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [ ] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
+- [ ] Focus the composer when a new tab or task opens.
 
 What exists:
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
+- Focus is never placed programmatically today, so a new tab renders with nothing focused and the first keystroke goes nowhere. The two transports need different answers: a headless tab has a real `TextField` to focus, while a terminal tab's focus is the ghostty surface.
 - `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
 - The archive is the one task list that doesn't go through `TitleStore`. `ArchiveView` renders raw `task.title` (`ArchiveView.swift:19`), while the live sidebar uses `TitleStore.shared.displayTitle(for:)` (`TaskRowView.swift:40`), which falls back to the representative tab's title and finally to "Untitled". So a task the user never named renders as an empty string in the archive — not even a placeholder. Switching to `displayTitle(for:)` fixes the blank rows; whether a better name is available is a second question, since the tab title it falls back to is itself gone once the tabs are. The archived row already shows the working directory beneath the title, which is often the more identifying of the two.
 - Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
