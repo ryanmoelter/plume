@@ -13,6 +13,9 @@ Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet o
 - **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
+- **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
+- **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
+- **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
@@ -283,6 +286,7 @@ What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar a
 
 - [ ] One tab kind. "New Tab" opens a shell; when `claude` is running in it, the tab takes on agent chrome — no agent-vs-terminal prompt at creation.
 - [ ] Remove the unused title bar, or move something into it (task name? directory?).
+- [ ] Fix the titlebar's layout: it is empty space today, and shrinking the sidebar pushes the sidebar's overflow into that area. Ideally the tab strip moves up into the titlebar so tabs sit at the top of the window.
 - [ ] Rebalance the chat chrome: put the titlebar's empty space to work. The statusline/composer split (see **The statusline**) already moved the next-message controls into the message box; what's left is the titlebar itself.
 - [x] Cap a tab chip's width, so a long title can't take the whole strip. Much shorter than today's, which grows to fit whatever the title is.
 - [ ] Drag a tab into another task.
@@ -333,6 +337,7 @@ What exists:
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
+- [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. `SidebarView` builds it as a `Menu`; check whether its tint comes from `ThemeChrome` (which follows the resolved ghostty theme, not the system appearance) or from a hardcoded color.
 
 What exists:
 
@@ -341,6 +346,21 @@ What exists:
 - `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
 - **Shipped:** `ArchiveView` now renders `TitleStore.shared.displayTitle(for:)` (`ArchiveView.swift:19`) instead of raw `task.title`, matching the live sidebar (`TaskRowView.swift:40`) — an unnamed task falls back to its representative tab's title and finally "Untitled" instead of a blank row. The archived row still shows the working directory beneath the title, which is often the more identifying of the two.
 - Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
+
+## Keep the Mac awake
+
+Plume should hold a sleep assertion while something is running that the user is waiting on, and release it when nothing is.
+
+- [ ] Keep the Mac awake while an agent turn is running.
+- [ ] Keep it awake while a subagent is running.
+- [ ] Keep it awake while a monitor or other long-running tool call is in flight.
+- [ ] Consider a running foreground command in a terminal tab, and a `git worktree` or build Plume itself started, as further reasons to stay awake.
+
+What exists:
+
+- Nothing in the app calls `IOPMAssertionCreateWithName` or spawns `caffeinate` yet. An `IOPMAssertion` of type `PreventUserIdleSystemSleep` is the whole mechanism; a single owner that counts reasons and holds one assertion while the count is non-zero is the shape.
+- Every signal already flows through in-memory state: `StatusEngine` knows every tab's `working` status across both transports, `SubagentTranscript.status` (new in 0.3.0) knows each subagent's, and a monitor is a tool call whose `tool_result` has not arrived, which the transcript parser already tracks for the tool-call row's spinner. The Ghostty wrapper reports `COMMAND_FINISHED` / `PROGRESS_REPORT`, which is what a terminal-command reason would key on.
+- Worth deciding: whether "waiting for input" keeps the Mac awake. It probably should not — the user is the one who is away — but a notification on wake-up (see **Notifications**) makes that safe to get wrong.
 
 ## Make the UI drivable
 
