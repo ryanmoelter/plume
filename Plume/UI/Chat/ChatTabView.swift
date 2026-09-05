@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// The chat rendering of an agent tab: the messages, with a floating panel
 /// over them carrying the composer above the statusline strip, and the plan
@@ -54,7 +55,10 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var transcript: Transcript? {
-        TranscriptStore.shared.transcript(forTab: tab.id)
+        switch tab.provider {
+        case .claudeCode: TranscriptStore.shared.transcript(forTab: tab.id)
+        case .codex: CodexItemStore.shared.transcript(forTab: tab.id)
+        }
     }
 
     private var transcriptMessages: [ChatMessage] {
@@ -103,6 +107,7 @@ struct ChatTabView: View, ThemedView {
     /// transcript at all — so unlike the plan path, this is not on the
     /// streaming render path and can check the filesystem directly.
     private var canResume: Bool {
+        guard tab.provider == .claudeCode else { return false }
         guard let directory = task.workingDirectoryPath else { return false }
         return FileManager.default.fileExists(atPath: directory)
     }
@@ -131,6 +136,22 @@ struct ChatTabView: View, ThemedView {
         StatusEngine.shared.ownStatus(forTab: tab.id)
     }
 
+    private var displayedContextUsedTokens: Int? {
+        headlessSession?.contextUsedTokens ?? transcript?.latestUsage?.contextUsedTokens
+    }
+
+    private var displayedContextWindow: Int? {
+        headlessSession?.contextWindow
+            ?? tab.contextWindowTokens
+            ?? headlessSession?.nominalContextWindow
+            ?? tab.model?.nominalContextWindow
+    }
+
+    private var displayedSessionCost: Double? {
+        guard let cost = headlessSession?.sessionCostUSD, cost > 0 else { return nil }
+        return cost
+    }
+
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
         return AgentSessionManager.shared.existingSession(for: tab.id)
@@ -145,7 +166,7 @@ struct ChatTabView: View, ThemedView {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
-        } else if let startFailure = agentSession?.startFailure {
+        } else if let startFailure = headlessSession?.startFailure {
             startFailureState(startFailure)
         } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
             || AgentSessionManager.shared.existingSession(for: tab.id) != nil
@@ -165,7 +186,7 @@ struct ChatTabView: View, ThemedView {
             content
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
-                    startFailure: agentSession?.startFailure,
+                    startFailure: headlessSession?.startFailure,
                     pending: $pendingFirstMessage
                 ))
         }
@@ -180,7 +201,7 @@ struct ChatTabView: View, ThemedView {
             TabDirectoryStore.shared.setDirectory(current, forTab: tab)
         }
         .onDisappear {
-            if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
+            releaseGitDirectory()
         }
         .onChange(of: planFilePath, initial: true) { _, path in
             if let path { planFile.watch(path: path) } else { planFile.stop() }
@@ -196,23 +217,16 @@ struct ChatTabView: View, ThemedView {
         // Only fires once per completed turn, not per stream event, so this
         // is already the debounced write the rest of the app requires.
         .onChange(of: headlessSession?.contextWindow) { _, window in
-            guard let window, tab.contextWindowTokens != window else { return }
-            tab.contextWindowTokens = window
+            persistContextWindow(window)
         }
         .onChange(of: headlessSession?.permissionMode) { _, mode in
-            guard let mode, tab.permissionMode != mode else { return }
-            tab.permissionMode = mode
+            persistPermissionMode(mode)
         }
         .onChange(of: headlessSession?.model) { _, model in
-            guard let model, tab.model != model else { return }
-            tab.model = model
-            // The conversation reported this, so it is a snapshot again: a
-            // resume should let the conversation restore it rather than pin it.
-            tab.isModelUserChosen = false
+            persistModel(model)
         }
         .onChange(of: headlessSession?.effort) { _, effort in
-            guard let effort, tab.effort != effort else { return }
-            tab.effort = effort
+            persistEffort(effort)
         }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .hidden(.closed) }
@@ -804,6 +818,47 @@ struct ChatTabView: View, ThemedView {
         guard let path = tab.sessionJSONLPath, !path.isEmpty else { return }
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
         AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+    }
+
+    private func releaseGitDirectory() {
+        guard let gitDirectory else { return }
+        GitStateStore.shared.release(gitDirectory)
+    }
+
+    private func updateGitWatch(previous: String?, current: String?) {
+        if let previous { GitStateStore.shared.release(previous) }
+        if let current { GitStateStore.shared.watch(current) }
+    }
+
+    private func persistContextWindow(_ window: Int?) {
+        guard let window, tab.contextWindowTokens != window else { return }
+        tab.contextWindowTokens = window
+    }
+
+    private func persistPermissionMode(_ mode: PermissionMode?) {
+        guard let mode, tab.permissionMode != mode else { return }
+        tab.permissionMode = mode
+    }
+
+    private func persistModel(_ model: AgentModel?) {
+        guard let model, tab.model != model else { return }
+        tab.model = model
+        tab.isModelUserChosen = false
+    }
+
+    private func persistEffort(_ effort: AgentEffort?) {
+        guard let effort, tab.effort != effort else { return }
+        tab.effort = effort
+    }
+
+    private func handlePlanPathChange(_ path: String?) {
+        if path == nil { planPresentation = .hidden(.closed) }
+    }
+
+    private func presentPendingPlan(_ id: String?) {
+        guard id != nil else { return }
+        settledPlan = nil
+        if planPresentation != .expanded { planPresentation = .expanded }
     }
 
     /// Storing the ID is the whole resume: both transports watch

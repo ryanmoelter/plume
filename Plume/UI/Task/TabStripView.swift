@@ -102,7 +102,7 @@ private struct TabChip: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: tab.kind == .agent ? "sparkles" : "terminal")
+            Image(systemName: tab.kind == .agent ? tab.provider.glyph : "terminal")
                 .font(.caption)
             Text(chipTitle)
                 .lineLimit(1)
@@ -140,7 +140,7 @@ private struct TabChip: View {
         .accessibilityIdentifier(AccessibilityID.tabChip)
         .contextMenu {
             if tab.kind == .agent {
-                Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {
+                Button(AgentTabMenu.transportSwitchLabel(for: tab.transport, provider: tab.provider)) {
                     isConfirmingTransportSwitch = true
                 }
                 if let sessionID = tab.agentSessionID, !sessionID.isEmpty {

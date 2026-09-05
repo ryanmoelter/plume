@@ -24,6 +24,7 @@ final class CodexSession: AgentSession {
     let sessionCostUSD: Double? = nil
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
+    var nominalContextWindow: Int? { nil }
     /// `initialize` returns no command list, and `skills/list` is a different
     /// vocabulary, so the composer offers no completions on a Codex tab.
     let slashCommands: [SlashCommand] = []
@@ -66,6 +67,7 @@ final class CodexSession: AgentSession {
         workingDirectory: String?,
         resumeThreadID: String?,
         model: AgentModel?,
+        permissionProfile: String? = nil,
         environment: [String: String]
     ) {
         if let model { self.model = model }
@@ -78,10 +80,20 @@ final class CodexSession: AgentSession {
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
             return
         }
-        Task { await handshake(workingDirectory: workingDirectory, resumeThreadID: resumeThreadID) }
+        Task {
+            await handshake(
+                workingDirectory: workingDirectory,
+                resumeThreadID: resumeThreadID,
+                permissionProfile: permissionProfile
+            )
+        }
     }
 
-    private func handshake(workingDirectory: String?, resumeThreadID: String?) async {
+    private func handshake(
+        workingDirectory: String?,
+        resumeThreadID: String?,
+        permissionProfile: String?
+    ) async {
         do {
             _ = try await client.send("initialize", .object([
                 "clientInfo": .object([
@@ -100,6 +112,7 @@ final class CodexSession: AgentSession {
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
             if let model { params["model"] = .string(model.id) }
+            if let permissionProfile { params["permissions"] = .string(permissionProfile) }
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
                 method = "thread/resume"
@@ -109,6 +122,9 @@ final class CodexSession: AgentSession {
             }
             let result = try await client.send(method, .object(params))
             adopt(thread: result["thread"] ?? .null)
+            if let threadID = sessionID {
+                await hydrateHistory(threadID: threadID)
+            }
             flushQueue()
         } catch {
             reportFailure(error)
@@ -124,6 +140,29 @@ final class CodexSession: AgentSession {
             effort = AgentEffort(rawValue: reported)
         }
         hasReportedModeAndModel = true
+    }
+
+    private func hydrateHistory(threadID: String) async {
+        var cursor: String?
+        var items: [JSONValue] = []
+        repeat {
+            var params: [String: JSONValue] = [
+                "threadId": .string(threadID),
+                "sortDirection": .string("asc")
+            ]
+            if let cursor { params["cursor"] = .string(cursor) }
+            do {
+                let result = try await client.send("thread/items/list", .object(params))
+                items += result["data"]?.arrayValue ?? []
+                cursor = result["nextCursor"]?.stringValue
+            } catch {
+                // History is an enhancement to a live conversation. A point
+                // release without this method must not prevent sending.
+                Log.agent.error("Codex history load failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+        } while cursor != nil
+        CodexItemStore.shared.replace(tabID: tabID, items: items)
     }
 
     // MARK: - Sending
@@ -191,6 +230,16 @@ final class CodexSession: AgentSession {
         Log.agent.error("Codex has no equivalent of Claude Code's permission modes")
     }
 
+    func setPermissionProfile(_ profile: AgentPermissionPreset) {
+        guard let threadID = sessionID else { return }
+        Task {
+            _ = try? await client.send("thread/settings/update", .object([
+                "threadId": .string(threadID),
+                "permissions": .string(profile.id)
+            ]))
+        }
+    }
+
     func setModel(_ newModel: AgentModel) {
         model = newModel
         guard let threadID = sessionID else { return }
@@ -224,6 +273,12 @@ final class CodexSession: AgentSession {
         case .deny: "decline"
         }
         client.respond(to: id, result: .object(["decision": .string(verdict)]))
+        pendingPermissions.removeAll { $0.id == permission.id }
+    }
+
+    func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
+        guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        client.respond(to: id, result: .object(["decision": .string(option.id)]))
         pendingPermissions.removeAll { $0.id == permission.id }
     }
 
@@ -274,6 +329,23 @@ final class CodexSession: AgentSession {
             }
         case "serverRequest/resolved":
             dropPermission(requestID: params["requestId"])
+        case "item/started", "item/completed":
+            if let item = params["item"] {
+                CodexItemStore.shared.upsert(tabID: tabID, item: item)
+            }
+        case "item/commandExecution/outputDelta":
+            if let itemID = params["itemId"]?.stringValue {
+                CodexItemStore.shared.append(
+                    tabID: tabID,
+                    itemID: itemID,
+                    field: "aggregatedOutput",
+                    delta: params["delta"]?.stringValue ?? ""
+                )
+            }
+        case "item/fileChange/patchUpdated":
+            if let itemID = params["itemId"]?.stringValue, let changes = params["changes"] {
+                CodexItemStore.shared.set(tabID: tabID, itemID: itemID, field: "changes", value: changes)
+            }
         default:
             break
         }
@@ -323,24 +395,51 @@ final class CodexSession: AgentSession {
             decisionReason: params["reason"]?.stringValue,
             toolUseID: params["itemId"]?.stringValue,
             agentID: nil,
-            interactive: nil
+            interactive: nil,
+            decisions: decisionOptions(in: params, fallback: ["accept", "decline"])
         )
     }
 
     /// The patch is not in the request — it arrived earlier on the item this
     /// names, which Plume does not track yet.
     private func fileChangePermission(_ params: JSONValue) -> PendingPermission {
-        PendingPermission(
-            id: params["itemId"]?.stringValue ?? UUID().uuidString,
+        let itemID = params["itemId"]?.stringValue ?? UUID().uuidString
+        return PendingPermission(
+            id: itemID,
             toolName: "Edit",
             displayName: "Apply file changes",
-            input: [:],
+            input: CodexItemStore.shared.fileChangeInput(tabID: tabID, itemID: itemID),
             description: nil,
             decisionReason: params["reason"]?.stringValue,
             toolUseID: params["itemId"]?.stringValue,
             agentID: nil,
-            interactive: nil
+            interactive: nil,
+            decisions: decisionOptions(
+                in: params,
+                fallback: ["accept", "acceptForSession", "decline", "cancel"]
+            )
         )
+    }
+
+    private func decisionOptions(in params: JSONValue, fallback: [String]) -> [PermissionDecisionOption] {
+        let ids = params["availableDecisions"]?.arrayValue?.compactMap(\.stringValue) ?? fallback
+        return ids.map { id in
+            PermissionDecisionOption(
+                id: id,
+                label: decisionLabel(id),
+                allowsAction: id == "accept" || id == "acceptForSession"
+            )
+        }
+    }
+
+    private func decisionLabel(_ id: String) -> String {
+        switch id {
+        case "accept": "Allow"
+        case "acceptForSession": "Allow for Session"
+        case "decline": "Deny"
+        case "cancel": "Cancel"
+        default: id
+        }
     }
 
     private func dropPermission(requestID: JSONValue?) {

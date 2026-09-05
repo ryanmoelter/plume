@@ -15,8 +15,17 @@ struct PendingPermission: Identifiable, Equatable {
     /// The structured face of an `AskUserQuestion` or `ExitPlanMode`, so the
     /// UI can offer options or a plan instead of raw JSON.
     let interactive: InteractiveToolPayload?
+    /// Empty for Claude, whose control protocol always exposes Allow/Deny.
+    /// Codex supplies the exact closed decision vocabulary per request.
+    var decisions: [PermissionDecisionOption] = []
 
     static func == (lhs: PendingPermission, rhs: PendingPermission) -> Bool { lhs.id == rhs.id }
+}
+
+struct PermissionDecisionOption: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let allowsAction: Bool
 }
 
 /// One headless `claude` conversation, driving a tab.

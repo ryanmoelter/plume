@@ -36,6 +36,7 @@ protocol AgentSession: AnyObject, Observable {
     var sessionCostUSD: Double? { get }
     var contextWindow: Int? { get }
     var contextUsedTokens: Int? { get }
+    var nominalContextWindow: Int? { get }
     var slashCommands: [SlashCommand] { get }
     var lastError: String? { get }
 
@@ -59,7 +60,18 @@ protocol AgentSession: AnyObject, Observable {
     func setModel(_ newModel: AgentModel)
     func setEffort(_ newEffort: AgentEffort)
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision)
+    func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption)
     func approvePlan(_ permission: PendingPermission)
     func approvePlan(_ permission: PendingPermission, feedback: String)
     func answer(_ permission: PendingPermission, answers: [String: String])
+}
+
+extension AgentSession {
+    func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
+        if option.allowsAction {
+            resolve(permission, with: .allow(updatedInput: permission.input))
+        } else {
+            resolve(permission, with: .deny(message: PlanResolution.denialMessage(reason: "")))
+        }
+    }
 }

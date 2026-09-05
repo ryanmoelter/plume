@@ -50,7 +50,7 @@ struct SettingsView: View {
             } header: {
                 Text("Agent Transport")
             } footer: {
-                Text("Headless drives claude directly and can answer permission prompts and questions from the chat. Terminal keeps the classic PTY-backed session as a fallback.")
+                Text("Headless drives the selected agent directly and can answer permission prompts and questions from the chat. Terminal keeps the CLI's PTY-backed interface as a fallback.")
                     .foregroundStyle(.secondary)
             }
 
@@ -69,14 +69,14 @@ struct SettingsView: View {
 
             Section {
                 Picker("New agent tabs think at", selection: $settings.defaultEffort) {
-                    ForEach(AgentEffort.allCases) { effort in
+                    ForEach(settings.defaultProvider.efforts) { effort in
                         Text(effort.label).tag(effort)
                     }
                 }
             } header: {
                 Text("Default Effort")
             } footer: {
-                Text("A tab's own effort, set from its chat, overrides this. Claude Code never reports effort back, so this is also what the composer shows until the tab sets one.")
+                Text("A tab's own effort, set from its chat, overrides this. Available levels follow the selected provider.")
                     .foregroundStyle(.secondary)
             }
 

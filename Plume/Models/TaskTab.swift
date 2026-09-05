@@ -96,8 +96,17 @@ final class TaskTab {
     }
 
     var model: AgentModel? {
-        get { modelRaw.flatMap(AgentModel.recognizing) }
+        get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var permissionPreset: AgentPermissionPreset? {
+        get {
+            guard let raw = permissionModeRaw else { return nil }
+            return provider.permissionPresets.first { $0.id == raw }
+                ?? AgentPermissionPreset(id: raw, label: raw)
+        }
+        set { permissionModeRaw = newValue?.id }
     }
 
     var displayTitle: String {

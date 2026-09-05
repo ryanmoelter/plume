@@ -126,8 +126,8 @@ struct ModelEffortCommandTests {
     }
 
     @Test
-    func recognizingReturnsNilForAnUnrecognizedEffortString() {
-        #expect(AgentEffort.recognizing("ultra") == nil)
+    func recognizingIncludesCodexUltraEffort() {
+        #expect(AgentEffort.recognizing("ultra") == .ultra)
     }
 
     /// An unspecified context window means 1M, so only the 200K models carry

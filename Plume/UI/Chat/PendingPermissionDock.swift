@@ -34,7 +34,8 @@ struct PendingPermissionDock: View {
             PermissionRequestRow(
                 permission: permission,
                 allow: { session.resolve(permission, with: .allow(updatedInput: permission.input)) },
-                deny: { session.resolve(permission, with: .deny(message: denialMessage($0))) }
+                deny: { session.resolve(permission, with: .deny(message: denialMessage($0))) },
+                choose: { session.resolve(permission, with: $0) }
             )
         }
     }

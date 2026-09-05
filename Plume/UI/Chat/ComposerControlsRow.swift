@@ -225,33 +225,33 @@ private struct PermissionModeControl: View, ThemedView {
     let form: ComposerControlsForm
 
     var body: some View {
-        if let mode = state.permissionMode {
+        if let preset = state.permissionPreset {
             Menu {
-                ForEach(PermissionMode.allCases) { option in
-                    Button(option.label, systemImage: option.symbol) { state.setPermissionMode(option) }
+                ForEach(state.provider.permissionPresets) { option in
+                    Button(option.label) { state.setPermissionPreset(option) }
                 }
             } label: {
                 ComposerSegmentLabel(
-                    systemImage: mode.symbol,
-                    text: mode.label,
+                    systemImage: preset.claudeMode?.symbol ?? "lock.shield",
+                    text: preset.label,
                     showsText: form.showsLabels,
-                    foreground: foreground(for: attention(mode)),
+                    foreground: foreground(for: attention(preset)),
                     height: dimensions.composerControlHeight
                 )
                 .unconfirmed(state.isModeAndModelUnconfirmed)
             }
             .menuStyle(.borderlessButton)
-            .help(state.modeAndModelHelp("Permission mode: \(mode.label)"))
+            .help(state.modeAndModelHelp("Permission mode: \(preset.label)"))
             .accessibilityLabel("Permission mode")
-            .accessibilityValue(mode.label)
+            .accessibilityValue(preset.label)
             .accessibilityIdentifier(AccessibilityID.composerPermissionModeControl)
         }
     }
 
     /// Bypassing every permission check is worth flagging; the rest are
     /// ordinary working modes.
-    private func attention(_ mode: PermissionMode) -> StatuslineAttention {
-        mode == .bypassPermissions ? .red : .neutral
+    private func attention(_ preset: AgentPermissionPreset) -> StatuslineAttention {
+        preset.id == PermissionMode.bypassPermissions.rawValue || preset == .codexDangerFullAccess ? .red : .neutral
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
@@ -273,11 +273,11 @@ private struct ModelControl: View, ThemedView {
                 Button("Default (\(resolved.label))") { state.clearModel() }
                 Divider()
             }
-            ForEach([AgentModel.fable, .opus, .sonnet, .haiku]) { option in
+            ForEach(Array(state.models.prefix(4))) { option in
                 Button(option.label) { state.setModel(option) }
             }
             Menu("More") {
-                ForEach(AgentModel.more) { option in
+                ForEach(Array(state.models.dropFirst(4))) { option in
                     Button(option.label) { state.setModel(option) }
                 }
                 Divider()
@@ -318,7 +318,7 @@ private struct CustomModelIDField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Model ID").font(.caption)
-            TextField("claude-…", text: $id)
+            TextField("Model ID", text: $id)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 240)
                 .onSubmit(submit)
@@ -347,7 +347,7 @@ private struct EffortControl: View, ThemedView {
 
     var body: some View {
         Menu {
-            ForEach(AgentEffort.allCases) { option in
+            ForEach(state.efforts) { option in
                 Button(option.label, systemImage: option.symbol) { state.setEffort(option) }
             }
         } label: {
@@ -374,7 +374,7 @@ private struct EffortControl: View, ThemedView {
     /// Matches `statusline.sh`'s `effort_seg`: `xhigh`/`max` need attention.
     private func attention(_ level: AgentEffort) -> StatuslineAttention {
         switch level {
-        case .xhigh, .max: return .yellow
+        case .xhigh, .max, .ultra: return .yellow
         default: return .neutral
         }
     }

@@ -58,6 +58,16 @@ struct ComposerSettings {
         session.map(\.permissionMode) ?? tab.permissionMode ?? defaults.permissionMode
     }
 
+    var provider: AgentProviderKind { tab.provider }
+    var models: [AgentModel] { provider.models }
+    var efforts: [AgentEffort] { provider.efforts }
+    var permissionPreset: AgentPermissionPreset? {
+        if provider == .claudeCode {
+            return permissionMode.map { .init(id: $0.rawValue, label: $0.label) }
+        }
+        return tab.permissionPreset ?? .codexWorkspace
+    }
+
     /// True when the displayed value is a resolved default rather than a
     /// choice, so a control can label it as one.
     var isModelDefaulted: Bool { session?.model == nil && tab.model == nil }
@@ -82,7 +92,7 @@ struct ComposerSettings {
     }
 
     func modeAndModelHelp(_ label: String) -> String {
-        isModeAndModelUnconfirmed ? "\(label) (not yet confirmed by Claude Code)" : label
+        isModeAndModelUnconfirmed ? "\(label) (not yet confirmed by \(provider.displayName))" : label
     }
 
     func setModel(_ model: AgentModel) {
@@ -111,5 +121,14 @@ struct ComposerSettings {
     func setPermissionMode(_ mode: PermissionMode) {
         tab.permissionMode = mode
         session?.setPermissionMode(mode)
+    }
+
+    func setPermissionPreset(_ preset: AgentPermissionPreset) {
+        tab.permissionPreset = preset
+        if provider == .claudeCode, let mode = PermissionMode(rawValue: preset.id) {
+            session?.setPermissionMode(mode)
+        } else if let session = session as? CodexSession {
+            session.setPermissionProfile(preset)
+        }
     }
 }

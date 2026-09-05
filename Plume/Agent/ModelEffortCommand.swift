@@ -61,6 +61,15 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// Everything the menu can offer, top-level items first.
     static let selectable: [AgentModel] = [fable, opus, sonnet, haiku] + more
 
+    static let codexSelectable: [AgentModel] = [
+        AgentModel(id: "gpt-6-astra", label: "Astra"),
+        AgentModel(id: "gpt-5.6-sol", label: "Sol"),
+        AgentModel(id: "gpt-5.6-terra", label: "Terra"),
+        AgentModel(id: "gpt-5.6-luna", label: "Luna"),
+        AgentModel(id: "gpt-5.5", label: "GPT-5.5"),
+        AgentModel(id: "gpt-5.4-mini", label: "GPT-5.4 mini")
+    ]
+
     // MARK: - Recognition
 
     /// Maps a transcript- or statusline-reported model string onto a selection.
@@ -81,6 +90,16 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
             return isOneMillion ? alias.oneMillionVariant : alias
         }
         return AgentModel(unrecognizedID: trimmed)
+    }
+
+    static func recognizing(_ reported: String, provider: AgentProviderKind) -> AgentModel? {
+        let trimmed = reported.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if provider == .codex {
+            return codexSelectable.first { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }
+                ?? AgentModel(unrecognizedID: trimmed)
+        }
+        return recognizing(trimmed)
     }
 
     /// Short names and display strings the CLI or a statusline may report in
@@ -118,6 +137,7 @@ nonisolated enum AgentEffort: String, CaseIterable, Identifiable {
     case high
     case xhigh
     case max
+    case ultra
 
     var id: String { rawValue }
 
@@ -130,6 +150,7 @@ nonisolated enum AgentEffort: String, CaseIterable, Identifiable {
         case .high: return "High"
         case .xhigh: return "X-High"
         case .max: return "Max"
+        case .ultra: return "Ultra"
         }
     }
 

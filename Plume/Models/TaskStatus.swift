@@ -129,6 +129,34 @@ enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    var glyph: String {
+        switch self {
+        case .claudeCode: "sparkles"
+        case .codex: "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    var models: [AgentModel] {
+        switch self {
+        case .claudeCode: AgentModel.selectable
+        case .codex: AgentModel.codexSelectable
+        }
+    }
+
+    var efforts: [AgentEffort] {
+        switch self {
+        case .claudeCode: AgentEffort.allCases.filter { $0 != .ultra }
+        case .codex: AgentEffort.allCases
+        }
+    }
+
+    var permissionPresets: [AgentPermissionPreset] {
+        switch self {
+        case .claudeCode: PermissionMode.allCases.map { .init(id: $0.rawValue, label: $0.label) }
+        case .codex: AgentPermissionPreset.codexPresets
+        }
+    }
+
     /// Transports this CLI can run on.
     var supportedTransports: [AgentTransport] { AgentTransport.allCases }
 

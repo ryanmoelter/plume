@@ -80,12 +80,21 @@ struct CodexSessionTests {
     @Test func aCommandApprovalBecomesAPendingPermission() {
         let (session, client, _) = makeSession()
         client.receive(#"""
-        {"id":5,"method":"item/commandExecution/requestApproval","params":{"itemId":"it-1","threadId":"t","turnId":"u","startedAtMs":0,"command":"ls -la","reason":"needs approval"}}
+        {"id":5,"method":"item/commandExecution/requestApproval","params":{"itemId":"it-1","threadId":"t","turnId":"u","startedAtMs":0,"command":"ls -la","reason":"needs approval","availableDecisions":["accept","acceptForSession","decline"]}}
         """#)
         let permission = try? #require(session.pendingPermissions.first)
         #expect(permission?.id == "it-1")
         #expect(permission?.description == "ls -la")
         #expect(permission?.decisionReason == "needs approval")
+        #expect(permission?.decisions.map(\.id) == ["accept", "acceptForSession", "decline"])
+    }
+
+    @Test func aServerChosenDecisionRoundTripsVerbatim() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":7,"method":"item/commandExecution/requestApproval","params":{"itemId":"it-3","command":"ls","availableDecisions":["acceptForSession","cancel"]}}"#)
+        let permission = try #require(session.pendingPermissions.first)
+        session.resolve(permission, with: permission.decisions[0])
+        #expect(try #require(sent().last).contains("\"decision\":\"acceptForSession\""))
     }
 
     @Test func answeringAnApprovalRepliesToItsRequestAndClearsTheRow() throws {
