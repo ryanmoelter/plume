@@ -117,7 +117,7 @@ final class TranscriptStore {
     /// `parentData` is passed in rather than re-read: the caller has just read
     /// it to parse the main transcript, and the spawn scan is a fallback that
     /// only runs when a subagent has no sidecar.
-    nonisolated static func readSubagents(transcriptPath: String, parentData: Data) -> [SubagentTranscript] {
+    private nonisolated static func readSubagents(transcriptPath: String, parentData: Data) -> [SubagentTranscript] {
         let paths = SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath)
         guard !paths.isEmpty else { return [] }
 
@@ -152,7 +152,7 @@ final class TranscriptStore {
         }
     }
 
-    nonisolated static func subagentID(forPath path: String) -> String {
+    private nonisolated static func subagentID(forPath path: String) -> String {
         (path as NSString)
             .lastPathComponent
             .replacingOccurrences(of: "agent-", with: "")
