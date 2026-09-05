@@ -55,6 +55,28 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 **What Plume does with this.** On a resume `--model` is omitted unless the user picked a model on that tab since the conversation last ran. The tab's snapshot is a record of what the conversation used, not a choice, so passing it back would be a no-op at best and would override a model the user changed inside the CLI at worst. `HeadlessCommand.arguments` takes `isModelExplicitlyChosen` for exactly this.
 
+## Model aliases
+
+**The short aliases resolve to the 256K models, not the 1M ones.** Measured by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
+
+| `--model` | `init` reports |
+| --- | --- |
+| `opus` | `claude-opus-5` |
+| `sonnet` | `claude-sonnet-5` |
+| `fable` | `claude-fable-5-1` |
+| `haiku` | `claude-haiku-4-5-20251001` |
+| `claude-opus-5[1m]` | `claude-opus-5[1m]` |
+| `claude-sonnet-5[1m]` | `claude-sonnet-5[1m]` |
+| `claude-haiku-4-5-20251001[1m]` | `claude-haiku-4-5-20251001[1m]` |
+| `claude-fable-5-1[1m]` | `claude-fable-5-1` |
+| `not-a-real-model` | `not-a-real-model` |
+
+Three things follow.
+
+- **`[1m]` names a different model, not a decoration.** Getting the 1M context window means passing the suffixed ID; the alias never lands there on its own. So `AgentModel.opus`/`.sonnet` are the suffixed IDs, and `recognizing(_:)` promotes a reported `[1m]` to the 1M variant rather than stripping it.
+- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable` is `claude-fable-5-1` and is labelled without a size.
+- **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
+
 ## Sending a turn
 
 ```json

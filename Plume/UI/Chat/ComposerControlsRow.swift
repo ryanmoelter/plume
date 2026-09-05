@@ -90,33 +90,78 @@ private struct ModelControl: View, ThemedView {
     @Environment(\.theme) var theme
     let state: ComposerSettings
 
+    @State private var isAskingForCustomID = false
+    @State private var customID = ""
+
     var body: some View {
         Menu {
-            ForEach(AgentModel.allCases) { option in
+            if let resolved = state.defaultModel {
+                Button("Default (\(resolved.label))") { state.clearModel() }
+                Divider()
+            }
+            ForEach([AgentModel.fable, .opus, .sonnet]) { option in
                 Button(option.label) { state.setModel(option) }
             }
+            Menu("More") {
+                ForEach(AgentModel.more) { option in
+                    Button(option.label) { state.setModel(option) }
+                }
+                Divider()
+                Button("Other…") { isAskingForCustomID = true }
+            }
         } label: {
-            // A tab that has never chosen one launches without `--model` and
-            // runs on the CLI's configured model, so the label names that
-            // rather than going blank. "(default)" keeps it honest: nothing
-            // has been pinned, and the flag stays off the command line.
-            segmentLabel(
-                label,
-                foreground: state.isModelDefaulted
-                    ? colors.foreground.opacity(colors.emphasis[.secondary])
-                    : colors.foreground
-            )
-            .unconfirmed(state.isModeAndModelUnconfirmed)
+            segmentLabel(label, foreground: colors.foreground)
+                .unconfirmed(state.isModelAwaitingConfirmation)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help(state.modeAndModelHelp("Model"))
         .accessibilityIdentifier(AccessibilityID.composerModelControl)
+        .popover(isPresented: $isAskingForCustomID) {
+            CustomModelIDField(id: $customID) {
+                state.setModel(AgentModel(unrecognizedID: $0))
+            }
+        }
     }
 
+    /// A tab that has never chosen one launches without `--model` and runs on
+    /// the CLI's configured model, so the label names that rather than going
+    /// blank — and marks it a default, since nothing has been pinned.
     private var label: String {
         guard let model = state.model else { return "Model" }
-        return state.isModelDefaulted ? "\(model.label) (default)" : model.label
+        return state.isModelDefaulted ? "Default (\(model.label))" : model.label
+    }
+}
+
+/// Takes a model ID the menu has no item for. Free text, because the CLI
+/// accepts any ID its backend knows and this build's list is only a snapshot.
+private struct CustomModelIDField: View {
+    @Binding var id: String
+    let onSubmit: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Model ID").font(.caption)
+            TextField("claude-…", text: $id)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 240)
+                .onSubmit(submit)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Use", action: submit)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(12)
+    }
+
+    private func submit() {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, (try? ModelEffortCommand.sanitizedToken(trimmed)) != nil else { return }
+        onSubmit(trimmed)
+        dismiss()
     }
 }
 

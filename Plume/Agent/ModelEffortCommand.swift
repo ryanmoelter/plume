@@ -2,46 +2,99 @@ import Foundation
 
 /// A model this UI can switch a running session to.
 ///
-/// `token` is the CLI argument `/model` accepts; matches `claude --help`'s
-/// aliases (each resolves to the latest of that family). `displayNames`
-/// lists the transcript/statusline strings a running session reports back
-/// for this model, so `recognizing(_:)` can map the strip's current value
-/// to a selection.
-nonisolated enum AgentModel: String, CaseIterable, Identifiable {
-    case fable
-    case opus
-    case sonnet
+/// A struct rather than an enum because the set of models is open: the CLI
+/// accepts any ID its backend knows, and the menu offers an "Other…" field for
+/// one this build has never heard of. `id` is what `--model` and the
+/// `set_model` control request carry; `label` is what the menu shows.
+nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
+    let id: String
+    let label: String
 
-    var id: String { rawValue }
-
-    var token: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .fable: return "Fable"
-        case .opus: return "Opus"
-        case .sonnet: return "Sonnet"
-        }
+    init(id: String, label: String) {
+        self.id = id
+        self.label = label
     }
 
-    private var displayNames: [String] {
-        switch self {
-        case .fable: return ["claude-fable-5", "fable", "Fable 5"]
-        case .opus: return ["claude-opus-5", "opus", "Opus 5"]
-        case .sonnet: return ["claude-sonnet-5", "sonnet", "Sonnet 5"]
-        }
+    /// A model named only by its CLI ID, for one that isn't in `selectable`.
+    init(unrecognizedID id: String) {
+        self.init(id: id, label: AgentModel.shortenedLabel(for: id))
     }
 
-    /// Maps a transcript- or statusline-reported model string back to an
-    /// option, or nil for an unfamiliar value. A `[1m]` context suffix is
-    /// ignored, since it names a variant of the same model.
+    var token: String { id }
+
+    // MARK: - Presets
+
+    /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`
+    /// aliases resolve to the 256K models, so Opus and Sonnet send the
+    /// explicit `[1m]` IDs. Fable has no 1M variant — passing the suffix gets
+    /// `claude-fable-5-1` back — so it sends the plain ID and is labelled
+    /// without one. See "Model aliases" in docs/headless-protocol.md.
+    static let fable = AgentModel(id: "claude-fable-5-1", label: "Fable")
+    static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus 1M")
+    static let sonnet = AgentModel(id: "claude-sonnet-5[1m]", label: "Sonnet 1M")
+
+    /// The models the "More" submenu offers.
+    ///
+    /// There is no live source for this list: the `init` event reports only
+    /// the model in use, and its `capabilities` array names protocol features,
+    /// not models. So it is maintained by hand from `claude --help`'s aliases
+    /// and the IDs the CLI accepted when probed.
+    static let more: [AgentModel] = [
+        AgentModel(id: "claude-opus-5", label: "Opus 256K"),
+        AgentModel(id: "claude-sonnet-5", label: "Sonnet 256K"),
+        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5"),
+        AgentModel(id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5 1M")
+    ]
+
+    /// Everything the menu can offer, top-level items first.
+    static let selectable: [AgentModel] = [fable, opus, sonnet] + more
+
+    // MARK: - Recognition
+
+    /// Maps a transcript- or statusline-reported model string onto a selection.
+    ///
+    /// An exact ID match wins. Otherwise a short alias matches, with a `[1m]`
+    /// suffix promoting the result to that model's 1M variant. An unfamiliar
+    /// ID comes back as itself rather than nil, so the control can display
+    /// what the session actually runs on.
     static func recognizing(_ reported: String) -> AgentModel? {
-        let stripped = reported
-            .replacingOccurrences(of: #"\[[^\]]*\]$"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-        return AgentModel.allCases.first {
-            $0.displayNames.contains { $0.caseInsensitiveCompare(stripped) == .orderedSame }
+        let trimmed = reported.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let exact = selectable.first(where: { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return exact
         }
+        let isOneMillion = trimmed.hasSuffix(contextSuffix)
+        let bare = String(trimmed.dropLast(isOneMillion ? contextSuffix.count : 0))
+        if let alias = aliases[bare.lowercased()] {
+            return isOneMillion ? alias.oneMillionVariant : alias
+        }
+        return AgentModel(unrecognizedID: trimmed)
+    }
+
+    /// Short names and display strings the CLI or a statusline may report in
+    /// place of a full ID, each mapped to its 256K form. A `[1m]` suffix on
+    /// the reported string promotes the result to the 1M variant.
+    private static let aliases: [String: AgentModel] = [
+        "fable": .fable, "fable 5": .fable, "fable 5.1": .fable, "claude-fable-5": .fable,
+        "opus": more[0], "opus 5": more[0],
+        "sonnet": more[1], "sonnet 5": more[1],
+        "haiku": more[2], "haiku 4.5": more[2]
+    ]
+
+    private static let contextSuffix = "[1m]"
+
+    /// The 1M-context sibling of this model, or the model itself when it has
+    /// no 1M form — Fable, whose suffixed ID the CLI reports back plain.
+    private var oneMillionVariant: AgentModel {
+        let suffixed = id + AgentModel.contextSuffix
+        return AgentModel.selectable.first { $0.id == suffixed } ?? self
+    }
+
+    /// Trims the `claude-` prefix so an unknown ID reads as a name rather
+    /// than a slug. The rest is kept verbatim — a wrong-but-pretty label
+    /// would be worse than an ugly true one.
+    private static func shortenedLabel(for id: String) -> String {
+        id.hasPrefix("claude-") ? String(id.dropFirst("claude-".count)) : id
     }
 }
 
@@ -79,17 +132,18 @@ nonisolated enum AgentEffort: String, CaseIterable, Identifiable {
 /// sends to change a running session's model or effort — both take effect
 /// for that session only.
 ///
-/// `AgentModel`/`AgentEffort` tokens are fixed enum cases, so there's no
-/// free-text path into the built command today. `sanitizedToken(_:)` is a
-/// defense-in-depth check kept separate so a future free-text source (a
-/// custom model name, say) can reuse it rather than trusting its input.
+/// A model ID can come from the menu's free-text "Other…" field, which
+/// rejects a whitespace-bearing one through `sanitizedToken(_:)` before it
+/// ever becomes an `AgentModel`. `setModel` re-checks anyway, since a line
+/// pasted into a terminal is the one place an injected newline would matter.
 nonisolated enum ModelEffortCommand {
     enum InvalidTokenError: Error, Equatable {
         case containsWhitespaceOrNewline(String)
     }
 
     static func setModel(_ model: AgentModel) -> String {
-        "/model \(model.token)"
+        guard let token = try? sanitizedToken(model.token) else { return "/model" }
+        return "/model \(token)"
     }
 
     static func setEffort(_ effort: AgentEffort) -> String {

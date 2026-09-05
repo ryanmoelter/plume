@@ -74,7 +74,36 @@ struct HeadlessCommandModelTests {
             settingsPath: nil,
             model: .opus
         )
-        #expect(modelToken(in: arguments) == "opus")
+        #expect(modelToken(in: arguments) == AgentModel.opus.id)
+    }
+
+    /// The bare aliases resolve to the 256K models, so the top-level menu's
+    /// picks have to reach `--model` as explicit `[1m]` IDs.
+    @Test(arguments: [
+        (AgentModel.opus, "claude-opus-5[1m]"),
+        (AgentModel.sonnet, "claude-sonnet-5[1m]"),
+        (AgentModel.fable, "claude-fable-5-1"),
+    ])
+    func passesTheOneMillionIDForTheTopLevelPresets(model: AgentModel, expected: String) {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            model: model
+        )
+        #expect(modelToken(in: arguments) == expected)
+    }
+
+    /// A model ID typed into the menu's "Other…" field reaches the command
+    /// line intact, so the picker isn't limited to this build's list.
+    @Test func passesAnUnknownModelIDVerbatim() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            model: AgentModel(unrecognizedID: "claude-next-7")
+        )
+        #expect(modelToken(in: arguments) == "claude-next-7")
     }
 
     /// No choice means no flag, so the CLI keeps its own default rather than
@@ -112,7 +141,7 @@ struct HeadlessCommandModelTests {
             model: .opus,
             isModelExplicitlyChosen: true
         )
-        #expect(modelToken(in: arguments) == "opus")
+        #expect(modelToken(in: arguments) == AgentModel.opus.id)
     }
 
     /// The rule is about resuming only: a cold launch has no conversation to
@@ -125,7 +154,7 @@ struct HeadlessCommandModelTests {
             model: .sonnet,
             isModelExplicitlyChosen: false
         )
-        #expect(modelToken(in: arguments) == "sonnet")
+        #expect(modelToken(in: arguments) == AgentModel.sonnet.id)
     }
 }
 

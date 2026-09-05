@@ -139,4 +139,94 @@ struct ComposerSettingsTests {
         #expect(tab.model == .sonnet)
         #expect(tab.isModelUserChosen)
     }
+
+    /// The menu's Default item has to undo a pick completely — a leftover
+    /// `isModelUserChosen` would keep `--model` on the command line.
+    @Test func choosingDefaultUnpinsTheTab() {
+        let tab = makeTab()
+        let state = makeSettings(session: nil, tab: tab)
+        state.setModel(.sonnet)
+
+        state.clearModel()
+
+        #expect(tab.model == nil)
+        #expect(tab.modelRaw == nil)
+        #expect(!tab.isModelUserChosen)
+        #expect(state.model == defaults.model)
+        #expect(state.isModelDefaulted)
+    }
+
+    /// A running conversation is already on some model, so Default switches it
+    /// to the resolved one rather than leaving it wherever the pick left it.
+    @Test func choosingDefaultMovesARunningSessionToTheResolvedModel() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+        let state = makeSettings(session: session, tab: makeTab())
+
+        state.clearModel()
+
+        #expect(session.model == defaults.model)
+    }
+
+    /// Tabs stored before the model list carried IDs hold a bare alias, which
+    /// named the 256K model the CLI resolved it to. It has to keep reading
+    /// that way rather than being promoted to a 1M variant the tab never ran.
+    @Test func aTabStoringABareAliasKeepsItsPlainModel() throws {
+        let tab = makeTab()
+        tab.modelRaw = "opus"
+
+        #expect(try #require(tab.model).id == "claude-opus-5")
+    }
+
+    /// Round-tripping a pick through the store must not change which model it
+    /// names, suffix included.
+    @Test func aPickedModelSurvivesTheStore() throws {
+        let tab = makeTab()
+        tab.model = .opus
+
+        #expect(tab.modelRaw == "claude-opus-5[1m]")
+        #expect(tab.model == .opus)
+    }
+
+    /// Dimming a pre-launch model reads as a disabled control, and there is
+    /// nothing running that could disagree with it yet.
+    @Test func theModelAwaitsConfirmationOnlyOnceASessionRuns() {
+        #expect(!makeSettings(session: nil, tab: makeTab()).isModelAwaitingConfirmation)
+
+        let session = makeSession()
+        let state = makeSettings(session: session, tab: makeTab())
+        #expect(state.isModelAwaitingConfirmation)
+
+        session.handle(.initialized(SessionInit(
+            sessionID: "session-1",
+            cwd: nil,
+            model: "claude-opus-5",
+            permissionMode: "acceptEdits",
+            tools: [],
+            slashCommands: []
+        )))
+        #expect(!state.isModelAwaitingConfirmation)
+    }
+
+    /// The Default menu item names the model the launch will resolve to.
+    @Test func theDefaultModelIsTheResolvedOne() {
+        #expect(makeSettings(session: nil, tab: makeTab()).defaultModel == defaults.model)
+    }
+
+    /// A model the CLI reports that this build has no preset for still has to
+    /// display, or the control would silently name the wrong model.
+    @Test func anUnknownReportedModelDisplaysAsItsOwnID() throws {
+        let session = makeSession()
+        session.handle(.initialized(SessionInit(
+            sessionID: "session-1",
+            cwd: nil,
+            model: "claude-next-7",
+            permissionMode: "acceptEdits",
+            tools: [],
+            slashCommands: []
+        )))
+        let state = makeSettings(session: session, tab: makeTab())
+
+        #expect(try #require(state.model).id == "claude-next-7")
+    }
 }
