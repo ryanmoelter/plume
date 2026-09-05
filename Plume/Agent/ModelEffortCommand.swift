@@ -132,9 +132,10 @@ nonisolated enum AgentEffort: String, CaseIterable, Identifiable {
 /// sends to change a running session's model or effort — both take effect
 /// for that session only.
 ///
-/// A model ID can now come from the menu's free-text "Other…" field, so
-/// `setModel` runs its token through `sanitizedToken(_:)` rather than
-/// trusting it.
+/// A model ID can come from the menu's free-text "Other…" field, which
+/// rejects a whitespace-bearing one through `sanitizedToken(_:)` before it
+/// ever becomes an `AgentModel`. `setModel` re-checks anyway, since a line
+/// pasted into a terminal is the one place an injected newline would matter.
 nonisolated enum ModelEffortCommand {
     enum InvalidTokenError: Error, Equatable {
         case containsWhitespaceOrNewline(String)

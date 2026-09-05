@@ -22,6 +22,19 @@ struct ModelEffortCommandTests {
         #expect(ModelEffortCommand.setEffort(effort) == expected)
     }
 
+    /// A bracketed 1M ID is a plain token as far as the terminal is concerned
+    /// — only whitespace could inject a second line.
+    @Test func setModelKeepsTheContextSuffix() {
+        #expect(ModelEffortCommand.setModel(.opus) == "/model claude-opus-5[1m]")
+    }
+
+    /// A model ID carrying a newline must not reach the terminal as a command
+    /// with a second line after it.
+    @Test func setModelRefusesAnIDThatWouldInjectALine() {
+        let injected = AgentModel(unrecognizedID: "opus\n/rm -rf")
+        #expect(ModelEffortCommand.setModel(injected) == "/model")
+    }
+
     @Test
     func sanitizedTokenAcceptsAPlainToken() throws {
         #expect(try ModelEffortCommand.sanitizedToken("sonnet") == "sonnet")
