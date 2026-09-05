@@ -18,7 +18,9 @@ Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet o
 - **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
 - **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
+- **S** — Truncate sidebar task titles at the trailing edge instead of the middle. See [Misc UX](#misc-ux).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
+- **S** — Assume the context window denominator from the selected model, so the meter reads on a fresh tab. See [The context window meter](#the-context-window-meter).
 - **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
@@ -209,6 +211,7 @@ The answers on a settled block come from the tool result's own text, parsed in `
 ## The context window meter
 
 - [x] Work out why the meter reads a full window. **Diagnosed and fixed:** the numerator was measuring throughput, not context size.
+- [ ] Assume the denominator from the selected model, so the meter reads before the first turn completes.
 
 **Root `usage` on a `result` event accumulates across the round-trips within one turn.** Each round-trip re-reads the whole cached prompt, and the root object sums those re-reads. `ContextUsage.total`'s four-way sum was therefore reporting cumulative token throughput for the turn rather than the size of the context. The two coincide only when a turn makes exactly one round-trip, which is why trivial probes and transcript sampling both looked correct for so long.
 
@@ -226,6 +229,8 @@ Root `cache_read` is neither the max nor the sum of the `iterations` present —
 The fix reads the **last element of `usage.iterations`**, falling back to root `usage` when `iterations` is absent — that last round-trip is the prompt that was actually sent. `TranscriptUsage` needed no change: transcripts write one entry per round-trip, so their latest entry is already the last one, and no transcript entry on this machine exceeds 1M. `ContextUsage.total` stays shared between the live and transcript paths so a resumed conversation and a live one agree.
 
 Ruled out along the way, and worth not re-testing: Plume does not accumulate (`HeadlessSession` and `TranscriptParser` both assign last-wins); the denominator is correct, since Opus 5 genuinely reports `contextWindow: 1000000`; and no model in use has a window below 1M, so a stale-window or model-switch mismatch was never involved.
+
+**Assuming the denominator.** Every source of the window today is a completed turn: `HeadlessSession.contextWindow` is set from a `result` event's `modelUsage` (`StreamJSONDecoder.largestContextWindow`), and `TaskTab.contextWindowTokens` is only a snapshot of that. So `ChatTabView`'s `headlessSession?.contextWindow ?? tab.contextWindowTokens` is nil on a fresh tab, and `StatuslineStripView` has no denominator to print until the first turn ends. The model, by contrast, is known before the session starts — `TaskTab.model` is the launch pick and `HeadlessSession.model` is seeded at construction — and the ID already encodes the window: `AgentModel`'s `[1m]` suffix is exactly the 1M/256K distinction, and its doc comment records that an unspecified window means 1M. A nominal window per `AgentModel` would give the meter a denominator immediately, with the reported one still winning once a turn reports it. Two things to decide: what an unrecognized ID assumes (`AgentModel(unrecognizedID:)` keeps IDs this build has never seen), and whether the label should distinguish an assumed denominator from a measured one.
 
 **The label stays unclamped, deliberately.** An earlier plan was to clamp `tokenLabel` and `percentage` so an over-count could not print a literal "1M/1M". That is rejected: the unclamped label is exactly what made this bug visible, and clamping would have hidden it while leaving the arithmetic wrong. `StatuslineMeterMath.fraction` still pins the bar to 0–1; the label is the honest signal and should stay that way.
 
@@ -353,6 +358,7 @@ What exists:
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens.
 - [ ] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.closeTab` forgets the subagent completion tracker (added in 0.3.0) but leaves `DraftStore`, `BellStore` and `TranscriptStore` entries behind; `TaskStore.delete` clears all of them. One `forgetTab(_:)` seam that both paths call is the shape.
+- [ ] Truncate a sidebar task title at the trailing edge, not the middle. `TaskRowView` sets `.truncationMode(.middle)` on the title (`TaskRowView.swift:42`), so a long one reads "I'm going to st...t to go smoo..." where trailing would give "I'm going to start to move this to…" — the beginning of a title is what identifies it. The same modifier on the detail lines below it (`TaskRowView.swift:50`) is a separate call: those carry a branch and a working directory, where the tail is the distinguishing part, so trailing would be the wrong default there. `ArchiveView`'s `.truncationMode(.head)` on its path line (`ArchiveView.swift:25`) is right as it stands, for the same reason.
 - [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. The archive and sidebar buttons beside it follow the appearance correctly, so the difference is in how the add button is built: `SidebarView` makes it a `Menu` where the neighbours are plain `Button`s, so look at the menu's label styling and any explicit tint rather than at `ThemeChrome`.
 
 What exists:
