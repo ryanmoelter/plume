@@ -35,6 +35,15 @@ final class TaskTab {
     /// running session's effort back from the CLI, so this is the only record
     /// of it across a relaunch.
     var effortRaw: String?
+    /// The model to launch with, chosen before the tab has a session. Nil
+    /// leaves `--model` off, so the CLI picks its own default. A running
+    /// session overwrites this with whatever it reports, so on its own it
+    /// records what the conversation ran on, not what the user asked for.
+    var modelRaw: String?
+    /// Whether `modelRaw` is a user's pick rather than a snapshot of the
+    /// running session. Only a pick may pass `--model` to a resume, which
+    /// would otherwise override the model the conversation restores.
+    var isModelUserChosen: Bool = false
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
@@ -69,6 +78,11 @@ final class TaskTab {
     var effort: AgentEffort? {
         get { effortRaw.flatMap(AgentEffort.init(rawValue:)) }
         set { effortRaw = newValue?.rawValue }
+    }
+
+    var model: AgentModel? {
+        get { modelRaw.flatMap(AgentModel.recognizing) }
+        set { modelRaw = newValue?.id }
     }
 
     var displayTitle: String {

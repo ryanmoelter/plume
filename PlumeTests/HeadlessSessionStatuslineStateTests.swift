@@ -54,13 +54,15 @@ struct HeadlessSessionStatuslineStateTests {
         #expect(session.effort == .high)
     }
 
-    @Test func initializedCorrectsAnOptimisticModelToWhatTheStreamReports() {
+    /// The reported ID names the exact model, 1M variant included, so the
+    /// correction lands on it rather than on the family's other size.
+    @Test func initializedCorrectsAnOptimisticModelToWhatTheStreamReports() throws {
         let session = makeSession()
         session.setModel(.sonnet)
 
         session.handle(.initialized(sessionInit(model: "claude-opus-5")))
 
-        #expect(session.model == .opus)
+        #expect(try #require(session.model).id == "claude-opus-5")
     }
 
     @Test func initializedCorrectsAnOptimisticPermissionModeToWhatTheStreamReports() {
@@ -72,13 +74,16 @@ struct HeadlessSessionStatuslineStateTests {
         #expect(session.permissionMode == .bypassPermissions)
     }
 
-    @Test func initializedLeavesModelUnchangedWhenUnrecognized() {
+    /// The CLI runs on whatever ID it was handed, so a model this build has
+    /// no preset for still has to replace the guess — displaying it by ID
+    /// beats displaying a familiar wrong name.
+    @Test func initializedAdoptsAModelWithNoPreset() throws {
         let session = makeSession()
         session.setModel(.sonnet)
 
         session.handle(.initialized(sessionInit(model: "some-future-model")))
 
-        #expect(session.model == .sonnet)
+        #expect(try #require(session.model).id == "some-future-model")
     }
 
     @Test func initializedLeavesPermissionModeUnchangedWhenUnrecognized() {
@@ -98,6 +103,42 @@ struct HeadlessSessionStatuslineStateTests {
         session.handle(.initialized(sessionInit(permissionMode: "acceptEdits")))
 
         #expect(session.permissionMode == .acceptEdits)
+    }
+
+    /// A resumed tab seeds mode and model from its snapshot, and `init`
+    /// reports what the conversation really resumed with. The seeded pair
+    /// must give way to that report, not survive it.
+    @Test func initializedCorrectsBothSeededValuesAtOnce() throws {
+        let session = makeSession()
+        session.setPermissionMode(.plan)
+        session.setModel(.sonnet)
+
+        session.handle(.initialized(sessionInit(model: "claude-opus-5", permissionMode: "acceptEdits")))
+
+        #expect(try #require(session.model).id == "claude-opus-5")
+        #expect(session.permissionMode == .acceptEdits)
+    }
+
+    @Test func modeAndModelAreUnreportedUntilInitArrives() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+
+        #expect(!session.hasReportedModeAndModel)
+
+        session.handle(.initialized(sessionInit(model: "claude-opus-5")))
+
+        #expect(session.hasReportedModeAndModel)
+    }
+
+    /// `init` carrying a model with no preset still counts as reported: the
+    /// conversation answered, so the values stop being Plume's guess.
+    @Test func initWithNoPresetStillCountsAsReported() {
+        let session = makeSession()
+        session.setModel(.sonnet)
+
+        session.handle(.initialized(sessionInit(model: "some-future-model")))
+
+        #expect(session.hasReportedModeAndModel)
     }
 
     /// Allowing `ExitPlanMode` only answers that tool call — the CLI has no

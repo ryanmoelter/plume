@@ -84,7 +84,7 @@ enum AgentLauncher {
         let session = HeadlessSessionManager.shared.session(
             for: tab.id,
             taskID: task.id,
-            initialEffort: tab.effort
+            initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
         )
         session.start(
             workingDirectory: task.workingDirectoryPath,
@@ -94,7 +94,10 @@ enum AgentLauncher {
                 appDefault: AppSettings.shared.resolvedDefaultPermissionMode
             ),
             resumeSessionID: resumeSessionID,
-            settingsPath: settingsPath
+            settingsPath: settingsPath,
+            model: tab.model,
+            isModelExplicitlyChosen: tab.isModelUserChosen,
+            environment: LoginShellCommand.plumeEnvironment
         )
         if let message {
             session.submit(text: message)

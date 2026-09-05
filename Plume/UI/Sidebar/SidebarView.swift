@@ -29,6 +29,7 @@ struct SidebarView: View {
                         isRenaming: renamingGroupID == group.id,
                         onDoneRenaming: { renamingGroupID = nil }
                     )
+                    .accessibilityIdentifier(AccessibilityID.groupHeader)
                     .contextMenu {
                         Button("Rename Group") { renamingGroupID = group.id }
                         Button("New Task in Group") { createTask(in: group) }
@@ -60,15 +61,18 @@ struct SidebarView: View {
             ToolbarItem {
                 Menu {
                     Button("New Task") { createTask(in: nil) }
+                        .accessibilityIdentifier(AccessibilityID.newTaskButton)
                     Button("New Group") {
                         let group = TaskStore.createGroup(in: context, existing: groups)
                         renamingGroupID = group.id
                     }
+                    .accessibilityIdentifier(AccessibilityID.newGroupButton)
                 } label: {
                     Label("Add", systemImage: "plus")
                 } primaryAction: {
                     createTask(in: nil)
                 }
+                .accessibilityIdentifier(AccessibilityID.newTaskButton)
             }
             ToolbarItem {
                 Button {

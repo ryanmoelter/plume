@@ -16,7 +16,7 @@ struct ArchiveView: View {
             List(archivedTasks) { task in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(task.title)
+                        Text(TitleStore.shared.displayTitle(for: task))
                         if let path = task.workingDirectoryPath {
                             Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                                 .font(.caption)

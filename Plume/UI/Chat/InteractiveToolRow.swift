@@ -257,6 +257,8 @@ struct InteractiveToolRow: View, ThemedView {
                 content
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.questionOption)
+            .accessibilityLabel(option.label)
         } else {
             content
         }
@@ -284,6 +286,7 @@ struct InteractiveToolRow: View, ThemedView {
                         )
                 }
                 .chatTextColumn()
+                .accessibilityIdentifier(AccessibilityID.questionFreeTextField)
         }
     }
 

@@ -43,4 +43,54 @@ struct ClaudeCodeSettingsResolverTests {
         """)
         #expect(ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode(settingsPath: path) == nil)
     }
+
+    private func resolvedModel(shared: String?, local: String? = nil) -> AgentModel? {
+        ClaudeCodeSettingsResolver.resolvedDefaultModel(
+            settingsPath: writeFixture(shared),
+            localSettingsPath: writeFixture(local)
+        )
+    }
+
+    @Test func resolvesTheConfiguredModelAlias() {
+        #expect(resolvedModel(shared: #"{ "model": "sonnet" }"#)?.id == "claude-sonnet-5")
+    }
+
+    /// The context-window suffix names a different model to launch on, so it
+    /// resolves to the 1M variant rather than being stripped — which is what
+    /// makes an `opus[1m]` default display as "Opus" rather than "Opus 256K".
+    @Test func resolvesAnAliasCarryingAContextSuffix() {
+        #expect(resolvedModel(shared: #"{ "model": "opus[1m]" }"#) == .opus)
+        #expect(AgentModel.opus.label == "Opus")
+    }
+
+    @Test func resolvesAFullModelID() {
+        #expect(resolvedModel(shared: #"{ "model": "claude-opus-5" }"#)?.id == "claude-opus-5")
+    }
+
+    @Test func theLocalFileOverridesTheSharedOne() {
+        let model = resolvedModel(
+            shared: #"{ "model": "sonnet" }"#,
+            local: #"{ "model": "opus" }"#
+        )
+        #expect(model?.id == "claude-opus-5")
+    }
+
+    /// A local file that configures no model leaves the shared one standing.
+    @Test func theSharedFileStandsWhenTheLocalOneOmitsTheKey() {
+        #expect(resolvedModel(shared: #"{ "model": "sonnet" }"#, local: "{}")?.id == "claude-sonnet-5")
+    }
+
+    @Test func missingModelKeyResolvesToNil() {
+        #expect(resolvedModel(shared: "{}") == nil)
+    }
+
+    /// A model this build has no preset for is still what the CLI will launch
+    /// on, so it resolves to itself rather than being discarded.
+    @Test func anUnfamiliarModelResolvesToItsOwnID() {
+        #expect(resolvedModel(shared: #"{ "model": "claude-next-7" }"#)?.id == "claude-next-7")
+    }
+
+    @Test func missingFilesResolveTheModelToNil() {
+        #expect(resolvedModel(shared: nil) == nil)
+    }
 }

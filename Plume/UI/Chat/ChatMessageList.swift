@@ -16,6 +16,7 @@ struct ChatMessageList: View {
     /// Set on the headless transport, so pending permissions can be docked
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
+    var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
 
     /// Distance from the bottom, held in a reference box rather than `@State`.
     ///
@@ -97,9 +98,9 @@ struct ChatMessageList: View {
                         .padding(.vertical, 4)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }
-                SubagentListView(subagents: subagents)
-                    .listItemPadding(bleed: true, column: .unpadded)
                 if let tabID {
+                    SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
+                        .listItemPadding(bleed: true, column: .unpadded)
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }

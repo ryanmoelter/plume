@@ -3,8 +3,9 @@ import SwiftUI
 
 /// Renders parsed markdown with a proportional font for prose — monospace is
 /// reserved for code blocks and inline code, per the roadmap's "don't use a
-/// monospace font" item. No WebKit; block layout is plain SwiftUI stacks over
-/// `MarkdownBlock.parse`.
+/// monospace font" item. Block layout is plain SwiftUI stacks over
+/// `MarkdownBlock.parse`; only a mermaid fence reaches for WebKit, in
+/// `MermaidBlock`.
 struct MarkdownView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -99,19 +100,25 @@ struct MarkdownView: View, ThemedView {
             }
             .listItemPadding(vertical: false)
 
-        case let .codeBlock(_, code):
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(typography.body.mono)
-                    .foregroundStyle(codeForeground)
-                    .padding(14)
+        case let .codeBlock(language, code):
+            if MermaidDocument.isMermaidFence(language: language) {
+                // Copying still yields the source, not the drawn diagram.
+                MermaidBlock(source: code, isRevealed: hoveredBlock == index) {
+                    codeBlock(code)
+                }
+                .overlay(alignment: .topTrailing) {
+                    CodeBlockCopyButton(code: code, isRevealed: hoveredBlock == index)
+                }
+                .onHover { hoveredBlock = $0 ? index : nil }
+                .listItemPadding(bleed: true, vertical: false)
+            } else {
+                codeBlock(code)
+                    .overlay(alignment: .topTrailing) {
+                        CodeBlockCopyButton(code: code, isRevealed: hoveredBlock == index)
+                    }
+                    .onHover { hoveredBlock = $0 ? index : nil }
+                    .listItemPadding(bleed: true, vertical: false)
             }
-            .background(codeBackground, in: .rect(cornerRadius: 6))
-            .overlay(alignment: .topTrailing) {
-                CodeBlockCopyButton(code: code, isRevealed: hoveredBlock == index)
-            }
-            .onHover { hoveredBlock = $0 ? index : nil }
-            .listItemPadding(bleed: true, vertical: false)
 
         case let .quote(text):
             HStack(spacing: 8) {
@@ -127,8 +134,11 @@ struct MarkdownView: View, ThemedView {
             .listItemPadding(vertical: false)
 
         case let .table(header, alignments, rows):
+            // Centered rather than pinned leading: `TableLayout` sizes columns
+            // to their content, so a narrow table otherwise sits against one
+            // edge of a much wider column.
             table(header: header, alignments: alignments, rows: rows)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .listItemPadding(bleed: true, vertical: false)
                 .padding(.vertical, 6)
 
@@ -137,6 +147,18 @@ struct MarkdownView: View, ThemedView {
                 .fill(colors.divider)
                 .frame(height: 1)
         }
+    }
+
+    /// A fenced block's text in its bordered, scrollable container. Also what
+    /// a mermaid fence shows while it draws and if it fails to.
+    private func codeBlock(_ code: String) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(code)
+                .font(typography.body.mono)
+                .foregroundStyle(codeForeground)
+                .padding(14)
+        }
+        .background(codeBackground, in: .rect(cornerRadius: 6))
     }
 
     /// The table, laid out by `TableLayout` so its columns size to their

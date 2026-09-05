@@ -38,6 +38,45 @@ The reply carries the session's capabilities — `commands` (every slash command
 
 Other fields `initialize` accepts, all optional: `sdkMcpServers`, `sdkMcpServerConfigs`, `skills`, `agents`, `title`, `systemPrompt`, `appendSystemPrompt`, `planModeInstructions`, `toolAliases`, `forwardSubagentText`, `promptSuggestions`, `agentProgressSummaries`.
 
+## Model on resume
+
+A bare `--resume` restores the model the conversation already used; it does **not** fall back to the CLI's default. Passing `--model` on a resume overrides it. Observed by driving the real binary — the three `init` events, verbatim:
+
+```
+# fresh, --model sonnet
+{"subtype":"init","session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-sonnet-5","permissionMode":"plan"}
+# --resume b13e49d1-…, no --model
+{"session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-sonnet-5"}
+# --resume b13e49d1-…, --model opus
+{"session_id":"b13e49d1-23dc-4604-a37e-d24fabe683e9","model":"claude-opus-5"}
+```
+
+The default is a separate value again: a *fresh* run with no `--model` reported `claude-opus-5[1m]`, from `model` in `~/.claude/settings.json`. So the conversation's model, the CLI's default, and any flag are three distinct things, and only the flag overrides.
+
+**What Plume does with this.** On a resume `--model` is omitted unless the user picked a model on that tab since the conversation last ran. The tab's snapshot is a record of what the conversation used, not a choice, so passing it back would be a no-op at best and would override a model the user changed inside the CLI at worst. `HeadlessCommand.arguments` takes `isModelExplicitlyChosen` for exactly this.
+
+## Model aliases
+
+**The short aliases resolve to the 256K models, not the 1M ones.** Measured by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
+
+| `--model` | `init` reports |
+| --- | --- |
+| `opus` | `claude-opus-5` |
+| `sonnet` | `claude-sonnet-5` |
+| `fable` | `claude-fable-5-1` |
+| `haiku` | `claude-haiku-4-5-20251001` |
+| `claude-opus-5[1m]` | `claude-opus-5[1m]` |
+| `claude-sonnet-5[1m]` | `claude-sonnet-5[1m]` |
+| `claude-haiku-4-5-20251001[1m]` | `claude-haiku-4-5-20251001[1m]` |
+| `claude-fable-5-1[1m]` | `claude-fable-5-1` |
+| `not-a-real-model` | `not-a-real-model` |
+
+Three things follow.
+
+- **`[1m]` names a different model, not a decoration.** Getting the 1M context window means passing the suffixed ID; the alias never lands there on its own. So `AgentModel.opus`/`.sonnet`/`.haiku` are the suffixed IDs, and `recognizing(_:)` promotes a reported `[1m]` to the 1M variant rather than stripping it. An unspecified context window means 1M, so these display without a size suffix; only the 256K models in `AgentModel.more` carry one.
+- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable` is `claude-fable-5-1` and is labelled without a size — not because it's 1M by convention, but because it has no 256K form to distinguish from.
+- **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
+
 ## Sending a turn
 
 ```json
@@ -102,6 +141,21 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 ### Approving an `ExitPlanMode`
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
+
+### Approving a plan with feedback
+
+There is no allow-with-message on this wire, and no plan-specific allow field. The documented allow surface is `updatedInput` and `updatedPermissions` and nothing else, and `ExitPlanMode` declares **no input fields at all** — it reads the plan from `planFilePath` — so an extra key on `updatedInput` is discarded with no diagnostic. Feedback therefore cannot ride the permission response.
+
+Plume sends the approval unchanged and follows it with an ordinary user turn:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"<id>",
+ "response":{"behavior":"allow","updatedInput":{ …the request's own input, unchanged… }}}}
+{"type":"control_request","request_id":"<n>","request":{"subtype":"set_permission_mode","mode":"auto"}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<the typed feedback>"}]}}
+```
+
+The user turn is queued while the approved turn runs and is sent when that turn's `result` arrives, so the note steers the next plan instead of interrupting the one being approved. Blank feedback sends no third line.
 
 ## Interrupt
 

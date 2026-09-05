@@ -3,9 +3,10 @@ import Testing
 
 struct ModelEffortCommandTests {
     @Test(arguments: [
-        (AgentModel.fable, "/model fable"),
-        (AgentModel.opus, "/model opus"),
-        (AgentModel.sonnet, "/model sonnet"),
+        (AgentModel.fable, "/model claude-fable-5-1"),
+        (AgentModel.opus, "/model claude-opus-5[1m]"),
+        (AgentModel.sonnet, "/model claude-sonnet-5[1m]"),
+        (AgentModel.haiku, "/model claude-haiku-4-5-20251001[1m]"),
     ])
     func setModelBuildsExactCommand(model: AgentModel, expected: String) {
         #expect(ModelEffortCommand.setModel(model) == expected)
@@ -20,6 +21,19 @@ struct ModelEffortCommandTests {
     ])
     func setEffortBuildsExactCommand(effort: AgentEffort, expected: String) {
         #expect(ModelEffortCommand.setEffort(effort) == expected)
+    }
+
+    /// A bracketed 1M ID is a plain token as far as the terminal is concerned
+    /// — only whitespace could inject a second line.
+    @Test func setModelKeepsTheContextSuffix() {
+        #expect(ModelEffortCommand.setModel(.opus) == "/model claude-opus-5[1m]")
+    }
+
+    /// A model ID carrying a newline must not reach the terminal as a command
+    /// with a second line after it.
+    @Test func setModelRefusesAnIDThatWouldInjectALine() {
+        let injected = AgentModel(unrecognizedID: "opus\n/rm -rf")
+        #expect(ModelEffortCommand.setModel(injected) == "/model")
     }
 
     @Test
@@ -40,32 +54,64 @@ struct ModelEffortCommandTests {
         }
     }
 
+    /// The top-level menu offers 1M context where it exists, so the bare
+    /// aliases must keep landing on the 256K models they actually resolve to
+    /// — see "Model aliases" in docs/headless-protocol.md.
     @Test(arguments: [
-        ("claude-opus-5", AgentModel.opus),
-        ("claude-fable-5", AgentModel.fable),
-        ("sonnet", AgentModel.sonnet),
+        ("claude-opus-5", "claude-opus-5"),
+        ("opus", "claude-opus-5"),
+        ("sonnet", "claude-sonnet-5"),
+        ("haiku", "claude-haiku-4-5-20251001"),
     ])
-    func recognizingMapsKnownModelStrings(reported: String, expected: AgentModel) {
+    func recognizingMapsAnAliasToItsPlainModel(reported: String, expectedID: String) {
+        #expect(AgentModel.recognizing(reported)?.id == expectedID)
+    }
+
+    /// A `[1m]` suffix names the 1M variant, which is a different model to
+    /// pass to `--model`, not a decoration to strip.
+    @Test(arguments: [
+        ("claude-opus-5[1m]", AgentModel.opus),
+        ("opus[1m]", AgentModel.opus),
+        ("sonnet[1m]", AgentModel.sonnet),
+        ("haiku[1m]", AgentModel.haiku),
+    ])
+    func recognizingPromotesAContextSuffixToTheOneMillionVariant(
+        reported: String,
+        expected: AgentModel
+    ) {
         #expect(AgentModel.recognizing(reported) == expected)
     }
 
-    @Test
-    func recognizingReturnsNilForAnUnrecognizedModelString() {
-        #expect(AgentModel.recognizing("gpt-4") == nil)
+    /// Fable takes the suffix but reports back plain, so there is nothing to
+    /// promote it to.
+    @Test func fableHasNoDistinctOneMillionVariant() {
+        #expect(AgentModel.recognizing("fable[1m]") == .fable)
+        #expect(AgentModel.fable.id == "claude-fable-5-1")
+    }
+
+    /// The CLI echoes back whatever ID it was given, including one this build
+    /// has never heard of, so an unknown ID has to survive rather than vanish.
+    @Test func recognizingRoundTripsAnUnknownID() throws {
+        let model = try #require(AgentModel.recognizing("claude-newthing-9"))
+        #expect(model.id == "claude-newthing-9")
+        #expect(model.label == "newthing-9")
+        #expect(AgentModel.recognizing(model.id) == model)
+    }
+
+    @Test func recognizingReturnsNilOnlyForAnEmptyString() {
         #expect(AgentModel.recognizing("") == nil)
+        #expect(AgentModel.recognizing("   ") == nil)
     }
 
     /// A captured statusline payload reports a display name rather than the
-    /// transcript's model ID, and either may carry a context-window suffix.
+    /// transcript's model ID.
     @Test(arguments: [
-        ("Opus 5", AgentModel.opus),
-        ("Sonnet 5", AgentModel.sonnet),
-        ("Fable 5", AgentModel.fable),
-        ("claude-opus-5[1m]", AgentModel.opus),
-        ("opus[1m]", AgentModel.opus),
+        ("Opus 5", "claude-opus-5"),
+        ("Sonnet 5", "claude-sonnet-5"),
+        ("Fable 5", "claude-fable-5-1"),
     ])
-    func recognizingMapsDisplayNamesAndContextSuffixes(reported: String, expected: AgentModel) {
-        #expect(AgentModel.recognizing(reported) == expected)
+    func recognizingMapsDisplayNames(reported: String, expectedID: String) {
+        #expect(AgentModel.recognizing(reported)?.id == expectedID)
     }
 
     @Test(arguments: [
@@ -82,5 +128,30 @@ struct ModelEffortCommandTests {
     @Test
     func recognizingReturnsNilForAnUnrecognizedEffortString() {
         #expect(AgentEffort.recognizing("ultra") == nil)
+    }
+
+    /// An unspecified context window means 1M, so only the 256K models carry
+    /// a suffix. Fable has no 1M variant at all, so it carries none either.
+    @Test(arguments: [
+        (AgentModel.fable, "Fable"),
+        (AgentModel.opus, "Opus"),
+        (AgentModel.sonnet, "Sonnet"),
+        (AgentModel.haiku, "Haiku 4.5"),
+        (AgentModel.more[0], "Opus 256K"),
+        (AgentModel.more[1], "Sonnet 256K"),
+        (AgentModel.more[2], "Haiku 4.5 256K"),
+    ])
+    func labelsFollowTheContextWindowNamingRule(model: AgentModel, expectedLabel: String) {
+        #expect(model.label == expectedLabel)
+    }
+
+    /// The primary menu is Default/Fable/Opus/Sonnet/Haiku 4.5; More holds
+    /// exactly the three 256K variants.
+    @Test func moreHoldsExactlyThe256KVariants() {
+        #expect(AgentModel.more.map(\.id) == [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-haiku-4-5-20251001",
+        ])
     }
 }

@@ -6,10 +6,14 @@ import Foundation
 /// here. `HeadlessProcess` quotes and wraps it in a login shell, which is what
 /// puts `claude` on PATH.
 enum HeadlessCommand {
+    /// `isModelExplicitlyChosen` distinguishes a model the user picked from
+    /// one that is only a snapshot of what the conversation already ran on.
     static func arguments(
         resumeSessionID: String?,
         permissionMode: PermissionMode?,
-        settingsPath: String?
+        settingsPath: String?,
+        model: AgentModel? = nil,
+        isModelExplicitlyChosen: Bool = true
     ) -> [String] {
         var arguments = [
             "claude",
@@ -31,6 +35,19 @@ enum HeadlessCommand {
         // preferred mode.
         arguments.append("--permission-mode")
         arguments.append((permissionMode ?? .acceptEdits).token)
+
+        // Left off entirely when unset, so the CLI keeps its own default
+        // rather than being pinned to a guess.
+        //
+        // A resume drops it too unless the user picked the model since. A bare
+        // `--resume` restores the model the conversation already used, so
+        // passing an unchosen snapshot back can only override a model changed
+        // elsewhere — see "Model on resume" in docs/headless-protocol.md.
+        let isResuming = !(resumeSessionID ?? "").isEmpty
+        if let model, isModelExplicitlyChosen || !isResuming {
+            arguments.append("--model")
+            arguments.append(model.token)
+        }
 
         if let settingsPath {
             arguments.append("--settings")

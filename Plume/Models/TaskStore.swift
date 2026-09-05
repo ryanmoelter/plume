@@ -13,16 +13,27 @@ enum TaskStore {
     /// so a new task is ready to run in the place you were already working.
     /// Off by default: it reads `UserDefaults` and shells out to `git`, which
     /// callers that just want a bare task shouldn't pay for.
+    ///
+    /// `inheritingFrom` seeds it instead from another task's workspace —
+    /// ⌘N's selected-task case — and wins over `defaultsToRecentFolder` when
+    /// both are given. A worktree task is inherited as a plain directory:
+    /// the new task gets the same folder, not a worktree of its own.
     @discardableResult
     static func createTask(
         in context: ModelContext,
         title: String = "",
         group: TaskGroup? = nil,
         siblings: [WorkTask],
-        defaultsToRecentFolder: Bool = false
+        defaultsToRecentFolder: Bool = false,
+        inheritingFrom: WorkTask? = nil
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
-        if defaultsToRecentFolder, let folder = RecentFolders.mostRecent {
+        if let source = inheritingFrom, let folder = source.workingDirectoryPath {
+            task.workingDirectoryPath = folder
+            task.repoPath = source.repoPath
+            task.branchName = source.branchName
+            task.workspaceKind = .directory
+        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent {
             task.workingDirectoryPath = folder
             task.workspaceKind = .directory
             // Filled in once `git` answers: creating a task must not wait on
@@ -81,6 +92,8 @@ enum TaskStore {
             SurfaceManager.shared.closeSession(for: tab.id)
             HeadlessSessionManager.shared.closeSession(for: tab.id)
             DraftStore.shared.forget(tabID: tab.id)
+            BellStore.shared.forget(tabID: tab.id)
+            SubagentCompletionTracker.shared.forget(tabID: tab.id)
             TranscriptStore.shared.stopWatching(tabID: tab.id)
             UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         }
@@ -101,6 +114,7 @@ enum TaskStore {
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
         SurfaceManager.shared.closeSession(for: tab.id)
         HeadlessSessionManager.shared.closeSession(for: tab.id)
+        SubagentCompletionTracker.shared.forget(tabID: tab.id)
         guard let task = tab.task else {
             context.delete(tab)
             return
@@ -118,6 +132,7 @@ enum TaskStore {
         }
         TitleStore.shared.forget(tabID: tab.id)
         DraftStore.shared.forget(tabID: tab.id)
+        BellStore.shared.forget(tabID: tab.id)
         TranscriptStore.shared.stopWatching(tabID: tab.id)
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         context.delete(tab)

@@ -20,7 +20,13 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
+        static let defaultEffortRaw = "defaultEffortRaw"
     }
+
+    /// Effort a tab starts at when it has never chosen one. The CLI reports
+    /// effort back nowhere and documents no default, so this is Plume's own
+    /// choice: the middle of the five levels, and settable.
+    nonisolated static let defaultEffort: AgentEffort = .medium
 
     /// 125% of the system `.body` size (13pt on macOS).
     nonisolated static let defaultChatFontSize: Double = 16
@@ -58,6 +64,9 @@ final class AppSettings {
 
         self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
             .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
+
+        self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
+            .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -131,6 +140,20 @@ final class AppSettings {
         didSet {
             defaults.set(defaultPermissionMode.rawValue, forKey: Key.defaultPermissionModeRaw)
         }
+    }
+
+    /// Effort a new agent tab starts at. There is no launch flag for effort,
+    /// so this is what the composer shows and what seeds a new session.
+    var defaultEffort: AgentEffort {
+        didSet {
+            defaults.set(defaultEffort.rawValue, forKey: Key.defaultEffortRaw)
+        }
+    }
+
+    /// The model a launch that passes no `--model` will run on, read from the
+    /// CLI's own settings. Nil when nothing is configured there.
+    var resolvedDefaultModel: AgentModel? {
+        ClaudeCodeSettingsResolver.resolvedDefaultModel()
     }
 
     /// Resolves `defaultPermissionMode` to an actual `PermissionMode`,

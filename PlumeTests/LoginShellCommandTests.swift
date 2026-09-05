@@ -34,4 +34,8 @@ struct LoginShellCommandTests {
     @Test func loginShellFallsBackToZsh() {
         #expect(LoginShellCommand.loginShell(shell: nil) == "/bin/zsh -li")
     }
+
+    @Test func plumeEnvironmentMarksTheShell() {
+        #expect(LoginShellCommand.plumeEnvironment == ["PLUME": "1"])
+    }
 }

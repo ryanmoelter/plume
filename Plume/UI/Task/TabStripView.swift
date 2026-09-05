@@ -30,6 +30,8 @@ struct TabStripView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("New tab")
+            .accessibilityLabel("New tab")
+            .accessibilityIdentifier(AccessibilityID.newTabButton)
 
             Spacer()
         }
@@ -71,6 +73,14 @@ private struct TabChip: View {
                 .font(.callout)
                 .frame(maxWidth: 120, alignment: .leading)
 
+            if BellStore.shared.hasUnseenBell(tabID: tab.id) {
+                Circle()
+                    .fill(.tint)
+                    .frame(width: 6, height: 6)
+                    .help("This terminal rang a bell")
+                    .transition(.opacity)
+            }
+
             // Reserve the slot so the chip doesn't resize on hover.
             Button(action: close) {
                 Image(systemName: "xmark")
@@ -80,6 +90,8 @@ private struct TabChip: View {
             .opacity(isHovering ? 1 : 0)
             .allowsHitTesting(isHovering)
             .help("Close tab")
+            .accessibilityLabel("Close tab")
+            .accessibilityIdentifier(AccessibilityID.tabChipClose)
         }
         .foregroundStyle(themeForeground ?? .primary)
         .padding(.horizontal, 8)
@@ -88,6 +100,7 @@ private struct TabChip: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
+        .accessibilityIdentifier(AccessibilityID.tabChip)
         .contextMenu {
             if tab.kind == .agent {
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {

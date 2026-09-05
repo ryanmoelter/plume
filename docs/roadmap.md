@@ -8,18 +8,16 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-1. **S** — Terminal bell, with a dot on tabs that rang one. See [Notifications](#notifications).
-2. **M** — System notification on bell, then on Claude Code events — above all waiting-for-input. See [Notifications](#notifications).
-3. **L** — Subagents as a real view rather than a disclosure row. The case Plume exists to make legible, and currently the weakest part of the chat. See [Subagents](#subagents).
-4. **L** — Mermaid diagrams in the markdown renderer. Blocked on one decision — WebKit or a native subset. See [The markdown renderer](#the-markdown-renderer).
-5. **S** — ⌘W closes the current tab, not the window. See [Shortcuts](#shortcuts).
-6. **S** — Focus the composer on opening a new tab or task. See [Misc UX](#misc-ux).
-7. **S** — ⌘N inherits the selected task's working directory. See [Task creation and directories](#task-creation-and-directories).
-8. **S** — A multi-line plan feedback field, following the composer's send-key setting. See [The plan overlay](#the-plan-overlay).
-9. **S** — Label the reject button "Reject" until the user types. See [The plan overlay](#the-plan-overlay).
-10. **M** — ⌥↩ approves with feedback, captioned beneath the field. See [The plan overlay](#the-plan-overlay).
-11. **M** — Set model, effort and permission mode before the first message in an agent tab. See [The statusline](#the-statusline).
-12. **S** — Confirm a resumed tab shows the conversation's real mode and model, not the stale snapshot. See [The statusline](#the-statusline).
+Everything queued for 0.3.0 shipped. Candidates the sweep left behind, not yet ordered:
+
+- **S** — A `TaskStatus.interrupted` case, so a subagent the user killed mid-turn stops reading as "working" forever. See [Subagents](#subagents).
+- **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
+- **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
+- **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
+- **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
+- **S** — The sidebar's add button and its dropdown don't follow light/dark mode reliably. See [Misc UX](#misc-ux).
+- **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
+- **L** — Make the composer and statusline a floating glass panel, with the plan bar docked above it. See [The statusline](#the-statusline).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)). **`/btw` support** waits on confirming the note is filed at all on the headless transport, since a silent no-op and a working command look identical from the UI (see [The composer](#the-composer)).
 
@@ -29,10 +27,19 @@ Not queued, and deliberately so: **Renaming "task"** is cheap to do and expensiv
 
 Tell me when I need to pay attention to tasks.
 
-- [ ] Terminal bell support, with a dot next to chats that have rung one.
-- [ ] System notification on bell.
+- [x] Terminal bell support, with a dot next to chats that have rung one.
+- [x] System notification on bell.
 - [ ] Let the command line send a notification (title + description), like `cmux notify`.
-- [ ] Notify automatically on Claude Code events — above all, waiting for input.
+- [x] Notify automatically on Claude Code events — above all, waiting for input.
+
+What shipped:
+
+- `BellStore` holds the tabs with an unseen bell, and `TabStripView` draws a dot on their chips. A bell rung in the tab on screen is already seen and leaves no dot; the mark clears when the tab comes on screen, and when a notification click lands on it.
+- `TerminalSession` mirrors `bellCount` and the OSC 9 / OSC 777 notification into observable storage, alongside `title` and `workingDirectory`.
+- `Notifier` (`Plume/Support/`) is the delivery layer over `UNUserNotificationCenter`. It asks for authorization the first time something wants to notify, queues that first post until the answer arrives, and no-ops afterwards if the answer was no. It also no-ops in a process with no bundle identity, which is what keeps the test host safe.
+- **The suppression rule**: a notification is dropped only when Plume is frontmost *and* the event's tab is the one on screen. A background tab, a background task, or any tab while Plume is behind another app all notify. `NotificationSuppression` holds the rule on its own, and is unit-tested.
+- `StatusNotifier` hooks `StatusEngine.onTabStatusChanged`, so both transports are covered at once. `needsInput`, `done` and `error` notify; `working`, `idle` and `unset` do not.
+- Clicking a notification activates Plume and selects the task and tab it came from.
 
 What exists:
 
@@ -43,17 +50,25 @@ What exists:
 
 ## Subagents
 
-Was marked done and is not: the old checkbox covered the *list*, while the status half never worked. Driven now, and it is well short of useful. Parallel subagents are the case Plume exists to make legible, so this deserves to be a real view rather than a patched-up disclosure row.
+Parallel subagents are the case Plume exists to make legible, so this is a real view rather than the patched-up disclosure row it started as.
 
-- [ ] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
-- [ ] Show each one's live status — working, waiting for input, done, failed.
-- [ ] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
+- [x] Show which subagents a conversation has spawned, identified by what they were asked to do rather than by ID.
+- [x] Show each one's live status — working, waiting for input, done, failed.
+- [x] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
+- [x] Keep the live list short: a finished subagent lingers briefly, then collects into a "Completed subagents (N)" disclosure below the live rows.
+- [x] Keep the sidebar honest: a task whose subagents are still working reads working, not done.
 
-Today the label is `subagent.id` — a raw identifier (`SubagentListView.swift:59`) — over a one-line tail of the last message. `SubagentTranscript` carries only `id`, `transcript` and `modifiedAt` (`TranscriptStore.swift:6-10`), so neither a task description nor a status has anywhere to live yet; both want adding there. The description is recoverable: a subagent is spawned by a `Task`/`Agent` tool call in the parent transcript, whose input carries the prompt and a short description, and the transcript parser already reads those calls.
+What shipped: `SubagentTranscript` now carries a `descriptor` and a `status` beside its transcript. `SubagentListView` is a flat list of one compact row each — status badge, description, message count — and a row opens `SubagentTranscriptOverlay`, which renders the whole conversation through the same `ChatMessageRow` the main chat uses. `ChatTabView` hosts that overlay beside the plan one and holds the open subagent by **id**, so the panel follows the subagent's live re-reads instead of freezing at the moment it was opened.
 
-- **Status is hardcoded, not merely wrong.** `ChatMessageRow(message:, isLast: false, status: .unset)` (`SubagentListView.swift:53`) passes both constants, and `ChatMessageRow` gates its working spinner and needs-input indicator on `isLast && status == …` — so neither can ever fire, whatever the subagent is doing.
-- **Freshness would still lag once status is wired.** A subagent's own writes don't trigger the main transcript's watcher, so the list refreshes only when the *main* transcript changes. `SessionJSONLReader` already enumerates the subagent transcripts, so what's missing is a watcher per file, not discovery.
-- **Presentation.** A nested `DisclosureGroup` inside the chat list is a cramped place to read a whole conversation. Worth weighing against the alternatives — a sheet like the plan overlay, or a pane — especially once several subagents run at once, which is the situation that motivates the feature.
+Four things worth knowing for anything that builds on this:
+
+- **A subagent transcript is entirely `isSidechain`, and the parser dropped those lines.** So the old view rendered nothing at all — a step past what the checkbox described. `TranscriptParser.parse` takes `includeSidechain:` and the subagent read passes it; the default keeps a main transcript's sidechains out as before.
+- **The description comes from a `.meta.json` sidecar, not from the parent scan.** Claude Code writes `agent-<id>.meta.json` beside each transcript carrying `description`, `agentType` and `toolUseId`. `SubagentSpawnScanner` is the fallback for transcripts written before it existed, and it has to match a `Task` call to its agent through the *result* — the `tool_use` itself names no agent id.
+- **Done is `end_turn` in the subagent's file, or a real completion for it in the parent.** Neither signal alone is enough. Trailing assistant prose is not one at all: an agent narrates between tool calls, so 49 of 210 sampled subagents ended on prose while still working, every one a false green check. But keying on the sidecar alone left agents stuck at working after the main chat already had their report — 21 of 513 in the corpus. The sidecar's tail is unreliable in exactly that case: the closing message is written while streaming and carries `stop_reason: null`, which `TranscriptParser` skips, so `lastStopReason` keeps the `tool_use` from the turn before and the row never settles. Seventeen took that shape; two more ended on `stop_sequence` after an API error cut the response off, and two reached the parent only as a `task_status` attachment. So `SubagentStatusDeriver` takes either signal. The parent's is read as a **status, never as English**: `SubagentSpawnResults` keys `SubagentParentSignal` by agent id from a `toolUseResult` carrying `agentId` (`async_launched` and `forked` mean launched, `failed` and `error` mean failed, anything else is a real report) and from a `task_status` attachment, which is how a background agent's completion reaches a parent that never blocked on the spawning call. A completion outranks the launch that preceded it. Absent a parent completion the sidecar rule stands, latest `stop_reason` wins, so a resumed agent reads as working again. An async agent whose parent recorded nothing still shows working rather than guessing done.
+- **Working subagents hold their tab at `working`.** The main agent ends its turn while the subagents it spawned keep going, so a bare `Stop` would flash the sidebar done and invite the user back to a task still moving. `StatusEngine.setSubagentActivity` records the per-tab flag and `status(forTab:)` folds it in: `done`, `idle` and `unset` become `working`, while `needsInput` and `error` win regardless, since a subagent cannot clear either. `TranscriptStore` feeds it from the read that already publishes subagent statuses — the one place with a watcher per subagent file — and clears it when a tab stops being watched. Because the callbacks now carry effective status, `StatusNotifier` posts "Finished its turn." once, on the final settle, and the persisted `lastStatusRaw` snapshot records the effective status: it is what the user last saw, and subagent activity is not itself persisted, so a raw `done` would reappear as a status the app never showed.
+- **A finished subagent lingers 30s before folding away, across task switches.** `SubagentCompletionTracker.shared` is keyed by tab then subagent id, in memory only, like `SurfaceManager` and `BellStore`. It has to be shared because selecting another task unmounts the chat: held in the view, both the record of when a row finished and the timer that moves it died with it, and coming back restarted every countdown. The timer belongs to the store for the same reason — a view's `.task` is cancelled on unmount, so a linger that elapsed off screen would never fire. The clock starts from the moment Plume *observes* the status, never from the transcript's mtime, since dating rows by their own timestamps would collapse every one the instant a relaunch re-read old files. `SubagentListView` observes it from `.onChange` rather than `body`, keyed on a status signature so transcript growth alone does not restart a linger, and `TaskStore` forgets a tab's rows when the tab or its task is deleted.
+
+Freshness is a `FileWatcher` per subagent file, reconciled after each parent read (`TranscriptStore.syncSubagentWatchers`) — a new subagent's file always follows a parent write, so no timer is needed.
 
 ## The markdown renderer
 
@@ -63,13 +78,19 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
-- [ ] Mermaid diagrams in the same renderer. Still needs its approach settled — WebKit or a native subset.
+- [x] Mermaid diagrams in the same renderer.
 
 Padding and the copy icon shipped together in `MarkdownView`'s `case .codeBlock`. The icon is an `overlay` on the background container rather than inside the horizontal `ScrollView`, so it stays pinned instead of scrolling away with the code, and it reveals on hovering the block rather than the button itself. It copies the block's raw `code` string, and introduced the app's first `NSPasteboard` use.
 
 Tables shipped native and did **not** settle the mermaid question. The two are separate problems: a table's layout is given by its source, so `Grid` is the whole implementation, while a diagram needs a layout *algorithm* — node ranking and edge routing — which is the entire job and shares nothing with tables beyond the fence.
 
-What tables leave behind for it: `MarkdownBlock.codeBlock` already carries the fence's `language`, so detecting a mermaid fence costs nothing. `MarkdownView` currently discards that language — that is the seam to branch on. Note that a native subset degrades badly the moment a diagram uses an unsupported shape, which is the main argument for WebKit here even though tables didn't need it.
+**Mermaid shipped on WebKit**, which was the open decision. A native subset degrades badly the moment a diagram uses an unsupported shape, and that argument decided it. `MarkdownView`'s `case .codeBlock` branches on the `language` the fence already carried, so the parser did not change; `MermaidBlock` renders the diagram and `MermaidDocument` builds its page. mermaid **11.4.1** is vendored under `Plume/Resources/Mermaid/` with its MIT license, so rendering works offline. Synchronized groups flatten resources into `Contents/Resources`, so the page loads through `loadHTMLString(_:baseURL:)` with that directory as its base and a relative `<script src>` resolves against it — no `WKWebViewConfiguration` tweak, no entitlement, and no file-access preference was needed.
+
+Sizing is what keeps the chat safe. The page posts its rendered height back over a `WKScriptMessageHandler` once mermaid resolves, and the row takes an explicit frame from it, so a row settles at one height rather than resizing — a view that kept resizing would reopen the placement loop in `docs/chat-list-hang.md`. Until that height arrives, and permanently if mermaid rejects the source, the existing code-block rendering shows the raw fence instead, so the row is never blank. Copying still yields the source rather than the drawn diagram. Both outcomes log to `Log.app`, which is how rendering is verified without a screenshot.
+
+Diagrams and tables then centered, and a tall diagram gained a way to be read. `MermaidDocument` grew a `Sizing` axis: `natural` keeps the diagram's own height and reports it, while `fit` scales the SVG down to its container in both axes. Both center it. A diagram taller than `MermaidLayout.maximumInlineHeight` (420pt) takes that height as its frame and re-renders `fit` inside it, so a 4000pt diagram no longer owns the whole viewport. The frame stays explicit either way, so the row still settles; the capped re-render's own report is ignored, since taking it would shrink the frame, which would rescale, which would report again. A hover-revealed expand button beside the copy icon opens the diagram in a sheet at `fit` sizing, which is where the detail now lives. The sheet is raised from `MermaidBlock` itself rather than from `ChatTabView`, so the plan overlay and the file viewer get it for free.
+
+The fullscreen sheet then gained pinch-to-zoom and scroll-to-pan, on top of that `fit`-capped inline block staying exactly as it was. Its web view is a plain, magnifying `WKWebView` — `allowsMagnification = true`, driven by pinch gestures and by ⌘+/⌘-/⌘0 toolbar buttons that set `magnification` through a small `MermaidZoomController` — rather than the inline block's `NonScrollingWebView`, which still forwards every wheel event to the chat list and has no zoom of its own. A third `MermaidDocument.Sizing` case, `fitZoomable`, is what makes that safe: `WKWebView` magnification scales the whole page, so past 1x the page grows past its viewport, and `fitZoomable` lets it overflow (with the scrollbar hidden and `overscroll-behavior: none`) instead of clipping like `fit` does — that overflow is exactly what turns a two-finger scroll into panning. At magnification 1.0 it renders identically to `fit`.
 
 ## The composer
 
@@ -100,12 +121,14 @@ Still open:
 - [x] Stop accumulating `total_cost_usd`. It is already a running conversation total, so `+=` re-adds every prior turn and the displayed figure compounds. Assign it instead, and correct `docs/headless-protocol.md`, which records the wrong semantics.
 - [x] Move the stop button out of the statusline and put it left of the send button — a circular icon button with a dim background, mirroring send's shape.
 - [ ] Consider moving the whole strip inside the composer box, if a compact form fits a narrow viewport.
+- [ ] Make the composer and statusline one floating glass panel rather than a full-width bar: the statusline sits below the composer behind a divider, and the minimized plan panel docks above the composer behind a divider when it is present. Polish the plan overlay's show/hide with a transition that shows continuity between the docked bar and the expanded overlay — a zoom from the bar's frame, probably. `PlanPresentation.minimized` already docks the bar above the composer, and the overlay uses the `planGlass` material, so the panel extends that look rather than inventing one.
 - [ ] Customization UI, once a segment shape settles. `ComposerControlsRow`'s segments are already self-contained — each reads and writes only its own piece of session state — so this is additive, not a rewrite.
 - [ ] The composer's two-row split is a first cut (plain `HStack`s, no styling pass) — revisit layout and spacing.
 - [x] Remember effort and permission mode per session, the way the context window already is.
-- [ ] Offer model, effort and permission mode before the first message, when a tab has no session yet.
-- [ ] Confirm a resumed tab ends up on the conversation's real model and permission mode, not the seeded snapshot.
+- [x] Offer model, effort and permission mode before the first message, when a tab has no session yet. All three controls now read and write the tab until a session exists.
+- [x] Confirm a resumed tab ends up on the conversation's real model and permission mode, not the seeded snapshot. Verified by reading the code; the seeded pair now dims until `init` confirms it.
 - [ ] Take effort from the resumed conversation too, once the CLI reports it back at all.
+- [x] Show the values a fresh tab will actually start with, rather than blank controls. All three now fall back to the resolution the launch performs.
 
 **The session cost is fixed.** `total_cost_usd` is a running total for the whole conversation, re-sent on every `result` event — Plume accumulated it, so each turn re-added every turn before it. Confirmed on the wire: turn 1 reported $0.2548 and turn 2 $0.2996 for a turn that emitted a single digit. Assigning instead of adding also makes the figure correct across a `--resume`, since the first `result` after resuming already carries the true total. `docs/headless-protocol.md` recorded the opposite and was corrected in the same change.
 
@@ -113,18 +136,30 @@ The stop button now sits in the composer beside send — a 22pt circle matching 
 
 `TaskTab` now snapshots permission mode and effort alongside `contextWindowTokens`, written from `ChatTabView` when the session's value changes — once per turn rather than per stream event. Launch resolves the mode tab → task → app default, so a tab reopens in the mode the user last saw it in and the default only fills in for a tab that never had one. Effort has no launch flag and no `set_effort` control request to report it back, so the snapshot is its only record across a relaunch; it seeds `HeadlessSession` directly at construction rather than through `setEffort(_:)`, which would submit a real turn.
 
-**The controls are missing until the first message.** `ComposerControlsRow` renders model, effort and permission mode behind `if let headlessSession` (`ComposerControlsRow.swift:26-30`), and a tab has no session until one is launched — `existingSession(for:)` never creates one. So a fresh agent tab shows the workspace chips and nothing else, and the first message is the one turn whose model and mode cannot be chosen, which is backwards: it is the turn most worth setting, and the only one where the choice is free. Everything the fix writes to already exists — `tab.permissionMode` and `tab.effort` are persisted, and `AgentLauncher` already resolves the mode tab → task → app default (`AgentLauncher.swift:91-93`) and passes `initialEffort: tab.effort`. So the controls need to read and write the tab's own values before a session exists, then hand over to the session's once launched, with the pre-launch state seeding the launch it already feeds. Model is the one gap in that chain: unlike mode and effort it has no `TaskTab` field, so offering it pre-launch means persisting it and giving `AgentLauncher` a flag for it.
+**The controls now render before the first message.** `ComposerSettings` is the one seam: it holds the tab and the optional session, and every read and write picks between them. Before launch all three controls are the tab's own persisted values — which is exactly what `AgentLauncher` launches from, so setting one is what the first turn runs with rather than a preference the launch would ignore. Once a session exists its live values take over. Model was the one gap and is closed: `TaskTab.model` persists as `modelRaw`, and `HeadlessCommand` grows a `--model` flag that is **omitted entirely** when no model was chosen, so an untouched tab still gets the CLI's own default rather than a guess Plume invented.
 
-**Resuming already corrects two of the three, and cannot correct the third.** Resume is not a separate path — `launchHeadless` takes a `resumeSessionID` and otherwise seeds from `tab.*` exactly as a cold launch does, so both a relaunched app and a chat resumed into a new tab start from the snapshot rather than from the conversation. That snapshot is only a starting guess, and the stream fixes it for `model` and `permissionMode`: the `init` event reports both, and `handle(_:)` overwrites the seeded values with whatever the CLI actually resumed with (`HeadlessSession.swift:227-232`). Effort is the exception, and structurally so — no `set_effort` control request exists and nothing reports effort back, so `initialEffort` is never corrected and the control shows what this host last sent, which a `/effort` typed straight into the CLI would silently contradict. Until the protocol reports effort, the snapshot is the best available answer rather than a bug to fix; what is worth checking is that the seeded value is visibly a guess and that the `init` correction is not itself overwritten by a stale write-back of the snapshot.
+The model list needed no new source, and there is none to be had: the `init` event reports only the model in use, and `capabilities` names protocol features rather than models. So `AgentModel` carries a hand-maintained list of presets — Fable, Opus, Sonnet and Haiku 4.5 on the top level, the 256K variants under a "More" submenu — plus an "Other…" field for an ID this build has never heard of. It is a struct over a CLI model ID rather than an enum, because the set is open.
+
+**Resuming is confirmed correct, by reading the code.** The `TaskTab` write-back cannot clobber the `init` correction, because it only ever runs session → tab: `ChatTabView`'s `onChange(of: headlessSession?.model / .permissionMode)` reads the session and writes the tab, and nothing reads the tab back into a live session. The only tab → session direction is `AgentLauncher`'s seeding, which runs once at launch, strictly before any `init` can arrive. So the sequence is seed → `init` overwrites the session → `onChange` fires → the *corrected* value reaches the tab; the stale snapshot has no path back. `initializedCorrectsBothSeededValuesAtOnce` locks the correction itself down.
+
+The seeded value is now visibly a guess. `HeadlessSession.hasReportedModeAndModel` is false until `init` arrives, and the model and permission-mode labels render at reduced opacity with a "not yet confirmed by Claude Code" tooltip while it is. Effort is deliberately excluded from that dimming: nothing ever reports it back, so it would dim forever and the signal would stop meaning anything.
+
+**Resuming already corrects two of the three, and cannot correct the third.** Resume is not a separate path — `launchHeadless` takes a `resumeSessionID` and otherwise seeds from `tab.*` exactly as a cold launch does, so both a relaunched app and a chat resumed into a new tab start from the snapshot rather than from the conversation. That snapshot is only a starting guess, and the stream fixes it for `model` and `permissionMode`: the `init` event reports both, and `handle(_:)` overwrites the seeded values with whatever the CLI actually resumed with (`HeadlessSession.swift:227-232`). Effort is the exception, and structurally so — no `set_effort` control request exists and nothing reports effort back, so `initialEffort` is never corrected and the control shows what this host last sent, which a `/effort` typed straight into the CLI would silently contradict. Until the protocol reports effort, the snapshot is the best available answer rather than a bug to fix. Both of the things worth checking about the other two have now been checked — see the confirmation paragraph below.
+
+**The controls name a default rather than going blank.** A tab that has chosen nothing still launches on *something*, so `ComposerSettings.Defaults` resolves what that is and every unset control displays it. Permission mode reuses `AgentLauncher.resolvedPermissionMode` (tab → task → app default), so the composer and the launch cannot disagree. Effort gained an app-level default — `AppSettings.defaultEffort`, Medium, in the Settings window beside the other defaults — because nothing reports effort back and the control would otherwise stay empty forever. Model reads the CLI's own configuration: `ClaudeCodeSettingsResolver.resolvedDefaultModel` takes `model` from `~/.claude/settings.json`, with `settings.local.json` overriding, and maps aliases and full IDs onto `AgentModel`. A defaulted model renders as "Default (Opus)", and the menu offers that same "Default (…)" as a selectable item that clears the tab's pick. It renders in the normal foreground: dimming is reserved for a *running* session whose `init` has yet to report, where the value really is a guess.
+
+Displaying a default never writes one. The tab stays unset until the user picks, which is what keeps `--model` off the command line — the "omit when unchosen" rule is unchanged.
+
+**`--model` is omitted on a resume unless the user picked the model since.** Established by experiment, not documentation: a bare `--resume` restores the model the conversation already used, and `--model` on a resume overrides it (the three `init` events are recorded under "Model on resume" in `docs/headless-protocol.md`). That makes replaying a snapshot actively wrong — `tab.model` is overwritten by whatever the session reports, so it records what the conversation ran on, not what the user wants. `TaskTab.isModelUserChosen` separates the two: `ComposerSettings.setModel` sets it, the session's write-back in `ChatTabView` clears it, and `HeadlessCommand.arguments` passes `--model` on a resume only when it is set. A cold launch is unaffected, having no conversation to restore from.
 
 ## The plan overlay
 
 Today the overlay never opens on its own: `planPresentation` starts `.closed` (`ChatTabView.swift:13`) and every assignment of `.expanded` sits behind a button (lines 146, 204), so it is a viewer the user opens rather than a presentation the agent triggers. It should be both — presenting a proposal for approval, and reviewing the plan once approved.
 
-- [ ] Let the feedback field grow to several lines, following the composer's send-key setting.
-- [ ] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key.
-- [ ] Label the reject button "Reject" until the user types, then "Give feedback".
-- [ ] Confirm **Approve** starts work in auto mode where that is enabled. It resolves the request and minimizes the overlay; whether auto mode then picks it up was not verified.
+- [x] Let the feedback field grow to several lines, following the composer's send-key setting. `axis: .vertical` with a 1–6 line limit, and `PlanFeedbackKey` states the composer's Return rule over modifiers alone so a SwiftUI `TextField` can obey `composerSendKey` too.
+- [x] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key. The note cannot ride the permission response: `ExitPlanMode` declares no input fields, so an extra `updatedInput` key is dropped silently, and there is no allow-with-message. It follows the approval as an ordinary user turn, which queues behind the approved turn and lands when that turn ends — exactly when it should steer the next plan. Payload recorded in `docs/headless-protocol.md`.
+- [x] Label the reject button "Reject" until the user types, then "Give feedback". `PlanRejectionLabel` owns the rule, and `ReservedWidthButton` lays out both labels hidden so the button cannot resize under the pointer.
+- [x] Confirm **Approve** starts work in auto mode where that is enabled. `HeadlessSession.approvePlan` sends `set_permission_mode` with `auto` right after allowing the call, so the session leaves plan mode on approval; confirmed from the code path, not from a live run.
 
 **The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
 
@@ -192,19 +227,20 @@ Ruled out along the way, and worth not re-testing: Plume does not accumulate (`H
 
 Let scripts and Claude itself know they're in Plume, and give Claude the formatting Plume can render.
 
-- [ ] Export an environment variable marking a shell as running inside Plume.
+- [x] Export an environment variable marking a shell as running inside Plume.
 - [ ] Skills that prompt Claude to use richer formatting — diagrams above all — when it's running in Plume.
 - [ ] Put Plume's own configuration in a config file — a superset of ghostty's, or a structured format of its own (TOML or JSON).
 
 What exists:
 
-- Plume already injects `PLUME_TASK_ID`, `PLUME_TAB_ID` and `PLUME_EVENTS_DIR`, but only on an *agent* launch (`ClaudeCodeProvider`), so a plain terminal tab carries no marker at all. A general `PLUME=1`-style variable set on every tab's shell is the missing piece. `AgentLaunch` already carries per-surface env and `LoginShellCommand.wrap` already wraps the command, so the seam exists — this is the same change the one-tab-kind item needs, and doing it once serves both.
+- **`PLUME=1` shipped.** `LoginShellCommand.plumeEnvironment` (`["PLUME": "1"]`) is merged into the env at every seam that starts a shell — `ClaudeCodeProvider`'s terminal-agent launch, `AgentLauncher.launchHeadless`, and the plain terminal tab's `TerminalSurfaceOptions` in `TabContentView` — so every tab carries it, not just agent launches. `PLUME_TASK_ID` / `PLUME_TAB_ID` / `PLUME_EVENTS_DIR` are unchanged and still agent-only.
 - Hook instrumentation already keys off `$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID`, and those are exactly the per-tab identifiers a general marker would sit beside. A bare `PLUME=1` answers "am I in Plume?" for a shell prompt or a script; it doesn't replace the per-tab IDs, which are what make captured output attributable to a tab.
 - Config today is split: terminal behavior comes from the user's ghostty config, while Plume's own settings (worktree base path, provider, default transport, chat font size, quit confirmations, composer send key) live in `UserDefaults` behind `AppSettings`, reachable only through the Settings window. A file would make them diffable, shareable and version-controllable, which `UserDefaults` never will be.
 - A superset is plausible because Plume already reads and rewrites the config rather than passing a path: `GhosttyConfigLoader` finds the file in ghostty's own search order, then hands libghostty *generated contents* with every `theme` line stripped, parsing line by line. Plume-specific keys would be stripped the same way — and they must be, since libghostty emits diagnostics for keys it doesn't recognize and `GhosttyRuntime` already logs them.
 - A different format is worth weighing against the superset, not assumed away. TOML or JSON both express nesting natively, and JSON needs no dependency at all — `Codable` reads it, and the headless stream already parses JSON. TOML reads better by hand but means taking a parser. The cost either way is that Plume's config and ghostty's stop being one file, so the user keeps two — which may be honest rather than unfortunate, since the two configure genuinely different things. A middle path: keep terminal behavior in the ghostty config where it already lives and works, and give Plume's own settings their own structured file, rather than stretching a flat format to hold everything.
 - Two things to settle first if the superset wins. Ghostty takes the first matching config file outright and never merges, so a Plume file that *is* the ghostty file means the user maintains one file for both, while a separate file means deciding precedence. And ghostty's format is flat `key = value` with repeated keys for lists, which suits toggles and paths but has no obvious shape for anything nested — worth checking that every setting worth moving actually fits before committing to the format. `AppSettings` stays the reader either way; a file is a new source for it, not a replacement for the type.
 - The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports. Tables are now safe for a skill to encourage; mermaid is not, until it renders.
+- **Skill content written**, unblocked by mermaid shipping on WebKit. It lives at `Plume/Resources/Skills/plume-formatting/SKILL.md`: when to reach for a table vs a list vs a diagram, mermaid guidance sized for the chat's narrow vertical column (`flowchart LR` over `TD`, modest node counts, short labels, capped sequence diagrams), which diagram types render well, and what not to do (no HTML, no images by URL, no ASCII art). What remains is the install mechanism — nothing yet copies this file into `~/.claude/skills` or otherwise hands it to a launched session.
 
 ## PR/MR state in the sidebar
 
@@ -219,13 +255,14 @@ What exists: nothing uses `gh` or `glab` yet. `WorkTask.integrationsData` is res
 
 Make creating a task cheap, and stop pretending a task has one directory.
 
-- [ ] ⌘N inherits the selected task's working directory instead of leaving the workspace unset.
+- [x] ⌘N inherits the selected task's working directory instead of leaving the workspace unset.
 - [ ] Let the worktree choice happen *after* picking a directory, not before.
 - [ ] Move the working directory onto tabs. A task probably doesn't need one.
 - [ ] Track where an agent actually is — including when Claude uses `EnterWorktree` — and use that as the tab's current directory, e.g. when opening a new tab from it.
 
 What exists:
 
+- **⌘N inheritance shipped.** `TaskStore.createTask(inheritingFrom:)` copies `workingDirectoryPath`, `repoPath` and `branchName` from the selected task and sets `workspaceKind = .directory`; `MainWindow`'s ⌘N handler passes the selected task. A worktree task is inherited as a plain directory — the new task points at the same folder rather than getting a worktree of its own.
 - The directory lives on `WorkTask` today (`workingDirectoryPath`, plus `repoPath` / `branchName` / `workspaceKind`), and it's read in roughly ten places across the sidebar, setup header, launcher and resume path. Moving it to `TaskTab` is the widest change on this list, though most call sites are a mechanical hop from `task.` to `tab.`. The question to settle first is what a task's identity becomes once it no longer owns a directory, and what the sidebar shows when a task's tabs disagree.
 - `TerminalSession` **already tracks the live working directory per tab**, mirrored from the terminal's own reports — so a per-tab cwd is closer to how things already behave than the persisted per-task path is.
 - `EnterWorktree` needs no special handling. Its `tool_use` input records the absolute path, but every transcript line afterwards also carries the new `cwd`, verified on a real session that moved into `.worktrees/…` mid-run. So reading `cwd` from the newest transcript line picks up `EnterWorktree` and every other directory change through one mechanism. `SessionJSONLReader` already reads these files.
@@ -258,6 +295,7 @@ What exists: `GhosttyThemeResolver` and `ThemeChrome` already tint the sidebar a
 
 - [ ] One tab kind. "New Tab" opens a shell; when `claude` is running in it, the tab takes on agent chrome — no agent-vs-terminal prompt at creation.
 - [ ] Remove the unused title bar, or move something into it (task name? directory?).
+- [ ] Fix the titlebar's layout: it is empty space today, and shrinking the sidebar pushes the sidebar's overflow into that area. Ideally the tab strip moves up into the titlebar so tabs sit at the top of the window.
 - [ ] Rebalance the chat chrome: put the titlebar's empty space to work. The statusline/composer split (see **The statusline**) already moved the next-message controls into the message box; what's left is the titlebar itself.
 - [x] Cap a tab chip's width, so a long title can't take the whole strip. Much shorter than today's, which grows to fit whatever the title is.
 - [ ] Drag a tab into another task.
@@ -276,9 +314,11 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
-- [ ] ⌘W closes the current tab, not the window.
+- [x] ⌘W closes the current tab, not the window.
 
-What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**. ⌘W is AppKit's window-close default and no command overrides it, so taking it means declaring a `CommandGroup` that claims the binding and falls back to closing the window when the task has no tabs left.
+What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. There is no next/previous *task* command at all yet. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+
+**⌘W shipped.** The old "Close Tab" item sat in `CommandGroup(after: .saveItem)`, so AppKit's own "Close Window" (also ⌘W, since `.saveItem` is the placement that covers closing windows) still won the shortcut. Replacing that group instead of appending to it removes the standard item outright; the one remaining "Close Tab" button closes the selected tab, or the window when the task has none.
 
 ## Naming
 
@@ -304,24 +344,53 @@ What exists:
 - [ ] Shortcuts work while the terminal is focused.
 - [ ] Drag and drop to reorder tabs.
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
-- [ ] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
-- [ ] Focus the composer when a new tab or task opens.
+- [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
+- [x] Focus the composer when a new tab or task opens.
+- [ ] Clear every per-tab in-memory store when a tab closes, not only when its task is deleted. `TaskStore.closeTab` forgets the subagent completion tracker (added in 0.3.0) but leaves `DraftStore`, `BellStore` and `TranscriptStore` entries behind; `TaskStore.delete` clears all of them. One `forgetTab(_:)` seam that both paths call is the shape.
+- [ ] The sidebar's add button and its dropdown menu don't react to light/dark mode, or not reliably. The archive and sidebar buttons beside it follow the appearance correctly, so the difference is in how the add button is built: `SidebarView` makes it a `Menu` where the neighbours are plain `Button`s, so look at the menu's label styling and any explicit tint rather than at `ThemeChrome`.
 
 What exists:
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
-- Focus is never placed programmatically today, so a new tab renders with nothing focused and the first keystroke goes nowhere. The two transports need different answers: a headless tab has a real `TextField` to focus, while a terminal tab's focus is the ghostty surface.
+- **Composer focus shipped for both transports.** A headless tab's `ChatComposer` sets `@FocusState` on `isVisible`'s initial arrival, which fires whenever a tab is created or becomes selected; a terminal tab calls `session.state.requestFocus()` on the same trigger in `TerminalTabView`.
 - `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
-- The archive is the one task list that doesn't go through `TitleStore`. `ArchiveView` renders raw `task.title` (`ArchiveView.swift:19`), while the live sidebar uses `TitleStore.shared.displayTitle(for:)` (`TaskRowView.swift:40`), which falls back to the representative tab's title and finally to "Untitled". So a task the user never named renders as an empty string in the archive — not even a placeholder. Switching to `displayTitle(for:)` fixes the blank rows; whether a better name is available is a second question, since the tab title it falls back to is itself gone once the tabs are. The archived row already shows the working directory beneath the title, which is often the more identifying of the two.
+- **Shipped:** `ArchiveView` now renders `TitleStore.shared.displayTitle(for:)` (`ArchiveView.swift:19`) instead of raw `task.title`, matching the live sidebar (`TaskRowView.swift:40`) — an unnamed task falls back to its representative tab's title and finally "Untitled" instead of a blank row. The archived row still shows the working directory beneath the title, which is often the more identifying of the two.
 - Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
+
+## Keep the Mac awake
+
+Plume should hold a sleep assertion while something is running that the user is waiting on, and release it when nothing is.
+
+- [ ] Keep the Mac awake while an agent turn is running.
+- [ ] Keep it awake while a subagent is running.
+- [ ] Keep it awake while a monitor or other long-running tool call is in flight.
+- [ ] Consider a running foreground command in a terminal tab, and a `git worktree` or build Plume itself started, as further reasons to stay awake.
+
+What exists:
+
+- Nothing in the app calls `IOPMAssertionCreateWithName` or spawns `caffeinate` yet. An `IOPMAssertion` of type `PreventUserIdleSystemSleep` is the whole mechanism; a single owner that counts reasons and holds one assertion while the count is non-zero is the shape.
+- Every signal already flows through in-memory state: `StatusEngine` knows every tab's `working` status across both transports, `SubagentTranscript.status` (new in 0.3.0) knows each subagent's, and a monitor is a tool call whose `tool_result` has not arrived, which the transcript parser already tracks for the tool-call row's spinner. The Ghostty wrapper reports `COMMAND_FINISHED` / `PROGRESS_REPORT`, which is what a terminal-command reason would key on.
+- **Remote control is a separate layer on top.** Someone driving Plume from a phone wants the Mac awake until they say otherwise, regardless of what is running. That points at a whole remote-control feature: show `/rc` status; give each session a three-way toggle — not caffeinated / caffeinated / caffeinated for a remote session; and a CLI Claude can call to set that state, alongside the notify helper under **Notifications**. The automatic reasons above and this manual override should share the one assertion owner.
+- Worth deciding: whether "waiting for input" keeps the Mac awake. It probably should not — the user is the one who is away — but a notification on wake-up (see **Notifications**) makes that safe to get wrong.
+
+## Infrastructure
+
+Tooling for the agents that build Plume, rather than for Plume itself.
+
+- [ ] A screenshot lease, so only one agent at a time can try to capture the screen. There is one screen, so the lease is short-lived: an agent asks for a single screenshot, gets the capture, and the lease releases on its own shortly after. A skill or a small CLI (`screenshot-lease take`, say) that blocks until the lease is free, captures, and releases is the shape; parallel `screencapture` calls from several agents fail today.
+
+What exists:
+
+- Nothing. Each agent calls `screencapture` directly, and the 0.3.0 sweep hit the collision — two agents captured at once and both failed. The per-project memory records the rule ("one agent may screenshot at a time") but nothing enforces it.
+- The lease wants to live outside the repo, beside `papercut` and `distress-call` in the dotfiles, since every project's agents share the one screen. A lock file with a timeout under `~/.local/state` is enough; there is no cross-machine case.
 
 ## Make the UI drivable
 
 Give the interface an accessibility surface, so both `PlumeUITests` and an
 agent driving the app can find and operate controls by name.
 
-- [ ] Put accessibility identifiers on the controls worth driving: the sidebar's task rows, the tab strip, the composer field and send button, the statusline's dropdowns, and the plan overlay's approve/reject buttons.
-- [ ] Grow `PlumeUITests` past launching the app, now that there is something to query.
+- [x] Put accessibility identifiers on the controls worth driving: the sidebar's task rows, the tab strip, the composer field and send button, the statusline's dropdowns, and the plan overlay's approve/reject buttons. Identifiers live in `Plume/Support/AccessibilityID.swift`; applied across `TaskRowView`, `SidebarView`, `TabStripView`, `ChatComposer`, `ComposerControlsRow`, `StatuslineStripView`, `ChatTabView`'s plan overlay, `InteractiveToolRow`, and `SubagentListView`. `SubagentTranscriptOverlay`'s close button carries one too.
+- [x] Grow `PlumeUITests` past launching the app, now that there is something to query. Two tests added (`testNewTaskButtonIsAccessible`, `testComposerFieldIsAccessibleWithSeededTask`); both currently fail in this environment because the accessibility tree is still unreachable here (see "What exists" below) — kept rather than deleted since the identifiers themselves are correct.
 
 What exists:
 

@@ -136,6 +136,52 @@ struct PlanResolutionTests {
     }
 }
 
+/// The plan feedback field's Return rule, which mirrors the composer's so one
+/// setting governs both.
+struct PlanFeedbackKeyTests {
+    @Test func commandReturnSendsOnlyWithCommand() {
+        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: true, shift: false, option: false) == .submit)
+        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: false, shift: false, option: false) == .passThrough)
+        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: false, shift: true, option: false) == .passThrough)
+    }
+
+    @Test func returnKeySendsBareAndShiftInsertsANewline() {
+        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: false, shift: false, option: false) == .submit)
+        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: false, shift: true, option: false) == .passThrough)
+        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: true, shift: false, option: false) == .passThrough)
+    }
+
+    @Test func optionAlwaysReachesApproveWithFeedback() {
+        for sendKey in [ComposerSendKey.returnKey, .commandReturn] {
+            for command in [true, false] {
+                for shift in [true, false] {
+                    #expect(
+                        PlanFeedbackKey.forReturn(sendKey: sendKey, command: command, shift: shift, option: true)
+                            == .approveWithFeedback
+                    )
+                }
+            }
+        }
+    }
+}
+
+struct PlanRejectionLabelTests {
+    /// Blank is a plain rejection on the wire, so the label must not promise
+    /// feedback that `PlanResolution.denialMessage` will drop.
+    @Test func anEmptyOrBlankReasonReadsAsReject() {
+        #expect(PlanRejectionLabel.label(forReason: "") == "Reject")
+        #expect(PlanRejectionLabel.label(forReason: "   \n ") == "Reject")
+    }
+
+    @Test func typedTextFlipsTheLabel() {
+        #expect(PlanRejectionLabel.label(forReason: "Scope it down") == "Give feedback")
+    }
+
+    @Test func bothLabelsAreReservedSoTheButtonCannotResize() {
+        #expect(Set(PlanRejectionLabel.allLabels) == ["Reject", "Give feedback"])
+    }
+}
+
 struct QuestionPagingTests {
     @Test func previousStopsAtZero() {
         #expect(QuestionPaging.previous(2) == 1)

@@ -19,6 +19,10 @@ struct ChatTabView: View, ThemedView {
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
     @State private var resumeSheetShown = false
+    /// The subagent whose transcript is open over the chat, by id — held as an
+    /// id rather than the value so the overlay follows the subagent's live
+    /// re-reads instead of freezing at the moment it was opened.
+    @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
 
     private var untrustedPath: String? {
@@ -68,6 +72,11 @@ struct ChatTabView: View, ThemedView {
         TranscriptStore.shared.subagents(forTab: tab.id)
     }
 
+    private var openSubagent: SubagentTranscript? {
+        guard let openSubagentID else { return nil }
+        return subagents.first { $0.id == openSubagentID }
+    }
+
     /// The transcript's own `cwd` follows the agent, including through
     /// `EnterWorktree`; the task's path only covers the window before any
     /// transcript exists.
@@ -92,7 +101,8 @@ struct ChatTabView: View, ThemedView {
                     subagents: subagents,
                     status: status,
                     bottomPadding: dimensions.listBottomPadding,
-                    tabID: tab.id
+                    tabID: tab.id,
+                    onOpenSubagent: { openSubagentID = $0.id }
                 )
                 // Grouped in one container so the dock bar and the surface
                 // below both glass-render as one panel: without it each gets
@@ -173,6 +183,13 @@ struct ChatTabView: View, ThemedView {
             guard let mode, tab.permissionMode != mode else { return }
             tab.permissionMode = mode
         }
+        .onChange(of: headlessSession?.model) { _, model in
+            guard let model, tab.model != model else { return }
+            tab.model = model
+            // The conversation reported this, so it is a snapshot again: a
+            // resume should let the conversation restore it rather than pin it.
+            tab.isModelUserChosen = false
+        }
         .onChange(of: headlessSession?.effort) { _, effort in
             guard let effort, tab.effort != effort else { return }
             tab.effort = effort
@@ -197,7 +214,18 @@ struct ChatTabView: View, ThemedView {
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .overlay {
+            if let openSubagent {
+                SubagentTranscriptOverlay(subagent: openSubagent, glass: planGlass) {
+                    openSubagentID = nil
+                }
+                .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+                .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+        }
         .animation(.snappy(duration: 0.22), value: planPresentation)
+        .animation(.snappy(duration: 0.22), value: openSubagentID)
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
@@ -243,6 +271,8 @@ struct ChatTabView: View, ThemedView {
                 }
                 .buttonStyle(.plain)
                 .help("Minimize")
+                .accessibilityLabel("Minimize")
+                .accessibilityIdentifier(AccessibilityID.planMinimizeButton)
                 Button {
                     planPresentation = .closed
                 } label: {
@@ -252,6 +282,8 @@ struct ChatTabView: View, ThemedView {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.cancelAction)
                 .help("Close")
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
             .padding(12)
             Divider()
@@ -292,24 +324,65 @@ struct ChatTabView: View, ThemedView {
     ///
     /// Feedback submits the rejection from inside the field, so typing and
     /// sending are one gesture rather than a field plus a distant button.
+    /// ⌥↩ is captioned because nothing else on screen reveals it, and it is
+    /// the only way to reach approve-with-feedback.
     @ViewBuilder
     private var planApprovalOptions: some View {
-        HStack(spacing: 8) {
-            TextField("Feedback (optional)", text: $planRejectionReason)
-                .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                TextField("Feedback (optional)", text: $planRejectionReason, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+                    .font(typography.caption.font)
+                    .onKeyPress(.return, phases: .down) { press in
+                        handleFeedbackReturn(press.modifiers)
+                    }
+                    .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+                ReservedWidthButton(
+                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
+                    labels: PlanRejectionLabel.allLabels
+                ) {
+                    answerPlan(.reject)
+                }
+                .accessibilityIdentifier(AccessibilityID.planRejectButton)
+                Button("Approve") { answerPlan(.approve) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier(AccessibilityID.planApproveButton)
+            }
+            Text("⌥↩ approves with this feedback")
                 .font(typography.caption.font)
-                .onSubmit { answerPlan(.reject) }
-            Button("Give feedback") { answerPlan(.reject) }
-            Button("Approve") { answerPlan(.approve) }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .emphasis(.subtle)
         }
         .font(typography.caption.font)
+    }
+
+    /// Return in the feedback field follows `composerSendKey` exactly as the
+    /// composer does; ⌥ always reaches the third option.
+    private func handleFeedbackReturn(_ modifiers: EventModifiers) -> KeyPress.Result {
+        let key = PlanFeedbackKey.forReturn(
+            sendKey: settings.composerSendKey,
+            command: modifiers.contains(.command),
+            shift: modifiers.contains(.shift),
+            option: modifiers.contains(.option)
+        )
+        switch key {
+        case .submit:
+            answerPlan(.reject)
+            return .handled
+        case .approveWithFeedback:
+            answerPlan(.approveWithFeedback)
+            return .handled
+        case .passThrough:
+            return .ignored
+        }
     }
 
     private enum PlanDecision {
         case approve
         case reject
+        /// Approve, and let the typed note steer the plan that comes back.
+        case approveWithFeedback
     }
 
     /// Answers the live proposal and remembers where it landed, so the footer
@@ -326,6 +399,9 @@ struct ChatTabView: View, ThemedView {
                 with: .deny(message: PlanResolution.denialMessage(reason: planRejectionReason))
             )
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .rejected)
+        case .approveWithFeedback:
+            session.approvePlan(pendingPlan, feedback: planRejectionReason)
+            settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
         planPresentation = .minimized
@@ -351,6 +427,8 @@ struct ChatTabView: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Expand the plan")
+            .accessibilityLabel("Expand the plan")
+            .accessibilityIdentifier(AccessibilityID.planExpandButton)
 
             Button {
                 planPresentation = .closed
@@ -360,6 +438,8 @@ struct ChatTabView: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Close")
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
         .padding(.horizontal, 12)

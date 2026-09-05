@@ -17,6 +17,10 @@ nonisolated struct Transcript: Equatable {
     /// The session's current permission mode, from the latest
     /// `permission-mode` line.
     var permissionMode: String?
+    /// The `stop_reason` of the most recent assistant turn to carry one.
+    /// `end_turn` means the model finished speaking; `tool_use` means it
+    /// stopped to call a tool and the turn continues.
+    var lastStopReason: String?
 }
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
@@ -29,7 +33,9 @@ nonisolated enum TranscriptParser {
         case flushedMessage(messageIndex: Int, blockIndex: Int)
     }
 
-    static func parse(_ data: Data) -> Transcript {
+    /// A subagent's own transcript file marks every line `isSidechain`, so
+    /// parsing one needs `includeSidechain` or it yields nothing at all.
+    static func parse(_ data: Data, includeSidechain: Bool = false) -> Transcript {
         let decoder = JSONDecoder()
         var transcript = Transcript()
 
@@ -95,9 +101,10 @@ nonisolated enum TranscriptParser {
             guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
                 continue
             }
-            if entry.isSidechain { continue }
+            if entry.isSidechain, !includeSidechain { continue }
 
             if let usage = entry.message?.usage { transcript.latestUsage = usage }
+            if let stopReason = entry.message?.stopReason { transcript.lastStopReason = stopReason }
             if let model = entry.message?.model { transcript.model = model }
             if let effort = entry.effort { transcript.effort = effort }
             if let gitBranch = entry.gitBranch { transcript.gitBranch = gitBranch }

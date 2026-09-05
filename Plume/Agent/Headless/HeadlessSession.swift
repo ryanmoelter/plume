@@ -69,6 +69,11 @@ final class HeadlessSession {
     private(set) var model: AgentModel?
     private(set) var effort: AgentEffort?
 
+    /// False while `model`/`permissionMode` are still Plume's own guess —
+    /// seeded from the tab, or asked for at launch — so the UI can show them
+    /// as unconfirmed until `init` reports what the conversation really has.
+    private(set) var hasReportedModeAndModel = false
+
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [String] = []
 
@@ -101,14 +106,19 @@ final class HeadlessSession {
         permissionMode: PermissionMode?,
         resumeSessionID: String?,
         settingsPath: String?,
+        model: AgentModel? = nil,
+        isModelExplicitlyChosen: Bool = true,
         environment: [String: String] = [:]
     ) {
         guard process == nil else { return }
         self.permissionMode = permissionMode
+        if let model { self.model = model }
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
-            settingsPath: settingsPath
+            settingsPath: settingsPath,
+            model: model,
+            isModelExplicitlyChosen: isModelExplicitlyChosen
         )
         let handler = HeadlessProcess(
             onMessage: { [weak self] message in
@@ -213,6 +223,21 @@ final class HeadlessSession {
         setPermissionMode(.auto)
     }
 
+    /// Approves the plan and sends `feedback` as an ordinary user turn.
+    ///
+    /// The note cannot ride the permission response: `ExitPlanMode` declares
+    /// no input fields — it reads the plan from `planFilePath` — so an extra
+    /// key on `updatedInput` is dropped without a diagnostic, and there is no
+    /// allow-with-message on the wire (`docs/headless-protocol.md`). A user
+    /// turn is the only path that reliably reaches the model. `submit(text:)`
+    /// queues it while the approved turn runs and flushes it when that turn
+    /// ends, which is when the note is wanted: it steers the next plan rather
+    /// than interrupting the one being approved.
+    func approvePlan(_ permission: PendingPermission, feedback: String) {
+        approvePlan(permission)
+        submit(text: feedback)
+    }
+
     /// Answers an `AskUserQuestion`, keyed by question text to chosen labels.
     func answer(_ permission: PendingPermission, answers: [String: String]) {
         let input = StreamJSONEncoder.answeredQuestionInput(
@@ -233,6 +258,7 @@ final class HeadlessSession {
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
+            hasReportedModeAndModel = true
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
             }
