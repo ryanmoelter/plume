@@ -112,29 +112,55 @@ nonisolated enum SubagentSpawnScanner {
     }
 }
 
-/// The parent's tool_result text for each tool call, so a subagent's
-/// completion can be read off the call that spawned it.
+/// What the parent transcript says about each subagent's outcome, keyed by the
+/// spawned agent's id.
+///
+/// Both records that carry it name the agent directly, so nothing here has to
+/// go through the spawning tool call: a `toolUseResult` reports `agentId` with
+/// its status, and a `task_status` attachment reports `taskId`.
 nonisolated struct SubagentSpawnResults {
-    private let resultsByToolUseID: [String: String]
+    private let signalsByAgentID: [String: SubagentParentSignal]
 
     init(parentData: Data) {
-        var results: [String: String] = [:]
+        var signals: [String: SubagentParentSignal] = [:]
         let decoder = JSONDecoder()
+
+        // A completed report can only follow the launch that produced it, so
+        // it must never be overwritten by an earlier record for the same agent.
+        func record(_ signal: SubagentParentSignal, for agentID: String) {
+            guard signals[agentID] != .completed else { return }
+            signals[agentID] = signal
+        }
+
         for line in parentData.split(separator: UInt8(ascii: "\n")) {
             guard !line.isEmpty,
-                  let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)),
-                  let blocks = entry.message?.content?.blocks
+                  let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line))
             else { continue }
-            for block in blocks {
-                guard case .toolResult(let toolUseId, let content, _) = block, let content else { continue }
-                results[toolUseId] = content
+
+            if let outcome = entry.toolUseResult, let agentID = outcome.agentID {
+                record(Self.signal(forStatus: outcome.status), for: agentID)
+            }
+            if let task = entry.attachment?.taskStatus {
+                record(Self.signal(forStatus: task.status), for: task.taskID)
             }
         }
-        resultsByToolUseID = results
+
+        signalsByAgentID = signals
     }
 
-    func result(forToolUseID toolUseID: String) -> String? {
-        resultsByToolUseID[toolUseID]
+    func signal(forAgentID agentID: String) -> SubagentParentSignal? {
+        signalsByAgentID[agentID]
+    }
+
+    /// Anything that is not a launch acknowledgement and not an outright
+    /// failure is a real report, so an unfamiliar status reads as done rather
+    /// than pinning the row at working forever.
+    private static func signal(forStatus status: String?) -> SubagentParentSignal {
+        switch status {
+        case "async_launched", "forked": .launched
+        case "failed", "error": .failed
+        default: .completed
+        }
     }
 }
 

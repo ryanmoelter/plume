@@ -96,6 +96,9 @@ nonisolated struct TranscriptEntry: Decodable {
     let isCompactSummary: Bool
     let message: TranscriptMessage?
     let attachment: TranscriptAttachment?
+    /// A tool call's structured outcome, which is where a spawning `Task` call
+    /// records the subagent it launched and whether that agent finished.
+    let toolUseResult: TranscriptToolUseResult?
     /// Set on `system` lines: `compact_boundary`, `api_error`,
     /// `turn_duration`, and a long tail of bookkeeping kinds.
     let subtype: String?
@@ -117,6 +120,7 @@ nonisolated struct TranscriptEntry: Decodable {
         case isMeta
         case isCompactSummary
         case attachment
+        case toolUseResult
         case subtype, level, content, compactMetadata, error
         case isApiErrorMessage
     }
@@ -137,6 +141,9 @@ nonisolated struct TranscriptEntry: Decodable {
         isCompactSummary = try container.decodeIfPresent(Bool.self, forKey: .isCompactSummary) ?? false
         message = try container.decodeIfPresent(TranscriptMessage.self, forKey: .message)
         attachment = try container.decodeIfPresent(TranscriptAttachment.self, forKey: .attachment)
+        // Sometimes a bare string rather than an object, so a failure here is
+        // ordinary rather than a malformed line.
+        toolUseResult = try? container.decodeIfPresent(TranscriptToolUseResult.self, forKey: .toolUseResult)
         subtype = try container.decodeIfPresent(String.self, forKey: .subtype)
         level = try container.decodeIfPresent(String.self, forKey: .level)
         systemContent = try? container.decodeIfPresent(String.self, forKey: .content)
@@ -242,15 +249,41 @@ nonisolated struct TranscriptContent: Decodable {
     }
 }
 
-/// A top-level `attachment` line's payload. Only `plan_mode` and
-/// `plan_mode_exit` are modeled — both carry a `planFilePath` recording where
-/// Claude Code intended to write the plan, whether or not it exists on disk
-/// at the time the line was written.
-nonisolated struct TranscriptAttachment: Decodable {
-    let planFilePath: String?
+/// A tool call's structured outcome. Only the fields that identify a spawned
+/// subagent and its fate are modeled; the rest of the payload is the report
+/// text and token accounting, which the chat renders from the message blocks.
+nonisolated struct TranscriptToolUseResult: Decodable {
+    let agentID: String?
+    let status: String?
 
     private enum CodingKeys: String, CodingKey {
-        case type, planFilePath
+        case agentId, status
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agentID = try? container.decodeIfPresent(String.self, forKey: .agentId)
+        status = try? container.decodeIfPresent(String.self, forKey: .status)
+    }
+}
+
+/// How a background agent's completion reaches the parent when the parent
+/// never blocked on the spawning call. `taskId` is the agent's own id.
+nonisolated struct TranscriptTaskStatus: Decodable {
+    let taskID: String
+    let status: String?
+}
+
+/// A top-level `attachment` line's payload. Only `plan_mode`,
+/// `plan_mode_exit` and `task_status` are modeled — the first two carry a
+/// `planFilePath` recording where Claude Code intended to write the plan,
+/// whether or not it exists on disk at the time the line was written.
+nonisolated struct TranscriptAttachment: Decodable {
+    let planFilePath: String?
+    let taskStatus: TranscriptTaskStatus?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, planFilePath, taskId, status
     }
 
     init(from decoder: Decoder) throws {
@@ -259,8 +292,18 @@ nonisolated struct TranscriptAttachment: Decodable {
         switch type {
         case "plan_mode", "plan_mode_exit":
             planFilePath = try container.decodeIfPresent(String.self, forKey: .planFilePath)
+            taskStatus = nil
+        case "task_status":
+            planFilePath = nil
+            taskStatus = try container.decodeIfPresent(String.self, forKey: .taskId).map {
+                TranscriptTaskStatus(
+                    taskID: $0,
+                    status: try? container.decodeIfPresent(String.self, forKey: .status)
+                )
+            }
         default:
             planFilePath = nil
+            taskStatus = nil
         }
     }
 }

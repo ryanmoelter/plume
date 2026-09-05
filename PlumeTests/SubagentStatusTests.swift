@@ -2,11 +2,13 @@ import Testing
 import Foundation
 @testable import Plume
 
-/// Deriving a subagent's live status from its own transcript.
+/// Deriving a subagent's live status from its own transcript and whatever the
+/// parent recorded about it.
 ///
-/// Done is `stop_reason: end_turn` and nothing else, because a subagent
-/// narrates between tool calls — trailing prose looks like a report but
-/// usually is not one.
+/// Done is `stop_reason: end_turn` in the subagent's file, or a real
+/// completion for it in the parent. Trailing prose is neither, because a
+/// subagent narrates between tool calls — it looks like a report but usually
+/// is not one.
 struct SubagentStatusTests {
     private func transcript(_ lines: [String]) -> Transcript {
         TranscriptParser.parse(Data(lines.joined(separator: "\n").utf8), includeSidechain: true)
@@ -29,14 +31,14 @@ struct SubagentStatusTests {
     }
 
     @Test func anEmptyTranscriptHasNoStatus() {
-        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentResult: nil) == .unset)
+        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .unset)
     }
 
     /// A tool call with no result yet is the agent mid-step.
     @Test func aTrailingUnansweredToolCallIsWorking() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([assistantText("checking"), toolUse(id: "t1", name: "Bash")]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .working)
@@ -45,7 +47,7 @@ struct SubagentStatusTests {
     @Test func aClosedTurnIsTheReport() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([assistantText("Here is the report.", stopReason: "end_turn")]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .done)
@@ -61,7 +63,7 @@ struct SubagentStatusTests {
                 toolResult(id: "t1", content: "ok"),
                 assistantText("All 538 tests passed. Now let me check the other suite."),
             ]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .working)
@@ -72,7 +74,7 @@ struct SubagentStatusTests {
     @Test func aLaunchAcknowledgementDoesNotMeanDone() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([assistantText("starting"), toolUse(id: "t1", name: "Bash")]),
-            parentResult: "Async agent launched successfully.\nagentId: a1"
+            parentSignal: .launched
         )
 
         #expect(status == .working)
@@ -87,7 +89,7 @@ struct SubagentStatusTests {
                 toolResult(id: "t1", content: "hits"),
                 assistantText("Found the call sites."),
             ]),
-            parentResult: "Async agent launched successfully.\nagentId: a1"
+            parentSignal: .launched
         )
 
         #expect(status == .working)
@@ -98,21 +100,21 @@ struct SubagentStatusTests {
     @Test func arealParentResultCompletesTheSubagent() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "Bash"), toolResult(id: "t1", content: "ok")]),
-            parentResult: "Here is what the agent found."
+            parentSignal: .completed
         )
 
         #expect(status == .done)
     }
 
     /// A resumed agent works past the turn it already closed, so the newest
-    /// `stop_reason` wins over both the older one and the parent's report.
+    /// `stop_reason` wins over the older one.
     @Test func workAfterAClosedTurnIsWorkingAgain() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([
                 assistantText("First answer.", stopReason: "end_turn"),
                 toolUse(id: "t2", name: "Bash", stopReason: "tool_use"),
             ]),
-            parentResult: "Here is what the agent found."
+            parentSignal: .launched
         )
 
         #expect(status == .working)
@@ -121,7 +123,7 @@ struct SubagentStatusTests {
     @Test func anErroredParentResultIsAFailure() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([assistantText("Here is the report.", stopReason: "end_turn")]),
-            parentResult: "the agent crashed",
+            parentSignal: .completed,
             parentResultIsError: true
         )
 
@@ -134,7 +136,7 @@ struct SubagentStatusTests {
                 assistantText("working"),
                 #"{"type":"system","uuid":"s1","isSidechain":true,"subtype":"api_error","error":{"status":500,"message":"overloaded"}}"#,
             ]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .error)
@@ -144,7 +146,7 @@ struct SubagentStatusTests {
     @Test func anUnansweredQuestionIsWaitingForInput() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "AskUserQuestion", stopReason: "end_turn")]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .needsInput)
@@ -153,7 +155,7 @@ struct SubagentStatusTests {
     @Test func anUnansweredPlanProposalIsWaitingForInput() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "ExitPlanMode")]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .needsInput)
@@ -167,10 +169,86 @@ struct SubagentStatusTests {
                 toolResult(id: "t1", content: "the answer"),
                 toolUse(id: "t2", name: "Bash"),
             ]),
-            parentResult: nil
+            parentSignal: nil
         )
 
         #expect(status == .working)
+    }
+
+    /// The live bug, and the most common mismatch in the corpus: the agent's
+    /// closing message is written while streaming and carries a null
+    /// `stop_reason`, so the newest value the parser keeps is the `tool_use`
+    /// from the turn before and the row stays working forever. The parent
+    /// meanwhile holds the agent's whole report. 17 of 510 sampled agents.
+    @Test func aStreamedClosingMessageIsDoneWhenTheParentHasTheReport() {
+        let lines = [
+            toolUse(id: "t1", name: "Bash", stopReason: "tool_use"),
+            toolResult(id: "t1", content: "ok"),
+            #"{"type":"assistant","uuid":"a9","isSidechain":true,"message":{"role":"assistant","stop_reason":null,"content":[{"type":"text","text":"Confirmed: nothing references it yet."}]}}"#,
+        ]
+
+        #expect(transcript(lines).lastStopReason == "tool_use")
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
+    }
+
+    /// An agent cut off mid-response closes on `stop_sequence`, which is not
+    /// `end_turn` — but the parent still recorded a report. 2 of 510.
+    @Test func aTurnEndingOnStopSequenceIsDoneWhenTheParentHasTheReport() {
+        let lines = [
+            assistantText("Resuming the dispatch."),
+            assistantText("API Error: Connection closed mid-response.", stopReason: "stop_sequence"),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
+    }
+
+    /// A background agent's completion never touches the spawning call, so a
+    /// `task_status` attachment in the parent is the only record of it.
+    @Test func aTaskNotificationCompletesABackgroundAgent() {
+        let parent = Data(#"{"type":"attachment","uuid":"p1","attachment":{"type":"task_status","taskId":"a1","taskType":"local_agent","status":"completed"}}"#.utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
+    }
+
+    @Test func aCompletedSpawnResultIsAParentCompletion() {
+        let parent = Data(#"{"type":"user","uuid":"p1","toolUseResult":{"status":"completed","agentId":"a1","content":"the report"}}"#.utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
+    }
+
+    /// The status is read rather than the result text, so the launch ack needs
+    /// no English match.
+    @Test func anAsyncLaunchIsOnlyALaunch() {
+        let parent = Data(#"{"type":"user","uuid":"p1","toolUseResult":{"status":"async_launched","isAsync":true,"agentId":"a1"}}"#.utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .launched)
+    }
+
+    /// An async agent's launch is recorded first and its report later, so the
+    /// earlier record must not win.
+    @Test func aLaterCompletionOutranksTheLaunchThatPrecededIt() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"async_launched","agentId":"a1"}}"#,
+            #"{"type":"attachment","uuid":"p2","attachment":{"type":"task_status","taskId":"a1","status":"completed"}}"#,
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
+    }
+
+    /// A `toolUseResult` is sometimes a bare string rather than an object, and
+    /// a line like that must not take the whole parent scan down with it.
+    @Test func aStringSpawnResultIsIgnoredRatherThanFatal() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":"the agent crashed"}"#,
+            #"{"type":"user","uuid":"p2","toolUseResult":{"status":"completed","agentId":"a1"}}"#,
+        ].joined(separator: "\n").utf8)
+
+        let results = SubagentSpawnResults(parentData: parent)
+
+        #expect(results.signal(forAgentID: "a1") == .completed)
+        #expect(results.signal(forAgentID: "missing") == nil)
     }
 
     @Test func theParserKeepsTheNewestStopReason() {

@@ -1,52 +1,68 @@
 import Foundation
 
-/// Derives a subagent's live status from its own transcript.
+/// What the parent transcript records about a spawned subagent's outcome.
 ///
-/// Completion has one unambiguous signal: the last assistant turn to carry a
-/// `stop_reason` reports `end_turn`, meaning the model finished speaking
-/// rather than stopping to call a tool. Everything softer reads as working.
-///
-/// Trailing prose is *not* that signal, though it looks like one. A subagent
-/// narrates between tool calls, so its file very often ends on an assistant
-/// paragraph while the agent is still mid-task — 49 of 210 transcripts in a
-/// sampled corpus, every one of which would have shown a false green check.
-///
-/// The parent's `tool_result` is not the signal either, because 88% of spawns
-/// are asynchronous: their result arrives the instant the agent launches and
-/// says nothing about whether it finished. Only a synchronous spawn's result
-/// is a real report, and that arrives with the agent already at `end_turn`.
-nonisolated enum SubagentStatusDeriver {
-    /// The spawn result every async agent gets immediately, which reports the
-    /// launch and nothing about the outcome.
-    private static let launchAcknowledgement = "Async agent launched successfully"
+/// The parent is the only place a subagent's completion is stated rather than
+/// inferred, and it states it two ways: the spawning call's `toolUseResult`,
+/// and — for a background agent the parent never blocked on — a `task_status`
+/// attachment. Both carry an explicit status, so neither needs the result
+/// text read as English.
+nonisolated enum SubagentParentSignal: Equatable {
+    /// The parent holds a real report of what the agent did.
+    case completed
+    /// The agent was launched asynchronously and this says only that it
+    /// started.
+    case launched
+    /// The spawn itself failed.
+    case failed
+}
 
+/// Derives a subagent's live status from its own transcript and whatever the
+/// parent recorded about it.
+///
+/// Two signals mean done, and both are unambiguous:
+///
+/// - The last assistant turn to carry a `stop_reason` reports `end_turn`, so
+///   the model finished speaking rather than stopping to call a tool.
+/// - The parent holds a real completion for the agent — a `toolUseResult` with
+///   `status: "completed"`, or a `task_status` attachment saying the same.
+///
+/// Everything softer reads as working. Trailing prose is *not* a signal,
+/// though it looks like one: a subagent narrates between tool calls, so its
+/// file very often ends on an assistant paragraph while the agent is still
+/// mid-task — 49 of 210 transcripts in a sampled corpus, every one of which
+/// would have shown a false green check.
+///
+/// The parent's completion has to be read as a status rather than as text
+/// because 88% of spawns are asynchronous and answered immediately with a
+/// launch acknowledgement, which says nothing about the outcome.
+nonisolated enum SubagentStatusDeriver {
     static func derive(
         transcript: Transcript,
-        parentResult: String?,
+        parentSignal: SubagentParentSignal?,
         parentResultIsError: Bool = false
     ) -> TaskStatus {
         guard let last = transcript.messages.last else { return .unset }
 
-        if parentResultIsError { return .error }
+        if parentResultIsError || parentSignal == .failed { return .error }
         if last.blocks.contains(where: isErrorNotice) { return .error }
         if last.blocks.contains(where: isQuestion) { return .needsInput }
 
-        return isFinished(transcript: transcript, parentResult: parentResult) ? .done : .working
+        return isFinished(transcript: transcript, parentSignal: parentSignal) ? .done : .working
     }
 
-    /// A turn that ended on `tool_use` is mid-step no matter what the parent
-    /// reported, which keeps a resumed agent from staying stuck on the
-    /// `end_turn` it has already worked past.
-    private static func isFinished(transcript: Transcript, parentResult: String?) -> Bool {
-        switch transcript.lastStopReason {
-        case "end_turn": return true
-        case .some: return false
-        case nil: break
-        }
-        // No turn has closed yet, so only a synchronous spawn's real report
-        // can say the agent is done.
-        guard let parentResult else { return false }
-        return !parentResult.contains(launchAcknowledgement)
+    /// A parent completion outranks the sidecar, because the sidecar's tail is
+    /// unreliable in exactly the case that matters: the agent's closing message
+    /// is written while streaming and carries `stop_reason: null`, so the last
+    /// value the parser keeps is the `tool_use` from an earlier turn and the
+    /// agent reads as working forever. 20 of 510 sampled agents ended that way
+    /// with a real report already sitting in the parent.
+    ///
+    /// Absent that, a turn ending on `tool_use` is mid-step, which keeps a
+    /// resumed agent from staying stuck on an `end_turn` it has worked past.
+    private static func isFinished(transcript: Transcript, parentSignal: SubagentParentSignal?) -> Bool {
+        if parentSignal == .completed { return true }
+        return transcript.lastStopReason == "end_turn"
     }
 
     /// The two tools that stop and wait for a person.
