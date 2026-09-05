@@ -18,16 +18,16 @@ enum ScrollExercise {
     static let wheelStep: Double? = ProcessInfo.processInfo.environment["PLUME_SCROLL_WHEEL"]
         .flatMap(Double.init)
 
-    static func run(messages: [ChatMessage], proxy: ScrollViewProxy) async {
+    static func run(messages: [ChatMessage], scrollTo: @escaping (String) -> Void) async {
         guard messages.count >= 8 else { return }
         if let wheelStep, wheelStep > 0 {
             await wheel(step: wheelStep)
         } else if let jumpInterval, jumpInterval > 0 {
-            await jump(messages: messages, proxy: proxy, interval: jumpInterval)
+            await jump(messages: messages, scrollTo: scrollTo, interval: jumpInterval)
         }
     }
 
-    private static func jump(messages: [ChatMessage], proxy: ScrollViewProxy, interval: Double) async {
+    private static func jump(messages: [ChatMessage], scrollTo: @escaping (String) -> Void, interval: Double) async {
         let step = max(1, messages.count / 12)
         var targets = stride(from: 0, to: messages.count, by: step).map { messages[$0].id }
         targets += targets.reversed()
@@ -37,7 +37,7 @@ enum ScrollExercise {
             if Task.isCancelled { return }
             let target = targets[index % targets.count]
             withAnimation(.easeInOut(duration: interval * 0.8)) {
-                proxy.scrollTo(target, anchor: .top)
+                scrollTo(target)
             }
             Log.app.info("Scroll exercise jumped to target \(index % targets.count) of \(targets.count)")
             index += 1

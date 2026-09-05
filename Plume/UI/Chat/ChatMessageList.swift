@@ -17,18 +17,20 @@ struct ChatMessageList: View {
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
 
-    /// Scroll position, held in a reference box rather than `@State`.
+    /// Distance from the bottom, held in a reference box rather than `@State`.
     ///
     /// `onScrollGeometryChange` fires on every scroll frame, so writing this
     /// to `@State` invalidated the list once per frame while scrolling.
-    /// Nothing renders from it — it is only read when a new message arrives,
-    /// to decide whether to follow the bottom.
-    @State private var scrollPosition = ScrollPosition()
+    /// Nothing renders from it — it only decides whether `isDetached` flips.
+    @State private var followState = ScrollFollowState()
 
-    private let bottomAnchorID = "chat-bottom-anchor"
+    /// Drives the jump-to-bottom button. Following the newest content is not
+    /// done through this: `defaultScrollAnchor(.bottom, for: .sizeChanges)`
+    /// keeps a list that is already at the bottom there as content grows.
+    @State private var position = ScrollPosition(edge: .bottom)
 
     /// Whether the user has scrolled away far enough to want a jump back.
-    /// Unlike `scrollPosition`, this does render, so it is `@State` — the
+    /// Unlike `followState`, this does render, so it is `@State` — the
     /// `ChatScrollAnchor` threshold keeps it from flipping every frame.
     @State private var isDetached = false
 
@@ -60,134 +62,107 @@ struct ChatMessageList: View {
         // text continues its paragraph. A turn that has not produced one yet
         // gets a row of its own, after the user's message.
         let attachesToLastMessage = messages.last?.role == .assistant
-        ScrollViewReader { proxy in
-            ScrollView {
-                // Lazy so a long transcript only builds the rows on screen.
-                // An earlier lazy stack froze the window while scrolling;
-                // `docs/chat-list-hang.md` records what happened and how to
-                // investigate if it returns.
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(messages) { message in
-                        // Only the newest row reflects live status, so only
-                        // it reads `status`. Passing it to every row made a
-                        // status change invalidate the whole list.
-                        let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
-                            messageID: message.id,
-                            lastMessageID: lastMessageID
-                        )
-                        ChatMessageRow(
-                            message: message,
-                            isLast: isLast,
-                            status: isLast ? status : .unset,
-                            pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
-                            streaming: isLast && attachesToLastMessage ? streaming : .init()
-                        )
+        ScrollView {
+            // Lazy so a long transcript only builds the rows on screen.
+            //
+            // No `ScrollViewReader` and no `scrollTo`: a programmatic scroll
+            // into a lazy stack whose rows are still estimates retargets on
+            // every placement pass, and the stack's prefetch asks for another
+            // pass each time. With a stream growing the content it never
+            // settles and pins the main thread — `docs/chat-list-hang.md`.
+            // The scroll view's own anchors follow the bottom instead.
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(messages) { message in
+                    // Only the newest row reflects live status, so only
+                    // it reads `status`. Passing it to every row made a
+                    // status change invalidate the whole list.
+                    let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
+                        messageID: message.id,
+                        lastMessageID: lastMessageID
+                    )
+                    ChatMessageRow(
+                        message: message,
+                        isLast: isLast,
+                        status: isLast ? status : .unset,
+                        pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
+                        streaming: isLast && attachesToLastMessage ? streaming : .init()
+                    )
+                    .listItemPadding(bleed: true, column: .unpadded)
+                }
+                if !attachesToLastMessage, !streaming.isEmpty {
+                    StreamingBlocks(overlay: streaming)
+                        // Matches the inset an assistant row pays around
+                        // its body, so a reply doesn't shift as the
+                        // transcript takes over from the stream.
+                        .padding(.vertical, 4)
                         .listItemPadding(bleed: true, column: .unpadded)
-                        .id(message.id)
-                    }
-                    if !attachesToLastMessage, !streaming.isEmpty {
-                        StreamingBlocks(overlay: streaming)
-                            // Matches the inset an assistant row pays around
-                            // its body, so a reply doesn't shift as the
-                            // transcript takes over from the stream.
-                            .padding(.vertical, 4)
-                            .listItemPadding(bleed: true, column: .unpadded)
-                    }
-                    SubagentListView(subagents: subagents)
+                }
+                SubagentListView(subagents: subagents)
+                    .listItemPadding(bleed: true, column: .unpadded)
+                if let tabID {
+                    PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
-                    if let tabID {
-                        PendingPermissionDock(tabID: tabID)
-                            .listItemPadding(bleed: true, column: .unpadded)
-                    }
-                    // Trailing padding sits above the anchor, so the anchor
-                    // really is the last thing in the content. Applied to the
-                    // VStack instead, it lands below the anchor, and every
-                    // `scrollTo(anchor: .bottom)` comes to rest a padding's
-                    // distance short of the bottom.
-                    Color.clear
-                        .frame(height: bottomPadding)
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchorID)
                 }
+                Color.clear
+                    .frame(height: bottomPadding)
             }
-            .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
-                ChatScrollGeometry(
-                    distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
-                    contentHeight: geometry.contentSize.height,
-                    viewportHeight: geometry.containerSize.height
-                )
-            } action: { old, new in
-                // Every tab stays mounted, hidden by opacity, so an offscreen
-                // list keeps reporting geometry. Its viewport measures zero,
-                // which reads as a huge distance from the bottom and scrolls
-                // to chase it — and that scroll reports again.
-                guard new.viewportHeight > 0 else { return }
-                if ChatScrollAnchor.reflectsUserScroll(
-                    previousContentHeight: old.contentHeight,
-                    newContentHeight: new.contentHeight
-                ) {
-                    scrollPosition.distanceFromBottom = new.distanceFromBottom
-                }
-                // Off the recorded position, never off `new`: growth pushes
-                // the bottom away from the viewport, so reading the live
-                // distance would flash the button on every streamed chunk.
-                // Off the update pass: this action can run several times in a
-                // single frame, and writing view state from inside one is what
-                // SwiftUI reports as modifying state during a view update.
-                let detached = ChatScrollAnchor.isDetached(
-                    distanceFromBottom: scrollPosition.distanceFromBottom
-                )
-                guard detached != isDetached else { return }
-                Task { @MainActor in
-                    if detached != isDetached { isDetached = detached }
-                }
+            .scrollTargetLayout()
+        }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
+            ChatScrollGeometry(
+                distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
+                contentHeight: geometry.contentSize.height,
+                viewportHeight: geometry.containerSize.height
+            )
+        } action: { old, new in
+            // Every tab stays mounted, hidden by opacity, so an offscreen
+            // list keeps reporting geometry. Its viewport measures zero,
+            // which reads as a huge distance from the bottom.
+            guard new.viewportHeight > 0 else { return }
+            if ChatScrollAnchor.reflectsUserScroll(
+                previousContentHeight: old.contentHeight,
+                newContentHeight: new.contentHeight
+            ) {
+                followState.distanceFromBottom = new.distanceFromBottom
             }
-            // Following is driven by what arrives, never by geometry: a scroll
-            // reports geometry of its own, and deciding to scroll from that
-            // report is a loop with no fixed point.
-            .onChange(of: lastMessageID) { _, newID in
-                guard newID != nil else { return }
-                followBottomIfPinned(proxy)
-            }
-            .onChange(of: streaming) { _, _ in
-                followBottomIfPinned(proxy)
-            }
-            .onAppear {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
-            #if DEBUG
-            .task(id: messages.count) {
-                await ScrollExercise.run(messages: messages, proxy: proxy)
-            }
-            #endif
-            // Always mounted, shown by opacity. Inserting it on demand
-            // resizes the scroll view, which reports new geometry, which
-            // toggles it again.
-            .overlay(alignment: .bottom) {
-                scrollToBottomButton {
-                    // The programmatic scroll reports as growth-free
-                    // geometry, but only after the fact; resetting here
-                    // hides the button at once and restores auto-follow.
-                    scrollPosition.distanceFromBottom = 0
-                    isDetached = false
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-                    }
-                }
-                .opacity(isDetached ? 1 : 0)
-                .allowsHitTesting(isDetached)
+            // Off the recorded position, never off `new`: growth pushes
+            // the bottom away from the viewport, so reading the live
+            // distance would flash the button on every streamed chunk.
+            // Off the update pass: this action can run several times in a
+            // single frame, and writing view state from inside one is what
+            // SwiftUI reports as modifying state during a view update.
+            let detached = ChatScrollAnchor.isDetached(
+                distanceFromBottom: followState.distanceFromBottom
+            )
+            guard detached != isDetached else { return }
+            Task { @MainActor in
+                if detached != isDetached { isDetached = detached }
             }
         }
-    }
-
-    /// Scrolls to the newest content when the user is already at the bottom.
-    private func followBottomIfPinned(_ proxy: ScrollViewProxy) {
-        guard ChatScrollAnchor.shouldAutoScroll(
-            distanceFromBottom: scrollPosition.distanceFromBottom
-        ) else { return }
-        withAnimation(.easeOut(duration: 0.2)) {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        #if DEBUG
+        .task(id: messages.count) {
+            await ScrollExercise.run(messages: messages) { id in
+                position.scrollTo(id: id, anchor: .top)
+            }
+        }
+        #endif
+        // Always mounted, shown by opacity. Inserting it on demand
+        // resizes the scroll view, which reports new geometry, which
+        // toggles it again.
+        .overlay(alignment: .bottom) {
+            scrollToBottomButton {
+                // The programmatic scroll reports as growth-free
+                // geometry, but only after the fact; resetting here
+                // hides the button at once.
+                followState.distanceFromBottom = 0
+                isDetached = false
+                position.scrollTo(edge: .bottom)
+            }
+            .opacity(isDetached ? 1 : 0)
+            .allowsHitTesting(isDetached)
         }
     }
 
@@ -210,6 +185,6 @@ struct ChatMessageList: View {
 /// A class, so writing to it from a per-frame scroll callback is not a
 /// SwiftUI state change.
 @MainActor
-private final class ScrollPosition {
+private final class ScrollFollowState {
     var distanceFromBottom: CGFloat = 0
 }
