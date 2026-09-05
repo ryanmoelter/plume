@@ -23,9 +23,9 @@ final class AppSettings {
         static let defaultEffortRaw = "defaultEffortRaw"
     }
 
-    /// Effort a tab starts at when it has never chosen one. Matches the CLI's
-    /// own starting level, so the displayed default is not a claim Plume
-    /// invented.
+    /// Effort a tab starts at when it has never chosen one. The CLI reports
+    /// effort back nowhere and documents no default, so this is Plume's own
+    /// choice: the middle of the five levels, and settable.
     nonisolated static let defaultEffort: AgentEffort = .medium
 
     /// 125% of the system `.body` size (13pt on macOS).
