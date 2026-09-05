@@ -12,8 +12,10 @@ struct MainWindow: View {
     @State private var archiveShown = false
     @State private var tabPendingStartFresh: TaskTab?
 
-    @Query(filter: #Predicate<WorkTask> { !$0.isArchived })
+    @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
     private var tasks: [WorkTask]
+    @Query(sort: \TaskGroup.orderIndex)
+    private var groups: [TaskGroup]
 
     var body: some View {
         NavigationSplitView {
@@ -34,6 +36,14 @@ struct MainWindow: View {
             ArchiveView()
         }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
+        .focusedSceneValue(\.selectAdjacentTask) { offset in
+            let destination = SidebarKeyboardNavigation.destination(
+                from: selection,
+                in: navigableTasks.map(\.id),
+                offset: offset
+            )
+            if let destination { selection = destination }
+        }
         .focusedSceneValue(\.newTaskAction) {
             let group = selectedTask?.group
             let siblings = tasks.filter { $0.group?.id == group?.id }
@@ -142,6 +152,14 @@ struct MainWindow: View {
     private var selectedTask: WorkTask? {
         guard let selection else { return nil }
         return tasks.first { $0.id == selection }
+    }
+
+    /// Every task in the order the sidebar shows them, matching
+    /// `SidebarView.navigableTasks` so ⌘] / ⌘[ walk the same order as the
+    /// arrow keys do inside the sidebar.
+    private var navigableTasks: [WorkTask] {
+        groups.flatMap { group in tasks.filter { $0.group?.id == group.id } }
+            + tasks.filter { $0.group == nil }
     }
 
     /// `tasks` excludes archived ones, so a task archived or deleted since the
