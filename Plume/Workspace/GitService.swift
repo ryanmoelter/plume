@@ -26,6 +26,10 @@ actor GitService {
         GitRunner.repositoryRoot(containing: path)
     }
 
+    func gitDirectory(containing path: String) -> String? {
+        GitRunner.gitDirectory(containing: path)
+    }
+
     func currentBranch(in repository: String) -> String? {
         GitRunner.currentBranch(in: repository)
     }
