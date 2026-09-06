@@ -13,6 +13,10 @@ struct ChatMessageList: View {
     let subagents: [SubagentTranscript]
     let status: TaskStatus
     let bottomPadding: CGFloat
+    /// How much of the list's bottom edge the floating composer panel covers,
+    /// including the gap below it. The last message must be scrollable clear
+    /// of the glass, and the jump-to-bottom button must sit above it.
+    var floatingPanelHeight: CGFloat = 0
     /// Set on the headless transport, so pending permissions can be docked
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
@@ -105,7 +109,7 @@ struct ChatMessageList: View {
                         .listItemPadding(bleed: true, column: .unpadded)
                 }
                 Color.clear
-                    .frame(height: bottomPadding)
+                    .frame(height: bottomPadding + floatingPanelHeight)
             }
             .scrollTargetLayout()
         }
@@ -176,7 +180,7 @@ struct ChatMessageList: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular, in: .circle)
-        .padding(.bottom, 12)
+        .padding(.bottom, floatingPanelHeight + 12)
         .help("Jump to the newest message")
     }
 }

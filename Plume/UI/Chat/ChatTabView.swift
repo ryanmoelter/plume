@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The chat rendering of an agent tab: the messages, then a floating panel
-/// carrying the composer over the statusline strip, with the plan dock tucked
-/// behind it when a plan is minimized.
+/// The chat rendering of an agent tab: the messages, with a floating panel
+/// over them carrying the composer above the statusline strip, and the plan
+/// dock tucked behind it when a plan is minimized. The conversation scrolls
+/// behind the glass rather than stopping at its top edge.
 struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -25,6 +26,10 @@ struct ChatTabView: View, ThemedView {
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
+    /// The measured height of the floating panel, so the list can inset its
+    /// content past it. Nothing in the panel is sized from it, so measuring
+    /// cannot feed back into the measurement.
+    @State private var panelHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
@@ -105,10 +110,11 @@ struct ChatTabView: View, ThemedView {
                     subagents: subagents,
                     status: status,
                     bottomPadding: dimensions.listBottomPadding,
+                    floatingPanelHeight: panelHeight,
                     tabID: tab.id,
                     onOpenSubagent: { openSubagentID = $0.id }
                 )
-                composerPanel(transcript: transcript)
+                .overlay(alignment: .bottom) { composerPanel(transcript: transcript) }
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
@@ -210,6 +216,9 @@ struct ChatTabView: View, ThemedView {
     /// below both glass-render as one panel: without it each gets its own
     /// backdrop sample and the dock's shadow paints onto the surface it's
     /// supposed to read as tucked behind.
+    ///
+    /// Measured with `onGeometryChange`, whose action runs outside `body`,
+    /// so the height reaches the list without a write during a render pass.
     private func composerPanel(transcript: Transcript) -> some View {
         GlassEffectContainer {
             VStack(spacing: 0) {
@@ -227,6 +236,7 @@ struct ChatTabView: View, ThemedView {
             .listItemPadding(vertical: false)
             .padding(.bottom, dimensions.panelInset)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
     }
 
     /// Session-wide facts, below the composer rather than above it: what the
