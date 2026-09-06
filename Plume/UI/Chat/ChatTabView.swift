@@ -208,34 +208,30 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
-    /// above it: the composer, the session facts under it, and the plan bar
-    /// tucked behind them when a plan is minimized. The composer paints no
-    /// surface of its own — this glass is the only one.
-    ///
-    /// Grouped in one `GlassEffectContainer` so the dock bar and the surface
-    /// below both glass-render as one panel: without it each gets its own
-    /// backdrop sample and the dock's shadow paints onto the surface it's
-    /// supposed to read as tucked behind.
+    /// above it: the plan bar when a plan is minimized, then the composer,
+    /// then the session facts under it. One glass surface carries all three.
     ///
     /// Measured with `onGeometryChange`, whose action runs outside `body`,
     /// so the height reaches the list without a write during a render pass.
     private func composerPanel(transcript: Transcript) -> some View {
-        GlassEffectContainer {
-            VStack(spacing: 0) {
-                if planPresentation == .minimized, let planFilePath {
-                    planDockBar(path: planFilePath)
-                        .transition(.opacity)
-                }
-                VStack(spacing: 0) {
-                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                    Divider()
-                    statuslineFooter(transcript: transcript)
-                }
-                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+        VStack(spacing: 0) {
+            if planPresentation == .minimized, let planFilePath {
+                planDockBar(path: planFilePath)
+                    .transition(.opacity)
+                Divider()
             }
-            .listItemPadding(vertical: false)
-            .padding(.bottom, dimensions.panelInset)
+            ChatComposer(
+                task: task,
+                tab: tab,
+                isVisible: isVisible,
+                hasContentAbove: planPresentation == .minimized
+            )
+            Divider()
+            statuslineFooter(transcript: transcript)
         }
+        .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+        .listItemPadding(vertical: false)
+        .padding(.bottom, dimensions.panelInset)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
     }
 
@@ -474,22 +470,10 @@ struct ChatTabView: View, ThemedView {
             .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
+        // The one leading edge the composer's text and the statusline's
+        // first segment also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, dimensions.panelContentInset)
-        // Rounded like the panel on top and square where it meets it, so the
-        // bar reads as tucked behind the panel rather than as a pill of its
-        // own.
-        .glassEffect(
-            planGlass,
-            in: .rect(
-                topLeadingRadius: dimensions.panelCornerRadius,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: dimensions.panelCornerRadius
-            )
-        )
-        .padding(.horizontal, ComposerPanelMetrics.tuckedInset(panelCornerRadius: dimensions.panelCornerRadius))
-        .padding(.top, dimensions.panelInset)
+        .padding(.vertical, 4)
         .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
     }
 

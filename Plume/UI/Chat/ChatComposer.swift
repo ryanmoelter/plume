@@ -11,6 +11,9 @@ struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
+    /// Whether something else in the panel already sits above the composer
+    /// (the docked plan bar) — the caller is the only one who knows.
+    var hasContentAbove = false
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
@@ -87,7 +90,7 @@ struct ChatComposer: View, ThemedView {
                     commands: autocomplete.matches,
                     selectedIndex: autocomplete.selectedIndex,
                     onSelect: { autocomplete.select($0) },
-                    isTopOfPanel: headlessSession?.queuedMessages.isEmpty ?? true
+                    isTopOfPanel: !hasContentAbove && (headlessSession?.queuedMessages.isEmpty ?? true)
                 )
             }
 
