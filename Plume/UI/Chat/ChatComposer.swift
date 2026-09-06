@@ -203,38 +203,78 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
+    /// Each queued message is a message the user already wrote, waiting its
+    /// turn — so it reads as its own right-aligned chip in the same
+    /// vocabulary as a sent user bubble (`ChatMessageRow.userBody`), not as a
+    /// system strip. The composer's own `.padding(dimensions.composerFieldInset)`
+    /// already insets this whole view from the panel edge, so a chip's
+    /// `.frame(maxWidth: .infinity, alignment: .trailing)` lands its trailing
+    /// edge exactly where the send button below it sits — no extra outdent
+    /// needed here.
     private func queuedMessagesView(_ session: HeadlessSession) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 6) {
             ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
-                HStack(spacing: 6) {
-                    Image(systemName: "clock")
-                        .emphasis(.secondary)
-                    Text(message)
-                        .lineLimit(1)
-                        .font(.callout)
-                    Spacer(minLength: 0)
-                    Button {
-                        editQueuedMessage(at: index)
-                    } label: {
-                        Image(systemName: "pencil.circle.fill")
-                            .emphasis(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Edit")
-                    Button {
-                        session.removeQueuedMessage(at: index)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .emphasis(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Remove from queue")
-                }
+                QueuedMessageChip(
+                    text: message,
+                    onEdit: { editQueuedMessage(at: index) },
+                    onRemove: { session.removeQueuedMessage(at: index) }
+                )
             }
         }
-        .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, dimensions.panelContentInset)
-        .background(.quaternary, in: .rect(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous))
+    }
+}
+
+/// One queued message, styled like the user bubble it's about to become.
+/// Edit and remove stay reserved in the layout so revealing them on hover
+/// doesn't resize the chip, but only draw at full opacity while hovered.
+private struct QueuedMessageChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let text: String
+    let onEdit: () -> Void
+    let onRemove: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "clock")
+                .font(.caption)
+                .emphasis(.secondary)
+                .help("Queued — not sent yet")
+            Text(text)
+                .font(.callout)
+                .lineLimit(1 ... 4)
+                .fixedSize(horizontal: false, vertical: true)
+            controls
+        }
+        .padding(10)
+        .background(washColor, in: .rect(cornerRadius: 10))
+        .onHover { isHovered = $0 }
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 4) {
+            Button(action: onEdit) {
+                Image(systemName: "pencil.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Edit")
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from queue")
+        }
+        .opacity(isHovered ? 1 : 0)
+    }
+
+    private var washColor: Color {
+        colors.surfaceTint
     }
 }
 
