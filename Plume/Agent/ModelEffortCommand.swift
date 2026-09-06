@@ -23,8 +23,8 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     var token: String { id }
 
     /// The context window this model implies before any turn has reported
-    /// the real one — `more`'s bare IDs are the 256K variants (measured at
-    /// 200,000), everything else in `selectable` is the 1M variant. Nil
+    /// the real one — `more`'s bare IDs report 200,000, everything else in
+    /// `selectable` is the 1M variant. Nil
     /// outside `selectable`: a model this build has never heard of assumes
     /// nothing.
     var nominalContextWindow: Int? {
@@ -36,10 +36,10 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     // MARK: - Presets
 
     /// The composer's top-level menu. The bare `opus`/`sonnet`/`fable`/`haiku`
-    /// aliases resolve to the 256K models, so these send the explicit `[1m]`
+    /// aliases resolve to the 200K models, so these send the explicit `[1m]`
     /// IDs. Fable has no 1M variant — passing the suffix gets
     /// `claude-fable-5-1` back — so it sends the plain ID. An unspecified
-    /// context window means 1M, so only the 256K variants carry a suffix; see
+    /// context window means 1M, so only the 200K variants carry a suffix; see
     /// "Model aliases" in docs/headless-protocol.md.
     static let fable = AgentModel(id: "claude-fable-5-1", label: "Fable")
     static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus")
@@ -53,9 +53,9 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// not models. So it is maintained by hand from `claude --help`'s aliases
     /// and the IDs the CLI accepted when probed.
     static let more: [AgentModel] = [
-        AgentModel(id: "claude-opus-5", label: "Opus 256K"),
-        AgentModel(id: "claude-sonnet-5", label: "Sonnet 256K"),
-        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 256K")
+        AgentModel(id: "claude-opus-5", label: "Opus 200K"),
+        AgentModel(id: "claude-sonnet-5", label: "Sonnet 200K"),
+        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 200K")
     ]
 
     /// Everything the menu can offer, top-level items first.
@@ -84,7 +84,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     }
 
     /// Short names and display strings the CLI or a statusline may report in
-    /// place of a full ID, each mapped to its 256K form. A `[1m]` suffix on
+    /// place of a full ID, each mapped to its 200K form. A `[1m]` suffix on
     /// the reported string promotes the result to the 1M variant.
     private static let aliases: [String: AgentModel] = [
         "fable": .fable, "fable 5": .fable, "fable 5.1": .fable, "claude-fable-5": .fable,

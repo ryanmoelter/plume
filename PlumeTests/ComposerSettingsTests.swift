@@ -169,7 +169,7 @@ struct ComposerSettingsTests {
     }
 
     /// Tabs stored before the model list carried IDs hold a bare alias, which
-    /// named the 256K model the CLI resolved it to. It has to keep reading
+    /// named the 200K model the CLI resolved it to. It has to keep reading
     /// that way rather than being promoted to a 1M variant the tab never ran.
     @Test func aTabStoringABareAliasKeepsItsPlainModel() throws {
         let tab = makeTab()

@@ -101,4 +101,16 @@ struct Dimensions {
         }
         return bodySize * multiplier
     }
+
+    /// Between one statusline segment and the next. Wider than the panel's
+    /// own rhythm because each segment is two stacked lines, and a tighter
+    /// gap would read as one column.
+    let statuslineSegmentSpacing: CGFloat = 14
+
+    /// Between a meter's reading and its bar.
+    let statuslineMeterSpacing: CGFloat = 3
+
+    /// Above and below the statusline row, which carries two lines per
+    /// segment rather than one.
+    let statuslineVerticalPadding: CGFloat = 6
 }

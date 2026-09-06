@@ -22,17 +22,20 @@ enum AccessibilityID {
     static let composerField = "composer-field"
     static let composerSendButton = "composer-send-button"
     static let composerStopButton = "composer-stop-button"
-    static let composerWorkspacePicker = "composer-workspace-picker"
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"
-    static let composerRemoteControlControl = "composer-remote-control-control"
     static let remoteControlToast = "remote-control-toast"
 
     // MARK: Statusline strip
 
+    // The workspace and Remote Control segments keep their `composer-`
+    // strings, which external drivers already query.
+    static let composerWorkspacePicker = "composer-workspace-picker"
+    static let composerRemoteControlControl = "composer-remote-control-control"
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
+    static let statuslineContextMeter = "statusline-context-meter"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 
@@ -44,6 +47,7 @@ enum AccessibilityID {
     static let planMinimizeButton = "plan-minimize-button"
     static let planCloseButton = "plan-close-button"
     static let planExpandButton = "plan-expand-button"
+    static let planLinkButton = "plan-link-button"
 
     // MARK: AskUserQuestion
 

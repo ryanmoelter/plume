@@ -70,15 +70,20 @@ final class GitStateStore {
         }
     }
 
-    /// Watching `.git` itself catches the ref and index writes a commit,
+    /// Watching the git directory catches the ref and index writes a commit,
     /// checkout or fetch makes. Working-tree edits touch none of them, which
     /// is what the poll is for.
+    ///
+    /// It comes from `rev-parse --absolute-git-dir` rather than
+    /// `<root>/.git`: in a linked worktree that path is a pointer file that
+    /// never changes, so watching it would leave the worktree's state as
+    /// stale as the poll.
     private func startWatching(_ directory: String) {
         Task {
-            guard let root = await GitService.shared.repositoryRoot(containing: directory) else {
+            guard let resolved = await GitService.shared.gitDirectory(containing: directory) else {
                 return
             }
-            let gitDirectory = URL(fileURLWithPath: root).appendingPathComponent(".git")
+            let gitDirectory = URL(fileURLWithPath: resolved)
             guard FileManager.default.fileExists(atPath: gitDirectory.path) else { return }
             // The watch may have been dropped while the probe was running.
             guard watches[directory] != nil else { return }

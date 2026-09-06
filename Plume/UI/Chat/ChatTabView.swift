@@ -256,16 +256,22 @@ struct ChatTabView: View, ThemedView {
     /// then the session facts under it. One glass surface carries all three.
     private func composerPanel(transcript: Transcript) -> some View {
         VStack(spacing: 0) {
-            if planPresentation == .minimized, let planFilePath {
-                planDockBar(path: planFilePath)
-                    .transition(.opacity)
+            // The plan is a document this conversation produced, so it heads
+            // the panel whether it is docked open or only linked.
+            if let planFilePath {
+                if planPresentation == .minimized {
+                    planDockBar(path: planFilePath)
+                        .transition(.opacity)
+                } else {
+                    planLinkBar
+                }
                 Divider()
             }
             ChatComposer(
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
-                hasContentAbove: planPresentation == .minimized,
+                hasContentAbove: planFilePath != nil,
                 editQueuedMessageIndex: $editQueuedMessageIndex
             )
             Divider()
@@ -279,8 +285,13 @@ struct ChatTabView: View, ThemedView {
     /// Session-wide facts, below the composer rather than above it: what the
     /// conversation has spent reads as a footnote to the message being
     /// written rather than as a heading over it.
+    ///
+    /// It reads left to right as where this runs, then what it has spent,
+    /// then whether anyone else can drive it.
     private func statuslineFooter(transcript: Transcript) -> some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: dimensions.panelContentInset) {
+            workspaceGroup
+            Spacer(minLength: dimensions.panelContentInset)
             StatuslineStripView(
                 // Both arrive on a turn result, so a resumed conversation has
                 // neither until it takes a turn: the transcript's last usage
@@ -293,29 +304,47 @@ struct ChatTabView: View, ThemedView {
                     ?? tab.contextWindowTokens
                     ?? headlessSession?.nominalContextWindow
                     ?? tab.model?.nominalContextWindow,
-                branch: transcript.gitBranch,
-                gitState: GitStateStore.shared.state(for: gitDirectory),
                 rateLimit: headlessSession?.rateLimit,
                 sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
             )
-            if let planFilePath, planPresentation != .minimized {
-                planButton(path: planFilePath)
+            if let headlessSession {
+                RemoteControlControl(session: headlessSession)
             }
         }
         // The one leading edge the composer's text and controls also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.statuslineVerticalPadding)
     }
 
-    private func planButton(path: String) -> some View {
-        Button {
-            planPresentation = .expanded
-        } label: {
-            Label("Plan", systemImage: "doc.text")
+    /// Where this runs: the folder, the worktree, and that worktree's own
+    /// ahead/behind and dirty markers. Editable only until an agent starts,
+    /// which fixes the working directory.
+    private var workspaceGroup: some View {
+        WorkspacePickerView(
+            task: task,
+            isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            state: GitStateStore.shared.state(for: gitDirectory)
+        )
+        .font(typography.caption.font)
+        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+    }
+
+    /// The panel's top row when a plan exists but is not docked open.
+    private var planLinkBar: some View {
+        HStack(spacing: 0) {
+            Button {
+                planPresentation = .expanded
+            } label: {
+                Label("Plan", systemImage: "doc.text")
+            }
+            .buttonStyle(.plain)
+            .help("Open the plan this conversation produced")
+            .accessibilityIdentifier(AccessibilityID.planLinkButton)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .font(.caption)
+        .font(typography.caption.font)
         .emphasis(.secondary)
-        .padding(.leading, dimensions.panelContentInset)
+        .padding(.horizontal, dimensions.composerFieldInset)
         .padding(.vertical, 4)
     }
 
@@ -546,11 +575,23 @@ struct ChatTabView: View, ThemedView {
             }
             Spacer()
             GlassEffectContainer {
-                ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                    .disabled(!isComposerEnabled)
-                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                    .listItemPadding(vertical: false)
-                    .padding(.bottom, dimensions.panelInset)
+                // The same panel the conversation gets, minus the facts a
+                // session has yet to produce: choosing where this runs is
+                // exactly what matters before the first message.
+                VStack(spacing: 0) {
+                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                        .disabled(!isComposerEnabled)
+                    Divider()
+                    HStack(spacing: 0) {
+                        workspaceGroup
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, dimensions.composerFieldInset)
+                    .padding(.vertical, dimensions.statuslineVerticalPadding)
+                }
+                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                .listItemPadding(vertical: false)
+                .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

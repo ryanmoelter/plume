@@ -135,13 +135,7 @@ struct ChatComposer: View, ThemedView {
                 .focused($inputFocused)
 
                 HStack(spacing: dimensions.panelContentInset) {
-                    ComposerControlsRow(
-                        task: task,
-                        tab: tab,
-                        headlessSession: headlessSession,
-                        isWorkspaceEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil
-                            && headlessSession == nil
-                    )
+                    ComposerControlsRow(task: task, tab: tab, headlessSession: headlessSession)
                     if headlessSession?.isWorking == true {
                         stopButton
                     }

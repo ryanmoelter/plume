@@ -55,7 +55,7 @@ struct ModelEffortCommandTests {
     }
 
     /// The top-level menu offers 1M context where it exists, so the bare
-    /// aliases must keep landing on the 256K models they actually resolve to
+    /// aliases must keep landing on the 200K models they actually resolve to
     /// — see "Model aliases" in docs/headless-protocol.md.
     @Test(arguments: [
         ("claude-opus-5", "claude-opus-5"),
@@ -130,24 +130,24 @@ struct ModelEffortCommandTests {
         #expect(AgentEffort.recognizing("ultra") == nil)
     }
 
-    /// An unspecified context window means 1M, so only the 256K models carry
+    /// An unspecified context window means 1M, so only the 200K models carry
     /// a suffix. Fable has no 1M variant at all, so it carries none either.
     @Test(arguments: [
         (AgentModel.fable, "Fable"),
         (AgentModel.opus, "Opus"),
         (AgentModel.sonnet, "Sonnet"),
         (AgentModel.haiku, "Haiku 4.5"),
-        (AgentModel.more[0], "Opus 256K"),
-        (AgentModel.more[1], "Sonnet 256K"),
-        (AgentModel.more[2], "Haiku 4.5 256K"),
+        (AgentModel.more[0], "Opus 200K"),
+        (AgentModel.more[1], "Sonnet 200K"),
+        (AgentModel.more[2], "Haiku 4.5 200K"),
     ])
     func labelsFollowTheContextWindowNamingRule(model: AgentModel, expectedLabel: String) {
         #expect(model.label == expectedLabel)
     }
 
     /// The primary menu is Default/Fable/Opus/Sonnet/Haiku 4.5; More holds
-    /// exactly the three 256K variants.
-    @Test func moreHoldsExactlyThe256KVariants() {
+    /// exactly the three 200K variants.
+    @Test func moreHoldsExactlyThe200KVariants() {
         #expect(AgentModel.more.map(\.id) == [
             "claude-opus-5",
             "claude-sonnet-5",
@@ -156,7 +156,7 @@ struct ModelEffortCommandTests {
     }
 
     /// 200,000 and 1,000,000 are the exact figures a real `modelUsage` entry
-    /// reports for a 256K and a 1M model, per `basic.ndjson`
+    /// reports for a 200K and a 1M model, per `basic.ndjson`
     /// (`StreamJSONDecoderTests.largestContextWindowPicksTheMaxAcrossModelUsage`).
     @Test(arguments: [
         (AgentModel.fable, 1_000_000),
