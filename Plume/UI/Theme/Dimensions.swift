@@ -40,9 +40,9 @@ struct Dimensions {
     let panelCornerRadius: CGFloat = 18
 
     /// The standard content rhythm within the panel: spacing between rows
-    /// (the queued-messages strip, the autocomplete popup, the composer,
-    /// the statusline), and inset within a row (the plan dock bar, the
-    /// slash-command popup's own rows, the controls row's items).
+    /// (the autocomplete popup, the composer, the statusline), and inset
+    /// within a row (the plan dock bar, the slash-command popup's own rows,
+    /// the controls row's items).
     let panelContentInset: CGFloat = 8
 
     /// The composer's inset from the glass panel's edge, on every side —

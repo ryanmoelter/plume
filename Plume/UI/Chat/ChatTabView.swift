@@ -26,10 +26,16 @@ struct ChatTabView: View, ThemedView {
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
-    /// The measured height of the floating panel, so the list can inset its
-    /// content past it. Nothing in the panel is sized from it, so measuring
+    /// The measured height of the floating bottom chrome — the queued-message
+    /// chips plus the panel beneath them — so the list can inset its content
+    /// past it. Nothing in that subtree is sized from it, so measuring
     /// cannot feed back into the measurement.
     @State private var panelHeight: CGFloat = 0
+    /// Set to pull a queued message back into the composer for editing, from
+    /// the chip's own edit button. `ChatComposer` owns the actual draft/state
+    /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
+    /// recall path; this only carries the request across.
+    @State private var editQueuedMessageIndex: Int?
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
@@ -114,7 +120,7 @@ struct ChatTabView: View, ThemedView {
                     tabID: tab.id,
                     onOpenSubagent: { openSubagentID = $0.id }
                 )
-                .overlay(alignment: .bottom) { composerPanel(transcript: transcript) }
+                .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
@@ -207,12 +213,44 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
+    /// The floating bottom chrome: any queued messages, waiting their turn
+    /// over the conversation, above the glass panel that holds the plan bar,
+    /// composer and statusline.
+    ///
+    /// Measured together with `onGeometryChange`, whose action runs outside
+    /// `body`, so the height reaches the list without a write during a
+    /// render pass. Nothing inside this subtree reads `panelHeight`, which
+    /// is what keeps the measurement from feeding back into itself.
+    private func bottomChrome(transcript: Transcript) -> some View {
+        VStack(spacing: dimensions.panelContentInset) {
+            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
+                queuedMessagesView(headlessSession)
+            }
+            composerPanel(transcript: transcript)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+    }
+
+    /// Each queued message is a message the user already wrote, waiting its
+    /// turn — so it floats over the conversation in the same column and at
+    /// the same trailing edge as a sent user bubble (`ChatMessageRow.userBody`),
+    /// rather than inside the narrower content-width panel beneath it.
+    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
+        VStack(spacing: 6) {
+            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+                QueuedMessageChip(
+                    text: message,
+                    onEdit: { editQueuedMessageIndex = index },
+                    onRemove: { session.removeQueuedMessage(at: index) }
+                )
+            }
+        }
+        .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+    }
+
     /// The bottom chrome as one floating panel, content width like the prose
     /// above it: the plan bar when a plan is minimized, then the composer,
     /// then the session facts under it. One glass surface carries all three.
-    ///
-    /// Measured with `onGeometryChange`, whose action runs outside `body`,
-    /// so the height reaches the list without a write during a render pass.
     private func composerPanel(transcript: Transcript) -> some View {
         VStack(spacing: 0) {
             if planPresentation == .minimized, let planFilePath {
@@ -224,7 +262,8 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
-                hasContentAbove: planPresentation == .minimized
+                hasContentAbove: planPresentation == .minimized,
+                editQueuedMessageIndex: $editQueuedMessageIndex
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -232,7 +271,6 @@ struct ChatTabView: View, ThemedView {
         .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .listItemPadding(vertical: false)
         .padding(.bottom, dimensions.panelInset)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
     }
 
     /// Session-wide facts, below the composer rather than above it: what the
@@ -473,7 +511,7 @@ struct ChatTabView: View, ThemedView {
         // The one leading edge the composer's text and the statusline's
         // first segment also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, 4)
+        .padding(.vertical, dimensions.panelContentInset)
         .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
     }
 
@@ -571,4 +609,61 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+}
+
+/// One queued message, styled like the user bubble it's about to become.
+/// Edit and remove are always visible rather than hover-revealed: reserving
+/// their width while they're invisible most of the time reads as a layout
+/// bug, and always showing them costs nothing here since a chip only ever
+/// holds two small icon buttons.
+private struct QueuedMessageChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let text: String
+    let onEdit: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        // `.firstTextBaseline` rather than `.top`: the clock glyph and the
+        // edit/remove icons are a different font size than the message text,
+        // so top-aligning their frames left the clock sitting visibly above
+        // the text's first line. Baseline alignment tracks that first line
+        // instead, which also reads right once the text wraps to several.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "clock")
+                .font(.caption)
+                .emphasis(.secondary)
+                .help("Queued — not sent yet")
+            Text(text)
+                .font(.callout)
+                .lineLimit(1 ... 4)
+                .fixedSize(horizontal: false, vertical: true)
+            controls
+        }
+        .padding(10)
+        .background(washColor, in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 4) {
+            Button(action: onEdit) {
+                Image(systemName: "pencil.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Edit")
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from queue")
+        }
+    }
+
+    private var washColor: Color {
+        colors.surfaceTint
+    }
 }

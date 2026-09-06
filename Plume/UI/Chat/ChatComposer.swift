@@ -14,6 +14,11 @@ struct ChatComposer: View, ThemedView {
     /// Whether something else in the panel already sits above the composer
     /// (the docked plan bar) — the caller is the only one who knows.
     var hasContentAbove = false
+    /// Set by `ChatTabView` to pull a queued message (rendered there, above
+    /// the panel) back into the draft for editing — the same operation the
+    /// Up-arrow recall path below already does, since only this view knows
+    /// how to keep `hasSendableText` in sync with the draft it writes.
+    var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
@@ -81,16 +86,12 @@ struct ChatComposer: View, ThemedView {
 
     var body: some View {
         VStack(spacing: dimensions.panelContentInset) {
-            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
-                queuedMessagesView(headlessSession)
-            }
-
             if autocomplete.isShowing {
                 SlashCommandAutocompleteView(
                     commands: autocomplete.matches,
                     selectedIndex: autocomplete.selectedIndex,
                     onSelect: { autocomplete.select($0) },
-                    isTopOfPanel: !hasContentAbove && (headlessSession?.queuedMessages.isEmpty ?? true)
+                    isTopOfPanel: !hasContentAbove
                 )
             }
 
@@ -150,6 +151,11 @@ struct ChatComposer: View, ThemedView {
         .onChange(of: isVisible, initial: true) { _, visible in
             if visible { inputFocused = true }
         }
+        .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
+            guard let index else { return }
+            editQueuedMessage(at: index)
+            editQueuedMessageIndex.wrappedValue = nil
+        }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
         }
@@ -201,80 +207,6 @@ struct ChatComposer: View, ThemedView {
         } else {
             AgentLauncher.launch(message: text, task: task, tab: tab)
         }
-    }
-
-    /// Each queued message is a message the user already wrote, waiting its
-    /// turn — so it reads as its own right-aligned chip in the same
-    /// vocabulary as a sent user bubble (`ChatMessageRow.userBody`), not as a
-    /// system strip. The composer's own `.padding(dimensions.composerFieldInset)`
-    /// already insets this whole view from the panel edge, so a chip's
-    /// `.frame(maxWidth: .infinity, alignment: .trailing)` lands its trailing
-    /// edge exactly where the send button below it sits — no extra outdent
-    /// needed here.
-    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
-        VStack(spacing: 6) {
-            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
-                QueuedMessageChip(
-                    text: message,
-                    onEdit: { editQueuedMessage(at: index) },
-                    onRemove: { session.removeQueuedMessage(at: index) }
-                )
-            }
-        }
-    }
-}
-
-/// One queued message, styled like the user bubble it's about to become.
-/// Edit and remove stay reserved in the layout so revealing them on hover
-/// doesn't resize the chip, but only draw at full opacity while hovered.
-private struct QueuedMessageChip: View, ThemedView {
-    @Environment(\.theme) var theme
-
-    let text: String
-    let onEdit: () -> Void
-    let onRemove: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "clock")
-                .font(.caption)
-                .emphasis(.secondary)
-                .help("Queued — not sent yet")
-            Text(text)
-                .font(.callout)
-                .lineLimit(1 ... 4)
-                .fixedSize(horizontal: false, vertical: true)
-            controls
-        }
-        .padding(10)
-        .background(washColor, in: .rect(cornerRadius: 10))
-        .onHover { isHovered = $0 }
-        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private var controls: some View {
-        HStack(spacing: 4) {
-            Button(action: onEdit) {
-                Image(systemName: "pencil.circle.fill")
-                    .emphasis(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Edit")
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .emphasis(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Remove from queue")
-        }
-        .opacity(isHovered ? 1 : 0)
-    }
-
-    private var washColor: Color {
-        colors.surfaceTint
     }
 }
 
