@@ -280,10 +280,24 @@ The answers on a settled block come from the tool result's own text, parsed in `
 
 Two separate animations, to be taken one at a time and iterated on.
 
-- [ ] Animate the height of a chat row as it changes, so a row that grows or collapses eases into its new size instead of jumping.
-- [ ] Reveal streamed characters one at a time, rather than a whole paragraph appearing at once. Nothing fancy — the point is that text arrives at a readable pace.
+- [x] Animate the height of a chat row as it changes, so a row that grows or collapses eases into its new size instead of jumping.
+- [x] Reveal streamed characters one at a time, rather than a whole paragraph appearing at once. Nothing fancy — the point is that text arrives at a readable pace.
 
-What exists, and the constraint both items run into:
+What shipped:
+
+- `AnimatedHeight` (`Plume/UI/Chat/`) measures a row's ideal height with `onGeometryChange` inside `fixedSize`, then drives an explicit `frame(height:)` from it. Measuring inside `fixedSize` is what stops the animated frame feeding back into its own input. The first measurement is assigned without animating, at `.easeOut(duration: 0.2)` thereafter.
+- **Lazy-stack recycling never animates.** The modifier's `height` is `@State`, so a row the stack realizes starts at nil and snaps. A DEBUG probe counting first-versus-animated measurements read **520 first measurements and 0 animated** through a jump-scroll of a thousand-row transcript, then stopped counting entirely once the rows were built. Recycling costs a measurement, not an animation.
+- **The row carrying the live stream is left unanimated**, because its height already changes every frame as the reveal draws; easing it only retargets an animation that never settles. Animating both together was the one configuration that tripped `detect-chat-hang.sh`.
+- `CharacterReveal` is an `Animatable` view whose `animatableData` is a `Double` count, and `RevealPacing` / `RevealProgress` hold the pacing. A reveal runs at 220 characters a second, capped at 1s and floored at 0.1s; every delta landing before the previous reveal's deadline multiplies the duration by 0.7, down to a quarter. So a delta mid-reveal shortens what is left rather than queueing, and the uneven rhythm that produces is the point. A reveal from rest eases out; a retargeted one runs linearly, so the curve does not also change speed at every delta.
+- Both animations are `AppSettings` toggles in the Settings window, defaulting on and independent of each other.
+
+What the harness showed (optimized build with the DEBUG flag, three seeded tasks on 8 MB and 13 MB transcripts, `PLUME_FAKE_STREAM=0.08`, `PLUME_CYCLE_SELECTION=1`, `PLUME_SCROLL_WHEEL=40`):
+
+- Both animations on, before the streaming-row fix: `HANG` at t=221s. The sampled frames were plain layout work with no `signalPrefetch → requestUpdate`, and the main thread fell back to 6% on its own, so it was load rather than the recorded loop. Each half alone cleared 300s in the same configuration.
+- After leaving the streaming row unanimated, both on cleared two consecutive 400s windows. Mean main-thread CPU over 60s: 39.9% with both off, 59.8% with both on.
+- Under the gentler configuration (`PLUME_FAKE_STREAM=0.25`, `PLUME_CYCLE_SELECTION=3`, no wheel), mean CPU was 32.4% off, 38.4% with row height alone, 44.4% with the reveal alone. The reveal's cost is `MarkdownBlock.parse` and text typesetting running once a frame over the growing string, which `MarkdownCache` cannot absorb because every frame is a new key.
+
+The constraints both items ran into:
 
 - **The chat list is a `LazyVStack` that must not be driven programmatically.** `docs/chat-list-hang.md` records a hang where an animation in flight inside the lazy stack's placement pass never reached a fixed point: each pass moved the target, the prefetch asked for another, and the content grew underneath. The list now follows content through `defaultScrollAnchor(.bottom, for: .sizeChanges)` alone (`ChatMessageList.swift:113-114`), with no `ScrollViewReader`, no per-row `.id()`, no `scrollTo`. Row-height animation is the item closest to that failure — an animated height *is* a size change the anchor reacts to, on rows the stack is still estimating — so it wants the harness in that doc pointed at it before it is called done.
 - **A per-tick animation next to this list has already been measured as expensive.** `ChatMessageRow.swift:155-161` explains why the working dot derives opacity from a `TimelineView` clock instead of using `phaseAnimator` or a `repeatForever` opacity animation: those rebuilt the whole chat tree ~37,000 times over 15 seconds. A character reveal is the same shape of risk, and the same escape hatch (drive from a clock, keep the redraw inside one view) is the thing to reach for.
