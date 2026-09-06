@@ -55,15 +55,25 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
-                    ForEach(PermissionModeDefault.allCases) { mode in
-                        Text(mode.label).tag(mode)
+                if settings.defaultProvider == .claudeCode {
+                    Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
+                        ForEach(PermissionModeDefault.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                } else {
+                    Picker("New agent tabs start in", selection: $settings.defaultCodexPermissionProfileRaw) {
+                        ForEach(AgentPermissionPreset.codexPresets) { profile in
+                            Text(profile.label).tag(profile.id)
+                        }
                     }
                 }
             } header: {
-                Text("Default Permission Mode")
+                Text("Default Permissions")
             } footer: {
-                Text("Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json. A task's own permission mode, set from its chat, always overrides this.")
+                Text(settings.defaultProvider == .claudeCode
+                    ? "Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json."
+                    : "Codex permission profiles control filesystem and network access for new threads.")
                     .foregroundStyle(.secondary)
             }
 

@@ -4,8 +4,8 @@ import Foundation
 ///
 /// This is the seam WP4.2 asks for: a worktree base path override (read by
 /// `WorkspaceProvisioner`) and a provider choice (read by `AgentLauncher`).
-/// Only Claude Code exists today, so the provider field is a stub that
-/// already round-trips end to end.
+/// Provider-specific defaults stay separate so one CLI never interprets the
+/// other's persisted vocabulary.
 @MainActor
 @Observable
 final class AppSettings {
@@ -21,6 +21,7 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
+        static let defaultCodexPermissionProfileRaw = "defaultCodexPermissionProfileRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
         /// Stored under its original name, from when the setting covered
         /// only row heights, so an existing preference still reads.
@@ -96,6 +97,10 @@ final class AppSettings {
 
         self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
             .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
+
+        self.defaultCodexPermissionProfileRaw = defaults.string(
+            forKey: Key.defaultCodexPermissionProfileRaw
+        ) ?? AgentPermissionPreset.codexWorkspace.id
 
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
             .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
@@ -232,6 +237,17 @@ final class AppSettings {
         didSet {
             defaults.set(defaultPermissionMode.rawValue, forKey: Key.defaultPermissionModeRaw)
         }
+    }
+
+    var defaultCodexPermissionProfileRaw: String {
+        didSet {
+            defaults.set(defaultCodexPermissionProfileRaw, forKey: Key.defaultCodexPermissionProfileRaw)
+        }
+    }
+
+    var defaultCodexPermissionProfile: AgentPermissionPreset {
+        AgentPermissionPreset.codexPresets.first { $0.id == defaultCodexPermissionProfileRaw }
+            ?? .codexWorkspace
     }
 
     /// Effort a new agent tab starts at. There is no launch flag for effort,

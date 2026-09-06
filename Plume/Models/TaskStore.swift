@@ -160,6 +160,7 @@ enum TaskStore {
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         CodexItemStore.shared.forget(tabID: tabID)
+        CodexCatalogStore.shared.forget(tabID: tabID)
         UntrustedDirectoryStore.shared.clear(tabID: tabID)
     }
 

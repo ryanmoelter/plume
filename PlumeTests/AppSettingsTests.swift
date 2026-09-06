@@ -76,6 +76,16 @@ struct AppSettingsTests {
         #expect(reloaded.defaultPermissionMode == .plan)
     }
 
+    @Test func codexPermissionProfileDefaultsToWorkspaceAndPersists() {
+        let suite = "AppSettingsTests.codexPermissions.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.defaultCodexPermissionProfile == .codexWorkspace)
+        settings.defaultCodexPermissionProfileRaw = AgentPermissionPreset.codexReadOnly.id
+        #expect(AppSettings(defaults: defaults).defaultCodexPermissionProfile == .codexReadOnly)
+    }
+
     @Test func resolvedDefaultPermissionModeReturnsThePinnedModeDirectly() {
         let settings = AppSettings(defaults: makeDefaults())
         settings.defaultPermissionMode = .bypassPermissions

@@ -22,6 +22,10 @@ struct CodexSessionTests {
         return (session, client, { sent.lines })
     }
 
+    @Test func initializeOptsIntoTheExperimentalThreadAPI() {
+        #expect(CodexSession.initializeCapabilities["experimentalApi"] == .bool(true))
+    }
+
     @Test func aStartedThreadBecomesTheSessionID() {
         let (session, client, _) = makeSession()
         client.receive(#"{"method":"thread/started","params":{"thread":{"id":"th-1","model":"gpt-6-astra"}}}"#)
@@ -95,6 +99,31 @@ struct CodexSessionTests {
         let permission = try #require(session.pendingPermissions.first)
         session.resolve(permission, with: permission.decisions[0])
         #expect(try #require(sent().last).contains("\"decision\":\"acceptForSession\""))
+    }
+
+    @Test func aCodexQuestionAnswersByQuestionID() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":9,"method":"item/tool/requestUserInput","params":{"itemId":"q-item","threadId":"t","turnId":"u","isBlocking":true,"questions":[{"id":"language","header":"Choice","question":"Which language?","options":[{"label":"Swift","description":"Native"}]}]}}"#)
+        let permission = try #require(session.pendingPermissions.first)
+        guard case .questions(let questions)? = permission.interactive else {
+            Issue.record("Expected questions")
+            return
+        }
+        #expect(questions.first?.id == "language")
+        session.answer(permission, answers: ["Which language?": "Swift"])
+        let reply = try #require(sent().last)
+        #expect(reply.contains("\"language\":{\"answers\":[\"Swift\"]}"))
+    }
+
+    @Test func expandedPermissionsCanBeGrantedForTheSession() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":10,"method":"item/permissions/requestApproval","params":{"itemId":"p-item","threadId":"t","turnId":"u","cwd":"/tmp","startedAtMs":0,"permissions":{"network":{"enabled":true}},"reason":"Fetch docs"}}"#)
+        let permission = try #require(session.pendingPermissions.first)
+        #expect(permission.decisions.map(\.id) == ["turn", "session", "decline"])
+        session.resolve(permission, with: permission.decisions[1])
+        let reply = try #require(sent().last)
+        #expect(reply.contains("\"scope\":\"session\""))
+        #expect(reply.contains("\"network\":{\"enabled\":true}"))
     }
 
     @Test func answeringAnApprovalRepliesToItsRequestAndClearsTheRow() throws {

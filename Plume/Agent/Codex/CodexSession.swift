@@ -9,6 +9,15 @@ import os
 @MainActor
 @Observable
 final class CodexSession: AgentSession {
+    /// Permission profiles and the rest of the v2 thread surface are gated
+    /// behind this negotiated capability in current Codex releases.
+    static let initializeCapabilities: JSONValue = .object([
+        "experimentalApi": .bool(true),
+        "optOutNotificationMethods": .array(
+            CodexCommand.ignoredNotifications.map(JSONValue.string)
+        )
+    ])
+
     let tabID: UUID
     let taskID: UUID
 
@@ -45,6 +54,13 @@ final class CodexSession: AgentSession {
     private var currentTurnID: String?
     /// Approval requests are answered by the ID that carried them.
     private var permissionRequestIDs: [String: CodexRPC.RequestID] = [:]
+    private var permissionKinds: [String: PermissionRequestKind] = [:]
+
+    private enum PermissionRequestKind {
+        case decision
+        case permissions(JSONValue)
+        case question
+    }
 
     init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil, client: CodexAppServerClient? = nil) {
         let client = client ?? CodexAppServerClient()
@@ -101,13 +117,11 @@ final class CodexSession: AgentSession {
                     "title": .string("Plume"),
                     "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
                 ]),
-                "capabilities": .object([
-                    "optOutNotificationMethods": .array(
-                        CodexCommand.ignoredNotifications.map(JSONValue.string)
-                    )
-                ])
+                "capabilities": Self.initializeCapabilities
             ]))
             client.notify("initialized")
+
+            await hydrateCatalogs(workingDirectory: workingDirectory)
 
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
@@ -129,6 +143,42 @@ final class CodexSession: AgentSession {
         } catch {
             reportFailure(error)
         }
+    }
+
+    private func hydrateCatalogs(workingDirectory: String?) async {
+        do {
+            let values = try await paginated(
+                method: "model/list",
+                baseParams: ["includeHidden": .bool(false)]
+            )
+            CodexCatalogStore.shared.replaceModels(tabID: tabID, values: values)
+        } catch {
+            Log.agent.error("Codex model catalog load failed: \(error.localizedDescription, privacy: .public)")
+        }
+        do {
+            var params: [String: JSONValue] = [:]
+            if let workingDirectory { params["cwd"] = .string(workingDirectory) }
+            let values = try await paginated(method: "permissionProfile/list", baseParams: params)
+            CodexCatalogStore.shared.replaceProfiles(tabID: tabID, values: values)
+        } catch {
+            Log.agent.error("Codex permission profile load failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func paginated(
+        method: String,
+        baseParams: [String: JSONValue]
+    ) async throws -> [JSONValue] {
+        var cursor: String?
+        var values: [JSONValue] = []
+        repeat {
+            var params = baseParams
+            if let cursor { params["cursor"] = .string(cursor) }
+            let result = try await client.send(method, .object(params))
+            values += result["data"]?.arrayValue ?? []
+            cursor = result["nextCursor"]?.stringValue
+        } while cursor != nil
+        return values
     }
 
     private func adopt(thread: JSONValue) {
@@ -266,6 +316,19 @@ final class CodexSession: AgentSession {
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
+        if case .permissions(let requested) = kind {
+            let granted: JSONValue = switch decision {
+            case .allow: requested
+            case .deny: .object([:])
+            }
+            client.respond(to: id, result: .object([
+                "permissions": granted,
+                "scope": .string("turn")
+            ]))
+            pendingPermissions.removeAll { $0.id == permission.id }
+            return
+        }
         // Codex's decisions are a closed set with no free-text field, so a
         // denial's message has nowhere to go.
         let verdict: String = switch decision {
@@ -278,7 +341,15 @@ final class CodexSession: AgentSession {
 
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
-        client.respond(to: id, result: .object(["decision": .string(option.id)]))
+        let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
+        if case .permissions(let requested) = kind {
+            client.respond(to: id, result: .object([
+                "permissions": option.allowsAction ? requested : .object([:]),
+                "scope": .string(option.id == "session" ? "session" : "turn")
+            ]))
+        } else {
+            client.respond(to: id, result: .object(["decision": .string(option.id)]))
+        }
         pendingPermissions.removeAll { $0.id == permission.id }
     }
 
@@ -292,7 +363,19 @@ final class CodexSession: AgentSession {
 
     func answer(_ permission: PendingPermission, answers: [String: String]) {
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
-        let mapped = answers.mapValues(JSONValue.string)
+        permissionKinds.removeValue(forKey: permission.id)
+        var mapped: [String: JSONValue] = [:]
+        if case .questions(let questions)? = permission.interactive {
+            for question in questions {
+                guard let answer = answers[question.question] ?? answers[question.id] else { continue }
+                let values = question.multiSelect
+                    ? answer.components(separatedBy: ", ")
+                    : [answer]
+                mapped[question.id] = .object([
+                    "answers": .array(values.map(JSONValue.string))
+                ])
+            }
+        }
         client.respond(to: id, result: .object(["answers": .object(mapped)]))
         pendingPermissions.removeAll { $0.id == permission.id }
     }
@@ -372,16 +455,81 @@ final class CodexSession: AgentSession {
             enqueue(permission: commandPermission(params), id: id)
         case "item/fileChange/requestApproval":
             enqueue(permission: fileChangePermission(params), id: id)
+        case "item/permissions/requestApproval":
+            let permission = expandedPermissionsPermission(params)
+            enqueue(
+                permission: permission,
+                id: id,
+                kind: .permissions(params["permissions"] ?? .object([:]))
+            )
+        case "item/tool/requestUserInput":
+            enqueue(permission: questionPermission(params), id: id, kind: .question)
         default:
             // Every server request must be answered, or the turn stalls.
             client.respondUnsupported(to: id, method: method)
         }
     }
 
-    private func enqueue(permission: PendingPermission, id: CodexRPC.RequestID) {
+    private func enqueue(
+        permission: PendingPermission,
+        id: CodexRPC.RequestID,
+        kind: PermissionRequestKind = .decision
+    ) {
         permissionRequestIDs[permission.id] = id
+        permissionKinds[permission.id] = kind
         pendingPermissions.append(permission)
         StatusEngine.shared.setStatus(.needsInput, taskID: taskID, tabID: tabID)
+    }
+
+    private func expandedPermissionsPermission(_ params: JSONValue) -> PendingPermission {
+        let itemID = params["itemId"]?.stringValue ?? UUID().uuidString
+        return PendingPermission(
+            id: itemID,
+            toolName: "Permissions",
+            displayName: "Expand permissions",
+            input: ["permissions": params["permissions"] ?? .object([:])],
+            description: params["reason"]?.stringValue,
+            decisionReason: nil,
+            toolUseID: itemID,
+            agentID: nil,
+            interactive: nil,
+            decisions: [
+                .init(id: "turn", label: "Allow for Turn", allowsAction: true),
+                .init(id: "session", label: "Allow for Session", allowsAction: true),
+                .init(id: "decline", label: "Deny", allowsAction: false)
+            ]
+        )
+    }
+
+    private func questionPermission(_ params: JSONValue) -> PendingPermission {
+        let itemID = params["itemId"]?.stringValue ?? UUID().uuidString
+        let questions = params["questions"]?.arrayValue?.compactMap { value -> InteractiveToolPayload.AskedQuestion? in
+            guard let id = value["id"]?.stringValue,
+                  let question = value["question"]?.stringValue
+            else { return nil }
+            let options = value["options"]?.arrayValue?.compactMap { option -> InteractiveToolPayload.AskedQuestion.Option? in
+                guard let label = option["label"]?.stringValue else { return nil }
+                return .init(label: label, description: option["description"]?.stringValue ?? "")
+            } ?? []
+            return .init(
+                id: id,
+                header: value["header"]?.stringValue ?? "",
+                question: question,
+                multiSelect: false,
+                options: options
+            )
+        } ?? []
+        return PendingPermission(
+            id: itemID,
+            toolName: "RequestUserInput",
+            displayName: "Question",
+            input: [:],
+            description: nil,
+            decisionReason: nil,
+            toolUseID: itemID,
+            agentID: nil,
+            interactive: questions.isEmpty ? nil : .questions(questions)
+        )
     }
 
     private func commandPermission(_ params: JSONValue) -> PendingPermission {
@@ -446,6 +594,7 @@ final class CodexSession: AgentSession {
         guard let requestID, let id = CodexRPC.RequestID(json: requestID) else { return }
         guard let key = permissionRequestIDs.first(where: { $0.value == id })?.key else { return }
         permissionRequestIDs.removeValue(forKey: key)
+        permissionKinds.removeValue(forKey: key)
         pendingPermissions.removeAll { $0.id == key }
     }
 

@@ -168,6 +168,8 @@ struct ChatTabView: View, ThemedView {
             untrustedDirectoryState(path: untrustedPath)
         } else if let startFailure = headlessSession?.startFailure {
             startFailureState(startFailure)
+        } else if let error = headlessSession?.lastError, !error.isEmpty {
+            agentErrorState(error)
         } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
             || AgentSessionManager.shared.existingSession(for: tab.id) != nil
             || (tab.agentSessionID?.isEmpty == false) {
@@ -738,6 +740,26 @@ struct ChatTabView: View, ThemedView {
         .font(typography.headline.font)
         .emphasis(.primary)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+    }
+
+    private func agentErrorState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 28))
+                .foregroundStyle(colors.danger)
+            Text("\(tab.provider.displayName) couldn't start")
+                .font(.headline)
+            Text(message)
+                .font(.callout)
+                .emphasis(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .frame(maxWidth: 480)
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn

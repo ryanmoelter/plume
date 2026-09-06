@@ -52,15 +52,26 @@ struct ComposerSettings {
     /// a running conversation's own state.
     var isPreLaunch: Bool { session == nil }
 
-    var model: AgentModel? { session?.model ?? tab.model ?? defaults.model }
+    var model: AgentModel? { session?.model ?? tab.model ?? defaultModel }
     var effort: AgentEffort { session?.effort ?? tab.effort ?? defaults.effort }
     var permissionMode: PermissionMode? {
         session.map(\.permissionMode) ?? tab.permissionMode ?? defaults.permissionMode
     }
 
     var provider: AgentProviderKind { tab.provider }
-    var models: [AgentModel] { provider.models }
-    var efforts: [AgentEffort] { provider.efforts }
+    var models: [AgentModel] {
+        provider == .codex ? CodexCatalogStore.shared.models(for: tab.id) : provider.models
+    }
+    var efforts: [AgentEffort] {
+        provider == .codex
+            ? CodexCatalogStore.shared.efforts(for: tab.id, modelID: model?.id)
+            : provider.efforts
+    }
+    var permissionPresets: [AgentPermissionPreset] {
+        provider == .codex
+            ? CodexCatalogStore.shared.profiles(for: tab.id)
+            : provider.permissionPresets
+    }
     var permissionPreset: AgentPermissionPreset? {
         if provider == .claudeCode {
             return permissionMode.map { .init(id: $0.rawValue, label: $0.label) }
@@ -74,7 +85,9 @@ struct ComposerSettings {
 
     /// What a launch passing no `--model` lands on, for the menu's Default
     /// item to name.
-    var defaultModel: AgentModel? { defaults.model }
+    var defaultModel: AgentModel? {
+        provider == .codex ? CodexCatalogStore.shared.defaultModel(for: tab.id) : defaults.model
+    }
 
     /// Mode and model are both corrected by the `init` event, so until it
     /// lands the displayed pair is a guess: the tab's snapshot before launch,
@@ -108,7 +121,7 @@ struct ComposerSettings {
     func clearModel() {
         tab.model = nil
         tab.isModelUserChosen = false
-        if let session, let fallback = defaults.model {
+        if let session, let fallback = defaultModel {
             session.setModel(fallback)
         }
     }

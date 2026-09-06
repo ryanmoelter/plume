@@ -79,6 +79,14 @@ struct TaskRowView: View {
         agentTabIDs.contains { HeadlessSessionManager.shared.existingSession(for: $0)?.remoteControl.link != nil }
     }
 
+    private var selectedAgentProvider: AgentProviderKind? {
+        guard let selectedID = task.selectedTabID,
+              let tab = task.orderedTabs.first(where: { $0.id == selectedID }),
+              tab.kind == .agent
+        else { return nil }
+        return tab.provider
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
@@ -155,6 +163,12 @@ struct TaskRowView: View {
             }
             Spacer(minLength: 4)
             StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
+            if let provider = selectedAgentProvider {
+                Image(systemName: provider.glyph)
+                    .font(.caption2)
+                    .emphasis(.secondary)
+                    .help(provider.displayName)
+            }
         }
         .padding(.vertical, 2)
         .contentShape(.rect)

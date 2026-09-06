@@ -227,7 +227,7 @@ private struct PermissionModeControl: View, ThemedView {
     var body: some View {
         if let preset = state.permissionPreset {
             Menu {
-                ForEach(state.provider.permissionPresets) { option in
+                ForEach(state.permissionPresets) { option in
                     Button(option.label) { state.setPermissionPreset(option) }
                 }
             } label: {
