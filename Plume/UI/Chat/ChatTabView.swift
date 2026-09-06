@@ -252,27 +252,25 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
-    /// above it: the plan bar when a plan is minimized, then the composer,
-    /// then the session facts under it. One glass surface carries all three.
+    /// above it: the plan dock bar when a plan is minimized, then the
+    /// composer, then the session facts under it. One glass surface carries
+    /// all three. A closed plan's own button lives in the composer's controls
+    /// row instead of up here — see `ComposerControlsRow.showsPlanButton`.
     private func composerPanel(transcript: Transcript) -> some View {
         VStack(spacing: 0) {
-            // The plan is a document this conversation produced, so it heads
-            // the panel whether it is docked open or only linked.
-            if let planFilePath {
-                if planPresentation == .minimized {
-                    planDockBar(path: planFilePath)
-                        .transition(.opacity)
-                } else {
-                    planLinkBar
-                }
+            if let planFilePath, planPresentation == .minimized {
+                planDockBar(path: planFilePath)
+                    .transition(.opacity)
                 Divider()
             }
             ChatComposer(
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
-                hasContentAbove: planFilePath != nil,
-                editQueuedMessageIndex: $editQueuedMessageIndex
+                hasContentAbove: planPresentation == .minimized,
+                editQueuedMessageIndex: $editQueuedMessageIndex,
+                showsPlanButton: planFilePath != nil && planPresentation == .closed,
+                onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -287,29 +285,35 @@ struct ChatTabView: View, ThemedView {
     /// written rather than as a heading over it.
     ///
     /// It reads left to right as where this runs, then what it has spent,
-    /// then whether anyone else can drive it.
+    /// then whether anyone else can drive it. Every segment but the branch
+    /// name holds its own intrinsic size (`.fixedSize()`, here and in
+    /// `WorkspacePickerView`) — the branch is the one that gives way first
+    /// when the row runs out of room.
     private func statuslineFooter(transcript: Transcript) -> some View {
         HStack(alignment: .top, spacing: dimensions.panelContentInset) {
             workspaceGroup
             Spacer(minLength: dimensions.panelContentInset)
-            StatuslineStripView(
-                // Both arrive on a turn result, so a resumed conversation has
-                // neither until it takes a turn: the transcript's last usage
-                // and the tab's stored window cover that gap.
-                // contextMaxTokens falls back further still, to the model's
-                // nominal window — known before either does.
-                contextUsedTokens: headlessSession?.contextUsedTokens
-                    ?? transcript.latestUsage?.contextUsedTokens,
-                contextMaxTokens: headlessSession?.contextWindow
-                    ?? tab.contextWindowTokens
-                    ?? headlessSession?.nominalContextWindow
-                    ?? tab.model?.nominalContextWindow,
-                rateLimit: headlessSession?.rateLimit,
-                sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
-            )
-            if let headlessSession {
-                RemoteControlControl(session: headlessSession)
+            HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
+                StatuslineStripView(
+                    // Both arrive on a turn result, so a resumed conversation has
+                    // neither until it takes a turn: the transcript's last usage
+                    // and the tab's stored window cover that gap.
+                    // contextMaxTokens falls back further still, to the model's
+                    // nominal window — known before either does.
+                    contextUsedTokens: headlessSession?.contextUsedTokens
+                        ?? transcript.latestUsage?.contextUsedTokens,
+                    contextMaxTokens: headlessSession?.contextWindow
+                        ?? tab.contextWindowTokens
+                        ?? headlessSession?.nominalContextWindow
+                        ?? tab.model?.nominalContextWindow,
+                    rateLimit: headlessSession?.rateLimit,
+                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+                )
+                if let headlessSession {
+                    RemoteControlControl(session: headlessSession)
+                }
             }
+            .fixedSize()
         }
         // The one leading edge the composer's text and controls also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
@@ -327,25 +331,6 @@ struct ChatTabView: View, ThemedView {
         )
         .font(typography.caption.font)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
-    }
-
-    /// The panel's top row when a plan exists but is not docked open.
-    private var planLinkBar: some View {
-        HStack(spacing: 0) {
-            Button {
-                planPresentation = .expanded
-            } label: {
-                Label("Plan", systemImage: "doc.text")
-            }
-            .buttonStyle(.plain)
-            .help("Open the plan this conversation produced")
-            .accessibilityIdentifier(AccessibilityID.planLinkButton)
-            Spacer(minLength: 0)
-        }
-        .font(typography.caption.font)
-        .emphasis(.secondary)
-        .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, 4)
     }
 
     /// A wash of the chat's own surface, so the glass reads as the chat holding

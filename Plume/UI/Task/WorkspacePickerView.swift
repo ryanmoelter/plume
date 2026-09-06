@@ -26,8 +26,13 @@ struct WorkspacePickerView: View {
     @State private var worktreeSheetShown = false
 
     var body: some View {
+        // The folder chip and the ahead/behind/dirty markers hold their own
+        // intrinsic size (`.fixedSize()`); the branch name is the one
+        // segment that gives way when the row runs out of room, since it's
+        // the only thing here with room to lose without going illegible.
         HStack(spacing: 10) {
             folderChip
+                .fixedSize()
             if task.repoPath != nil {
                 HStack(spacing: 4) {
                     worktreeChip
@@ -38,6 +43,7 @@ struct WorkspacePickerView: View {
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
+                    .fixedSize()
                     .help("This directory no longer exists.")
             }
         }
@@ -113,7 +119,6 @@ struct WorkspacePickerView: View {
                 worktreeLabel
             }
             .menuStyle(.borderlessButton)
-            .fixedSize()
         } readOnly: {
             worktreeLabel
         }
@@ -140,22 +145,30 @@ struct WorkspacePickerView: View {
         if let state {
             if let ahead = state.ahead, ahead > 0 {
                 Text("\u{2191}\(ahead)")
+                    .emphasis(.secondary)
+                    .fixedSize()
                     .help("\(ahead) ahead of \(state.upstream ?? "upstream")")
             }
             if let behind = state.behind, behind > 0 {
                 Text("\u{2193}\(behind)")
+                    .emphasis(.secondary)
+                    .fixedSize()
                     .help("\(behind) behind \(state.upstream ?? "upstream")")
             }
             // No upstream at all is worth saying: it is the common case on a
             // fresh worktree branch, and silence would read as "level with
-            // upstream".
+            // upstream". Already dimmer than secondary, which is fine —
+            // `.subtle` still reads as attention-free chrome.
             if !state.hasUpstream {
                 Text("no upstream")
                     .emphasis(.subtle)
+                    .fixedSize()
                     .help("This branch tracks nothing")
             }
             if state.isDirty {
                 Text("\u{2022}")
+                    .emphasis(.secondary)
+                    .fixedSize()
                     .help("Uncommitted changes")
             }
         }
@@ -177,7 +190,8 @@ struct WorkspacePickerView: View {
     // MARK: - Chrome
 
     /// Both chips share their frame across edit and read-only rendering, so
-    /// launching an agent doesn't reflow the row.
+    /// launching an agent doesn't reflow the row. Secondary either way: the
+    /// statusline is metadata, not the thing the eye should land on.
     private func chip(
         isEditable: Bool,
         help: String,
@@ -190,11 +204,12 @@ struct WorkspacePickerView: View {
             if isEditable {
                 editable().help(help)
             } else {
-                readOnly().emphasis(.secondary).help(help)
+                readOnly().help(help)
             }
         }
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
+        .emphasis(.secondary)
     }
 
     private func abbreviate(_ path: String) -> String {
