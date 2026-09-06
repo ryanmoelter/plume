@@ -94,6 +94,7 @@ struct ChatMessageList: View, ThemedView {
                         messageID: message.id,
                         lastMessageID: lastMessageID
                     )
+                    let isStreamingRow = isLast && attachesToLastMessage && !streaming.isEmpty
                     ChatMessageRow(
                         message: message,
                         isLast: isLast,
@@ -104,7 +105,12 @@ struct ChatMessageList: View, ThemedView {
                     // Height rather than the row itself: an animated insert or
                     // move inside a lazy stack would drive the placement pass
                     // the hang doc warns about.
-                    .animatedHeight(enabled: settings.animateRowHeight)
+                    //
+                    // The row carrying the stream is left alone. Its height
+                    // already changes every frame as the reveal draws, so
+                    // easing it only retargets an animation that never
+                    // reaches a fixed point.
+                    .animatedHeight(enabled: settings.animateRowHeight && !isStreamingRow)
                     .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                     .padding(.top, rowInsets[index])
                 }
@@ -113,7 +119,6 @@ struct ChatMessageList: View, ThemedView {
                     // become, so it takes that row's inset and the reply
                     // doesn't shift as the transcript takes over.
                     StreamingBlocks(overlay: streaming)
-                        .animatedHeight(enabled: settings.animateRowHeight)
                         .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                         .padding(.top, ChatBlockSpacing.rowTopInset(
                             previous: messages.last.map(ChatBlockSpacing.rowKind),
