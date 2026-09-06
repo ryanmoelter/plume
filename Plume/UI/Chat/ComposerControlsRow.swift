@@ -22,6 +22,12 @@ struct ComposerControlsRow: View, ThemedView {
     @Bindable var task: WorkTask
     @Bindable var tab: TaskTab
     let headlessSession: HeadlessSession?
+    /// The plan a conversation has produced, when it's closed rather than
+    /// minimized or expanded — `ChatTabView` owns `PlanPresentation` and
+    /// decides when that's true. Minimized keeps its own dock bar above the
+    /// composer; expanded is a full overlay with nothing to open from here.
+    var showsPlanButton = false
+    var onOpenPlan: () -> Void = {}
 
     /// The row's own width, which the parent sets: every segment hugs its
     /// content and the leading `Spacer` absorbs the rest, so the form the
@@ -30,6 +36,9 @@ struct ComposerControlsRow: View, ThemedView {
 
     var body: some View {
         HStack(spacing: dimensions.panelContentInset) {
+            if showsPlanButton {
+                PlanButton(form: form, action: onOpenPlan)
+            }
             Spacer(minLength: 0)
             ModelControl(state: settings, form: form)
             EffortControl(state: settings, form: form)
@@ -50,9 +59,15 @@ struct ComposerControlsRow: View, ThemedView {
         )
     }
 
+    /// The measured width belongs to the whole row, Plan button included, so
+    /// its own estimated width comes off the top before the three next-turn
+    /// controls decide whether they fit.
     private var form: ComposerControlsForm {
-        ComposerControlsMetrics.form(
-            availableWidth: availableWidth,
+        let planReservation = showsPlanButton
+            ? ComposerControlsMetrics.segmentWidth(label: "Plan") + dimensions.panelContentInset
+            : 0
+        return ComposerControlsMetrics.form(
+            availableWidth: availableWidth - planReservation,
             labels: ComposerControlLabels.all(state: settings),
             spacing: dimensions.panelContentInset
         )
@@ -95,7 +110,8 @@ enum ComposerControlsMetrics {
     /// Average advance of the caption font, rounded up.
     static let glyphWidth: CGFloat = 6.5
     static let iconWidth: CGFloat = 15
-    /// The chevron `.menuStyle(.borderlessButton)` draws for itself.
+    /// The chevron a segment draws — `.menuStyle(.borderlessButton)`'s own
+    /// for the three menus, `PlanButton`'s manual one for the same width.
     static let chevronWidth: CGFloat = 13
     static let iconToLabelGap: CGFloat = 4
 
@@ -127,11 +143,13 @@ enum ComposerControlsMetrics {
 /// the popup button `.menuStyle(.borderlessButton)` draws renders a bare
 /// image as a template in its own control color and drops `foregroundStyle`,
 /// so the tint never lands. That style also supplies the one chevron these
-/// labels need, so none of them draws its own.
+/// labels need, so none of them draws its own — `showsTrailingChevron` is for
+/// `PlanButton`, a plain `Button` with no menu style to draw one for it.
 struct ComposerSegmentLabel: View {
     let systemImage: String
     let text: String
     var showsText = true
+    var showsTrailingChevron = false
     let foreground: Color
     let height: CGFloat
 
@@ -145,7 +163,42 @@ struct ComposerSegmentLabel: View {
     private var label: Text {
         let icon = Text("\(Image(systemName: systemImage))")
         guard showsText else { return icon }
-        return icon + Text("  ") + Text(text)
+        var result = icon + Text("  ") + Text(text)
+        if showsTrailingChevron {
+            result = result + Text(" \(Image(systemName: "chevron.right"))")
+        }
+        return result
+    }
+}
+
+/// The plan a conversation has produced, when it exists and is closed. Sits
+/// on the row's leading edge, across the `Spacer` from the next-turn
+/// controls it shares no subject with — a document the conversation already
+/// wrote, not a setting for the message being composed.
+///
+/// The chevron marks it clickable the way a disclosure indicator would; a
+/// plain `Button` draws none of its own the way `.menuStyle(.borderlessButton)`
+/// does for the menu segments beside it.
+private struct PlanButton: View, ThemedView {
+    @Environment(\.theme) var theme
+    let form: ComposerControlsForm
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ComposerSegmentLabel(
+                systemImage: "doc.text",
+                text: "Plan",
+                showsText: form.showsLabels,
+                showsTrailingChevron: true,
+                foreground: colors.foreground,
+                height: dimensions.composerControlHeight
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Open the plan this conversation produced")
+        .accessibilityLabel("Plan")
+        .accessibilityIdentifier(AccessibilityID.planLinkButton)
     }
 }
 
@@ -318,10 +371,11 @@ private struct EffortControl: View, ThemedView {
 
 extension PermissionMode {
     /// One symbol per case, so the collapsed form still tells the four modes
-    /// apart.
+    /// apart. `plan` matches `PlanButton`'s own icon, so the mode and the
+    /// document it produces read as the same concept.
     var symbol: String {
         switch self {
-        case .plan: return "text.page"
+        case .plan: return "doc.text"
         case .acceptEdits: return "pencil.line"
         case .auto: return "bolt.fill"
         case .bypassPermissions: return "exclamationmark.triangle.fill"

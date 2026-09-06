@@ -101,7 +101,7 @@ struct StatuslineStripView: View, ThemedView {
 
     private func costSegment(_ cost: Double) -> some View {
         Text(String(format: "$%.2f", cost))
-            .foregroundStyle(foreground(for: .neutral))
+            .foregroundStyle(StatuslineColors.statuslineText(for: .neutral, colors: colors))
             .help("What this session has cost so far")
     }
 
@@ -129,20 +129,17 @@ struct StatuslineStripView: View, ThemedView {
         }
         return "\(count)"
     }
-
-    private func foreground(for attention: StatuslineAttention) -> Color {
-        StatuslineColors.foreground(for: attention, colors: colors)
-    }
 }
 
 /// Bar lengths, longest first: the context window reads most precisely, the
-/// seven-day quota next, the five-hour quota least. Each is narrower than the
-/// reading stacked above it, which is what keeps the meters from taking the
-/// width the rest of the row needs.
+/// seven-day quota next, the five-hour quota least. The row now lays out from
+/// each segment's own intrinsic size rather than squeezing to fit, so these
+/// can run a bit longer than a reading needs and still cost nothing but the
+/// branch chip's own truncation room.
 enum StatuslineMeterWidth {
-    static let context: CGFloat = 44
-    static let quota: CGFloat = 32
-    static let shortQuota: CGFloat = 26
+    static let context: CGFloat = 50
+    static let quota: CGFloat = 36
+    static let shortQuota: CGFloat = 28
 }
 
 /// A reading over its bar — the shape every meter in the strip takes.
@@ -155,9 +152,13 @@ struct StackedMeter: View, ThemedView {
     let attention: StatuslineAttention
 
     var body: some View {
-        VStack(alignment: .leading, spacing: dimensions.statuslineMeterSpacing) {
+        // Centered rather than leading: the reading and the bar rarely share
+        // a width (a short reading over a long bar, or the reverse), and
+        // centering is what keeps whichever is narrower looking placed
+        // rather than merely left-aligned with the other.
+        VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
             Text(reading)
-                .foregroundStyle(StatuslineColors.foreground(for: attention, colors: colors))
+                .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                 .lineLimit(1)
             MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
                 .frame(width: barWidth)
@@ -256,14 +257,14 @@ struct RemoteControlControl: View, ThemedView {
         }
     }
 
-    /// `attention` is the palette's blue, taken from the terminal theme like
-    /// every other status hue, so this reads as part of the same surface.
+    /// A failed connection is the one state worth a live color — everything
+    /// else (on, connecting, off) is ordinary statusline chrome, so it dims
+    /// to secondary along with the rest of the strip.
     private var tint: Color {
         switch session.remoteControl {
         case .failed: return colors.danger
-        case .connected: return colors.attention
-        case .connecting: return colors.attention.opacity(colors.emphasis[.secondary])
-        case .disconnected: return colors.foreground.opacity(colors.emphasis[.secondary])
+        case .connected, .connecting, .disconnected:
+            return colors.foreground.opacity(colors.emphasis[.secondary])
         }
     }
 
@@ -315,6 +316,19 @@ enum StatuslineColors {
         case .neutral: return colors.foreground
         case .yellow: return colors.warning
         case .red: return colors.danger
+        }
+    }
+
+    /// The strip's own text: neutral dims to secondary so the eye lands on
+    /// the box content and the composer's model/effort/permission dropdowns
+    /// instead, while yellow and red keep `foreground`'s full-strength
+    /// attention hue — that is the one signal this row still needs to win.
+    /// `ComposerControlsRow` keeps calling `foreground` directly, since its
+    /// dropdowns are next-turn controls the row is not trying to de-emphasize.
+    static func statuslineText(for attention: StatuslineAttention, colors: Palette) -> Color {
+        switch attention {
+        case .neutral: return colors.foreground.opacity(colors.emphasis[.secondary])
+        case .yellow, .red: return foreground(for: attention, colors: colors)
         }
     }
 }

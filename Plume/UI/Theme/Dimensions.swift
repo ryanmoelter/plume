@@ -113,4 +113,9 @@ struct Dimensions {
     /// Above and below the statusline row, which carries two lines per
     /// segment rather than one.
     let statuslineVerticalPadding: CGFloat = 6
+
+    /// Between the meters and Remote Control's antenna — wider than
+    /// `panelContentInset` so the antenna doesn't read as one more segment of
+    /// the group it's actually reporting on.
+    let statuslineTrailingGap: CGFloat = 16
 }

@@ -20,6 +20,9 @@ struct ChatComposer: View, ThemedView {
     /// Up-arrow recall path below already does, since only this view knows
     /// how to keep `hasSendableText` in sync with the draft it writes.
     var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
+    /// Forwarded straight to `ComposerControlsRow` — see its own doc comment.
+    var showsPlanButton = false
+    var onOpenPlan: () -> Void = {}
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
@@ -135,7 +138,13 @@ struct ChatComposer: View, ThemedView {
                 .focused($inputFocused)
 
                 HStack(spacing: dimensions.panelContentInset) {
-                    ComposerControlsRow(task: task, tab: tab, headlessSession: headlessSession)
+                    ComposerControlsRow(
+                        task: task,
+                        tab: tab,
+                        headlessSession: headlessSession,
+                        showsPlanButton: showsPlanButton,
+                        onOpenPlan: onOpenPlan
+                    )
                     if headlessSession?.isWorking == true {
                         stopButton
                     }
