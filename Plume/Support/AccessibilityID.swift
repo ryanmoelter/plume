@@ -26,6 +26,9 @@ enum AccessibilityID {
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"
+    static let composerRemoteControlControl = "composer-remote-control-control"
+    static let remoteControlRow = "remote-control-row"
+    static let remoteControlCopyLinkButton = "remote-control-copy-link-button"
 
     // MARK: Statusline strip
 

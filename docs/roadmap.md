@@ -437,8 +437,30 @@ What exists:
 
 - Nothing in the app calls `IOPMAssertionCreateWithName` or spawns `caffeinate` yet. An `IOPMAssertion` of type `PreventUserIdleSystemSleep` is the whole mechanism; a single owner that counts reasons and holds one assertion while the count is non-zero is the shape.
 - Every signal already flows through in-memory state: `StatusEngine` knows every tab's `working` status across both transports, `SubagentTranscript.status` (new in 0.3.0) knows each subagent's, and a monitor is a tool call whose `tool_result` has not arrived, which the transcript parser already tracks for the tool-call row's spinner. The Ghostty wrapper reports `COMMAND_FINISHED` / `PROGRESS_REPORT`, which is what a terminal-command reason would key on.
-- **Remote control is a separate layer on top.** Someone driving Plume from a phone wants the Mac awake until they say otherwise, regardless of what is running. That points at a whole remote-control feature: show `/rc` status; give each session a three-way toggle — not caffeinated / caffeinated / caffeinated for a remote session; and a CLI Claude can call to set that state, alongside the notify helper under **Notifications**. The automatic reasons above and this manual override should share the one assertion owner.
+- **Remote control now exists as its own feature** (see [Remote Control](#remote-control)), so what is left here is the caffeine half: a session driven from a phone wants the Mac awake until told otherwise, regardless of what is running. That wants a three-way per-session toggle — not caffeinated / caffeinated / caffeinated for a remote session — and a CLI Claude can call to set it, alongside the notify helper under **Notifications**. The automatic reasons above and this manual override should share the one assertion owner.
 - Worth deciding: whether "waiting for input" keeps the Mac awake. It probably should not — the user is the one who is away — but a notification on wake-up (see **Notifications**) makes that safe to get wrong.
+
+## Remote Control
+
+Drive a Plume conversation from a phone or claude.ai/code, the way the CLI's own `/rc` does.
+
+- [x] Support `/rc` on the headless transport — connect, disconnect, and show the link.
+- [ ] Reconnect a bridge automatically after a `--resume`, rather than starting disconnected.
+- [ ] Show remote-control state in the sidebar, so a published session is legible without opening it.
+
+What shipped:
+
+- **`/rc` is a Plume command, not a CLI one, and it has to be.** The CLI's `remote-control` renders an interactive TUI component and ships no non-interactive variant, so it never appears in the `initialize` reply's commands and sending the text does nothing. `PlumeSlashCommand` serves it into the composer's list — deduped against the CLI's own names, so a later CLI that does report `/rc` wins — and `ChatComposer.send()` intercepts it. Two guards keep that honest: only on the headless transport, since a terminal tab's real TUI already has a working `/rc`, and only once a session exists, since a tab's first message has no bridge to attach to.
+- The mechanism is a **host-originated `remote_control` control request**; `docs/headless-protocol.md` is the wire reference, verified first-hand rather than inferred.
+- **`session_url` is the link, not `connect_url`.** `connect_url` names an environment, which a session hosted on this Mac does not have, so it arrives as a bare `https://claude.ai/code?environment=` and goes nowhere.
+- State lives on `HeadlessSession` and nowhere else. A bridge belongs to the running process, so nothing about it is persisted and a relaunch starts disconnected — the same rule terminals follow.
+- `RemoteControlRow` docks below the conversation beside `PendingPermissionDock`, and a segment in `ComposerControlsRow` drives the same call. `/rc` writes no transcript line, so without that row the chat looks identical whether the command worked or did nothing at all.
+- **Two things the wire made necessary.** `ControlResponse` could not express a failure at all, so a refused request would have hung the UI at "Connecting…" forever — nothing times out a control request on either side. And replies are now correlated by `request_id` rather than sniffed for a `commands` key, which only worked while `initialize` was the sole reply anyone read.
+
+What exists:
+
+- `bridge_epoch` increments per connect, and the state machine drops an event from an older bridge — a fast disconnect/reconnect would otherwise let the previous bridge's failure land on the live one. The first event of every connect carries no epoch, which says nothing about ordering and is not treated as stale.
+- Nothing reconnects on resume. `agentSessionID` survives a relaunch and `--resume` restores the conversation, but the bridge does not come back with it.
 
 ## Infrastructure
 

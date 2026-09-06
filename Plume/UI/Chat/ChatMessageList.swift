@@ -106,6 +106,8 @@ struct ChatMessageList: View {
                 if let tabID {
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
                         .listItemPadding(bleed: true, column: .unpadded)
+                    RemoteControlRow(tabID: tabID)
+                        .listItemPadding(bleed: true, column: .unpadded)
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }

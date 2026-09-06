@@ -108,9 +108,16 @@ struct ChatTabView: View, ThemedView {
         return HeadlessSessionManager.shared.existingSession(for: tab.id)
     }
 
+    /// `/rc` can land before the tab has any transcript, and the row that
+    /// reports it lives in the message list — so the list has to mount even
+    /// with nothing to render in it yet.
+    private var hasRemoteControlToShow: Bool {
+        headlessSession.map { $0.remoteControl != .disconnected } ?? false
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if let transcript, !transcript.messages.isEmpty {
+            if let transcript, !transcript.messages.isEmpty || hasRemoteControlToShow {
                 ChatMessageList(
                     messages: transcript.messages,
                     subagents: subagents,

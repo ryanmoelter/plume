@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// What the *next* message will do: where it runs (folder and worktree, on
@@ -33,6 +34,9 @@ struct ComposerControlsRow: View, ThemedView {
             ModelControl(state: settings)
             EffortControl(state: settings)
             PermissionModeControl(state: settings)
+            if let headlessSession {
+                RemoteControlControl(session: headlessSession)
+            }
         }
         .font(typography.caption.font)
         // The row sits level with the send and stop circles beside it, so
@@ -211,6 +215,58 @@ private struct EffortControl: View, ThemedView {
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         StatuslineColors.foreground(for: attention, colors: colors)
+    }
+}
+
+/// Remote Control's own segment, driving the same `setRemoteControl` the
+/// typed `/rc` does. Absent before a session exists, since there is no bridge
+/// to attach to until then.
+private struct RemoteControlControl: View, ThemedView {
+    @Environment(\.theme) var theme
+    let session: HeadlessSession
+
+    var body: some View {
+        Menu {
+            switch session.remoteControl {
+            case .connected(let link):
+                Button("Disconnect") { session.setRemoteControl(enabled: false) }
+                if let url = link.shareableURL {
+                    Button("Copy link") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url, forType: .string)
+                    }
+                }
+            default:
+                Button("Connect") { session.setRemoteControl(enabled: true) }
+            }
+        } label: {
+            segmentLabel(
+                label,
+                foreground: StatuslineColors.foreground(for: attention, colors: colors),
+                height: dimensions.composerControlHeight
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Remote Control \u{2014} drive this session from your phone or claude.ai/code")
+        .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
+    }
+
+    private var label: String {
+        switch session.remoteControl {
+        case .disconnected: return "RC off"
+        case .connecting: return "RC\u{2026}"
+        case .connected: return "RC on"
+        case .failed: return "RC failed"
+        }
+    }
+
+    private var attention: StatuslineAttention {
+        switch session.remoteControl {
+        case .failed: return .red
+        case .connected, .connecting: return .yellow
+        case .disconnected: return .neutral
+        }
     }
 }
 

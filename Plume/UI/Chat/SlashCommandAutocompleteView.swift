@@ -62,6 +62,13 @@ struct SlashCommandAutocompleteView: View, ThemedView {
         HStack(spacing: 8) {
             Text("/\(command.name)")
                 .font(typography.caption.monoMedium)
+            if command.isPlumeProvided {
+                // Plume runs this one itself; the CLI has never heard of it.
+                Image(systemName: "app.dashed")
+                    .imageScale(.small)
+                    .emphasis(.secondary)
+                    .help("Handled by Plume")
+            }
             if !command.description.isEmpty {
                 Text(command.description)
                     .font(typography.caption.font)

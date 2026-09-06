@@ -48,6 +48,37 @@ enum StreamJSONEncoder {
         ])
     }
 
+    /// Asks the CLI to publish this conversation to claude.ai/code, or to
+    /// tear that bridge down.
+    ///
+    /// `work_secret` and `reattach_session_id` are deliberately omitted. They
+    /// select the worker-credential path, where a host that already owns a
+    /// cloud session attaches this process to it; Plume owns a local session
+    /// and publishes it under the user's own account, exactly as the CLI's
+    /// own `/rc` does. Sending a secret with nothing to reattach to is
+    /// refused outright.
+    static func remoteControl(enabled: Bool, name: String?, requestID: String) -> String? {
+        var body: [String: JSONValue] = [
+            "subtype": .string("remote_control"),
+            "enabled": .bool(enabled)
+        ]
+        if let name, !name.isEmpty { body["name"] = .string(name) }
+        return controlRequest(id: requestID, body: body)
+    }
+
+    /// A bare success, for answering a CLI-originated request Plume has
+    /// nothing to say about. Dropping one instead leaves the CLI waiting.
+    static func controlSuccess(requestID: String) -> String? {
+        line([
+            "type": .string("control_response"),
+            "response": .object([
+                "subtype": .string("success"),
+                "request_id": .string(requestID),
+                "response": .object([:])
+            ])
+        ])
+    }
+
     static func permissionResponse(requestID: String, decision: PermissionDecision) -> String? {
         let payload: [String: JSONValue]
         switch decision {
