@@ -1,0 +1,95 @@
+import Foundation
+import SwiftUI
+import Testing
+@testable import Plume
+
+/// The reveal's pacing: how long a delta takes to draw, and how a delta
+/// landing mid-reveal shortens what is left rather than queueing behind it.
+@MainActor
+struct RevealPacingTests {
+    @Test func aShortDeltaRevealsFasterThanALongOne() {
+        let short = RevealPacing.duration(pendingCharacters: 40, interruptions: 0)
+        let long = RevealPacing.duration(pendingCharacters: 200, interruptions: 0)
+        #expect(short < long)
+        #expect(short >= RevealPacing.minDuration)
+    }
+
+    @Test func aParagraphIsCappedRatherThanScalingForever() {
+        #expect(RevealPacing.duration(pendingCharacters: 5_000, interruptions: 0) == RevealPacing.maxDuration)
+    }
+
+    @Test func nothingPendingTakesNoTime() {
+        #expect(RevealPacing.duration(pendingCharacters: 0, interruptions: 3) == 0)
+    }
+
+    @Test func eachInterruptionShortensTheReveal() {
+        let durations = (0...4).map { RevealPacing.duration(pendingCharacters: 200, interruptions: $0) }
+        #expect(durations == durations.sorted(by: >))
+        #expect(durations.allSatisfy { $0 >= RevealPacing.minDuration })
+    }
+
+    @Test func theSpeedUpBottomsOutSoAStreamSettlesAtAPace() {
+        #expect(RevealPacing.speedup(interruptions: 0) == 1)
+        #expect(RevealPacing.speedup(interruptions: 100) == RevealPacing.minSpeedup)
+    }
+
+    @Test func theFirstTextSeenIsShownWithoutAnimating() {
+        var progress = RevealProgress()
+        #expect(progress.advance(to: "Hello") == nil)
+        #expect(progress.revealedCount == 5)
+    }
+
+    @Test func laterTextAnimates() {
+        var progress = RevealProgress()
+        let start = Date()
+        _ = progress.advance(to: "Hello", now: start)
+        #expect(progress.advance(to: "Hello, world", now: start) != nil)
+        #expect(progress.revealedCount == 12)
+    }
+
+    @Test func aRestartSnapsRatherThanRewindingThroughAnAnimation() {
+        var progress = RevealProgress()
+        let start = Date()
+        _ = progress.advance(to: "A long first turn", now: start)
+        _ = progress.advance(to: "A long first turn, continued", now: start)
+        #expect(progress.advance(to: "New", now: start) == nil)
+        #expect(progress.revealedCount == 3)
+    }
+
+    /// The deltas here all land inside the previous reveal's window, so each
+    /// one counts as an interruption and shortens what follows.
+    @Test func deltasArrivingMidRevealCompoundTheSpeedUp() {
+        var progress = RevealProgress()
+        var text = String(repeating: "x", count: 200)
+        let start = Date()
+        _ = progress.advance(to: text, now: start)
+
+        var animations: [Animation?] = []
+        for step in 1...4 {
+            text += String(repeating: "x", count: 200)
+            animations.append(progress.advance(to: text, now: start.addingTimeInterval(Double(step) * 0.01)))
+        }
+        // The first delta lands from rest; every later one interrupts.
+        let expected: [Animation] = [.easeOut(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: 0))]
+            + (1...3).map { .linear(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: $0)) }
+        #expect(animations == expected.map { Optional($0) })
+    }
+
+    /// A reveal from rest eases out; one retargeted mid-flight runs linearly,
+    /// so the curve names which case the progress decided it was in.
+    @Test func aDeltaAfterTheRevealFinishedStartsFromRestAgain() {
+        var progress = RevealProgress()
+        let start = Date()
+        _ = progress.advance(to: String(repeating: "x", count: 200), now: start)
+
+        let fromRest = progress.advance(to: String(repeating: "x", count: 400), now: start)
+        #expect(fromRest == .easeOut(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: 0)))
+
+        let midReveal = progress.advance(to: String(repeating: "x", count: 600), now: start.addingTimeInterval(0.01))
+        #expect(midReveal == .linear(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: 1)))
+
+        // Well past the deadline, so this one is not an interruption.
+        let afterRest = progress.advance(to: String(repeating: "x", count: 800), now: start.addingTimeInterval(10))
+        #expect(afterRest == .easeOut(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: 0)))
+    }
+}

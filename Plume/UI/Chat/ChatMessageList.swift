@@ -42,6 +42,8 @@ struct ChatMessageList: View, ThemedView {
     /// `ChatScrollAnchor` threshold keeps it from flipping every frame.
     @State private var isDetached = false
 
+    @State private var settings = AppSettings.shared
+
     private var session: HeadlessSession? {
         guard let tabID else { return nil }
         return HeadlessSessionManager.shared.existingSession(for: tabID)
@@ -92,6 +94,7 @@ struct ChatMessageList: View, ThemedView {
                         messageID: message.id,
                         lastMessageID: lastMessageID
                     )
+                    let isStreamingRow = isLast && attachesToLastMessage && !streaming.isEmpty
                     ChatMessageRow(
                         message: message,
                         isLast: isLast,
@@ -99,6 +102,15 @@ struct ChatMessageList: View, ThemedView {
                         pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
                         streaming: isLast && attachesToLastMessage ? streaming : .init()
                     )
+                    // Height rather than the row itself: an animated insert or
+                    // move inside a lazy stack would drive the placement pass
+                    // the hang doc warns about.
+                    //
+                    // The row carrying the stream is left alone. Its height
+                    // already changes every frame as the reveal draws, so
+                    // easing it only retargets an animation that never
+                    // reaches a fixed point.
+                    .animatedHeight(enabled: settings.animateRowHeight && !isStreamingRow)
                     .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                     .padding(.top, rowInsets[index])
                 }
