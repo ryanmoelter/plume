@@ -240,7 +240,12 @@ private struct RemoteControlControl: View, ThemedView {
                 Button("Connect") { session.setRemoteControl(enabled: true) }
             }
         } label: {
-            Image(systemName: symbol)
+            // Interpolated into a `Text` rather than left as an `Image`: the
+            // popup button this menu style draws renders a bare image as a
+            // template in its own control color and drops `foregroundStyle`,
+            // so the tint never lands. The text path keeps it, which is also
+            // how every neighbouring segment colors its label.
+            Text("\(Image(systemName: symbol))")
                 .foregroundStyle(tint)
                 .frame(height: dimensions.composerControlHeight)
         }

@@ -64,7 +64,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                 .font(typography.caption.monoMedium)
             if command.isPlumeProvided {
                 // Plume runs this one itself; the CLI has never heard of it.
-                Image(systemName: "app.dashed")
+                Image(systemName: "apple.terminal.fill")
                     .imageScale(.small)
                     .emphasis(.secondary)
                     .help("Handled by Plume")

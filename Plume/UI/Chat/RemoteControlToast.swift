@@ -49,8 +49,9 @@ struct RemoteControlToast: View, ThemedView {
         .foregroundStyle(tint(for: notice))
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(colors.surfaceTint, in: .capsule)
-        .overlay { Capsule().strokeBorder(colors.divider) }
+        // Glass, like the queued chips beside it: the toast floats over the
+        // conversation, and a flat fill is hard to read against it.
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .capsule)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
