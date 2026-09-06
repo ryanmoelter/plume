@@ -28,6 +28,11 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
 - **M** — Restructure the row of session facts below the composer. See [Below the composer](#below-the-composer).
+- **S** — Spellcheck the composer. See [The composer](#the-composer).
+- **M** — Give a subagent row a second, dim line: model, time running, context used. See [Subagents](#subagents).
+- **L** — Show each tab's agent separately in the sidebar, with its folder and status. See [The sidebar](#the-sidebar).
+- **L** — Generate a tab title with Apple's on-device model, falling back to today's. See [Tab titles](#tab-titles).
+- **L** — Talk to a subagent directly, from its transcript rather than through the main chat. See [Subagents](#subagents).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)).
 
@@ -67,8 +72,14 @@ Parallel subagents are the case Plume exists to make legible, so this is a real 
 - [x] Let a subagent's transcript be read properly, with the same rendering the main conversation gets.
 - [x] Keep the live list short: a finished subagent lingers briefly, then collects into a "Completed subagents (N)" disclosure below the live rows.
 - [x] Keep the sidebar honest: a task whose subagents are still working reads working, not done.
+- [ ] Give each subagent row a second line of dim caption text: the model it is running, how long it has been going, and how much of its context it has used.
+- [ ] Let a subagent be talked to directly. Its transcript is read-only today, so steering one means going back to the main chat and asking the parent to pass a message along.
 
 What shipped: `SubagentTranscript` now carries a `descriptor` and a `status` beside its transcript. `SubagentListView` is a flat list of one compact row each — status badge, description, message count — and a row opens `SubagentTranscriptOverlay`, which renders the whole conversation through the same `ChatMessageRow` the main chat uses. `ChatTabView` hosts that overlay beside the plan one and holds the open subagent by **id**, so the panel follows the subagent's live re-reads instead of freezing at the moment it was opened.
+
+**The second line's facts are already parsed, except the clock.** `TranscriptParser` records `model` and `latestUsage` on every `Transcript` (`TranscriptParser.swift:5-6`), and a `SubagentTranscript` carries a whole `Transcript`, so the model and the token counts need no new reading — the context meter's existing arithmetic is the precedent for turning usage into a percentage. Elapsed time is the missing one: `modifiedAt` gives the last write but nothing records when a subagent started, so it wants either the first entry's timestamp from the transcript or an observed start recorded beside the linger instants in `SubagentCompletionTracker`. Watch the row's height changing as the caption fills in, since a live row rewrites on every parent read.
+
+**Nothing on the wire sends a subagent a message.** The control plane's subtypes are all session-wide — mode, model, cwd, interrupt (`docs/headless-protocol.md`) — and a turn sent with `submit(text:)` goes to the parent. The parent is the only thing holding a handle on its subagents, so the honest first step is establishing what the CLI offers at all: whether a host can address a subagent, or whether the message has to reach it as an instruction to the parent to relay. That answer decides the whole shape. A relayed message is a composer in `SubagentTranscriptOverlay` that writes into the main conversation, which is what the user does by hand today, only without leaving the transcript; a direct one is a second input path with its own pending state and its own answers coming back. Either way the overlay needs somewhere to put a reply, since it renders the subagent's file and a relayed exchange lands in the parent's.
 
 Four things worth knowing for anything that builds on this:
 
@@ -121,6 +132,12 @@ The fullscreen sheet then gained pinch-to-zoom and scroll-to-pan, on top of that
 - [x] Render a command-output body as markdown. It is monospaced plain text today, so a `/context` dump shows raw table source.
 - [x] Decide whether the rejection-feedback submit button belongs inside the text field. It stays beside it.
 - [ ] Command execution mode. A leading `!` means "run this rather than say it", the way the CLI's bash mode does. While the message starts with `!`, style the rest of it monospaced — plain monospace, no code-chip background, so it reads as a different mode rather than as an inline code span.
+- [ ] Drag and drop an image into the chat to attach it to the next message. Dropping a file on the conversation or the composer should stage it, show it before it is sent, and let it be removed again.
+- [ ] Spellcheck the composer, the way every other Mac text field does.
+
+**Spellcheck is off because nothing turns it on.** `MarkdownComposerTextView.setUp` disables the substitutions a prose field should not have — smart quotes, dashes, text replacement — and enables automatic spelling *correction*, but never `isContinuousSpellCheckingEnabled` (`MarkdownComposerTextView.swift:317-321`), so misspellings go unmarked while autocorrect silently rewrites them. Turning the underline on is the change; the thing to check is how it interacts with `MarkdownComposerStyler`, which reapplies attributes as you type and could fight the checker's temporary marks.
+
+**Images arrive today, but only from the agent's side.** The transcript already carries them: `ChatImage` holds base64 that `ChatImageCache` decodes and `ChatImageView` renders, so an image the agent produced or the CLI read shows inline. Nothing goes the other way — the composer has no drop destination, no paste handler for image data, and `submit(text:)` sends text alone. So the work is a staging area beside the composer plus whatever the headless transport accepts as image input; settle that wire question first, since it decides whether Plume sends the bytes or writes the file somewhere and sends a path.
 
 **The composer paints no surface of its own.** Its text, its control strip, and the queued-messages strip that floats above them all sit directly on the floating panel's glass, at one `composerFieldInset` from that edge. The text view's own line-fragment padding covers part of that inset, so the first glyph lines up with the control strip's left edge rather than sitting further in; its built-in vertical inset does the rest of the top spacing's work. `composerFieldCornerRadius` — `ComposerPanelMetrics.concentricRadius` of the panel's own radius at that same inset — still shapes the queued-messages strip and the slash-command popup, the two things that keep a fill of their own now that the field itself doesn't. `ComposerControlsRow`'s segments take `composerControlHeight`, the 22pt the send and stop circles already used, so the strip is one band rather than labels of assorted heights.
 
@@ -217,11 +234,14 @@ Today the overlay never opens on its own: `planPresentation` starts `.closed` (`
 - [ ] Make Return in the feedback field send the feedback. It approves the plan instead, which is the opposite of what the field invites.
 - [ ] Give the feedback field the composer's text: the same font, and the same basic markdown styling as you type.
 - [ ] Confirm multi-line feedback and the send-key setting actually work, once Return reaches the field at all.
+- [ ] Keep an undecided plan reachable: while a proposal is awaiting a decision, minimize is the only way out of the overlay. Hide the close button and drop its ⎋ shortcut, and hide the dock bar's close button too, so the plan can never leave the screen entirely before it is approved or rejected.
 - [x] ⌥↩ approves with feedback — the CLI's third option: take the note and auto-approve whatever plan comes back. Caption it beneath the field, since nothing else reveals the key. The note cannot ride the permission response: `ExitPlanMode` declares no input fields, so an extra `updatedInput` key is dropped silently, and there is no allow-with-message. It follows the approval as an ordinary user turn, which queues behind the approved turn and lands when that turn ends — exactly when it should steer the next plan. Payload recorded in `docs/headless-protocol.md`.
 - [x] Label the reject button "Reject" until the user types, then "Give feedback". `PlanRejectionLabel` owns the rule, and `ReservedWidthButton` lays out both labels hidden so the button cannot resize under the pointer.
 - [x] Confirm **Approve** starts work in auto mode where that is enabled. `HeadlessSession.approvePlan` sends `set_permission_mode` with `auto` right after allowing the call, so the session leaves plan mode on approval; confirmed from the code path, not from a live run.
 
 **The overlay always reads the file.** An `ExitPlanMode` input carries both `plan` (the markdown) and `planFilePath` (`InteractiveToolPayload.swift:41`), and the latter is the same path `TranscriptParser` records from the `plan_mode` attachment line and the overlay already renders. So the two content sources are one: the overlay keeps its existing `MarkdownFileStore` path unchanged and gains live updates for free if the plan is rewritten. The payload's markdown is not a second source to merge; it is what the inline row summarizes.
+
+**An undecided plan should not be closable.** Both the panel header and the dock bar carry a close button that sets `planPresentation = .closed` (`ChatTabView.swift:345-354`, `500-508`), and the panel's also answers ⎋ through `.keyboardShortcut(.cancelAction)`. A user who closes a live proposal loses the only place the approval options are shown, while the request stays open on the wire. Gate all three on whether a proposal is awaiting a decision — the same state the footer table keys off — leaving minimize as the only exit. Closing stays available once the plan is approved or rejected, where the overlay is just a viewer again.
 
 **Interrupting the reader is fine**, as long as the overlay can be minimized — which it already can (`PlanPresentation.minimized` docks it as a bar above the composer). So a proposal expands over the conversation and the user dismisses it if they were mid-thought; no special quiet-arrival case is needed.
 
@@ -338,6 +358,24 @@ What exists:
 - Two things to settle first if the superset wins. Ghostty takes the first matching config file outright and never merges, so a Plume file that *is* the ghostty file means the user maintains one file for both, while a separate file means deciding precedence. And ghostty's format is flat `key = value` with repeated keys for lists, which suits toggles and paths but has no obvious shape for anything nested — worth checking that every setting worth moving actually fits before committing to the format. `AppSettings` stays the reader either way; a file is a new source for it, not a replacement for the type.
 - The skills item depends on the renderer, not the other way round: telling Claude to draw mermaid before Plume can render it just produces fenced source. Sequence it after the mermaid work, and scope what the skill promises to what the renderer actually supports. Tables are now safe for a skill to encourage; mermaid is not, until it renders.
 - **Skill content written**, unblocked by mermaid shipping on WebKit. It lives at `Plume/Resources/Skills/plume-formatting/SKILL.md`: when to reach for a table vs a list vs a diagram, mermaid guidance sized for the chat's narrow vertical column (`flowchart LR` over `TD`, modest node counts, short labels, capped sequence diagrams), which diagram types render well, and what not to do (no HTML, no images by URL, no ASCII art). What remains is the install mechanism — nothing yet copies this file into `~/.claude/skills` or otherwise hands it to a launched session.
+
+## The sidebar
+
+Today a sidebar row is a task: one title, up to two detail lines, one status badge (`TaskRowView.swift`). A task with three agents running in three tabs collapses to a single aggregated status, so the sidebar says something is working without saying what or where.
+
+- [ ] Show each tab's agent as its own row under its task, with that agent's folder, its title, and its own status icon. The point is glanceability — seeing which agents are running, and which one wants you, without opening a task.
+
+Most of what a per-agent row needs already exists per tab. `TitleStore` holds a live title keyed by tab id, `StatusEngine.status(forTab:)` gives a per-tab status the aggregate is derived from, and `StatusBadge` renders one. The folder is the open question: a working directory lives on the task, not the tab, so until [Task creation and directories](#task-creation-and-directories) settles, every agent under a task shows the same folder — worth confirming that is still worth showing. `TitleStore.representativeTab(of:)` exists precisely because a task has to pick one tab to speak for it; a per-agent list is the alternative to that choice, not a replacement for it, since the collapsed task row still needs a summary.
+
+## Tab titles
+
+- [ ] Explore titling a tab with Apple's on-device Foundation Models — summarizing the first prompt, and possibly more of the conversation, such as the plan file when there is one. Fall back to today's title whenever Apple Intelligence is off, the model is unavailable, or it declines to summarize.
+
+A title comes from the agent today: `TitleStore` holds Claude's own session title for an agent tab and the terminal's title for a terminal tab, keyed by tab id, with a debounced snapshot in `TaskTab.title` so a relaunch has something to show. So this is a second source rather than a first one, and the fallback is not a special case — it is the current behavior left in place.
+
+Worth weighing against a cheaper option first: the CLI has a `generate_session_title` control request (`docs/headless-protocol.md`), untried by Plume, which would title a tab with no local inference at all.
+
+The framework is available: deployment target is macOS 26.2, and `SystemLanguageModel` reports its own availability, which is what the "Apple Intelligence is off" and "unsupported device" paths key off rather than a version check. Three things to decide when picking it up. Where the input comes from — the first user message is the cheap version, and the plan file is the richer one, but a plan arrives long after the tab needs a name. When it runs, since a title generated on every transcript read is a lot of inference for a string that rarely changes. And how a refusal is told apart from a bad title, because the model can return something plausible and useless as easily as it can decline.
 
 ## PR/MR state in the sidebar
 
