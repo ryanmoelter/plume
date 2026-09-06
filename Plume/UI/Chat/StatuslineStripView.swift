@@ -188,7 +188,12 @@ struct StatuslineMeterSegment: View, ThemedView {
             barWidth: barWidth,
             attention: StatuslineAttention.attention(percent: percent)
         )
-        .help("\(label) quota, resetting in \(resetLabel)")
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        guard resetLabel != label else { return "\(label) quota used" }
+        return "\(label) quota used, resetting in \(resetLabel)"
     }
 
     private var resetLabel: String {
