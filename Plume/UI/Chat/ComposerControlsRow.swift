@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// What the *next* message will do: where it runs (folder and worktree, on
@@ -30,6 +31,9 @@ struct ComposerControlsRow: View, ThemedView {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
                 .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
             Spacer(minLength: dimensions.panelContentInset)
+            if let headlessSession {
+                RemoteControlControl(session: headlessSession)
+            }
             ModelControl(state: settings)
             EffortControl(state: settings)
             PermissionModeControl(state: settings)
@@ -211,6 +215,82 @@ private struct EffortControl: View, ThemedView {
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         StatuslineColors.foreground(for: attention, colors: colors)
+    }
+}
+
+/// Remote Control's own segment, driving the same `setRemoteControl` the
+/// typed `/rc` does. Absent before a session exists, since there is no bridge
+/// to attach to until then.
+private struct RemoteControlControl: View, ThemedView {
+    @Environment(\.theme) var theme
+    let session: HeadlessSession
+
+    var body: some View {
+        Menu {
+            switch session.remoteControl {
+            case .connected(let link):
+                Button("Disconnect") { session.setRemoteControl(enabled: false) }
+                if let url = link.shareableURL {
+                    Button("Copy link") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url, forType: .string)
+                    }
+                }
+            default:
+                Button("Connect") { session.setRemoteControl(enabled: true) }
+            }
+        } label: {
+            // Interpolated into a `Text` rather than left as an `Image`: the
+            // popup button this menu style draws renders a bare image as a
+            // template in its own control color and drops `foregroundStyle`,
+            // so the tint never lands. The text path keeps it, which is also
+            // how every neighbouring segment colors its label.
+            Text("\(Image(systemName: symbol))")
+                .foregroundStyle(tint)
+                .frame(height: dimensions.composerControlHeight)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(helpText)
+        .accessibilityLabel("Remote Control")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
+    }
+
+    private var symbol: String {
+        switch session.remoteControl {
+        case .connected, .connecting: return "antenna.radiowaves.left.and.right"
+        case .disconnected, .failed: return "antenna.radiowaves.left.and.right.slash"
+        }
+    }
+
+    /// `attention` is the palette's blue, taken from the terminal theme like
+    /// every other status hue, so this reads as part of the same surface.
+    private var tint: Color {
+        switch session.remoteControl {
+        case .failed: return colors.danger
+        case .connected: return colors.attention
+        case .connecting: return colors.attention.opacity(colors.emphasis[.secondary])
+        case .disconnected: return colors.foreground.opacity(colors.emphasis[.secondary])
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch session.remoteControl {
+        case .disconnected: return "Off"
+        case .connecting: return "Connecting"
+        case .connected: return "On"
+        case .failed(let message): return "Failed: \(message)"
+        }
+    }
+
+    private var helpText: String {
+        switch session.remoteControl {
+        case .connected: return "Remote Control is on \u{2014} this session is on claude.ai/code"
+        case .connecting: return "Connecting to Remote Control\u{2026}"
+        case .failed(let message): return "Remote Control failed: \(message)"
+        case .disconnected: return "Remote Control \u{2014} drive this session from your phone or claude.ai/code"
+        }
     }
 }
 

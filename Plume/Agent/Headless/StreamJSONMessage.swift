@@ -11,6 +11,7 @@ enum StreamJSONMessage {
     case rateLimit(RateLimitInfo)
     case initialized(SessionInit)
     case status(String)
+    case bridgeState(BridgeState)
     case streamEvent(PartialEvent)
     case assistant(MessageEnvelope)
     case user(MessageEnvelope)
@@ -48,8 +49,24 @@ struct SlashCommand: Equatable, Identifiable, Sendable {
     let name: String
     let description: String
     let argumentHint: String
+    /// True for a command Plume serves itself rather than one the CLI
+    /// reported, so the autocomplete row can mark it.
+    var isPlumeProvided: Bool = false
 
     var id: String { name }
+}
+
+/// The Remote Control bridge announcing its own state, on the conversation
+/// plane rather than the control plane.
+///
+/// `state` stays a `String` because the CLI's vocabulary is undocumented and
+/// grows between releases; `RemoteControlState` is the one place that
+/// interprets it. `epoch` is absent on the first event of a connect and
+/// present from the second on.
+struct BridgeState: Equatable {
+    let state: String
+    let detail: String?
+    let epoch: Int?
 }
 
 struct MessageEnvelope {
@@ -128,4 +145,9 @@ struct ControlResponse {
     let requestID: String
     let subtype: String
     let payload: [String: JSONValue]
+    /// Set when `subtype` is `error`, where the CLI sends a bare `error`
+    /// string beside `request_id` and no `response` object at all.
+    let errorMessage: String?
+
+    var isError: Bool { subtype == "error" }
 }

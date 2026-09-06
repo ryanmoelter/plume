@@ -20,6 +20,7 @@ enum StreamJSONDecoder {
             switch root["subtype"]?.stringValue {
             case "init": return .initialized(sessionInit(from: root))
             case "status": return .status(root["status"]?.stringValue ?? "")
+            case "bridge_state": return .bridgeState(bridgeState(from: root))
             default: return .unknown(type: "system")
             }
         case "stream_event":
@@ -39,7 +40,8 @@ enum StreamJSONDecoder {
             return .controlResponse(ControlResponse(
                 requestID: id,
                 subtype: body["subtype"]?.stringValue ?? "success",
-                payload: body["response"]?.objectValue ?? [:]
+                payload: body["response"]?.objectValue ?? [:],
+                errorMessage: body["error"]?.stringValue
             ))
         case "control_cancel_request":
             guard let id = root["request_id"]?.stringValue else { return nil }
@@ -75,6 +77,14 @@ enum StreamJSONDecoder {
             permissionMode: root["permissionMode"]?.stringValue,
             tools: (root["tools"]?.arrayValue ?? []).compactMap(\.stringValue),
             slashCommands: (root["slash_commands"]?.arrayValue ?? []).compactMap(\.stringValue)
+        )
+    }
+
+    private static func bridgeState(from root: [String: JSONValue]) -> BridgeState {
+        BridgeState(
+            state: root["state"]?.stringValue ?? "",
+            detail: root["detail"]?.stringValue,
+            epoch: root["bridge_epoch"]?.doubleValue.map(Int.init)
         )
     }
 

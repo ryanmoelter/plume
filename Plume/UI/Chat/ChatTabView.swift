@@ -223,6 +223,8 @@ struct ChatTabView: View, ThemedView {
     /// is what keeps the measurement from feeding back into itself.
     private func bottomChrome(transcript: Transcript) -> some View {
         VStack(spacing: dimensions.panelContentInset) {
+            RemoteControlToast(tabID: tab.id)
+                .listItemPadding(vertical: false)
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
                 queuedMessagesView(headlessSession)
             }

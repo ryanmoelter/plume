@@ -52,8 +52,14 @@ struct ChatComposer: View, ThemedView {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Plume's own commands join the CLI's, but only once a session exists
+    /// to run them against, and never shadowing a name the CLI reports — if a
+    /// later CLI serves `/rc` headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
-        headlessSession?.slashCommands ?? []
+        guard let headlessSession else { return [] }
+        let reported = headlessSession.slashCommands
+        let reportedNames = Set(reported.map(\.name))
+        return reported + PlumeSlashCommand.all.filter { !reportedNames.contains($0.name) }
     }
 
     private var composerPlaceholder: String {
@@ -200,6 +206,21 @@ struct ChatComposer: View, ThemedView {
         guard hasSendableText else { return }
         let text = drafts.draft(forTab: tab.id)
         drafts.setDraft("", forTab: tab.id)
+        // Only on the headless transport: a terminal tab's composer feeds the
+        // real TUI, where `/rc` already works. And only with a session live —
+        // the launch path below is a tab's first message, which has no bridge
+        // to attach to, so the command is dropped rather than sent as prose.
+        if tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
+            guard let headlessSession else { return }
+            switch command {
+            case .remoteControl(let name):
+                headlessSession.setRemoteControl(
+                    enabled: !headlessSession.remoteControl.isConnected,
+                    name: name
+                )
+            }
+            return
+        }
         if let headlessSession {
             headlessSession.submit(text: text)
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {

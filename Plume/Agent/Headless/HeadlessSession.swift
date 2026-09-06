@@ -63,6 +63,16 @@ final class HeadlessSession {
     private(set) var slashCommands: [SlashCommand] = []
     private(set) var lastError: String?
 
+    /// Whether this conversation is published to claude.ai/code. In memory
+    /// only — the bridge belongs to the process, not to the tab.
+    private(set) var remoteControl: RemoteControlState = .disconnected
+
+    /// The last Remote Control change worth telling the user about, until it
+    /// times out. `/rc` writes no transcript line, so without this the chat
+    /// looks identical whether the command worked or did nothing at all.
+    private(set) var remoteControlNotice: RemoteControlState?
+    private var remoteControlNoticeDismissal: Task<Void, Never>?
+
     /// Set optimistically when the host asks for a change, then corrected
     /// from whatever the stream reports — `init` for `model`/`permissionMode`,
     /// which round-trip through a real control request. There is no
@@ -81,6 +91,7 @@ final class HeadlessSession {
     private(set) var queuedMessages: [String] = []
 
     private var process: HeadlessProcess?
+    private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var nextRequestNumber = 0
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
@@ -146,7 +157,9 @@ final class HeadlessSession {
         process = handler
         // Registers this host as a capable client, and returns the session's
         // slash commands.
-        send(StreamJSONEncoder.initialize(requestID: nextRequestID()))
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .initialize
+        send(StreamJSONEncoder.initialize(requestID: requestID))
     }
 
     func stop() {
@@ -199,6 +212,56 @@ final class HeadlessSession {
     func setModel(_ newModel: AgentModel) {
         model = newModel
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
+    }
+
+    /// Publishes this conversation to claude.ai/code, or tears that down.
+    ///
+    /// `name` labels the session in the web UI. Set optimistically, the same
+    /// way `model` and `permissionMode` are, and corrected by the reply — a
+    /// disable is acknowledged with a bare success, so nothing corrects it
+    /// and the optimistic value stands.
+    func setRemoteControl(enabled: Bool, name: String? = nil) {
+        updateRemoteControl(enabled ? .connecting : .disconnected)
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .remoteControl(enabled: enabled)
+        guard send(StreamJSONEncoder.remoteControl(
+            enabled: enabled,
+            name: name,
+            requestID: requestID
+        )) else {
+            pendingControlRequests[requestID] = nil
+            updateRemoteControl(enabled ? .failed("claude is not running.") : .disconnected)
+            return
+        }
+    }
+
+    func dismissRemoteControlNotice() {
+        remoteControlNoticeDismissal?.cancel()
+        remoteControlNotice = nil
+    }
+
+    /// The one way `remoteControl` moves, so every change raises its notice.
+    ///
+    /// `notify` is false only when the process dies: the tab already reports
+    /// that, and a toast saying Remote Control turned off would blame the
+    /// wrong thing.
+    private func updateRemoteControl(_ new: RemoteControlState, notify: Bool = true) {
+        guard new != remoteControl else { return }
+        remoteControl = new
+        remoteControlNoticeDismissal?.cancel()
+        guard notify else {
+            remoteControlNotice = nil
+            return
+        }
+        remoteControlNotice = new
+        // A failure stays until something else happens to it. Missing "it
+        // worked" costs nothing; missing why it didn't leaves no trace.
+        guard new.dismissesOnItsOwn else { return }
+        remoteControlNoticeDismissal = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.remoteControlNotice = nil
+        }
     }
 
     /// No `set_effort` control request exists, so this rides `submit(text:)`
@@ -272,6 +335,9 @@ final class HeadlessSession {
         case .status:
             break
 
+        case .bridgeState(let bridge):
+            updateRemoteControl(remoteControl.applying(bridge))
+
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
             // approving a tool resumes the same turn with a fresh one. Each
@@ -308,6 +374,13 @@ final class HeadlessSession {
     }
 
     private func handle(_ request: ControlRequest) {
+        // Plume sends no work secret, so the bridge should never ask for a
+        // fresher one. If it does, a bare success says "nothing to offer" —
+        // dropping the request would leave the CLI waiting on its timeout.
+        if request.subtype == "remote_control_work_secret" {
+            send(StreamJSONEncoder.controlSuccess(requestID: request.requestID))
+            return
+        }
         guard request.subtype == "can_use_tool" else { return }
         let name = request.toolName ?? "Tool"
         pendingPermissions.append(PendingPermission(
@@ -325,7 +398,20 @@ final class HeadlessSession {
     }
 
     private func handle(_ response: ControlResponse) {
-        // The initialize reply is the only one carrying anything Plume wants.
+        guard let pending = pendingControlRequests.removeValue(forKey: response.requestID) else { return }
+        switch pending {
+        case .initialize:
+            applyReportedCommands(in: response)
+        case .remoteControl(let enabled):
+            updateRemoteControl(RemoteControlState.applying(
+                response: response,
+                enabled: enabled,
+                current: remoteControl
+            ))
+        }
+    }
+
+    private func applyReportedCommands(in response: ControlResponse) {
         let commands = response.payload["commands"]?.arrayValue ?? []
         guard !commands.isEmpty else { return }
         slashCommands = commands.compactMap { value in
@@ -384,6 +470,9 @@ final class HeadlessSession {
         }
         // Anything still pending will never be answered now.
         pendingPermissions.removeAll()
+        pendingControlRequests.removeAll()
+        // The bridge cannot outlive the process that served it.
+        updateRemoteControl(.disconnected, notify: false)
         StatusEngine.shared.setStatus(status == 0 ? .idle : .error, taskID: taskID, tabID: tabID)
     }
 
@@ -396,5 +485,12 @@ final class HeadlessSession {
     private func nextRequestID() -> String {
         nextRequestNumber += 1
         return "plume-\(nextRequestNumber)"
+    }
+
+    /// A request whose reply carries something Plume acts on, remembered by
+    /// id until it arrives. Replies to everything else are ignored.
+    private enum PendingControlRequest {
+        case initialize
+        case remoteControl(enabled: Bool)
     }
 }

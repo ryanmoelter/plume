@@ -173,6 +173,7 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 |---|---|---|
 | `set_permission_mode` | `mode` | Sets the mode outright — no Shift+Tab cycling |
 | `set_model` | `model` | Switches model mid-session |
+| `remote_control` | `enabled`, `name` | Publishes the conversation to claude.ai/code — see below |
 | `set_max_thinking_tokens` | | Thinking budget |
 | `set_cwd` | | Moves the working directory |
 | `get_settings` / `update_settings` | | Read and write session settings |
@@ -182,6 +183,53 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 | `hook_callback` | `callback_id`, `input` | In-process hooks, no shell scripts |
 
 `set_permission_mode` and `set_model` replace what Plume does today by pasting `/model` or sending Shift+Tab.
+
+## Remote Control — `remote_control`
+
+Verified first-hand against 2.1.261.
+
+**`/rc` is not reachable as a slash command here.** The CLI's `remote-control` command renders an interactive TUI component and ships no non-interactive variant, unlike `/usage`, `/advisor` and `/autocompact`, which each pair theirs with a `supportsNonInteractive` definition. An `initialize` handshake in this repo returns 76 commands and neither `rc` nor `remote-control` is among them. Sending the literal text does nothing. The control request is the only route, and Plume serves `/rc` itself (`PlumeSlashCommand`).
+
+Enable:
+
+```
+{"type":"control_request","request_id":"<n>","request":{"subtype":"remote_control","enabled":true,"name":"laptop"}}
+```
+
+The reply carries the bridge:
+
+```json
+{"session_url":"https://claude.ai/code/session_01A…","connect_url":"https://claude.ai/code?environment=",
+ "environment_id":"","bridge_epoch":1,"bridge_session_id":"cse_01A…"}
+```
+
+- **`session_url` is the link that works.** `connect_url` names an environment, which a session hosted on this Mac does not have — it arrives as a bare `https://claude.ai/code?environment=`. `bridge_session_id` is the same id as `session_url`'s with `cse_` in place of `session_`.
+- `work_secret` and `reattach_session_id` select the worker-credential path, where a host that already owns a cloud session attaches this process to it as a worker. Omitting them authenticates the bridge as the user's own account, which is what the TUI's `/rc` does. Sending a secret with nothing to reattach to is refused.
+- `bridge_epoch` increments per connect, so it tells a stale event from a live one.
+
+Live state arrives on the **conversation** plane, not the control plane:
+
+```
+{"type":"system","subtype":"bridge_state","state":"ready","uuid":"…","session_id":"…"}
+{"type":"system","subtype":"bridge_state","state":"connected","bridge_epoch":1,"uuid":"…","session_id":"…"}
+```
+
+Order on connect is `ready` (**carrying no `bridge_epoch`**), then the control response, then `connected`. Observed states are `ready`, `connected`, `reconnected`, `attach`, `failed` and `policy_disabled`; `failed` and `policy_disabled` carry a `detail`.
+
+**Disconnecting emits no `bridge_state` at all** — `{"subtype":"remote_control","enabled":false}` is answered with a bare success carrying no `response` object, so the request itself is the only record of what happened. Re-enabling while already connected is idempotent and returns the live bridge.
+
+`remote_control_work_secret` is a CLI-originated request for a fresher worker credential. It never fires when the host sends no `work_secret`; Plume answers it with a bare success regardless, since dropping a control request leaves the CLI waiting on its timeout.
+
+## Error-shaped control responses
+
+A refused request comes back with `subtype: "error"` and a bare `error` string beside `request_id` — there is no `response` object:
+
+```json
+{"type":"control_response","response":{"subtype":"error","request_id":"plume-2",
+ "error":"Model \"not-a-real-model-xyz\" is not a recognized model id. Run /model to see available models."}}
+```
+
+Nothing times out a control request on either side, so a reply that is never decoded leaves its caller waiting forever. Remote Control's own failures read "Remote Control cannot be enabled from inside a remote session", "The conversation was cleared while Remote Control was being enabled; send the request again" and "Remote Control initialization failed".
 
 ## Output events
 
