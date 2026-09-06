@@ -33,6 +33,7 @@ enum AccessibilityID {
 
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
+    static let statuslineContextMeter = "statusline-context-meter"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 
@@ -44,6 +45,7 @@ enum AccessibilityID {
     static let planMinimizeButton = "plan-minimize-button"
     static let planCloseButton = "plan-close-button"
     static let planExpandButton = "plan-expand-button"
+    static let planLinkButton = "plan-link-button"
 
     // MARK: AskUserQuestion
 
