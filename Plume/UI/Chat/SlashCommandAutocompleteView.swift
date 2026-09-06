@@ -30,14 +30,25 @@ struct SlashCommandAutocompleteView: View, ThemedView {
         .frame(maxHeight: 200)
         .background(washColor, in: shape)
         .overlay { shape.strokeBorder(.separator) }
+        .padding(.horizontal, -textInset)
     }
 
-    /// Floats over the glass panel at the composer's own inset, so its
-    /// corner takes the radius concentric with the panel at that inset — the
-    /// same one the queued-messages strip uses. Its rows are inset inside it
-    /// and take a concentric radius of their own.
+    /// What a row's text pays inside the box before it starts.
+    private var textInset: CGFloat { rowInset + dimensions.panelContentInset }
+
+    /// The box steps out past the composer by everything its text pays
+    /// inside it, so a command reads down the same edge as the message being
+    /// typed. Its corner then cuts concentric to the panel at that smaller
+    /// inset rather than at the composer's.
+    private var boxCornerRadius: CGFloat {
+        ComposerPanelMetrics.concentricRadius(
+            outer: dimensions.panelCornerRadius,
+            inset: dimensions.composerFieldInset - textInset
+        )
+    }
+
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
+        RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
     }
 
     private let rowInset: CGFloat = 4
@@ -60,7 +71,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             isSelected ? colors.selection.emphasized(.divider, in: colors) : .clear,
             in: .rect(
                 cornerRadius: ComposerPanelMetrics.concentricRadius(
-                    outer: dimensions.composerFieldCornerRadius,
+                    outer: boxCornerRadius,
                     inset: rowInset
                 ),
                 style: .continuous
