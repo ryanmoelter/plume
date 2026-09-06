@@ -326,6 +326,7 @@ struct ChatTabView: View, ThemedView {
             state: GitStateStore.shared.state(for: gitDirectory)
         )
         .font(typography.caption.font)
+        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
     }
 
     /// The panel's top row when a plan exists but is not docked open.
