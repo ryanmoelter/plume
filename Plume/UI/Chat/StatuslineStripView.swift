@@ -257,13 +257,14 @@ struct RemoteControlControl: View, ThemedView {
         }
     }
 
-    /// A failed connection is the one state worth a live color — everything
-    /// else (on, connecting, off) is ordinary statusline chrome, so it dims
-    /// to secondary along with the rest of the strip.
+    /// A live bridge means someone else can drive this session, which is worth
+    /// its own color; a failure is worth another. Connecting and off are
+    /// ordinary statusline chrome and dim with the rest of the strip.
     private var tint: Color {
         switch session.remoteControl {
+        case .connected: return colors.attention
         case .failed: return colors.danger
-        case .connected, .connecting, .disconnected:
+        case .connecting, .disconnected:
             return colors.foreground.opacity(colors.emphasis[.secondary])
         }
     }
