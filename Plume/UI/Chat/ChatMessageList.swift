@@ -6,9 +6,11 @@ import SwiftUI
 /// SwiftUI invalidates a body as a unit. `ChatTabView` also renders the
 /// statusline, which reads the git and surface stores plus the live headless
 /// session — all of which change while a scroll is in flight. Built inline, every one of those
-/// rebuilt this list. Here, only `messages` and `status` reach it, so nothing
-/// else can.
-struct ChatMessageList: View {
+/// rebuilt this list. Here, only `messages`, `status` and the theme reach it,
+/// so nothing else can.
+struct ChatMessageList: View, ThemedView {
+    @Environment(\.theme) var theme
+
     let messages: [ChatMessage]
     let subagents: [SubagentTranscript]
     let status: TaskStatus
@@ -78,7 +80,11 @@ struct ChatMessageList: View {
             // settles and pins the main thread — `docs/chat-list-hang.md`.
             // The scroll view's own anchors follow the bottom instead.
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(messages) { message in
+                // Every gap between rows is the following row's top inset, so
+                // that a run of tool calls can close up while a row meeting
+                // anything else keeps the full space.
+                let rowInsets = ChatBlockSpacing.rowTopInsets(messages, dimensions: dimensions)
+                ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                     // Only the newest row reflects live status, so only
                     // it reads `status`. Passing it to every row made a
                     // status change invalidate the whole list.
@@ -93,15 +99,20 @@ struct ChatMessageList: View {
                         pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
                         streaming: isLast && attachesToLastMessage ? streaming : .init()
                     )
-                    .listItemPadding(bleed: true, column: .unpadded)
+                    .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                    .padding(.top, rowInsets[index])
                 }
                 if !attachesToLastMessage, !streaming.isEmpty {
+                    // The stream stands in for the assistant row it will
+                    // become, so it takes that row's inset and the reply
+                    // doesn't shift as the transcript takes over.
                     StreamingBlocks(overlay: streaming)
-                        // Matches the inset an assistant row pays around
-                        // its body, so a reply doesn't shift as the
-                        // transcript takes over from the stream.
-                        .padding(.vertical, 4)
-                        .listItemPadding(bleed: true, column: .unpadded)
+                        .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                        .padding(.top, ChatBlockSpacing.rowTopInset(
+                            previous: messages.last.map(ChatBlockSpacing.rowKind),
+                            current: .other,
+                            dimensions: dimensions
+                        ))
                 }
                 if let tabID {
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)

@@ -53,7 +53,7 @@ struct ChatMessageRow: View, ThemedView {
         Group {
             if isInjectedOnly {
                 VStack(alignment: .leading, spacing: 8) {
-                    blocks
+                    blocks()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -64,7 +64,7 @@ struct ChatMessageRow: View, ThemedView {
                 // two would instead accept the full width on offer, which is
                 // what made a two-word message as wide as a paragraph.
                 VStack(alignment: .leading, spacing: 8) {
-                    blocks
+                    blocks()
                 }
                 .environment(\.chatHugsContent, true)
                 .padding(10)
@@ -77,23 +77,28 @@ struct ChatMessageRow: View, ThemedView {
 
     private var noticeBody: some View {
         VStack(alignment: .leading, spacing: 6) {
-            blocks
+            blocks()
         }
         .padding(.vertical, 4)
     }
 
     private var assistantBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            blocks
+        VStack(alignment: .leading, spacing: 0) {
+            blocks(topInsets: ChatBlockSpacing.blockTopInsets(
+                message.blocks,
+                hiddenToolUseIDs: pendingToolUseIDs,
+                dimensions: dimensions
+            ))
             if !streaming.isEmpty {
-                StreamingBlocks(overlay: streaming)
+                StreamingBlocks(overlay: streaming, follows: lastRenderedKind)
             }
             if isWorking {
                 WorkingIndicator()
                     .listItemPadding(vertical: false)
+                    .padding(.top, isEmptySoFar ? 0 : dimensions.messageBlockSpacing)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, needsInput ? 10 : 0)
         .padding(.horizontal, needsInput ? 10 : 0)
         .background(needsInput ? attentionWash : Color.clear, in: .rect(cornerRadius: 10))
         .overlay {
@@ -104,25 +109,44 @@ struct ChatMessageRow: View, ThemedView {
         }
     }
 
+    /// The block the streaming text and the working indicator follow, so they
+    /// take their space from what the reader actually sees above them.
+    private var lastRenderedKind: ChatBlockSpacing.Kind? {
+        ChatBlockSpacing.lastRenderedKind(message.blocks, hiddenToolUseIDs: pendingToolUseIDs)
+    }
+
+    private var isEmptySoFar: Bool {
+        lastRenderedKind == nil && streaming.isEmpty
+    }
+
+    /// The message's blocks, each paying the top inset at its own index. The
+    /// user and notice bodies stack at a fixed spacing and pass none.
     @ViewBuilder
-    private var blocks: some View {
+    private func blocks(topInsets: [CGFloat] = []) -> some View {
         ForEach(message.blocks.indices, id: \.self) { index in
+            let topInset = index < topInsets.count ? topInsets[index] : 0
             switch message.blocks[index] {
             case .markdown(let text):
                 MarkdownView(text, isAgentVoice: message.role == .assistant)
+                    .padding(.top, topInset)
             case .thinking(let text):
                 ThinkingRow(text: text)
+                    .padding(.top, topInset)
             case .toolCall(let call):
                 // The dock already draws this one, answerable.
                 if !pendingToolUseIDs.contains(call.id) {
                     ToolCallRow(call: call, isPending: isPendingBlock(at: index))
+                        .padding(.top, topInset)
                 }
             case .injected(let kind, let text):
                 InjectedContentRow(kind: kind, text: text)
+                    .padding(.top, topInset)
             case .notice(let notice):
                 ChatNoticeRow(notice: notice)
+                    .padding(.top, topInset)
             case .image(let image):
                 ChatImageView(image: image)
+                    .padding(.top, topInset)
             }
         }
     }
