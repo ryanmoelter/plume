@@ -66,6 +66,18 @@ struct Dimensions {
     /// to code.
     let blockSpacing: CGFloat
 
+    /// Gap between two messages in the chat list. The rows themselves carry
+    /// no vertical inset, so this is the whole of it.
+    let messageSpacing: CGFloat = 40
+
+    /// Gap between two blocks of one message — prose to a tool call, a tool
+    /// call to the turn in flight.
+    let messageBlockSpacing: CGFloat = 8
+
+    /// Gap between consecutive tool calls, whether they sit in one message or
+    /// in a run of messages. Tight enough that a run reads as one list.
+    let toolCallSpacing: CGFloat = 4
+
     private let bodySize: CGFloat
 
     init(bodySize: CGFloat) {

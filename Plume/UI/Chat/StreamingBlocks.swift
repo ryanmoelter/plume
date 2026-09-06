@@ -10,6 +10,9 @@ struct StreamingBlocks: View, ThemedView {
     @Environment(\.theme) var theme
 
     let overlay: ChatStreamHandoff.Overlay
+    /// What the stream is drawn below, within the message holding it. Nil at
+    /// the standalone mount, where the list row around it pays the gap.
+    var follows: ChatBlockSpacing.Kind?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -25,5 +28,6 @@ struct StreamingBlocks: View, ThemedView {
                 MarkdownView(overlay.text, isAgentVoice: true)
             }
         }
+        .padding(.top, ChatBlockSpacing.streamingTopInset(previous: follows, dimensions: dimensions))
     }
 }
