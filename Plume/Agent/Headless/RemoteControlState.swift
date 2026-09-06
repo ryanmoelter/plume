@@ -64,6 +64,13 @@ enum RemoteControlState: Equatable {
 
     var isConnected: Bool { link != nil }
 
+    /// Whether a notice about this state should time out. A failure should
+    /// not: it is the only place the reason for it is ever shown.
+    var dismissesOnItsOwn: Bool {
+        if case .failed = self { return false }
+        return true
+    }
+
     /// Folds in a `bridge_state` event.
     ///
     /// The event carries no URLs, so a `connected` keeps whatever link the

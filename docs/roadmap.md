@@ -22,6 +22,7 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
+- **M** — Restructure the row of session facts below the composer. See [Below the composer](#below-the-composer).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)).
 
@@ -454,13 +455,27 @@ What shipped:
 - The mechanism is a **host-originated `remote_control` control request**; `docs/headless-protocol.md` is the wire reference, verified first-hand rather than inferred.
 - **`session_url` is the link, not `connect_url`.** `connect_url` names an environment, which a session hosted on this Mac does not have, so it arrives as a bare `https://claude.ai/code?environment=` and goes nowhere.
 - State lives on `HeadlessSession` and nowhere else. A bridge belongs to the running process, so nothing about it is persisted and a relaunch starts disconnected — the same rule terminals follow.
-- `RemoteControlRow` docks below the conversation beside `PendingPermissionDock`, and a segment in `ComposerControlsRow` drives the same call. `/rc` writes no transcript line, so without that row the chat looks identical whether the command worked or did nothing at all.
+- `/rc` writes no transcript line, so without some local report the chat looks identical whether the command worked or did nothing at all. `RemoteControlToast` floats that report briefly above the composer and copies the link on click. It is deliberately **not** a chat row: the chat renders conversation history, and a bridge is a live property of the session rather than something that happened at a point in the transcript — and a row would grow the message list's content for something that is not a message. The notice and its dismissal timer live on `HeadlessSession` for the usual reason: held in the view, both would die on a task switch and start over on the way back. A failure does not time out, since the toast is the only place its reason is shown.
 - **Two things the wire made necessary.** `ControlResponse` could not express a failure at all, so a refused request would have hung the UI at "Connecting…" forever — nothing times out a control request on either side. And replies are now correlated by `request_id` rather than sniffed for a `commands` key, which only worked while `initialize` was the sole reply anyone read.
 
 What exists:
 
 - `bridge_epoch` increments per connect, and the state machine drops an event from an older bridge — a fast disconnect/reconnect would otherwise let the previous bridge's failure land on the live one. The first event of every connect carries no epoch, which says nothing about ordering and is not treated as stale.
 - Nothing reconnects on resume. `agentSessionID` survives a relaunch and `--resume` restores the conversation, but the bridge does not come back with it.
+
+## Below the composer
+
+The strip under the composer has accumulated rather than been designed. Everything in it is worth showing; almost none of it is in the right place.
+
+- [ ] Restructure the row of session facts below the composer text.
+
+What we know so far:
+
+- **`/rc` status belongs in the statusline**, not in `ComposerControlsRow`. The controls row describes the *next turn* — model, effort, permission mode — and Remote Control is a session-wide fact like quota and branch. It sits left of the model dropdown today only because that was somewhere to put it.
+- **The plan link probably belongs somewhere else too.** It is a document the conversation produced, not a setting or a session fact.
+- **The worktree and the branch should sit next to each other.** They answer one question — where is this running — and currently do not.
+- **The context and quota bars are too wide** for what they say. Worth finding a way to narrow them.
+- One idea that addresses several of these at once: **give the statusline more vertical space**, so a segment can stack a label over its bar instead of laying them out side by side. That buys width back for everything else and lets the meters shrink without losing their labels.
 
 ## Infrastructure
 

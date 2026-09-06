@@ -205,6 +205,15 @@ struct RemoteControlTests {
         #expect(state.isConnected)
     }
 
+    /// A toast saying "it worked" is safe to miss. One saying why it didn't
+    /// is the only place that reason appears.
+    @Test func onlyAFailureOutlastsItsNotice() {
+        #expect(RemoteControlState.connected(link).dismissesOnItsOwn)
+        #expect(RemoteControlState.connecting.dismissesOnItsOwn)
+        #expect(RemoteControlState.disconnected.dismissesOnItsOwn)
+        #expect(!RemoteControlState.failed("nope").dismissesOnItsOwn)
+    }
+
     @Test func leavesAnUnrecognizedBridgeStateAlone() {
         let current = RemoteControlState.connected(link)
         #expect(current.applying(BridgeState(state: "state_change", detail: nil, epoch: 1)) == current)

@@ -67,6 +67,12 @@ final class HeadlessSession {
     /// only — the bridge belongs to the process, not to the tab.
     private(set) var remoteControl: RemoteControlState = .disconnected
 
+    /// The last Remote Control change worth telling the user about, until it
+    /// times out. `/rc` writes no transcript line, so without this the chat
+    /// looks identical whether the command worked or did nothing at all.
+    private(set) var remoteControlNotice: RemoteControlState?
+    private var remoteControlNoticeDismissal: Task<Void, Never>?
+
     /// Set optimistically when the host asks for a change, then corrected
     /// from whatever the stream reports — `init` for `model`/`permissionMode`,
     /// which round-trip through a real control request. There is no
@@ -215,7 +221,7 @@ final class HeadlessSession {
     /// disable is acknowledged with a bare success, so nothing corrects it
     /// and the optimistic value stands.
     func setRemoteControl(enabled: Bool, name: String? = nil) {
-        remoteControl = enabled ? .connecting : .disconnected
+        updateRemoteControl(enabled ? .connecting : .disconnected)
         let requestID = nextRequestID()
         pendingControlRequests[requestID] = .remoteControl(enabled: enabled)
         guard send(StreamJSONEncoder.remoteControl(
@@ -224,8 +230,37 @@ final class HeadlessSession {
             requestID: requestID
         )) else {
             pendingControlRequests[requestID] = nil
-            remoteControl = enabled ? .failed("claude is not running.") : .disconnected
+            updateRemoteControl(enabled ? .failed("claude is not running.") : .disconnected)
             return
+        }
+    }
+
+    func dismissRemoteControlNotice() {
+        remoteControlNoticeDismissal?.cancel()
+        remoteControlNotice = nil
+    }
+
+    /// The one way `remoteControl` moves, so every change raises its notice.
+    ///
+    /// `notify` is false only when the process dies: the tab already reports
+    /// that, and a toast saying Remote Control turned off would blame the
+    /// wrong thing.
+    private func updateRemoteControl(_ new: RemoteControlState, notify: Bool = true) {
+        guard new != remoteControl else { return }
+        remoteControl = new
+        remoteControlNoticeDismissal?.cancel()
+        guard notify else {
+            remoteControlNotice = nil
+            return
+        }
+        remoteControlNotice = new
+        // A failure stays until something else happens to it. Missing "it
+        // worked" costs nothing; missing why it didn't leaves no trace.
+        guard new.dismissesOnItsOwn else { return }
+        remoteControlNoticeDismissal = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.remoteControlNotice = nil
         }
     }
 
@@ -301,7 +336,7 @@ final class HeadlessSession {
             break
 
         case .bridgeState(let bridge):
-            remoteControl = remoteControl.applying(bridge)
+            updateRemoteControl(remoteControl.applying(bridge))
 
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
@@ -368,11 +403,11 @@ final class HeadlessSession {
         case .initialize:
             applyReportedCommands(in: response)
         case .remoteControl(let enabled):
-            remoteControl = RemoteControlState.applying(
+            updateRemoteControl(RemoteControlState.applying(
                 response: response,
                 enabled: enabled,
                 current: remoteControl
-            )
+            ))
         }
     }
 
@@ -437,7 +472,7 @@ final class HeadlessSession {
         pendingPermissions.removeAll()
         pendingControlRequests.removeAll()
         // The bridge cannot outlive the process that served it.
-        remoteControl = .disconnected
+        updateRemoteControl(.disconnected, notify: false)
         StatusEngine.shared.setStatus(status == 0 ? .idle : .error, taskID: taskID, tabID: tabID)
     }
 

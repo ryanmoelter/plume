@@ -31,12 +31,12 @@ struct ComposerControlsRow: View, ThemedView {
             WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
                 .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
             Spacer(minLength: dimensions.panelContentInset)
-            ModelControl(state: settings)
-            EffortControl(state: settings)
-            PermissionModeControl(state: settings)
             if let headlessSession {
                 RemoteControlControl(session: headlessSession)
             }
+            ModelControl(state: settings)
+            EffortControl(state: settings)
+            PermissionModeControl(state: settings)
         }
         .font(typography.caption.font)
         // The row sits level with the send and stop circles beside it, so
@@ -240,32 +240,51 @@ private struct RemoteControlControl: View, ThemedView {
                 Button("Connect") { session.setRemoteControl(enabled: true) }
             }
         } label: {
-            segmentLabel(
-                label,
-                foreground: StatuslineColors.foreground(for: attention, colors: colors),
-                height: dimensions.composerControlHeight
-            )
+            Image(systemName: symbol)
+                .foregroundStyle(tint)
+                .frame(height: dimensions.composerControlHeight)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Remote Control \u{2014} drive this session from your phone or claude.ai/code")
+        .help(helpText)
+        .accessibilityLabel("Remote Control")
+        .accessibilityValue(accessibilityValue)
         .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
     }
 
-    private var label: String {
+    private var symbol: String {
         switch session.remoteControl {
-        case .disconnected: return "RC off"
-        case .connecting: return "RC\u{2026}"
-        case .connected: return "RC on"
-        case .failed: return "RC failed"
+        case .connected, .connecting: return "antenna.radiowaves.left.and.right"
+        case .disconnected, .failed: return "antenna.radiowaves.left.and.right.slash"
         }
     }
 
-    private var attention: StatuslineAttention {
+    /// `attention` is the palette's blue, taken from the terminal theme like
+    /// every other status hue, so this reads as part of the same surface.
+    private var tint: Color {
         switch session.remoteControl {
-        case .failed: return .red
-        case .connected, .connecting: return .yellow
-        case .disconnected: return .neutral
+        case .failed: return colors.danger
+        case .connected: return colors.attention
+        case .connecting: return colors.attention.opacity(colors.emphasis[.secondary])
+        case .disconnected: return colors.foreground.opacity(colors.emphasis[.secondary])
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch session.remoteControl {
+        case .disconnected: return "Off"
+        case .connecting: return "Connecting"
+        case .connected: return "On"
+        case .failed(let message): return "Failed: \(message)"
+        }
+    }
+
+    private var helpText: String {
+        switch session.remoteControl {
+        case .connected: return "Remote Control is on \u{2014} this session is on claude.ai/code"
+        case .connecting: return "Connecting to Remote Control\u{2026}"
+        case .failed(let message): return "Remote Control failed: \(message)"
+        case .disconnected: return "Remote Control \u{2014} drive this session from your phone or claude.ai/code"
         }
     }
 }
