@@ -1,3 +1,4 @@
+import Dispatch
 import SwiftUI
 
 /// The chat composer: multiline text, sending on a configurable key.
@@ -131,6 +132,7 @@ struct ChatComposer: View, ThemedView {
                 // comes from its own `textContainerInset`, not from here.
                 .padding(.horizontal, -Self.lineFragmentPadding)
                 .accessibilityIdentifier(AccessibilityID.composerField)
+                .focused($inputFocused)
 
                 HStack(spacing: dimensions.panelContentInset) {
                     ComposerControlsRow(
@@ -154,8 +156,15 @@ struct ChatComposer: View, ThemedView {
         .padding(dimensions.composerFieldInset)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
+        //
+        // Deferred a tick: a new tab replaces the previous one in the same
+        // `ForEach` update (headless chat unmounts a hidden tab rather than
+        // just hiding it), so the outgoing view is still resigning real
+        // first responder when this fires. Claiming it in the same
+        // transaction loses the race silently; the next run loop turn wins it.
         .onChange(of: isVisible, initial: true) { _, visible in
-            if visible { inputFocused = true }
+            guard visible else { return }
+            DispatchQueue.main.async { inputFocused = true }
         }
         .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
             guard let index else { return }
