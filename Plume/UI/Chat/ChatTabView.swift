@@ -643,7 +643,7 @@ private struct QueuedMessageChip: View, ThemedView {
             controls
         }
         .padding(10)
-        .background(washColor, in: .rect(cornerRadius: 10))
+        .glassEffect(Glass.regular.tint(washColor), in: .rect(cornerRadius: 10))
         .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -665,6 +665,9 @@ private struct QueuedMessageChip: View, ThemedView {
         }
     }
 
+    /// `surfaceTint` is foreground at 10-15% opacity already (`EmphasisScale`),
+    /// so it tints the glass without a further cut the way `planTint` needs
+    /// on its near-opaque source.
     private var washColor: Color {
         colors.surfaceTint
     }
