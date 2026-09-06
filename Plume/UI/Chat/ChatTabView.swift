@@ -232,9 +232,10 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Each queued message is a message the user already wrote, waiting its
-    /// turn — so it floats over the conversation in the same column and at
-    /// the same trailing edge as a sent user bubble (`ChatMessageRow.userBody`),
-    /// rather than inside the narrower content-width panel beneath it.
+    /// turn — floated at the same content column as the composer panel below
+    /// it, rather than the transcript's wider bleed column a sent bubble
+    /// sits in. Sharing the panel's edge instead of a sent message's is part
+    /// of what says "not sent yet".
     private func queuedMessagesView(_ session: HeadlessSession) -> some View {
         VStack(spacing: 6) {
             ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
@@ -245,7 +246,7 @@ struct ChatTabView: View, ThemedView {
                 )
             }
         }
-        .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+        .listItemPadding(vertical: false)
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
@@ -631,11 +632,12 @@ private struct QueuedMessageChip: View, ThemedView {
         // instead, which also reads right once the text wraps to several.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "clock")
-                .font(.caption)
+                .font(typography.caption.font)
                 .emphasis(.secondary)
                 .help("Queued — not sent yet")
             Text(text)
-                .font(.callout)
+                .font(typography.body.font)
+                .lineSpacing(typography.body.lineSpacing)
                 .lineLimit(1 ... 4)
                 .fixedSize(horizontal: false, vertical: true)
             controls
