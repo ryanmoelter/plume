@@ -12,13 +12,8 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
-- **S** — Actually focus the composer when a new tab or task opens; ⌘N leaves it unfocused. See [Misc UX](#misc-ux).
-- **S** — Label the smaller-window models 200K, not 256K. See [The statusline](#the-statusline).
-- **S** — Work out why the branch segment says "no upstream" for a branch that has one. See [The statusline](#the-statusline).
-- **M** — Tighten the space between consecutive tool calls, keeping it where a tool call meets prose. See [Chat spacing](#chat-spacing).
 - **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
 - **M** — Autocomplete slash commands in the composer before the first message. See [The composer](#the-composer).
-- **M** — Give the composer's controls icons, collapse them to icons alone when narrow, and tooltip the paths. See [The statusline](#the-statusline).
 - **M** — `/btw`: confirm the note is filed on the headless transport, then show it in the chat. See [The composer](#the-composer).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
 - **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
@@ -27,7 +22,6 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
-- **M** — Restructure the row of session facts below the composer. See [Below the composer](#below-the-composer).
 - **S** — Spellcheck the composer. See [The composer](#the-composer).
 - **M** — Give a subagent row a second, dim line: model, time running, context used. See [Subagents](#subagents).
 - **L** — Show each tab's agent separately in the sidebar, with its folder and status. See [The sidebar](#the-sidebar).
