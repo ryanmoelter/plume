@@ -35,6 +35,19 @@ struct AppSettingsTests {
         #expect(reloaded.providerID == "codex")
     }
 
+    @Test func bothChatAnimationsDefaultOnAndPersistSeparately() {
+        let defaults = makeDefaults()
+        #expect(AppSettings(defaults: defaults).animateRowHeight)
+        #expect(AppSettings(defaults: defaults).animateCharacterReveal)
+
+        let settings = AppSettings(defaults: defaults)
+        settings.animateRowHeight = false
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(!reloaded.animateRowHeight)
+        #expect(reloaded.animateCharacterReveal)
+    }
+
     @Test func composerSendKeyDefaultsToCommandReturn() {
         let settings = AppSettings(defaults: makeDefaults())
         #expect(settings.composerSendKey == .commandReturn)
