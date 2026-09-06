@@ -33,6 +33,25 @@ final class CodexCatalogStore {
         profilesByTab[tabID] ?? AgentPermissionPreset.codexPresets
     }
 
+    /// Resolves a persisted profile against what this app-server actually
+    /// advertises. A tab can retain a Claude permission value such as `plan`
+    /// after changing providers; sending that as a Codex profile makes the
+    /// server look for a nonexistent `[permissions.plan]` table and abort the
+    /// resume. Real custom profiles survive because they appear in the live
+    /// catalog before thread start/resume is sent.
+    func resolvedProfile(
+        for tabID: UUID,
+        requestedID: String?,
+        fallbackID: String = AgentPermissionPreset.codexWorkspace.id
+    ) -> AgentPermissionPreset {
+        let available = profiles(for: tabID)
+        return available.first { $0.id == requestedID }
+            ?? available.first { $0.id == fallbackID }
+            ?? available.first { $0.id == AgentPermissionPreset.codexWorkspace.id }
+            ?? available.first
+            ?? .codexWorkspace
+    }
+
     func replaceModels(tabID: UUID, values: [JSONValue]) {
         var models: [AgentModel] = []
         var efforts: [String: [AgentEffort]] = [:]

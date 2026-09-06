@@ -176,7 +176,8 @@ enum AgentLauncher {
             workingDirectory: task.workingDirectoryPath,
             resumeThreadID: resumeSessionID,
             model: tab.model,
-            permissionProfile: tab.permissionPreset?.id ?? AppSettings.shared.defaultCodexPermissionProfile.id,
+            permissionProfile: tab.permissionModeRaw,
+            defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
             environment: LoginShellCommand.plumeEnvironment
         )
         if let message {

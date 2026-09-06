@@ -84,6 +84,7 @@ final class CodexSession: AgentSession {
         resumeThreadID: String?,
         model: AgentModel?,
         permissionProfile: String? = nil,
+        defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
         environment: [String: String]
     ) {
         if let model { self.model = model }
@@ -100,7 +101,8 @@ final class CodexSession: AgentSession {
             await handshake(
                 workingDirectory: workingDirectory,
                 resumeThreadID: resumeThreadID,
-                permissionProfile: permissionProfile
+                permissionProfile: permissionProfile,
+                defaultPermissionProfile: defaultPermissionProfile
             )
         }
     }
@@ -108,7 +110,8 @@ final class CodexSession: AgentSession {
     private func handshake(
         workingDirectory: String?,
         resumeThreadID: String?,
-        permissionProfile: String?
+        permissionProfile: String?,
+        defaultPermissionProfile: String
     ) async {
         do {
             _ = try await client.send("initialize", .object([
@@ -123,10 +126,16 @@ final class CodexSession: AgentSession {
 
             await hydrateCatalogs(workingDirectory: workingDirectory)
 
+            let resolvedPermissionProfile = CodexCatalogStore.shared.resolvedProfile(
+                for: tabID,
+                requestedID: permissionProfile,
+                fallbackID: defaultPermissionProfile
+            )
+
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
             if let model { params["model"] = .string(model.id) }
-            if let permissionProfile { params["permissions"] = .string(permissionProfile) }
+            params["permissions"] = .string(resolvedPermissionProfile.id)
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
                 method = "thread/resume"

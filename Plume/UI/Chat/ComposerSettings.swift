@@ -76,7 +76,10 @@ struct ComposerSettings {
         if provider == .claudeCode {
             return permissionMode.map { .init(id: $0.rawValue, label: $0.label) }
         }
-        return tab.permissionPreset ?? .codexWorkspace
+        return CodexCatalogStore.shared.resolvedProfile(
+            for: tab.id,
+            requestedID: tab.permissionModeRaw
+        )
     }
 
     /// True when the displayed value is a resolved default rather than a

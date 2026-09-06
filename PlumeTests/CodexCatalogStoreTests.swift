@@ -40,4 +40,31 @@ struct CodexCatalogStoreTests {
             AgentPermissionPreset(id: ":workspace", label: "Workspace")
         ])
     }
+
+    @Test func staleClaudePermissionFallsBackToCodexDefault() {
+        let tabID = UUID()
+        let store = CodexCatalogStore()
+        store.replaceProfiles(tabID: tabID, values: [
+            .object(["id": .string(":read-only"), "allowed": .bool(true)]),
+            .object(["id": .string(":workspace"), "allowed": .bool(true)])
+        ])
+
+        let profile = store.resolvedProfile(
+            for: tabID,
+            requestedID: PermissionMode.plan.rawValue,
+            fallbackID: AgentPermissionPreset.codexReadOnly.id
+        )
+
+        #expect(profile == .codexReadOnly)
+    }
+
+    @Test func advertisedCustomPermissionProfileSurvivesResolution() {
+        let tabID = UUID()
+        let store = CodexCatalogStore()
+        store.replaceProfiles(tabID: tabID, values: [
+            .object(["id": .string("reviewer"), "allowed": .bool(true)])
+        ])
+
+        #expect(store.resolvedProfile(for: tabID, requestedID: "reviewer").id == "reviewer")
+    }
 }
