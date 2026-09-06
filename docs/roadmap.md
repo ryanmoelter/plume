@@ -15,6 +15,7 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **S** — Actually focus the composer when a new tab or task opens; ⌘N leaves it unfocused. See [Misc UX](#misc-ux).
 - **S** — Label the smaller-window models 200K, not 256K. See [The statusline](#the-statusline).
 - **S** — Work out why the branch segment says "no upstream" for a branch that has one. See [The statusline](#the-statusline).
+- **M** — Tighten the space between consecutive tool calls, keeping it where a tool call meets prose. See [Chat spacing](#chat-spacing).
 - **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
 - **M** — `/btw`: confirm the note is filed on the headless transport, then show it in the chat. See [The composer](#the-composer).
 - **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
@@ -236,11 +237,16 @@ The answers on a settled block come from the tool result's own text, parsed in `
 
 **A resolved row still wants a settled state.** `InteractiveToolRow` is answerable only when a caller hands it an `answer` closure: `PendingPermissionDock` supplies one, `ToolCallRow` does not. While a request is live the dock's answerable row covers for the transcript's read-only copy underneath. What is still missing is a settled presentation for a rejected plan — "Rejected", with the reason — rather than the row simply falling back to its non-answerable rendering. (An earlier note here described a stale `answerHint("Approve or reject in the terminal.")`; no such hint exists in the code.)
 
-## Streaming vs. settled spacing
+## Chat spacing
 
+- [ ] Collapse the space between consecutive tool calls. Keep the current space where a tool call meets prose or any other block — a run of calls should read as one list, not as several separated statements.
 - [x] Give a streaming response the same space above it that a finished one has. A reply sits tighter to the message above while it streams, then shifts down once the transcript takes over — so the text moves as the turn settles.
 
 `StreamingBlocks` mounts in two places and only one was padded like a message. Inside `ChatMessageRow.assistantBody` it inherits that body's `.padding(.vertical, 4)`; mounted standalone in `ChatMessageList` — the case for a turn that has not produced an assistant message yet — it got the list padding and nothing else, rendering 4pt tighter. The standalone mount now pays that inset itself. Putting it on `StreamingBlocks` instead was tried and reverted: the view is a mid-stack element inside `assistantBody`, so unconditional padding there would have doubled up and widened the mid-turn gap between settled and streaming text.
+
+**Nothing in the chat varies its spacing by what sits on either side, which is the whole of this.** A message's blocks are a `VStack(alignment: .leading, spacing: 8)` in `ChatMessageRow.assistantBody`, so a `ToolCallRow` following another gets exactly the gap a tool call following prose gets. A uniform `VStack` spacing cannot express the distinction, so the blocks want to stack at spacing 0 with each one paying a top inset chosen from the kind of block above it — `message.blocks` is already an enumerated array, so the previous kind is in hand at the point the inset is decided.
+
+The gap is bigger than 8pt in practice, and the second half of it is between rows rather than inside one. Claude Code writes an assistant message per `tool_use`, so a run of calls is usually a run of *messages*: the list stacks them at `spacing: 0` (`ChatMessageList.swift:80`), but each row pays `.padding(.vertical, 4)` around its body, so consecutive rows still sit 8pt apart with the list's own item padding on top. Collapsing only the within-message case would leave the common one untouched, which means the list needs to know that a row is tool calls alone and that its neighbour is too.
 
 ## Chat animation
 
