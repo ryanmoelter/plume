@@ -42,6 +42,8 @@ struct ChatMessageList: View, ThemedView {
     /// `ChatScrollAnchor` threshold keeps it from flipping every frame.
     @State private var isDetached = false
 
+    @State private var settings = AppSettings.shared
+
     private var session: HeadlessSession? {
         guard let tabID else { return nil }
         return HeadlessSessionManager.shared.existingSession(for: tabID)
@@ -99,6 +101,10 @@ struct ChatMessageList: View, ThemedView {
                         pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
                         streaming: isLast && attachesToLastMessage ? streaming : .init()
                     )
+                    // Height rather than the row itself: an animated insert or
+                    // move inside a lazy stack would drive the placement pass
+                    // the hang doc warns about.
+                    .animatedHeight(enabled: settings.animateRowHeight)
                     .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                     .padding(.top, rowInsets[index])
                 }
@@ -107,6 +113,7 @@ struct ChatMessageList: View, ThemedView {
                     // become, so it takes that row's inset and the reply
                     // doesn't shift as the transcript takes over.
                     StreamingBlocks(overlay: streaming)
+                        .animatedHeight(enabled: settings.animateRowHeight)
                         .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                         .padding(.top, ChatBlockSpacing.rowTopInset(
                             previous: messages.last.map(ChatBlockSpacing.rowKind),

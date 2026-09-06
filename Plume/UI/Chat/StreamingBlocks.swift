@@ -14,6 +14,10 @@ struct StreamingBlocks: View, ThemedView {
     /// the standalone mount, where the list row around it pays the gap.
     var follows: ChatBlockSpacing.Kind?
 
+    @State private var settings = AppSettings.shared
+    @State private var progress = RevealProgress()
+    @State private var revealedCount: Double = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !overlay.thinking.isEmpty {
@@ -25,9 +29,20 @@ struct StreamingBlocks: View, ThemedView {
                     .listItemPadding(vertical: false)
             }
             if !overlay.text.isEmpty {
-                MarkdownView(overlay.text, isAgentVoice: true)
+                if settings.animateCharacterReveal {
+                    CharacterReveal(revealedCount: revealedCount, text: overlay.text) { revealed in
+                        MarkdownView(revealed, isAgentVoice: true)
+                    }
+                } else {
+                    MarkdownView(overlay.text, isAgentVoice: true)
+                }
             }
         }
         .padding(.top, ChatBlockSpacing.streamingTopInset(previous: follows, dimensions: dimensions))
+        .onChange(of: overlay.text, initial: true) { _, text in
+            withAnimation(progress.advance(to: text)) {
+                revealedCount = Double(text.count)
+            }
+        }
     }
 }

@@ -21,6 +21,8 @@ final class AppSettings {
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
+        static let animateRowHeight = "animateRowHeight"
+        static let animateCharacterReveal = "animateCharacterReveal"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -67,6 +69,14 @@ final class AppSettings {
 
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
             .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
+
+        // Unset must read as true, which `bool(forKey:)` cannot express.
+        self.animateRowHeight = defaults.object(forKey: Key.animateRowHeight) == nil
+            ? true
+            : defaults.bool(forKey: Key.animateRowHeight)
+        self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
+            ? true
+            : defaults.bool(forKey: Key.animateCharacterReveal)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -147,6 +157,24 @@ final class AppSettings {
     var defaultEffort: AgentEffort {
         didSet {
             defaults.set(defaultEffort.rawValue, forKey: Key.defaultEffortRaw)
+        }
+    }
+
+    /// Whether a chat row eases between heights as its content changes.
+    /// Separate from `animateCharacterReveal`: an animated height is a size
+    /// change the list's bottom anchor reacts to, so it carries the higher
+    /// risk of the two and has to be killable on its own.
+    var animateRowHeight: Bool {
+        didSet {
+            defaults.set(animateRowHeight, forKey: Key.animateRowHeight)
+        }
+    }
+
+    /// Whether streamed text arrives a character at a time rather than a
+    /// delta at a time.
+    var animateCharacterReveal: Bool {
+        didSet {
+            defaults.set(animateCharacterReveal, forKey: Key.animateCharacterReveal)
         }
     }
 
