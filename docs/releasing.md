@@ -33,11 +33,12 @@ This is a Release-only property. In Debug the real code lives in `Plume.debug.dy
 ```
 xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' clean build
 xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
-cp -R "$(xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' -showBuildSettings \
-  | awk '$1 == "BUILT_PRODUCTS_DIR" {print $3}')/Plume.app" /Applications/
+scripts/install-release.sh
 ```
 
-**Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process.
+`scripts/install-release.sh` does the install and step 3's verification together: it quits the installed Plume, replaces the bundle, prints the version, signature and dylibs, relaunches, walks the process tree, and checks the log for a store moved aside. It writes to `/tmp/plume-install.log` (override with `LOG`). Run the build and tests yourself first — the script only installs, and it refuses if no Release bundle exists.
+
+**Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process. The script waits for a real exit and aborts rather than replacing a bundle still in use.
 
 Check with `ps`, not `pgrep`:
 
@@ -47,11 +48,15 @@ ps -ef | grep '[M]acOS/Plume'
 
 `pgrep -x Plume` does not reliably match the installed app's own process — it has come back empty while `/Applications/Plume.app` was running, and it matches unrelated test-harness bundles instead. Trust `ps`.
 
-Releasing from a session hosted *inside* Plume is the case to watch: quitting the app kills the agent doing the release. `echo $PLUME` says whether you are in one.
+Releasing from a session hosted *inside* Plume is the case to watch: quitting the app kills the agent doing the release. `echo $PLUME` says whether you are in one — and an agent should check, since the ancestry (`ps -o ppid=` up the chain) says *which* Plume hosts it, and only the installed one matters.
+
+`scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately. Nothing reports back — the session is gone before the copy finishes — so read `/tmp/plume-install.log` afterwards. That log is the whole record of the install.
 
 When reading the test output, confirm test names actually scroll past. A `-only-testing` argument that matches nothing prints `** TEST SUCCEEDED **` having run zero tests.
 
 ### 3. Verify the bundle
+
+`scripts/install-release.sh` already ran all of this and logged it; these are the same checks by hand, for a manual install or a second look.
 
 ```
 /usr/libexec/PlistBuddy -c Print /Applications/Plume.app/Contents/Info.plist | grep -i version

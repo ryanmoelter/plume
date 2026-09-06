@@ -84,7 +84,10 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 
 - Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only. Commit on the release branch.
 - Merge the release branch into `main` (`--no-ff`).
-- Quit any running Plume, then delegate steps 2 and 3 of `docs/releasing.md` to Sonnet: Release build, tests, copy to `/Applications`, PlistBuddy, codesign, otool, process-tree check.
+- Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
+- **Check whether you are running inside the installed Plume before installing anything.** `echo $PLUME` says you are in *a* Plume; walking your own ancestry (`ps -o ppid=` up the chain) says *which*. If it is `/Applications/Plume.app`, quitting it kills you mid-release, so you cannot run the install as an ordinary command and cannot report its result. Ask the user how to proceed rather than guessing — the choice is theirs, and "run one command yourself" is a legitimate answer.
+- Install with `scripts/install-release.sh`. It quits the installed app, replaces the bundle, verifies it, relaunches, and logs everything to `/tmp/plume-install.log`. With `PLUME` set it re-execs detached so it survives the app it is replacing. Read the log afterwards — when it runs detached, that log is the only record, and a session started inside Plume will not be alive to see it.
+- Do the tag and push **before** the install, while you are still alive to confirm they landed.
 - **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders first (`git rebase --force-rebase --rebase-merges <base>` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit).
 - Tag `v<version>` on the bump commit and push `main` with the tag.
 - `git worktree remove` each agent worktree, `git worktree prune`, delete merged `ryanm/*` branches.
@@ -94,7 +97,11 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - `git stash` is shared across worktrees. In the first run, three agents stashed to measure a test baseline and popped each other's work; one recovered from `git fsck --unreachable`. The rule block now forbids it. If it happens anyway, `git stash list` labels usually say whose work an entry holds; restore with `git checkout <stash> -- <paths>`.
 
 - `-only-testing` with a name matching nothing prints `** TEST SUCCEEDED **` having run nothing. Confirm names scrolled past.
-- Overwriting a running `/Applications/Plume.app` corrupts the process. Quit first.
+- Overwriting a running `/Applications/Plume.app` corrupts the process. Quit first. `scripts/install-release.sh` waits for a real exit and aborts rather than replacing a live bundle, so prefer it over a bare `cp -R`.
+
+- **Tell every agent to run its verification in the foreground.** Three agents in the 0.3.3 run handed a build or test to a background watcher and ended their turn waiting for a notification that never came — one of them left finished work uncommitted. They resume fine with a message saying to poll in the foreground instead, but it costs a round trip each time. Say it in the prompt.
+
+- **A failed push is not a failed commit.** `git push` signs with the SSH agent, so a locked 1Password fails with `sign_and_send_pubkey: signing failed` and `Permission denied (publickey)`. There is no `--no-gpg-sign` equivalent — the only fix is unlocking, so ask. This is unrelated to the commit-signing fallback in CLAUDE.md, and the commits themselves may all be signed while the push still fails.
 - A schema change meets the installed store for the first time on the release launch. Watch the log for a `Plume.store.<timestamp>.bak` move.
 - Roadmap edits: agents own their sections, the coordinator owns Up Next. Both editing Up Next is a guaranteed conflict.
 - The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
