@@ -472,6 +472,7 @@ The strip under the composer has accumulated rather than been designed. Everythi
 What we know so far:
 
 - **`/rc` status belongs in the statusline**, not in `ComposerControlsRow`. The controls row describes the *next turn* — model, effort, permission mode — and Remote Control is a session-wide fact like quota and branch. It sits left of the model dropdown today only because that was somewhere to put it.
+- **The controls row is already crowded.** Adding the antenna pushed it there: at a narrow pane the icon sits hard against the model dropdown. Accepted for now, and another reason `/rc` should move rather than be squeezed.
 - **The plan link probably belongs somewhere else too.** It is a document the conversation produced, not a setting or a session fact.
 - **The worktree and the branch should sit next to each other.** They answer one question — where is this running — and currently do not.
 - **The context and quota bars are too wide** for what they say. Worth finding a way to narrow them.
