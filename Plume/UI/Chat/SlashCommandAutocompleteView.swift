@@ -10,6 +10,10 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (Int) -> Void
+    /// Nothing between it and the panel's top edge, so it owes that edge the
+    /// same inset it gives the sides. With the queued-messages strip above,
+    /// the row spacing sets the gap instead.
+    var isTopOfPanel = true
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -31,6 +35,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
         .background(washColor, in: shape)
         .overlay { shape.strokeBorder(.separator) }
         .padding(.horizontal, -textInset)
+        .padding(.top, isTopOfPanel ? -textInset : 0)
     }
 
     /// What a row's text pays inside the box before it starts.

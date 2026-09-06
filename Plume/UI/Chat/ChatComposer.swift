@@ -86,7 +86,8 @@ struct ChatComposer: View, ThemedView {
                 SlashCommandAutocompleteView(
                     commands: autocomplete.matches,
                     selectedIndex: autocomplete.selectedIndex,
-                    onSelect: { autocomplete.select($0) }
+                    onSelect: { autocomplete.select($0) },
+                    isTopOfPanel: headlessSession?.queuedMessages.isEmpty ?? true
                 )
             }
 
