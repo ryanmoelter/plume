@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// The chat rendering of an agent tab: messages, the statusline strip, the
-/// plan dock when a plan is minimized, then the composer.
+/// The chat rendering of an agent tab: the messages, with a floating panel
+/// over them carrying the composer above the statusline strip, and the plan
+/// dock tucked behind it when a plan is minimized. The conversation scrolls
+/// behind the glass rather than stopping at its top edge.
 struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -24,6 +26,19 @@ struct ChatTabView: View, ThemedView {
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
+    /// The measured height of the floating bottom chrome — the queued-message
+    /// chips plus the panel beneath them — so the list can inset its content
+    /// past it. Nothing in that subtree is sized from it, so measuring
+    /// cannot feed back into the measurement.
+    @State private var panelHeight: CGFloat = 0
+    /// Set to pull a queued message back into the composer for editing, from
+    /// the chip's own edit button. `ChatComposer` owns the actual draft/state
+    /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
+    /// recall path; this only carries the request across.
+    @State private var editQueuedMessageIndex: Int?
+    /// The dock bar and the expanded overlay are separate view trees, so the
+    /// namespace the zoom between them matches on lives here, above both.
+    @Namespace private var planZoom
 
     private var untrustedPath: String? {
         untrustedDirectoryStore.path(forTab: tab.id)
@@ -101,58 +116,11 @@ struct ChatTabView: View, ThemedView {
                     subagents: subagents,
                     status: status,
                     bottomPadding: dimensions.listBottomPadding,
+                    floatingPanelHeight: panelHeight,
                     tabID: tab.id,
                     onOpenSubagent: { openSubagentID = $0.id }
                 )
-                // Grouped in one container so the dock bar and the surface
-                // below both glass-render as one panel: without it each gets
-                // its own backdrop sample and the dock's shadow paints onto
-                // the surface it's supposed to read as tucked behind.
-                GlassEffectContainer {
-                    VStack(spacing: 0) {
-                        // Above the strip, not below it: the bar reads as the
-                        // panel tucked behind the statusline and composer, so
-                        // it keeps its top corners and squares off where they
-                        // meet.
-                        if planPresentation == .minimized, let planFilePath {
-                            planDockBar(path: planFilePath)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                        VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                StatuslineStripView(
-                                    // Both arrive on a turn result, so a
-                                    // resumed conversation has neither until
-                                    // it takes a turn: the transcript's last
-                                    // usage and the tab's stored window cover
-                                    // that gap. contextMaxTokens falls back
-                                    // further still, to the model's nominal
-                                    // window — known before either does.
-                                    contextUsedTokens: headlessSession?.contextUsedTokens
-                                        ?? transcript.latestUsage?.contextUsedTokens,
-                                    contextMaxTokens: headlessSession?.contextWindow
-                                        ?? tab.contextWindowTokens
-                                        ?? headlessSession?.nominalContextWindow
-                                        ?? tab.model?.nominalContextWindow,
-                                    branch: transcript.gitBranch,
-                                    gitState: GitStateStore.shared.state(for: gitDirectory),
-                                    rateLimit: headlessSession?.rateLimit,
-                                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
-                                )
-                                if let planFilePath, planPresentation != .minimized {
-                                    planButton(path: planFilePath)
-                                }
-                            }
-                            .listItemPadding(vertical: false)
-                            Divider()
-                            ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                        }
-                        // A real surface, not just a divider, so it occludes
-                        // the dock's shadow instead of letting it show
-                        // through onto the chat background below.
-                        .glassEffect(planGlass, in: .rect)
-                    }
-                }
+                .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
@@ -160,9 +128,9 @@ struct ChatTabView: View, ThemedView {
                 || (tab.agentSessionID?.isEmpty == false) {
                 // A process (or a resumable session) exists but has written no
                 // transcript content yet — nothing to show but a quiet wait.
-                emptyState(showsComposer: false)
+                emptyState(isComposerEnabled: false)
             } else {
-                emptyState(showsComposer: true)
+                emptyState(isComposerEnabled: true)
             }
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
@@ -215,7 +183,11 @@ struct ChatTabView: View, ThemedView {
         .overlay {
             if planPresentation == .expanded, let planFilePath {
                 planPanel(path: planFilePath)
-                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    // The bar is the source whenever it exists, so the panel
+                    // grows out of it; opened straight from the Plan button
+                    // there is none, and the effect is a no-op.
+                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
+                    .transition(.opacity)
             }
         }
         .overlay {
@@ -241,6 +213,97 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
+    /// The floating bottom chrome: any queued messages, waiting their turn
+    /// over the conversation, above the glass panel that holds the plan bar,
+    /// composer and statusline.
+    ///
+    /// Measured together with `onGeometryChange`, whose action runs outside
+    /// `body`, so the height reaches the list without a write during a
+    /// render pass. Nothing inside this subtree reads `panelHeight`, which
+    /// is what keeps the measurement from feeding back into itself.
+    private func bottomChrome(transcript: Transcript) -> some View {
+        VStack(spacing: dimensions.panelContentInset) {
+            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
+                queuedMessagesView(headlessSession)
+            }
+            composerPanel(transcript: transcript)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+    }
+
+    /// Each queued message is a message the user already wrote, waiting its
+    /// turn — floated at the same content column as the composer panel below
+    /// it, rather than the transcript's wider bleed column a sent bubble
+    /// sits in. Sharing the panel's edge instead of a sent message's is part
+    /// of what says "not sent yet".
+    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
+        VStack(spacing: 6) {
+            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+                QueuedMessageChip(
+                    text: message,
+                    onEdit: { editQueuedMessageIndex = index },
+                    onRemove: { session.removeQueuedMessage(at: index) }
+                )
+            }
+        }
+        .listItemPadding(vertical: false)
+    }
+
+    /// The bottom chrome as one floating panel, content width like the prose
+    /// above it: the plan bar when a plan is minimized, then the composer,
+    /// then the session facts under it. One glass surface carries all three.
+    private func composerPanel(transcript: Transcript) -> some View {
+        VStack(spacing: 0) {
+            if planPresentation == .minimized, let planFilePath {
+                planDockBar(path: planFilePath)
+                    .transition(.opacity)
+                Divider()
+            }
+            ChatComposer(
+                task: task,
+                tab: tab,
+                isVisible: isVisible,
+                hasContentAbove: planPresentation == .minimized,
+                editQueuedMessageIndex: $editQueuedMessageIndex
+            )
+            Divider()
+            statuslineFooter(transcript: transcript)
+        }
+        .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+        .listItemPadding(vertical: false)
+        .padding(.bottom, dimensions.panelInset)
+    }
+
+    /// Session-wide facts, below the composer rather than above it: what the
+    /// conversation has spent reads as a footnote to the message being
+    /// written rather than as a heading over it.
+    private func statuslineFooter(transcript: Transcript) -> some View {
+        HStack(spacing: 0) {
+            StatuslineStripView(
+                // Both arrive on a turn result, so a resumed conversation has
+                // neither until it takes a turn: the transcript's last usage
+                // and the tab's stored window cover that gap.
+                // contextMaxTokens falls back further still, to the model's
+                // nominal window — known before either does.
+                contextUsedTokens: headlessSession?.contextUsedTokens
+                    ?? transcript.latestUsage?.contextUsedTokens,
+                contextMaxTokens: headlessSession?.contextWindow
+                    ?? tab.contextWindowTokens
+                    ?? headlessSession?.nominalContextWindow
+                    ?? tab.model?.nominalContextWindow,
+                branch: transcript.gitBranch,
+                gitState: GitStateStore.shared.state(for: gitDirectory),
+                rateLimit: headlessSession?.rateLimit,
+                sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+            )
+            if let planFilePath, planPresentation != .minimized {
+                planButton(path: planFilePath)
+            }
+        }
+        // The one leading edge the composer's text and controls also sit on.
+        .padding(.horizontal, dimensions.composerFieldInset)
+    }
+
     private func planButton(path: String) -> some View {
         Button {
             planPresentation = .expanded
@@ -250,7 +313,7 @@ struct ChatTabView: View, ThemedView {
         .buttonStyle(.plain)
         .font(.caption)
         .emphasis(.secondary)
-        .padding(.horizontal, 10)
+        .padding(.leading, dimensions.panelContentInset)
         .padding(.vertical, 4)
     }
 
@@ -296,9 +359,9 @@ struct ChatTabView: View, ThemedView {
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
-        .glassEffect(planGlass, in: .rect(cornerRadius: 12))
+        .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .listItemPadding(bleed: true)
-        .padding(.vertical, 8)
+        .padding(.vertical, dimensions.panelInset)
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -446,41 +509,46 @@ struct ChatTabView: View, ThemedView {
             .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // Square where it meets the statusline below, so the bar reads as the
-        // panel tucked behind it rather than a separate floating pill.
-        .glassEffect(
-            planGlass,
-            in: .rect(topLeadingRadius: 10, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 10)
-        )
-        .listItemPadding(bleed: true, vertical: false)
-        .padding(.top, 8)
+        // The one leading edge the composer's text and the statusline's
+        // first segment also sit on.
+        .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.panelContentInset)
+        .matchedGeometryEffect(id: Self.planZoomID, in: planZoom)
     }
+
+    /// One id: only one plan surface is ever on screen.
+    private static let planZoomID = "plan"
 
     private var planGlass: Glass {
         planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
-    private func emptyState(showsComposer: Bool) -> some View {
+    /// The composer stays mounted once a session exists, disabled rather than
+    /// removed: dropping it left a gap between sending the first message and
+    /// the first line of transcript arriving.
+    private func emptyState(isComposerEnabled: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 28))
                 .emphasis(.secondary)
-            Text(showsComposer ? "Start a conversation" : "Waiting for the first message…")
+            Text(isComposerEnabled ? "Start a conversation" : "Waiting for the first message…")
                 .font(.headline)
                 .emphasis(.secondary)
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
-            if showsComposer, canResume {
+            if isComposerEnabled, canResume {
                 Button("Resume…") { resumeSheetShown = true }
                     .buttonStyle(.link)
                     .help("Continue a past Claude conversation in this folder")
             }
             Spacer()
-            if showsComposer {
+            GlassEffectContainer {
                 ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                    .disabled(!isComposerEnabled)
+                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                    .listItemPadding(vertical: false)
+                    .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -542,4 +610,65 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+}
+
+/// One queued message, styled like the user bubble it's about to become.
+/// Edit and remove are always visible rather than hover-revealed: reserving
+/// their width while they're invisible most of the time reads as a layout
+/// bug, and always showing them costs nothing here since a chip only ever
+/// holds two small icon buttons.
+private struct QueuedMessageChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let text: String
+    let onEdit: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        // `.firstTextBaseline` rather than `.top`: the clock glyph and the
+        // edit/remove icons are a different font size than the message text,
+        // so top-aligning their frames left the clock sitting visibly above
+        // the text's first line. Baseline alignment tracks that first line
+        // instead, which also reads right once the text wraps to several.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "clock")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+                .help("Queued — not sent yet")
+            Text(text)
+                .font(typography.body.font)
+                .lineSpacing(typography.body.lineSpacing)
+                .lineLimit(1 ... 4)
+                .fixedSize(horizontal: false, vertical: true)
+            controls
+        }
+        .padding(10)
+        .glassEffect(Glass.regular.tint(washColor), in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var controls: some View {
+        HStack(spacing: 4) {
+            Button(action: onEdit) {
+                Image(systemName: "pencil.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Edit")
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from queue")
+        }
+    }
+
+    /// `surfaceTint` is foreground at 10-15% opacity already (`EmphasisScale`),
+    /// so it tints the glass without a further cut the way `planTint` needs
+    /// on its near-opaque source.
+    private var washColor: Color {
+        colors.surfaceTint
+    }
 }

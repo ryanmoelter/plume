@@ -30,6 +30,38 @@ struct Dimensions {
     /// Vertical breathing room around a list item.
     let verticalPadding: CGFloat = 16
 
+    /// The gap between the composer panel and the pane's bottom edge. Its
+    /// horizontal inset comes from the content column instead, so the panel
+    /// wraps at the same measure as the prose above it.
+    let panelInset: CGFloat = 10
+
+    /// The floating composer panel's corner radius. Every other radius in the
+    /// panel derives from this one through `ComposerPanelMetrics`.
+    let panelCornerRadius: CGFloat = 18
+
+    /// The standard content rhythm within the panel: spacing between rows
+    /// (the autocomplete popup, the composer, the statusline), and inset
+    /// within a row (the plan dock bar, the slash-command popup's own rows,
+    /// the controls row's items).
+    let panelContentInset: CGFloat = 8
+
+    /// The composer's inset from the glass panel's edge, on every side —
+    /// shared by its text, its control strip, and the queued-messages strip
+    /// that floats above them. Also what `composerFieldCornerRadius` cuts
+    /// concentric to.
+    let composerFieldInset: CGFloat = 14
+
+    /// The height the composer's control segments share with the send and
+    /// stop circles.
+    let composerControlHeight: CGFloat = 22
+
+    /// The radius for a box floating over the composer at its own inset —
+    /// the queued-messages strip and the slash-command popup — concentric
+    /// with the panel holding them.
+    var composerFieldCornerRadius: CGFloat {
+        ComposerPanelMetrics.concentricRadius(outer: panelCornerRadius, inset: composerFieldInset)
+    }
+
     /// Gap between blocks within one message — paragraph to paragraph, prose
     /// to code.
     let blockSpacing: CGFloat

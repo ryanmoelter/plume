@@ -10,6 +10,10 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (Int) -> Void
+    /// Nothing between it and the panel's top edge, so it owes that edge the
+    /// same inset it gives the sides. With the queued-messages strip above,
+    /// the row spacing sets the gap instead.
+    var isTopOfPanel = true
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -21,18 +25,38 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                             .onTapGesture { onSelect(index) }
                     }
                 }
-                .padding(4)
+                .padding(rowInset)
             }
             .onChange(of: selectedIndex, initial: true) { _, newValue in
                 proxy.scrollTo(newValue)
             }
         }
         .frame(maxHeight: 200)
-        .background(washColor, in: .rect(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8).strokeBorder(.separator)
-        }
+        .background(washColor, in: shape)
+        .overlay { shape.strokeBorder(.separator) }
+        .padding(.horizontal, -textInset)
+        .padding(.top, isTopOfPanel ? -textInset : 0)
     }
+
+    /// What a row's text pays inside the box before it starts.
+    private var textInset: CGFloat { rowInset + dimensions.panelContentInset }
+
+    /// The box steps out past the composer by everything its text pays
+    /// inside it, so a command reads down the same edge as the message being
+    /// typed. Its corner then cuts concentric to the panel at that smaller
+    /// inset rather than at the composer's.
+    private var boxCornerRadius: CGFloat {
+        ComposerPanelMetrics.concentricRadius(
+            outer: dimensions.panelCornerRadius,
+            inset: dimensions.composerFieldInset - textInset
+        )
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
+    }
+
+    private let rowInset: CGFloat = 4
 
     private func row(_ command: SlashCommand, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
@@ -46,11 +70,17 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, dimensions.panelContentInset)
         .padding(.vertical, 5)
         .background(
             isSelected ? colors.selection.emphasized(.divider, in: colors) : .clear,
-            in: .rect(cornerRadius: 5)
+            in: .rect(
+                cornerRadius: ComposerPanelMetrics.concentricRadius(
+                    outer: boxCornerRadius,
+                    inset: rowInset
+                ),
+                style: .continuous
+            )
         )
         .contentShape(.rect)
     }

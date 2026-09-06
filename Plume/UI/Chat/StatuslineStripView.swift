@@ -78,9 +78,7 @@ struct StatuslineStripView: View, ThemedView {
             Spacer(minLength: 0)
         }
         .font(typography.caption.font)
-        .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .listItemPadding(bleed: true, column: .none, vertical: false)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 

@@ -11,6 +11,14 @@ struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
+    /// Whether something else in the panel already sits above the composer
+    /// (the docked plan bar) — the caller is the only one who knows.
+    var hasContentAbove = false
+    /// Set by `ChatTabView` to pull a queued message (rendered there, above
+    /// the panel) back into the draft for editing — the same operation the
+    /// Up-arrow recall path below already does, since only this view knows
+    /// how to keep `hasSendableText` in sync with the draft it writes.
+    var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
@@ -33,12 +41,6 @@ struct ChatComposer: View, ThemedView {
             get: { drafts.draft(forTab: tabID) },
             set: { drafts.setDraft($0, forTab: tabID) }
         )
-    }
-
-    /// The terminal's own background, so the field matches the surface it
-    /// sends to. Falls back to standard chrome when no theme is configured.
-    private var fieldBackground: AnyShapeStyle {
-        colors.background.map(AnyShapeStyle.init) ?? AnyShapeStyle(.background)
     }
 
     /// Tracked separately from the draft text so a keystroke does not
@@ -83,16 +85,13 @@ struct ChatComposer: View, ThemedView {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
-                queuedMessagesView(headlessSession)
-            }
-
+        VStack(spacing: dimensions.panelContentInset) {
             if autocomplete.isShowing {
                 SlashCommandAutocompleteView(
                     commands: autocomplete.matches,
                     selectedIndex: autocomplete.selectedIndex,
-                    onSelect: { autocomplete.select($0) }
+                    onSelect: { autocomplete.select($0) },
+                    isTopOfPanel: !hasContentAbove
                 )
             }
 
@@ -120,11 +119,14 @@ struct ChatComposer: View, ThemedView {
                     },
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
                 )
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
+                // Its own line-fragment padding already covers part of the
+                // composer's inset, so the first glyph lands over the control
+                // strip's left edge rather than beside it. Its vertical inset
+                // comes from its own `textContainerInset`, not from here.
+                .padding(.horizontal, -Self.lineFragmentPadding)
                 .accessibilityIdentifier(AccessibilityID.composerField)
 
-                HStack(spacing: 8) {
+                HStack(spacing: dimensions.panelContentInset) {
                     ComposerControlsRow(
                         task: task,
                         tab: tab,
@@ -137,30 +139,37 @@ struct ChatComposer: View, ThemedView {
                     }
                     sendButton
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.top, dimensions.panelContentInset)
             }
-            .background(fieldBackground, in: .rect(cornerRadius: 6, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.separator))
         }
-        .listItemPadding()
+        // The composer's whole content sits at one inset from the glass
+        // edge, on every side — the text view's own correction above is what
+        // keeps its glyphs level with the controls below it.
+        .padding(dimensions.composerFieldInset)
         // Only the visible tab takes focus; hidden tabs stay mounted, and
         // focusing every one of them makes them fight over the input.
         .onChange(of: isVisible, initial: true) { _, visible in
             if visible { inputFocused = true }
+        }
+        .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
+            guard let index else { return }
+            editQueuedMessage(at: index)
+            editQueuedMessageIndex.wrappedValue = nil
         }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
         }
     }
 
-    private static let sendButtonDiameter: CGFloat = 22
+    /// `NSTextView` draws its first glyph one line-fragment padding in from
+    /// its frame, which the composer's own inset has to account for.
+    private static let lineFragmentPadding: CGFloat = 5
 
     private var sendButton: some View {
         Button(action: send) {
             Image(systemName: "arrow.up")
                 .font(.system(size: 11, weight: .bold))
-                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
@@ -178,7 +187,7 @@ struct ChatComposer: View, ThemedView {
         } label: {
             Image(systemName: "stop.fill")
                 .font(.system(size: 11, weight: .bold))
-                .frame(width: Self.sendButtonDiameter, height: Self.sendButtonDiameter)
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
@@ -198,40 +207,6 @@ struct ChatComposer: View, ThemedView {
         } else {
             AgentLauncher.launch(message: text, task: task, tab: tab)
         }
-    }
-
-    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
-                HStack(spacing: 6) {
-                    Image(systemName: "clock")
-                        .emphasis(.secondary)
-                    Text(message)
-                        .lineLimit(1)
-                        .font(.callout)
-                    Spacer(minLength: 0)
-                    Button {
-                        editQueuedMessage(at: index)
-                    } label: {
-                        Image(systemName: "pencil.circle.fill")
-                            .emphasis(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Edit")
-                    Button {
-                        session.removeQueuedMessage(at: index)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .emphasis(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Remove from queue")
-                }
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.quaternary, in: .rect(cornerRadius: 6))
     }
 }
 
