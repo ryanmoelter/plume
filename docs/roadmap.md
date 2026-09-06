@@ -88,6 +88,7 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
+- [ ] Size inline code inside a heading to the heading, not to prose. `MarkdownView.heading` builds its text through `inline(_:)`, which is `MarkdownCache.styledInline(text, fontSize: typography.bodySize, …)` — so a code run gets `Font.system(size: bodySize * 0.92, design: .monospaced)` written straight onto it, and that font wins over the `headingFont(level:)` applied to the whole `Text`. A heading naming a type in backticks therefore drops to body size mid-line. The size has to come from the heading's own level, which means `styledInline` taking the size the caller is rendering at rather than always the body's — and the size already keys the cache, so a per-level size needs no new invalidation.
 - [x] Mermaid diagrams in the same renderer.
 
 Padding and the copy icon shipped together in `MarkdownView`'s `case .codeBlock`. The icon is an `overlay` on the background container rather than inside the horizontal `ScrollView`, so it stays pinned instead of scrolling away with the code, and it reveals on hovering the block rather than the button itself. It copies the block's raw `code` string, and introduced the app's first `NSPasteboard` use.
