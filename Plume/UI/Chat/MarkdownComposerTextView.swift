@@ -17,6 +17,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var isFocused: FocusState<Bool>.Binding
     var sendKey: ComposerSendKey
     var onSend: () -> Void
+    /// Called on ⌥↩, when the caller has a third action for it. Nil (the
+    /// default) leaves ⌥↩ inserting a newline as it otherwise would.
+    var onOptionReturn: (() -> Void)?
     /// Called on every keystroke, so the composer can react to the text
     /// without the text itself flowing through SwiftUI state per character.
     var onTextChange: (String) -> Void = { _ in }
@@ -29,7 +32,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// typing and arrow-key navigation never touch this — `apply(text:...)`
     /// otherwise preserves the existing selection across an external text
     /// change, which is the behavior this binding overrides.
-    @Binding var pendingCaretLocation: Int?
+    var pendingCaretLocation: Binding<Int?> = .constant(nil)
     /// Set to steer arrow/Tab/Escape/Return into the slash-command list
     /// while it's showing; nil (the default) leaves every key as-is.
     var autocompleteHandler: ComposerAutocompleteHandler?
@@ -64,6 +67,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
+        textView.onOptionReturn = onOptionReturn
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
@@ -75,10 +79,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
-        if let location = pendingCaretLocation {
+        if let location = pendingCaretLocation.wrappedValue {
             let clamped = min(location, (textView.string as NSString).length)
             textView.setSelectedRange(NSRange(location: clamped, length: 0))
-            DispatchQueue.main.async { pendingCaretLocation = nil }
+            DispatchQueue.main.async { pendingCaretLocation.wrappedValue = nil }
         }
         context.coordinator.updatePlaceholderVisibility(textView)
 
@@ -220,6 +224,10 @@ final class ComposerNSTextView: NSTextView {
     /// shell-history-style recall of the most recently queued send.
     var onEditQueuedMessage: (() -> Void)?
 
+    /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
+    /// action on that key — the plan field's approve-with-feedback.
+    var onOptionReturn: (() -> Void)?
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let placeholderText, let font = self.font else { return }
@@ -261,6 +269,11 @@ final class ComposerNSTextView: NSTextView {
 
         guard event.keyCode == 36 /* Return */ else {
             super.keyDown(with: event)
+            return
+        }
+
+        if event.modifierFlags.contains(.option), let onOptionReturn {
+            onOptionReturn()
             return
         }
 
@@ -319,6 +332,10 @@ final class ScrollableComposerTextView: NSView {
         composerTextView.isAutomaticDashSubstitutionEnabled = false
         composerTextView.isAutomaticTextReplacementEnabled = false
         composerTextView.isAutomaticSpellingCorrectionEnabled = true
+        // Marks live as layout-manager temporary attributes, so
+        // `MarkdownComposerStyler`'s per-keystroke pass over the text storage
+        // neither carries nor erases them.
+        composerTextView.isContinuousSpellCheckingEnabled = true
         composerTextView.textContainerInset = NSSize(width: 0, height: 9)
         composerTextView.drawsBackground = false
         composerTextView.textContainer?.widthTracksTextView = true
