@@ -47,9 +47,9 @@ struct MarkdownBlockView: View, ThemedView {
                 isAgentVoice: isAgentVoice
             )
 
-        case let .numberedList(items):
+        case let .numberedList(items, start):
             ListSegmentView(
-                segment: ListSegment(kind: .numbered, items: items),
+                segment: ListSegment(kind: .numbered, items: items, startNumber: start),
                 isAgentVoice: isAgentVoice
             )
 
@@ -194,8 +194,12 @@ struct MarkdownBlockView: View, ThemedView {
         }
     }
 
-    private func inline(_ text: String) -> AttributedString {
-        MarkdownCache.styledInline(text, fontSize: typography.bodySize, tint: colors.surfaceTint)
+    private func inline(_ text: String, fontSize: CGFloat? = nil) -> AttributedString {
+        MarkdownCache.styledInline(
+            text,
+            fontSize: fontSize ?? typography.bodySize,
+            tint: colors.surfaceTint
+        )
     }
 
     /// A heading's text, uppercased at the levels that rank by case rather
@@ -205,7 +209,9 @@ struct MarkdownBlockView: View, ThemedView {
     /// first would carry a link's URL up with it, and `.textCase` does not
     /// reach a `Text` built from an `AttributedString`.
     private func heading(_ text: String, level: Int) -> AttributedString {
-        let parsed = inline(text)
+        // Inline code carries its own font, which wins over the heading's, so
+        // it has to be built at the heading's size rather than the body's.
+        let parsed = inline(text, fontSize: headingStyle(level: level).size)
         guard headingIsUppercased(level: level) else { return parsed }
         return parsed.runs.reduce(into: AttributedString()) { result, run in
             var raised = AttributedString(String(parsed[run.range].characters).uppercased())
@@ -220,15 +226,21 @@ struct MarkdownBlockView: View, ThemedView {
     /// The ladder runs out before the levels do, so h5 and h6 sit at prose
     /// size and earn their rank from small caps instead — see
     /// `headingIsUppercased`.
-    private func headingFont(level: Int) -> Font {
+    private func headingStyle(level: Int) -> Typography.Style {
         switch level {
-        case 1: return prose.headline.font
-        case 2: return prose.title.font
-        case 3: return prose.bodyLarge.font
-        case 4: return prose.body.semibold
-        case 5: return prose.body.semibold
-        default: return prose.caption.semibold
+        case 1: return prose.headline
+        case 2: return prose.title
+        case 3: return prose.bodyLarge
+        case 4, 5: return prose.body
+        default: return prose.caption
         }
+    }
+
+    /// The ladder's own roles carry their weight; the levels that fall off it
+    /// take semibold to keep ranking above prose.
+    private func headingFont(level: Int) -> Font {
+        let style = headingStyle(level: level)
+        return level >= 4 ? style.semibold : style.font
     }
 
     private func headingIsUppercased(level: Int) -> Bool {
