@@ -14,6 +14,7 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
 - **M** — Track an agent tab's current worktree, including through `EnterWorktree`, and open new terminal tabs there. See [Worktrees](#worktrees).
 - **S** — Make ⌘T a terminal tab and ⌘⌥T an agent tab. See [Shortcuts](#shortcuts).
+- **M** — Restyle a tool row's one-liner as `Bash: command…`, with the code part in monospace. See [The markdown renderer](#the-markdown-renderer).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
 - **M** — Autocomplete slash commands in the composer before the first message. See [The composer](#the-composer).
@@ -106,6 +107,7 @@ An interrupted subagent is finished as far as the rest of the app is concerned: 
 
 Shared by the chat, the plan overlay and the file viewer, so none of these are plan-specific.
 
+- [ ] Restyle a tool call's collapsed one-liner. `Bash(python3 - <<'PY')` should read `Bash: python3 - <<'PY'…`, with the tool's name in prose and the detail it carries in monospace.
 - [ ] Fix numbered lists: seen live rendering every item with a `1.` prefix. Check that a list survives a blank line between items and a wrapped item, then fix what doesn't.
 - [ ] Syntax-highlight code blocks.
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
@@ -113,6 +115,10 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [ ] Put real newlines in a bash input block.
 - [ ] Size inline code inside a heading to the heading, not to prose. `MarkdownView.heading` builds its text through `inline(_:)`, which is `MarkdownCache.styledInline(text, fontSize: typography.bodySize, …)` — so a code run gets `Font.system(size: bodySize * 0.92, design: .monospaced)` written straight onto it, and that font wins over the `headingFont(level:)` applied to the whole `Text`. A heading naming a type in backticks therefore drops to body size mid-line. The size has to come from the heading's own level, which means `styledInline` taking the size the caller is rendering at rather than always the body's — and the size already keys the cache, so a per-level size needs no new invalidation.
 - [x] Mermaid diagrams in the same renderer.
+
+**The one-liner is a flat `String`, which is what blocks the styling.** `ToolCallSummary.summary` formats `Name(detail)` and hands back one string, stored as `ToolCall.summary` and drawn by `ToolCallRow`'s `Label`. Styling only the detail means the summary stops being a `String` — either a small struct of name plus detail, or an `AttributedString` built where the fonts are known. Whichever it is, the elision at 60 characters has to keep applying to the detail alone.
+
+Not every detail is code, so the table needs to say which are. A `Bash` command and a `Grep` pattern are; the `Agent` row's `subagent_type: description` is prose and would read badly in monospace; a `Read` or `Edit` filename and a `WebFetch` host sit in between. Decide per case in `ToolCallSummary.detail`, where the tools are already enumerated. Note the trailing `…` in the wanted form appears whether or not the text was elided, unlike today's marker, so say which is meant before implementing it.
 
 **A blank line between items is the likely cause.** The marker is positional — `MarkdownView` renders `\(index + 1).` from the item's index within its block — so an all-`1.` list means each item became a block of its own rather than a mis-numbered one. `MarkdownBlock.parse` builds a `numberedList` from *consecutive* lines that `numberedItemText` accepts, and stops at the first line that isn't one. A blank line between items ends the list, and the next item starts a fresh one at index 0. A wrapped item is the second suspect: its continuation line stops the list too, and falls through to a paragraph. Both are ordinary output from an agent, so confirm which one produced the case seen live before changing the parser. Note also that the source's own numbers are discarded, so a list starting at 3 renumbers to 1 — worth deciding on while the marker is in hand.
 
@@ -474,7 +480,7 @@ What exists:
 
 What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
 
-**The swap is a relabelling, and it argues with the collapse.** ⌘T is "New Agent Tab" and ⌘⇧T the terminal one today, so this exchanges the two commands' keys and moves the second off ⇧ onto ⌥. Worth settling against the one-tab-kind idea under **Tabs and window chrome**, which assumes ⌘T becomes a plain "New Tab" and frees its partner entirely — the two cannot both be true.
+**The swap is a relabelling, and a stopgap.** ⌘T is "New Agent Tab" and ⌘⇧T the terminal one today, so this exchanges the two commands' keys and moves the second off ⇧ onto ⌥. It holds until the one-tab-kind collapse under **Tabs and window chrome** lands, at which point ⌘T becomes a plain "New Tab" and the second key is free again. Not a conflict — an ordering.
 
 **Next/previous task shipped**, hardcoded to ⌘] / ⌘[ — the same keys as the tab commands, minus shift, and free of any existing binding. `PlumeCommands`' `Tab` menu gets two more items backed by a new `selectAdjacentTask` focused value; `MainWindow` supplies it from a `navigableTasks` list (groups in order, then ungrouped) walked with the same `SidebarKeyboardNavigation.destination` helper the sidebar's arrow keys already use, so ⌘] / ⌘[ land on the same task an arrow key would and don't wrap at either end. Unlike the per-task `TaskCommands`, this focused value stays available with nothing selected, so it can select the first task the way an arrow key does. Assignability is still unaddressed — out of scope for this pass.
 
