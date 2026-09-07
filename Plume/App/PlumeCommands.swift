@@ -68,12 +68,12 @@ struct PlumeCommands: Commands {
                 .keyboardShortcut("n")
                 .disabled(newTask == nil)
 
-            Button("New Agent Tab") { task?.addTab(.agent) }
+            Button("New Terminal Tab") { task?.addTab(.terminal) }
                 .keyboardShortcut("t")
                 .disabled(task == nil)
 
-            Button("New Terminal Tab") { task?.addTab(.terminal) }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
+            Button("New Agent Tab") { task?.addTab(.agent) }
+                .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(task == nil)
         }
 

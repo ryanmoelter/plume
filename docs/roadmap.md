@@ -481,12 +481,12 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
-- [ ] Swap the two: ⌘T opens a terminal tab, ⌘⌥T opens an agent tab.
+- [x] Swap the two: ⌘T opens a terminal tab, ⌘⌥T opens an agent tab.
 - [x] ⌘W closes the current tab, not the window.
 
 What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
 
-**The swap is a relabelling, and a stopgap.** ⌘T is "New Agent Tab" and ⌘⇧T the terminal one today, so this exchanges the two commands' keys and moves the second off ⇧ onto ⌥. It holds until the one-tab-kind collapse under **Tabs and window chrome** lands, at which point ⌘T becomes a plain "New Tab" and the second key is free again. Not a conflict — an ordering.
+**The swap shipped, and it is a relabelling, and a stopgap.** ⌘T was "New Agent Tab" and ⌘⇧T the terminal one; the change exchanges the two commands' keys and moves the second off ⇧ onto ⌥, so ⌘T now opens a terminal tab and ⌘⌥T an agent tab. It holds until the one-tab-kind collapse under **Tabs and window chrome** lands, at which point ⌘T becomes a plain "New Tab" and the second key is free again. Not a conflict — an ordering.
 
 **Next/previous task shipped**, hardcoded to ⌘] / ⌘[ — the same keys as the tab commands, minus shift, and free of any existing binding. `PlumeCommands`' `Tab` menu gets two more items backed by a new `selectAdjacentTask` focused value; `MainWindow` supplies it from a `navigableTasks` list (groups in order, then ungrouped) walked with the same `SidebarKeyboardNavigation.destination` helper the sidebar's arrow keys already use, so ⌘] / ⌘[ land on the same task an arrow key would and don't wrap at either end. Unlike the per-task `TaskCommands`, this focused value stays available with nothing selected, so it can select the first task the way an arrow key does. Assignability is still unaddressed — out of scope for this pass.
 
@@ -514,7 +514,7 @@ What exists:
 ## Misc UX
 
 - [ ] Shortcuts work while the terminal is focused.
-- [ ] Drag and drop to reorder tabs.
+- [x] Drag and drop to reorder tabs.
 - [ ] Decide whether a restored agent tab auto-resumes on launch or waits to be selected.
 - [x] Give archived tasks better names in the archive. An unnamed task shows nothing at all there.
 - [x] Focus the composer when a new tab or task opens. The wiring is in place and does not take effect — ⌘N leaves focus elsewhere.
@@ -529,7 +529,7 @@ What exists:
 
 - Shortcuts are plain SwiftUI `Commands` gated on `@FocusedValue`, with no low-level key interception, which is likely why they don't survive terminal focus.
 - **Composer focus shipped.** Two separate bugs, found by logging `NSApp.keyWindow?.firstResponder` across a run rather than guessing: (1) `ChatComposer`'s `@FocusState` was never attached via `.focused()` — it was only read manually inside `MarkdownComposerTextView.updateNSView`, and a `@FocusState` write with no `.focused()` anywhere in the tree never reaches that read at all, so `inputFocused = true` was a no-op from the start. Task 1's composer only ever looked focused by coincidence, from AppKit's own default-responder assignment on first window activation. (2) Even after wiring `.focused($inputFocused)` correctly, a *second* tab's focus request still lost: the headless chat path unmounts a hidden tab's `ChatComposer` rather than hiding it, and switching *tasks* replaces the whole tab subtree the same way (tabs are keyed by id, and a new task's tabs share none with the old one's) — so the new view's focus claim arrives in the same transaction as the old view resigning real first responder, and SwiftUI drops it silently. Deferring the write one run loop turn (`DispatchQueue.main.async`) fixed it. Confirmed live via the same logging for `ChatComposer` (⌘N-equivalent, i.e. creating and selecting a task while another was focused) and `TerminalTabView` (adding a terminal tab to the current task). `AgentFirstMessageView` already had `.focused($inputFocused)` wired correctly, so only needed the deferred write for consistency with the others.
-- `.onMove` reorders sidebar tasks, but `TabStripView` has no drag support.
+- **Tab drag-to-reorder shipped.** `.onMove` needs a `List`, which `TabStripView`'s `HStack` of chips isn't, so each `TabChip` carries `.draggable(tab.id.uuidString)` and `.dropDestination(for: String.self)` instead — dropping onto a chip moves the dragged tab to sit immediately before it, and the trailing `Spacer` past the last chip is its own drop target for moving a tab to the end. Both funnel into `TaskStore.moveTabs`, the same dense-`orderIndex` rewrite `TaskStore.move` already used for sidebar tasks, so ordering stays out of the view. `ForEach(task.orderedTabs)` keys tab content by `TaskTab.id`, so reordering only permutes the array — no tab's `TerminalTabView`/`AgentTabContent` is torn down or rebuilt, and every surface keyed by tab id in `SurfaceManager` is untouched.
 - **Shipped:** `ArchiveView` now renders `TitleStore.shared.displayTitle(for:)` (`ArchiveView.swift:19`) instead of raw `task.title`, matching the live sidebar (`TaskRowView.swift:40`) — an unnamed task falls back to its representative tab's title and finally "Untitled" instead of a blank row. The archived row still shows the working directory beneath the title, which is often the more identifying of the two.
 - Restoring the selection has shipped: `LastOpenTask` persists the selected task's UUID and `MainWindow` restores it, matching the per-task selected tab that `WorkTask.selectedTabID` already carried. A task archived or deleted since the last launch doesn't match and the pane opens empty. What's left is the auto-resume question, which is a behavior decision rather than plumbing: the existing rule deliberately avoids spawning `claude` for every agent tab at startup, and reopening a tab shouldn't quietly undo that.
 
