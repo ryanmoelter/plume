@@ -140,6 +140,7 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
             if let current { GitStateStore.shared.watch(current) }
+            TabDirectoryStore.shared.setDirectory(current, forTab: tab.id)
         }
         .onDisappear {
             if let gitDirectory { GitStateStore.shared.release(gitDirectory) }

@@ -631,14 +631,19 @@ What exists:
 
 Create and delete moved onto `GitService` and have not been driven since. The feature ships with a WIP marker so its state is honest — that marker is in place; what it covers is still unverified.
 
-- [ ] Track the worktree an agent tab is actually in, including after an `EnterWorktree` tool call, somewhere the whole app can read.
-- [ ] Open a new terminal tab in that worktree rather than in the task's folder.
+- [x] Track the worktree an agent tab is actually in, including after an `EnterWorktree` tool call, somewhere the whole app can read.
+- [x] Open a new terminal tab in that worktree rather than in the task's folder.
 - [ ] Create and delete a worktree, now that both run on `GitService` rather than the main thread.
 - [ ] Make `git worktree remove` fail, and confirm the task survives with the error shown.
 
-**The tracking half is nearly done, in the wrong place.** `ChatTabView.gitDirectory` is already `transcript?.cwd ?? task.workingDirectoryPath`, and `TranscriptParser` takes the last `cwd` any entry carries, so it follows the agent through an `EnterWorktree` today. What is missing is reach: it is a private computed property on one view, so nothing else can ask where a tab is. A new terminal tab launches from `task.workingDirectoryPath` (`TabContentView.swift:149`) and opens in the task's original folder even when the agent moved a worktree over hours ago; the sidebar's detail line reads the same task-level path. So this wants a per-tab directory in observable storage, keyed by tab id like `TitleStore`, with the task's path as the fallback for a tab that has no transcript yet.
+What shipped:
 
-Two things not to lose. A terminal tab has no transcript, so its directory can only come from the task or from the terminal's own reported `workingDirectory`, which `TerminalSession` already mirrors. And `TerminalSurfaceOptions` are read once at surface creation — re-requesting an existing session ignores new options by design — so this changes where a *new* tab starts, never where a live one is.
+- `TabDirectoryStore` (`Plume/Models/`) holds each tab's current directory in memory, keyed by tab id, shaped like `TitleStore`. Nothing is persisted; a relaunch starts from the task's folder until a tab reports again.
+- Both tab kinds feed it. An agent tab writes `ChatTabView.gitDirectory` — the transcript's own `cwd`, which follows an `EnterWorktree` because every line after the call carries the new `cwd`. A terminal tab writes `TerminalSession.workingDirectory`, the wrapper's OSC 7 report.
+- `startingDirectory(for:)` answers where a *new* tab belongs, preferring the last-focused agent tab, then the selected tab, then any tab, then the task's folder. `TerminalTabHost` passes it to `SurfaceManager`, so a terminal tab opened after the agent moved lands in the worktree.
+- `TaskStore.forgetTab(_:)` clears the store with the rest of a closed tab's state.
+
+Two things not to lose. `TerminalSurfaceOptions` are read once at surface creation — re-requesting an existing session ignores new options by design — so this changes where a *new* tab starts, never where a live one is. And the sidebar's detail line still reads the task-level path; it has not been moved onto the store.
 
 The marker shows on the "New Worktree…" button (`WorkspacePickerView.swift:128`), the sheet's title (`NewWorktreeSheet.swift:20`), and the two destructive delete items (`SidebarView.swift:100,103`). The delete items are the ones that most need it — they are irreversible, and their failure path is the least exercised code in the feature. Settle one marker and use it everywhere, since this will not be the last unfinished feature to ship visible.
 
