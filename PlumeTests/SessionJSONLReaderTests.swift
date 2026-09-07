@@ -98,23 +98,26 @@ struct SessionJSONLReaderTests {
         // Claude Code stamps each transcript with the cwd it ran in. Finding the
         // repo that way is independent of the encoding under test, so the
         // assertion below still has teeth.
-        let owningDirectory = try #require(
-            Self.transcriptDirectory(recordingCWD: repositoryPath),
+        let owningDirectories = Self.transcriptDirectories(recordingCWD: repositoryPath)
+        try #require(
+            !owningDirectories.isEmpty,
             "Claude Code has not run in \(repositoryPath)"
         )
 
         let encoded = SessionJSONLReader.encodedProjectDirectory(for: repositoryPath)
         #expect(
-            encoded == owningDirectory,
-            "encoded \(repositoryPath) as \(encoded), but its transcripts live in \(owningDirectory)"
+            owningDirectories.contains(encoded),
+            "encoded \(repositoryPath) as \(encoded), but its transcripts live in \(owningDirectories.sorted())"
         )
     }
 
-    /// Name of the transcript directory holding a session whose recorded `cwd`
-    /// is `path`, or nil where Claude Code has never run there.
-    private static func transcriptDirectory(recordingCWD path: String) -> String? {
+    /// Names of the transcript directories holding a session whose recorded
+    /// `cwd` is `path`. An agent working in a worktree still records the parent
+    /// repository's `cwd`, so more than one directory can own the same path.
+    private static func transcriptDirectories(recordingCWD path: String) -> Set<String> {
         let root = SessionJSONLReader.projectsDirectory
         let directories = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        var found: Set<String> = []
         for directory in directories {
             let sessions = (try? FileManager.default.contentsOfDirectory(
                 atPath: root.appending(path: directory).path
@@ -139,13 +142,13 @@ struct SessionJSONLReaderTests {
                         with: Data(line.utf8)
                     ) as? [String: Any] else { continue }
                     if let cwd = object["cwd"] as? String {
-                        if cwd == path { return directory }
+                        if cwd == path { found.insert(directory) }
                         break
                     }
                 }
             }
         }
-        return nil
+        return found
     }
 }
 
