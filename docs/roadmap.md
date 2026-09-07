@@ -12,6 +12,8 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 
 - **M** — Read a subagent's completion from the line shape the CLI actually writes; finished subagents read working today. See [Subagents](#subagents).
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
+- **M** — Track an agent tab's current worktree, including through `EnterWorktree`, and open new terminal tabs there. See [Worktrees](#worktrees).
+- **S** — Make ⌘T a terminal tab and ⌘⌥T an agent tab. See [Shortcuts](#shortcuts).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
 - **M** — Autocomplete slash commands in the composer before the first message. See [The composer](#the-composer).
@@ -467,9 +469,12 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
+- [ ] Swap the two: ⌘T opens a terminal tab, ⌘⌥T opens an agent tab.
 - [x] ⌘W closes the current tab, not the window.
 
 What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
+
+**The swap is a relabelling, and it argues with the collapse.** ⌘T is "New Agent Tab" and ⌘⇧T the terminal one today, so this exchanges the two commands' keys and moves the second off ⇧ onto ⌥. Worth settling against the one-tab-kind idea under **Tabs and window chrome**, which assumes ⌘T becomes a plain "New Tab" and frees its partner entirely — the two cannot both be true.
 
 **Next/previous task shipped**, hardcoded to ⌘] / ⌘[ — the same keys as the tab commands, minus shift, and free of any existing binding. `PlumeCommands`' `Tab` menu gets two more items backed by a new `selectAdjacentTask` focused value; `MainWindow` supplies it from a `navigableTasks` list (groups in order, then ungrouped) walked with the same `SidebarKeyboardNavigation.destination` helper the sidebar's arrow keys already use, so ⌘] / ⌘[ land on the same task an arrow key would and don't wrap at either end. Unlike the per-task `TaskCommands`, this focused value stays available with nothing selected, so it can select the first task the way an arrow key does. Assignability is still unaddressed — out of scope for this pass.
 
@@ -620,8 +625,14 @@ What exists:
 
 Create and delete moved onto `GitService` and have not been driven since. The feature ships with a WIP marker so its state is honest — that marker is in place; what it covers is still unverified.
 
+- [ ] Track the worktree an agent tab is actually in, including after an `EnterWorktree` tool call, somewhere the whole app can read.
+- [ ] Open a new terminal tab in that worktree rather than in the task's folder.
 - [ ] Create and delete a worktree, now that both run on `GitService` rather than the main thread.
 - [ ] Make `git worktree remove` fail, and confirm the task survives with the error shown.
+
+**The tracking half is nearly done, in the wrong place.** `ChatTabView.gitDirectory` is already `transcript?.cwd ?? task.workingDirectoryPath`, and `TranscriptParser` takes the last `cwd` any entry carries, so it follows the agent through an `EnterWorktree` today. What is missing is reach: it is a private computed property on one view, so nothing else can ask where a tab is. A new terminal tab launches from `task.workingDirectoryPath` (`TabContentView.swift:149`) and opens in the task's original folder even when the agent moved a worktree over hours ago; the sidebar's detail line reads the same task-level path. So this wants a per-tab directory in observable storage, keyed by tab id like `TitleStore`, with the task's path as the fallback for a tab that has no transcript yet.
+
+Two things not to lose. A terminal tab has no transcript, so its directory can only come from the task or from the terminal's own reported `workingDirectory`, which `TerminalSession` already mirrors. And `TerminalSurfaceOptions` are read once at surface creation — re-requesting an existing session ignores new options by design — so this changes where a *new* tab starts, never where a live one is.
 
 The marker shows on the "New Worktree…" button (`WorkspacePickerView.swift:128`), the sheet's title (`NewWorktreeSheet.swift:20`), and the two destructive delete items (`SidebarView.swift:100,103`). The delete items are the ones that most need it — they are irreversible, and their failure path is the least exercised code in the feature. Settle one marker and use it everywhere, since this will not be the last unfinished feature to ship visible.
 
