@@ -150,7 +150,7 @@ nonisolated enum TranscriptParser {
                         let call = ToolCall(
                             id: id,
                             name: name,
-                            summary: ToolCallSummary.summary(name: name, input: input),
+                            summary: ToolCallSummary(name: name, input: input),
                             input: ToolCallInputRendering.render(
                                 name: name,
                                 input: input,
@@ -247,7 +247,7 @@ nonisolated enum TranscriptParser {
 private extension JSONEncoder {
     static var sortedKeys: JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
         return encoder
     }
 }
