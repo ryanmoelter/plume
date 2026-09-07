@@ -48,9 +48,13 @@ ps -ef | grep '[M]acOS/Plume'
 
 `pgrep -x Plume` does not reliably match the installed app's own process — it has come back empty while `/Applications/Plume.app` was running, and it matches unrelated test-harness bundles instead. Trust `ps`.
 
-Releasing from a session hosted *inside* Plume is the case to watch: quitting the app kills the agent doing the release. `echo $PLUME` says whether you are in one — and an agent should check, since the ancestry (`ps -o ppid=` up the chain) says *which* Plume hosts it, and only the installed one matters.
+Releasing from a session hosted *inside* Plume is the case to watch, though it survives. `echo $PLUME` says whether you are in one — and an agent should check, since the ancestry (`ps -o ppid=` up the chain) says *which* Plume hosts it, and only the installed one matters.
 
-`scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately. Nothing reports back — the session is gone before the copy finishes — so read `/tmp/plume-install.log` afterwards. That log is the whole record of the install.
+`scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately.
+
+**The conversation comes back.** The script relaunches Plume, the new build restores the session, and the agent resumes with its context intact — so a release run continues as if the install had never interrupted it. The install returns no output, though, because the process that started it is gone by the time the copy finishes. Read `/tmp/plume-install.log` once the session is back; that log is the whole record. An agent can do this itself rather than handing it to the user.
+
+Verify the app that came back is the one just installed. Read `CFBundleShortVersionString` from `/Applications/Plume.app/Contents/Info.plist`, and walk the ancestry again to confirm the session's host PID is the relaunched process.
 
 When reading the test output, confirm test names actually scroll past. A `-only-testing` argument that matches nothing prints `** TEST SUCCEEDED **` having run zero tests.
 
