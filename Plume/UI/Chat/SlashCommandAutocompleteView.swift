@@ -14,8 +14,29 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     /// same inset it gives the sides. With the queued-messages strip above,
     /// the row spacing sets the gap instead.
     var isTopOfPanel = true
+    /// True while these names come from the last session rather than this
+    /// one, so the list says so instead of presenting a guess as fact.
+    var isRemembered = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            list
+            if isRemembered {
+                Divider()
+                Text("From the last session — not yet confirmed by Claude Code")
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .padding(.horizontal, rowInset + dimensions.panelContentInset)
+                    .padding(.vertical, 5)
+            }
+        }
+        .background(washColor, in: shape)
+        .overlay { shape.strokeBorder(.separator) }
+        .padding(.horizontal, -textInset)
+        .padding(.top, isTopOfPanel ? -textInset : 0)
+    }
+
+    private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -32,10 +53,6 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             }
         }
         .frame(maxHeight: 200)
-        .background(washColor, in: shape)
-        .overlay { shape.strokeBorder(.separator) }
-        .padding(.horizontal, -textInset)
-        .padding(.top, isTopOfPanel ? -textInset : 0)
     }
 
     /// What a row's text pays inside the box before it starts.

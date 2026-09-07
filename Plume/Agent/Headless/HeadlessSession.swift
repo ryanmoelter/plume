@@ -422,6 +422,7 @@ final class HeadlessSession {
                 argumentHint: object["argumentHint"]?.stringValue ?? ""
             )
         }
+        SlashCommandMemory.shared.remember(slashCommands)
     }
 
     private func beginTurn() {

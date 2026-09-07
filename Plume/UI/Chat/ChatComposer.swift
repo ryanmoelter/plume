@@ -29,6 +29,7 @@ struct ChatComposer: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
+    @State private var commandMemory = SlashCommandMemory.shared
     @State private var caretLocation = 0
     @State private var pendingCaretLocation: Int?
     @State private var autocomplete = ComposerAutocompleteController()
@@ -56,14 +57,27 @@ struct ChatComposer: View, ThemedView {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Plume's own commands join the CLI's, but only once a session exists
-    /// to run them against, and never shadowing a name the CLI reports — if a
-    /// later CLI serves `/rc` headlessly, its version wins.
+    /// The CLI's commands, from this session when it has reported and from
+    /// the last one until then, so a cold tab still completes them.
+    ///
+    /// Plume's own join them only once a session exists to run them against —
+    /// `/rc` drives a control request, which has no process to reach without
+    /// one — and never shadow a name the CLI reports: if a later CLI serves
+    /// `/rc` headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
-        guard let headlessSession else { return [] }
-        let reported = headlessSession.slashCommands
+        guard tab.transport == .headless else { return [] }
+        guard let headlessSession else { return commandMemory.commands }
+        let reported = headlessSession.slashCommands.isEmpty
+            ? commandMemory.commands
+            : headlessSession.slashCommands
         let reportedNames = Set(reported.map(\.name))
         return reported + PlumeSlashCommand.all.filter { !reportedNames.contains($0.name) }
+    }
+
+    /// True while the CLI list on offer is the last session's rather than this
+    /// one's, so the popup can say the names are a guess.
+    private var slashCommandsAreRemembered: Bool {
+        headlessSession?.slashCommands.isEmpty ?? true
     }
 
     private var composerPlaceholder: String {
@@ -101,7 +115,8 @@ struct ChatComposer: View, ThemedView {
                     commands: autocomplete.matches,
                     selectedIndex: autocomplete.selectedIndex,
                     onSelect: { autocomplete.select($0) },
-                    isTopOfPanel: !hasContentAbove
+                    isTopOfPanel: !hasContentAbove,
+                    isRemembered: slashCommandsAreRemembered
                 )
             }
 
