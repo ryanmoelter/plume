@@ -153,7 +153,8 @@ final class TranscriptStore {
                 descriptor: descriptor,
                 status: SubagentStatusDeriver.derive(
                     transcript: transcript,
-                    parentSignal: results.signal(forAgentID: id)
+                    parentSignal: results.signal(forAgentID: id),
+                    stoppedByUser: descriptor?.stoppedByUser ?? false
                 )
             )
         }
