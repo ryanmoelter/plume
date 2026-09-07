@@ -50,6 +50,16 @@ struct ChatMessageList: View, ThemedView {
     @State private var pieces: [ChatPiece] = []
     @State private var cache = ChatPieceCache()
 
+    /// The ids the last rebuild produced, and the overlay it was built from,
+    /// so the next one can name what arrived. See `ChatListMotion`.
+    @State private var previousPieceIDs: [String] = []
+    @State private var previousStreaming = ChatStreamHandoff.Overlay()
+
+    /// The pieces that grow into place. Only replaced when a rebuild actually
+    /// brings some, so a piece has time to mount and read it — an id left
+    /// here after the row has measured itself does nothing.
+    @State private var arrivals: Set<String> = []
+
     /// Names this list to `PLUME_CHAT_ITEM_STATS`. Every tab stays mounted,
     /// so several lists measure at once and one set of numbers would be a
     /// blend of all of them.
@@ -90,27 +100,24 @@ struct ChatMessageList: View, ThemedView {
                 // One item per piece, not per message, so no item is tall
                 // enough to make the stack's height estimates oscillate.
                 // Every gap between items is the following one's top inset.
+                // Every piece eases its own height, and one that has just
+                // arrived grows into place from nothing, which is what
+                // pushes the conversation up. No `.transition` and no
+                // animated transaction around this `ForEach`: an animated
+                // diff inside a lazy stack is the shape the hang doc warns
+                // about, and it would also play an entrance for any row the
+                // stack happens to realize during a scroll. `ChatPieceView`
+                // owns the frame so the wash animates with it.
                 ForEach(pieces) { piece in
-                    ChatPieceView(piece: piece)
-                        // Height rather than the item itself: an animated
-                        // insert or move inside a lazy stack would drive the
-                        // placement pass the hang doc warns about.
-                        //
-                        // The piece carrying the stream is left alone. Its
-                        // height already changes every frame as the reveal
-                        // draws, so easing it only retargets an animation
-                        // that never reaches a fixed point. A piece whose
-                        // wash continues into its neighbours is left alone
-                        // too: an eased height opens a seam in the join.
-                        .animatedHeight(
-                            enabled: settings.animateRowHeight
-                                && !piece.isStreaming
-                                && !piece.isJoined
-                        )
-                        .listItemPadding(bleed: true, column: .unpadded, vertical: false)
-                        .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
-                        .padding(.bottom, piece.bottomInset)
-                        .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
+                    ChatPieceView(
+                        piece: piece,
+                        animatesHeight: settings.animateChatMotion,
+                        growsFromZero: arrivals.contains(piece.id)
+                    )
+                    .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                    .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
+                    .padding(.bottom, piece.bottomInset)
+                    .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
                 }
                 if let tabID {
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
@@ -118,8 +125,16 @@ struct ChatMessageList: View, ThemedView {
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
                 }
+                // The room the floating composer panel covers. Eased on the
+                // leaf, so a composer that grows a line slides the
+                // conversation instead of snapping it, and the transaction
+                // reaches nothing else.
                 Color.clear
                     .frame(height: bottomPadding + floatingPanelHeight)
+                    .animation(
+                        settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
+                        value: floatingPanelHeight
+                    )
             }
             .scrollTargetLayout()
         }
@@ -191,13 +206,24 @@ struct ChatMessageList: View, ThemedView {
         #if DEBUG
         let started = ContinuousClock.now
         #endif
-        pieces = cache.pieces(
+        let overlay = streaming
+        let rebuilt = cache.pieces(
             for: messages,
             status: status,
             hiddenToolUseIDs: pendingToolUseIDs,
-            streaming: streaming,
+            streaming: overlay,
             dimensions: dimensions
         )
+        let ids = rebuilt.map(\.id)
+        let arrived = ChatListMotion.arrivals(
+            previous: previousPieceIDs,
+            current: ids,
+            streamingChanged: overlay != previousStreaming
+        )
+        if !arrived.isEmpty { arrivals = arrived }
+        previousPieceIDs = ids
+        previousStreaming = overlay
+        pieces = rebuilt
         #if DEBUG
         ChatItemStats.shared.record(list: statsToken, rebuild: started.duration(to: .now))
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
