@@ -20,6 +20,7 @@ struct ChatTabView: View, ThemedView {
     /// "not approved yet" rather than claiming an approval we never saw.
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
+    @FocusState private var planFeedbackFocused: Bool
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
     /// id rather than the value so the overlay follows the subagent's live
@@ -356,17 +357,19 @@ struct ChatTabView: View, ThemedView {
                 .help("Minimize")
                 .accessibilityLabel("Minimize")
                 .accessibilityIdentifier(AccessibilityID.planMinimizeButton)
-                Button {
-                    planPresentation = .closed
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .emphasis(.secondary)
+                if planApproval.isClosable {
+                    Button {
+                        planPresentation = .closed
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .emphasis(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Close")
+                    .accessibilityLabel("Close")
+                    .accessibilityIdentifier(AccessibilityID.planCloseButton)
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .help("Close")
-                .accessibilityLabel("Close")
-                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
             .padding(12)
             Divider()
@@ -403,24 +406,20 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Feedback and the two decisions, right-aligned with Approve last —
-    /// the primary option sits where the eye lands and where Return goes.
+    /// the primary option sits where the eye lands.
     ///
-    /// Feedback submits the rejection from inside the field, so typing and
-    /// sending are one gesture rather than a field plus a distant button.
-    /// ⌥↩ is captioned because nothing else on screen reveals it, and it is
-    /// the only way to reach approve-with-feedback.
+    /// The field is the composer's own editor, so a note reads the same
+    /// wherever it is typed and obeys `composerSendKey` through the one rule
+    /// in `ComposerNSTextView.keyDown`. Approve therefore takes no
+    /// `.defaultAction` shortcut: a default button answers Return from
+    /// `performKeyEquivalent`, which runs before the key ever reaches the
+    /// focused field. ⌥↩ is captioned because nothing else on screen reveals
+    /// it, and it is the only way to reach approve-with-feedback.
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                TextField("Feedback (optional)", text: $planRejectionReason, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...6)
-                    .font(typography.caption.font)
-                    .onKeyPress(.return, phases: .down) { press in
-                        handleFeedbackReturn(press.modifiers)
-                    }
-                    .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+            HStack(alignment: .bottom, spacing: 8) {
+                feedbackField
                 ReservedWidthButton(
                     title: PlanRejectionLabel.label(forReason: planRejectionReason),
                     labels: PlanRejectionLabel.allLabels
@@ -429,7 +428,6 @@ struct ChatTabView: View, ThemedView {
                 }
                 .accessibilityIdentifier(AccessibilityID.planRejectButton)
                 Button("Approve") { answerPlan(.approve) }
-                    .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier(AccessibilityID.planApproveButton)
             }
@@ -440,26 +438,30 @@ struct ChatTabView: View, ThemedView {
         .font(typography.caption.font)
     }
 
-    /// Return in the feedback field follows `composerSendKey` exactly as the
-    /// composer does; ⌥ always reaches the third option.
-    private func handleFeedbackReturn(_ modifiers: EventModifiers) -> KeyPress.Result {
-        let key = PlanFeedbackKey.forReturn(
+    private var feedbackField: some View {
+        MarkdownComposerTextView(
+            text: $planRejectionReason,
+            placeholder: "Feedback (optional)",
+            fontSize: CGFloat(settings.chatFontSize),
+            isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
-            command: modifiers.contains(.command),
-            shift: modifiers.contains(.shift),
-            option: modifiers.contains(.option)
+            onSend: { answerPlan(.reject) },
+            onOptionReturn: { answerPlan(.approveWithFeedback) }
         )
-        switch key {
-        case .submit:
-            answerPlan(.reject)
-            return .handled
-        case .approveWithFeedback:
-            answerPlan(.approveWithFeedback)
-            return .handled
-        case .passThrough:
-            return .ignored
-        }
+        .padding(.horizontal, dimensions.panelContentInset - Self.composerLineFragmentPadding)
+        .background(.quaternary.opacity(0.4), in: feedbackFieldShape)
+        .overlay { feedbackFieldShape.strokeBorder(.separator) }
+        .focused($planFeedbackFocused)
+        .accessibilityIdentifier(AccessibilityID.planFeedbackField)
     }
+
+    private var feedbackFieldShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
+    }
+
+    /// `NSTextView` draws its first glyph one line-fragment padding in from
+    /// its frame, which the field's own padding has to account for.
+    private static let composerLineFragmentPadding: CGFloat = 5
 
     private enum PlanDecision {
         case approve
@@ -513,16 +515,18 @@ struct ChatTabView: View, ThemedView {
             .accessibilityLabel("Expand the plan")
             .accessibilityIdentifier(AccessibilityID.planExpandButton)
 
-            Button {
-                planPresentation = .closed
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .emphasis(.secondary)
+            if planApproval.isClosable {
+                Button {
+                    planPresentation = .closed
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .emphasis(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
-            .buttonStyle(.plain)
-            .help("Close")
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
         // The one leading edge the composer's text and the statusline's

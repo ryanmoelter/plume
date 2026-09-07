@@ -136,35 +136,6 @@ struct PlanResolutionTests {
     }
 }
 
-/// The plan feedback field's Return rule, which mirrors the composer's so one
-/// setting governs both.
-struct PlanFeedbackKeyTests {
-    @Test func commandReturnSendsOnlyWithCommand() {
-        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: true, shift: false, option: false) == .submit)
-        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: false, shift: false, option: false) == .passThrough)
-        #expect(PlanFeedbackKey.forReturn(sendKey: .commandReturn, command: false, shift: true, option: false) == .passThrough)
-    }
-
-    @Test func returnKeySendsBareAndShiftInsertsANewline() {
-        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: false, shift: false, option: false) == .submit)
-        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: false, shift: true, option: false) == .passThrough)
-        #expect(PlanFeedbackKey.forReturn(sendKey: .returnKey, command: true, shift: false, option: false) == .passThrough)
-    }
-
-    @Test func optionAlwaysReachesApproveWithFeedback() {
-        for sendKey in [ComposerSendKey.returnKey, .commandReturn] {
-            for command in [true, false] {
-                for shift in [true, false] {
-                    #expect(
-                        PlanFeedbackKey.forReturn(sendKey: sendKey, command: command, shift: shift, option: true)
-                            == .approveWithFeedback
-                    )
-                }
-            }
-        }
-    }
-}
-
 struct PlanRejectionLabelTests {
     /// Blank is a plain rejection on the wire, so the label must not promise
     /// feedback that `PlanResolution.denialMessage` will drop.

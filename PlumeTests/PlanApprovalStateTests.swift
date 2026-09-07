@@ -71,3 +71,16 @@ struct PlanSummaryTests {
         #expect(PlanSummary.firstLine(of: "###") == "Plan")
     }
 }
+
+/// While a proposal is live the overlay may only be minimized, so the
+/// approval options cannot leave the screen with the request still open.
+struct PlanClosabilityTests {
+    @Test func anUndecidedPlanCannotBeClosed() {
+        #expect(!PlanApprovalState.awaitingDecision.isClosable)
+    }
+
+    @Test func anAnsweredPlanCanBeClosed() {
+        #expect(PlanApprovalState.approved.isClosable)
+        #expect(PlanApprovalState.notApprovedYet.isClosable)
+    }
+}
