@@ -1,0 +1,389 @@
+import Foundation
+import Testing
+@testable import Plume
+
+@MainActor
+struct ChatPieceSplitterTests {
+    private let dimensions = Dimensions(bodySize: 13)
+
+    private func pieces(
+        _ messages: [ChatMessage],
+        status: TaskStatus = .idle,
+        hidden: Set<String> = [],
+        streaming: ChatStreamHandoff.Overlay = .init()
+    ) -> [ChatPiece] {
+        ChatPieceSplitter.pieces(
+            for: messages,
+            status: status,
+            hiddenToolUseIDs: hidden,
+            streaming: streaming,
+            dimensions: dimensions
+        )
+    }
+
+    private func message(
+        _ id: String,
+        _ role: ChatMessage.Role = .assistant,
+        _ blocks: [ChatBlock]
+    ) -> ChatMessage {
+        ChatMessage(id: id, role: role, blocks: blocks, timestamp: nil)
+    }
+
+    private func toolCall(_ id: String) -> ChatBlock {
+        .toolCall(ToolCall(id: id, name: "Read", summary: "Read a file", input: .json("{}")))
+    }
+
+    // MARK: - Identity
+
+    @Test func everyBlockBecomesItsOwnPiece() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("First paragraph.\n\nSecond paragraph."),
+            toolCall("t1"),
+            .thinking("hm")
+        ])])
+        #expect(result.map(\.id) == ["m/0/0", "m/0/1", "m/1", "m/2"])
+        #expect(result.allSatisfy { $0.messageID == "m" })
+    }
+
+    @Test func aMarkdownBlockSplitsIntoOnePiecePerSubBlock() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("# Title\n\nBody text.\n\n- one\n- two")
+        ])])
+        #expect(result.map(\.id) == ["m/0/0", "m/0/1", "m/0/2"])
+        guard case .markdown(.heading(1, "Title"), 0) = result[0].content else {
+            Issue.record("expected a heading piece, got \(result[0].content)")
+            return
+        }
+        guard case .listSegment(let list) = result[2].content else {
+            Issue.record("expected a list piece, got \(result[2].content)")
+            return
+        }
+        #expect(list.items == ["one", "two"])
+    }
+
+    /// The dock draws a stalled call instead, so it renders nothing here and
+    /// does not space what follows it. The blocks around it keep their ids.
+    @Test func aHiddenToolCallIsOmittedWithoutShiftingIds() {
+        let blocks: [ChatBlock] = [toolCall("t1"), toolCall("t2"), .markdown("done")]
+        let visible = pieces([message("m", .assistant, blocks)])
+        #expect(visible.map(\.id) == ["m/0", "m/1", "m/2/0"])
+
+        let hidden = pieces([message("m", .assistant, blocks)], hidden: ["t2"])
+        #expect(hidden.map(\.id) == ["m/0", "m/2/0"])
+        // The prose still follows a tool call, so it keeps the full gap; the
+        // hidden call in between neither takes space nor closes one up.
+        #expect(hidden[1].topInset == dimensions.messageBlockSpacing)
+    }
+
+    @Test func aToolResultLandingChangesOnlyItsOwnPiece() {
+        let before = pieces([message("m", .assistant, [.markdown("Reading."), toolCall("t1")])])
+        var call = ToolCall(id: "t1", name: "Read", summary: "Read a file", input: .json("{}"))
+        call.result = "contents"
+        let after = pieces([message("m", .assistant, [.markdown("Reading."), .toolCall(call)])])
+
+        #expect(before.map(\.id) == after.map(\.id))
+        #expect(before[0] == after[0])
+        #expect(before[1] != after[1])
+    }
+
+    @Test func appendingKeepsEveryEarlierPieceIntact() {
+        let first = pieces([message("m", .assistant, [.markdown("One.")])])
+        let second = pieces([message("m", .assistant, [.markdown("One."), toolCall("t1")])])
+
+        #expect(first[0].segment == .single)
+        #expect(second[0].segment == .first)
+        #expect(second[1].segment == .last)
+        #expect(first[0].id == second[0].id)
+        #expect(first[0].topInset == second[0].topInset)
+        #expect(first[0].content == second[0].content)
+    }
+
+    // MARK: - Segments
+
+    @Test func aMessageOfOnePieceIsWholeAndOneOfSeveralIsJoined() {
+        #expect(pieces([message("m", .user, [.markdown("go")])]).map(\.segment) == [.single])
+        #expect(pieces([message("m", .user, [.markdown("a\n\nb\n\nc")])]).map(\.segment)
+            == [.first, .middle, .last])
+    }
+
+    @Test func theTurnInFlightJoinsTheLastMessagesGroup() {
+        let result = pieces(
+            [message("m", .assistant, [.markdown("Working on it.")])],
+            status: .working,
+            streaming: ChatStreamHandoff.Overlay(text: "Nearly there.")
+        )
+        #expect(result.map(\.id) == ["m/0/0", "stream/live", "m/working"])
+        #expect(result.map(\.segment) == [.first, .middle, .last])
+        #expect(result.allSatisfy { $0.messageID == "m" || $0.messageID == "stream" })
+    }
+
+    /// A turn that has not produced an assistant message yet stands alone,
+    /// taking the gap the message it becomes will have.
+    @Test func aStreamAfterAUserMessageStandsOnItsOwn() {
+        let result = pieces(
+            [message("m", .user, [.markdown("go")])],
+            streaming: ChatStreamHandoff.Overlay(text: "On it.")
+        )
+        #expect(result.map(\.id) == ["m/0/0", "stream/live"])
+        #expect(result[1].segment == .single)
+        #expect(result[1].topInset == dimensions.messageSpacing)
+    }
+
+    @Test func onlyTheNewestAssistantMessageWearsTheAttentionWash() {
+        let result = pieces(
+            [
+                message("a", .assistant, [.markdown("done")]),
+                message("b", .user, [.markdown("go")]),
+                message("c", .assistant, [.markdown("Should I proceed?")])
+            ],
+            status: .needsInput
+        )
+        #expect(result.map(\.wash) == [.none, .bubble, .attention])
+    }
+
+    /// An injected line is not the user speaking, so it skips the bubble.
+    @Test func anInjectedOnlyUserMessageSkipsTheBubble() {
+        let result = pieces([message("m", .user, [.injected(.slashCommand(name: "clear"), text: "/clear")])])
+        #expect(result.map(\.wash) == [ChatPiece.Wash.none])
+    }
+
+    // MARK: - Oversized blocks
+
+    private func codeMessage(lines count: Int) -> ChatMessage {
+        let code = (1...count).map { "let value\($0) = \($0)" }.joined(separator: "\n")
+        return message("m", .assistant, [.markdown("```swift\n\(code)\n```")])
+    }
+
+    @Test func aLongCodeBlockSplitsIntoSegmentsThatJoinBackUp() {
+        let result = pieces([codeMessage(lines: 40)])
+        #expect(result.count > 1)
+        #expect(result.map(\.id) == (0..<result.count).map { "m/0/0/\($0)" })
+
+        let segments: [CodeSegment] = result.compactMap {
+            if case .codeSegment(let segment) = $0.content { return segment }
+            return nil
+        }
+        #expect(segments.count == result.count)
+        #expect(segments.map(\.code).joined(separator: "\n") == segments[0].fullCode)
+        #expect(segments.map(\.position) == [.first, .middle, .last])
+        #expect(segments.allSatisfy { $0.language == "swift" })
+        // Segments butt up against one another, so the split leaves no seam.
+        #expect(result.dropFirst().allSatisfy { $0.topInset == 0 })
+    }
+
+    @Test func anOrdinaryCodeBlockStaysWhole() {
+        let result = pieces([codeMessage(lines: 20)])
+        #expect(result.map(\.id) == ["m/0/0"])
+        guard case .codeSegment(let segment) = result[0].content else {
+            Issue.record("expected a code piece")
+            return
+        }
+        #expect(segment.position == .single)
+    }
+
+    /// A diagram is one artifact: splitting it would draw it twice.
+    @Test func aMermaidFenceIsNeverSplit() {
+        let body = (1...60).map { "  A --> B\($0)" }.joined(separator: "\n")
+        let result = pieces([message("m", .assistant, [.markdown("```mermaid\ngraph TD\n\(body)\n```")])])
+        #expect(result.count == 1)
+        guard case .codeSegment(let segment) = result[0].content else {
+            Issue.record("expected a code piece")
+            return
+        }
+        #expect(segment.isMermaid)
+        #expect(segment.position == .single)
+    }
+
+    @Test func aLongNumberedListSplitsAndKeepsCounting() {
+        let items = (1...30).map { "\($0). Item number \($0)" }.joined(separator: "\n")
+        let result = pieces([message("m", .assistant, [.markdown(items)])])
+        #expect(result.count > 1)
+
+        let segments: [ListSegment] = result.compactMap {
+            if case .listSegment(let segment) = $0.content { return segment }
+            return nil
+        }
+        #expect(segments.count == result.count)
+        #expect(segments.map(\.items).flatMap { $0 }.count == 30)
+        #expect(segments.map(\.kind) == Array(repeating: .numbered, count: segments.count))
+        var expected = 1
+        for segment in segments {
+            #expect(segment.startNumber == expected)
+            expected += segment.items.count
+        }
+        #expect(result.dropFirst().allSatisfy { $0.topInset == ChatBlockSpacing.listSegmentSpacing })
+    }
+
+    /// Segments would size their columns independently and the join would show.
+    @Test func aTableIsNeverSplit() {
+        let rows = (1...60).map { "| row \($0) | value \($0) |" }.joined(separator: "\n")
+        let result = pieces([message("m", .assistant, [.markdown("| a | b |\n| --- | --- |\n\(rows)")])])
+        #expect(result.count == 1)
+        guard case .markdown(.table, 0) = result[0].content else {
+            Issue.record("expected a table piece, got \(result[0].content)")
+            return
+        }
+    }
+
+    // MARK: - Spacing
+
+    @Test func theFirstPieceOfTheListPaysTheListsOwnInset() {
+        let result = pieces([message("m", .assistant, [.markdown("hi")])])
+        #expect(result[0].topInset == dimensions.verticalPadding)
+    }
+
+    @Test func messagesSpaceAsTheirRowsDidAndToolCallRunsStillCollapse() {
+        let messages = [
+            message("a", .user, [.markdown("go")]),
+            message("b", .assistant, [toolCall("1")]),
+            message("c", .assistant, [toolCall("2")]),
+            message("d", .assistant, [.markdown("done")])
+        ]
+        let expected = ChatBlockSpacing.rowTopInsets(messages, dimensions: dimensions)
+        #expect(pieces(messages).map(\.topInset) == expected)
+    }
+
+    @Test func blocksWithinAMessageSpaceByRole() {
+        let user = pieces([message("m", .user, [.markdown("a"), .markdown("b")])])
+        #expect(user[1].topInset == ChatBlockSpacing.userBlockSpacing)
+
+        let notice = pieces([message("m", .notice, [
+            .notice(ChatNotice(kind: .info, title: "one", detail: nil)),
+            .notice(ChatNotice(kind: .info, title: "two", detail: nil))
+        ])])
+        #expect(notice[1].topInset == ChatBlockSpacing.noticeBlockSpacing)
+
+        let assistant = pieces([message("m", .assistant, [toolCall("1"), toolCall("2")])])
+        #expect(assistant[1].topInset == dimensions.toolCallSpacing)
+    }
+
+    /// A notice message pays a little above its first block and below its
+    /// last, which one row used to draw as its own vertical padding.
+    @Test func aNoticeMessagePaysItsOwnPaddingAtTheEdges() {
+        let result = pieces([message("m", .notice, [
+            .notice(ChatNotice(kind: .info, title: "one", detail: nil)),
+            .notice(ChatNotice(kind: .info, title: "two", detail: nil))
+        ])])
+        #expect(result[0].topInset
+            == dimensions.verticalPadding + ChatBlockSpacing.noticeVerticalPadding)
+        #expect(result[0].bottomInset == 0)
+        #expect(result[1].bottomInset == ChatBlockSpacing.noticeVerticalPadding)
+    }
+
+    @Test func aNonInitialHeadingKeepsTheSpaceItOpensASectionWith() {
+        let result = pieces([message("m", .assistant, [.markdown("Body.\n\n## Section\n\nMore.")])])
+        #expect(result[1].topInset
+            == dimensions.blockSpacing + dimensions.headingTopSpacing(level: 2))
+        #expect(result[2].topInset == dimensions.blockSpacing)
+    }
+
+    @Test func theWorkingIndicatorSitsABlockBelowWhateverPrecedesIt() {
+        let following = pieces(
+            [message("m", .assistant, [.markdown("hi")])],
+            status: .working
+        )
+        #expect(following.last?.topInset == dimensions.messageBlockSpacing)
+
+        let alone = pieces([message("m", .assistant, [])], status: .working)
+        #expect(alone.map(\.id) == ["m/working"])
+        #expect(alone[0].topInset == dimensions.verticalPadding)
+    }
+
+    @Test func theStreamTakesTheGapItWillHaveOnceItSettles() {
+        let afterProse = pieces(
+            [message("m", .assistant, [.markdown("hi")])],
+            streaming: ChatStreamHandoff.Overlay(text: "more")
+        )
+        #expect(afterProse[1].topInset == dimensions.messageBlockSpacing)
+
+        let afterCall = pieces(
+            [message("m", .assistant, [toolCall("1")])],
+            streaming: ChatStreamHandoff.Overlay(text: "more")
+        )
+        #expect(afterCall[1].topInset == dimensions.messageSpacing)
+    }
+
+    // MARK: - The streaming overlay
+
+    /// Everything above the block still arriving is settled markdown, so a
+    /// long reply mid-stream is as bounded as the transcript it becomes.
+    @Test func onlyTheBlockStillArrivingStaysLive() {
+        let result = pieces(
+            [message("m", .user, [.markdown("go")])],
+            streaming: ChatStreamHandoff.Overlay(text: "Settled paragraph.\n\nStill arri")
+        )
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "stream/live"])
+        guard case .markdown(.paragraph("Settled paragraph."), 0) = result[1].content else {
+            Issue.record("expected a settled paragraph, got \(result[1].content)")
+            return
+        }
+        #expect(result[2].content == .streaming(ChatStreamHandoff.Overlay(text: "Still arri")))
+        #expect(result[2].topInset == dimensions.blockSpacing)
+    }
+
+    @Test func liveThinkingStaysOnePiece() {
+        let result = pieces(
+            [message("m", .user, [.markdown("go")])],
+            streaming: ChatStreamHandoff.Overlay(thinking: "considering", text: "Hello")
+        )
+        #expect(result.map(\.id) == ["m/0/0", "stream/thinking", "stream/live"])
+        #expect(result[1].content == .streaming(ChatStreamHandoff.Overlay(thinking: "considering")))
+        #expect(result[2].topInset == ChatBlockSpacing.streamingBlockSpacing)
+    }
+
+    // MARK: - The cache
+
+    @Test func theCacheParsesOnlyWhatChanged() {
+        let cache = ChatPieceCache()
+        let messages = [
+            message("a", .assistant, [.markdown("One.")]),
+            message("b", .assistant, [.markdown("Two.")])
+        ]
+        let first = cache.pieces(
+            for: messages,
+            status: .idle,
+            hiddenToolUseIDs: [],
+            streaming: .init(),
+            dimensions: dimensions
+        )
+        #expect(cache.parseCount == 2)
+
+        let again = cache.pieces(
+            for: messages,
+            status: .idle,
+            hiddenToolUseIDs: [],
+            streaming: .init(),
+            dimensions: dimensions
+        )
+        #expect(cache.parseCount == 2)
+        #expect(first == again)
+
+        _ = cache.pieces(
+            for: [messages[0], message("b", .assistant, [.markdown("Two, revised.")])],
+            status: .idle,
+            hiddenToolUseIDs: [],
+            streaming: .init(),
+            dimensions: dimensions
+        )
+        #expect(cache.parseCount == 3)
+    }
+
+    /// Keyed by markdown source and pruned to what the messages hold, so the
+    /// cache never outgrows the transcript on screen.
+    @Test func theCacheForgetsWhatTheTranscriptNoLongerHolds() {
+        let cache = ChatPieceCache()
+        func build(_ text: String) {
+            _ = cache.pieces(
+                for: [message("a", .assistant, [.markdown(text)])],
+                status: .idle,
+                hiddenToolUseIDs: [],
+                streaming: .init(),
+                dimensions: dimensions
+            )
+        }
+        build("One.")
+        build("Two.")
+        build("One.")
+        #expect(cache.parseCount == 3)
+    }
+}

@@ -44,6 +44,12 @@ struct ChatMessageList: View, ThemedView {
 
     @State private var settings = AppSettings.shared
 
+    /// The list's lazy items. Built in `onChange` rather than in `body`:
+    /// markdown parsing must not run on the render path, and writing
+    /// observable state during a body is what spins SwiftUI forever.
+    @State private var pieces: [ChatPiece] = []
+    @State private var cache = ChatPieceCache()
+
     private var session: HeadlessSession? {
         guard let tabID else { return nil }
         return HeadlessSessionManager.shared.existingSession(for: tabID)
@@ -66,12 +72,6 @@ struct ChatMessageList: View, ThemedView {
     }
 
     var body: some View {
-        let lastMessageID = messages.last?.id
-        let streaming = streaming
-        // The overlay belongs on the trailing assistant message so the live
-        // text continues its paragraph. A turn that has not produced one yet
-        // gets a row of its own, after the user's message.
-        let attachesToLastMessage = messages.last?.role == .assistant
         ScrollView {
             // Lazy so a long transcript only builds the rows on screen.
             //
@@ -82,49 +82,30 @@ struct ChatMessageList: View, ThemedView {
             // settles and pins the main thread — `docs/chat-list-hang.md`.
             // The scroll view's own anchors follow the bottom instead.
             LazyVStack(alignment: .leading, spacing: 0) {
-                // Every gap between rows is the following row's top inset, so
-                // that a run of tool calls can close up while a row meeting
-                // anything else keeps the full space.
-                let rowInsets = ChatBlockSpacing.rowTopInsets(messages, dimensions: dimensions)
-                ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                    // Only the newest row reflects live status, so only
-                    // it reads `status`. Passing it to every row made a
-                    // status change invalidate the whole list.
-                    let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
-                        messageID: message.id,
-                        lastMessageID: lastMessageID
-                    )
-                    let isStreamingRow = isLast && attachesToLastMessage && !streaming.isEmpty
-                    ChatMessageRow(
-                        message: message,
-                        isLast: isLast,
-                        status: isLast ? status : .unset,
-                        pendingToolUseIDs: isLast ? pendingToolUseIDs : [],
-                        streaming: isLast && attachesToLastMessage ? streaming : .init()
-                    )
-                    // Height rather than the row itself: an animated insert or
-                    // move inside a lazy stack would drive the placement pass
-                    // the hang doc warns about.
-                    //
-                    // The row carrying the stream is left alone. Its height
-                    // already changes every frame as the reveal draws, so
-                    // easing it only retargets an animation that never
-                    // reaches a fixed point.
-                    .animatedHeight(enabled: settings.animateRowHeight && !isStreamingRow)
-                    .listItemPadding(bleed: true, column: .unpadded, vertical: false)
-                    .padding(.top, rowInsets[index])
-                }
-                if !attachesToLastMessage, !streaming.isEmpty {
-                    // The stream stands in for the assistant row it will
-                    // become, so it takes that row's inset and the reply
-                    // doesn't shift as the transcript takes over.
-                    StreamingBlocks(overlay: streaming)
+                // One item per piece, not per message, so no item is tall
+                // enough to make the stack's height estimates oscillate.
+                // Every gap between items is the following one's top inset.
+                ForEach(pieces) { piece in
+                    ChatPieceView(piece: piece)
+                        // Height rather than the item itself: an animated
+                        // insert or move inside a lazy stack would drive the
+                        // placement pass the hang doc warns about.
+                        //
+                        // The piece carrying the stream is left alone. Its
+                        // height already changes every frame as the reveal
+                        // draws, so easing it only retargets an animation
+                        // that never reaches a fixed point. A piece whose
+                        // wash continues into its neighbours is left alone
+                        // too: an eased height opens a seam in the join.
+                        .animatedHeight(
+                            enabled: settings.animateRowHeight
+                                && !piece.isStreaming
+                                && !piece.isJoined
+                        )
                         .listItemPadding(bleed: true, column: .unpadded, vertical: false)
-                        .padding(.top, ChatBlockSpacing.rowTopInset(
-                            previous: messages.last.map(ChatBlockSpacing.rowKind),
-                            current: .other,
-                            dimensions: dimensions
-                        ))
+                        .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
+                        .padding(.bottom, piece.bottomInset)
+                        .chatItemStatsProbe(id: piece.id)
                 }
                 if let tabID {
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
@@ -137,6 +118,12 @@ struct ChatMessageList: View, ThemedView {
             }
             .scrollTargetLayout()
         }
+        .chatItemStatsViewport()
+        .onChange(of: messages, initial: true) { rebuildPieces() }
+        .onChange(of: status) { rebuildPieces() }
+        .onChange(of: pendingToolUseIDs) { rebuildPieces() }
+        .onChange(of: streaming) { rebuildPieces() }
+        .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
@@ -172,8 +159,8 @@ struct ChatMessageList: View, ThemedView {
             }
         }
         #if DEBUG
-        .task(id: messages.count) {
-            await ScrollExercise.run(messages: messages) { id in
+        .task(id: pieces.count) {
+            await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
                 position.scrollTo(id: id, anchor: .top)
             }
         }
@@ -193,6 +180,19 @@ struct ChatMessageList: View, ThemedView {
             .opacity(isDetached ? 1 : 0)
             .allowsHitTesting(isDetached)
         }
+    }
+
+    private func rebuildPieces() {
+        pieces = cache.pieces(
+            for: messages,
+            status: status,
+            hiddenToolUseIDs: pendingToolUseIDs,
+            streaming: streaming,
+            dimensions: dimensions
+        )
+        #if DEBUG
+        ChatItemStats.shared.setOrder(pieces.map(\.id))
+        #endif
     }
 
     private func scrollToBottomButton(action: @escaping () -> Void) -> some View {

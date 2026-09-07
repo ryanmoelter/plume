@@ -35,6 +35,30 @@ enum ChatStreamHandoff {
         )
     }
 
+    /// The stream's prose split into what has settled and what is still
+    /// growing.
+    ///
+    /// Only the last block can still change, so everything above it is handed
+    /// to the list as ordinary markdown pieces and only the tail keeps
+    /// revealing. This is what stops a long reply from being one item over a
+    /// thousand points tall while it arrives.
+    struct SettledStream: Equatable {
+        var blocks: [MarkdownBlock] = []
+        /// The raw source of the block still arriving.
+        var tail: String = ""
+        var tailBlock: MarkdownBlock?
+    }
+
+    static func settledBlocks(in text: String) -> SettledStream {
+        let parsed = MarkdownBlock.parseWithSources(text)
+        guard let last = parsed.last else { return SettledStream() }
+        return SettledStream(
+            blocks: parsed.dropLast().map(\.block),
+            tail: last.source,
+            tailBlock: last.block
+        )
+    }
+
     /// Whether the transcript already carries this streamed text.
     ///
     /// A prefix match rather than equality: the transcript's own block may

@@ -33,6 +33,7 @@ struct InjectedContentRow: View, ThemedView {
             .emphasis(.secondary)
         }
         .listItemPadding(vertical: false)
+        .chatItemExpansionProbe(isExpanded)
     }
 
     @ViewBuilder

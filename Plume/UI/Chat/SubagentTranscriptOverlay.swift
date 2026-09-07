@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A subagent's whole conversation, over the chat, rendered by the same
-/// `ChatMessageRow` the main transcript uses.
+/// `ChatPieceView` the main transcript uses.
 ///
 /// A plain `VStack` rather than the main list's `LazyVStack`: a subagent
 /// transcript is tens of rows, not thousands, and nothing scrolls it
@@ -20,6 +20,16 @@ struct SubagentTranscriptOverlay: View, ThemedView {
         subagent.transcript.messages
     }
 
+    private var pieces: [ChatPiece] {
+        ChatPieceSplitter.pieces(
+            for: messages,
+            status: subagent.status,
+            hiddenToolUseIDs: [],
+            streaming: ChatStreamHandoff.Overlay(),
+            dimensions: dimensions
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -32,18 +42,14 @@ struct SubagentTranscriptOverlay: View, ThemedView {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(messages) { message in
-                            // Live status belongs to the last row only, the
-                            // same rule the main list follows.
-                            let isLast = message.id == messages.last?.id
-                            ChatMessageRow(
-                                message: message,
-                                isLast: isLast,
-                                status: isLast ? subagent.status : .unset
-                            )
-                            .listItemPadding(bleed: true, column: .unpadded)
+                        ForEach(pieces) { piece in
+                            ChatPieceView(piece: piece)
+                                .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                                .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
+                                .padding(.bottom, piece.bottomInset)
                         }
                     }
+                    .padding(.bottom, dimensions.verticalPadding)
                 }
             }
         }

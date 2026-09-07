@@ -10,16 +10,13 @@ struct StreamingBlocks: View, ThemedView {
     @Environment(\.theme) var theme
 
     let overlay: ChatStreamHandoff.Overlay
-    /// What the stream is drawn below, within the message holding it. Nil at
-    /// the standalone mount, where the list row around it pays the gap.
-    var follows: ChatBlockSpacing.Kind?
 
     @State private var settings = AppSettings.shared
     @State private var progress = RevealProgress()
     @State private var revealedCount: Double = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: ChatBlockSpacing.streamingBlockSpacing) {
             if !overlay.thinking.isEmpty {
                 Text(overlay.thinking)
                     .font(typography.body.font)
@@ -38,7 +35,6 @@ struct StreamingBlocks: View, ThemedView {
                 }
             }
         }
-        .padding(.top, ChatBlockSpacing.streamingTopInset(previous: follows, dimensions: dimensions))
         .onChange(of: overlay.text, initial: true) { _, text in
             withAnimation(progress.advance(to: text)) {
                 revealedCount = Double(text.count)
