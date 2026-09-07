@@ -86,16 +86,11 @@ struct ChatPiece: Identifiable, Equatable {
     var paysInsetOutside: Bool { !isJoined || segment == .first }
 }
 
-/// A slice of one fenced code block. A block short enough to stay whole is a
-/// single segment carrying the whole thing.
+/// One fenced code block, always whole: a long one is bounded and scrolls
+/// inside itself rather than being split across pieces.
 struct CodeSegment: Equatable {
     var language: String?
-    /// This segment's lines.
     var code: String
-    /// The whole block, which the copy button yields whichever segment it
-    /// happens to sit on.
-    var fullCode: String
-    var position: ChatPiece.Segment = .single
     var isMermaid: Bool = false
 }
 

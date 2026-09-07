@@ -154,35 +154,31 @@ struct ChatPieceSplitterTests {
         return message("m", .assistant, [.markdown("```swift\n\(code)\n```")])
     }
 
-    @Test func aLongCodeBlockSplitsIntoSegmentsThatJoinBackUp() {
-        let result = pieces([codeMessage(lines: 40)])
-        #expect(result.count > 1)
-        #expect(result.map(\.id) == (0..<result.count).map { "m/0/0/\($0)" })
-
-        let segments: [CodeSegment] = result.compactMap {
-            if case .codeSegment(let segment) = $0.content { return segment }
-            return nil
-        }
-        #expect(segments.count == result.count)
-        #expect(segments.map(\.code).joined(separator: "\n") == segments[0].fullCode)
-        #expect(segments.map(\.position) == [.first, .middle, .last])
-        #expect(segments.allSatisfy { $0.language == "swift" })
-        // Segments butt up against one another, so the split leaves no seam.
-        #expect(result.dropFirst().allSatisfy { $0.topInset == 0 })
-    }
-
-    @Test func anOrdinaryCodeBlockStaysWhole() {
-        let result = pieces([codeMessage(lines: 20)])
+    /// A code block is one artifact: it stays one piece however long it is,
+    /// and the view bounds it instead.
+    @Test func aLongCodeBlockStaysOnePiece() {
+        let result = pieces([codeMessage(lines: 400)])
         #expect(result.map(\.id) == ["m/0/0"])
         guard case .codeSegment(let segment) = result[0].content else {
             Issue.record("expected a code piece")
             return
         }
-        #expect(segment.position == .single)
+        #expect(segment.language == "swift")
+        #expect(segment.code.components(separatedBy: "\n").count == 400)
+        #expect(ChatPieceMetrics.scrollsCode(segment.code))
     }
 
-    /// A diagram is one artifact: splitting it would draw it twice.
-    @Test func aMermaidFenceIsNeverSplit() {
+    @Test func anOrdinaryCodeBlockDoesNotScrollInsideItself() {
+        let result = pieces([codeMessage(lines: 10)])
+        #expect(result.map(\.id) == ["m/0/0"])
+        guard case .codeSegment(let segment) = result[0].content else {
+            Issue.record("expected a code piece")
+            return
+        }
+        #expect(!ChatPieceMetrics.scrollsCode(segment.code))
+    }
+
+    @Test func aMermaidFenceIsOnePiece() {
         let body = (1...60).map { "  A --> B\($0)" }.joined(separator: "\n")
         let result = pieces([message("m", .assistant, [.markdown("```mermaid\ngraph TD\n\(body)\n```")])])
         #expect(result.count == 1)
@@ -191,7 +187,6 @@ struct ChatPieceSplitterTests {
             return
         }
         #expect(segment.isMermaid)
-        #expect(segment.position == .single)
     }
 
     @Test func aLongNumberedListSplitsAndKeepsCounting() {

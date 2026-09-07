@@ -57,7 +57,6 @@ struct MarkdownBlockView: View, ThemedView {
             CodeSegmentView(segment: CodeSegment(
                 language: language,
                 code: code,
-                fullCode: code,
                 isMermaid: MermaidDocument.isMermaidFence(language: language)
             ))
 
@@ -284,12 +283,11 @@ struct ListSegmentView: View, ThemedView {
     }
 }
 
-/// A fenced code block, or one slice of a long one.
+/// A fenced code block, always drawn whole.
 ///
-/// A slice pays its inner padding and rounds its corners only on the edges it
-/// owns, so consecutive slices join without a seam. Each keeps its own
-/// horizontal scroll view — the cost of splitting, which the line threshold in
-/// `ChatPieceMetrics` keeps rare.
+/// A block taller than `ChatPieceMetrics.maxCodeHeight` is bounded at it and
+/// scrolls inside itself, which is what keeps it from towering over the chat
+/// list's other lazy items (`ChatPieceSplitter`).
 struct CodeSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -314,31 +312,34 @@ struct CodeSegmentView: View, ThemedView {
     }
 
     private var code: some View {
+        scroller
+            .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+    }
+
+    /// A block over the ceiling gains a vertical scroll view and a fixed
+    /// height. A short one must not: a scroll view is greedy along its axis,
+    /// so wrapping every block would stretch each one to the full ceiling.
+    @ViewBuilder
+    private var scroller: some View {
+        if ChatPieceMetrics.scrollsCode(segment.code) {
+            ScrollView(.vertical) { lines }
+                .frame(height: ChatPieceMetrics.maxCodeHeight)
+        } else {
+            lines
+        }
+    }
+
+    private var lines: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             Text(segment.code)
                 .font(typography.body.mono)
                 .foregroundStyle(colors.foreground)
-                .padding(.horizontal, padding)
-                .padding(.top, segment.position.isFirst ? padding : 0)
-                .padding(.bottom, segment.position.isLast ? padding : 0)
+                .padding(padding)
         }
-        .background(colors.surfaceTint, in: shape)
     }
 
-    @ViewBuilder
     private var copyButton: some View {
-        if segment.position.isFirst {
-            CodeBlockCopyButton(code: segment.fullCode, isRevealed: isHovered)
-        }
-    }
-
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: segment.position.isFirst ? radius : 0,
-            bottomLeadingRadius: segment.position.isLast ? radius : 0,
-            bottomTrailingRadius: segment.position.isLast ? radius : 0,
-            topTrailingRadius: segment.position.isFirst ? radius : 0
-        )
+        CodeBlockCopyButton(code: segment.code, isRevealed: isHovered)
     }
 
     private var padding: CGFloat { 14 }

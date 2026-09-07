@@ -181,3 +181,9 @@ Astra (the codex MCP's default model, medium effort) reviewed the first draft. C
 - Made real height measurement mandatory, with a global ratio alongside the windowed one, and listed the heights the ceiling does not bound.
 - Folded oversized splitting into phase 1 and made phase 3 measurement; added the streaming, expanded-row and viewport cases to verification; noted that parsing is not prefix-stable for phase 4.
 - Kept as future options rather than adopting: a small actual minimum height on the shortest rows (E1 evidence) if the stats show the small side matters.
+
+## Changed while building
+
+- **Code blocks are not split.** A block over the ceiling stays one piece and scrolls vertically inside itself, bounded at 300 pt by `CodeSegmentView`. Splitting cost the reader a continuous scroll through the block and gave each segment its own horizontal scroll view; bounding costs neither. `CodeSegment` therefore carries no position or full text — every one is whole.
+- **A list splits as soon as it is over the ceiling**, with no "worth it" threshold, because its segments join at the gap its items already have. `listChunks` makes them equal length so a list just over the ceiling does not end on one item.
+- **A block that draws nothing takes no item** — a tool call the pending dock has taken over, a thinking block with no text — which removed an 8 pt row from the short side.

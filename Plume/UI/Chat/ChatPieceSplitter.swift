@@ -7,8 +7,9 @@ import Foundation
 /// under momentum scrolling — the hang in `docs/chat-list-hang.md`. One item
 /// per message put a 2,000 pt reply beside a 23 pt notice, so the list places
 /// pieces instead: one markdown block, one tool call, one notice, each capped
-/// at `ChatPieceMetrics.maxPieceHeight` by splitting the kinds that can be
-/// split. Nothing the reader sees changes.
+/// at `ChatPieceMetrics.maxPieceHeight` — by splitting a long list, and by
+/// bounding a long code block so it scrolls inside itself. Nothing the reader
+/// sees changes.
 ///
 /// Pure, so the whole model can be tested without a view.
 enum ChatPieceSplitter {
@@ -253,35 +254,18 @@ enum ChatPieceSplitter {
 
     private static func segments(of block: MarkdownBlock, at index: Int) -> [Segmented] {
         switch block {
+        // A code block is never split. It stays one piece and `CodeSegmentView`
+        // bounds a long one at `ChatPieceMetrics.maxCodeHeight`, scrolling
+        // inside itself, so the reader keeps one continuous block to scroll.
         case .codeBlock(let language, let code):
-            let isMermaid = MermaidDocument.isMermaidFence(language: language)
-            // A diagram is one artifact; splitting it would draw it twice.
-            guard !isMermaid, ChatPieceMetrics.splitsCode(code) else {
-                return [Segmented(
-                    content: .codeSegment(CodeSegment(
-                        language: language,
-                        code: code,
-                        fullCode: code,
-                        isMermaid: isMermaid
-                    )),
-                    joinInset: 0
-                )]
-            }
-            let chunks = ChatPieceMetrics.chunks(
-                ChatPieceMetrics.lines(of: code),
-                limit: ChatPieceMetrics.codeSegmentLines
-            )
-            return chunks.enumerated().map { position, lines in
-                Segmented(
-                    content: .codeSegment(CodeSegment(
-                        language: language,
-                        code: lines.joined(separator: "\n"),
-                        fullCode: code,
-                        position: place(position, of: chunks.count)
-                    )),
-                    joinInset: 0
-                )
-            }
+            return [Segmented(
+                content: .codeSegment(CodeSegment(
+                    language: language,
+                    code: code,
+                    isMermaid: MermaidDocument.isMermaidFence(language: language)
+                )),
+                joinInset: 0
+            )]
 
         case .bulletList(let items), .numberedList(let items):
             let kind: ListSegment.Kind = {
