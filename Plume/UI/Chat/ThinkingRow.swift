@@ -26,6 +26,7 @@ struct ThinkingRow: View, ThemedView {
                     .emphasis(.subtle)
             }
             .listItemPadding(vertical: false)
+            .chatItemExpansionProbe(expanded)
         }
     }
 }

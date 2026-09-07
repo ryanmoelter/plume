@@ -27,6 +27,20 @@ nonisolated enum MarkdownBlock: Equatable {
         case trailing
     }
 
+    /// A short name for the case, for the chat list's stats probe.
+    var kindName: String {
+        switch self {
+        case .heading: "heading"
+        case .paragraph: "paragraph"
+        case .bulletList: "bulletList"
+        case .numberedList: "numberedList"
+        case .codeBlock: "codeBlock"
+        case .quote: "quote"
+        case .table: "table"
+        case .rule: "rule"
+        }
+    }
+
     /// Whether a table's header carries anything worth showing.
     ///
     /// An all-empty header is the key-value form of a table, where a blank
@@ -35,10 +49,33 @@ nonisolated enum MarkdownBlock: Equatable {
         header.contains { !$0.isEmpty }
     }
 
+    /// A block alongside the raw lines it was parsed from.
+    ///
+    /// The streaming overlay needs the source of the block still growing, so
+    /// the settled ones can be handed to the list as ordinary pieces while
+    /// only the tail keeps revealing.
+    nonisolated struct Parsed: Equatable {
+        let block: MarkdownBlock
+        let source: String
+    }
+
     static func parse(_ text: String) -> [MarkdownBlock] {
+        parseWithSources(text).map(\.block)
+    }
+
+    static func parseWithSources(_ text: String) -> [Parsed] {
         let lines = text.components(separatedBy: "\n")
-        var blocks: [MarkdownBlock] = []
+        var blocks: [Parsed] = []
         var index = 0
+
+        func append(_ block: MarkdownBlock, from start: Int, to end: Int) {
+            let lower = min(max(0, start), lines.count)
+            let bounded = lower..<max(lower, min(end, lines.count))
+            blocks.append(Parsed(
+                block: block,
+                source: bounded.isEmpty ? "" : lines[bounded].joined(separator: "\n")
+            ))
+        }
 
         while index < lines.count {
             let line = lines[index]
@@ -63,27 +100,31 @@ nonisolated enum MarkdownBlock: Equatable {
                 }
                 // Unterminated fence: cursor ran off the end. Keep the
                 // captured content instead of discarding it.
-                blocks.append(.codeBlock(language: language, code: codeLines.joined(separator: "\n")))
+                append(
+                    .codeBlock(language: language, code: codeLines.joined(separator: "\n")),
+                    from: index,
+                    to: cursor + 1
+                )
                 index = cursor + 1
                 continue
             }
 
             if let level = headingLevel(trimmed) {
                 let text = String(trimmed.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                blocks.append(.heading(level: level, text: text))
+                append(.heading(level: level, text: text), from: index, to: index + 1)
                 index += 1
                 continue
             }
 
             // Before `isRule`, so a delimiter row is never mistaken for one.
             if let table = tableAt(index, in: lines) {
-                blocks.append(table.block)
+                append(table.block, from: index, to: table.nextIndex)
                 index = table.nextIndex
                 continue
             }
 
             if isRule(trimmed) {
-                blocks.append(.rule)
+                append(.rule, from: index, to: index + 1)
                 index += 1
                 continue
             }
@@ -97,7 +138,7 @@ nonisolated enum MarkdownBlock: Equatable {
                     quoteLines.append(String(candidate.dropFirst()).trimmingCharacters(in: .whitespaces))
                     cursor += 1
                 }
-                blocks.append(.quote(quoteLines.joined(separator: "\n")))
+                append(.quote(quoteLines.joined(separator: "\n")), from: index, to: cursor)
                 index = cursor
                 continue
             }
@@ -111,7 +152,7 @@ nonisolated enum MarkdownBlock: Equatable {
                     items.append(item)
                     cursor += 1
                 }
-                blocks.append(.bulletList(items))
+                append(.bulletList(items), from: index, to: cursor)
                 index = cursor
                 continue
             }
@@ -125,7 +166,7 @@ nonisolated enum MarkdownBlock: Equatable {
                     items.append(item)
                     cursor += 1
                 }
-                blocks.append(.numberedList(items))
+                append(.numberedList(items), from: index, to: cursor)
                 index = cursor
                 continue
             }
@@ -149,7 +190,7 @@ nonisolated enum MarkdownBlock: Equatable {
                 paragraphLines.append(candidate)
                 cursor += 1
             }
-            blocks.append(.paragraph(paragraphLines.joined(separator: "\n")))
+            append(.paragraph(paragraphLines.joined(separator: "\n")), from: index, to: cursor)
             index = cursor
         }
 

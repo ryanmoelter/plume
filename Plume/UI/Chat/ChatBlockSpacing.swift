@@ -89,12 +89,72 @@ enum ChatBlockSpacing {
         }
     }
 
+    /// Gap between two blocks of a user's message, from `userBody`'s stack.
+    static let userBlockSpacing: CGFloat = 8
+
+    /// Gap between two blocks of a notice message, from `noticeBody`'s stack.
+    static let noticeBlockSpacing: CGFloat = 6
+
+    /// Space a notice message pays above its first block and below its last.
+    static let noticeVerticalPadding: CGFloat = 4
+
+    /// Gap between two segments of one split list, matching the gap between
+    /// the items within a segment.
+    static let listSegmentSpacing: CGFloat = 4
+
+    /// Gap between the streaming overlay's thinking text and its prose, from
+    /// `StreamingBlocks`' stack.
+    static let streamingBlockSpacing: CGFloat = 8
+
+    /// Gap above one block, by the role of the message holding it. Only the
+    /// assistant's blocks vary with what sits above them; the other two roles
+    /// stack at a fixed spacing.
+    static func blockTopInset(
+        previous: Kind?,
+        current: Kind,
+        role: ChatMessage.Role,
+        dimensions: Dimensions
+    ) -> CGFloat {
+        guard previous != nil else { return 0 }
+        switch role {
+        case .assistant:
+            return blockTopInset(previous: previous, current: current, dimensions: dimensions)
+        case .user:
+            return userBlockSpacing
+        case .notice:
+            return noticeBlockSpacing
+        }
+    }
+
+    /// Gap above one block of parsed markdown, within the block list one
+    /// `.markdown` block produces. Reproduces what `MarkdownView` puts
+    /// between its own blocks, including the extra a non-initial heading
+    /// takes.
+    static func markdownBlockTopInset(
+        _ block: MarkdownBlock,
+        at index: Int,
+        dimensions: Dimensions
+    ) -> CGFloat {
+        guard index > 0 else { return 0 }
+        guard case .heading(let level, _) = block else { return dimensions.blockSpacing }
+        return dimensions.blockSpacing + dimensions.headingTopSpacing(level: level)
+    }
+
     private static func collapses(_ previous: Kind, _ current: Kind) -> Bool {
         previous == .toolCall && current == .toolCall
     }
 
-    private static func isRendered(_ block: ChatBlock, hiddenToolUseIDs: Set<String>) -> Bool {
-        if case .toolCall(let call) = block { return !hiddenToolUseIDs.contains(call.id) }
-        return true
+    /// Whether a block draws anything.
+    ///
+    /// A call the pending dock has taken over draws nothing here, and real
+    /// transcripts carry thinking blocks with no text — `ThinkingRow` renders
+    /// nothing for those rather than an empty expander. Neither takes a gap
+    /// nor counts as the block above the next one.
+    static func isRendered(_ block: ChatBlock, hiddenToolUseIDs: Set<String> = []) -> Bool {
+        switch block {
+        case .toolCall(let call): !hiddenToolUseIDs.contains(call.id)
+        case .thinking(let text): !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        default: true
+        }
     }
 }
