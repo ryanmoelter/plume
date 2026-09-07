@@ -475,12 +475,12 @@ What exists:
 
 - [ ] Assignable hotkeys for next/previous tab and next/previous task, so I can set them to alt+J/K and alt+shift+J/K (cmd instead of alt is fine too).
 - [ ] ⌘T opens a new tab in the current task.
-- [ ] Swap the two: ⌘T opens a terminal tab, ⌘⌥T opens an agent tab.
+- [x] Swap the two: ⌘T opens a terminal tab, ⌘⌥T opens an agent tab.
 - [x] ⌘W closes the current tab, not the window.
 
 What exists: next/previous *tab* is already bound to ⌘⇧] / ⌘⇧[ (`PlumeCommands`), and ⌘T already opens a tab in the current task — it's labelled "New Agent Tab", with ⌘⇧T for a terminal tab. Collapsing to one tab kind (see **Tabs and window chrome**) makes ⌘T just "New Tab" and frees ⌘⇧T. Nothing is user-assignable: every shortcut is hardcoded in a SwiftUI `Commands` body, so making them configurable means a binding store, a settings UI, and a way to apply a stored binding to a menu command. Alt-based chords are also the case most likely to collide with the terminal swallowing keys, which ties this to the focus item under **Misc UX**.
 
-**The swap is a relabelling, and a stopgap.** ⌘T is "New Agent Tab" and ⌘⇧T the terminal one today, so this exchanges the two commands' keys and moves the second off ⇧ onto ⌥. It holds until the one-tab-kind collapse under **Tabs and window chrome** lands, at which point ⌘T becomes a plain "New Tab" and the second key is free again. Not a conflict — an ordering.
+**The swap shipped, and it is a relabelling, and a stopgap.** ⌘T was "New Agent Tab" and ⌘⇧T the terminal one; the change exchanges the two commands' keys and moves the second off ⇧ onto ⌥, so ⌘T now opens a terminal tab and ⌘⌥T an agent tab. It holds until the one-tab-kind collapse under **Tabs and window chrome** lands, at which point ⌘T becomes a plain "New Tab" and the second key is free again. Not a conflict — an ordering.
 
 **Next/previous task shipped**, hardcoded to ⌘] / ⌘[ — the same keys as the tab commands, minus shift, and free of any existing binding. `PlumeCommands`' `Tab` menu gets two more items backed by a new `selectAdjacentTask` focused value; `MainWindow` supplies it from a `navigableTasks` list (groups in order, then ungrouped) walked with the same `SidebarKeyboardNavigation.destination` helper the sidebar's arrow keys already use, so ⌘] / ⌘[ land on the same task an arrow key would and don't wrap at either end. Unlike the per-task `TaskCommands`, this focused value stays available with nothing selected, so it can select the first task the way an arrow key does. Assignability is still unaddressed — out of scope for this pass.
 
