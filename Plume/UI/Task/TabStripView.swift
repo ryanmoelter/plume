@@ -17,6 +17,10 @@ struct TabStripView: View {
                     select: { TaskStore.selectTab(tab, in: task) },
                     close: { TaskStore.closeTab(tab, in: context) }
                 )
+                .draggable(tab.id.uuidString)
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    reorder(draggedIDs, before: tab)
+                }
             }
 
             Menu {
@@ -34,10 +38,38 @@ struct TabStripView: View {
             .accessibilityIdentifier(AccessibilityID.newTabButton)
 
             Spacer()
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    reorder(draggedIDs, before: nil)
+                }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .themeTint(colorScheme: colorScheme)
+    }
+
+    /// Moves the dragged tab immediately before `target`, or to the end when
+    /// `target` is nil (dropped past the last chip). Reordering only rewrites
+    /// `orderIndex` through `TaskStore.moveTabs` — surfaces are keyed by tab
+    /// id and untouched by it.
+    private func reorder(_ draggedIDStrings: [String], before target: TaskTab?) -> Bool {
+        guard let idString = draggedIDStrings.first, let draggedID = UUID(uuidString: idString) else {
+            return false
+        }
+        let ordered = task.orderedTabs
+        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return false }
+
+        let destination: Int
+        if let target {
+            guard target.id != draggedID, let targetIndex = ordered.firstIndex(where: { $0.id == target.id }) else {
+                return false
+            }
+            destination = targetIndex
+        } else {
+            destination = ordered.count
+        }
+
+        TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: destination)
+        return true
     }
 }
 
