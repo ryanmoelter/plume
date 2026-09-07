@@ -57,7 +57,7 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 ## Model aliases
 
-**The short aliases resolve to the 256K models, not the 1M ones.** Measured by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
+**The short aliases resolve to the 200K models, not the 1M ones.** Measured by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
 
 | `--model` | `init` reports |
 | --- | --- |
@@ -73,8 +73,8 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 Three things follow.
 
-- **`[1m]` names a different model, not a decoration.** Getting the 1M context window means passing the suffixed ID; the alias never lands there on its own. So `AgentModel.opus`/`.sonnet`/`.haiku` are the suffixed IDs, and `recognizing(_:)` promotes a reported `[1m]` to the 1M variant rather than stripping it. An unspecified context window means 1M, so these display without a size suffix; only the 256K models in `AgentModel.more` carry one.
-- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable` is `claude-fable-5-1` and is labelled without a size — not because it's 1M by convention, but because it has no 256K form to distinguish from.
+- **`[1m]` names a different model, not a decoration.** Getting the 1M context window means passing the suffixed ID; the alias never lands there on its own. So `AgentModel.opus`/`.sonnet`/`.haiku` are the suffixed IDs, and `recognizing(_:)` promotes a reported `[1m]` to the 1M variant rather than stripping it. An unspecified context window means 1M, so these display without a size suffix; only the 200K models in `AgentModel.more` carry one.
+- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable` is `claude-fable-5-1` and is labelled without a size — not because it's 1M by convention, but because it has no 200K form to distinguish from.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
 
 ## Sending a turn

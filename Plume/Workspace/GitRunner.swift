@@ -59,6 +59,13 @@ nonisolated enum GitRunner {
     static func currentBranch(in repository: String) -> String? {
         try? run(["rev-parse", "--abbrev-ref", "HEAD"], in: repository)
     }
+
+    /// The directory git actually writes refs and the index to. In a linked
+    /// worktree that is `<repository>/.git/worktrees/<name>`, not the
+    /// worktree's own `.git`, which is a pointer file nothing ever rewrites.
+    static func gitDirectory(containing path: String) -> String? {
+        try? run(["rev-parse", "--absolute-git-dir"], in: path)
+    }
 }
 
 /// One entry from `git worktree list` — the repository's own checkout plus

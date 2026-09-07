@@ -43,6 +43,7 @@ struct ToolCallRow: View, ThemedView {
                 .truncationMode(.tail)
         }
         .listItemPadding(vertical: false)
+        .chatItemExpansionProbe(expanded)
     }
 
     @ViewBuilder

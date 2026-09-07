@@ -1,3 +1,4 @@
+import Dispatch
 import GhosttyTerminal
 import SwiftUI
 
@@ -27,10 +28,15 @@ struct TerminalTabView: View {
             // the render invalidate itself.
             .onChange(of: isVisible, initial: true) { _, visible in
                 session.state.isSurfaceVisible = visible
-                if visible {
-                    session.state.requestFocus()
-                    markBellSeen()
-                }
+                guard visible else { return }
+                // Deferred a tick: switching *tasks* replaces this whole
+                // subtree (tabs are keyed by id, and a new task's tabs share
+                // none with the old one's), so the outgoing tab's view is
+                // still resigning real first responder when this fires.
+                // Claiming it in the same transaction loses the race
+                // silently; the next run loop turn wins it.
+                DispatchQueue.main.async { session.state.requestFocus() }
+                markBellSeen()
             }
             .onChange(of: session.bellCount) { previous, current in
                 guard current > previous else { return }

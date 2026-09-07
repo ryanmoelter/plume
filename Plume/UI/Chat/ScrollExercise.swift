@@ -7,7 +7,7 @@ import SwiftUI
 /// without UI scripting. Each run logs its progress so it is observable from
 /// outside the app.
 ///
-/// `PLUME_SCROLL_EXERCISE=<seconds>` jumps between messages spread across the
+/// `PLUME_SCROLL_EXERCISE=<seconds>` jumps between items spread across the
 /// transcript on that interval. `PLUME_SCROLL_WHEEL=<points>` instead moves the
 /// backing `NSScrollView` that many points per frame, reversing at either end,
 /// which is the shape of a real trackpad scroll and what a lazy stack sees.
@@ -18,18 +18,18 @@ enum ScrollExercise {
     static let wheelStep: Double? = ProcessInfo.processInfo.environment["PLUME_SCROLL_WHEEL"]
         .flatMap(Double.init)
 
-    static func run(messages: [ChatMessage], scrollTo: @escaping (String) -> Void) async {
-        guard messages.count >= 8 else { return }
+    static func run(pieceIDs: [String], scrollTo: @escaping (String) -> Void) async {
+        guard pieceIDs.count >= 8 else { return }
         if let wheelStep, wheelStep > 0 {
             await wheel(step: wheelStep)
         } else if let jumpInterval, jumpInterval > 0 {
-            await jump(messages: messages, scrollTo: scrollTo, interval: jumpInterval)
+            await jump(pieceIDs: pieceIDs, scrollTo: scrollTo, interval: jumpInterval)
         }
     }
 
-    private static func jump(messages: [ChatMessage], scrollTo: @escaping (String) -> Void, interval: Double) async {
-        let step = max(1, messages.count / 12)
-        var targets = stride(from: 0, to: messages.count, by: step).map { messages[$0].id }
+    private static func jump(pieceIDs: [String], scrollTo: @escaping (String) -> Void, interval: Double) async {
+        let step = max(1, pieceIDs.count / 12)
+        var targets = stride(from: 0, to: pieceIDs.count, by: step).map { pieceIDs[$0] }
         targets += targets.reversed()
         var index = 0
         while !Task.isCancelled {

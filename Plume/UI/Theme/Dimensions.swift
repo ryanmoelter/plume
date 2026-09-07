@@ -66,6 +66,18 @@ struct Dimensions {
     /// to code.
     let blockSpacing: CGFloat
 
+    /// Gap between two messages in the chat list. The rows themselves carry
+    /// no vertical inset, so this is the whole of it.
+    let messageSpacing: CGFloat = 40
+
+    /// Gap between two blocks of one message — prose to a tool call, a tool
+    /// call to the turn in flight.
+    let messageBlockSpacing: CGFloat = 8
+
+    /// Gap between consecutive tool calls, whether they sit in one message or
+    /// in a run of messages. Tight enough that a run reads as one list.
+    let toolCallSpacing: CGFloat = 4
+
     private let bodySize: CGFloat
 
     init(bodySize: CGFloat) {
@@ -89,4 +101,21 @@ struct Dimensions {
         }
         return bodySize * multiplier
     }
+
+    /// Between one statusline segment and the next. Wider than the panel's
+    /// own rhythm because each segment is two stacked lines, and a tighter
+    /// gap would read as one column.
+    let statuslineSegmentSpacing: CGFloat = 14
+
+    /// Between a meter's reading and its bar.
+    let statuslineMeterSpacing: CGFloat = 3
+
+    /// Above and below the statusline row, which carries two lines per
+    /// segment rather than one.
+    let statuslineVerticalPadding: CGFloat = 6
+
+    /// Between the meters and Remote Control's antenna — wider than
+    /// `panelContentInset` so the antenna doesn't read as one more segment of
+    /// the group it's actually reporting on.
+    let statuslineTrailingGap: CGFloat = 16
 }

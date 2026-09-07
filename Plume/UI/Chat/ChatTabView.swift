@@ -252,11 +252,13 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
-    /// above it: the plan bar when a plan is minimized, then the composer,
-    /// then the session facts under it. One glass surface carries all three.
+    /// above it: the plan dock bar when a plan is minimized, then the
+    /// composer, then the session facts under it. One glass surface carries
+    /// all three. A closed plan's own button lives in the composer's controls
+    /// row instead of up here — see `ComposerControlsRow.showsPlanButton`.
     private func composerPanel(transcript: Transcript) -> some View {
         VStack(spacing: 0) {
-            if planPresentation == .minimized, let planFilePath {
+            if let planFilePath, planPresentation == .minimized {
                 planDockBar(path: planFilePath)
                     .transition(.opacity)
                 Divider()
@@ -266,7 +268,9 @@ struct ChatTabView: View, ThemedView {
                 tab: tab,
                 isVisible: isVisible,
                 hasContentAbove: planPresentation == .minimized,
-                editQueuedMessageIndex: $editQueuedMessageIndex
+                editQueuedMessageIndex: $editQueuedMessageIndex,
+                showsPlanButton: planFilePath != nil && planPresentation == .closed,
+                onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -279,44 +283,54 @@ struct ChatTabView: View, ThemedView {
     /// Session-wide facts, below the composer rather than above it: what the
     /// conversation has spent reads as a footnote to the message being
     /// written rather than as a heading over it.
+    ///
+    /// It reads left to right as where this runs, then what it has spent,
+    /// then whether anyone else can drive it. Every segment but the branch
+    /// name holds its own intrinsic size (`.fixedSize()`, here and in
+    /// `WorkspacePickerView`) — the branch is the one that gives way first
+    /// when the row runs out of room.
     private func statuslineFooter(transcript: Transcript) -> some View {
-        HStack(spacing: 0) {
-            StatuslineStripView(
-                // Both arrive on a turn result, so a resumed conversation has
-                // neither until it takes a turn: the transcript's last usage
-                // and the tab's stored window cover that gap.
-                // contextMaxTokens falls back further still, to the model's
-                // nominal window — known before either does.
-                contextUsedTokens: headlessSession?.contextUsedTokens
-                    ?? transcript.latestUsage?.contextUsedTokens,
-                contextMaxTokens: headlessSession?.contextWindow
-                    ?? tab.contextWindowTokens
-                    ?? headlessSession?.nominalContextWindow
-                    ?? tab.model?.nominalContextWindow,
-                branch: transcript.gitBranch,
-                gitState: GitStateStore.shared.state(for: gitDirectory),
-                rateLimit: headlessSession?.rateLimit,
-                sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
-            )
-            if let planFilePath, planPresentation != .minimized {
-                planButton(path: planFilePath)
+        HStack(alignment: .top, spacing: dimensions.panelContentInset) {
+            workspaceGroup
+            Spacer(minLength: dimensions.panelContentInset)
+            HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
+                StatuslineStripView(
+                    // Both arrive on a turn result, so a resumed conversation has
+                    // neither until it takes a turn: the transcript's last usage
+                    // and the tab's stored window cover that gap.
+                    // contextMaxTokens falls back further still, to the model's
+                    // nominal window — known before either does.
+                    contextUsedTokens: headlessSession?.contextUsedTokens
+                        ?? transcript.latestUsage?.contextUsedTokens,
+                    contextMaxTokens: headlessSession?.contextWindow
+                        ?? tab.contextWindowTokens
+                        ?? headlessSession?.nominalContextWindow
+                        ?? tab.model?.nominalContextWindow,
+                    rateLimit: headlessSession?.rateLimit,
+                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+                )
+                if let headlessSession {
+                    RemoteControlControl(session: headlessSession)
+                }
             }
+            .fixedSize()
         }
         // The one leading edge the composer's text and controls also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.statuslineVerticalPadding)
     }
 
-    private func planButton(path: String) -> some View {
-        Button {
-            planPresentation = .expanded
-        } label: {
-            Label("Plan", systemImage: "doc.text")
-        }
-        .buttonStyle(.plain)
-        .font(.caption)
-        .emphasis(.secondary)
-        .padding(.leading, dimensions.panelContentInset)
-        .padding(.vertical, 4)
+    /// Where this runs: the folder, the worktree, and that worktree's own
+    /// ahead/behind and dirty markers. Editable only until an agent starts,
+    /// which fixes the working directory.
+    private var workspaceGroup: some View {
+        WorkspacePickerView(
+            task: task,
+            isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            state: GitStateStore.shared.state(for: gitDirectory)
+        )
+        .font(typography.caption.font)
+        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
     }
 
     /// A wash of the chat's own surface, so the glass reads as the chat holding
@@ -546,11 +560,23 @@ struct ChatTabView: View, ThemedView {
             }
             Spacer()
             GlassEffectContainer {
-                ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                    .disabled(!isComposerEnabled)
-                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                    .listItemPadding(vertical: false)
-                    .padding(.bottom, dimensions.panelInset)
+                // The same panel the conversation gets, minus the facts a
+                // session has yet to produce: choosing where this runs is
+                // exactly what matters before the first message.
+                VStack(spacing: 0) {
+                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                        .disabled(!isComposerEnabled)
+                    Divider()
+                    HStack(spacing: 0) {
+                        workspaceGroup
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, dimensions.composerFieldInset)
+                    .padding(.vertical, dimensions.statuslineVerticalPadding)
+                }
+                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                .listItemPadding(vertical: false)
+                .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

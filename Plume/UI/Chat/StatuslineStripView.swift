@@ -1,8 +1,8 @@
 import SwiftUI
 import Foundation
 
-/// The statusline strip: context-window use, 5h/7d quota, session cost, and
-/// branch — a native equivalent of `~/.scripts/.claude/statusline.sh`.
+/// The statusline strip's meters: context-window use, 5h/7d quota and session
+/// cost — a native equivalent of `~/.scripts/.claude/statusline.sh`.
 ///
 /// Everything is a plain parameter so it previews and renders without a
 /// store. `contextMaxTokens` may be a measured value or the model's assumed
@@ -10,21 +10,27 @@ import Foundation
 /// reach a headless session, so those segments render only when the stream
 /// has pushed them.
 ///
+/// Each meter stacks its reading over its bar. Side by side the two ran the
+/// full width of the panel for what is a percentage; stacked, the bar can be
+/// no wider than the number above it.
+///
+/// The strip hugs its content: `ChatTabView.statuslineFooter` puts the
+/// workspace group on the row's leading edge and Remote Control on its
+/// trailing one, so the whole row reads left to right as where this runs,
+/// then what it has spent.
+///
 /// What a message will do next — permission mode, model, effort — lives in
 /// `ChatComposer` instead: those describe the *next* turn, not the session as
 /// a whole, and reading them at the point of sending is more useful than
-/// reading them above the transcript. `ComposerControlsRow` shares this
-/// file's `MeterView`/`segmentLabel` styling.
+/// reading them above the transcript. Both rows share the segment styling
+/// `ComposerControlsRow.swift` defines (`ComposerSegmentLabel`,
+/// `StatuslineColors`).
 struct StatuslineStripView: View, ThemedView {
     @Environment(\.theme) var theme
 
     // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
-    let branch: String?
-    /// Ahead/behind and dirty, which no transcript or stream event carries —
-    /// Plume runs `git` for these itself.
-    let gitState: GitState?
 
     // Stream-derived, headless only — nil segments are simply omitted.
     let rateLimit: RateLimitInfo?
@@ -33,21 +39,19 @@ struct StatuslineStripView: View, ThemedView {
     init(
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
-        branch: String? = nil,
-        gitState: GitState? = nil,
         rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
     ) {
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
-        self.branch = branch
-        self.gitState = gitState
         self.rateLimit = rateLimit
         self.sessionCostUSD = sessionCostUSD
     }
 
     var body: some View {
-        HStack(spacing: 14) {
+        // Top-aligned: a segment's reading is its first line, so the costs and
+        // the meters line up along it whether or not a bar follows.
+        HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
             contextSegment
             if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
@@ -71,15 +75,8 @@ struct StatuslineStripView: View, ThemedView {
                 costSegment(sessionCostUSD)
                     .accessibilityIdentifier(AccessibilityID.statuslineCost)
             }
-            if let branch, !branch.isEmpty {
-                branchSegment(branch)
-                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
-            }
-            Spacer(minLength: 0)
         }
         .font(typography.caption.font)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - Segments
@@ -90,49 +87,22 @@ struct StatuslineStripView: View, ThemedView {
 
         if contextUsedTokens != nil || percent != nil {
             let attention = StatuslineAttention.attention(contextTokens: contextUsedTokens, percent: percent)
-            HStack(spacing: 5) {
-                Text(tokenLabel(used: contextUsedTokens, max: contextMaxTokens))
-                MeterView(fraction: StatuslineMeterMath.fraction(percent: percent), color: color(for: attention))
-                    .frame(width: StatuslineMeterWidth.context)
-            }
-            .foregroundStyle(foreground(for: attention))
+            StackedMeter(
+                reading: tokenLabel(used: contextUsedTokens, max: contextMaxTokens),
+                fraction: StatuslineMeterMath.fraction(percent: percent),
+                barWidth: StatuslineMeterWidth.context,
+                attention: attention
+            )
+            .help("Context window used")
+            .accessibilityLabel("Context window")
+            .accessibilityIdentifier(AccessibilityID.statuslineContextMeter)
         }
     }
 
     private func costSegment(_ cost: Double) -> some View {
         Text(String(format: "$%.2f", cost))
-            .foregroundStyle(foreground(for: .neutral))
-    }
-
-    /// Ahead/behind and dirty ride alongside the branch, which is where they
-    /// read as one fact about the working tree rather than three segments.
-    private func branchSegment(_ branch: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-            Text(branch)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if let gitState {
-                if let ahead = gitState.ahead, ahead > 0 {
-                    Text("↑\(ahead)")
-                }
-                if let behind = gitState.behind, behind > 0 {
-                    Text("↓\(behind)")
-                }
-                // No upstream at all is worth saying: it is the common case
-                // on a fresh worktree branch, and silence would read as
-                // "level with upstream".
-                if !gitState.hasUpstream {
-                    Text("no upstream")
-                        .foregroundStyle(foreground(for: .neutral).opacity(colors.emphasis[.subtle]))
-                }
-                if gitState.isDirty {
-                    Text("•")
-                        .help("Uncommitted changes")
-                }
-            }
-        }
-        .foregroundStyle(foreground(for: .neutral))
+            .foregroundStyle(StatuslineColors.statuslineText(for: .neutral, colors: colors))
+            .help("What this session has cost so far")
     }
 
     // MARK: - Helpers
@@ -159,27 +129,45 @@ struct StatuslineStripView: View, ThemedView {
         }
         return "\(count)"
     }
-
-    private func color(for attention: StatuslineAttention) -> Color {
-        StatuslineColors.meter(for: attention, colors: colors)
-    }
-
-    private func foreground(for attention: StatuslineAttention) -> Color {
-        StatuslineColors.foreground(for: attention, colors: colors)
-    }
 }
 
 /// Bar lengths, longest first: the context window reads most precisely, the
-/// seven-day quota next, the five-hour quota least.
+/// seven-day quota next, the five-hour quota least. The row now lays out from
+/// each segment's own intrinsic size rather than squeezing to fit, so these
+/// can run a bit longer than a reading needs and still cost nothing but the
+/// branch chip's own truncation room.
 enum StatuslineMeterWidth {
-    static let context: CGFloat = 56
+    static let context: CGFloat = 50
     static let quota: CGFloat = 36
-    static let shortQuota: CGFloat = 24
+    static let shortQuota: CGFloat = 28
 }
 
-/// A quota window's compact meter: `5d` (the reset countdown, falling back to
-/// the raw window label) over a bar, with the percentage alongside it — the
-/// shape the roadmap asked for, `5d: 15%` over `|----________|`.
+/// A reading over its bar — the shape every meter in the strip takes.
+struct StackedMeter: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let reading: String
+    let fraction: Double
+    let barWidth: CGFloat
+    let attention: StatuslineAttention
+
+    var body: some View {
+        // Centered rather than leading: the reading and the bar rarely share
+        // a width (a short reading over a long bar, or the reverse), and
+        // centering is what keeps whichever is narrower looking placed
+        // rather than merely left-aligned with the other.
+        VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
+            Text(reading)
+                .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
+                .lineLimit(1)
+            MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
+                .frame(width: barWidth)
+        }
+    }
+}
+
+/// A quota window's compact meter: the reset countdown and the percentage —
+/// `5d 15%` — over its bar.
 struct StatuslineMeterSegment: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -195,14 +183,18 @@ struct StatuslineMeterSegment: View, ThemedView {
 
     var body: some View {
         let percent = utilization * 100
-        let attention = StatuslineAttention.attention(percent: percent)
-        HStack(spacing: 5) {
-            Text(resetLabel)
-            MeterView(fraction: StatuslineMeterMath.fraction(percent: percent), color: StatuslineColors.meter(for: attention, colors: colors))
-                .frame(width: barWidth)
-            Text("\(Int(percent.rounded()))%")
-        }
-        .foregroundStyle(StatuslineColors.foreground(for: attention, colors: colors))
+        StackedMeter(
+            reading: "\(resetLabel) \(Int(percent.rounded()))%",
+            fraction: StatuslineMeterMath.fraction(percent: percent),
+            barWidth: barWidth,
+            attention: StatuslineAttention.attention(percent: percent)
+        )
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        guard resetLabel != label else { return "\(label) quota used" }
+        return "\(label) quota used, resetting in \(resetLabel)"
     }
 
     private var resetLabel: String {
@@ -216,6 +208,83 @@ struct StatuslineMeterSegment: View, ThemedView {
             return "\(Int((seconds + 1800) / 3600))h"
         }
         return "\(Int((seconds + 30) / 60))m"
+    }
+}
+
+/// Remote Control's own segment, driving the same `setRemoteControl` the
+/// typed `/rc` does. A session-wide fact like quota and cost, so it sits in
+/// the statusline rather than beside the next turn's settings. Absent before
+/// a session exists, since there is no bridge to attach to until then.
+struct RemoteControlControl: View, ThemedView {
+    @Environment(\.theme) var theme
+    let session: HeadlessSession
+
+    var body: some View {
+        Menu {
+            switch session.remoteControl {
+            case .connected(let link):
+                Button("Disconnect Remote Control") { session.setRemoteControl(enabled: false) }
+                if let url = link.shareableURL {
+                    Button("Copy Remote Control Link") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url, forType: .string)
+                    }
+                }
+            default:
+                Button("Connect Remote Control") { session.setRemoteControl(enabled: true) }
+            }
+        } label: {
+            ComposerSegmentLabel(
+                systemImage: symbol,
+                text: "Remote Control",
+                showsText: false,
+                foreground: tint,
+                height: dimensions.composerControlHeight
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(helpText)
+        .accessibilityLabel("Remote Control")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
+    }
+
+    private var symbol: String {
+        switch session.remoteControl {
+        case .connected, .connecting: return "antenna.radiowaves.left.and.right"
+        case .disconnected, .failed: return "antenna.radiowaves.left.and.right.slash"
+        }
+    }
+
+    /// A live bridge means someone else can drive this session, which is worth
+    /// its own color; a failure is worth another. Connecting and off are
+    /// ordinary statusline chrome and dim with the rest of the strip.
+    private var tint: Color {
+        switch session.remoteControl {
+        case .connected: return colors.attention
+        case .failed: return colors.danger
+        case .connecting, .disconnected:
+            return colors.foreground.opacity(colors.emphasis[.secondary])
+        }
+    }
+
+    private var accessibilityValue: String {
+        switch session.remoteControl {
+        case .disconnected: return "Off"
+        case .connecting: return "Connecting"
+        case .connected: return "On"
+        case .failed(let message): return "Failed: \(message)"
+        }
+    }
+
+    private var helpText: String {
+        switch session.remoteControl {
+        case .connected: return "Remote Control is on \u{2014} this session is on claude.ai/code"
+        case .connecting: return "Connecting to Remote Control\u{2026}"
+        case .failed(let message): return "Remote Control failed: \(message)"
+        case .disconnected: return "Remote Control \u{2014} drive this session from your phone or claude.ai/code"
+        }
     }
 }
 
@@ -250,6 +319,19 @@ enum StatuslineColors {
         case .red: return colors.danger
         }
     }
+
+    /// The strip's own text: neutral dims to secondary so the eye lands on
+    /// the box content and the composer's model/effort/permission dropdowns
+    /// instead, while yellow and red keep `foreground`'s full-strength
+    /// attention hue — that is the one signal this row still needs to win.
+    /// `ComposerControlsRow` keeps calling `foreground` directly, since its
+    /// dropdowns are next-turn controls the row is not trying to de-emphasize.
+    static func statuslineText(for attention: StatuslineAttention, colors: Palette) -> Color {
+        switch attention {
+        case .neutral: return colors.foreground.opacity(colors.emphasis[.secondary])
+        case .yellow, .red: return foreground(for: attention, colors: colors)
+        }
+    }
 }
 
 /// A small capsule meter — the native stand-in for the shell script's braille
@@ -281,8 +363,7 @@ struct MeterView: View, ThemedView {
 #Preview("Terminal transport") {
     StatuslineStripView(
         contextUsedTokens: 82_000,
-        contextMaxTokens: 200_000,
-        branch: "ryanm/native-chat-ui"
+        contextMaxTokens: 200_000
     )
     .frame(width: 640)
 }
@@ -291,7 +372,6 @@ struct MeterView: View, ThemedView {
     StatuslineStripView(
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
-        branch: "ryanm/native-chat-ui",
         rateLimit: RateLimitInfo(
             fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
             sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),

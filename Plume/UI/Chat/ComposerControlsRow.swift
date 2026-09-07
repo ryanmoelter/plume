@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// What the *next* message will do: where it runs (folder and worktree, on
-/// the left) and how it runs (model, effort, permission mode, on the right).
-/// The dropdowns read `HeadlessSession` state rather than the transcript.
-/// Session-wide facts (quota, cost, branch) stay in `StatuslineStripView`;
-/// these describe the turn about to be sent, so they live beside the send
-/// button instead.
+/// What the *next* message will do: model, effort and permission mode, in the
+/// composer beside the send button. The dropdowns read `HeadlessSession`
+/// state rather than the transcript.
+///
+/// Session-wide facts — where this runs, quota, cost, Remote Control — sit in
+/// the statusline below instead; these describe the turn about to be sent.
 ///
 /// Before a session exists the same three controls read and write the tab's
 /// own persisted values, which is what `AgentLauncher` launches from — so the
@@ -22,26 +22,33 @@ struct ComposerControlsRow: View, ThemedView {
     @Bindable var task: WorkTask
     @Bindable var tab: TaskTab
     let headlessSession: HeadlessSession?
-    /// False once an agent is running: the working directory is fixed at
-    /// launch, so the workspace chips render as labels.
-    var isWorkspaceEditable = true
+    /// The plan a conversation has produced, when it's closed rather than
+    /// minimized or expanded — `ChatTabView` owns `PlanPresentation` and
+    /// decides when that's true. Minimized keeps its own dock bar above the
+    /// composer; expanded is a full overlay with nothing to open from here.
+    var showsPlanButton = false
+    var onOpenPlan: () -> Void = {}
+
+    /// The row's own width, which the parent sets: every segment hugs its
+    /// content and the leading `Spacer` absorbs the rest, so the form the
+    /// segments take can never change this measurement.
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
         HStack(spacing: dimensions.panelContentInset) {
-            WorkspacePickerView(task: task, isEditable: isWorkspaceEditable)
-                .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
-            Spacer(minLength: dimensions.panelContentInset)
-            if let headlessSession {
-                RemoteControlControl(session: headlessSession)
+            if showsPlanButton {
+                PlanButton(form: form, action: onOpenPlan)
             }
-            ModelControl(state: settings)
-            EffortControl(state: settings)
-            PermissionModeControl(state: settings)
+            Spacer(minLength: 0)
+            ModelControl(state: settings, form: form)
+            EffortControl(state: settings, form: form)
+            PermissionModeControl(state: settings, form: form)
         }
         .font(typography.caption.font)
         // The row sits level with the send and stop circles beside it, so
         // every segment takes their height rather than its own text's.
         .frame(minHeight: dimensions.composerControlHeight)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
     }
 
     private var settings: ComposerSettings {
@@ -51,14 +58,148 @@ struct ComposerControlsRow: View, ThemedView {
             defaults: .resolved(task: task)
         )
     }
+
+    /// The measured width belongs to the whole row, Plan button included, so
+    /// its own estimated width comes off the top before the three next-turn
+    /// controls decide whether they fit.
+    private var form: ComposerControlsForm {
+        let planReservation = showsPlanButton
+            ? ComposerControlsMetrics.segmentWidth(label: "Plan") + dimensions.panelContentInset
+            : 0
+        return ComposerControlsMetrics.form(
+            availableWidth: availableWidth - planReservation,
+            labels: ComposerControlLabels.all(state: settings),
+            spacing: dimensions.panelContentInset
+        )
+    }
 }
 
-/// A real dropdown — `.menuStyle(.borderlessButton)` supplies the one chevron
-/// this label needs, so `segmentLabel` never draws its own.
-private func segmentLabel(_ text: String, foreground: Color, height: CGFloat) -> some View {
-    Text(text)
-        .foregroundStyle(foreground)
-        .frame(height: height)
+/// The three segment labels, in one place so the row can measure exactly what
+/// the controls will draw.
+enum ComposerControlLabels {
+    @MainActor
+    static func all(state: ComposerSettings) -> [String] {
+        [model(state), state.effort.label, state.permissionMode?.label].compactMap { $0 }
+    }
+
+    /// A tab that has never chosen one launches without `--model` and runs on
+    /// the CLI's configured model, so the label names that rather than going
+    /// blank — and marks it a default, since nothing has been pinned.
+    @MainActor
+    static func model(_ state: ComposerSettings) -> String {
+        guard let model = state.model else { return "Model" }
+        return state.isModelDefaulted ? "Default (\(model.label))" : model.label
+    }
+}
+
+/// Whether the segments name themselves or collapse to their icons.
+enum ComposerControlsForm {
+    case labels
+    case iconsOnly
+
+    var showsLabels: Bool { self == .labels }
+}
+
+/// Whether the three labelled segments fit the width the row was given.
+///
+/// The widths are estimates from character counts rather than measurements:
+/// the decision only needs to be right within a segment's width, and a real
+/// measurement would mean laying the row out twice. Biased to collapse
+/// slightly early, since a clipped control is worse than an early icon.
+enum ComposerControlsMetrics {
+    /// Average advance of the caption font, rounded up.
+    static let glyphWidth: CGFloat = 6.5
+    static let iconWidth: CGFloat = 15
+    /// The chevron a segment draws — `.menuStyle(.borderlessButton)`'s own
+    /// for the three menus, `PlanButton`'s manual one for the same width.
+    static let chevronWidth: CGFloat = 13
+    static let iconToLabelGap: CGFloat = 4
+
+    static func segmentWidth(label: String) -> CGFloat {
+        iconWidth + iconToLabelGap + CGFloat(label.count) * glyphWidth + chevronWidth
+    }
+
+    static var collapsedSegmentWidth: CGFloat { iconWidth + chevronWidth }
+
+    static func requiredWidth(labels: [String], spacing: CGFloat) -> CGFloat {
+        guard !labels.isEmpty else { return 0 }
+        let segments = labels.reduce(0) { $0 + segmentWidth(label: $1) }
+        return segments + spacing * CGFloat(labels.count - 1)
+    }
+
+    /// An unmeasured row shows labels: the first pass renders before any
+    /// geometry arrives, and starting collapsed would flash icons on every
+    /// wide window.
+    static func form(availableWidth: CGFloat, labels: [String], spacing: CGFloat) -> ComposerControlsForm {
+        guard availableWidth > 0 else { return .labels }
+        return requiredWidth(labels: labels, spacing: spacing) <= availableWidth ? .labels : .iconsOnly
+    }
+}
+
+/// A menu segment's label: its icon, and its text unless the row has
+/// collapsed.
+///
+/// The icon is interpolated into the `Text` rather than left as an `Image`:
+/// the popup button `.menuStyle(.borderlessButton)` draws renders a bare
+/// image as a template in its own control color and drops `foregroundStyle`,
+/// so the tint never lands. That style also supplies the one chevron these
+/// labels need, so none of them draws its own — `showsTrailingChevron` is for
+/// `PlanButton`, a plain `Button` with no menu style to draw one for it.
+struct ComposerSegmentLabel: View {
+    let systemImage: String
+    let text: String
+    var showsText = true
+    var showsTrailingChevron = false
+    let foreground: Color
+    let height: CGFloat
+
+    var body: some View {
+        label
+            .foregroundStyle(foreground)
+            .lineLimit(1)
+            .frame(height: height)
+    }
+
+    private var label: Text {
+        let icon = Text("\(Image(systemName: systemImage))")
+        guard showsText else { return icon }
+        var result = icon + Text("  ") + Text(text)
+        if showsTrailingChevron {
+            result = result + Text(" \(Image(systemName: "chevron.right"))")
+        }
+        return result
+    }
+}
+
+/// The plan a conversation has produced, when it exists and is closed. Sits
+/// on the row's leading edge, across the `Spacer` from the next-turn
+/// controls it shares no subject with — a document the conversation already
+/// wrote, not a setting for the message being composed.
+///
+/// The chevron marks it clickable the way a disclosure indicator would; a
+/// plain `Button` draws none of its own the way `.menuStyle(.borderlessButton)`
+/// does for the menu segments beside it.
+private struct PlanButton: View, ThemedView {
+    @Environment(\.theme) var theme
+    let form: ComposerControlsForm
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ComposerSegmentLabel(
+                systemImage: "doc.text",
+                text: "Plan",
+                showsText: form.showsLabels,
+                showsTrailingChevron: true,
+                foreground: colors.foreground,
+                height: dimensions.composerControlHeight
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Open the plan this conversation produced")
+        .accessibilityLabel("Plan")
+        .accessibilityIdentifier(AccessibilityID.planLinkButton)
+    }
 }
 
 /// A mode this UI does not offer still shows its reported name — better a
@@ -66,24 +207,28 @@ private func segmentLabel(_ text: String, foreground: Color, height: CGFloat) ->
 private struct PermissionModeControl: View, ThemedView {
     @Environment(\.theme) var theme
     let state: ComposerSettings
+    let form: ComposerControlsForm
 
     var body: some View {
         if let mode = state.permissionMode {
             Menu {
                 ForEach(PermissionMode.allCases) { option in
-                    Button(option.label) { state.setPermissionMode(option) }
+                    Button(option.label, systemImage: option.symbol) { state.setPermissionMode(option) }
                 }
             } label: {
-                segmentLabel(
-                    mode.label,
+                ComposerSegmentLabel(
+                    systemImage: mode.symbol,
+                    text: mode.label,
+                    showsText: form.showsLabels,
                     foreground: foreground(for: attention(mode)),
                     height: dimensions.composerControlHeight
                 )
                 .unconfirmed(state.isModeAndModelUnconfirmed)
             }
             .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help(state.modeAndModelHelp("Permission mode"))
+            .help(state.modeAndModelHelp("Permission mode: \(mode.label)"))
+            .accessibilityLabel("Permission mode")
+            .accessibilityValue(mode.label)
             .accessibilityIdentifier(AccessibilityID.composerPermissionModeControl)
         }
     }
@@ -102,6 +247,7 @@ private struct PermissionModeControl: View, ThemedView {
 private struct ModelControl: View, ThemedView {
     @Environment(\.theme) var theme
     let state: ComposerSettings
+    let form: ComposerControlsForm
 
     @State private var isAskingForCustomID = false
     @State private var customID = ""
@@ -123,12 +269,19 @@ private struct ModelControl: View, ThemedView {
                 Button("Other…") { isAskingForCustomID = true }
             }
         } label: {
-            segmentLabel(label, foreground: colors.foreground, height: dimensions.composerControlHeight)
-                .unconfirmed(state.isModelAwaitingConfirmation)
+            ComposerSegmentLabel(
+                systemImage: "brain",
+                text: label,
+                showsText: form.showsLabels,
+                foreground: colors.foreground,
+                height: dimensions.composerControlHeight
+            )
+            .unconfirmed(state.isModelAwaitingConfirmation)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(state.modeAndModelHelp("Model"))
+        .help(state.modeAndModelHelp("Model: \(label)"))
+        .accessibilityLabel("Model")
+        .accessibilityValue(label)
         .accessibilityIdentifier(AccessibilityID.composerModelControl)
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
@@ -137,13 +290,7 @@ private struct ModelControl: View, ThemedView {
         }
     }
 
-    /// A tab that has never chosen one launches without `--model` and runs on
-    /// the CLI's configured model, so the label names that rather than going
-    /// blank — and marks it a default, since nothing has been pinned.
-    private var label: String {
-        guard let model = state.model else { return "Model" }
-        return state.isModelDefaulted ? "Default (\(model.label))" : model.label
-    }
+    private var label: String { ComposerControlLabels.model(state) }
 }
 
 /// Takes a model ID the menu has no item for. Free text, because the CLI
@@ -181,27 +328,31 @@ private struct CustomModelIDField: View {
 private struct EffortControl: View, ThemedView {
     @Environment(\.theme) var theme
     let state: ComposerSettings
+    let form: ComposerControlsForm
 
     var body: some View {
         Menu {
             ForEach(AgentEffort.allCases) { option in
-                Button(option.label) { state.setEffort(option) }
+                Button(option.label, systemImage: option.symbol) { state.setEffort(option) }
             }
         } label: {
             // Nothing reports the CLI's own effort back (see `HeadlessSession.
             // setEffort`), so an untouched tab shows the app default, which is
             // also what seeds the session.
-            segmentLabel(
-                state.effort.label,
+            ComposerSegmentLabel(
+                systemImage: state.effort.symbol,
+                text: state.effort.label,
+                showsText: form.showsLabels,
                 foreground: foreground(for: attention(state.effort)),
                 height: dimensions.composerControlHeight
             )
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
         // Changing effort has no control request, so it sends an ordinary
         // chat turn — that turn appearing in the transcript is expected.
-        .help("Effort (sends a message to change)")
+        .help("Effort: \(state.effort.label) (changing it sends a message)")
+        .accessibilityLabel("Effort")
+        .accessibilityValue(state.effort.label)
         .accessibilityIdentifier(AccessibilityID.composerEffortControl)
     }
 
@@ -218,83 +369,35 @@ private struct EffortControl: View, ThemedView {
     }
 }
 
-/// Remote Control's own segment, driving the same `setRemoteControl` the
-/// typed `/rc` does. Absent before a session exists, since there is no bridge
-/// to attach to until then.
-private struct RemoteControlControl: View, ThemedView {
-    @Environment(\.theme) var theme
-    let session: HeadlessSession
-
-    var body: some View {
-        Menu {
-            switch session.remoteControl {
-            case .connected(let link):
-                Button("Disconnect") { session.setRemoteControl(enabled: false) }
-                if let url = link.shareableURL {
-                    Button("Copy link") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url, forType: .string)
-                    }
-                }
-            default:
-                Button("Connect") { session.setRemoteControl(enabled: true) }
-            }
-        } label: {
-            // Interpolated into a `Text` rather than left as an `Image`: the
-            // popup button this menu style draws renders a bare image as a
-            // template in its own control color and drops `foregroundStyle`,
-            // so the tint never lands. The text path keeps it, which is also
-            // how every neighbouring segment colors its label.
-            Text("\(Image(systemName: symbol))")
-                .foregroundStyle(tint)
-                .frame(height: dimensions.composerControlHeight)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(helpText)
-        .accessibilityLabel("Remote Control")
-        .accessibilityValue(accessibilityValue)
-        .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
-    }
-
-    private var symbol: String {
-        switch session.remoteControl {
-        case .connected, .connecting: return "antenna.radiowaves.left.and.right"
-        case .disconnected, .failed: return "antenna.radiowaves.left.and.right.slash"
-        }
-    }
-
-    /// `attention` is the palette's blue, taken from the terminal theme like
-    /// every other status hue, so this reads as part of the same surface.
-    private var tint: Color {
-        switch session.remoteControl {
-        case .failed: return colors.danger
-        case .connected: return colors.attention
-        case .connecting: return colors.attention.opacity(colors.emphasis[.secondary])
-        case .disconnected: return colors.foreground.opacity(colors.emphasis[.secondary])
-        }
-    }
-
-    private var accessibilityValue: String {
-        switch session.remoteControl {
-        case .disconnected: return "Off"
-        case .connecting: return "Connecting"
-        case .connected: return "On"
-        case .failed(let message): return "Failed: \(message)"
-        }
-    }
-
-    private var helpText: String {
-        switch session.remoteControl {
-        case .connected: return "Remote Control is on \u{2014} this session is on claude.ai/code"
-        case .connecting: return "Connecting to Remote Control\u{2026}"
-        case .failed(let message): return "Remote Control failed: \(message)"
-        case .disconnected: return "Remote Control \u{2014} drive this session from your phone or claude.ai/code"
+extension PermissionMode {
+    /// One symbol per case, so the collapsed form still tells the four modes
+    /// apart. `plan` matches `PlanButton`'s own icon, so the mode and the
+    /// document it produces read as the same concept.
+    var symbol: String {
+        switch self {
+        case .plan: return "doc.text"
+        case .acceptEdits: return "pencil.line"
+        case .auto: return "bolt.fill"
+        case .bypassPermissions: return "exclamationmark.triangle.fill"
         }
     }
 }
 
-private extension View {
+extension AgentEffort {
+    /// The gauge family's own ladder, so the levels read as a scale rather
+    /// than five unrelated icons.
+    var symbol: String {
+        switch self {
+        case .low: return "gauge.with.dots.needle.0percent"
+        case .medium: return "gauge.with.dots.needle.33percent"
+        case .high: return "gauge.with.dots.needle.50percent"
+        case .xhigh: return "gauge.with.dots.needle.67percent"
+        case .max: return "gauge.with.dots.needle.100percent"
+        }
+    }
+}
+
+extension View {
     /// Dims a label whose value is Plume's own guess rather than something the
     /// conversation has reported.
     func unconfirmed(_ isUnconfirmed: Bool) -> some View {

@@ -57,7 +57,7 @@ struct ClaudeCodeSettingsResolverTests {
 
     /// The context-window suffix names a different model to launch on, so it
     /// resolves to the 1M variant rather than being stripped — which is what
-    /// makes an `opus[1m]` default display as "Opus" rather than "Opus 256K".
+    /// makes an `opus[1m]` default display as "Opus" rather than "Opus 200K".
     @Test func resolvesAnAliasCarryingAContextSuffix() {
         #expect(resolvedModel(shared: #"{ "model": "opus[1m]" }"#) == .opus)
         #expect(AgentModel.opus.label == "Opus")

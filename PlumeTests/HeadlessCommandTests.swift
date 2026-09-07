@@ -77,7 +77,7 @@ struct HeadlessCommandModelTests {
         #expect(modelToken(in: arguments) == AgentModel.opus.id)
     }
 
-    /// The bare aliases resolve to the 256K models, so the top-level menu's
+    /// The bare aliases resolve to the 200K models, so the top-level menu's
     /// picks have to reach `--model` as explicit `[1m]` IDs.
     @Test(arguments: [
         (AgentModel.opus, "claude-opus-5[1m]"),
