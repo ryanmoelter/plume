@@ -58,6 +58,7 @@ final class ChatItemStats {
         var heights: [String: CGFloat] = [:]
         var kinds: [String: String] = [:]
         var viewportWidth: CGFloat = 0
+        var rebuildMilliseconds: Double = 0
     }
 
     private var lists: [UUID: List] = [:]
@@ -78,6 +79,15 @@ final class ChatItemStats {
     func record(list: UUID, id: String, kind: String, height: CGFloat) {
         lists[list, default: List()].heights[id] = height
         lists[list]?.kinds[id] = kind
+    }
+
+    /// How long the last piece rebuild took. The lazy stack is kept so this
+    /// stays flat; a regression means the splitter or cache is doing work
+    /// that is not proportional to what changed.
+    func record(list: UUID, rebuild: Duration) {
+        let components = rebuild.components
+        lists[list, default: List()].rebuildMilliseconds =
+            Double(components.seconds) * 1000 + Double(components.attoseconds) / 1e15
     }
 
     func record(list: UUID, viewportWidth: CGFloat) {
@@ -113,6 +123,7 @@ final class ChatItemStats {
         min=\(Int(low)) max=\(Int(high)) median=\(Int(sorted[sorted.count / 2])) \
         globalRatio=\(ratio(high / low)) windowRatio=\(ratio(windowedRatio(measured))) \
         expanded=\(expanded.count) viewportWidth=\(Int(entry.viewportWidth)) \
+        rebuildMs=\(ratio(CGFloat(entry.rebuildMilliseconds))) \
         tallest=[\(extremes(entry, tallest: true))] shortest=[\(extremes(entry, tallest: false))]
         """
         Log.app.info("\(summary, privacy: .public)")

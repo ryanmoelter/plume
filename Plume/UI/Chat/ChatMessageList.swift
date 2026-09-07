@@ -188,6 +188,9 @@ struct ChatMessageList: View, ThemedView {
     }
 
     private func rebuildPieces() {
+        #if DEBUG
+        let started = ContinuousClock.now
+        #endif
         pieces = cache.pieces(
             for: messages,
             status: status,
@@ -196,6 +199,7 @@ struct ChatMessageList: View, ThemedView {
             dimensions: dimensions
         )
         #if DEBUG
+        ChatItemStats.shared.record(list: statsToken, rebuild: started.duration(to: .now))
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
         #endif
     }

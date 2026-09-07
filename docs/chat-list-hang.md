@@ -149,9 +149,24 @@ The chat list places **one lazy item per block**, not per message. `ChatPieceSpl
 - **The model is built in `onChange`, never in `body`.** `ChatPieceCache` memoizes `MarkdownBlock.parse` by source across rebuilds, pruned to what the current messages hold.
 - Piece ids are deterministic from the message id and the block's original index, so a re-parse or a tool result landing keeps a row's expanded state alive.
 
-**Measured on the hang thread** (`552fca5e`, 402 pieces, 1016 pt viewport, `PLUME_CHAT_ITEM_STATS=1` with `PLUME_SCROLL_WHEEL` driving the scroll): min 27 pt, max 358 pt, median 40 pt, global ratio **13.3×**, windowed ratio **13.3×**. The same thread's tallest row before the split was 2,140 pt against a 23 pt cluster, about 93×. What is left over the ceiling is a code block just under the split threshold and a single list item too long to divide.
+**Measured** with `PLUME_CHAT_ITEM_STATS=1` and `PLUME_SCROLL_WHEEL=150` driving the scroll, one transcript per run at a 1016 pt viewport, on the hang thread and the five largest transcripts on disk:
 
-**`PLUME_CHAT_ITEM_STATS=1`** logs those numbers per transcript load and once a second while scrolling: piece count, realized count, min, max, median, the global and windowed max/min ratios, the five tallest pieces named by kind, the expanded-row count and the viewport width. It is observational — nothing reads it back into layout. Twenty is a convenience for the window, not SwiftUI's realization span, which this diagnosis leaves unknown; the global ratio is the one to watch.
+| transcript | pieces | min | max | median | global | window | tallest |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `552fca5e` (the hang thread, 2.0 MB) | 318 | 27 | 358 | 63 | 13.3× | 13.3× | code |
+| `8031d34c` (7.9 MB) | 1188 | 24 | 651 | 63 | **27.1×** | **24.1×** | table |
+| `3d68cfeb` (3.0 MB) | 378 | 27 | 251 | 63 | 9.3× | 8.1× | list |
+| `31a71dff` (3.0 MB) | 198 | 27 | 226 | 63 | 8.4× | 8.4× | paragraph |
+| `36a80209` (3.9 MB) | 461 | 27 | 252 | 63 | 9.3× | 9.3× | list |
+| `b7a80004` (3.0 MB) | 385 | 27 | 407 | 67 | 15.1× | 14.3× | code |
+
+The hang thread's tallest row before the split was 2,140 pt against a 23 pt cluster, about 93×. The short side is now a collapsed tool call at 27 pt throughout; blocks that draw nothing — a call the dock has taken over, a thinking block with no text — take no item at all, which removed an 8 pt row that was dragging the ratio out.
+
+**One transcript misses the target, and one table is why.** `8031d34c` holds a 651 pt table, and a table is never split — segments would size their columns independently and the join would show. Everything else on that thread is under 350 pt. The two remedies, neither taken here because both change what the reader sees: bound an oversized table the way `ToolCallRow` bounds an oversized result, or put an actual minimum height on the shortest items (Trial E1: 100 pt beside 2,140 pt was safe). The momentum test decides whether either is needed.
+
+**Heights the ceiling does not bound**, so verification knows where to look: a table; a paragraph or quote over the ceiling; a code block under the split threshold (the guard keeps ordinary blocks whole, so a 32-line block stays one item); an expanded `ThinkingRow` or `InjectedContentRow`, which have no `maxHeight` the way `ToolCallRow`'s sections do; `ChatImageView` up to 320 pt; and the live tail of the streaming overlay, which is one item until the next block starts.
+
+**Rebuilding the whole piece list costs about 6 ms** for 385 pieces, logged as `rebuildMs`. `ChatPieceCache` memoizes the parse, so a rebuild after a status or streaming change reparses nothing.
 
 Acceptance beyond "no hang after momentum through the boundary":
 
