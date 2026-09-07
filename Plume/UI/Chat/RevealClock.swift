@@ -18,12 +18,15 @@ final class RevealClock {
         busyUntil = now.addingTimeInterval(duration)
     }
 
-    /// How long a reveal starting now should wait for the one in flight.
+    /// How long a reveal of `duration` starting now should wait for the one
+    /// in flight.
     ///
-    /// Capped, so a reveal that was interrupted and never finished cannot
-    /// stall the block behind it for longer than one full reveal.
-    func wait(now: Date = .now) -> TimeInterval {
-        min(RevealPacing.maxDuration, max(0, busyUntil.timeIntervalSince(now)))
+    /// Never enough to push the pair past `RevealPacing.maxLag`. Waiting its
+    /// turn is a nicety; text reaching the reader inside a second is not, so
+    /// a block that would be held too long simply overlaps the one above it.
+    func wait(before duration: TimeInterval, now: Date = .now) -> TimeInterval {
+        let queued = max(0, busyUntil.timeIntervalSince(now))
+        return min(queued, max(0, RevealPacing.maxLag - duration))
     }
 }
 

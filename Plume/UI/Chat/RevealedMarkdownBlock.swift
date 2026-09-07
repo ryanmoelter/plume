@@ -11,6 +11,10 @@ struct RevealedMarkdownBlock: View {
     let source: String
     /// Whether the stream is still writing this block.
     let isArriving: Bool
+    /// Whether the stream opened this block just now, as opposed to it being
+    /// a block of a reply that had already arrived. See
+    /// `ChatListMotion.openings`.
+    let typesFromZero: Bool
     let isAgentVoice: Bool
 
     @Environment(\.revealClock) private var clock
@@ -37,13 +41,18 @@ struct RevealedMarkdownBlock: View {
         }
     }
 
-    /// A block first seen while the stream is writing it types from nothing.
-    /// One first seen already settled — a tab switched to mid-turn, or a row
-    /// the lazy stack has realized again — shows what has already arrived.
+    /// A block the stream has just opened types from nothing. One that was
+    /// already there when this view first drew it — a tab switched to
+    /// mid-turn, or a row the lazy stack has realized again — shows what has
+    /// already arrived rather than replaying it.
+    ///
+    /// `typesFromZero` rather than `isArriving`, because a block can be
+    /// complete the moment it appears: one delta often carries a whole
+    /// heading and the start of what follows it.
     private func reveal(_ text: String) {
         let isFirstSight = progress.revealedCount == nil
         if isFirstSight {
-            guard isArriving else {
+            guard typesFromZero else {
                 run(progress.advance(to: text))
                 return
             }
@@ -59,8 +68,9 @@ struct RevealedMarkdownBlock: View {
             revealedCount = Double(source.count)
             return
         }
-        let delay = waits ? (clock?.wait() ?? 0) : 0
-        clock?.hold(for: delay + max(0, progress.deadline.timeIntervalSinceNow))
+        let duration = max(0, progress.deadline.timeIntervalSinceNow)
+        let delay = waits ? (clock?.wait(before: duration) ?? 0) : 0
+        clock?.hold(for: delay + duration)
         withAnimation(delay > 0 ? animation.delay(delay) : animation) {
             revealedCount = Double(source.count)
         }

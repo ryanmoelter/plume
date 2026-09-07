@@ -38,6 +38,44 @@ struct ChatListMotionTests {
         #expect(arrivals(previous: [], current: ["a", "b", "c"]).isEmpty)
     }
 
+    // MARK: - Blocks that type themselves out
+
+    @Test func aBlockTheStreamJustOpenedTypes() {
+        #expect(
+            ChatListMotion.openings(
+                previous: ["a/0", "stream/0"],
+                current: ["a/0", "stream/0", "stream/1"]
+            ) == ["stream/1"]
+        )
+    }
+
+    /// The case headings hit: one delta carries a whole heading and the start
+    /// of the text below it, so the heading is complete the moment it appears
+    /// and is never the arriving block.
+    @Test func aBlockThatArrivedCompleteStillTypes() {
+        #expect(
+            ChatListMotion.openings(
+                previous: ["stream/0"],
+                current: ["stream/0", "stream/1", "stream/2"]
+            ) == ["stream/1", "stream/2"]
+        )
+    }
+
+    @Test func transcriptPiecesNeverType() {
+        #expect(
+            ChatListMotion.openings(
+                previous: ["a/0"],
+                current: ["a/0", "a/1", "b/0"]
+            ).isEmpty
+        )
+    }
+
+    /// A tab switched to mid-turn shows the reply that has already arrived
+    /// rather than replaying it.
+    @Test func theFirstBuildTypesNothing() {
+        #expect(ChatListMotion.openings(previous: [], current: ["stream/0", "stream/1"]).isEmpty)
+    }
+
     @Test func aChangedStreamingOverlayGrowsNothing() {
         #expect(
             arrivals(

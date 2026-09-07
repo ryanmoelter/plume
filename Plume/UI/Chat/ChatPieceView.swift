@@ -14,6 +14,8 @@ struct ChatPieceView: View, ThemedView {
     /// Set for a piece that has just arrived, so it grows into place and
     /// pushes the pieces below it down.
     var growsFromZero: Bool = false
+    /// Set for a block the stream has just opened, so it types itself out.
+    var typesFromZero: Bool = false
 
     // One modifier chain for every wash, so a message gaining the
     // needs-input treatment changes values rather than structure. A `switch`
@@ -65,6 +67,7 @@ struct ChatPieceView: View, ThemedView {
                 RevealedMarkdownBlock(
                     source: source,
                     isArriving: piece.isArriving,
+                    typesFromZero: typesFromZero,
                     isAgentVoice: piece.isAgentVoice
                 )
             } else {

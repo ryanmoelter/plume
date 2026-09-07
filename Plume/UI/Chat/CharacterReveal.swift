@@ -36,6 +36,12 @@ enum RevealPacing {
     /// A whole paragraph landing at once still reveals in about a second.
     static let maxDuration: Double = 1.0
 
+    /// The ceiling on how long text can sit between arriving and being fully
+    /// on screen, waiting for the block above it included. Every reveal is
+    /// retargeted at the whole text received so far, so this bounds the lag
+    /// however fast the agent writes.
+    static let maxLag: Double = maxDuration
+
     /// Below this a reveal reads as a jump, and the frames cost more than the
     /// effect is worth.
     static let minDuration: Double = 0.1

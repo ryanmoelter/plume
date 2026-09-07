@@ -60,6 +60,10 @@ struct ChatMessageList: View, ThemedView {
     /// here after the row has measured itself does nothing.
     @State private var arrivals: Set<String> = []
 
+    /// The stream blocks that should type from nothing rather than appear
+    /// whole. See `ChatListMotion.openings`.
+    @State private var openings: Set<String> = []
+
     /// Keeps this chat's reveals from typing over each other. One per list,
     /// which is one per tab.
     @State private var revealClock = RevealClock()
@@ -116,7 +120,8 @@ struct ChatMessageList: View, ThemedView {
                     ChatPieceView(
                         piece: piece,
                         animatesHeight: settings.animateChatMotion,
-                        growsFromZero: arrivals.contains(piece.id)
+                        growsFromZero: arrivals.contains(piece.id),
+                        typesFromZero: openings.contains(piece.id)
                     )
                     .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                     .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
@@ -124,10 +129,17 @@ struct ChatMessageList: View, ThemedView {
                     .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
                 }
                 if let tabID {
+                    // Both draw nothing until they have something, so their
+                    // height is the whole of their entrance and exit: a
+                    // subagent starting, finishing and folding away, and a
+                    // permission arriving, all ease the conversation above
+                    // them instead of jumping it.
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
                         .listItemPadding(bleed: true, column: .unpadded)
+                        .animatedHeight(enabled: settings.animateChatMotion)
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)
+                        .animatedHeight(enabled: settings.animateChatMotion)
                 }
                 // The room the floating composer panel covers. Eased on the
                 // leaf, so a composer that grows a line slides the
@@ -226,6 +238,8 @@ struct ChatMessageList: View, ThemedView {
             streamingChanged: overlay != previousStreaming
         )
         if !arrived.isEmpty { arrivals = arrived }
+        let opened = ChatListMotion.openings(previous: previousPieceIDs, current: ids)
+        if !opened.isEmpty { openings = opened }
         previousPieceIDs = ids
         previousStreaming = overlay
         pieces = rebuilt
