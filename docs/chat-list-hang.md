@@ -149,7 +149,7 @@ The chat list places **one lazy item per block**, not per message. `ChatPieceSpl
 - **The model is built in `onChange`, never in `body`.** `ChatPieceCache` memoizes `MarkdownBlock.parse` by source across rebuilds, pruned to what the current messages hold.
 - Piece ids are deterministic from the message id and the block's original index, so a re-parse or a tool result landing keeps a row's expanded state alive.
 
-**Measured** with `PLUME_CHAT_ITEM_STATS=1` and `PLUME_SCROLL_WHEEL=150` driving the scroll, one transcript per run at a 1016 pt viewport, on the hang thread and the five largest transcripts on disk:
+**Measured once**, with `PLUME_CHAT_ITEM_STATS=1` and `PLUME_SCROLL_WHEEL=150` driving the scroll, one transcript per run at a 1016 pt viewport, on the hang thread and the five largest transcripts on disk. This was a one-off check that the ceiling holds on real content — it is not a regular test. A full sweep costs about 18 minutes of wall clock, and a returning hang announces itself in seconds of scrolling, so do not re-run it on a schedule or before a release. Run it again only to answer a specific question about item heights.
 
 | transcript | pieces | min | max | median | global | window | tallest |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -160,9 +160,11 @@ The chat list places **one lazy item per block**, not per message. `ChatPieceSpl
 | `36a80209` (3.9 MB) | 461 | 27 | 252 | 63 | 9.3× | 9.3× | list |
 | `b7a80004` (3.0 MB) | 385 | 27 | 407 | 67 | 15.1× | 14.3× | code |
 
+The two `code` rows predate the code-block bound: a block over the ceiling now stops at 300 pt rather than splitting, so both would measure lower today. Nothing else in the table changes.
+
 The hang thread's tallest row before the split was 2,140 pt against a 23 pt cluster, about 93×. The short side is now a collapsed tool call at 27 pt throughout; blocks that draw nothing — a call the dock has taken over, a thinking block with no text — take no item at all, which removed an 8 pt row that was dragging the ratio out.
 
-**One transcript misses the target, and one table is why.** `8031d34c` holds a 651 pt table, and a table is never split — segments would size their columns independently and the join would show. Everything else on that thread is under 350 pt. The two remedies, neither taken here because both change what the reader sees: bound an oversized table the way `ToolCallRow` bounds an oversized result, or put an actual minimum height on the shortest items (Trial E1: 100 pt beside 2,140 pt was safe). The momentum test decides whether either is needed.
+**One transcript misses the target, and one table is why.** `8031d34c` holds a 651 pt table, and a table is never split — segments would size their columns independently and the join would show. Everything else on that thread is under 350 pt. The two remedies, neither taken here because both change what the reader sees: bound an oversized table the way `ToolCallRow` bounds an oversized result, or put an actual minimum height on the shortest items (Trial E1: 100 pt beside 2,140 pt was safe). Neither is worth doing until a hang actually comes back on that thread.
 
 **Heights the ceiling does not bound**, so verification knows where to look: a table; a paragraph or quote over the ceiling; an expanded `ThinkingRow` or `InjectedContentRow`, which have no `maxHeight` the way `ToolCallRow`'s sections do; `ChatImageView` up to 320 pt; and the live tail of the streaming overlay, which is one item until the next block starts.
 

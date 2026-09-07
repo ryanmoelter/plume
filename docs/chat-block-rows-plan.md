@@ -186,4 +186,5 @@ Astra (the codex MCP's default model, medium effort) reviewed the first draft. C
 
 - **Code blocks are not split.** A block over the ceiling stays one piece and scrolls vertically inside itself, bounded at 300 pt by `CodeSegmentView`. Splitting cost the reader a continuous scroll through the block and gave each segment its own horizontal scroll view; bounding costs neither. `CodeSegment` therefore carries no position or full text — every one is whole.
 - **A list splits as soon as it is over the ceiling**, with no "worth it" threshold, because its segments join at the gap its items already have. `listChunks` makes them equal length so a list just over the ceiling does not end on one item.
+- **The measurement in phase 3 was a one-off.** It ran, the numbers are in `docs/chat-list-hang.md`, and it is not a recurring test — see the note above that table before spending 18 minutes on it again.
 - **A block that draws nothing takes no item** — a tool call the pending dock has taken over, a thinking block with no text — which removed an 8 pt row from the short side.
