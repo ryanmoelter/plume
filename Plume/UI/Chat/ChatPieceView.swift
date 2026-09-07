@@ -58,7 +58,18 @@ struct ChatPieceView: View, ThemedView {
     private var content: some View {
         switch piece.content {
         case let .markdown(block, _):
-            MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
+            // Stable for a piece's whole life: a block the stream wrote keeps
+            // its source until the transcript replaces it wholesale under new
+            // ids, so this branch never flips underneath a live reveal.
+            if let source = piece.streamSource {
+                RevealedMarkdownBlock(
+                    source: source,
+                    isArriving: piece.isArriving,
+                    isAgentVoice: piece.isAgentVoice
+                )
+            } else {
+                MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
+            }
         case let .codeSegment(segment):
             CodeSegmentView(segment: segment)
         case let .listSegment(segment):
@@ -80,10 +91,11 @@ struct ChatPieceView: View, ThemedView {
         }
     }
 
-    /// Shorter for the turn in flight: its height steps at every line wrap
-    /// while the reveal draws, so a longer ease would trail the text.
+    /// Shorter for a piece the turn in flight is still changing: its height
+    /// steps at every line wrap while the reveal draws, so a longer ease
+    /// would trail the text.
     private var heightAnimation: Animation {
-        .easeOut(duration: piece.isStreaming ? 0.12 : 0.2)
+        .easeOut(duration: piece.isLive ? 0.12 : 0.2)
     }
 
     /// A bubble of several pieces takes the whole column so every segment is

@@ -221,7 +221,8 @@ enum ChatPieceSplitter {
         role: ChatMessage.Role,
         wash: ChatPiece.Wash,
         leading: CGFloat,
-        dimensions: Dimensions
+        dimensions: Dimensions,
+        streamSources: [String] = []
     ) -> [ChatPiece] {
         var result: [ChatPiece] = []
         for (index, block) in blocks.enumerated() {
@@ -238,7 +239,13 @@ enum ChatPieceSplitter {
                     role: role,
                     content: segment.content,
                     wash: wash,
-                    topInset: segmentIndex == 0 ? blockLeading : segment.joinInset
+                    topInset: segmentIndex == 0 ? blockLeading : segment.joinInset,
+                    // Only a block that stayed whole can go on typing: a
+                    // reveal counts characters of one source, and a split
+                    // block has no single piece to count them in.
+                    streamSource: segments.count == 1 && index < streamSources.count
+                        ? streamSources[index]
+                        : nil
                 ))
             }
         }
@@ -337,28 +344,33 @@ enum ChatPieceSplitter {
             role: .assistant,
             wash: wash,
             leading: textLeading,
-            dimensions: dimensions
+            dimensions: dimensions,
+            streamSources: settled.sources
         )
 
-        guard !settled.tail.isEmpty else { return result }
-        let tailLeading: CGFloat = if settled.blocks.isEmpty {
-            textLeading
-        } else if let tailBlock = settled.tailBlock {
-            ChatBlockSpacing.markdownBlockTopInset(
+        guard !settled.tail.isEmpty, let tailBlock = settled.tailBlock else { return result }
+        let tailLeading: CGFloat = settled.blocks.isEmpty
+            ? textLeading
+            : ChatBlockSpacing.markdownBlockTopInset(
                 tailBlock,
                 at: settled.blocks.count,
                 dimensions: dimensions
             )
-        } else {
-            dimensions.blockSpacing
-        }
+        // Keyed by its block index, not by being the live one, so the piece
+        // keeps its identity — and so the reveal keeps its progress — when
+        // the block completes and joins the settled ones above.
+        //
+        // Never split, however long it grows. A reveal counts characters of
+        // one source, and the block is about to settle anyway.
         result.append(ChatPiece(
-            id: "stream/live",
+            id: "stream/\(settled.blocks.count)",
             messageID: "stream",
             role: .assistant,
-            content: .streaming(ChatStreamHandoff.Overlay(text: settled.tail)),
+            content: .markdown(tailBlock, index: settled.blocks.count),
             wash: wash,
-            topInset: tailLeading
+            topInset: tailLeading,
+            streamSource: settled.tail,
+            isArriving: true
         ))
         return result
     }

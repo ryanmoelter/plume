@@ -60,6 +60,10 @@ struct ChatMessageList: View, ThemedView {
     /// here after the row has measured itself does nothing.
     @State private var arrivals: Set<String> = []
 
+    /// Keeps this chat's reveals from typing over each other. One per list,
+    /// which is one per tab.
+    @State private var revealClock = RevealClock()
+
     /// Names this list to `PLUME_CHAT_ITEM_STATS`. Every tab stays mounted,
     /// so several lists measure at once and one set of numbers would be a
     /// blend of all of them.
@@ -138,6 +142,7 @@ struct ChatMessageList: View, ThemedView {
             }
             .scrollTargetLayout()
         }
+        .environment(\.revealClock, revealClock)
         .chatItemStatsViewport(list: statsToken)
         .onChange(of: messages, initial: true) { rebuildPieces() }
         .onChange(of: status) { rebuildPieces() }
