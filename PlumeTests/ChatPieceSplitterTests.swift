@@ -30,7 +30,7 @@ struct ChatPieceSplitterTests {
     }
 
     private func toolCall(_ id: String) -> ChatBlock {
-        .toolCall(ToolCall(id: id, name: "Read", summary: "Read a file", input: .json("{}")))
+        .toolCall(ToolCall(id: id, name: "Read", summary: ToolCallSummary(name: "Read", detail: "a file"), input: .json("{}")))
     }
 
     // MARK: - Identity
@@ -77,7 +77,7 @@ struct ChatPieceSplitterTests {
 
     @Test func aToolResultLandingChangesOnlyItsOwnPiece() {
         let before = pieces([message("m", .assistant, [.markdown("Reading."), toolCall("t1")])])
-        var call = ToolCall(id: "t1", name: "Read", summary: "Read a file", input: .json("{}"))
+        var call = ToolCall(id: "t1", name: "Read", summary: ToolCallSummary(name: "Read", detail: "a file"), input: .json("{}"))
         call.result = "contents"
         let after = pieces([message("m", .assistant, [.markdown("Reading."), .toolCall(call)])])
 

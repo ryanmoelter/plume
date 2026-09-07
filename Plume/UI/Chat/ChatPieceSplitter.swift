@@ -267,19 +267,25 @@ enum ChatPieceSplitter {
                 joinInset: 0
             )]
 
-        case .bulletList(let items), .numberedList(let items):
+        case .bulletList(let items), .numberedList(let items, _):
             let kind: ListSegment.Kind = {
                 if case .numberedList = block { return .numbered }
                 return .bullet
             }()
+            let firstNumber: Int = {
+                if case .numberedList(_, let start) = block { return start }
+                return 1
+            }()
             guard ChatPieceMetrics.splitsList(items) else {
                 return [Segmented(
-                    content: .listSegment(ListSegment(kind: kind, items: items)),
+                    content: .listSegment(
+                        ListSegment(kind: kind, items: items, startNumber: firstNumber)
+                    ),
                     joinInset: 0
                 )]
             }
             let chunks = ChatPieceMetrics.listChunks(items)
-            var start = 1
+            var start = firstNumber
             return chunks.enumerated().map { position, chunk in
                 defer { start += chunk.count }
                 return Segmented(

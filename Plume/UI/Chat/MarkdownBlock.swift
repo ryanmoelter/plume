@@ -13,7 +13,9 @@ nonisolated enum MarkdownBlock: Equatable {
     case heading(level: Int, text: String)
     case paragraph(String)
     case bulletList([String])
-    case numberedList([String])
+    /// `start` is the number the source's first item carried, so a list
+    /// beginning at 3 keeps counting from 3.
+    case numberedList([String], start: Int)
     case codeBlock(language: String?, code: String)
     case quote(String)
     case table(header: [String], alignments: [ColumnAlignment], rows: [[String]])
@@ -143,31 +145,15 @@ nonisolated enum MarkdownBlock: Equatable {
                 continue
             }
 
-            if bulletItemText(trimmed) != nil {
-                var items: [String] = []
-                var cursor = index
-                while cursor < lines.count {
-                    let candidate = lines[cursor].trimmingCharacters(in: .whitespaces)
-                    guard let item = bulletItemText(candidate) else { break }
-                    items.append(item)
-                    cursor += 1
-                }
-                append(.bulletList(items), from: index, to: cursor)
-                index = cursor
+            if let list = list(startingAt: index, in: lines, kind: .bullet) {
+                append(.bulletList(list.items), from: index, to: list.end)
+                index = list.end
                 continue
             }
 
-            if numberedItemText(trimmed) != nil {
-                var items: [String] = []
-                var cursor = index
-                while cursor < lines.count {
-                    let candidate = lines[cursor].trimmingCharacters(in: .whitespaces)
-                    guard let item = numberedItemText(candidate) else { break }
-                    items.append(item)
-                    cursor += 1
-                }
-                append(.numberedList(items), from: index, to: cursor)
-                index = cursor
+            if let list = list(startingAt: index, in: lines, kind: .numbered) {
+                append(.numberedList(list.items, start: list.start), from: index, to: list.end)
+                index = list.end
                 continue
             }
 
@@ -333,11 +319,89 @@ nonisolated enum MarkdownBlock: Equatable {
     }
 
     private static func numberedItemText(_ trimmed: String) -> String? {
+        numberedItem(trimmed)?.text
+    }
+
+    private static func numberedItem(_ trimmed: String) -> (number: Int, text: String)? {
         guard let dotIndex = trimmed.firstIndex(of: ".") else { return nil }
         let prefix = trimmed[trimmed.startIndex..<dotIndex]
-        guard !prefix.isEmpty, prefix.allSatisfy({ $0.isNumber }) else { return nil }
+        guard !prefix.isEmpty, prefix.allSatisfy({ $0.isNumber }), let number = Int(prefix) else {
+            return nil
+        }
         let afterDot = trimmed[trimmed.index(after: dotIndex)...]
         guard afterDot.hasPrefix(" ") else { return nil }
-        return String(afterDot.dropFirst())
+        return (number, String(afterDot.dropFirst()))
+    }
+
+    private enum ListKind {
+        case bullet
+        case numbered
+
+        var other: ListKind { self == .bullet ? .numbered : .bullet }
+    }
+
+    /// The list starting at `index`, or nil if the line there is not an item
+    /// of that kind.
+    ///
+    /// Two things beyond consecutive item lines belong to the list, and both
+    /// are ordinary agent output: a blank line between items, and a wrapped
+    /// item whose continuation sits on the next line. Ending the list at
+    /// either gave every item a block of its own, which the numbered marker —
+    /// positional within its block — rendered as a row of `1.`.
+    private static func list(
+        startingAt index: Int,
+        in lines: [String],
+        kind: ListKind
+    ) -> (items: [String], start: Int, end: Int)? {
+        guard let first = item(lines[index], kind: kind) else { return nil }
+        var items = [first.text]
+        var cursor = index + 1
+        var end = cursor
+        var followsBlankLine = false
+
+        while cursor < lines.count {
+            let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                followsBlankLine = true
+                cursor += 1
+                continue
+            }
+            if beginsOtherBlock(at: cursor, in: lines) { break }
+            if let next = item(lines[cursor], kind: kind) {
+                items.append(next.text)
+                cursor += 1
+                end = cursor
+                followsBlankLine = false
+                continue
+            }
+            // A blank line closed the last item, so this line starts something
+            // new rather than continuing it.
+            if followsBlankLine || item(lines[cursor], kind: kind.other) != nil { break }
+            items[items.count - 1] += " " + trimmed
+            cursor += 1
+            end = cursor
+        }
+
+        return (items, first.number ?? 1, end)
+    }
+
+    private static func item(_ line: String, kind: ListKind) -> (number: Int?, text: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        switch kind {
+        case .bullet:
+            return bulletItemText(trimmed).map { (nil, $0) }
+        case .numbered:
+            return numberedItem(trimmed).map { ($0.number, $0.text) }
+        }
+    }
+
+    /// Whether the line starts a block that no list item can continue into.
+    private static func beginsOtherBlock(at cursor: Int, in lines: [String]) -> Bool {
+        let trimmed = lines[cursor].trimmingCharacters(in: .whitespaces)
+        return fenceMarker(trimmed) != nil
+            || headingLevel(trimmed) != nil
+            || tableAt(cursor, in: lines) != nil
+            || isRule(trimmed)
+            || trimmed.hasPrefix(">")
     }
 }

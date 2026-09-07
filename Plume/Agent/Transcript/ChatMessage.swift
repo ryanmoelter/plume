@@ -33,7 +33,7 @@ nonisolated enum ChatBlock: Equatable {
 nonisolated struct ToolCall: Identifiable, Equatable {
     let id: String
     let name: String
-    let summary: String
+    let summary: ToolCallSummary
     let input: ToolCallInput
     /// Set for the two tools that talk to the user, which render as
     /// themselves instead of as JSON.
@@ -56,7 +56,10 @@ nonisolated enum ToolCallInput: Equatable {
     var isEmpty: Bool {
         switch self {
         case .code(_, let text): return text.isEmpty
-        case .json(let text): return text.isEmpty || text == "{}"
+        case .json(let text):
+            // Pretty-printed, so an empty object carries whitespace.
+            let compact = text.filter { !$0.isWhitespace }
+            return compact.isEmpty || compact == "{}"
         case .diff(let diff): return diff.lines.isEmpty
         }
     }

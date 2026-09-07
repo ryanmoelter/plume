@@ -28,7 +28,7 @@ struct ToolCallRow: View, ThemedView {
                     inputBody
                 }
                 if let result = call.result, !result.isEmpty {
-                    body(title: "Result", text: result)
+                    resultBody(result)
                 }
                 ForEach(call.resultImages.indices, id: \.self) { index in
                     ChatImageView(image: call.resultImages[index])
@@ -36,7 +36,11 @@ struct ToolCallRow: View, ThemedView {
             }
             .padding(.top, 4)
         } label: {
-            Label(call.summary, systemImage: glyph)
+            Label {
+                Text(summaryText)
+            } icon: {
+                Image(systemName: glyph)
+            }
                 .font(typography.caption.font)
                 .emphasis(.secondary)
                 .lineLimit(1)
@@ -46,12 +50,25 @@ struct ToolCallRow: View, ThemedView {
         .chatItemExpansionProbe(expanded)
     }
 
+    /// The one-liner: the tool's name in prose, then the detail it carries in
+    /// whichever face suits it. The trailing marker is unconditional — it
+    /// stands for the input this row hides, not for elided text.
+    private var summaryText: AttributedString {
+        var text = AttributedString(call.summary.name)
+        guard let detail = call.summary.detail else { return text }
+        text.append(AttributedString(": "))
+        var tail = AttributedString("\(detail)…")
+        if call.summary.detailStyle == .code {
+            tail.font = typography.caption.mono
+        }
+        text.append(tail)
+        return text
+    }
+
     @ViewBuilder
     private var inputBody: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(isDiff ? "Change" : "Input")
-                .font(typography.caption.font)
-                .emphasis(.subtle)
+            fieldLabel(inputTitle)
             switch call.input {
             case .diff(let diff):
                 FileDiffView(diff: diff)
@@ -75,26 +92,42 @@ struct ToolCallRow: View, ThemedView {
         }
     }
 
-    private var isDiff: Bool {
-        if case .diff = call.input { return true }
-        return false
+    /// What the agent sent. A shell command is named as one, since the row
+    /// then shows it as the code it is.
+    private var inputTitle: String {
+        switch call.input {
+        case .diff: "Change"
+        case .code where call.name == "Bash": "Command"
+        case .code, .json: "Input"
+        }
     }
 
-    private func body(title: String, text: String) -> some View {
+    /// What came back, drawn unlike the input above it: outlined and secondary
+    /// rather than filled, so a command and its output never read as one pair
+    /// of matching blocks.
+    private func resultBody(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(typography.caption.font)
-                .emphasis(.subtle)
+            fieldLabel(call.name == "Bash" ? "Output" : "Result")
             ScrollView {
                 Text(text)
                     .font(typography.caption.mono)
+                    .emphasis(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
             }
             .frame(maxHeight: 240)
-            .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
-            .padding(6)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(colors.divider, lineWidth: 1)
+            }
         }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .font(typography.caption.font)
+            .emphasis(.subtle)
     }
 
     private var glyph: String {
@@ -116,14 +149,14 @@ struct ToolCallRow: View, ThemedView {
         ToolCallRow(call: ToolCall(
             id: "1",
             name: "Bash",
-            summary: "Bash(ls -la)",
+            summary: ToolCallSummary(name: "Bash", detail: "ls -la"),
             input: .code(language: "sh", text: "ls -la"),
             result: "total 0\ndrwxr-xr-x  2 user  staff  64 Jan  1 00:00 ."
         ))
         ToolCallRow(call: ToolCall(
             id: "2",
             name: "Read",
-            summary: "Read(CLAUDE.md)",
+            summary: ToolCallSummary(name: "Read", detail: "CLAUDE.md"),
             input: .json("{\"file_path\":\"/Users/me/Plume/CLAUDE.md\"}"),
             result: nil
         ))
@@ -131,7 +164,7 @@ struct ToolCallRow: View, ThemedView {
             call: ToolCall(
                 id: "3",
                 name: "AskUserQuestion",
-                summary: "AskUserQuestion",
+                summary: ToolCallSummary(name: "AskUserQuestion"),
                 input: .json("{}"),
                 interactive: .questions([
                     .init(

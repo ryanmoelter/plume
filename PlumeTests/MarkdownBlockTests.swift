@@ -33,7 +33,76 @@ struct MarkdownBlockTests {
 
     @Test func numberedList() {
         let blocks = MarkdownBlock.parse("1. one\n2. two\n3. three")
-        #expect(blocks == [.numberedList(["one", "two", "three"])])
+        #expect(blocks == [.numberedList(["one", "two", "three"], start: 1)])
+    }
+
+    /// The live report: every item rendered `1.`, because a blank line between
+    /// items gave each one a block of its own and the marker counts within its
+    /// block.
+    @Test func blankLinesBetweenItemsStayOneList() {
+        let blocks = MarkdownBlock.parse("1. one\n\n2. two\n\n3. three")
+        #expect(blocks == [.numberedList(["one", "two", "three"], start: 1)])
+    }
+
+    @Test func blankLinesBetweenBulletsStayOneList() {
+        let blocks = MarkdownBlock.parse("- one\n\n- two")
+        #expect(blocks == [.bulletList(["one", "two"])])
+    }
+
+    /// The second suspect: a wrapped item's continuation line used to end the
+    /// list and fall through to a paragraph.
+    @Test func aWrappedItemKeepsItsContinuationLine() {
+        let blocks = MarkdownBlock.parse("1. one that runs\n   past the end\n2. two")
+        #expect(blocks == [.numberedList(["one that runs past the end", "two"], start: 1)])
+    }
+
+    @Test func aWrappedBulletKeepsItsContinuationLine() {
+        let blocks = MarkdownBlock.parse("- one that runs\n  past the end\n- two")
+        #expect(blocks == [.bulletList(["one that runs past the end", "two"])])
+    }
+
+    @Test func aListKeepsTheNumberItStartedAt() {
+        let blocks = MarkdownBlock.parse("3. three\n4. four")
+        #expect(blocks == [.numberedList(["three", "four"], start: 3)])
+    }
+
+    /// Only the first number survives: the marker counts from the start, so a
+    /// list that repeats `1.` still renders 1, 2, 3.
+    @Test func repeatedSourceNumbersStillCountUp() {
+        let blocks = MarkdownBlock.parse("1. one\n1. two\n1. three")
+        #expect(blocks == [.numberedList(["one", "two", "three"], start: 1)])
+    }
+
+    @Test func aBlankLineThenProseEndsTheList() {
+        let blocks = MarkdownBlock.parse("1. one\n\nAfter the list.")
+        #expect(blocks == [
+            .numberedList(["one"], start: 1),
+            .paragraph("After the list."),
+        ])
+    }
+
+    @Test func theOtherListKindEndsTheList() {
+        let blocks = MarkdownBlock.parse("1. one\n- bullet")
+        #expect(blocks == [
+            .numberedList(["one"], start: 1),
+            .bulletList(["bullet"]),
+        ])
+    }
+
+    @Test func aHeadingEndsTheList() {
+        let blocks = MarkdownBlock.parse("1. one\n## Next")
+        #expect(blocks == [
+            .numberedList(["one"], start: 1),
+            .heading(level: 2, text: "Next"),
+        ])
+    }
+
+    @Test func aFenceEndsTheList() {
+        let blocks = MarkdownBlock.parse("1. one\n```\ncode\n```")
+        #expect(blocks == [
+            .numberedList(["one"], start: 1),
+            .codeBlock(language: nil, code: "code"),
+        ])
     }
 
     @Test func consecutiveListItemsGroupIntoOneBlock() {
