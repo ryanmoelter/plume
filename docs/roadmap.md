@@ -10,6 +10,7 @@ The queue, highest priority first. Each line points at the section holding the d
 
 Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 
+- **M** — Read a subagent's completion from the line shape the CLI actually writes; finished subagents read working today. See [Subagents](#subagents).
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
 - **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
 - **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
@@ -23,10 +24,11 @@ Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
 - **S** — Spellcheck the composer. See [The composer](#the-composer).
-- **M** — Give a subagent row a second, dim line: model, time running, context used. See [Subagents](#subagents).
+- **M** — Give a subagent row a second, dim line: model, time running, context used, and take the list to content width. See [Subagents](#subagents).
 - **L** — Show each tab's agent separately in the sidebar, with its folder and status. See [The sidebar](#the-sidebar).
 - **L** — Generate a tab title with Apple's on-device model, falling back to today's. See [Tab titles](#tab-titles).
 - **L** — Talk to a subagent directly, from its transcript rather than through the main chat. See [Subagents](#subagents).
+- **S** — Fix numbered lists rendering every item as `1.`. See [The markdown renderer](#the-markdown-renderer).
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)).
 
@@ -66,11 +68,19 @@ Parallel subagents are the case Plume exists to make legible, so this is a real 
 - [x] Keep the live list short: a finished subagent lingers briefly, then collects into a "Completed subagents (N)" disclosure below the live rows.
 - [x] Keep the sidebar honest: a task whose subagents are still working reads working, not done.
 - [ ] Give each subagent row a second line of dim caption text: the model it is running, how long it has been going, and how much of its context it has used.
+- [ ] Make the subagent list content-width rather than bleed-width, like the composer. It sits at the bottom of the chat stream at `.listItemPadding(bleed: true, column: .unpadded)` (`ChatMessageList.swift:131`), so it runs wider than the conversation above it.
+- [ ] Read a subagent's completion from the `queue-operation` line the CLI writes today. Ten of eighteen subagents in one session read working long after they finished.
 - [ ] Let a subagent be talked to directly. Its transcript is read-only today, so steering one means going back to the main chat and asking the parent to pass a message along.
 
 What shipped: `SubagentTranscript` now carries a `descriptor` and a `status` beside its transcript. `SubagentListView` is a flat list of one compact row each — status badge, description, message count — and a row opens `SubagentTranscriptOverlay`, which renders the whole conversation through the same `ChatMessageRow` the main chat uses. `ChatTabView` hosts that overlay beside the plan one and holds the open subagent by **id**, so the panel follows the subagent's live re-reads instead of freezing at the moment it was opened.
 
 **The second line's facts are already parsed, except the clock.** `TranscriptParser` records `model` and `latestUsage` on every `Transcript` (`TranscriptParser.swift:5-6`), and a `SubagentTranscript` carries a whole `Transcript`, so the model and the token counts need no new reading — the context meter's existing arithmetic is the precedent for turning usage into a percentage. Elapsed time is the missing one: `modifiedAt` gives the last write but nothing records when a subagent started, so it wants either the first entry's timestamp from the transcript or an observed start recorded beside the linger instants in `SubagentCompletionTracker`. Watch the row's height changing as the caption fills in, since a live row rewrites on every parent read.
+
+**The completion signal moved, and Plume still reads the old one.** Diagnosed on 2026-09-06 against a session that spawned 18 subagents, of which 10 read `working` after finishing. Every one of the 18 has a real completion in the parent transcript: a top-level `{"type":"queue-operation","operation":"enqueue"}` line whose `content` is a string holding `<task-id>` and `<status>completed</status>`, with the task id equal to the subagent's own id. Nothing pairs wrongly — the line is simply never read. `TranscriptAttachment.init(from:)` decodes `plan_mode`, `plan_mode_exit` and `task_status` and drops everything else, `queue-operation` is not modelled at all, and `SubagentSpawnResults.init` looks only at `toolUseResult` and `attachment?.taskStatus`.
+
+**`task_status` appears to be dead.** That file contains zero `task_status` attachments across 2.5 MB, so the attachment path the current code depends on is reading a shape this CLI build no longer writes. The `toolUseResult` for all 18 stays at `async_launched` and is never updated, which is what the section already records. So `parentSignal` never reaches `.completed` and `SubagentStatusDeriver` falls back to `lastStopReason == "end_turn"` — and each of those 10 closing reports carries `stop_reason: null`, which `TranscriptParser` skips, leaving the reason pinned to an earlier `tool_use`. The 7 that read `done` did so by luck, their previous non-null reason already being `end_turn`.
+
+The deriver's rules are right; it is being starved. The change belongs in `TranscriptEntry.swift` and `SubagentDescriptor.swift`. Two things to get right: the status text is embedded in a plain string rather than in JSON fields, so the parse has to degrade to no signal rather than to a wrong one; and an agent the user stopped gets a `completed` notification like any other, so `stoppedByUser` in the `.meta.json` sidecar is the only thing that still distinguishes it — keeping it out of the `interrupted` state the section already ships.
 
 **Nothing on the wire sends a subagent a message.** The control plane's subtypes are all session-wide — mode, model, cwd, interrupt (`docs/headless-protocol.md`) — and a turn sent with `submit(text:)` goes to the parent. The parent is the only thing holding a handle on its subagents, so the honest first step is establishing what the CLI offers at all: whether a host can address a subagent, or whether the message has to reach it as an instruction to the parent to relay. That answer decides the whole shape. A relayed message is a composer in `SubagentTranscriptOverlay` that writes into the main conversation, which is what the user does by hand today, only without leaving the transcript; a direct one is a second input path with its own pending state and its own answers coming back. Either way the overlay needs somewhere to put a reply, since it renders the subagent's file and a relayed exchange lands in the parent's.
 
@@ -94,12 +104,15 @@ An interrupted subagent is finished as far as the rest of the app is concerned: 
 
 Shared by the chat, the plan overlay and the file viewer, so none of these are plan-specific.
 
+- [ ] Fix numbered lists: seen live rendering every item with a `1.` prefix. Check that a list survives a blank line between items and a wrapped item, then fix what doesn't.
 - [ ] Syntax-highlight code blocks.
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [ ] Distinguish a bash block's input from its result — they currently render alike.
 - [ ] Put real newlines in a bash input block.
 - [ ] Size inline code inside a heading to the heading, not to prose. `MarkdownView.heading` builds its text through `inline(_:)`, which is `MarkdownCache.styledInline(text, fontSize: typography.bodySize, …)` — so a code run gets `Font.system(size: bodySize * 0.92, design: .monospaced)` written straight onto it, and that font wins over the `headingFont(level:)` applied to the whole `Text`. A heading naming a type in backticks therefore drops to body size mid-line. The size has to come from the heading's own level, which means `styledInline` taking the size the caller is rendering at rather than always the body's — and the size already keys the cache, so a per-level size needs no new invalidation.
 - [x] Mermaid diagrams in the same renderer.
+
+**A blank line between items is the likely cause.** The marker is positional — `MarkdownView` renders `\(index + 1).` from the item's index within its block — so an all-`1.` list means each item became a block of its own rather than a mis-numbered one. `MarkdownBlock.parse` builds a `numberedList` from *consecutive* lines that `numberedItemText` accepts, and stops at the first line that isn't one. A blank line between items ends the list, and the next item starts a fresh one at index 0. A wrapped item is the second suspect: its continuation line stops the list too, and falls through to a paragraph. Both are ordinary output from an agent, so confirm which one produced the case seen live before changing the parser. Note also that the source's own numbers are discarded, so a list starting at 3 renumbers to 1 — worth deciding on while the marker is in hand.
 
 Padding and the copy icon shipped together in `MarkdownView`'s `case .codeBlock`. The icon is an `overlay` on the background container rather than inside the horizontal `ScrollView`, so it stays pinned instead of scrolling away with the code, and it reveals on hovering the block rather than the button itself. It copies the block's raw `code` string, and introduced the app's first `NSPasteboard` use.
 
@@ -257,8 +270,11 @@ One thing to get right: a plan file exists *before* it is ever proposed. `Transc
 
 ## Interactive rows: plans and questions
 
+- [ ] Clean up the permission prompt's layout, and bring it closer to the question card's. The two ask for a decision in the same place and should read as one family.
 - [x] Let a question be answered free-form as well as by option. Claude Code's own prompt always offers an "Other" escape hatch; Plume's card offers only the listed options, so a question whose real answer isn't among them has nowhere to go but the composer.
 - [ ] Settle how a compacted context reads. It arrived rendered as an ordinary message from the user, which it is not; it now collapses to a marker row labelled "Compacted context". Whether that is the right disclosure — a marker, an expandable row, or something else — is still open.
+
+**The two rows already share a container and diverge inside it.** `PermissionRequestRow` and `InteractiveToolRow` both draw a 12pt-padded, 10pt-rounded, bordered card, so the outer shape needs nothing. What differs is everything within: the permission row's deny reason is a bare `TextField` with `.roundedBorder`, its Allow/Deny sit in a plain `HStack` of default buttons, and its input fields are key/value pairs in a 220pt-capped `ScrollView` — while the question card composes a header, structured options and a free-form field through `PermissionAnswerState`. Decide which of those differences are the tool call's nature and which are only drift; the fields' scroll box is the clearest case of the former, since a whole file body has to go somewhere. The plan feedback field wants the composer's editor for the same reason ([The plan overlay](#the-plan-overlay)), so settle the field treatment once across all three rather than per row.
 
 **Free-form answers shipped.** The wire needed nothing new: an `Answer.questions` payload is already question text -> an arbitrary string, so typed text rides the control plane as-is. A question is now answered by chosen options *or* typed text, never both — setting either clears the other, so `isComplete`, `answers(for:)`, the primary button's enabled state and what actually gets sent all read one source of truth per question. The field renders only on an answerable row, leaving the transcript's read-only copy unchanged.
 
