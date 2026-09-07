@@ -99,6 +99,11 @@ nonisolated struct TranscriptEntry: Decodable {
     /// A tool call's structured outcome, which is where a spawning `Task` call
     /// records the subagent it launched and whether that agent finished.
     let toolUseResult: TranscriptToolUseResult?
+    /// Set on `queue-operation` lines: `enqueue` or `dequeue`.
+    let operation: String?
+    /// The task notification a `queue-operation` line carries, which is how
+    /// the CLI reports that a subagent stopped.
+    let taskNotification: TranscriptTaskNotification?
     /// Set on `system` lines: `compact_boundary`, `api_error`,
     /// `turn_duration`, and a long tail of bookkeeping kinds.
     let subtype: String?
@@ -122,6 +127,7 @@ nonisolated struct TranscriptEntry: Decodable {
         case attachment
         case toolUseResult
         case subtype, level, content, compactMetadata, error
+        case operation
         case isApiErrorMessage
     }
 
@@ -144,6 +150,7 @@ nonisolated struct TranscriptEntry: Decodable {
         // Sometimes a bare string rather than an object, so a failure here is
         // ordinary rather than a malformed line.
         toolUseResult = try? container.decodeIfPresent(TranscriptToolUseResult.self, forKey: .toolUseResult)
+        operation = try container.decodeIfPresent(String.self, forKey: .operation)
         subtype = try container.decodeIfPresent(String.self, forKey: .subtype)
         level = try container.decodeIfPresent(String.self, forKey: .level)
         systemContent = try? container.decodeIfPresent(String.self, forKey: .content)
@@ -152,6 +159,9 @@ nonisolated struct TranscriptEntry: Decodable {
             try? container.decodeIfPresent(JSONValue.self, forKey: .error)
         )
         isApiErrorMessage = try container.decodeIfPresent(Bool.self, forKey: .isApiErrorMessage) ?? false
+        taskNotification = type == "queue-operation"
+            ? systemContent.flatMap(TranscriptTaskNotification.init(content:))
+            : nil
 
         if let raw = try container.decodeIfPresent(String.self, forKey: .timestamp) {
             timestamp = TranscriptEntry.isoFormatter.date(from: raw)
@@ -272,6 +282,43 @@ nonisolated struct TranscriptToolUseResult: Decodable {
 nonisolated struct TranscriptTaskStatus: Decodable {
     let taskID: String
     let status: String?
+}
+
+/// A `<task-notification>` block, which the CLI enqueues each time a subagent
+/// stops. It names the agent by `task-id` and its outcome by `status`.
+///
+/// The payload is a plain string rather than JSON fields, so this degrades to
+/// no signal rather than to a wrong one: anything it does not recognize yields
+/// nil. Tags are read only from the header, before the `<result>` body, since
+/// an agent's own report can quote the same tags.
+nonisolated struct TranscriptTaskNotification: Equatable {
+    let taskID: String
+    /// `completed`, `failed`, `killed` or `stopped` in the corpus. Left as
+    /// written so the reader decides what an unfamiliar word means.
+    let status: String?
+
+    init?(content: String) {
+        guard let header = Self.header(of: content),
+              let taskID = Self.tagValue("task-id", in: header)
+        else { return nil }
+        self.taskID = taskID
+        status = Self.tagValue("status", in: header)
+    }
+
+    private static func header(of content: String) -> Substring? {
+        guard let start = content.range(of: "<task-notification>") else { return nil }
+        let rest = content[start.upperBound...]
+        guard let body = rest.range(of: "<result>") else { return rest }
+        return rest[..<body.lowerBound]
+    }
+
+    private static func tagValue(_ tag: String, in header: Substring) -> String? {
+        guard let open = header.range(of: "<\(tag)>"),
+              let close = header.range(of: "</\(tag)>", range: open.upperBound..<header.endIndex)
+        else { return nil }
+        let value = header[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 }
 
 /// A top-level `attachment` line's payload. Only `plan_mode`,

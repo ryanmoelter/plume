@@ -42,7 +42,8 @@ nonisolated enum SubagentStatusDeriver {
     static func derive(
         transcript: Transcript,
         parentSignal: SubagentParentSignal?,
-        parentResultIsError: Bool = false
+        parentResultIsError: Bool = false,
+        stoppedByUser: Bool = false
     ) -> TaskStatus {
         guard let last = transcript.messages.last else { return .unset }
 
@@ -50,7 +51,9 @@ nonisolated enum SubagentStatusDeriver {
         if last.blocks.contains(where: isErrorNotice) { return .error }
         if last.blocks.contains(where: isQuestion) { return .needsInput }
 
-        if isFinished(transcript: transcript, parentSignal: parentSignal) { return .done }
+        if isFinished(transcript: transcript, parentSignal: parentSignal, stoppedByUser: stoppedByUser) {
+            return .done
+        }
         if last.blocks.contains(where: isInterruption) { return .interrupted }
         return .working
     }
@@ -64,8 +67,17 @@ nonisolated enum SubagentStatusDeriver {
     ///
     /// Absent that, a turn ending on `tool_use` is mid-step, which keeps a
     /// resumed agent from staying stuck on an `end_turn` it has worked past.
-    private static func isFinished(transcript: Transcript, parentSignal: SubagentParentSignal?) -> Bool {
-        if parentSignal == .completed { return true }
+    ///
+    /// An agent the user stopped is notified `completed` like any other, so its
+    /// sidecar's `stoppedByUser` is what keeps that notification from reading
+    /// as a finish. Its own transcript still decides: an `end_turn` after a
+    /// resume is a real one, and otherwise the interruption marker takes over.
+    private static func isFinished(
+        transcript: Transcript,
+        parentSignal: SubagentParentSignal?,
+        stoppedByUser: Bool
+    ) -> Bool {
+        if parentSignal == .completed, !stoppedByUser { return true }
         return transcript.lastStopReason == "end_turn"
     }
 

@@ -110,15 +110,27 @@ private struct SubagentRow: View, ThemedView {
         subagent.transcript.messages.count
     }
 
+    private var caption: SubagentCaption {
+        SubagentCaption(subagent: subagent)
+    }
+
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 StatusBadge(status: subagent.status)
                     .frame(width: 12, alignment: .center)
-                Text(subagent.title)
-                    .font(typography.body.font)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(subagent.title)
+                        .font(typography.body.font)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    // Rendered even while empty, so a row keeps its height as
+                    // the facts arrive on the next read.
+                    Text(caption.text)
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 8)
                 Text("\(messageCount)")
                     .font(typography.caption.mono)
