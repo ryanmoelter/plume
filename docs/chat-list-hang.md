@@ -57,7 +57,7 @@ Long transcripts to feed it live under `~/.claude/projects/`; the Notability one
 
 ## Sep 6: it came back, while scrolling up
 
-Diagnosed below; `docs/chat-block-rows-plan.md` is the fix plan. Ryan hit it on a plain Debug build of `ryanm/release-0.3.5` while scrolling up through an idle thread — nothing streaming. Two `sample`s nine minutes apart (the first at `~/plume-hang-live-2026-09-06.txt`) have the same shape, and the process was still at 100% with 54 minutes of CPU an hour later, so it is a loop, not expensive layout that would finish.
+Diagnosed below, and fixed by the split in **What landed**. Ryan hit it on a plain Debug build of `ryanm/release-0.3.5` while scrolling up through an idle thread — nothing streaming. Two `sample`s nine minutes apart (the first at `~/plume-hang-live-2026-09-06.txt`) have the same shape, and the process was still at 100% with 54 minutes of CPU an hour later, so it is a loop, not expensive layout that would finish.
 
 What each pass does, by share of main-thread samples:
 
@@ -142,12 +142,13 @@ The second-opinion review rates local height contrast as sufficient to trigger t
 
 ### What landed
 
-The chat list places **one lazy item per block**, not per message. `ChatPieceSplitter` turns the transcript into `ChatPiece`s — one markdown block, one thinking row, one tool call, one notice, the streaming overlay, the working indicator — and `ChatPieceView` draws each one. A message's wash is drawn per piece, with only the corners and edges that piece owns, so several pieces still read as one bubble. `docs/chat-block-rows-plan.md` is the design.
+The chat list places **one lazy item per block**, not per message. `ChatPieceSplitter` turns the transcript into `ChatPiece`s — one markdown block, one thinking row, one tool call, one notice, the streaming overlay, the working indicator — and `ChatPieceView` draws each one. A message's wash is drawn per piece, with only the corners and edges that piece owns, so several pieces still read as one bubble.
 
 - **The ceiling is 300 pt**, the value Trial E2 tested. A list over it splits into segments; a code block over it stays one piece and scrolls inside itself, bounded at the same 300 pt by `CodeSegmentView` — splitting a code block would cost the reader a continuous scroll through it. A table, a paragraph, a heading, a quote and a mermaid fence are neither split nor bounded. Both decisions come from a crude estimate in `ChatPieceMetrics` — nothing measures text, and no measured height ever reaches the splitter, which is the feedback loop this document exists to remove.
 - **The streaming overlay splits too.** Everything above the block still arriving is settled markdown; only the tail block stays live and revealing. Parsing is not prefix-stable, so a settled piece can be reinterpreted mid-stream; the remount is accepted.
 - **The model is built in `onChange`, never in `body`.** `ChatPieceCache` memoizes `MarkdownBlock.parse` by source across rebuilds, pruned to what the current messages hold.
 - Piece ids are deterministic from the message id and the block's original index, so a re-parse or a tool result landing keeps a row's expanded state alive.
+- **Short pieces are not packed back into larger items**, and should not be. A packer cannot honour both a floor and a ceiling — a 26 pt piece before a 588 pt one has to violate one of them — and an item keyed by its first piece loses the `@State` of every piece that moves to a different parent when the packing shifts. The 300 pt ceiling does the work on its own; if the small side ever turns out to matter, the answer is a real minimum height on the shortest rows (Trial E1), not packing.
 
 **Measured once**, with `PLUME_CHAT_ITEM_STATS=1` and `PLUME_SCROLL_WHEEL=150` driving the scroll, one transcript per run at a 1016 pt viewport, on the hang thread and the five largest transcripts on disk. This was a one-off check that the ceiling holds on real content — it is not a regular test. A full sweep costs about 18 minutes of wall clock, and a returning hang announces itself in seconds of scrolling, so do not re-run it on a schedule or before a release. Run it again only to answer a specific question about item heights.
 
