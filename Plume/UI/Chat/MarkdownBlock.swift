@@ -27,6 +27,20 @@ nonisolated enum MarkdownBlock: Equatable {
         case trailing
     }
 
+    /// A short name for the case, for the chat list's stats probe.
+    var kindName: String {
+        switch self {
+        case .heading: "heading"
+        case .paragraph: "paragraph"
+        case .bulletList: "bulletList"
+        case .numberedList: "numberedList"
+        case .codeBlock: "codeBlock"
+        case .quote: "quote"
+        case .table: "table"
+        case .rule: "rule"
+        }
+    }
+
     /// Whether a table's header carries anything worth showing.
     ///
     /// An all-empty header is the key-value form of a table, where a blank

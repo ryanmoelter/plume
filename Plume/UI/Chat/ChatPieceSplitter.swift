@@ -111,11 +111,11 @@ enum ChatPieceSplitter {
         var previousBlockKind: ChatBlockSpacing.Kind?
 
         for (blockIndex, block) in message.blocks.enumerated() {
-            if case .toolCall(let call) = block, context.hiddenToolUseIDs.contains(call.id) {
-                // The pending dock draws this one, answerable. It renders
-                // nothing here and does not space what follows it.
-                continue
-            }
+            // A block that draws nothing takes no item and does not space
+            // what follows it — an empty lazy item is exactly the kind of
+            // near-zero height the ceiling exists to keep away from.
+            guard ChatBlockSpacing.isRendered(block, hiddenToolUseIDs: context.hiddenToolUseIDs)
+            else { continue }
             let leading = result.isEmpty
                 ? context.leadingInset
                 : ChatBlockSpacing.blockTopInset(
@@ -149,7 +149,7 @@ enum ChatPieceSplitter {
             )
         }
 
-        if context.isWorking {
+        if context.isWorking, message.role == .assistant {
             result.append(ChatPiece(
                 id: "\(message.id)/working",
                 messageID: message.id,
@@ -294,7 +294,7 @@ enum ChatPieceSplitter {
                     joinInset: 0
                 )]
             }
-            let chunks = ChatPieceMetrics.chunks(items, limit: ChatPieceMetrics.listSegmentItems)
+            let chunks = ChatPieceMetrics.listChunks(items)
             var start = 1
             return chunks.enumerated().map { position, chunk in
                 defer { start += chunk.count }

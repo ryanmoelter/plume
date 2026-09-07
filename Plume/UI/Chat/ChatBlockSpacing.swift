@@ -144,8 +144,17 @@ enum ChatBlockSpacing {
         previous == .toolCall && current == .toolCall
     }
 
-    private static func isRendered(_ block: ChatBlock, hiddenToolUseIDs: Set<String>) -> Bool {
-        if case .toolCall(let call) = block { return !hiddenToolUseIDs.contains(call.id) }
-        return true
+    /// Whether a block draws anything.
+    ///
+    /// A call the pending dock has taken over draws nothing here, and real
+    /// transcripts carry thinking blocks with no text — `ThinkingRow` renders
+    /// nothing for those rather than an empty expander. Neither takes a gap
+    /// nor counts as the block above the next one.
+    static func isRendered(_ block: ChatBlock, hiddenToolUseIDs: Set<String> = []) -> Bool {
+        switch block {
+        case .toolCall(let call): !hiddenToolUseIDs.contains(call.id)
+        case .thinking(let text): !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        default: true
+        }
     }
 }

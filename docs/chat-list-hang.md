@@ -140,11 +140,18 @@ Trials, all on Sep 6 against a copy of the release store (`~/plume-hang-store`, 
 
 The second-opinion review rates local height contrast as sufficient to trigger the loop and removing that contrast as sufficient to avoid it, without proving the estimator safe for every height distribution.
 
-### Fix direction
+### What landed
 
-Try capping the height ratio between items in the realized or prefetch region first, keeping `LazyVStack`. Render one lazy item per markdown block instead of per message: Trial E4 shows the simulated distribution never hangs, and splitting also stops a realized 2,140 pt message from laying out all of its text in one pass. Target a ratio around 10×; E4's tested range topped out at about 7.5×, well under the roughly 50× that reproduced the hang, so the design has not been tested near the edge. Prefer splitting an oversized block (a long code block, a table, an image, an unbroken paragraph) over padding short rows. A minimum height on the small side also works, and Trial E2 shows 300 pt beside 23 pt is safe, but it spends vertical space on every short row instead of fixing the one block that is actually too tall. The remaining risk is a single tall block, such as a long code block or an image, that stays one item after the split; either the block splitter or a minimum height on the small side has to bound the ratio it produces.
+The chat list places **one lazy item per block**, not per message. `ChatPieceSplitter` turns the transcript into `ChatPiece`s — one markdown block, one thinking row, one tool call, one notice, the streaming overlay, the working indicator — and `ChatPieceView` draws each one. A message's wash is drawn per piece, with only the corners and edges that piece owns, so several pieces still read as one bubble. `docs/chat-block-rows-plan.md` is the design.
 
-Fall back to an eager `VStack` with an owned height cache if the ratio cap does not hold up against real markdown. Trial D proves plain eager layout removes the loop outright; the open question is its cost on long transcripts, which an owned height cache is meant to control. After that, `List`, then manual windowing last.
+- **The ceiling is 300 pt**, the value Trial E2 tested. A code block or a list over it splits into segments; a table, a paragraph, a heading, a quote and a mermaid fence never split. Splitting is decided from a crude estimate in `ChatPieceMetrics` — nothing measures text, and no measured height ever reaches the splitter, which is the feedback loop this document exists to remove.
+- **The streaming overlay splits too.** Everything above the block still arriving is settled markdown; only the tail block stays live and revealing. Parsing is not prefix-stable, so a settled piece can be reinterpreted mid-stream; the remount is accepted.
+- **The model is built in `onChange`, never in `body`.** `ChatPieceCache` memoizes `MarkdownBlock.parse` by source across rebuilds, pruned to what the current messages hold.
+- Piece ids are deterministic from the message id and the block's original index, so a re-parse or a tool result landing keeps a row's expanded state alive.
+
+**Measured on the hang thread** (`552fca5e`, 402 pieces, 1016 pt viewport, `PLUME_CHAT_ITEM_STATS=1` with `PLUME_SCROLL_WHEEL` driving the scroll): min 27 pt, max 358 pt, median 40 pt, global ratio **13.3×**, windowed ratio **13.3×**. The same thread's tallest row before the split was 2,140 pt against a 23 pt cluster, about 93×. What is left over the ceiling is a code block just under the split threshold and a single list item too long to divide.
+
+**`PLUME_CHAT_ITEM_STATS=1`** logs those numbers per transcript load and once a second while scrolling: piece count, realized count, min, max, median, the global and windowed max/min ratios, the five tallest pieces named by kind, the expanded-row count and the viewport width. It is observational — nothing reads it back into layout. Twenty is a convenience for the window, not SwiftUI's realization span, which this diagnosis leaves unknown; the global ratio is the one to watch.
 
 Acceptance beyond "no hang after momentum through the boundary":
 
@@ -159,6 +166,8 @@ Acceptance beyond "no hang after momentum through the boundary":
 - The momentum test from this section, run on this thread with real content and repeated on the largest transcripts.
 - Bidirectional momentum, several window sizes including the tall external display, resizing, and hidden-tab switching.
 - Compare cold open, task-switch latency, scroll responsiveness and memory against the current shape, with several chats mounted at once.
+
+If the split does not hold up, the fallback is unchanged: an eager `VStack` with an owned height cache. Trial D proves plain eager layout removes the loop outright; the open question is its cost on long transcripts. After that, `List`, then manual windowing last.
 
 ## If it comes back
 

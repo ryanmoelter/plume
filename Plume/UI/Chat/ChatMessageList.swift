@@ -50,6 +50,11 @@ struct ChatMessageList: View, ThemedView {
     @State private var pieces: [ChatPiece] = []
     @State private var cache = ChatPieceCache()
 
+    /// Names this list to `PLUME_CHAT_ITEM_STATS`. Every tab stays mounted,
+    /// so several lists measure at once and one set of numbers would be a
+    /// blend of all of them.
+    @State private var statsToken = UUID()
+
     private var session: HeadlessSession? {
         guard let tabID else { return nil }
         return HeadlessSessionManager.shared.existingSession(for: tabID)
@@ -105,7 +110,7 @@ struct ChatMessageList: View, ThemedView {
                         .listItemPadding(bleed: true, column: .unpadded, vertical: false)
                         .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                         .padding(.bottom, piece.bottomInset)
-                        .chatItemStatsProbe(id: piece.id)
+                        .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
                 }
                 if let tabID {
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
@@ -118,7 +123,7 @@ struct ChatMessageList: View, ThemedView {
             }
             .scrollTargetLayout()
         }
-        .chatItemStatsViewport()
+        .chatItemStatsViewport(list: statsToken)
         .onChange(of: messages, initial: true) { rebuildPieces() }
         .onChange(of: status) { rebuildPieces() }
         .onChange(of: pendingToolUseIDs) { rebuildPieces() }
@@ -191,7 +196,7 @@ struct ChatMessageList: View, ThemedView {
             dimensions: dimensions
         )
         #if DEBUG
-        ChatItemStats.shared.setOrder(pieces.map(\.id))
+        ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
         #endif
     }
 

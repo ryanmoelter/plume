@@ -20,15 +20,11 @@ struct SubagentTranscriptOverlay: View, ThemedView {
         subagent.transcript.messages
     }
 
-    private var pieces: [ChatPiece] {
-        ChatPieceSplitter.pieces(
-            for: messages,
-            status: subagent.status,
-            hiddenToolUseIDs: [],
-            streaming: ChatStreamHandoff.Overlay(),
-            dimensions: dimensions
-        )
-    }
+    /// Built in `onChange` rather than in `body`, for the reason the main
+    /// list builds its own there: markdown parsing must not run on the render
+    /// path.
+    @State private var pieces: [ChatPiece] = []
+    @State private var cache = ChatPieceCache()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,9 +49,21 @@ struct SubagentTranscriptOverlay: View, ThemedView {
                 }
             }
         }
+        .onChange(of: messages, initial: true) { rebuildPieces() }
+        .onChange(of: subagent.status) { rebuildPieces() }
         .glassEffect(glass, in: .rect(cornerRadius: 12))
         .listItemPadding(bleed: true)
         .padding(.vertical, 8)
+    }
+
+    private func rebuildPieces() {
+        pieces = cache.pieces(
+            for: messages,
+            status: subagent.status,
+            hiddenToolUseIDs: [],
+            streaming: ChatStreamHandoff.Overlay(),
+            dimensions: dimensions
+        )
     }
 
     private var header: some View {

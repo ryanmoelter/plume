@@ -270,6 +270,7 @@ struct ListSegmentView: View, ThemedView {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .textSelection(.enabled)
         .listItemPadding(vertical: false)
     }
 
@@ -307,6 +308,7 @@ struct CodeSegmentView: View, ThemedView {
                     .overlay(alignment: .topTrailing) { copyButton }
             }
         }
+        .textSelection(.enabled)
         .onHover { isHovered = $0 }
         .listItemPadding(bleed: true, vertical: false)
     }

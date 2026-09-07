@@ -11,47 +11,33 @@ struct ChatPieceView: View, ThemedView {
 
     let piece: ChatPiece
 
+    // One modifier chain for every wash, so a message gaining the
+    // needs-input treatment changes values rather than structure. A `switch`
+    // here would give the branches different identities, and every expanded
+    // disclosure inside would collapse the moment the status changed.
     var body: some View {
-        switch piece.wash {
-        case .none:
-            content
-        case .bubble:
-            bubble
-        case .attention:
-            attention
-        }
-    }
-
-    private var bubble: some View {
         content
-            // The wash sits directly on the blocks, and the frames only
+            .environment(\.chatHugsContent, piece.wash == .bubble)
+            .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
+            .padding(.top, insideInset)
+            .padding(.horizontal, washPadding)
+            .padding(.top, piece.segment.isFirst ? washPadding : 0)
+            .padding(.bottom, piece.segment.isLast ? washPadding : 0)
+            .background(washFill, in: washShape)
+            .overlay {
+                if piece.wash == .attention {
+                    SegmentBorder(segment: piece.segment, radius: washRadius)
+                        .stroke(attentionBorder, lineWidth: 1)
+                }
+            }
+            // The wash sits directly on the blocks, and these frames only
             // position the result. Bounded text wraps and reports the width it
             // actually used, so the bubble hugs a short message and still
             // wraps a long one at reading measure. A message split across
             // several pieces takes the full column instead, so every segment
             // is the same width and the joined shape reads as one bubble.
-            .environment(\.chatHugsContent, true)
-            .frame(maxWidth: piece.segment == .single ? nil : .infinity, alignment: .leading)
-            .padding(.top, insideInset)
-            .padding(.horizontal, washPadding)
-            .padding(.top, piece.segment.isFirst ? washPadding : 0)
-            .padding(.bottom, piece.segment.isLast ? washPadding : 0)
-            .background(colors.surfaceTint, in: washShape)
-            .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private var attention: some View {
-        content
-            .padding(.top, insideInset)
-            .padding(.horizontal, washPadding)
-            .padding(.top, piece.segment.isFirst ? washPadding : 0)
-            .padding(.bottom, piece.segment.isLast ? washPadding : 0)
-            .background(attentionWash, in: washShape)
-            .overlay {
-                SegmentBorder(segment: piece.segment, radius: washRadius)
-                    .stroke(attentionBorder, lineWidth: 1)
-            }
+            .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
     }
 
     @ViewBuilder
@@ -80,6 +66,12 @@ struct ChatPieceView: View, ThemedView {
         }
     }
 
+    /// A bubble of several pieces takes the whole column so every segment is
+    /// the same width; one that is a whole message on its own hugs its text.
+    private var fillsColumn: Bool {
+        piece.wash == .bubble && piece.segment != .single
+    }
+
     /// The gap above a piece whose wash continues upwards, painted as wash so
     /// the joined shape has no break in it. The list pays the rest outside.
     private var insideInset: CGFloat {
@@ -95,16 +87,20 @@ struct ChatPieceView: View, ThemedView {
         )
     }
 
-    private var washPadding: CGFloat { 10 }
-    private var washRadius: CGFloat { 10 }
-
-    private var attentionWash: Color {
-        colors.attention.emphasized(.backgroundTint, in: colors)
+    private var washFill: Color {
+        switch piece.wash {
+        case .none: .clear
+        case .bubble: colors.surfaceTint
+        case .attention: colors.attention.emphasized(.backgroundTint, in: colors)
+        }
     }
 
     private var attentionBorder: Color {
         colors.attention.emphasized(.disabled, in: colors)
     }
+
+    private var washPadding: CGFloat { piece.wash == .none ? 0 : 10 }
+    private var washRadius: CGFloat { 10 }
 }
 
 /// The edges of a wash that one piece owns: both sides always, the top and
@@ -118,8 +114,17 @@ private struct SegmentBorder: Shape {
 
     func path(in rect: CGRect) -> Path {
         // Inset by half the line width, matching `strokeBorder`, so the
-        // stroke sits inside the wash rather than straddling its edge.
-        let box = rect.insetBy(dx: 0.5, dy: 0.5)
+        // stroke sits inside the wash rather than straddling its edge — but
+        // only on the edges this segment owns, or the sides would stop half a
+        // point short either side of every join and leave a break.
+        let box = CGRect(
+            x: rect.minX + 0.5,
+            y: rect.minY + (segment.isFirst ? 0.5 : 0),
+            width: rect.width - 1,
+            height: rect.height
+                - (segment.isFirst ? 0.5 : 0)
+                - (segment.isLast ? 0.5 : 0)
+        )
         let top = segment.isFirst ? radius : 0
         let bottom = segment.isLast ? radius : 0
         var path = Path()
@@ -165,4 +170,41 @@ private struct SegmentBorder: Shape {
         )
         return path
     }
+}
+
+#Preview {
+    let dimensions = Dimensions(bodySize: 13)
+    let messages = [
+        ChatMessage(id: "1", role: .user, blocks: [.markdown("Fix the build")], timestamp: nil),
+        ChatMessage(
+            id: "2",
+            role: .user,
+            blocks: [.markdown("A longer note that runs to several blocks.\n\nSo its bubble is drawn once per piece and has to join back up without a seam.")],
+            timestamp: nil
+        ),
+        ChatMessage(id: "3", role: .assistant, blocks: [.markdown("Working on it.")], timestamp: nil),
+        ChatMessage(
+            id: "4",
+            role: .assistant,
+            blocks: [.markdown("Should I proceed?\n\nThe change touches three files.")],
+            timestamp: nil
+        )
+    ]
+    let pieces = ChatPieceSplitter.pieces(
+        for: messages,
+        status: .needsInput,
+        hiddenToolUseIDs: [],
+        streaming: ChatStreamHandoff.Overlay(),
+        dimensions: dimensions
+    )
+    return VStack(alignment: .leading, spacing: 0) {
+        ForEach(pieces) { piece in
+            ChatPieceView(piece: piece)
+                .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
+                .padding(.bottom, piece.bottomInset)
+        }
+    }
+    .padding()
+    .frame(width: 560)
 }

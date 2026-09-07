@@ -57,6 +57,22 @@ struct ChatPiece: Identifiable, Equatable {
     /// output stay in the system face.
     var isAgentVoice: Bool { role == .assistant }
 
+    /// A short name for the kind of content, for the stats probe's log.
+    var kindName: String {
+        switch content {
+        case .markdown(let block, _): "markdown.\(block.kindName)"
+        case .codeSegment: "code"
+        case .listSegment: "list"
+        case .thinking: "thinking"
+        case .toolCall: "toolCall"
+        case .injected: "injected"
+        case .notice: "notice"
+        case .image: "image"
+        case .streaming: "streaming"
+        case .working: "working"
+        }
+    }
+
     var isStreaming: Bool {
         if case .streaming = content { return true }
         return false

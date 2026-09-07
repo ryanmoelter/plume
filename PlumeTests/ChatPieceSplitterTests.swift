@@ -212,6 +212,11 @@ struct ChatPieceSplitterTests {
             expected += segment.items.count
         }
         #expect(result.dropFirst().allSatisfy { $0.topInset == ChatBlockSpacing.listSegmentSpacing })
+        // Segments of equal length, so a list just over the ceiling does not
+        // end on a segment of one item.
+        let lengths = Set(segments.map(\.items.count))
+        #expect(lengths.count <= 2)
+        #expect((lengths.max() ?? 0) - (lengths.min() ?? 0) <= 1)
     }
 
     /// Segments would size their columns independently and the join would show.
@@ -287,6 +292,27 @@ struct ChatPieceSplitterTests {
         let alone = pieces([message("m", .assistant, [])], status: .working)
         #expect(alone.map(\.id) == ["m/working"])
         #expect(alone[0].topInset == dimensions.verticalPadding)
+    }
+
+    /// An empty lazy item is exactly the near-zero height the ceiling exists
+    /// to keep away from, and real transcripts carry thinking blocks with no
+    /// text.
+    @Test func aBlockThatDrawsNothingTakesNoItem() {
+        let result = pieces([message("m", .assistant, [
+            .thinking("   \n "),
+            .markdown("done")
+        ])])
+        #expect(result.map(\.id) == ["m/1/0"])
+        #expect(result[0].topInset == dimensions.verticalPadding)
+    }
+
+    /// The working indicator lives in the assistant's own body, so a turn
+    /// that has not produced an assistant message yet shows none of it — and
+    /// never inside the user's bubble.
+    @Test func theWorkingIndicatorNeverJoinsAUserMessage() {
+        let result = pieces([message("m", .user, [.markdown("go")])], status: .working)
+        #expect(result.map(\.id) == ["m/0/0"])
+        #expect(result[0].segment == .single)
     }
 
     @Test func theStreamTakesTheGapItWillHaveOnceItSettles() {

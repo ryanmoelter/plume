@@ -6,18 +6,18 @@ extension View {
     /// Reports this item's laid-out height to `PLUME_CHAT_ITEM_STATS`.
     /// Nothing reads the measurement back into layout — it exists so the
     /// height spread that caused the hang can be watched, not corrected.
-    func chatItemStatsProbe(id: String) -> some View {
+    func chatItemStatsProbe(list: UUID, id: String, kind: @autoclosure () -> String) -> some View {
         #if DEBUG
-        modifier(ChatItemStatsProbe(id: id))
+        modifier(ChatItemStatsProbe(list: list, id: id, kind: ChatItemStats.isEnabled ? kind() : ""))
         #else
         self
         #endif
     }
 
     /// Reports the list's own width, which decides how tall every item wraps.
-    func chatItemStatsViewport() -> some View {
+    func chatItemStatsViewport(list: UUID) -> some View {
         #if DEBUG
-        modifier(ChatItemStatsViewport())
+        modifier(ChatItemStatsViewport(list: list))
         #else
         self
         #endif
@@ -46,31 +46,42 @@ final class ChatItemStats {
     static let isEnabled = ProcessInfo.processInfo.environment["PLUME_CHAT_ITEM_STATS"] != nil
     static let shared = ChatItemStats()
 
-    /// Pieces within one window of the realized region. Twenty is a
-    /// convenience, not SwiftUI's realization span, which the diagnosis
-    /// leaves unknown — the global ratio is the one to watch.
+    /// Pieces within one window. Twenty is a convenience, not SwiftUI's
+    /// realization span, which the diagnosis leaves unknown — the global
+    /// ratio is the one to watch.
     private static let window = 20
 
-    private var order: [String] = []
-    private var heights: [String: CGFloat] = [:]
+    /// Per chat list. Every tab stays mounted, so several lists measure at
+    /// once and one singleton's numbers would be a blend of all of them.
+    private struct List {
+        var order: [String] = []
+        var heights: [String: CGFloat] = [:]
+        var kinds: [String: String] = [:]
+        var viewportWidth: CGFloat = 0
+    }
+
+    private var lists: [UUID: List] = [:]
     private var expanded: Set<UUID> = []
-    private var viewportWidth: CGFloat = 0
     private var logger: Task<Void, Never>?
 
-    func setOrder(_ ids: [String]) {
+    func setOrder(_ ids: [String], for list: UUID) {
         let present = Set(ids)
-        order = ids
-        heights = heights.filter { present.contains($0.key) }
-        log(reason: "load")
+        var entry = lists[list] ?? List()
+        entry.order = ids
+        entry.heights = entry.heights.filter { present.contains($0.key) }
+        entry.kinds = entry.kinds.filter { present.contains($0.key) }
+        lists[list] = entry
+        log(list, reason: "load")
         startLogging()
     }
 
-    func record(id: String, height: CGFloat) {
-        heights[id] = height
+    func record(list: UUID, id: String, kind: String, height: CGFloat) {
+        lists[list, default: List()].heights[id] = height
+        lists[list]?.kinds[id] = kind
     }
 
-    func record(viewportWidth width: CGFloat) {
-        viewportWidth = width
+    func record(list: UUID, viewportWidth: CGFloat) {
+        lists[list, default: List()].viewportWidth = viewportWidth
     }
 
     func setExpanded(_ token: UUID, _ isExpanded: Bool) {
@@ -82,26 +93,44 @@ final class ChatItemStats {
         logger = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                self?.log(reason: "tick")
+                guard let self else { return }
+                for list in self.lists.keys { self.log(list, reason: "tick") }
             }
         }
     }
 
-    private func log(reason: String) {
-        let measured = order.compactMap { heights[$0] }.filter { $0 > 0 }
+    /// `measured` counts every piece ever laid out, not what is realized now
+    /// — a height is never dropped. So the ratios are the worst case over
+    /// the whole transcript, which is a superset of any realized window.
+    private func log(_ list: UUID, reason: String) {
+        guard let entry = lists[list] else { return }
+        let measured = entry.order.compactMap { entry.heights[$0] }.filter { $0 > 0 }
         guard let low = measured.min(), let high = measured.max(), low > 0 else { return }
         let sorted = measured.sorted()
         let summary = """
-        chat item stats (\(reason)): pieces=\(order.count) realized=\(measured.count) \
+        chat item stats (\(reason)) list=\(list.uuidString.prefix(8)): \
+        pieces=\(entry.order.count) measured=\(measured.count) \
         min=\(Int(low)) max=\(Int(high)) median=\(Int(sorted[sorted.count / 2])) \
         globalRatio=\(ratio(high / low)) windowRatio=\(ratio(windowedRatio(measured))) \
-        expanded=\(expanded.count) viewportWidth=\(Int(viewportWidth))
+        expanded=\(expanded.count) viewportWidth=\(Int(entry.viewportWidth)) \
+        tallest=[\(extremes(entry, tallest: true))] shortest=[\(extremes(entry, tallest: false))]
         """
         Log.app.info("\(summary, privacy: .public)")
     }
 
-    /// The largest max/min ratio over any window of consecutive realized
-    /// pieces, which is closer to what the stack actually estimates from.
+    /// The five pieces at either end, named by kind, so a ratio that is too
+    /// wide says which block kinds are making it so.
+    private func extremes(_ entry: List, tallest: Bool) -> String {
+        entry.heights
+            .filter { $0.value > 0 }
+            .sorted { tallest ? $0.value > $1.value : $0.value < $1.value }
+            .prefix(5)
+            .map { "\(entry.kinds[$0.key] ?? "?"):\(Int($0.value))" }
+            .joined(separator: " ")
+    }
+
+    /// The largest max/min ratio over any window of consecutive pieces, which
+    /// is closer to what the stack actually estimates from.
     private func windowedRatio(_ measured: [CGFloat]) -> CGFloat {
         guard measured.count > 1 else { return 1 }
         var worst: CGFloat = 1
@@ -119,12 +148,14 @@ final class ChatItemStats {
 }
 
 private struct ChatItemStatsProbe: ViewModifier {
+    let list: UUID
     let id: String
+    let kind: String
 
     func body(content: Content) -> some View {
         if ChatItemStats.isEnabled {
             content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                ChatItemStats.shared.record(id: id, height: height)
+                ChatItemStats.shared.record(list: list, id: id, kind: kind, height: height)
             }
         } else {
             content
@@ -133,10 +164,12 @@ private struct ChatItemStatsProbe: ViewModifier {
 }
 
 private struct ChatItemStatsViewport: ViewModifier {
+    let list: UUID
+
     func body(content: Content) -> some View {
         if ChatItemStats.isEnabled {
             content.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                ChatItemStats.shared.record(viewportWidth: width)
+                ChatItemStats.shared.record(list: list, viewportWidth: width)
             }
         } else {
             content

@@ -17,12 +17,18 @@ enum ChatPieceMetrics {
     /// The most items a list segment carries.
     static let listSegmentItems = 12
 
-    private static let proseLineHeight: CGFloat = 20
+    private static let proseLineHeight: CGFloat = 24
     private static let prosePadding: CGFloat = 8
-    private static let charactersPerLine = 90
+    /// Roughly what fits on a line of reading measure at the default body
+    /// size. Deliberately low, as `proseLineHeight` is deliberately high:
+    /// underestimating leaves a piece over the ceiling, which is the thing
+    /// the ceiling exists to prevent, while overestimating only splits a
+    /// list that would have fit — and a list's segments join at the gap its
+    /// items already have between them.
+    private static let charactersPerLine = 60
     private static let codeLineHeight: CGFloat = 17
     private static let codePadding: CGFloat = 28
-    private static let listItemHeight: CGFloat = 22
+    private static let listItemSpacing: CGFloat = 4
 
     /// A rough height for the block, or nil for the kinds that are never
     /// split and so never need one.
@@ -33,7 +39,7 @@ enum ChatPieceMetrics {
         case .codeBlock(_, let code):
             return CGFloat(lines(of: code).count) * codeLineHeight + codePadding
         case .bulletList(let items), .numberedList(let items):
-            return CGFloat(items.count) * listItemHeight
+            return items.reduce(0) { $0 + height(ofItem: $1) }
         case .heading, .table, .rule:
             return nil
         }
@@ -52,9 +58,25 @@ enum ChatPieceMetrics {
         return CGFloat(count) * codeLineHeight + codePadding > maxPieceHeight
     }
 
+    /// Splitting a list costs only the gap its items already have between
+    /// them, so unlike a code block it splits as soon as it is over the
+    /// ceiling rather than waiting for a length that makes it worth it.
     static func splitsList(_ items: [String]) -> Bool {
-        guard items.count > 2 * listSegmentItems else { return false }
-        return CGFloat(items.count) * listItemHeight > maxPieceHeight
+        guard items.count > 1 else { return false }
+        return items.reduce(0) { $0 + height(ofItem: $1) } > maxPieceHeight
+    }
+
+    /// Segments of equal length, as few as the ceiling allows, so a list
+    /// just over it does not end on a segment of one item.
+    static func listChunks(_ items: [String]) -> [[String]] {
+        let total = items.reduce(0) { $0 + height(ofItem: $1) }
+        let segments = max(1, Int((total / maxPieceHeight).rounded(.up)))
+        let perSegment = max(1, (items.count + segments - 1) / segments)
+        return chunks(items, limit: min(perSegment, listSegmentItems))
+    }
+
+    private static func height(ofItem item: String) -> CGFloat {
+        CGFloat(wrappedLines(of: item)) * proseLineHeight + listItemSpacing
     }
 
     /// Splits into as few chunks as the limit allows, all of the same size, so
