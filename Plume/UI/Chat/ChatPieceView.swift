@@ -10,6 +10,12 @@ struct ChatPieceView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let piece: ChatPiece
+    var animatesHeight: Bool = false
+    /// Set for a piece that has just arrived, so it grows into place and
+    /// pushes the pieces below it down.
+    var growsFromZero: Bool = false
+    /// Set for a block the stream has just opened, so it types itself out.
+    var typesFromZero: Bool = false
 
     // One modifier chain for every wash, so a message gaining the
     // needs-input treatment changes values rather than structure. A `switch`
@@ -23,6 +29,16 @@ struct ChatPieceView: View, ThemedView {
             .padding(.horizontal, washPadding)
             .padding(.top, piece.segment.isFirst ? washPadding : 0)
             .padding(.bottom, piece.segment.isLast ? washPadding : 0)
+            // Inside the wash, and outside the vertical padding it pays.
+            // The wash then sizes to the animated frame, so a joined segment
+            // cannot open a seam against its neighbour, and neither the
+            // padding nor the segment this piece turns out to be — both
+            // change when a neighbour does — jumps on its own.
+            .animatedHeight(
+                heightAnimation,
+                initialHeight: growsFromZero ? 0 : nil,
+                enabled: animatesHeight
+            )
             .background(washFill, in: washShape)
             .overlay {
                 if piece.wash == .attention {
@@ -44,7 +60,19 @@ struct ChatPieceView: View, ThemedView {
     private var content: some View {
         switch piece.content {
         case let .markdown(block, _):
-            MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
+            // Stable for a piece's whole life: a block the stream wrote keeps
+            // its source until the transcript replaces it wholesale under new
+            // ids, so this branch never flips underneath a live reveal.
+            if let source = piece.streamSource {
+                RevealedMarkdownBlock(
+                    source: source,
+                    isArriving: piece.isArriving,
+                    typesFromZero: typesFromZero,
+                    isAgentVoice: piece.isAgentVoice
+                )
+            } else {
+                MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
+            }
         case let .codeSegment(segment):
             CodeSegmentView(segment: segment)
         case let .listSegment(segment):
@@ -64,6 +92,13 @@ struct ChatPieceView: View, ThemedView {
         case .working:
             ChatWorkingIndicator()
         }
+    }
+
+    /// Shorter for a piece the turn in flight is still changing: its height
+    /// steps at every line wrap while the reveal draws, so a longer ease
+    /// would trail the text.
+    private var heightAnimation: Animation {
+        .easeOut(duration: piece.isLive ? 0.12 : 0.2)
     }
 
     /// A bubble of several pieces takes the whole column so every segment is

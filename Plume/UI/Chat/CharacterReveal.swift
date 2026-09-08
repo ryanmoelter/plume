@@ -36,6 +36,12 @@ enum RevealPacing {
     /// A whole paragraph landing at once still reveals in about a second.
     static let maxDuration: Double = 1.0
 
+    /// The ceiling on how long text can sit between arriving and being fully
+    /// on screen, waiting for the block above it included. Every reveal is
+    /// retargeted at the whole text received so far, so this bounds the lag
+    /// however fast the agent writes.
+    static let maxLag: Double = maxDuration
+
     /// Below this a reveal reads as a jump, and the frames cost more than the
     /// effect is worth.
     static let minDuration: Double = 0.1
@@ -77,8 +83,37 @@ struct RevealProgress {
     /// a tab switched to mid-turn, or a row remounted, shows what has already
     /// arrived rather than replaying it.
     private(set) var revealedCount: Double?
-    private var deadline: Date = .distantPast
+
+    /// Starts this block from nothing, so a block the stream has just opened
+    /// types rather than appearing whole.
+    mutating func start() {
+        revealedCount = 0
+    }
+    /// When the reveal in flight lands, for the block queued behind it.
+    private(set) var deadline: Date = .distantPast
     private var interruptions = 0
+
+    /// What the block owes once the stream stops writing it.
+    ///
+    /// Half the pace the same characters would have taken mid-stream: the
+    /// block is finished, so the tail of it reads as catching up rather than
+    /// as more typing, and the block starting below it gets its turn sooner.
+    /// Nil when there is nothing left to reveal.
+    mutating func finish(_ text: String, now: Date = .now) -> Animation? {
+        let target = Double(text.count)
+        guard let previous = revealedCount, target > previous else {
+            revealedCount = target
+            return nil
+        }
+        revealedCount = target
+        interruptions = 0
+        let duration = RevealPacing.duration(
+            pendingCharacters: Int(target - previous),
+            interruptions: 0
+        ) / 2
+        deadline = now.addingTimeInterval(duration)
+        return .easeOut(duration: duration)
+    }
 
     /// The pacing for the text now on hand, or nil when it should be shown
     /// without animating.

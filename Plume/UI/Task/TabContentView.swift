@@ -137,16 +137,21 @@ private struct TerminalTabHost: View {
                     .onChange(of: session.title, initial: true) { _, title in
                         TitleStore.shared.setTitle(title, forTab: tab.id)
                     }
+                    .onChange(of: session.workingDirectory, initial: true) { _, directory in
+                        TabDirectoryStore.shared.setDirectory(directory, forTab: tab.id)
+                    }
             } else {
                 Color.clear
             }
         }
         .onAppear {
             guard session == nil else { return }
+            // Options are read once at creation, so this places a new tab and
+            // never moves a live one.
             session = SurfaceManager.shared.session(
                 for: tab.id,
                 options: TerminalSurfaceOptions(
-                    workingDirectory: task.workingDirectoryPath,
+                    workingDirectory: TabDirectoryStore.shared.startingDirectory(for: task),
                     envVars: LoginShellCommand.plumeEnvironment,
                     command: LoginShellCommand.loginShell()
                 )

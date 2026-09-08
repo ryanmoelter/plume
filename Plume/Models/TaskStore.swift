@@ -102,6 +102,7 @@ enum TaskStore {
         SurfaceManager.shared.closeSession(for: tabID)
         HeadlessSessionManager.shared.closeSession(for: tabID)
         TitleStore.shared.forget(tabID: tabID)
+        TabDirectoryStore.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)

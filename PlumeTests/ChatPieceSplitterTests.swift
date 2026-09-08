@@ -30,7 +30,7 @@ struct ChatPieceSplitterTests {
     }
 
     private func toolCall(_ id: String) -> ChatBlock {
-        .toolCall(ToolCall(id: id, name: "Read", summary: "Read a file", input: .json("{}")))
+        .toolCall(ToolCall(id: id, name: "Read", summary: ToolCallSummary(name: "Read", detail: "a file"), input: .json("{}")))
     }
 
     // MARK: - Identity
@@ -77,7 +77,7 @@ struct ChatPieceSplitterTests {
 
     @Test func aToolResultLandingChangesOnlyItsOwnPiece() {
         let before = pieces([message("m", .assistant, [.markdown("Reading."), toolCall("t1")])])
-        var call = ToolCall(id: "t1", name: "Read", summary: "Read a file", input: .json("{}"))
+        var call = ToolCall(id: "t1", name: "Read", summary: ToolCallSummary(name: "Read", detail: "a file"), input: .json("{}"))
         call.result = "contents"
         let after = pieces([message("m", .assistant, [.markdown("Reading."), .toolCall(call)])])
 
@@ -112,7 +112,7 @@ struct ChatPieceSplitterTests {
             status: .working,
             streaming: ChatStreamHandoff.Overlay(text: "Nearly there.")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/live", "m/working"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "m/working"])
         #expect(result.map(\.segment) == [.first, .middle, .last])
         #expect(result.allSatisfy { $0.messageID == "m" || $0.messageID == "stream" })
     }
@@ -124,7 +124,7 @@ struct ChatPieceSplitterTests {
             [message("m", .user, [.markdown("go")])],
             streaming: ChatStreamHandoff.Overlay(text: "On it.")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/live"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/0"])
         #expect(result[1].segment == .single)
         #expect(result[1].topInset == dimensions.messageSpacing)
     }
@@ -333,13 +333,37 @@ struct ChatPieceSplitterTests {
             [message("m", .user, [.markdown("go")])],
             streaming: ChatStreamHandoff.Overlay(text: "Settled paragraph.\n\nStill arri")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "stream/live"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "stream/1"])
         guard case .markdown(.paragraph("Settled paragraph."), 0) = result[1].content else {
             Issue.record("expected a settled paragraph, got \(result[1].content)")
             return
         }
-        #expect(result[2].content == .streaming(ChatStreamHandoff.Overlay(text: "Still arri")))
+        #expect(!result[1].isArriving)
+        #expect(result[2].isArriving)
         #expect(result[2].topInset == dimensions.blockSpacing)
+        // Each keeps its own source, which is what lets a block go on typing
+        // after it stops growing.
+        #expect(result[1].streamSource == "Settled paragraph.")
+        #expect(result[2].streamSource == "Still arri")
+    }
+
+    /// The point of keying the arriving block by its index: the piece keeps
+    /// its identity when the block completes, so the view drawing it keeps
+    /// the reveal's progress instead of snapping to the finished text.
+    @Test func aBlockKeepsItsIDWhenItStopsArriving() {
+        let arriving = pieces(
+            [message("m", .user, [.markdown("go")])],
+            streaming: ChatStreamHandoff.Overlay(text: "First one.\n\nSecond stil")
+        )
+        let settled = pieces(
+            [message("m", .user, [.markdown("go")])],
+            streaming: ChatStreamHandoff.Overlay(text: "First one.\n\nSecond still here.\n\nThird")
+        )
+        #expect(arriving.map(\.id) == ["m/0/0", "stream/0", "stream/1"])
+        #expect(settled.map(\.id) == ["m/0/0", "stream/0", "stream/1", "stream/2"])
+        #expect(arriving[2].isArriving)
+        #expect(!settled[2].isArriving)
+        #expect(settled[2].streamSource == "Second still here.")
     }
 
     @Test func liveThinkingStaysOnePiece() {
@@ -347,7 +371,7 @@ struct ChatPieceSplitterTests {
             [message("m", .user, [.markdown("go")])],
             streaming: ChatStreamHandoff.Overlay(thinking: "considering", text: "Hello")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/thinking", "stream/live"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/thinking", "stream/0"])
         #expect(result[1].content == .streaming(ChatStreamHandoff.Overlay(thinking: "considering")))
         #expect(result[2].topInset == ChatBlockSpacing.streamingBlockSpacing)
     }

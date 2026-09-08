@@ -11,6 +11,10 @@ struct MainWindow: View {
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
     @State private var tabPendingStartFresh: TaskTab?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    /// Starts generous so the sidebar's max width is unclamped until the
+    /// first real measurement lands.
+    @State private var windowWidth: CGFloat = .infinity
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
     private var tasks: [WorkTask]
@@ -18,8 +22,13 @@ struct MainWindow: View {
     private var groups: [TaskGroup]
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(selection: $selection, renamingTaskID: $renamingTaskID, archiveShown: $archiveShown)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(
+                selection: $selection,
+                renamingTaskID: $renamingTaskID,
+                archiveShown: $archiveShown,
+                windowWidth: windowWidth
+            )
         } detail: {
             if let task = selectedTask {
                 TaskDetailView(task: task)
@@ -32,6 +41,13 @@ struct MainWindow: View {
                 .themeTint(colorScheme: colorScheme)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+            windowWidth = newWidth
+        }
+        .frame(
+            minWidth: WindowMetrics.minimumWidth(sidebarVisible: columnVisibility != .detailOnly),
+            minHeight: WindowMetrics.minimumHeight
+        )
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }

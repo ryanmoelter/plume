@@ -10,9 +10,16 @@ nonisolated struct SubagentDescriptor: Equatable {
     var description: String?
     var agentType: String?
     var toolUseID: String?
+    /// The model the sidecar records, which names one before the agent's own
+    /// transcript has an assistant line to read it from.
+    var model: String?
+    /// The user ended this agent. It still gets a `completed` task
+    /// notification like any other, so this flag is the only thing that
+    /// separates the two.
+    var stoppedByUser: Bool = false
 
     var isEmpty: Bool {
-        description == nil && agentType == nil && toolUseID == nil
+        description == nil && agentType == nil && toolUseID == nil && model == nil && !stoppedByUser
     }
 
     /// `agentType: description`, matching how `ToolCallSummary` renders an
@@ -45,7 +52,9 @@ nonisolated enum SubagentMetadataReader {
         let descriptor = SubagentDescriptor(
             description: sidecar.description?.nonEmpty,
             agentType: sidecar.agentType?.nonEmpty,
-            toolUseID: sidecar.toolUseId?.nonEmpty
+            toolUseID: sidecar.toolUseId?.nonEmpty,
+            model: sidecar.model?.nonEmpty,
+            stoppedByUser: sidecar.stoppedByUser ?? false
         )
         return descriptor.isEmpty ? nil : descriptor
     }
@@ -54,6 +63,8 @@ nonisolated enum SubagentMetadataReader {
         let description: String?
         let agentType: String?
         let toolUseId: String?
+        let model: String?
+        let stoppedByUser: Bool?
     }
 }
 
@@ -115,9 +126,14 @@ nonisolated enum SubagentSpawnScanner {
 /// What the parent transcript says about each subagent's outcome, keyed by the
 /// spawned agent's id.
 ///
-/// Both records that carry it name the agent directly, so nothing here has to
-/// go through the spawning tool call: a `toolUseResult` reports `agentId` with
-/// its status, and a `task_status` attachment reports `taskId`.
+/// Every record that carries it names the agent directly, so nothing here has
+/// to go through the spawning tool call: a `toolUseResult` reports `agentId`
+/// with its status, a `task_status` attachment reports `taskId`, and the
+/// `<task-notification>` on a `queue-operation` line reports `task-id`.
+///
+/// The notification is the one current CLI builds actually write. `task_status`
+/// appears nowhere in the sampled corpus, which is what left finished
+/// subagents reading `working`.
 nonisolated struct SubagentSpawnResults {
     private let signalsByAgentID: [String: SubagentParentSignal]
 
@@ -143,6 +159,10 @@ nonisolated struct SubagentSpawnResults {
             if let task = entry.attachment?.taskStatus {
                 record(Self.signal(forStatus: task.status), for: task.taskID)
             }
+            if let notification = entry.taskNotification,
+               let signal = Self.signal(forNotificationStatus: notification.status) {
+                record(signal, for: notification.taskID)
+            }
         }
 
         signalsByAgentID = signals
@@ -155,6 +175,18 @@ nonisolated struct SubagentSpawnResults {
     /// Anything that is not a launch acknowledgement and not an outright
     /// failure is a real report, so an unfamiliar status reads as done rather
     /// than pinning the row at working forever.
+    /// A notification's status is a word lifted out of a plain string, so an
+    /// unrecognized one yields no signal at all rather than a wrong one.
+    /// `killed` and `stopped` are left to the subagent's own transcript, where
+    /// the interruption marker says the user asked for the ending.
+    private static func signal(forNotificationStatus status: String?) -> SubagentParentSignal? {
+        switch status {
+        case "completed": .completed
+        case "failed", "error": .failed
+        default: nil
+        }
+    }
+
     private static func signal(forStatus status: String?) -> SubagentParentSignal {
         switch status {
         case "async_launched", "forked": .launched

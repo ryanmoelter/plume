@@ -20,6 +20,11 @@ struct ChatTabView: View, ThemedView {
     /// "not approved yet" rather than claiming an approval we never saw.
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
+    /// The plan file, read once for both the overlay that renders it and the
+    /// dock bar that names it. Followed whenever a plan exists, not only while
+    /// the overlay is up: the dock bar is what shows when it is not.
+    @State private var planFile = MarkdownFileStore()
+    @FocusState private var planFeedbackFocused: Bool
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
     /// id rather than the value so the overlay follows the subagent's live
@@ -140,11 +145,22 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
             if let current { GitStateStore.shared.watch(current) }
+            TabDirectoryStore.shared.setDirectory(current, forTab: tab.id)
         }
         .onDisappear {
             if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
         }
+        .onChange(of: planFilePath, initial: true) { _, path in
+            if let path { planFile.watch(path: path) } else { planFile.stop() }
+        }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
+        // The store re-points a session that has moved between project
+        // directories; persisting it here keeps a restart and the title
+        // monitor on the same file.
+        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id)) { _, watched in
+            guard let watched, !watched.isEmpty, tab.sessionJSONLPath != watched else { return }
+            tab.sessionJSONLPath = watched
+        }
         // Only fires once per completed turn, not per stream event, so this
         // is already the debounced write the rest of the app requires.
         .onChange(of: headlessSession?.contextWindow) { _, window in
@@ -285,16 +301,50 @@ struct ChatTabView: View, ThemedView {
     /// written rather than as a heading over it.
     ///
     /// It reads left to right as where this runs, then what it has spent,
-    /// then whether anyone else can drive it. Every segment but the branch
-    /// name holds its own intrinsic size (`.fixedSize()`, here and in
-    /// `WorkspacePickerView`) — the branch is the one that gives way first
-    /// when the row runs out of room.
+    /// then whether anyone else can drive it.
+    ///
+    /// One `ViewThatFits` governs the whole row, because the branch name and
+    /// the meters are the two things that give way and they have to give way
+    /// in a fixed order. Three candidates, widest first:
+    ///
+    /// 1. Everything at its natural size, with the slack between the branch
+    ///    name and the meters.
+    /// 2. The branch name takes the leftover and truncates, down to
+    ///    `statuslineBranchMinWidth`; the meters stay side by side.
+    /// 3. The meters drop to bars alone, stacked.
+    ///
+    /// Nothing above this may be `.fixedSize()` horizontally: an unbounded
+    /// width proposal makes the first candidate fit forever. Vertically it
+    /// must be, or the row stretches to whatever height the chat leaves it.
     private func statuslineFooter(transcript: Transcript) -> some View {
+        ViewThatFits(in: .horizontal) {
+            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        // The one leading edge the composer's text and controls also sit on.
+        .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.statuslineVerticalPadding)
+    }
+
+    /// One candidate of the row: where this runs on the leading edge, the
+    /// meters and Remote Control on the trailing one.
+    private func statuslineRow(
+        transcript: Transcript,
+        branchWidth: BranchWidth,
+        meters: StatuslineStripLayout
+    ) -> some View {
         HStack(alignment: .top, spacing: dimensions.panelContentInset) {
-            workspaceGroup
+            workspaceGroup(branchWidth: branchWidth)
+            // In every candidate, not just the widest: without it a row
+            // narrower than the panel centers, holding the folder off the
+            // leading edge and Remote Control off the trailing one. Its
+            // `minLength` is fixed, so it still reports honest overflow.
             Spacer(minLength: dimensions.panelContentInset)
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 StatuslineStripView(
+                    layout: meters,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.
@@ -313,20 +363,18 @@ struct ChatTabView: View, ThemedView {
                     RemoteControlControl(session: headlessSession)
                 }
             }
-            .fixedSize()
+            .fixedSize(horizontal: true, vertical: false)
         }
-        // The one leading edge the composer's text and controls also sit on.
-        .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, dimensions.statuslineVerticalPadding)
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
     /// ahead/behind and dirty markers. Editable only until an agent starts,
     /// which fixes the working directory.
-    private var workspaceGroup: some View {
+    private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
             task: task,
             isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory)
         )
         .font(typography.caption.font)
@@ -356,21 +404,23 @@ struct ChatTabView: View, ThemedView {
                 .help("Minimize")
                 .accessibilityLabel("Minimize")
                 .accessibilityIdentifier(AccessibilityID.planMinimizeButton)
-                Button {
-                    planPresentation = .closed
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .emphasis(.secondary)
+                if planApproval.isClosable {
+                    Button {
+                        planPresentation = .closed
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .emphasis(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Close")
+                    .accessibilityLabel("Close")
+                    .accessibilityIdentifier(AccessibilityID.planCloseButton)
                 }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .help("Close")
-                .accessibilityLabel("Close")
-                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
             .padding(12)
             Divider()
-            MarkdownFileView(path: path)
+            MarkdownContentView(content: planFile.content)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -403,24 +453,20 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Feedback and the two decisions, right-aligned with Approve last —
-    /// the primary option sits where the eye lands and where Return goes.
+    /// the primary option sits where the eye lands.
     ///
-    /// Feedback submits the rejection from inside the field, so typing and
-    /// sending are one gesture rather than a field plus a distant button.
-    /// ⌥↩ is captioned because nothing else on screen reveals it, and it is
-    /// the only way to reach approve-with-feedback.
+    /// The field is the composer's own editor, so a note reads the same
+    /// wherever it is typed and obeys `composerSendKey` through the one rule
+    /// in `ComposerNSTextView.keyDown`. Approve therefore takes no
+    /// `.defaultAction` shortcut: a default button answers Return from
+    /// `performKeyEquivalent`, which runs before the key ever reaches the
+    /// focused field. ⌥↩ is captioned because nothing else on screen reveals
+    /// it, and it is the only way to reach approve-with-feedback.
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                TextField("Feedback (optional)", text: $planRejectionReason, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...6)
-                    .font(typography.caption.font)
-                    .onKeyPress(.return, phases: .down) { press in
-                        handleFeedbackReturn(press.modifiers)
-                    }
-                    .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+            HStack(alignment: .bottom, spacing: 8) {
+                feedbackField
                 ReservedWidthButton(
                     title: PlanRejectionLabel.label(forReason: planRejectionReason),
                     labels: PlanRejectionLabel.allLabels
@@ -429,7 +475,6 @@ struct ChatTabView: View, ThemedView {
                 }
                 .accessibilityIdentifier(AccessibilityID.planRejectButton)
                 Button("Approve") { answerPlan(.approve) }
-                    .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier(AccessibilityID.planApproveButton)
             }
@@ -440,26 +485,30 @@ struct ChatTabView: View, ThemedView {
         .font(typography.caption.font)
     }
 
-    /// Return in the feedback field follows `composerSendKey` exactly as the
-    /// composer does; ⌥ always reaches the third option.
-    private func handleFeedbackReturn(_ modifiers: EventModifiers) -> KeyPress.Result {
-        let key = PlanFeedbackKey.forReturn(
+    private var feedbackField: some View {
+        MarkdownComposerTextView(
+            text: $planRejectionReason,
+            placeholder: "Feedback (optional)",
+            fontSize: CGFloat(settings.chatFontSize),
+            isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
-            command: modifiers.contains(.command),
-            shift: modifiers.contains(.shift),
-            option: modifiers.contains(.option)
+            onSend: { answerPlan(.reject) },
+            onOptionReturn: { answerPlan(.approveWithFeedback) }
         )
-        switch key {
-        case .submit:
-            answerPlan(.reject)
-            return .handled
-        case .approveWithFeedback:
-            answerPlan(.approveWithFeedback)
-            return .handled
-        case .passThrough:
-            return .ignored
-        }
+        .padding(.horizontal, dimensions.panelContentInset - Self.composerLineFragmentPadding)
+        .background(.quaternary.opacity(0.4), in: feedbackFieldShape)
+        .overlay { feedbackFieldShape.strokeBorder(.separator) }
+        .focused($planFeedbackFocused)
+        .accessibilityIdentifier(AccessibilityID.planFeedbackField)
     }
+
+    private var feedbackFieldShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
+    }
+
+    /// `NSTextView` draws its first glyph one line-fragment padding in from
+    /// its frame, which the field's own padding has to account for.
+    private static let composerLineFragmentPadding: CGFloat = 5
 
     private enum PlanDecision {
         case approve
@@ -500,8 +549,20 @@ struct ChatTabView: View, ThemedView {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text")
                         .emphasis(.secondary)
-                    Text((path as NSString).lastPathComponent)
-                        .lineLimit(1)
+                    if let title = planFile.content.flatMap(PlanSummary.title(of:)) {
+                        Text(title)
+                            .lineLimit(1)
+                        // Same size as the title, so the bar is the same
+                        // height with or without one and the conversation
+                        // above it never shifts. It yields its width first.
+                        Text((path as NSString).lastPathComponent)
+                            .lineLimit(1)
+                            .emphasis(.secondary)
+                            .layoutPriority(-1)
+                    } else {
+                        Text((path as NSString).lastPathComponent)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.up")
                         .emphasis(.secondary)
@@ -513,16 +574,18 @@ struct ChatTabView: View, ThemedView {
             .accessibilityLabel("Expand the plan")
             .accessibilityIdentifier(AccessibilityID.planExpandButton)
 
-            Button {
-                planPresentation = .closed
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .emphasis(.secondary)
+            if planApproval.isClosable {
+                Button {
+                    planPresentation = .closed
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .emphasis(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier(AccessibilityID.planCloseButton)
             }
-            .buttonStyle(.plain)
-            .help("Close")
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier(AccessibilityID.planCloseButton)
         }
         .font(.callout)
         // The one leading edge the composer's text and the statusline's
@@ -568,7 +631,7 @@ struct ChatTabView: View, ThemedView {
                         .disabled(!isComposerEnabled)
                     Divider()
                     HStack(spacing: 0) {
-                        workspaceGroup
+                        workspaceGroup(branchWidth: .flexible)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, dimensions.composerFieldInset)
@@ -632,7 +695,7 @@ struct ChatTabView: View, ThemedView {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
         tab.agentSessionID = sessionID
         guard let workingDirectory = task.workingDirectoryPath else { return }
-        tab.sessionJSONLPath = SessionJSONLReader.transcriptPath(
+        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,
             sessionID: sessionID
         )

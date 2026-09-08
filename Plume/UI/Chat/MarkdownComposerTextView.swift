@@ -17,6 +17,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var isFocused: FocusState<Bool>.Binding
     var sendKey: ComposerSendKey
     var onSend: () -> Void
+    /// Called on ⌥↩, when the caller has a third action for it. Nil (the
+    /// default) leaves ⌥↩ inserting a newline as it otherwise would.
+    var onOptionReturn: (() -> Void)?
     /// Called on every keystroke, so the composer can react to the text
     /// without the text itself flowing through SwiftUI state per character.
     var onTextChange: (String) -> Void = { _ in }
@@ -29,7 +32,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// typing and arrow-key navigation never touch this — `apply(text:...)`
     /// otherwise preserves the existing selection across an external text
     /// change, which is the behavior this binding overrides.
-    @Binding var pendingCaretLocation: Int?
+    var pendingCaretLocation: Binding<Int?> = .constant(nil)
     /// Set to steer arrow/Tab/Escape/Return into the slash-command list
     /// while it's showing; nil (the default) leaves every key as-is.
     var autocompleteHandler: ComposerAutocompleteHandler?
@@ -64,6 +67,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
+        textView.onOptionReturn = onOptionReturn
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
@@ -75,10 +79,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
-        if let location = pendingCaretLocation {
+        if let location = pendingCaretLocation.wrappedValue {
             let clamped = min(location, (textView.string as NSString).length)
             textView.setSelectedRange(NSRange(location: clamped, length: 0))
-            DispatchQueue.main.async { pendingCaretLocation = nil }
+            DispatchQueue.main.async { pendingCaretLocation.wrappedValue = nil }
         }
         context.coordinator.updatePlaceholderVisibility(textView)
 
@@ -196,6 +200,54 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         func handleSendShortcut() {
             onSend()
         }
+
+        // MARK: Text checking
+
+        /// Spell checking skips code. Both routes to a red underline are
+        /// covered: the text-checking API, which asks before and after it
+        /// runs, and the indicator itself, which the text view sets through
+        /// `shouldSetSpellingState`.
+        func textView(
+            _ view: NSTextView,
+            willCheckTextIn range: NSRange,
+            options: [NSSpellChecker.OptionKey: Any],
+            types checkingTypes: UnsafeMutablePointer<NSTextCheckingTypes>
+        ) -> [NSSpellChecker.OptionKey: Any] {
+            if ComposerCodeRanges.isEntirelyCode(range, codeRanges: codeRanges(of: view)) {
+                let spellingAndGrammar = NSTextCheckingResult.CheckingType.spelling.rawValue
+                    | NSTextCheckingResult.CheckingType.grammar.rawValue
+                checkingTypes.pointee &= ~spellingAndGrammar
+            }
+            return options
+        }
+
+        func textView(
+            _ view: NSTextView,
+            didCheckTextIn range: NSRange,
+            types checkingTypes: NSTextCheckingTypes,
+            options: [NSSpellChecker.OptionKey: Any],
+            results: [NSTextCheckingResult],
+            orthography: NSOrthography,
+            wordCount: Int
+        ) -> [NSTextCheckingResult] {
+            ComposerCodeRanges.removingCodeResults(results, codeRanges: codeRanges(of: view))
+        }
+
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range: NSRange) -> Int {
+            ComposerCodeRanges.intersectsCode(range, codeRanges: codeRanges(of: textView)) ? 0 : value
+        }
+
+        /// Text checking asks range by range, so the spans are parsed once
+        /// per version of the text rather than once per question.
+        private var cachedCodeRanges: (text: String, ranges: [NSRange])?
+
+        private func codeRanges(of view: NSTextView) -> [NSRange] {
+            let text = view.string
+            if let cachedCodeRanges, cachedCodeRanges.text == text { return cachedCodeRanges.ranges }
+            let ranges = ComposerCodeRanges.codeRanges(in: text)
+            cachedCodeRanges = (text, ranges)
+            return ranges
+        }
     }
 }
 
@@ -219,6 +271,10 @@ final class ComposerNSTextView: NSTextView {
     /// showing) so a queued message can be pulled back for editing —
     /// shell-history-style recall of the most recently queued send.
     var onEditQueuedMessage: (() -> Void)?
+
+    /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
+    /// action on that key — the plan field's approve-with-feedback.
+    var onOptionReturn: (() -> Void)?
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -261,6 +317,11 @@ final class ComposerNSTextView: NSTextView {
 
         guard event.keyCode == 36 /* Return */ else {
             super.keyDown(with: event)
+            return
+        }
+
+        if event.modifierFlags.contains(.option), let onOptionReturn {
+            onOptionReturn()
             return
         }
 
@@ -315,10 +376,20 @@ final class ScrollableComposerTextView: NSView {
 
     private func setUp() {
         composerTextView.isRichText = false
+        // Nothing may rewrite what the user typed: a message is full of
+        // identifiers, paths and shell commands that every substitution gets
+        // wrong. Misspellings are marked and left alone.
         composerTextView.isAutomaticQuoteSubstitutionEnabled = false
         composerTextView.isAutomaticDashSubstitutionEnabled = false
         composerTextView.isAutomaticTextReplacementEnabled = false
-        composerTextView.isAutomaticSpellingCorrectionEnabled = true
+        composerTextView.isAutomaticSpellingCorrectionEnabled = false
+        composerTextView.isAutomaticLinkDetectionEnabled = false
+        composerTextView.isAutomaticDataDetectionEnabled = false
+        composerTextView.isGrammarCheckingEnabled = false
+        // Marks live as layout-manager temporary attributes, so
+        // `MarkdownComposerStyler`'s per-keystroke pass over the text storage
+        // neither carries nor erases them.
+        composerTextView.isContinuousSpellCheckingEnabled = true
         composerTextView.textContainerInset = NSSize(width: 0, height: 9)
         composerTextView.drawsBackground = false
         composerTextView.textContainer?.widthTracksTextView = true

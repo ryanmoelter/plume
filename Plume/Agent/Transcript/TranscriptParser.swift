@@ -17,6 +17,12 @@ nonisolated struct Transcript: Equatable {
     /// The session's current permission mode, from the latest
     /// `permission-mode` line.
     var permissionMode: String?
+    /// When the first line of the file was written, and when the last was.
+    /// Both come from the lines' own `timestamp`, so they survive a relaunch
+    /// and describe the conversation rather than the file — a copied or
+    /// re-read transcript reports the same span.
+    var startedAt: Date?
+    var lastActivityAt: Date?
     /// The `stop_reason` of the most recent assistant turn to carry one.
     /// `end_turn` means the model finished speaking; `tool_use` means it
     /// stopped to call a tool and the turn continues.
@@ -107,6 +113,10 @@ nonisolated enum TranscriptParser {
             }
             if entry.isSidechain, !includeSidechain { continue }
 
+            if let timestamp = entry.timestamp {
+                if transcript.startedAt == nil { transcript.startedAt = timestamp }
+                transcript.lastActivityAt = timestamp
+            }
             if let usage = entry.message?.usage { transcript.latestUsage = usage }
             if let stopReason = entry.message?.stopReason { transcript.lastStopReason = stopReason }
             if let model = entry.message?.model { transcript.model = model }
@@ -150,7 +160,7 @@ nonisolated enum TranscriptParser {
                         let call = ToolCall(
                             id: id,
                             name: name,
-                            summary: ToolCallSummary.summary(name: name, input: input),
+                            summary: ToolCallSummary(name: name, input: input),
                             input: ToolCallInputRendering.render(
                                 name: name,
                                 input: input,
@@ -247,7 +257,7 @@ nonisolated enum TranscriptParser {
 private extension JSONEncoder {
     static var sortedKeys: JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
         return encoder
     }
 }

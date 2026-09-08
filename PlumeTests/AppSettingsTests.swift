@@ -37,14 +37,14 @@ struct AppSettingsTests {
 
     @Test func bothChatAnimationsDefaultOnAndPersistSeparately() {
         let defaults = makeDefaults()
-        #expect(AppSettings(defaults: defaults).animateRowHeight)
+        #expect(AppSettings(defaults: defaults).animateChatMotion)
         #expect(AppSettings(defaults: defaults).animateCharacterReveal)
 
         let settings = AppSettings(defaults: defaults)
-        settings.animateRowHeight = false
+        settings.animateChatMotion = false
 
         let reloaded = AppSettings(defaults: defaults)
-        #expect(!reloaded.animateRowHeight)
+        #expect(!reloaded.animateChatMotion)
         #expect(reloaded.animateCharacterReveal)
     }
 

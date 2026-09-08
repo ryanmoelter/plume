@@ -116,41 +116,6 @@ enum PlanResolution {
     }
 }
 
-/// What a Return keypress in the plan feedback field means.
-///
-/// The composer's own rule lives in `ComposerNSTextView.keyDown`, which reads
-/// an `NSEvent` and cannot be reused from a SwiftUI `TextField`. This states
-/// the same rule over the modifiers alone, so both fields obey
-/// `AppSettings.composerSendKey` and the rule stays testable without a host.
-enum PlanFeedbackKey: Equatable {
-    /// Send the rejection — this field's equivalent of the composer's send.
-    case submit
-    /// Approve while passing the typed note along.
-    case approveWithFeedback
-    /// Let the field do what it normally would, which for a vertical
-    /// `TextField` is inserting a newline.
-    case passThrough
-
-    /// - Parameter option: ⌥ always means approve-with-feedback, whichever
-    ///   key sends, because it is a third decision rather than a variation on
-    ///   submitting.
-    static func forReturn(
-        sendKey: ComposerSendKey,
-        command: Bool,
-        shift: Bool,
-        option: Bool
-    ) -> PlanFeedbackKey {
-        if option { return .approveWithFeedback }
-        switch sendKey {
-        case .commandReturn:
-            return command ? .submit : .passThrough
-        case .returnKey:
-            if command { return .passThrough }
-            return shift ? .passThrough : .submit
-        }
-    }
-}
-
 /// The reject button's label, which names what pressing it will actually do.
 ///
 /// With nothing typed the button is a plain rejection — `PlanResolution

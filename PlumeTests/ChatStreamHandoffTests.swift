@@ -98,7 +98,7 @@ struct ChatStreamHandoffTests {
     }
 
     @Test func toolCallBlocksAreNotPartOfTheTail() {
-        let call = ToolCall(id: "1", name: "Bash", summary: "Bash(ls)", input: .json("{}"))
+        let call = ToolCall(id: "1", name: "Bash", summary: ToolCallSummary(name: "Bash", detail: "ls"), input: .json("{}"))
         #expect(ChatStreamHandoff.trailingAssistantMarkdown([message([.toolCall(call)])]).isEmpty)
     }
 }

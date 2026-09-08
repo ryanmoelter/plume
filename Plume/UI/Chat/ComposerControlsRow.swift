@@ -145,18 +145,29 @@ enum ComposerControlsMetrics {
 /// so the tint never lands. That style also supplies the one chevron these
 /// labels need, so none of them draws its own — `showsTrailingChevron` is for
 /// `PlanButton`, a plain `Button` with no menu style to draw one for it.
-struct ComposerSegmentLabel: View {
+struct ComposerSegmentLabel: View, ThemedView {
+    @Environment(\.theme) var theme
+
     let systemImage: String
     let text: String
     var showsText = true
     var showsTrailingChevron = false
     let foreground: Color
-    let height: CGFloat
+    /// The control height the segment centres itself in. Nil sizes it to one
+    /// caption line instead, which is what keeps an icon-only statusline
+    /// segment level with the text beside it.
+    var height: CGFloat?
 
     var body: some View {
         label
             .foregroundStyle(foreground)
             .lineLimit(1)
+            // A symbol whose glyph box overflows the line grows the run, and
+            // the extra sits above the baseline: `.slash` variants are 2pt
+            // taller than their plain form. Pinning the run to the bottom of
+            // one caption line puts every variant on the same baseline, so a
+            // segment holds still as its icon changes.
+            .frame(height: typography.caption.lineHeight, alignment: .bottom)
             .frame(height: height)
     }
 

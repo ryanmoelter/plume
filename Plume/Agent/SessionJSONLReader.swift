@@ -96,6 +96,55 @@ nonisolated enum SessionJSONLReader {
         FileManager.default.fileExists(atPath: path)
     }
 
+    /// Finds `<sessionID>.jsonl` under any project directory.
+    ///
+    /// A session id is unique across the whole tree, so the directory need
+    /// not be known. That is what makes a relocated session findable:
+    /// `EnterWorktree` moves a live transcript into a project directory keyed
+    /// by the worktree's path while keeping the session id, so the path
+    /// derived from the task's original folder stops being written to.
+    ///
+    /// Empty files are ignored. `FileWatcher` creates the file it watches, so
+    /// a moved-away transcript leaves a zero-byte stub behind at the old path
+    /// and matching it would defeat the search.
+    static func locateTranscript(
+        sessionID: String,
+        inProjectsDirectory projectsDirectory: URL = SessionJSONLReader.projectsDirectory
+    ) -> String? {
+        guard !sessionID.isEmpty, !sessionID.contains("/"), !sessionID.hasPrefix(".") else { return nil }
+        let manager = FileManager.default
+        guard let entries = try? manager.contentsOfDirectory(atPath: projectsDirectory.path) else { return nil }
+
+        for entry in entries.sorted() {
+            let candidate = projectsDirectory
+                .appending(path: entry)
+                .appending(path: "\(sessionID).jsonl")
+                .path
+            if hasContent(atPath: candidate) { return candidate }
+        }
+        return nil
+    }
+
+    /// Where a session's transcript actually is: the path derived from the
+    /// working directory when something has been written there, otherwise
+    /// wherever the session has moved to.
+    ///
+    /// Falls back to the derived path when neither has content, so a session
+    /// whose first line is still unwritten keeps waiting on the path Claude
+    /// Code is about to create.
+    static func resolvedTranscriptPath(workingDirectory: String, sessionID: String) -> String {
+        let derived = transcriptPath(workingDirectory: workingDirectory, sessionID: sessionID)
+        if hasContent(atPath: derived) { return derived }
+        return locateTranscript(sessionID: sessionID) ?? derived
+    }
+
+    static func hasContent(atPath path: String) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? Int
+        else { return false }
+        return size > 0
+    }
+
     /// Subagent transcripts live alongside the main one, in a directory
     /// named after it minus the `.jsonl` extension.
     static func subagentsDirectory(forTranscriptPath transcriptPath: String) -> String {

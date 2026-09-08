@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The type scale, derived from the user's chat font size.
@@ -91,6 +92,21 @@ struct Typography {
         /// Extra leading between wrapped lines, on top of the font's own.
         /// Prose at reading measure needs more air than the default.
         var lineSpacing: CGFloat { size * 0.22 }
+
+        /// The height one line of this role occupies, from the system font's
+        /// own metrics rather than a multiplier, so it tracks the chat font at
+        /// every size.
+        ///
+        /// A run containing an SF Symbol is taller than this when the symbol's
+        /// glyph box overflows the line — `antenna.radiowaves.left.and.right`
+        /// fits, its `.slash` variant is 2pt taller, and the extra sits above
+        /// the baseline. Pinning such a run to the bottom of a box this tall
+        /// keeps every variant on one baseline, which is what stops an
+        /// icon-only segment moving as its state changes.
+        var lineHeight: CGFloat {
+            let font = NSFont.systemFont(ofSize: size)
+            return ceil(font.ascender - font.descender + font.leading)
+        }
 
         var semibold: Font { face(weight: .semibold) }
         var bold: Font { face(weight: .bold) }

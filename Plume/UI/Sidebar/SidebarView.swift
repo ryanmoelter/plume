@@ -13,88 +13,89 @@ struct SidebarView: View {
 
     @Binding var renamingTaskID: UUID?
     @Binding var archiveShown: Bool
+    let windowWidth: CGFloat
 
     @State private var renamingGroupID: UUID?
     @State private var taskPendingDeletion: WorkTask?
     @State private var deletionError: String?
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(groups) { group in
-                Section {
-                    taskRows(in: tasksFor(group))
-                } header: {
-                    GroupSectionHeader(
-                        group: group,
-                        isRenaming: renamingGroupID == group.id,
-                        onDoneRenaming: { renamingGroupID = nil }
-                    )
-                    .accessibilityIdentifier(AccessibilityID.groupHeader)
-                    .contextMenu {
-                        Button("Rename Group") { renamingGroupID = group.id }
-                        Button("New Task in Group") { createTask(in: group) }
-                        Divider()
-                        Button("Delete Group", role: .destructive) {
-                            TaskStore.deleteGroup(group, in: context)
+        VStack(spacing: 0) {
+            List(selection: $selection) {
+                ForEach(groups) { group in
+                    Section {
+                        taskRows(in: tasksFor(group))
+                    } header: {
+                        GroupSectionHeader(
+                            group: group,
+                            isRenaming: renamingGroupID == group.id,
+                            onDoneRenaming: { renamingGroupID = nil }
+                        )
+                        .accessibilityIdentifier(AccessibilityID.groupHeader)
+                        .contextMenu {
+                            Button("Rename Group") { renamingGroupID = group.id }
+                            Button("New Task in Group") { createTask(in: group) }
+                            Divider()
+                            Button("Delete Group", role: .destructive) {
+                                TaskStore.deleteGroup(group, in: context)
+                            }
                         }
                     }
                 }
+
+                Section("Ungrouped") {
+                    taskRows(in: ungroupedTasks)
+                }
+            }
+            .listStyle(.sidebar)
+            // Arrow keys came free with the list's selection; `.selectionDisabled`
+            // on the rows takes them with it, so they are wired up by hand.
+            .onMoveCommand { direction in
+                switch direction {
+                case .up: moveSelection(by: -1)
+                case .down: moveSelection(by: 1)
+                default: break
+                }
+            }
+            .toolbar {
+                ToolbarItem {
+                    Menu {
+                        Button("New Task") { createTask(in: nil) }
+                            .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                        Button("New Group") {
+                            let group = TaskStore.createGroup(in: context, existing: groups)
+                            renamingGroupID = group.id
+                        }
+                        .accessibilityIdentifier(AccessibilityID.newGroupButton)
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    } primaryAction: {
+                        createTask(in: nil)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                }
+            }
+            .overlay {
+                if tasks.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Tasks", systemImage: "square.stack.3d.up")
+                    } description: {
+                        Text("Press ⌘N to start a task.")
+                    }
+                    .themeTint(colorScheme: colorScheme)
+                }
             }
 
-            Section("Ungrouped") {
-                taskRows(in: ungroupedTasks)
-            }
-        }
-        .listStyle(.sidebar)
-        // Arrow keys came free with the list's selection; `.selectionDisabled`
-        // on the rows takes them with it, so they are wired up by hand.
-        .onMoveCommand { direction in
-            switch direction {
-            case .up: moveSelection(by: -1)
-            case .down: moveSelection(by: 1)
-            default: break
-            }
+            SidebarFooter(archiveShown: $archiveShown)
         }
         .themeTint(colorScheme: colorScheme)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
-        .toolbar {
-            ToolbarItem {
-                Menu {
-                    Button("New Task") { createTask(in: nil) }
-                        .accessibilityIdentifier(AccessibilityID.newTaskButton)
-                    Button("New Group") {
-                        let group = TaskStore.createGroup(in: context, existing: groups)
-                        renamingGroupID = group.id
-                    }
-                    .accessibilityIdentifier(AccessibilityID.newGroupButton)
-                } label: {
-                    Label("Add", systemImage: "plus")
-                        .labelStyle(.iconOnly)
-                } primaryAction: {
-                    createTask(in: nil)
-                }
-                .menuStyle(.borderlessButton)
-                .accessibilityIdentifier(AccessibilityID.newTaskButton)
-            }
-            ToolbarItem {
-                Button {
-                    archiveShown = true
-                } label: {
-                    Label("Archive", systemImage: "archivebox")
-                }
-                .help("Show archived tasks")
-            }
-        }
-        .overlay {
-            if tasks.isEmpty {
-                ContentUnavailableView {
-                    Label("No Tasks", systemImage: "square.stack.3d.up")
-                } description: {
-                    Text("Press ⌘N to start a task.")
-                }
-                .themeTint(colorScheme: colorScheme)
-            }
-        }
+        .navigationSplitViewColumnWidth(
+            min: WindowMetrics.sidebarMinimumWidth,
+            ideal: WindowMetrics.sidebarIdealWidth,
+            max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth)
+        )
         .confirmationDialog(
             "Delete “\(taskPendingDeletion?.title ?? "")”?",
             isPresented: Binding(

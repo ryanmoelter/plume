@@ -7,7 +7,7 @@ struct ChatBlockSpacingTests {
     private let dimensions = Dimensions(bodySize: 13)
 
     private func toolCall(id: String = "1") -> ChatBlock {
-        .toolCall(ToolCall(id: id, name: "Read", summary: "Read a file", input: .json("{}")))
+        .toolCall(ToolCall(id: id, name: "Read", summary: ToolCallSummary(name: "Read", detail: "a file"), input: .json("{}")))
     }
 
     private func message(id: String, role: ChatMessage.Role, blocks: [ChatBlock]) -> ChatMessage {

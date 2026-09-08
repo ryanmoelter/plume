@@ -19,6 +19,11 @@ import Foundation
 /// trailing one, so the whole row reads left to right as where this runs,
 /// then what it has spent.
 ///
+/// Which of the two layouts to draw is the caller's decision, not this
+/// view's: `ChatTabView.statuslineFooter` runs one `ViewThatFits` over the
+/// whole row, so the branch name and the meters give way in a single
+/// ordering rather than shrinking against each other.
+///
 /// What a message will do next — permission mode, model, effort — lives in
 /// `ChatComposer` instead: those describe the *next* turn, not the session as
 /// a whole, and reading them at the point of sending is more useful than
@@ -27,6 +32,8 @@ import Foundation
 /// `StatuslineColors`).
 struct StatuslineStripView: View, ThemedView {
     @Environment(\.theme) var theme
+
+    let layout: StatuslineStripLayout
 
     // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
@@ -37,11 +44,13 @@ struct StatuslineStripView: View, ThemedView {
     let sessionCostUSD: Double?
 
     init(
+        layout: StatuslineStripLayout = .wide,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
     ) {
+        self.layout = layout
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.rateLimit = rateLimit
@@ -49,10 +58,22 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     var body: some View {
-        // Top-aligned: a segment's reading is its first line, so the costs and
-        // the meters line up along it whether or not a bar follows.
+        Group {
+            switch layout {
+            case .wide: wideLayout
+            case .stacked: stackedLayout
+            }
+        }
+        .font(typography.caption.font)
+    }
+
+    // MARK: - Layouts
+
+    private var wideLayout: some View {
+        // Top-aligned: a meter's reading is its first line, so the meters line
+        // up along it whether or not a bar follows. The cost opts back out.
         HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
-            contextSegment
+            contextSegment(showsReading: true)
             if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
@@ -76,13 +97,43 @@ struct StatuslineStripView: View, ThemedView {
                     .accessibilityIdentifier(AccessibilityID.statuslineCost)
             }
         }
-        .font(typography.caption.font)
+        .fixedSize()
+    }
+
+    /// Bars only, stacked top to bottom instead of side by side, and no cost
+    /// — what the row falls back to once `wideLayout` no longer fits.
+    /// `statuslineStackedBarSpacing` keeps the three bars within the height
+    /// one reading-over-bar meter already takes.
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
+            contextSegment(showsReading: false)
+            if let fiveHour = rateLimit?.fiveHour {
+                StatuslineMeterSegment(
+                    label: "5h",
+                    utilization: fiveHour.utilization,
+                    resetsAt: fiveHour.resetsAt,
+                    barWidth: StatuslineMeterWidth.shortQuota,
+                    showsReading: false
+                )
+                .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
+            }
+            if let sevenDay = rateLimit?.sevenDay {
+                StatuslineMeterSegment(
+                    label: "7d",
+                    utilization: sevenDay.utilization,
+                    resetsAt: sevenDay.resetsAt,
+                    barWidth: StatuslineMeterWidth.quota,
+                    showsReading: false
+                )
+                .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
+            }
+        }
     }
 
     // MARK: - Segments
 
     @ViewBuilder
-    private var contextSegment: some View {
+    private func contextSegment(showsReading: Bool) -> some View {
         let percent = percentage(used: contextUsedTokens, max: contextMaxTokens)
 
         if contextUsedTokens != nil || percent != nil {
@@ -91,7 +142,8 @@ struct StatuslineStripView: View, ThemedView {
                 reading: tokenLabel(used: contextUsedTokens, max: contextMaxTokens),
                 fraction: StatuslineMeterMath.fraction(percent: percent),
                 barWidth: StatuslineMeterWidth.context,
-                attention: attention
+                attention: attention,
+                showsReading: showsReading
             )
             .help("Context window used")
             .accessibilityLabel("Context window")
@@ -99,10 +151,15 @@ struct StatuslineStripView: View, ThemedView {
         }
     }
 
+    /// Centred rather than top-aligned with the readings beside it: the cost
+    /// is not a measurement of a limit, it is how much this would cost at API
+    /// prices. Centring is what says that — sharing the meters' reading line
+    /// would file it as one more quota.
     private func costSegment(_ cost: Double) -> some View {
         Text(String(format: "$%.2f", cost))
             .foregroundStyle(StatuslineColors.statuslineText(for: .neutral, colors: colors))
             .help("What this session has cost so far")
+            .frame(maxHeight: .infinity)
     }
 
     // MARK: - Helpers
@@ -131,11 +188,21 @@ struct StatuslineStripView: View, ThemedView {
     }
 }
 
+/// Which shape the strip draws. `ChatTabView.statuslineFooter` picks one per
+/// `ViewThatFits` candidate: `wide` is the full row of side-by-side meters
+/// with their readings and the session cost, `stacked` is the same meters as
+/// bars alone, one above the next.
+enum StatuslineStripLayout {
+    case wide
+    case stacked
+}
+
 /// Bar lengths, longest first: the context window reads most precisely, the
 /// seven-day quota next, the five-hour quota least. The row now lays out from
 /// each segment's own intrinsic size rather than squeezing to fit, so these
 /// can run a bit longer than a reading needs and still cost nothing but the
-/// branch chip's own truncation room.
+/// branch chip's own truncation room. The stacked layout reuses the same widths,
+/// so a bar means the same thing whichever layout is showing.
 enum StatuslineMeterWidth {
     static let context: CGFloat = 50
     static let quota: CGFloat = 36
@@ -150,18 +217,27 @@ struct StackedMeter: View, ThemedView {
     let fraction: Double
     let barWidth: CGFloat
     let attention: StatuslineAttention
+    /// The stacked statusline layout drops the reading and keeps only the
+    /// bar; the reading still reaches VoiceOver, as the bar's
+    /// `accessibilityValue`, rather than disappearing with the label.
+    var showsReading: Bool = true
 
     var body: some View {
-        // Centered rather than leading: the reading and the bar rarely share
-        // a width (a short reading over a long bar, or the reverse), and
-        // centering is what keeps whichever is narrower looking placed
-        // rather than merely left-aligned with the other.
-        VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
-            Text(reading)
-                .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
-                .lineLimit(1)
-            MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
-                .frame(width: barWidth)
+        let bar = MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
+            .frame(width: barWidth)
+        if showsReading {
+            // Centered rather than leading: the reading and the bar rarely
+            // share a width (a short reading over a long bar, or the
+            // reverse), and centering is what keeps whichever is narrower
+            // looking placed rather than merely left-aligned with the other.
+            VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
+                Text(reading)
+                    .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
+                    .lineLimit(1)
+                bar
+            }
+        } else {
+            bar.accessibilityValue(reading)
         }
     }
 }
@@ -180,6 +256,7 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// deserves the most precision, then the seven-day window; the five-hour
     /// quota moves fast enough that its exact percent matters least.
     var barWidth: CGFloat = StatuslineMeterWidth.quota
+    var showsReading: Bool = true
 
     var body: some View {
         let percent = utilization * 100
@@ -187,7 +264,8 @@ struct StatuslineMeterSegment: View, ThemedView {
             reading: "\(resetLabel) \(Int(percent.rounded()))%",
             fraction: StatuslineMeterMath.fraction(percent: percent),
             barWidth: barWidth,
-            attention: StatuslineAttention.attention(percent: percent)
+            attention: StatuslineAttention.attention(percent: percent),
+            showsReading: showsReading
         )
         .help(helpText)
     }
@@ -234,16 +312,23 @@ struct RemoteControlControl: View, ThemedView {
                 Button("Connect Remote Control") { session.setRemoteControl(enabled: true) }
             }
         } label: {
+            // No height, so the label takes one caption line: the composer's
+            // 22pt control height would centre the glyph well below the meter
+            // readings this sits beside.
             ComposerSegmentLabel(
                 systemImage: symbol,
                 text: "Remote Control",
                 showsText: false,
-                foreground: tint,
-                height: dimensions.composerControlHeight
+                foreground: tint
             )
         }
         .menuStyle(.borderlessButton)
+        .font(typography.caption.font)
         .fixedSize()
+        // The antenna reports on the session rather than on any one meter, so
+        // it centres against the two-line strip instead of topping out with
+        // the readings. Stretching leaves the row's height the meters'.
+        .frame(maxHeight: .infinity)
         .help(helpText)
         .accessibilityLabel("Remote Control")
         .accessibilityValue(accessibilityValue)
@@ -380,4 +465,19 @@ struct MeterView: View, ThemedView {
         sessionCostUSD: 4.32
     )
     .frame(width: 640)
+}
+
+#Preview("Stacked fallback") {
+    StatuslineStripView(
+        layout: .stacked,
+        contextUsedTokens: 620_000,
+        contextMaxTokens: 1_000_000,
+        rateLimit: RateLimitInfo(
+            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
+            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
+            isUsingOverage: false
+        ),
+        sessionCostUSD: 4.32
+    )
+    .frame(width: 100)
 }

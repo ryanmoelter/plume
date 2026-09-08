@@ -9,11 +9,15 @@ import UniformTypeIdentifiers
 ///
 /// A running agent's working directory is fixed at launch, so `isEditable`
 /// renders the same chips as plain labels rather than hiding them.
-struct WorkspacePickerView: View {
+struct WorkspacePickerView: View, ThemedView {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) var theme
 
     @Bindable var task: WorkTask
     var isEditable = true
+    /// How much room the branch name may take. The statusline row decides
+    /// this, since it is the row's one compressible segment.
+    var branchWidth: BranchWidth = .natural
     /// Ahead/behind and dirty for the directory the agent is actually in.
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
@@ -34,11 +38,8 @@ struct WorkspacePickerView: View {
             folderChip
                 .fixedSize()
             if task.repoPath != nil {
-                HStack(spacing: 4) {
-                    worktreeChip
-                    branchMarkers
-                }
-                .accessibilityIdentifier(AccessibilityID.statuslineBranch)
+                branchGroup
+                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
             }
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
@@ -107,6 +108,36 @@ struct WorkspacePickerView: View {
 
     // MARK: - Worktree
 
+    /// The branch name and its markers under whatever ceiling the row asked
+    /// for. The width belongs to the pair rather than the name alone: a frame
+    /// wide enough to truncate against is wider than a short branch name, and
+    /// putting it on the name would strand the markers at its far edge.
+    /// Truncation comes from `chip`'s own `lineLimit(1)`.
+    @ViewBuilder
+    private var branchGroup: some View {
+        let group = HStack(spacing: 4) {
+            worktreeChip
+            branchMarkers
+            Spacer(minLength: 0)
+        }
+        switch branchWidth {
+        case .natural:
+            // Fixed at its natural width so the row's spacer, not this group,
+            // absorbs the slack — the two are otherwise both flexible and
+            // split it evenly.
+            group
+                .frame(maxWidth: dimensions.statuslineBranchMaxWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+        case .flexible:
+            group
+                .frame(
+                    minWidth: dimensions.statuslineBranchMinWidth,
+                    maxWidth: dimensions.statuslineBranchMaxWidth,
+                    alignment: .leading
+                )
+        }
+    }
+
     private var worktreeChip: some View {
         chip(isEditable: isEditable, help: worktreeHelp) {
             Menu {
@@ -155,12 +186,13 @@ struct WorkspacePickerView: View {
                     .fixedSize()
                     .help("\(behind) behind \(state.upstream ?? "upstream")")
             }
-            // No upstream at all is worth saying: it is the common case on a
+            // No upstream at all is worth marking: it is the common case on a
             // fresh worktree branch, and silence would read as "level with
-            // upstream". Already dimmer than secondary, which is fine —
-            // `.subtle` still reads as attention-free chrome.
+            // upstream". An icon rather than words, so it sits beside the
+            // ahead/behind markers as one more glyph instead of crowding the
+            // branch name off the row.
             if !state.hasUpstream {
-                Text("no upstream")
+                Image(systemName: "network.slash")
                     .emphasis(.subtle)
                     .fixedSize()
                     .help("This branch tracks nothing")
@@ -253,4 +285,13 @@ struct WorkspacePickerView: View {
         // folder the user just chose.
         Task { task.repoPath = await GitService.shared.repositoryRoot(containing: path) }
     }
+}
+
+/// How much room the statusline row is giving the branch name.
+enum BranchWidth {
+    /// As wide as the name needs, up to `statuslineBranchMaxWidth`.
+    case natural
+    /// Whatever the row has left, between `statuslineBranchMinWidth` and
+    /// `statuslineBranchMaxWidth`.
+    case flexible
 }

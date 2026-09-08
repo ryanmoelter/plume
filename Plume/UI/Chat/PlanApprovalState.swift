@@ -56,6 +56,12 @@ enum PlanApprovalState: Equatable {
     }
 
     var showsApprovalOptions: Bool { self == .awaitingDecision }
+
+    /// Whether the overlay may be dismissed outright rather than only
+    /// minimized. A live proposal's approval options are shown nowhere else,
+    /// so closing would leave the request open on the wire with no way back
+    /// to it; once answered, the overlay is just a viewer again.
+    var isClosable: Bool { self != .awaitingDecision }
 }
 
 /// The one-line gist of a plan, for the inline row that stands in for it.
@@ -72,5 +78,22 @@ enum PlanSummary {
             .drop { $0 == "#" }
             .trimmingCharacters(in: .whitespaces)
         return unheaded.isEmpty ? "Plan" : unheaded
+    }
+
+    /// What the plan calls itself: its first heading, normally the top-level
+    /// one it opens with. Nil when it has none — a plan file exists from the
+    /// moment the agent starts writing it, so an empty or heading-less file is
+    /// the ordinary early state and the caller falls back to the file name.
+    static func title(of markdown: String) -> String? {
+        for line in markdown.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let afterHashes = trimmed.drop { $0 == "#" }
+            // A heading needs at least one hash and a space after them, else
+            // `#tag` reads as one.
+            guard afterHashes.count < trimmed.count, afterHashes.first == " " else { continue }
+            let text = afterHashes.trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { return text }
+        }
+        return nil
     }
 }

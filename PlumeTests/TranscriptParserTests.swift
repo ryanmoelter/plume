@@ -69,7 +69,7 @@ struct TranscriptParserTests {
             return
         }
         #expect(call.result == "hi")
-        #expect(call.summary == "Bash(echo hi)")
+        #expect(call.summary.plainText == "Bash: echo hi…")
     }
 
     @Test func toolResultContentAsAnArrayOfTextBlocksIsJoined() {

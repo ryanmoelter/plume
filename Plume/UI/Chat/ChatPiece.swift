@@ -19,6 +19,14 @@ struct ChatPiece: Identifiable, Equatable {
     var segment: Segment = .single
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
+    /// The raw markdown of a block the stream wrote, kept so the piece can
+    /// type it out. Set while the block is still arriving and kept after it
+    /// settles, which is what lets one view finish a reveal the block's
+    /// completion would otherwise cut short. Nil for transcript content,
+    /// which never types.
+    var streamSource: String?
+    /// Whether the stream is still writing this block.
+    var isArriving: Bool = false
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -77,6 +85,9 @@ struct ChatPiece: Identifiable, Equatable {
         if case .streaming = content { return true }
         return false
     }
+
+    /// A piece the turn in flight is still changing, by either route.
+    var isLive: Bool { isStreaming || isArriving }
 
     /// A piece whose wash continues into its neighbours. The gap above it is
     /// painted inside that wash, so the joined shape has no break in it.
