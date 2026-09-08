@@ -1,27 +1,27 @@
 import SwiftUI
 
-/// Renders a markdown file from disk through `MarkdownView`, live-updating as
-/// the file changes underneath it. Not specific to plans — any path in,
-/// rendered markdown out.
-struct MarkdownFileView: View {
-    let path: String
-
-    @State private var store = MarkdownFileStore()
+/// Renders markdown through `MarkdownView`, with a placeholder for content
+/// that has not arrived. Not specific to plans — any markdown in, rendered
+/// markdown out.
+///
+/// The content comes from the caller rather than from a path here, because
+/// whoever shows this usually needs the same text for something else (the
+/// plan's title, say) and the file should only be read once. Pair it with a
+/// `MarkdownFileStore` to follow a file live.
+struct MarkdownContentView: View {
+    let content: String?
 
     var body: some View {
         ScrollView {
-            content
+            rendered
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
         }
-        .onAppear { store.watch(path: path) }
-        .onChange(of: path) { _, newPath in store.watch(path: newPath) }
-        .onDisappear { store.stop() }
     }
 
     @ViewBuilder
-    private var content: some View {
-        if let content = store.content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    private var rendered: some View {
+        if let content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             MarkdownView(content, isAgentVoice: true)
         } else {
             emptyState
