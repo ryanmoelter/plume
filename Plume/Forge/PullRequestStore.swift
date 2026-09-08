@@ -34,7 +34,8 @@ final class PullRequestStore {
     private var states: [String: PullRequestFetchState] = [:]
     /// Every resolution and fetch in flight, so a test can await the work a
     /// synchronous call kicked off.
-    private var work: [Task<Void, Never>] = []
+    private var work: [Int: Task<Void, Never>] = [:]
+    private var nextWorkID = 0
     /// Resolved once per repository — origin and trunk change far less often
     /// than either the branch or the pull requests.
     private var facts: [String: RepositoryFacts] = [:]
@@ -230,14 +231,19 @@ final class PullRequestStore {
     }
 
     private func track(_ operation: @escaping @MainActor () async -> Void) {
-        work.append(Task { await operation() })
+        let id = nextWorkID
+        nextWorkID += 1
+        work[id] = Task { [weak self] in
+            await operation()
+            self?.work.removeValue(forKey: id)
+        }
     }
 
     /// Awaits every resolution and fetch in flight, including any they start.
     /// For tests.
     func settle() async {
         while !work.isEmpty {
-            let pending = work
+            let pending = work.values
             work.removeAll()
             for task in pending { await task.value }
         }
@@ -264,7 +270,7 @@ final class PullRequestStore {
 
     /// Drops every watch. For tests.
     func reset() {
-        for task in work { task.cancel() }
+        for task in work.values { task.cancel() }
         work.removeAll()
         scheduled.removeAll()
         watches.removeAll()
