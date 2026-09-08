@@ -119,7 +119,7 @@ struct TaskRowView: View {
         .accessibilityIdentifier(AccessibilityID.taskRow)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
-        .animatedHeight()
+        .animatedHeight(alignment: .top)
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
             // From a lifecycle event, never `body` — the store writes when the
