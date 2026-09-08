@@ -70,6 +70,53 @@ nonisolated enum GitRunner {
 
 /// One entry from `git worktree list` — the repository's own checkout plus
 /// every worktree added to it.
+/// Which project a checkout belongs to, and whether it is a linked worktree
+/// of it.
+///
+/// The sidebar labels a row with the project rather than the folder: several
+/// worktrees of one repository all live in differently-named directories, and
+/// showing those names says nothing about which project the task is in.
+nonisolated struct CheckoutFacts: Sendable, Equatable {
+    /// The original clone's working directory — the same value for every
+    /// worktree of a repository.
+    let projectRoot: String
+    /// This checkout's own directory.
+    let checkoutRoot: String
+
+    var isWorktree: Bool { projectRoot != checkoutRoot }
+
+    var projectName: String? {
+        let name = URL(fileURLWithPath: projectRoot).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    /// Parses `rev-parse --path-format=absolute --git-common-dir --show-toplevel`.
+    ///
+    /// `--git-common-dir` is the original clone's `.git` from inside any
+    /// worktree, which is what makes one call answer both questions. A bare
+    /// repository has no toplevel and yields nothing.
+    static func parsing(_ output: String) -> CheckoutFacts? {
+        let lines = output.split(separator: "\n").map(String.init)
+        guard lines.count >= 2 else { return nil }
+        let commonDirectory = URL(fileURLWithPath: lines[0]).standardizedFileURL
+        let checkoutRoot = URL(fileURLWithPath: lines[1]).standardizedFileURL
+        return CheckoutFacts(
+            projectRoot: commonDirectory.deletingLastPathComponent().path,
+            checkoutRoot: checkoutRoot.path
+        )
+    }
+}
+
+extension GitRunner {
+    static func checkoutFacts(containing path: String) -> CheckoutFacts? {
+        guard let output = try? run(
+            ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"],
+            in: path
+        ) else { return nil }
+        return CheckoutFacts.parsing(output)
+    }
+}
+
 nonisolated struct GitWorktree: Hashable, Sendable {
     let path: String
     /// nil when the worktree has a detached HEAD.

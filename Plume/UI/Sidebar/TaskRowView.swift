@@ -36,15 +36,17 @@ struct TaskRowView: View {
         TaskRowDetails.DirectoryGroup(
             directory: directory,
             branch: branch(for: directory),
-            pullRequest: PullRequestStore.shared.state(for: directory)
+            pullRequest: PullRequestStore.shared.state(for: directory),
+            checkout: CheckoutFactsStore.shared.facts(for: directory)
         )
     }
 
-    /// The task's own branch covers the window before git has answered for its
-    /// folder; another directory has only what the store knows.
+    /// The task's own branch covers the window before git answers. It is the
+    /// right guess for any of the task's directories, not only its own folder:
+    /// a row scrolled into view has no state yet, and showing nothing there
+    /// reads as a task with no branch rather than one still loading.
     private func branch(for directory: String) -> String? {
-        if let branch = GitStateStore.shared.state(for: directory)?.branch { return branch }
-        return directory == task.workingDirectoryPath ? task.branchName : nil
+        GitStateStore.shared.state(for: directory)?.branch ?? task.branchName
     }
 
     private var detailLines: [TaskRowDetails.Line] {
@@ -77,8 +79,14 @@ struct TaskRowView: View {
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    case .branch(let branch, let companion):
+                    case .branch(let branch, let isWorktree, let companion):
                         HStack(spacing: 4) {
+                            if isWorktree {
+                                Image(systemName: "arrow.branch")
+                                    .font(.caption)
+                                    .imageScale(.small)
+                                    .emphasis(.subtle)
+                            }
                             Text(branch)
                                 .font(.caption)
                                 .emphasis(.secondary)
@@ -103,8 +111,14 @@ struct TaskRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(AccessibilityID.taskRow)
+        // Adding or closing an agent tab changes how many groups the row
+        // shows, so its height eases rather than snapping the rows below it.
+        .animatedHeight()
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
+            // From a lifecycle event, never `body` — the store writes when the
+            // lookup lands, which would invalidate the render that asked.
+            for directory in current { CheckoutFactsStore.shared.load(directory) }
         }
         // Turning the setting off releases the pull request watch rather than
         // only hiding the chip, so no further request is made. The git watch

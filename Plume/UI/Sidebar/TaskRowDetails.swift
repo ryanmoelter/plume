@@ -9,9 +9,10 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
-        /// A branch, with the chip drawn beside it for the states that take no
-        /// row of their own — `.localOnly` has nowhere else to appear.
-        case branch(String, accompaniedBy: PullRequestFetchState?)
+        /// A branch, marked when its checkout is a linked worktree, and with
+        /// the chip drawn beside it for the states that take no row of their
+        /// own — `.localOnly` has nowhere else to appear.
+        case branch(String, isWorktree: Bool = false, accompaniedBy: PullRequestFetchState? = nil)
         /// Carries its directory so the chip can ask the store for that
         /// repository's ignored checks, not the task's.
         case pullRequest(directory: String?, state: PullRequestFetchState)
@@ -23,11 +24,20 @@ enum TaskRowDetails {
         var directory: String?
         var branch: String?
         var pullRequest: PullRequestFetchState?
+        /// Nil until the lookup lands, which is why the header falls back to
+        /// the directory's own name rather than waiting.
+        var checkout: CheckoutFacts?
 
-        init(directory: String?, branch: String? = nil, pullRequest: PullRequestFetchState? = nil) {
+        init(
+            directory: String?,
+            branch: String? = nil,
+            pullRequest: PullRequestFetchState? = nil,
+            checkout: CheckoutFacts? = nil
+        ) {
             self.directory = directory
             self.branch = branch
             self.pullRequest = pullRequest
+            self.checkout = checkout
         }
     }
 
@@ -37,13 +47,17 @@ enum TaskRowDetails {
         groups.flatMap(lines(for:))
     }
 
-    /// Directory first: it is the header the branch and pull request under it
+    /// Project first: it is the header the branch and pull request under it
     /// belong to, and it is labelled even when the task has only one.
     static func lines(for group: DirectoryGroup) -> [Line] {
         var lines: [Line] = []
-        if let directory = directoryName(group.directory) { lines.append(.text(directory)) }
+        if let header = projectName(for: group) { lines.append(.text(header)) }
         if let branch = group.branch, !branch.isEmpty {
-            lines.append(.branch(branch, accompaniedBy: group.pullRequest.flatMap(branchCompanion)))
+            lines.append(.branch(
+                branch,
+                isWorktree: group.checkout?.isWorktree ?? false,
+                accompaniedBy: group.pullRequest.flatMap(branchCompanion)
+            ))
         }
         if let pullRequest = group.pullRequest, showsPullRequestLine(pullRequest) {
             lines.append(.pullRequest(directory: group.directory, state: pullRequest))
@@ -88,6 +102,14 @@ enum TaskRowDetails {
         state == .localOnly ? state : nil
     }
 
+    /// The project every worktree of a repository shares, so two tasks in two
+    /// worktrees read as the same project rather than as two unrelated
+    /// folders. Falls back to the folder's own name until the lookup lands,
+    /// and for a directory that is not a repository at all.
+    static func projectName(for group: DirectoryGroup) -> String? {
+        group.checkout?.projectName ?? directoryName(group.directory)
+    }
+
     static func directoryName(_ path: String?) -> String? {
         guard let path, !path.isEmpty else { return nil }
         let name = URL(fileURLWithPath: path).lastPathComponent
@@ -97,8 +119,9 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .branch(let branch, let companion):
-            [branch, companion.flatMap(PullRequestChipContent.accessibilityText(for:))]
+        case .branch(let branch, let isWorktree, let companion):
+            [isWorktree ? "worktree" : nil, branch,
+             companion.flatMap(PullRequestChipContent.accessibilityText(for:))]
                 .compactMap { $0 }.joined(separator: " ")
         case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
         }

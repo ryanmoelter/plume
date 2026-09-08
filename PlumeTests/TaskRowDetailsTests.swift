@@ -6,9 +6,45 @@ struct TaskRowDetailsTests {
     private func group(
         _ directory: String?,
         branch: String? = nil,
-        pullRequest: PullRequestFetchState? = nil
+        pullRequest: PullRequestFetchState? = nil,
+        checkout: CheckoutFacts? = nil
     ) -> TaskRowDetails.DirectoryGroup {
-        TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
+        TaskRowDetails.DirectoryGroup(
+            directory: directory,
+            branch: branch,
+            pullRequest: pullRequest,
+            checkout: checkout
+        )
+    }
+
+    /// The header names the project a worktree belongs to, not the folder it
+    /// happens to sit in.
+    @Test func aWorktreeIsLabelledWithItsProjectAndMarked() {
+        let lines = TaskRowDetails.lines(groups: [group(
+            "/wt/fix-login",
+            branch: "ryanm/fix-login",
+            checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/wt/fix-login")
+        )])
+        #expect(lines == [
+            .text("Plume"),
+            .branch("ryanm/fix-login", isWorktree: true, accompaniedBy: nil),
+        ])
+    }
+
+    @Test func theMainCheckoutIsLabelledButNotMarked() {
+        let lines = TaskRowDetails.lines(groups: [group(
+            "/Users/me/Plume",
+            branch: "main",
+            checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/Users/me/Plume")
+        )])
+        #expect(lines == [.text("Plume"), .branch("main", isWorktree: false, accompaniedBy: nil)])
+    }
+
+    /// The lookup is async, so the row must read sensibly before it lands
+    /// rather than showing a gap where the header goes.
+    @Test func theFolderNameStandsInUntilTheLookupLands() {
+        let lines = TaskRowDetails.lines(groups: [group("/wt/fix-login", branch: "main")])
+        #expect(lines == [.text("fix-login"), .branch("main", isWorktree: false, accompaniedBy: nil)])
     }
 
     @Test func linesFollowDirectoryThenBranchOrder() {

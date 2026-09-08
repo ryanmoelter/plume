@@ -48,8 +48,13 @@ enum SidebarFixtures {
         if let agentTab = task.orderedTabs.first(where: { $0.kind == .agent }) {
             StatusEngine.shared.setStatus(fixture.status, taskID: task.id, tabID: agentTab.id)
         }
-        if let state = fixture.pullRequestState, let directory = task.workingDirectoryPath {
-            PullRequestStore.shared.seedFixture(directory: directory, state: state)
+        if let directory = task.workingDirectoryPath {
+            if let state = fixture.pullRequestState {
+                PullRequestStore.shared.seedFixture(directory: directory, state: state)
+            }
+            if let checkout = fixture.checkout {
+                CheckoutFactsStore.shared.seedFixture(directory: directory, facts: checkout)
+            }
         }
         return task
     }

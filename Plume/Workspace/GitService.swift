@@ -26,6 +26,10 @@ actor GitService {
         GitRunner.repositoryRoot(containing: path)
     }
 
+    func checkoutFacts(containing path: String) -> CheckoutFacts? {
+        GitRunner.checkoutFacts(containing: path)
+    }
+
     func gitDirectory(containing path: String) -> String? {
         GitRunner.gitDirectory(containing: path)
     }

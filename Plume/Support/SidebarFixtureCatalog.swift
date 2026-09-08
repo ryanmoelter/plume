@@ -16,6 +16,25 @@ nonisolated struct SidebarFixtureCase: Equatable {
     let directory: String
     let branch: String?
     let pullRequestState: PullRequestFetchState?
+    /// Nil renders as a plain directory, which is also the pre-lookup state
+    /// every real row passes through.
+    let checkout: CheckoutFacts?
+
+    init(
+        name: String,
+        status: TaskStatus,
+        directory: String,
+        branch: String?,
+        pullRequestState: PullRequestFetchState?,
+        checkout: CheckoutFacts? = nil
+    ) {
+        self.name = name
+        self.status = status
+        self.directory = directory
+        self.branch = branch
+        self.pullRequestState = pullRequestState
+        self.checkout = checkout
+    }
 }
 
 /// The fixed set of fake rows the DEBUG sidebar fixture button seeds.
@@ -113,6 +132,32 @@ enum SidebarFixtureCatalog {
         addState("timed-out", .timedOut)
         addState("failed", .failed("Fixture: forge unreachable"))
         addState("forge-unsupported", .forgeUnsupported)
+
+        // The worktree marker, and the header naming a project rather than a
+        // folder. Two worktrees of one project sit next to each other so the
+        // shared header is visible as a repetition, not just as a label.
+        let project = "/tmp/plume-fixtures/projects/Notability"
+        for name in ["worktree-one", "worktree-two"] {
+            cases.append(SidebarFixtureCase(
+                name: name,
+                status: .idle,
+                directory: "worktrees/\(name)",
+                branch: "ryanm/\(name)",
+                pullRequestState: .noPR,
+                checkout: CheckoutFacts(
+                    projectRoot: project,
+                    checkoutRoot: "/tmp/plume-fixtures/worktrees/\(name)"
+                )
+            ))
+        }
+        cases.append(SidebarFixtureCase(
+            name: "main-checkout",
+            status: .idle,
+            directory: "projects/Notability",
+            branch: "main",
+            pullRequestState: .noPR,
+            checkout: CheckoutFacts(projectRoot: project, checkoutRoot: project)
+        ))
 
         // Every `TaskStatus`, paired with a plain no-PR row so the status
         // badge is the only thing varying.
