@@ -39,6 +39,10 @@ struct Dimensions {
     /// panel derives from this one through `ComposerPanelMetrics`.
     let panelCornerRadius: CGFloat = 18
 
+    /// The window's own corner, which the sidebar footer's last row curves to
+    /// meet.
+    let windowCornerRadius: CGFloat = 16
+
     /// The standard content rhythm within the panel: spacing between rows
     /// (the autocomplete popup, the composer, the statusline), and inset
     /// within a row (the plan dock bar, the slash-command popup's own rows,

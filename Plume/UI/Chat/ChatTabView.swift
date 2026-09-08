@@ -363,7 +363,10 @@ struct ChatTabView: View, ThemedView {
                     RemoteControlControl(session: headlessSession)
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
+            // Only the wide meters hold an intrinsic width worth reporting;
+            // fixing the stacked ones would leave their bars short of the
+            // edge with the row centered around them.
+            .fixedSize(horizontal: meters == .wide, vertical: false)
         }
     }
 
