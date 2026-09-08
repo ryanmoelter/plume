@@ -200,6 +200,54 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         func handleSendShortcut() {
             onSend()
         }
+
+        // MARK: Text checking
+
+        /// Spell checking skips code. Both routes to a red underline are
+        /// covered: the text-checking API, which asks before and after it
+        /// runs, and the indicator itself, which the text view sets through
+        /// `shouldSetSpellingState`.
+        func textView(
+            _ view: NSTextView,
+            willCheckTextIn range: NSRange,
+            options: [NSSpellChecker.OptionKey: Any],
+            types checkingTypes: UnsafeMutablePointer<NSTextCheckingTypes>
+        ) -> [NSSpellChecker.OptionKey: Any] {
+            if ComposerCodeRanges.isEntirelyCode(range, codeRanges: codeRanges(of: view)) {
+                let spellingAndGrammar = NSTextCheckingResult.CheckingType.spelling.rawValue
+                    | NSTextCheckingResult.CheckingType.grammar.rawValue
+                checkingTypes.pointee &= ~spellingAndGrammar
+            }
+            return options
+        }
+
+        func textView(
+            _ view: NSTextView,
+            didCheckTextIn range: NSRange,
+            types checkingTypes: NSTextCheckingTypes,
+            options: [NSSpellChecker.OptionKey: Any],
+            results: [NSTextCheckingResult],
+            orthography: NSOrthography,
+            wordCount: Int
+        ) -> [NSTextCheckingResult] {
+            ComposerCodeRanges.removingCodeResults(results, codeRanges: codeRanges(of: view))
+        }
+
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range: NSRange) -> Int {
+            ComposerCodeRanges.intersectsCode(range, codeRanges: codeRanges(of: textView)) ? 0 : value
+        }
+
+        /// Text checking asks range by range, so the spans are parsed once
+        /// per version of the text rather than once per question.
+        private var cachedCodeRanges: (text: String, ranges: [NSRange])?
+
+        private func codeRanges(of view: NSTextView) -> [NSRange] {
+            let text = view.string
+            if let cachedCodeRanges, cachedCodeRanges.text == text { return cachedCodeRanges.ranges }
+            let ranges = ComposerCodeRanges.codeRanges(in: text)
+            cachedCodeRanges = (text, ranges)
+            return ranges
+        }
     }
 }
 
@@ -328,10 +376,16 @@ final class ScrollableComposerTextView: NSView {
 
     private func setUp() {
         composerTextView.isRichText = false
+        // Nothing may rewrite what the user typed: a message is full of
+        // identifiers, paths and shell commands that every substitution gets
+        // wrong. Misspellings are marked and left alone.
         composerTextView.isAutomaticQuoteSubstitutionEnabled = false
         composerTextView.isAutomaticDashSubstitutionEnabled = false
         composerTextView.isAutomaticTextReplacementEnabled = false
-        composerTextView.isAutomaticSpellingCorrectionEnabled = true
+        composerTextView.isAutomaticSpellingCorrectionEnabled = false
+        composerTextView.isAutomaticLinkDetectionEnabled = false
+        composerTextView.isAutomaticDataDetectionEnabled = false
+        composerTextView.isGrammarCheckingEnabled = false
         // Marks live as layout-manager temporary attributes, so
         // `MarkdownComposerStyler`'s per-keystroke pass over the text storage
         // neither carries nor erases them.
