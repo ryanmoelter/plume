@@ -301,10 +301,15 @@ struct ChatTabView: View, ThemedView {
     /// written rather than as a heading over it.
     ///
     /// It reads left to right as where this runs, then what it has spent,
-    /// then whether anyone else can drive it. Every segment but the branch
-    /// name holds its own intrinsic size (`.fixedSize()`, here and in
-    /// `WorkspacePickerView`) — the branch is the one that gives way first
-    /// when the row runs out of room.
+    /// then whether anyone else can drive it. The branch name gives way
+    /// first — `WorkspacePickerView`'s own `.fixedSize()` chips keep the
+    /// branch label the only flexible thing in that group. `StatuslineStripView`
+    /// degrades to a narrower layout of its own (see its doc comment) once
+    /// the branch has nothing left to give, so this row is left unconstrained
+    /// rather than wrapped in `.fixedSize()` — that would propose it an
+    /// unbounded width and it would never pick its narrow layout. Remote
+    /// Control's `RemoteControlControl` holds its own intrinsic size
+    /// regardless.
     private func statuslineFooter(transcript: Transcript) -> some View {
         HStack(alignment: .top, spacing: dimensions.panelContentInset) {
             workspaceGroup
@@ -329,7 +334,6 @@ struct ChatTabView: View, ThemedView {
                     RemoteControlControl(session: headlessSession)
                 }
             }
-            .fixedSize()
         }
         // The one leading edge the composer's text and controls also sit on.
         .padding(.horizontal, dimensions.composerFieldInset)
