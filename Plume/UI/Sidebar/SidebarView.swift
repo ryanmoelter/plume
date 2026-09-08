@@ -56,7 +56,9 @@ struct SidebarView: View {
             }
         }
         .themeTint(colorScheme: colorScheme)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+        // 240 clipped the toolbar's Archive button; 280 gives it room without
+        // taking more of the window than the fix needs.
+        .navigationSplitViewColumnWidth(min: 200, ideal: 280)
         .toolbar {
             ToolbarItem {
                 Menu {
