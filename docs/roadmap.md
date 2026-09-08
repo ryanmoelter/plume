@@ -22,8 +22,17 @@ Everything queued for 0.3.1 through 0.3.6 shipped. What is left, not yet ordered
 - **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
 - **L** — Generate a tab title with Apple's on-device model, falling back to today's. See [Tab titles](#tab-titles).
 - **S** — Syntax-highlight code blocks. See [The markdown renderer](#the-markdown-renderer).
+- **S** — Tighten the gap between tool calls in different messages, and standardize the spacing scale. See [Chat spacing](#chat-spacing).
+- **S** — Show why a mermaid diagram fell back to a code block, above the code block. See [The markdown renderer](#the-markdown-renderer).
+- **M** — Confirm every mermaid diagram type draws, sequence and state among them. See [The markdown renderer](#the-markdown-renderer).
+- **M** — A per-message copy button on hover, as a stopgap for cross-row selection. See [Chat selection and copying](#chat-selection-and-copying).
+- **M** — Copy chat content as markdown. See [Chat selection and copying](#chat-selection-and-copying).
+- **L** — Select and copy text across list items. See [Chat selection and copying](#chat-selection-and-copying).
+- **XL** — Spike an AppKit message list, against the remaining hang and the selection ceiling. See [Move the chat off SwiftUI's list](#move-the-chat-off-swiftuis-list).
 
-**Why these are ordered as they are.** `/btw` and talking to a subagent directly are filed together: both are a new chat surface rather than a fix to an existing one, and neither is a patch-release shape. The notify CLI travels with keeping the Mac awake — the OSC 777 transport it would wrap already works from a shell, so the CLI is packaging, not capability. Per-agent sidebar rows waited on the per-tab directory store, which 0.3.6 landed, so they are unblocked now. Terminal history restore is blocked outside this repo: the pinned `libghostty-spm` wrapper exposes neither `ghostty_surface_read_text` nor `ghostty_surface_write_buffer` on the surface Plume uses, so it needs wrapper work first. Talking to a subagent starts as a research spike — whether the CLI can address a subagent at all decides the whole shape. Tab titles wait on weighing the CLI's own `generate_session_title` control request before reaching for the on-device model.
+**Why these are ordered as they are.** `/btw` and talking to a subagent directly are filed together: both are a new chat surface rather than a fix to an existing one, and neither is a patch-release shape. The notify CLI travels with keeping the Mac awake — the OSC 777 transport it would wrap already works from a shell, so the CLI is packaging, not capability. Per-agent sidebar rows waited on the per-tab directory store, which 0.3.6 landed, so they are unblocked now. Terminal history restore is blocked outside this repo: the pinned `libghostty-spm` wrapper exposes neither `ghostty_surface_read_text` nor `ghostty_surface_write_buffer` on the surface Plume uses, so it needs wrapper work first. Talking to a subagent starts as a research spike — whether the CLI can address a subagent at all decides the whole shape. Tab titles wait on weighing the CLI's own `generate_session_title` control request before reaching for the on-device model. The two mermaid items are cheap and independent — the error message needs only a place to put text the page already sends, and the diagram-type check is diagnosis before it is work. The copying items run smallest first on purpose: a per-message button and copy-as-markdown both want the splitter to keep each piece's source, so doing them first pays for cross-row selection rather than duplicating it. The AppKit spike sits last because it may subsume all three, and deciding it before they ship would stall them on a question nobody has answered yet.
+
+Not queued because they are not yet specified: three **requests** from a conversation outside this repo — an accurate chat status with elapsed working time, tracking what the agent is currently doing, and a conversation minimap with bookmarks. They are recorded with what the code already provides, but each needs a clarifying pass before it can be sized (see [Requests](#requests)).
 
 **A short-lived screenshot lease** so agents capture one at a time left this list for good: it belongs in the dotfiles beside `papercut` and `distress-call`, not in Plume.
 
@@ -116,6 +125,8 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Put real newlines in a bash input block.
 - [x] Size inline code inside a heading to the heading, not to prose. `MarkdownView.heading` builds its text through `inline(_:)`, which is `MarkdownCache.styledInline(text, fontSize: typography.bodySize, …)` — so a code run gets `Font.system(size: bodySize * 0.92, design: .monospaced)` written straight onto it, and that font wins over the `headingFont(level:)` applied to the whole `Text`. A heading naming a type in backticks therefore drops to body size mid-line. The size has to come from the heading's own level, which means `styledInline` taking the size the caller is rendering at rather than always the body's — and the size already keys the cache, so a per-level size needs no new invalidation.
 - [x] Mermaid diagrams in the same renderer.
+- [ ] Confirm every mermaid diagram type renders — sequence and state diagrams among them — since diagrams are still turning up as plain code blocks. Nothing in Plume filters by type: `MermaidDocument.fenceLanguages` gates only the fence's language tag, and the source goes straight into `mermaid.render`. So a fence that doesn't draw is either a mermaid parse error or something in the page, and finding out which is the first step.
+- [ ] Show why a diagram didn't draw. A failure degrades to the raw fence, which is right, but the reason only reaches `Log.app` — the reader sees a code block and no explanation. The page already posts `{kind: 'error', message: …}` back over the `plumeMermaid` handler, so the message exists; it needs a place at the top of the fallback code block.
 
 **The one-liner is now a `ToolCallSummary` struct** of name, detail and a `DetailStyle`, held by `ToolCall.summary`; `ToolCallRow.summaryText` assembles the `AttributedString`, which is the only place a font is known. Elision still cuts the detail alone at 60 characters. The style is decided per tool where they are enumerated: a machine token the user could type back — a `Bash` command, a `Grep` or `Glob` pattern, a `Read`/`Write`/`Edit` basename, a `Skill` name, a `WebFetch` host — takes monospace, and only `Agent`'s `subagent_type: description` stays prose. **The trailing `…` is unconditional**: it stands for the input the collapsed row hides, not for text that was cut.
 
@@ -303,8 +314,15 @@ The answers on a settled block come from the tool result's own text, parsed in `
 
 - [x] Collapse the space between consecutive tool calls. Keep the current space where a tool call meets prose or any other block — a run of calls should read as one list, not as several separated statements.
 - [x] Give a streaming response the same space above it that a finished one has. A reply sits tighter to the message above while it streams, then shifts down once the transcript takes over — so the text moves as the turn settles.
+- [ ] Tighten the gap between tool calls that sit in different messages, and take another pass at standardizing the spacing now that every piece is its own list item. Two consecutive calls should read as one run wherever the message boundary happens to fall.
 
 `ChatBlockSpacing` now decides every vertical gap in the chat from the kind of item above it: consecutive tool calls take `Dimensions.toolCallSpacing` (4), anything else takes `messageBlockSpacing` (8) within a message or `messageSpacing` (40) between two messages. Both gaps that made a run of calls read as separate statements are covered. The list carries no vertical inset of its own: every gap is the following item's top inset, which is the only shape in which one number can own it. `ChatPieceSplitter` assigns those insets when it builds the list's items, counting the previous *rendered* block, so a call the pending dock draws instead does not leave a gap behind, and a message the reader sees as tool calls alone continues a run through it.
+
+**Why a run of calls still breaks, despite the rule already spanning messages.** `ChatBlockSpacing.rowKind` collapses two messages only when a message is tool calls and *nothing else* — `blocks.allSatisfy`. So a message ending in a call, after prose or a thinking block, is `.other`, and the call opening the next message takes `messageSpacing` (40) instead of `toolCallSpacing` (4). That is the 10x cliff the reader sees mid-run. The fix is to compare the last rendered block of one message against the first of the next, rather than characterizing a whole message by all of its blocks; `lastRenderedKind` already computes one half of that and currently has no caller in the row path.
+
+There is a second, narrower case worth checking in the same pass: `rowKind` takes no `hiddenToolUseIDs`, while `blockTopInsets` and `lastRenderedKind` both do. A message whose only call the pending dock has taken over therefore still counts as a tool-call row for the message after it, though it draws nothing.
+
+**Standardizing the rest is the open half.** Now that a piece is the unit, the gaps are spread across `Dimensions` (`messageSpacing` 40, `messageBlockSpacing` 8, `toolCallSpacing` 4, `verticalPadding` 16) and four constants on `ChatBlockSpacing` itself (`userBlockSpacing` 8, `noticeBlockSpacing` 6, `noticeVerticalPadding` 4, `listSegmentSpacing` 4). Some of those are genuinely different decisions and some are the same gap written twice. Worth resolving into one scale before adding another number to it. One constraint holds throughout: every gap is the *following* item's top inset, which is what lets a single number own it, so a fix belongs in `ChatBlockSpacing` rather than in a view's padding.
 
 The streaming overlay takes the gap it will have once it settles: after prose the text stays in the same message, so it takes the block gap; after a tool call the tool's result ends the assistant's run in the transcript, so the text retires into a message of its own and already sits a message apart. That is what stops the reply shifting as the stream retires — and what fixes the streamed text reading tight against the tool call above it.
 
@@ -345,6 +363,32 @@ The constraints both items ran into:
 - **A per-tick animation next to this list has already been measured as expensive.** `ChatWorkingIndicator` explains why the working dot derives opacity from a `TimelineView` clock instead of using `phaseAnimator` or a `repeatForever` opacity animation: those rebuilt the whole chat tree ~37,000 times over 15 seconds. A character reveal is the same shape of risk, and the same escape hatch (drive from a clock, keep the redraw inside one view) is the thing to reach for.
 - **The text to reveal already accumulates in one place.** `HeadlessSession.streamingText` appends `textDelta`s (`HeadlessSession.swift:281`), and a delta can carry many characters at once — which is exactly why a paragraph can land whole today. `ChatStreamHandoff.Overlay.text` is what `StreamingBlocks` draws, so the reveal is a rendering concern over a growing buffer rather than a change to the transport.
 - **It can be driven without a live model.** `HeadlessSession.debugStream(text:restart:)` (DEBUG only, `HeadlessSession.swift:96-99`) feeds the live-text path with no process, so `SmokeHarness` can exercise a reveal against a transcript on disk.
+
+## Chat selection and copying
+
+Selecting text in the chat and getting it back out. All three items below share one cause, so they are filed together.
+
+- [ ] Select and copy text across list items. `.textSelection(.enabled)` is set on every text-bearing row, but SwiftUI scopes a selection to one `Text`, so a drag across two rows selects neither. The chat splits one lazy item per *block* and caps an item at 300pt, so even a single message is usually several items — which means the seam is not rare, it is everywhere.
+- [ ] A per-message copy button on hover, as a stopgap. `CodeBlockCopyButton` is the pattern: hover-revealed, flips to a checkmark, writes to `NSPasteboard`. Attach one to the message's first piece. Copying a range of messages at once is the thing actually wanted, so treat the per-message button as the floor rather than the answer.
+- [ ] Copy chat content as markdown, and consider HTML as a second flavor. Markdown is the one that matters.
+
+What the code provides, and what stands in the way:
+
+- **Nothing in the chat displays text through AppKit.** `MarkdownBlockView` draws everything with SwiftUI `Text` over `AttributedString`. The precedent for AppKit inside the chat is real but partial: `MermaidView` hosts a `WKWebView` and the composer's input is `ComposerNSTextView: NSTextView` — both `NSViewRepresentable`, neither in the message-rendering path.
+- **The raw markdown is mostly not kept.** `MarkdownBlock` is structured data with no source on it. `MarkdownBlock.Parsed` pairs a block with its source, but `ChatPiece.Content.markdown` stores the bare block, and only `ChatPiece.streamSource` retains source — for streamed content alone, nil for anything read from the transcript. So copy-as-markdown either re-derives source from the enum (lossy) or has the splitter keep `Parsed.source` per piece instead of discarding it. Keeping it is the better half of the choice, and it is what the per-message copy button needs anyway.
+- **One lazy item per block is the constraint that cannot bend.** `docs/chat-list-hang.md` records the hang: a lazy item much taller than its neighbours makes the stack's placement pass oscillate forever. Any selection scheme that puts a whole message back in one item reopens it.
+
+## Move the chat off SwiftUI's list
+
+A hang still shows up occasionally, and the shape of the chat's remaining problems — cross-row selection, copy, height estimation — keeps pointing at the same place. Worth deciding whether the message list should be AppKit.
+
+- [ ] Investigate rebuilding the message list on AppKit — `NSTableView`/`NSCollectionView` for the list, and a text view for the content. Decide it as a spike, not as a rewrite: the question to answer first is whether an AppKit list actually removes the hang's cause or only moves it.
+
+Why it is worth asking:
+
+- **The hang is a `LazyVStack` behavior, not a Plume bug.** `docs/chat-list-hang.md` traced it to the lazy stack's own placement and offset-alignment machinery looping with no Plume state write involved, and the fix was to work around it by capping per-item height contrast at 300pt. That workaround is what forces one item per block, which is in turn what breaks selection. An AppKit list managing its own row heights would not need the cap.
+- **It would likely take the copying items with it.** A real text view gives selection across rows, `NSPasteboard` flavors and copy-as-markdown from the same place, rather than three separate workarounds.
+- **The cost is the whole chat surface.** The reveal animation, `AnimatedHeight`, `ChatPieceSplitter`, the wash painted per piece, and `defaultScrollAnchor(.bottom, for: .sizeChanges)` all assume SwiftUI. Sizing what survives is most of the spike.
 
 ## Terminal history restore
 
@@ -452,6 +496,8 @@ Plume's own repository is on GitLab, so it exercises the `.forgeUnsupported` pat
 
 `WorkTask.integrationsData` is still unused — nothing about a pull request is persisted, matching the rule that live state stays in memory.
 
+**The sidebar's remote-control mark is tracked under [Remote Control](#remote-control)**, not here, though it lands in this same row. The two are different shapes: a pull request belongs to a *directory* and comes from a store the row already reads, while a bridge belongs to a running process and is not persisted at all.
+
 **The row repeats per directory, and stays quiet when there is nothing to say.** A task shows its title and status, then one group per distinct directory its open *agent* tabs report — directory name, that directory's branch, then the PR row. Terminal tabs are excluded, since a terminal's cwd follows `cd` and the group list would shift as you move around a shell. Two agent tabs in one folder collapse to one group, and a task with no reporting agent tab falls back to its own `workingDirectoryPath`. The directory is always labelled, so the old standalone directory line folded into the group header rather than being repeated. Growing unwieldy with many directories is deliberate — it is the nudge against opening many directories in one task, so there is no collapsing, cap or "+N more".
 
 The PR row is omitted for `.noPR`, `.localOnly`, `.loading` and `.forgeUnsupported`, which otherwise each drew a single dim glyph on a line of its own and read as dead space. **`.timedOut` and `.failed` keep their row**: an offline Plume must never look like a repo with no PRs, which is the whole reason the state is an enum. That rule lives in `TaskRowDetails.showsPullRequestLine`, not in the glyph lists — the glyphs are still wanted for the accessibility label and the fixture view, so "draws nothing" and "takes no row" stay separate facts.
@@ -459,6 +505,18 @@ The PR row is omitted for `.noPR`, `.localOnly`, `.loading` and `.forgeUnsupport
 `DirectoryWatchSet` holds the watch lifecycle, since a row now watches several directories at once on two refcounted stores. It diffs the old and new sets and releases what left before taking what arrived; a blind re-take silently leaks a poll. Git watches are taken regardless of `showsPullRequestStatus`, pull request watches only while it is on, and the two release independently.
 
 **A DEBUG-only fixture catalog seeds every sidebar state at once.** `SidebarFixtureCatalog` (`Plume/Support/`) is pure data — one entry per case — and `SidebarFixtures` turns it into store state behind a "Seed Fixtures" button in the sidebar footer. It covers every `TaskStatus` and every `PullRequestFetchState`, plus a task whose agent tabs span three directories, so the repeated groups are visible without a real repository. `PullRequestStore.seedFixture(directory:state:)` publishes a state with no network call and marks the directory fixture-owned so a real resolution cannot race it; every part of that is inside `#if DEBUG`, confirmed by `nm` finding no fixture symbols in a Release binary. `SidebarFixtureCatalogTests` asserts the catalog covers every enum case, so a new case fails the test rather than silently going unrendered. Adding a problematic chat transcript later is a new catalog entry pointing a tab's `sessionJSONLPath` at a bundled `.jsonl` — the mechanism `SmokeHarness` already uses — rather than new plumbing.
+
+**The row's final shape.** No status line — the trailing `StatusBadge` already says it, so `TaskRowDetails.lines` takes only groups. Each group is a project header, a branch line, then the PR row. The header names the **project** rather than the folder: `CheckoutFacts` parses one `rev-parse --path-format=absolute --git-common-dir --show-toplevel`, whose common dir points at the original clone from inside any worktree, so its parent is the project and a differing toplevel means a linked worktree. Worktrees take a `tree` marker, matching `WorkspacePickerView` and `ResumeSessionSheet`. `CheckoutFactsStore` caches that per directory with no poll and no watcher, since a checkout cannot change which repository it belongs to.
+
+`.localOnly` rides on the branch line rather than taking a row, because having no upstream is a fact about the branch and hiding its row otherwise lost it entirely. The PR row draws at `.primary` emphasis — it is what the row exists to surface — while a chip annotating the branch line takes that line's `.secondary` instead.
+
+Three caching rules, each fixing a visible flicker:
+
+- **`GitStateStore` keeps the last answer past refcount zero.** Rows release on every unmount — deselecting a task, or scrolling out of the lazy `List` — and a remounted watch starts from the cached value rather than nil. Without it the branch blanked on every task switch and refilled a `git` call later, which read as being lost rather than reloaded.
+- **A branch falls back to `task.branchName` for any of the task's directories**, not just its own folder. `List` is lazy, so a row scrolled into view has no git state yet.
+- **Fixture state survives a real lookup in all three stores.** A fixture directory has no repository on disk, so any real resolution against one blanks the row. `PullRequestStore.release` dropped seeded state at refcount zero, `CheckoutFactsStore.load` re-resolved seeded directories, and `GitStateStore` had no fixture concept at all.
+
+**The sidebar deliberately does not use the `Typography` scale.** It was tried and reverted: the scale derives from `chatFontSize`, so installing `plumeTheme` made the chat font slider resize the sidebar. System `.body`/`.caption` is the intended styling here.
 
 ## Task creation and directories
 
@@ -614,6 +672,12 @@ What exists:
 - `bridge_epoch` increments per connect, and the state machine drops an event from an older bridge — a fast disconnect/reconnect would otherwise let the previous bridge's failure land on the live one. The first event of every connect carries no epoch, which says nothing about ordering and is not treated as stale.
 - Nothing reconnects on resume. `agentSessionID` survives a relaunch and `--resume` restores the conversation, but the bridge does not come back with it.
 
+**What the sidebar mark needs.** The state is per tab and lives only while that tab's session does, so a task whose tabs are not running shows nothing — there is no persisted value to fall back on, by design. Sessions are keyed by tab in `HeadlessSessionManager` and a sidebar row is a task, so the row needs "any tab of this task is connected". `StatusEngine` is the precedent twice over: it already folds per-tab values into a task value through `tabsByTask`, and it already tracks a derived per-tab boolean across tabs in `tabsWithWorkingSubagents`. Whether the aggregate joins it or gets its own observable is the one design decision — the engine is about status and a bridge is not, so a separate store keyed the same way is probably cleaner.
+
+The icon is already chosen and should not be reinvented: `StatuslineStripView` and `RemoteControlToast` both use `antenna.radiowaves.left.and.right`, with the `.slash` variant for disconnected. The row wants the connected case alone — the point is spotting a published session, and a slashed antenna on every ordinary task is noise. Whether `connecting` earns the same mark is worth deciding rather than inheriting.
+
+Where it goes is a real choice between two slots the row already has. `TaskRowView` is an `HStack` of a `VStack` (title plus detail lines), a `Spacer`, and a single trailing `StatusBadge`; the branch and PR chips live inside the detail lines as `TaskRowDetails.Line` cases. A second trailing accessory beside `StatusBadge` keeps the mark at task level, which matches what it describes. A new `Line` case would instead put it per directory group, which is the wrong grain — a bridge belongs to a tab's session, not to a folder.
+
 ## Below the composer
 
 The strip under the composer has accumulated rather than been designed. Everything in it is worth showing; almost none of it is in the right place.
@@ -649,6 +713,28 @@ What we knew going in:
 **The workspace chips follow the panel into the empty state.** The strip needs a session to have anything to say, but choosing where a tab runs matters most before its first message, so the pre-session panel carries the composer, a divider and the workspace row — the same shape, minus the facts that do not exist yet.
 
 The context meter and the plan button gained accessibility identifiers, which were the two controls in either row without one, and every existing identifier stayed attached to its segment through the move.
+
+## Requests
+
+Asked for from outside this repo, and recorded here before they are worked out. Rough by design — each needs a pass to turn into something buildable, and the notes below say what the code already offers so that pass starts somewhere.
+
+- [ ] Make the chat status accurate, and say how long the agent has been working.
+- [ ] Track what the agent is actually doing, not only that it is doing something. The shape is unsettled — a skill the agent calls, or reading the tasks it sets itself. Needs clarifying with whoever asked before it is designed.
+- [ ] A conversation minimap, like Sublime Text's, with bookmarks to navigate by — so a long transcript can be skimmed and most of the agent's output skipped.
+
+**Status has no clock anywhere.** `StatusEngine` holds `tabStatuses: [UUID: TaskStatus]` and nothing else — no timestamp, no start-of-turn instant, no duration (`Plume/Status/StatusEngine.swift:15`). `TaskStatus` is a bare enum with a `priority` for aggregating tabs into a task (`Plume/Models/TaskStatus.swift`). So "how long has it been working" is not a display change; it needs the engine to record when a status was entered. That instant must come from when Plume *observes* the change rather than from a transcript timestamp — `SubagentCompletionTracker` learned this the hard way, where dating rows by their own timestamps collapsed every one the moment a relaunch re-read old files (see [Subagents](#subagents)).
+
+**What "working" looks like today** is `ChatWorkingIndicator` — a pulsing dot and the fixed word "Working…", with no elapsed time. Its own comment is the constraint on putting a clock there: driving it from `phaseAnimator` or a repeating animation rebuilt the whole chat tree ~37,000 times in 15 seconds, so opacity is derived from a `TimelineView` clock to keep the redraw inside the one view. A ticking duration label is the same shape of risk and wants the same escape hatch. `StatusBadge` in the sidebar is the other surface, and a per-task elapsed time would want the same source.
+
+**The turn's real duration is already on the wire, and is dropped in one place.** The headless `result` event carries `duration_ms` and `ttft_ms` per turn (`docs/headless-protocol.md:243`), but `StreamJSONMessage.TurnResult` declares neither field and `StreamJSONDecoder.turnResult(from:)` never reads them, so both are discarded at the decode. Picking them up is a field and a line. That is the authoritative number for a *finished* turn, so it is worth reconciling against whatever clock drives the live counter rather than having two answers. `HeadlessSession.beginTurn()` is where a live clock would start — it already sets `isWorking` and the `.working` status, and captures no `Date`. All of this is headless only; a terminal tab reports through hooks and has no duration.
+
+**Nothing parses `TodoWrite`.** A search for it across `Plume/` finds nothing, so the agent's own task list — which the CLI already writes as an ordinary tool call and the transcript already carries — is unread. That is the cheapest source for "what is it doing", and it needs no new protocol work, which is worth weighing before reaching for a skill the agent has to call.
+
+**A minimap is the first thing that wants to scroll the list on purpose.** The shipping chat scrolls only to the bottom *edge*: `ChatMessageList` holds a `ScrollPosition` and calls `position.scrollTo(edge: .bottom)` for the jump-to-bottom button, with no `ScrollViewReader` and no `scrollTo(id:)` on any user path, because a programmatic scroll into a stack of estimated rows retargets on every placement pass — `docs/chat-list-hang.md`. `position.scrollTo(id:)` *is* already called against this list, by the DEBUG-only `ScrollExercise` harness (`PLUME_SCROLL_EXERCISE=<seconds>`), which is the instrument for finding out whether jumping to an anchor is survivable before building a UI on it. Read it as the experiment to run rather than as reassurance: that harness scrolls *animated*, which is the precise pairing the hang doc names, and it exists to stress the list rather than to demonstrate a safe path.
+
+**The anchors half exist.** Every `ChatPiece` carries `messageID` and `role` as real fields, so an outline can group by message and tell the user's turns from the agent's. Block position is weaker: a piece's `id` is built as `"\(message.id)/\(blockIndex)"` with further suffixes for segments, so a block-level anchor means either parsing that string or adding a genuine field. Skipping most of the agent's output is then a filter over `role` and `Content` — the user's messages, plus headings, are the obvious first cut. Whether bookmarks are automatic, user-placed, or both is the open question.
+
+Worth knowing while sizing this: nothing persists a scroll position or a last-read marker today, so reopening a tab returns to the bottom. If the request includes coming back to where you were, that is a separate piece of work rather than a detail of the minimap.
 
 ## Infrastructure
 
