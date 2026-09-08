@@ -1,7 +1,6 @@
 import SwiftUI
 
-struct TaskRowView: View, ThemedView {
-    @Environment(\.theme) var theme
+struct TaskRowView: View {
     @Bindable var task: WorkTask
     /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
@@ -68,7 +67,6 @@ struct TaskRowView: View, ThemedView {
                         .onAppear { titleFocused = true }
                 } else {
                     Text(TitleStore.shared.displayTitle(for: task))
-                        .font(typography.body.font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -77,13 +75,13 @@ struct TaskRowView: View, ThemedView {
                     switch line {
                     case .text(let text):
                         Text(text)
-                            .font(typography.caption.font)
+                            .font(.caption)
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     case .project(let name):
-                        Label(name, systemImage: "folder")
-                            .font(typography.caption.font)
+                        Text(name)
+                            .font(.caption)
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -91,17 +89,17 @@ struct TaskRowView: View, ThemedView {
                         HStack(spacing: 4) {
                             if isWorktree {
                                 Image(systemName: "tree")
-                                    .font(typography.caption.font)
+                                    .font(.caption)
                                     .imageScale(.small)
                                     .emphasis(.secondary)
                             }
                             Text(branch)
-                                .font(typography.caption.font)
+                                .font(.caption)
                                 .emphasis(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             if let companion {
-                                PullRequestChip(state: companion)
+                                PullRequestChip(state: companion, emphasis: .secondary)
                             }
                         }
                     case .pullRequest(let directory, let state):

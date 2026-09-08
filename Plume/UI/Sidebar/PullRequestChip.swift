@@ -10,8 +10,7 @@ nonisolated struct PullRequestGlyph: Equatable {
         case danger
         case attention
         case merged
-        /// Carries no verdict, so it takes the same treatment as the row's
-        /// text lines.
+        /// Carries no verdict of its own.
         case neutral
     }
 
@@ -111,9 +110,12 @@ nonisolated enum PullRequestChipContent {
     }
 }
 
-struct PullRequestChip: View, ThemedView {
-    @Environment(\.theme) var theme
+struct PullRequestChip: View {
     let state: PullRequestFetchState
+    /// The strength the verdict-free marks read at. A chip on its own row is
+    /// the thing the row exists to surface; one riding on the branch line is
+    /// an annotation to it, and matches that line instead.
+    var emphasis: Emphasis = .primary
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
 
@@ -133,18 +135,19 @@ struct PullRequestChip: View, ThemedView {
                 .foregroundStyle(color(for: glyph.tint))
             }
         }
-        .font(typography.caption.font)
+        .font(.caption)
     }
 
-    /// Verdicts take a `ChatRole` hue; the marks that carry none take the same
-    /// semantic hierarchy the row's other detail lines do.
+    /// Verdicts take a `ChatRole` hue. The marks that carry none still read at
+    /// full strength: the pull request is the line the row exists to surface,
+    /// so it sits above the directory and branch that locate it.
     private func color(for tint: PullRequestGlyph.Tint) -> AnyShapeStyle {
         switch tint {
         case .success: AnyShapeStyle(ChatRole.success(for: colorScheme))
         case .danger: AnyShapeStyle(ChatRole.danger(for: colorScheme))
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
-        case .neutral: AnyShapeStyle(Emphasis.secondary.textHierarchy)
+        case .neutral: AnyShapeStyle(emphasis.textHierarchy)
         }
     }
 }
