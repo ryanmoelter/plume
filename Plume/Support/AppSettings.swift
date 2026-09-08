@@ -21,7 +21,9 @@ final class AppSettings {
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
-        static let animateRowHeight = "animateRowHeight"
+        /// Stored under its original name, from when the setting covered
+        /// only row heights, so an existing preference still reads.
+        static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
     }
 
@@ -71,9 +73,9 @@ final class AppSettings {
             .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
 
         // Unset must read as true, which `bool(forKey:)` cannot express.
-        self.animateRowHeight = defaults.object(forKey: Key.animateRowHeight) == nil
+        self.animateChatMotion = defaults.object(forKey: Key.animateChatMotion) == nil
             ? true
-            : defaults.bool(forKey: Key.animateRowHeight)
+            : defaults.bool(forKey: Key.animateChatMotion)
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
@@ -160,13 +162,15 @@ final class AppSettings {
         }
     }
 
-    /// Whether a chat row eases between heights as its content changes.
-    /// Separate from `animateCharacterReveal`: an animated height is a size
-    /// change the list's bottom anchor reacts to, so it carries the higher
-    /// risk of the two and has to be killable on its own.
-    var animateRowHeight: Bool {
+    /// Whether the chat list moves rather than jumps: a row easing between
+    /// heights as its content changes, a newly arrived one growing into
+    /// place, and the room the composer takes easing as it grows.
+    /// Separate from `animateCharacterReveal`: all three are size changes the
+    /// list's bottom anchor reacts to, so they carry the higher risk of the
+    /// two and have to be killable on their own.
+    var animateChatMotion: Bool {
         didSet {
-            defaults.set(animateRowHeight, forKey: Key.animateRowHeight)
+            defaults.set(animateChatMotion, forKey: Key.animateChatMotion)
         }
     }
 

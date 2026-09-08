@@ -44,6 +44,10 @@ enum ChatStreamHandoff {
     /// thousand points tall while it arrives.
     struct SettledStream: Equatable {
         var blocks: [MarkdownBlock] = []
+        /// Each settled block's own source, in the same order. A block the
+        /// stream wrote keeps it so its piece can go on typing after the
+        /// block completes.
+        var sources: [String] = []
         /// The raw source of the block still arriving.
         var tail: String = ""
         var tailBlock: MarkdownBlock?
@@ -54,6 +58,7 @@ enum ChatStreamHandoff {
         guard let last = parsed.last else { return SettledStream() }
         return SettledStream(
             blocks: parsed.dropLast().map(\.block),
+            sources: parsed.dropLast().map(\.source),
             tail: last.source,
             tailBlock: last.block
         )

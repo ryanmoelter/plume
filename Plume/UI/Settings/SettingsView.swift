@@ -102,15 +102,17 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Ease chat rows between heights", isOn: $settings.animateRowHeight)
+                Toggle("Animate chat message motion", isOn: $settings.animateChatMotion)
                 Toggle("Reveal streamed text a character at a time", isOn: $settings.animateCharacterReveal)
             } header: {
                 Text("Chat Animation")
             } footer: {
                 Text(
-                    "Row height eases a message that grows or collapses into its new size. " +
-                    "The reveal draws streamed text at a readable pace instead of a paragraph " +
-                    "at a time, speeding up while the agent is writing faster than it reads."
+                    "Message motion eases a message that grows or collapses into its new size, " +
+                    "grows a newly arrived one into place, and slides the conversation when the " +
+                    "composer changes height. The reveal draws streamed text at a readable pace " +
+                    "instead of a paragraph at a time, speeding up while the agent is writing " +
+                    "faster than it reads."
                 )
                 .foregroundStyle(.secondary)
             }
