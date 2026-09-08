@@ -12,6 +12,11 @@ final class CheckoutFactsStore {
     static let shared = CheckoutFactsStore()
 
     private var facts: [String: CheckoutFacts] = [:]
+#if DEBUG
+    /// Seeded directories, which have no repository on disk — a real lookup
+    /// would resolve them to nothing and blank the row.
+    @ObservationIgnored private var fixtureDirectories: Set<String> = []
+#endif
     /// Directories whose lookup found no repository, so a row that asks
     /// repeatedly does not spawn a `git` process every redraw.
     private var missing: Set<String> = []
@@ -33,6 +38,9 @@ final class CheckoutFactsStore {
     /// Call from a lifecycle event, never from `body`.
     func load(_ directory: String) {
         guard !directory.isEmpty, facts[directory] == nil, !missing.contains(directory) else { return }
+#if DEBUG
+        guard !fixtureDirectories.contains(directory) else { return }
+#endif
         guard inFlight.insert(directory).inserted else { return }
         Task {
             let resolved = await resolve(directory)
@@ -49,6 +57,7 @@ final class CheckoutFactsStore {
     /// Seeds a fake answer so a fixture row renders as a worktree without one
     /// existing on disk. Cached like a real answer, so nothing looks it up.
     func seedFixture(directory: String, facts: CheckoutFacts) {
+        fixtureDirectories.insert(directory)
         self.facts[directory] = facts
     }
     #endif
@@ -58,5 +67,8 @@ final class CheckoutFactsStore {
         facts.removeAll()
         missing.removeAll()
         inFlight.removeAll()
+#if DEBUG
+        fixtureDirectories.removeAll()
+#endif
     }
 }

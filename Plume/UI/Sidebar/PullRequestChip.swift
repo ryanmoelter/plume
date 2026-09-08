@@ -83,7 +83,7 @@ nonisolated enum PullRequestChipContent {
         case .success:
             glyphs.append(PullRequestGlyph(symbol: "checkmark.circle.fill", tint: .success, label: "checks pass"))
         case .failure:
-            glyphs.append(PullRequestGlyph(symbol: "xmark", tint: .danger, label: "checks fail"))
+            glyphs.append(PullRequestGlyph(symbol: "xmark.circle.fill", tint: .danger, label: "checks fail"))
         case .pending:
             glyphs.append(PullRequestGlyph(symbol: "circle.fill", tint: .attention, label: "checks pending"))
         case .none:

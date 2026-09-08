@@ -106,7 +106,14 @@ final class PullRequestStore {
         existing.refCount -= 1
         if existing.refCount <= 0 {
             watches.removeValue(forKey: directory)
+#if DEBUG
+            // A fixture outlives its row: the lazy `List` releases whatever
+            // scrolls out of view, and dropping the seeded state there would
+            // blank the row when it came back.
+            if !fixtureDirectories.contains(directory) { states.removeValue(forKey: directory) }
+#else
             states.removeValue(forKey: directory)
+#endif
         } else {
             watches[directory] = existing
         }

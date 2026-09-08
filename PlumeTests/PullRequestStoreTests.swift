@@ -184,3 +184,16 @@ struct PullRequestStoreTests {
         #expect(PullRequestStore.pollInterval >= 60)
     }
 }
+
+/// Fixture state must outlive the lazy `List` recycling its row, which is what
+/// `watch`/`release` follow.
+@MainActor
+struct PullRequestStoreFixtureLifetimeTests {
+    @Test func aSeededStateSurvivesWatchAndRelease() {
+        let store = PullRequestStore()
+        store.seedFixture(directory: "/tmp/plume-fixtures/demo", state: .noPR)
+        store.watch("/tmp/plume-fixtures/demo")
+        store.release("/tmp/plume-fixtures/demo")
+        #expect(store.state(for: "/tmp/plume-fixtures/demo") == .noPR)
+    }
+}

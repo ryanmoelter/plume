@@ -55,6 +55,19 @@ enum SidebarFixtures {
             if let checkout = fixture.checkout {
                 CheckoutFactsStore.shared.seedFixture(directory: directory, facts: checkout)
             }
+            // Without this the row takes a real git watch on a path that does
+            // not exist, and the failed lookup publishes a nil branch over the
+            // fixture's.
+            GitStateStore.shared.seedFixture(
+                directory: directory,
+                state: GitState(
+                    branch: fixture.branch,
+                    upstream: fixture.pullRequestState == .localOnly ? nil : "origin/\(fixture.branch ?? "")",
+                    ahead: 0,
+                    behind: 0,
+                    isDirty: false
+                )
+            )
         }
         return task
     }
@@ -93,6 +106,16 @@ enum SidebarFixtures {
                     checkContexts: [CheckContext(name: "build", conclusion: "SUCCESS")]
                 )
             ))
+            GitStateStore.shared.seedFixture(
+                directory: path,
+                state: GitState(
+                    branch: "ryanm/\(name)",
+                    upstream: "origin/ryanm/\(name)",
+                    ahead: 0,
+                    behind: 0,
+                    isDirty: false
+                )
+            )
         }
         return task
     }

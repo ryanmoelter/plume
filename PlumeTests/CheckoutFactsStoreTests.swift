@@ -61,6 +61,38 @@ private actor Counter {
     func increment() { count += 1 }
 }
 
+/// A fixture directory has no repository on disk, so any real lookup resolves
+/// it to nothing. Each store must leave seeded state alone.
+@MainActor
+struct FixtureStateSurvivesRealLookupTests {
+    @Test func aSeededCheckoutIsNeverLookedUp() async {
+        let store = CheckoutFactsStore()
+        let resolved = Counter()
+        store.resolve = { _ in await resolved.increment(); return nil }
+        let seeded = CheckoutFacts(projectRoot: "/p/Notability", checkoutRoot: "/p/wt")
+        store.seedFixture(directory: "/p/wt", facts: seeded)
+
+        store.load("/p/wt")
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await resolved.count == 0)
+        #expect(store.facts(for: "/p/wt") == seeded)
+    }
+
+    /// The lazy `List` releases whatever scrolls out of view, so a fixture
+    /// that does not survive release blanks on the way back in.
+    @Test func aSeededBranchSurvivesWatchAndRelease() {
+        let store = GitStateStore()
+        let state = GitState(branch: "ryanm/demo", upstream: "origin/ryanm/demo", ahead: 0, behind: 0, isDirty: false)
+        store.seedFixture(directory: "/tmp/plume-fixtures/demo", state: state)
+
+        store.watch("/tmp/plume-fixtures/demo")
+        #expect(store.state(for: "/tmp/plume-fixtures/demo")?.branch == "ryanm/demo")
+        store.release("/tmp/plume-fixtures/demo")
+        store.watch("/tmp/plume-fixtures/demo")
+        #expect(store.state(for: "/tmp/plume-fixtures/demo")?.branch == "ryanm/demo")
+    }
+}
+
 /// The catalog's worktree cases must key their seeded facts to the same path
 /// the row looks up, or the marker silently never appears.
 @MainActor

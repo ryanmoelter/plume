@@ -29,6 +29,11 @@ final class GitStateStore {
 
     private var watches: [String: Watch] = [:]
     private var pollTimer: Timer?
+#if DEBUG
+    /// Seeded states, for directories that have no repository on disk — a
+    /// real `git` call there fails and would clear the fixture's branch.
+    private var fixtureStates: [String: GitState] = [:]
+#endif
     private var pending: [String: Task<Void, Never>] = [:]
     private var inFlight: Set<String> = []
 
@@ -48,6 +53,12 @@ final class GitStateStore {
             return
         }
 
+#if DEBUG
+        if let seeded = fixtureStates[directory] {
+            watches[directory] = Watch(state: seeded, watcher: nil, refCount: 1)
+            return
+        }
+#endif
         watches[directory] = Watch(state: nil, watcher: nil, refCount: 1)
         refresh(directory)
         startWatching(directory)
@@ -121,6 +132,9 @@ final class GitStateStore {
 
     /// Runs `git` on `GitService`, then publishes on the main actor.
     private func refresh(_ directory: String) {
+#if DEBUG
+        guard fixtureStates[directory] == nil else { return }
+#endif
         // One `git` process per directory at a time. Without this a slow
         // repository would queue a subprocess per event behind the debounce.
         guard !inFlight.contains(directory) else { return }
@@ -138,6 +152,16 @@ final class GitStateStore {
         }
     }
 
+#if DEBUG
+    /// Publishes `state` for `directory` with no `git` call, for the sidebar
+    /// fixture catalog. Seeding before the row watches is what keeps the
+    /// branch stable; `refresh` skips these directories thereafter.
+    func seedFixture(directory: String, state: GitState) {
+        fixtureStates[directory] = state
+        if watches[directory] != nil { watches[directory]?.state = state }
+    }
+#endif
+
     /// Drops every watch. For tests.
     func reset() {
         for watch in watches.values { watch.watcher?.stop() }
@@ -145,6 +169,9 @@ final class GitStateStore {
         pending.removeAll()
         inFlight.removeAll()
         watches.removeAll()
+#if DEBUG
+        fixtureStates.removeAll()
+#endif
         pollTimer?.invalidate()
         pollTimer = nil
     }
