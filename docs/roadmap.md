@@ -426,10 +426,31 @@ The framework is available: deployment target is macOS 26.2, and `SystemLanguage
 
 Help me keep track of tasks once they leave my machine.
 
-- [ ] Show PR/MR state the way my `wt` / `stack` utilities do, build and review state included.
-- [ ] Use the existing `glab` / `gh` CLI auth.
+- [x] Show PR/MR state the way my `wt` / `stack` utilities do, build and review state included. GitHub only so far.
+- [x] Use the existing `glab` / `gh` CLI auth. `gh`'s, at least — `glab` is the remaining half.
+- [ ] GitLab, through `glab`. The seam is built and this is the only forge left.
 
-What exists: nothing uses `gh` or `glab` yet. `WorkTask.integrationsData` is reserved for exactly this and is still unused.
+What shipped, in 0.4.0. **The rules are a port of `~/dotfiles/cli-tools/src/_common/forge.py` and `ui.py`, not a fresh design** — the sidebar should say what `wt list` says about the same branch, so that module is the reference for anything ambiguous here.
+
+`Plume/Forge/` holds the whole feature. `PullRequest` is one normalized shape per forge, `CheckRollup.folding` is `rollup_checks`, `ForgeKind.sniffing` is `forge_kind`, and `GitHubForgeClient` is an actor over `gh`. `PullRequestFetchState` carries six outcomes — a pull request, none, local-only, loading, timed out, failed, forge-unsupported — deliberately as an enum rather than an optional: collapsing a failed fetch into "no PR" tells the user their PR does not exist whenever they are offline.
+
+**The query is `gh api graphql`, never `gh pr list`**, which 504s on repos with big PR histories. One aliased `pullRequests` field per branch, chunked at 30, so ten tasks in one repository cost one request rather than ten. Responses route **by alias**; `headRefName` is not even requested.
+
+**The ignore list's asymmetry is the point.** A check named in `ignoredPendingChecks` has only its *pending* suppressed — a real pass or fail from it still counts. That falls out of two scans rather than a special case: the failure scan runs unfiltered, the pending scan only over non-ignored names. Matching is exact string equality, no glob and no case folding. `IgnoredChecksResolver` **unions** the git config `wt`/`stack` already use with a Plume setting, rather than porting `config_chain_all`'s tool-key-wins rule, so neither source can silently discard the other. Note that `git config --get-all` merges global config, so a name set in `~/.gitconfig-local` applies in every repository — same as the CLIs.
+
+`PullRequestStore` follows `GitStateStore` (refcounted watch/release, in-flight guard, unchanged-value rule) with four departures: it keys watches by directory but **batches fetches by repository**, polls at 180s rather than 15s because every tick is a rate-limited network round trip, takes its branch from the `GitState` that store already publishes rather than adding a second `.git` watcher, and holds a fetch state rather than an optional. A branch with no upstream is `.localOnly` and never fetched; the trunk shows no PR even when one comes back, so a long-dead PR targeting `main` cannot surface on the `main` row.
+
+Three things worth not relearning:
+
+- **`@Observable` tracks a whole dictionary as one property.** Writing any field of a watch record — a refcount, a resolved repository — invalidates every row reading the store and defeats the unchanged-value guard entirely. The fix is `@ObservationIgnored` on the bookkeeping dictionary and a separate `states` dictionary for what rows actually read. **`GitStateStore` has the same shape and probably the same bug**; it was left alone here.
+- **`JSONSerialization` escapes `/`**, so building the branch literal through it emitted `"ryanm\/forge-core"` and matched no PR for any prefixed branch — which is every branch in use. A hand-rolled GraphQL escaper replaces it.
+- **Killing the `Process` did not kill `gh`.** The child survived holding the pipe's write end, so `readDataToEndOfFile` blocked for the command's full duration and each poll leaked an orphan. `/bin/sh -mc` puts the child in its own process group so the whole tree can be reaped.
+
+`gh` runs through `LoginShellCommand.wrap` because a GUI-launched app inherits no shell PATH and `gh` lives outside the system directories — `git` only survives that because `/usr/bin/git` exists. **That path is only truly proven by opening the installed bundle from Finder**, never from Xcode or a terminal.
+
+Plume's own repository is on GitLab, so it exercises the `.forgeUnsupported` path and shows nothing. `~/Development/stack-script-test` covers number, draft, merged and closed but has no CI at all; Notability is what covers checks and review.
+
+`WorkTask.integrationsData` is still unused — nothing about a pull request is persisted, matching the rule that live state stays in memory.
 
 ## Task creation and directories
 
