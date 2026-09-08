@@ -11,6 +11,13 @@ struct PlumeApp: App {
     init() {
         BundledFonts.registerIfNeeded()
         GhosttyRuntime.shared.start()
+        PullRequestStore.shared.resolveIgnoredPendingChecks = { repository in
+            let setting = await MainActor.run { AppSettings.shared.ignoredPendingChecks }
+            return await GitService.shared.ignoredPendingChecks(
+                in: repository,
+                plumeSetting: setting
+            )
+        }
     }
 
     /// Opens the store, and on failure moves it aside and starts empty rather

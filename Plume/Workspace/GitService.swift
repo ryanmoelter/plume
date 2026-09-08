@@ -26,12 +26,24 @@ actor GitService {
         GitRunner.repositoryRoot(containing: path)
     }
 
+    func checkoutFacts(containing path: String) -> CheckoutFacts? {
+        GitRunner.checkoutFacts(containing: path)
+    }
+
     func gitDirectory(containing path: String) -> String? {
         GitRunner.gitDirectory(containing: path)
     }
 
     func currentBranch(in repository: String) -> String? {
         GitRunner.currentBranch(in: repository)
+    }
+
+    func repositoryFacts(in repository: String) -> RepositoryFacts {
+        GitRunner.repositoryFacts(in: repository)
+    }
+
+    func ignoredPendingChecks(in repository: String, plumeSetting: [String]) -> Set<String> {
+        IgnoredChecksResolver.resolve(repository: repository, plumeSetting: plumeSetting)
     }
 
     func worktrees(in repository: String) -> [GitWorktree] {

@@ -59,6 +59,9 @@ enum ThemeChrome {
         case success
         case warning
         case attention
+        /// A pull request that landed. Its own hue because merged is neither
+        /// good news nor bad — it is the end of the story.
+        case merged
 
         var normalSlot: Int {
             switch self {
@@ -66,6 +69,7 @@ enum ThemeChrome {
             case .success: return 2
             case .warning: return 3
             case .attention: return 4
+            case .merged: return 5
             }
         }
 
@@ -92,6 +96,10 @@ enum ThemeChrome {
 
     static func attentionAccent(for colorScheme: ColorScheme) -> Color? {
         paletteAccent(.attention, for: colorScheme)
+    }
+
+    static func mergedAccent(for colorScheme: ColorScheme) -> Color? {
+        paletteAccent(.merged, for: colorScheme)
     }
 
     /// Testable core: reads an explicit `ResolvedDefinitions` rather than the

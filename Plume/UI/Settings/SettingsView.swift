@@ -6,6 +6,7 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var newIgnoredCheckName = ""
 
     var body: some View {
         Form {
@@ -131,10 +132,53 @@ struct SettingsView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Show GitHub PR status in the sidebar", isOn: $settings.showsPullRequestStatus)
+
+                ForEach(settings.ignoredPendingChecks, id: \.self) { name in
+                    HStack {
+                        Text(name)
+                        Spacer()
+                        Button {
+                            settings.ignoredPendingChecks.removeAll { $0 == name }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                HStack {
+                    TextField("Check name", text: $newIgnoredCheckName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(addIgnoredCheck)
+                    Button("Add", action: addIgnoredCheck)
+                        .disabled(newIgnoredCheckName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } header: {
+                Text("Integrations")
+            } footer: {
+                Text(
+                    "Names a check whose PENDING state Plume ignores while folding a PR's CI " +
+                    "result — a real pass or fail from it still counts, only a check stuck " +
+                    "pending forever stops masking the rest. Matching is an exact, " +
+                    "case-sensitive name; a mismatch silently won't apply. The repository's " +
+                    "own ryanmoelter-cli-tools.ignoredPendingChecks git config adds to this " +
+                    "list rather than replacing it."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
+    }
+
+    private func addIgnoredCheck() {
+        let trimmed = newIgnoredCheckName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        settings.ignoredPendingChecks.append(trimmed)
+        newIgnoredCheckName = ""
     }
 
     private var worktreeBasePathBinding: Binding<String> {
