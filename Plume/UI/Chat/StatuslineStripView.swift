@@ -49,8 +49,8 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     var body: some View {
-        // Top-aligned: a segment's reading is its first line, so the costs and
-        // the meters line up along it whether or not a bar follows.
+        // Top-aligned: a meter's reading is its first line, so the meters line
+        // up along it whether or not a bar follows. The cost opts back out.
         HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
             contextSegment
             if let fiveHour = rateLimit?.fiveHour {
@@ -99,10 +99,15 @@ struct StatuslineStripView: View, ThemedView {
         }
     }
 
+    /// Centred rather than top-aligned with the readings beside it: the cost
+    /// is not a measurement of a limit, it is how much this would cost at API
+    /// prices. Centring is what says that — sharing the meters' reading line
+    /// would file it as one more quota.
     private func costSegment(_ cost: Double) -> some View {
         Text(String(format: "$%.2f", cost))
             .foregroundStyle(StatuslineColors.statuslineText(for: .neutral, colors: colors))
             .help("What this session has cost so far")
+            .frame(maxHeight: .infinity)
     }
 
     // MARK: - Helpers
@@ -234,9 +239,9 @@ struct RemoteControlControl: View, ThemedView {
                 Button("Connect Remote Control") { session.setRemoteControl(enabled: true) }
             }
         } label: {
-            // No explicit height: the composer's 22pt control height would
-            // centre the glyph well below the meter readings this sits beside,
-            // and the statusline's caption size follows the chat font.
+            // No height, so the label takes one caption line: the composer's
+            // 22pt control height would centre the glyph well below the meter
+            // readings this sits beside.
             ComposerSegmentLabel(
                 systemImage: symbol,
                 text: "Remote Control",
@@ -245,7 +250,12 @@ struct RemoteControlControl: View, ThemedView {
             )
         }
         .menuStyle(.borderlessButton)
+        .font(typography.caption.font)
         .fixedSize()
+        // The antenna reports on the session rather than on any one meter, so
+        // it centres against the two-line strip instead of topping out with
+        // the readings. Stretching leaves the row's height the meters'.
+        .frame(maxHeight: .infinity)
         .help(helpText)
         .accessibilityLabel("Remote Control")
         .accessibilityValue(accessibilityValue)
