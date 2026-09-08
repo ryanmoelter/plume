@@ -154,6 +154,13 @@ struct ChatTabView: View, ThemedView {
             if let path { planFile.watch(path: path) } else { planFile.stop() }
         }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
+        // The store re-points a session that has moved between project
+        // directories; persisting it here keeps a restart and the title
+        // monitor on the same file.
+        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id)) { _, watched in
+            guard let watched, !watched.isEmpty, tab.sessionJSONLPath != watched else { return }
+            tab.sessionJSONLPath = watched
+        }
         // Only fires once per completed turn, not per stream event, so this
         // is already the debounced write the rest of the app requires.
         .onChange(of: headlessSession?.contextWindow) { _, window in
@@ -656,7 +663,7 @@ struct ChatTabView: View, ThemedView {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
         tab.agentSessionID = sessionID
         guard let workingDirectory = task.workingDirectoryPath else { return }
-        tab.sessionJSONLPath = SessionJSONLReader.transcriptPath(
+        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,
             sessionID: sessionID
         )
