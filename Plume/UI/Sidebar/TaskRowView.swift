@@ -9,6 +9,9 @@ struct TaskRowView: View {
     /// The directory this row currently holds watches on, so a path change
     /// releases the one it took rather than whatever the task points at now.
     @State private var watchedDirectory: String?
+    /// Whether `watchedDirectory` also holds a pull request watch, which the
+    /// setting can turn off without the directory changing.
+    @State private var watchesPullRequests = false
 
     private var isEditing: Bool { renamingTaskID == task.id }
 
@@ -76,6 +79,12 @@ struct TaskRowView: View {
         .onChange(of: task.workingDirectoryPath, initial: true) { _, current in
             watch(current)
         }
+        // Turning the setting off releases the pull request watch rather than
+        // only hiding the chip, so no further request is made. The git watch
+        // stays either way — the row still needs a branch.
+        .onChange(of: AppSettings.shared.showsPullRequestStatus) { _, _ in
+            watch(task.workingDirectoryPath)
+        }
         // The row keeps its own git watch: a task whose chat tab is closed
         // still needs a branch, and the refcount makes the overlap free.
         .onChange(of: GitStateStore.shared.state(for: watchedDirectory), initial: true) { _, gitState in
@@ -86,17 +95,22 @@ struct TaskRowView: View {
         .onDisappear { watch(nil) }
     }
 
+    /// The pull request watch is taken only while the setting is on, so the
+    /// two are released and retaken independently of each other.
     private func watch(_ directory: String?) {
-        guard directory != watchedDirectory else { return }
+        let wantsPullRequests = directory != nil && AppSettings.shared.showsPullRequestStatus
+        guard directory != watchedDirectory || wantsPullRequests != watchesPullRequests else { return }
+
         if let watchedDirectory {
-            GitStateStore.shared.release(watchedDirectory)
-            PullRequestStore.shared.release(watchedDirectory)
+            if directory != watchedDirectory { GitStateStore.shared.release(watchedDirectory) }
+            if watchesPullRequests { PullRequestStore.shared.release(watchedDirectory) }
         }
         if let directory {
-            GitStateStore.shared.watch(directory)
-            PullRequestStore.shared.watch(directory)
+            if directory != watchedDirectory { GitStateStore.shared.watch(directory) }
+            if wantsPullRequests { PullRequestStore.shared.watch(directory) }
         }
         watchedDirectory = directory
+        watchesPullRequests = wantsPullRequests
     }
 
     private var accessibilityLabel: String {

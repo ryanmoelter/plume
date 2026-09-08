@@ -21,17 +21,26 @@ final class PullRequestStore {
         /// The repository this directory belongs to, once git has answered.
         var repository: String?
         var branch: String?
-        var state: PullRequestFetchState = .loading
+        /// A branch never pushed cannot have a pull request, so it is never
+        /// fetched. Nil until git has answered.
+        var hasUpstream: Bool?
     }
 
-    private var watches: [String: Watch] = [:]
+    /// Bookkeeping, deliberately not what rows read: `@Observable` tracks a
+    /// whole dictionary, so a branch or refcount write here would invalidate
+    /// every row even when its answer is unchanged.
+    @ObservationIgnored private var watches: [String: Watch] = [:]
+    /// What the rows read, written only when the answer actually changes.
+    private var states: [String: PullRequestFetchState] = [:]
     /// Every resolution and fetch in flight, so a test can await the work a
     /// synchronous call kicked off.
-    private var work: [Task<Void, Never>] = []
+    private var work: [Int: Task<Void, Never>] = [:]
+    private var nextWorkID = 0
     /// Resolved once per repository — origin and trunk change far less often
     /// than either the branch or the pull requests.
     private var facts: [String: RepositoryFacts] = [:]
     private var inFlight: Set<String> = []
+    private var scheduled: Set<String> = []
     private var pollTimer: Timer?
 
     private let client: ForgeClient
@@ -40,7 +49,10 @@ final class PullRequestStore {
     private let resolve: @Sendable (String) async -> (repository: String, facts: RepositoryFacts)?
     /// Checks whose pending status should not count, keyed by repository.
     /// Injected so the settings layer owns the policy.
-    var ignoredPendingChecks: @MainActor (String) -> Set<String> = { _ in [] }
+    var resolveIgnoredPendingChecks: @Sendable (String) async -> Set<String> = { _ in [] }
+    /// Resolved once per repository and cached, because `checkRollup` is read
+    /// from a view's `body` and must never block on a subprocess there.
+    @ObservationIgnored private var ignoredPendingChecks: [String: Set<String>] = [:]
 
     init(
         client: ForgeClient = GitHubForgeClient.shared,
@@ -57,14 +69,14 @@ final class PullRequestStore {
 
     func state(for directory: String?) -> PullRequestFetchState? {
         guard let directory else { return nil }
-        return watches[directory]?.state
+        return states[directory]
     }
 
     /// The rollup a row should draw, with this repository's ignored checks
     /// already suppressed.
     func checkRollup(for directory: String?, of pullRequest: PullRequest) -> CheckRollup {
         let repository = directory.flatMap { watches[$0]?.repository }
-        let ignored = repository.map { ignoredPendingChecks($0) } ?? []
+        let ignored = repository.flatMap { ignoredPendingChecks[$0] } ?? []
         return pullRequest.checkRollup(ignoredWhenPending: ignored)
     }
 
@@ -77,6 +89,7 @@ final class PullRequestStore {
             return
         }
         watches[directory] = Watch(refCount: 1)
+        states[directory] = .loading
         resolveRepository(directory)
         startPollingIfNeeded()
     }
@@ -86,6 +99,7 @@ final class PullRequestStore {
         existing.refCount -= 1
         if existing.refCount <= 0 {
             watches.removeValue(forKey: directory)
+            states.removeValue(forKey: directory)
         } else {
             watches[directory] = existing
         }
@@ -100,21 +114,16 @@ final class PullRequestStore {
     /// would only duplicate that one.
     func apply(gitState: GitState?, for directory: String) {
         guard var watch = watches[directory] else { return }
-        let branch = gitState?.branch
         let hadBranch = watch.branch
-        watch.branch = branch
+        watch.branch = gitState?.branch
+        watch.hasUpstream = gitState.map(\.hasUpstream)
+        watches[directory] = watch
 
-        if let gitState, !gitState.hasUpstream {
-            // A branch never pushed cannot have a pull request, so it costs no
-            // request at all.
-            watch.branch = branch
-            watches[directory] = watch
+        if watch.hasUpstream == false {
             publish(.localOnly, for: directory)
             return
         }
-
-        watches[directory] = watch
-        guard branch != hadBranch, branch != nil else { return }
+        guard watch.branch != hadBranch, watch.branch != nil else { return }
         refreshRepository(of: directory)
     }
 
@@ -141,15 +150,34 @@ final class PullRequestStore {
             }
             watches[directory]?.repository = resolved.repository
             facts[resolved.repository] = resolved.facts
+            if ignoredPendingChecks[resolved.repository] == nil {
+                ignoredPendingChecks[resolved.repository] =
+                    await resolveIgnoredPendingChecks(resolved.repository)
+            }
             // The branch arrives from `GitStateStore` through `apply`, which
             // may already have run; refreshing here covers the other order.
-            refresh(repository: resolved.repository)
+            //
+            // Coalesced: the sidebar resolves every row at once, and a refresh
+            // per resolution would send one request per directory — exactly
+            // the batching this store exists to avoid.
+            scheduleRefresh(repository: resolved.repository)
         }
     }
 
     private func refreshRepository(of directory: String) {
         guard let repository = watches[directory]?.repository else { return }
-        refresh(repository: repository)
+        scheduleRefresh(repository: repository)
+    }
+
+    /// One refresh per repository per turn of the run loop, whatever number of
+    /// rows asked for one.
+    private func scheduleRefresh(repository: String) {
+        guard scheduled.insert(repository).inserted else { return }
+        track { [self] in
+            await Task.yield()
+            scheduled.remove(repository)
+            refresh(repository: repository)
+        }
     }
 
     private func refresh(repository: String) {
@@ -169,6 +197,10 @@ final class PullRequestStore {
         var fetchable: [String: String] = [:]
         for (directory, watch) in directories {
             guard let branch = watch.branch else { continue }
+            guard watch.hasUpstream == true else {
+                if watch.hasUpstream == false { publish(.localOnly, for: directory) }
+                continue
+            }
             if branch == trunk {
                 // A long-dead pull request that targeted the trunk would
                 // otherwise surface on the trunk's own row.
@@ -199,21 +231,26 @@ final class PullRequestStore {
                         publish(.noPR, for: directory)
                     }
                 case .failure(let error):
-                    publish(.failed(error.localizedDescription), for: directory)
+                    publish(.failing(error), for: directory)
                 }
             }
         }
     }
 
     private func track(_ operation: @escaping @MainActor () async -> Void) {
-        work.append(Task { await operation() })
+        let id = nextWorkID
+        nextWorkID += 1
+        work[id] = Task { [weak self] in
+            await operation()
+            self?.work.removeValue(forKey: id)
+        }
     }
 
     /// Awaits every resolution and fetch in flight, including any they start.
     /// For tests.
     func settle() async {
         while !work.isEmpty {
-            let pending = work
+            let pending = work.values
             work.removeAll()
             for task in pending { await task.value }
         }
@@ -223,14 +260,15 @@ final class PullRequestStore {
     /// every row reading it, so an unchanged answer is dropped — see
     /// `GitStateStore.refresh`.
     private func publish(_ state: PullRequestFetchState, for directory: String) {
-        guard let existing = watches[directory], existing.state != state else { return }
-        watches[directory]?.state = state
+        guard watches[directory] != nil, states[directory] != state else { return }
+        states[directory] = state
     }
 
     /// Drops a directory's watch whatever its refcount, for a task being
     /// deleted out from under the row that took it.
     func forget(directory: String) {
         watches.removeValue(forKey: directory)
+        states.removeValue(forKey: directory)
         if watches.isEmpty {
             pollTimer?.invalidate()
             pollTimer = nil
@@ -239,7 +277,11 @@ final class PullRequestStore {
 
     /// Drops every watch. For tests.
     func reset() {
+        for task in work.values { task.cancel() }
+        work.removeAll()
+        scheduled.removeAll()
         watches.removeAll()
+        states.removeAll()
         facts.removeAll()
         inFlight.removeAll()
         pollTimer?.invalidate()

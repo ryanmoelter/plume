@@ -115,6 +115,16 @@ struct PullRequestStoreTests {
         #expect(store.state(for: "/repo/wt") == .failed("gh exited 1"))
     }
 
+    @Test func aTimeoutReadsAsATimeoutRatherThanAFailure() async {
+        let client = FakeForgeClient(error: ForgeError(message: "killed", kind: .timedOut))
+        let store = Self.store(client: client)
+        store.watch("/repo/wt")
+        store.apply(gitState: Self.pushed("ryanm/branch"), for: "/repo/wt")
+        await store.settle()
+
+        #expect(store.state(for: "/repo/wt") == .timedOut)
+    }
+
     @Test func aFetchedPullRequestReachesTheDirectory() async {
         let pullRequest = PullRequest(number: 7, state: .open, isDraft: true)
         let client = FakeForgeClient(result: ["ryanm/branch": pullRequest])

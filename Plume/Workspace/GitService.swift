@@ -38,6 +38,10 @@ actor GitService {
         GitRunner.repositoryFacts(in: repository)
     }
 
+    func ignoredPendingChecks(in repository: String, plumeSetting: [String]) -> Set<String> {
+        IgnoredChecksResolver.resolve(repository: repository, plumeSetting: plumeSetting)
+    }
+
     func worktrees(in repository: String) -> [GitWorktree] {
         GitRunner.worktrees(in: repository)
     }
