@@ -135,7 +135,7 @@ struct ChatMessageList: View, ThemedView {
                     // permission arriving, all ease the conversation above
                     // them instead of jumping it.
                     SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpenSubagent)
-                        .listItemPadding(bleed: true, column: .unpadded)
+                        .listItemPadding(bleed: false, column: .unpadded)
                         .animatedHeight(enabled: settings.animateChatMotion)
                     PendingPermissionDock(tabID: tabID)
                         .listItemPadding(bleed: true, column: .unpadded)

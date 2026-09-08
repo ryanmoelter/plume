@@ -51,6 +51,7 @@ struct TabStripView: View {
     /// `target` is nil (dropped past the last chip). Reordering only rewrites
     /// `orderIndex` through `TaskStore.moveTabs` — surfaces are keyed by tab
     /// id and untouched by it.
+    @discardableResult
     private func reorder(_ draggedIDStrings: [String], before target: TaskTab?) -> Bool {
         guard let idString = draggedIDStrings.first, let draggedID = UUID(uuidString: idString) else {
             return false
