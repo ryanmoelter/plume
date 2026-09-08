@@ -8,30 +8,24 @@ Sizes are rough: **S** is a call site or two, **M** is a contained feature, **L*
 
 The queue, highest priority first. Each line points at the section holding the detail; nothing here repeats it.
 
-Everything queued for 0.3.1 and 0.3.2 shipped. What is left, not yet ordered:
+Everything queued for 0.3.1 through 0.3.6 shipped. What is left, not yet ordered:
 
-- **M** — Read a subagent's completion from the line shape the CLI actually writes; finished subagents read working today. See [Subagents](#subagents).
+- **M** — Render nested and multi-level markdown lists. See [The markdown renderer](#the-markdown-renderer).
 - **S** — A resumed headless conversation came up in plan mode after running in auto mode; re-check item 12 live. See [The statusline](#the-statusline).
-- **M** — Track an agent tab's current worktree, including through `EnterWorktree`, and open new terminal tabs there. See [Worktrees](#worktrees).
-- **S** — Make ⌘T a terminal tab and ⌘⌥T an agent tab. See [Shortcuts](#shortcuts).
-- **M** — Restyle a tool row's one-liner as `Bash: command…`, with the code part in monospace. See [The markdown renderer](#the-markdown-renderer).
-- **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
-- **M** — Fix giving feedback on a plan: Return approves instead of sending feedback, and the field is a plain `TextField` rather than the composer's editor. See [The plan overlay](#the-plan-overlay).
-- **M** — Autocomplete slash commands in the composer before the first message. See [The composer](#the-composer).
-- **M** — `/btw`: confirm the note is filed on the headless transport, then show it in the chat. See [The composer](#the-composer).
-- **M** — Grow `PlumeUITests` against the new accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
-- **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
+- **M** — Grow `PlumeUITests` against the accessibility identifiers. See [Make the UI drivable](#make-the-ui-drivable).
 - **L** — Fix the titlebar: empty space, sidebar-resize overflow, and tabs at the top of the window. See [Tabs and window chrome](#tabs-and-window-chrome).
-- **M** — Animate chat row height changes. See [Chat animation](#chat-animation).
-- **M** — Reveal streamed text a character at a time instead of a paragraph at once. See [Chat animation](#chat-animation).
-- **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
-- **S** — A short-lived screenshot lease so agents capture one at a time. See [Infrastructure](#infrastructure).
-- **S** — Spellcheck the composer. See [The composer](#the-composer).
-- **M** — Give a subagent row a second, dim line: model, time running, context used, and take the list to content width. See [Subagents](#subagents).
 - **L** — Show each tab's agent separately in the sidebar, with its folder and status. See [The sidebar](#the-sidebar).
-- **L** — Generate a tab title with Apple's on-device model, falling back to today's. See [Tab titles](#tab-titles).
+- **M** — `/btw`: confirm the note is filed on the headless transport, then show it in the chat. See [The composer](#the-composer).
 - **L** — Talk to a subagent directly, from its transcript rather than through the main chat. See [Subagents](#subagents).
-- **S** — Fix numbered lists rendering every item as `1.`. See [The markdown renderer](#the-markdown-renderer).
+- **M** — Keep the Mac awake while an agent, subagent or long-running command is in flight. See [Keep the Mac awake](#keep-the-mac-awake).
+- **S** — Let the command line send a notification, like `cmux notify`. See [Notifications](#notifications).
+- **L** — Store and restore terminal tab history across a reopen. See [Terminal history restore](#terminal-history-restore).
+- **L** — Generate a tab title with Apple's on-device model, falling back to today's. See [Tab titles](#tab-titles).
+- **S** — Syntax-highlight code blocks. See [The markdown renderer](#the-markdown-renderer).
+
+**Why these are ordered as they are.** `/btw` and talking to a subagent directly are filed together: both are a new chat surface rather than a fix to an existing one, and neither is a patch-release shape. The notify CLI travels with keeping the Mac awake — the OSC 777 transport it would wrap already works from a shell, so the CLI is packaging, not capability. Per-agent sidebar rows waited on the per-tab directory store, which 0.3.6 landed, so they are unblocked now. Terminal history restore is blocked outside this repo: the pinned `libghostty-spm` wrapper exposes neither `ghostty_surface_read_text` nor `ghostty_surface_write_buffer` on the surface Plume uses, so it needs wrapper work first. Talking to a subagent starts as a research spike — whether the CLI can address a subagent at all decides the whole shape. Tab titles wait on weighing the CLI's own `generate_session_title` control request before reaching for the on-device model.
+
+**A short-lived screenshot lease** so agents capture one at a time left this list for good: it belongs in the dotfiles beside `papercut` and `distress-call`, not in Plume.
 
 Deferred rather than dropped: **`!` command execution mode** waits for a real implementation — the styling half alone produces a mode that looks live but does nothing on send (see [The composer](#the-composer)).
 
@@ -71,7 +65,7 @@ Parallel subagents are the case Plume exists to make legible, so this is a real 
 - [x] Keep the live list short: a finished subagent lingers briefly, then collects into a "Completed subagents (N)" disclosure below the live rows.
 - [x] Keep the sidebar honest: a task whose subagents are still working reads working, not done.
 - [x] Give each subagent row a second line of dim caption text: the model it is running, how long it has been going, and how much of its context it has used.
-- [ ] Make the subagent list content-width rather than bleed-width, like the composer. It sits at the bottom of the chat stream at `.listItemPadding(bleed: true, column: .unpadded)` (`ChatMessageList.swift:131`), so it runs wider than the conversation above it.
+- [x] Make the subagent list content-width rather than bleed-width, like the composer. It sat at the bottom of the chat stream at `.listItemPadding(bleed: true, column: .unpadded)`, so it ran wider than the conversation above it.
 - [x] Read a subagent's completion from the `queue-operation` line the CLI writes today. Ten of eighteen subagents in one session read working long after they finished.
 - [ ] Let a subagent be talked to directly. Its transcript is read-only today, so steering one means going back to the main chat and asking the parent to pass a message along.
 
@@ -116,6 +110,7 @@ Shared by the chat, the plan overlay and the file viewer, so none of these are p
 - [x] Restyle a tool call's collapsed one-liner. `Bash(python3 - <<'PY')` should read `Bash: python3 - <<'PY'…`, with the tool's name in prose and the detail it carries in monospace.
 - [x] Fix numbered lists: seen live rendering every item with a `1.` prefix. Check that a list survives a blank line between items and a wrapped item, then fix what doesn't.
 - [ ] Syntax-highlight code blocks.
+- [ ] Render nested and multi-level lists. `ListSegment.items` is a flat `[String]`, so a list is a sequence of lines with no depth anywhere in the model. Depth has to reach `MarkdownBlock`, `ChatPiece` and the renderer, and `ChatPieceSplitter` chunks a long list while carrying `startNumber` — so whatever shape depth takes has to survive being cut in half. One lazy item per block is the constraint that cannot bend; see `docs/chat-list-hang.md`.
 - [x] Give code blocks more padding inside their border, and a copy icon while hovering them.
 - [x] Distinguish a bash block's input from its result — they currently render alike.
 - [x] Put real newlines in a bash input block.
