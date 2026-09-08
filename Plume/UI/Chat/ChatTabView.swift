@@ -318,9 +318,9 @@ struct ChatTabView: View, ThemedView {
     /// must be, or the row stretches to whatever height the chat leaves it.
     private func statuslineFooter(transcript: Transcript) -> some View {
         ViewThatFits(in: .horizontal) {
-            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide, hasSlack: true)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide, hasSlack: false)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked, hasSlack: false)
+            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked)
         }
         .fixedSize(horizontal: false, vertical: true)
         // The one leading edge the composer's text and controls also sit on.
@@ -328,20 +328,20 @@ struct ChatTabView: View, ThemedView {
         .padding(.vertical, dimensions.statuslineVerticalPadding)
     }
 
-    /// `hasSlack` puts a `Spacer` between the two groups. Only the widest
-    /// candidate wants one: everywhere else the branch name is the flexible
-    /// segment, and a spacer beside it would halve the room it gets.
+    /// One candidate of the row: where this runs on the leading edge, the
+    /// meters and Remote Control on the trailing one.
     private func statuslineRow(
         transcript: Transcript,
         branchWidth: BranchWidth,
-        meters: StatuslineStripLayout,
-        hasSlack: Bool
+        meters: StatuslineStripLayout
     ) -> some View {
         HStack(alignment: .top, spacing: dimensions.panelContentInset) {
             workspaceGroup(branchWidth: branchWidth)
-            if hasSlack {
-                Spacer(minLength: dimensions.panelContentInset)
-            }
+            // In every candidate, not just the widest: without it a row
+            // narrower than the panel centers, holding the folder off the
+            // leading edge and Remote Control off the trailing one. Its
+            // `minLength` is fixed, so it still reports honest overflow.
+            Spacer(minLength: dimensions.panelContentInset)
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 StatuslineStripView(
                     layout: meters,
@@ -363,10 +363,7 @@ struct ChatTabView: View, ThemedView {
                     RemoteControlControl(session: headlessSession)
                 }
             }
-            // Only the wide meters hold an intrinsic width worth reporting;
-            // fixing the stacked ones would leave their bars short of the
-            // edge with the row centered around them.
-            .fixedSize(horizontal: meters == .wide, vertical: false)
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 

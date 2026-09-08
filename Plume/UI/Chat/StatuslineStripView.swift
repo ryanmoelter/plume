@@ -223,12 +223,8 @@ struct StackedMeter: View, ThemedView {
     var showsReading: Bool = true
 
     var body: some View {
-        let meter = MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
-        // Without its reading a bar has nothing to be as wide as, so it takes
-        // the row instead of holding the width that once sat under a number.
-        let bar = showsReading
-            ? AnyView(meter.frame(width: barWidth))
-            : AnyView(meter.frame(maxWidth: .infinity))
+        let bar = MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
+            .frame(width: barWidth)
         if showsReading {
             // Centered rather than leading: the reading and the bar rarely
             // share a width (a short reading over a long bar, or the
