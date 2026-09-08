@@ -85,7 +85,7 @@ struct TaskRowView: View {
                                 Image(systemName: "arrow.branch")
                                     .font(.caption)
                                     .imageScale(.small)
-                                    .emphasis(.subtle)
+                                    .emphasis(.secondary)
                             }
                             Text(branch)
                                 .font(.caption)

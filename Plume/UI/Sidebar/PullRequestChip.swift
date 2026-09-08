@@ -10,9 +10,9 @@ nonisolated struct PullRequestGlyph: Equatable {
         case danger
         case attention
         case merged
-        /// Carries no verdict, so it takes the row's own dim treatment.
+        /// Carries no verdict, so it takes the same treatment as the row's
+        /// text lines.
         case neutral
-        case dim
     }
 
     /// An SF Symbol name, or nil when the mark is literal text.
@@ -43,15 +43,15 @@ nonisolated enum PullRequestChipContent {
         case .forgeUnsupported:
             return []
         case .loading:
-            return [PullRequestGlyph(symbol: "ellipsis", tint: .dim, label: "loading")]
+            return [PullRequestGlyph(symbol: "ellipsis", tint: .neutral, label: "loading")]
         case .timedOut:
-            return [PullRequestGlyph(symbol: "clock", tint: .dim, label: "timed out")]
+            return [PullRequestGlyph(symbol: "clock", tint: .neutral, label: "timed out")]
         case .failed:
-            return [PullRequestGlyph(symbol: "wifi.exclamationmark", tint: .dim, label: "PR status unavailable")]
+            return [PullRequestGlyph(symbol: "wifi.exclamationmark", tint: .danger, label: "PR status unavailable")]
         case .localOnly:
-            return [PullRequestGlyph(symbol: "network.slash", tint: .dim, label: "local only")]
+            return [PullRequestGlyph(symbol: "network.slash", tint: .neutral, label: "local only")]
         case .noPR:
-            return [PullRequestGlyph(symbol: "minus", tint: .dim, label: "no PR")]
+            return [PullRequestGlyph(symbol: "minus", tint: .neutral, label: "no PR")]
         case .pullRequest(let pullRequest):
             return glyphs(for: pullRequest, checkRollup: checkRollup)
         }
@@ -144,7 +144,6 @@ struct PullRequestChip: View {
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
         case .neutral: AnyShapeStyle(Emphasis.secondary.textHierarchy)
-        case .dim: AnyShapeStyle(Emphasis.subtle.textHierarchy)
         }
     }
 }

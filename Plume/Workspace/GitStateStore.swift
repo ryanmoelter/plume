@@ -36,12 +36,19 @@ final class GitStateStore {
 #endif
     private var pending: [String: Task<Void, Never>] = [:]
     private var inFlight: Set<String> = []
+    /// The last answer for a directory nothing watches any more.
+    ///
+    /// A sidebar row releases its watch when it scrolls out of the lazy list
+    /// or its task is deselected, and it remounts often. Without this the
+    /// branch blanks on every switch and refills a `git` call later, which
+    /// reads as the branch being lost rather than reloaded.
+    private var lastKnown: [String: GitState] = [:]
 
     init() {}
 
     func state(for directory: String?) -> GitState? {
         guard let directory else { return nil }
-        return watches[directory]?.state
+        return watches[directory]?.state ?? lastKnown[directory]
     }
 
     /// Begins watching a directory, or takes another reference to one already
@@ -59,7 +66,9 @@ final class GitStateStore {
             return
         }
 #endif
-        watches[directory] = Watch(state: nil, watcher: nil, refCount: 1)
+        // Starts from the last answer rather than nil, so a remounted row
+        // renders its branch now and the refresh only corrects it.
+        watches[directory] = Watch(state: lastKnown[directory], watcher: nil, refCount: 1)
         refresh(directory)
         startWatching(directory)
         startPollingIfNeeded()
@@ -71,6 +80,7 @@ final class GitStateStore {
         if existing.refCount <= 0 {
             existing.watcher?.stop()
             pending.removeValue(forKey: directory)?.cancel()
+            if let state = existing.state { lastKnown[directory] = state }
             watches.removeValue(forKey: directory)
         } else {
             watches[directory] = existing
@@ -169,6 +179,7 @@ final class GitStateStore {
         pending.removeAll()
         inFlight.removeAll()
         watches.removeAll()
+        lastKnown.removeAll()
 #if DEBUG
         fixtureStates.removeAll()
 #endif

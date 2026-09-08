@@ -115,3 +115,39 @@ struct SidebarWorktreeFixtureTests {
         #expect(Set(named.map(\.directory)).count == named.count)
     }
 }
+
+/// Sidebar rows release their watches whenever a row unmounts — deselecting a
+/// task, or scrolling it out of the lazy list — and remount constantly.
+@MainActor
+struct GitStateStoreLastKnownTests {
+    private let state = GitState(
+        branch: "ryanm/fix-login",
+        upstream: "origin/ryanm/fix-login",
+        ahead: 0,
+        behind: 0,
+        isDirty: false
+    )
+
+    @Test func aReleasedDirectoryKeepsItsLastBranch() {
+        let store = GitStateStore()
+        store.seedFixture(directory: "/repo", state: state)
+        store.watch("/repo")
+        store.release("/repo")
+        #expect(store.state(for: "/repo")?.branch == "ryanm/fix-login")
+    }
+
+    /// The point of the cache: the row renders its branch on the frame it
+    /// remounts, rather than blanking until `git` answers.
+    @Test func aRemountedWatchStartsFromTheLastAnswer() {
+        let store = GitStateStore()
+        store.seedFixture(directory: "/repo", state: state)
+        store.watch("/repo")
+        store.release("/repo")
+        store.watch("/repo")
+        #expect(store.state(for: "/repo")?.branch == "ryanm/fix-login")
+    }
+
+    @Test func anUnknownDirectoryStillHasNoState() {
+        #expect(GitStateStore().state(for: "/never-seen") == nil)
+    }
+}
