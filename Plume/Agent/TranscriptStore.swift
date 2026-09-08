@@ -109,6 +109,29 @@ final class TranscriptStore {
         transcripts[tabID]
     }
 
+    /// The file a tab is watching, which is not always the path it was
+    /// registered with — a relocated session gets re-pointed here. The owning
+    /// view persists this back onto the tab.
+    func watchedPath(forTab tabID: UUID) -> String? {
+        paths[tabID]
+    }
+
+    /// `EnterWorktree` moves a live transcript into a project directory keyed
+    /// by the worktree, keeping the session id. The move fires the watcher and
+    /// `FileWatcher` recreates the vanished file, so what a tab reads
+    /// afterwards is an empty stub — which makes an empty read the signal to
+    /// go find where the session went.
+    ///
+    /// A session that has genuinely written nothing yet finds nothing and
+    /// keeps its current path, so it still reads as waiting rather than lost.
+    private func repointIfRelocated(tabID: UUID, from path: String) {
+        let sessionID = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
+        guard let relocated = SessionJSONLReader.locateTranscript(sessionID: sessionID),
+              relocated != path
+        else { return }
+        watch(tabID: tabID, transcriptPath: relocated)
+    }
+
     /// Subagents spawned by a tab's transcript.
     ///
     /// Read from the cache filled on each transcript read, never from disk: a
@@ -197,11 +220,18 @@ final class TranscriptStore {
                 self.inFlight.remove(tabID)
                 // The tab may have been dropped, or re-pointed at a different
                 // session file, while this parse was in flight.
-                guard let parsed, self.paths[tabID] == path else { return }
+                guard self.paths[tabID] == path else { return }
+                guard let parsed else {
+                    self.repointIfRelocated(tabID: tabID, from: path)
+                    return
+                }
                 self.transcripts[tabID] = parsed.0
                 self.subagentTranscripts[tabID] = parsed.1
                 self.publishSubagentActivity(tabID: tabID, subagents: parsed.1)
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
+                if parsed.0.messages.isEmpty {
+                    self.repointIfRelocated(tabID: tabID, from: path)
+                }
             }
         }
     }
