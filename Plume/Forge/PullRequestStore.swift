@@ -223,7 +223,7 @@ final class PullRequestStore {
                         publish(.noPR, for: directory)
                     }
                 case .failure(let error):
-                    publish(.failed(error.localizedDescription), for: directory)
+                    publish(.failing(error), for: directory)
                 }
             }
         }
