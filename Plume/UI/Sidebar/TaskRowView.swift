@@ -6,12 +6,10 @@ struct TaskRowView: View {
     @Binding var renamingTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
-    /// The directory this row currently holds watches on, so a path change
-    /// releases the one it took rather than whatever the task points at now.
-    @State private var watchedDirectory: String?
-    /// Whether `watchedDirectory` also holds a pull request watch, which the
-    /// setting can turn off without the directory changing.
-    @State private var watchesPullRequests = false
+    /// What this row currently holds watches on, so a directory leaving the
+    /// set releases the watch it took rather than whatever the task points at
+    /// now.
+    @State private var watched = DirectoryWatchSet()
 
     private var isEditing: Bool { renamingTaskID == task.id }
 
@@ -22,17 +20,35 @@ struct TaskRowView: View {
         return live == .unset ? task.lastStatus : live
     }
 
-    private var pullRequestState: PullRequestFetchState? {
-        PullRequestStore.shared.state(for: task.workingDirectoryPath)
+    /// One group per distinct directory the task's agent tabs are open in. A
+    /// terminal's cwd follows `cd`, so including terminal tabs would make the
+    /// list shift as the user moves around a shell.
+    private var directories: [String] {
+        TaskRowDetails.distinctDirectories(
+            agentTabDirectories: task.orderedTabs
+                .filter { $0.kind == .agent }
+                .map { TabDirectoryStore.shared.directory(for: $0) },
+            taskDirectory: task.workingDirectoryPath
+        )
+    }
+
+    private func group(for directory: String) -> TaskRowDetails.DirectoryGroup {
+        TaskRowDetails.DirectoryGroup(
+            directory: directory,
+            branch: branch(for: directory),
+            pullRequest: PullRequestStore.shared.state(for: directory)
+        )
+    }
+
+    /// The task's own branch covers the window before git has answered for its
+    /// folder; another directory has only what the store knows.
+    private func branch(for directory: String) -> String? {
+        if let branch = GitStateStore.shared.state(for: directory)?.branch { return branch }
+        return directory == task.workingDirectoryPath ? task.branchName : nil
     }
 
     private var detailLines: [TaskRowDetails.Line] {
-        TaskRowDetails.lines(
-            status: status,
-            branch: task.branchName,
-            workingDirectory: task.workingDirectoryPath,
-            pullRequest: pullRequestState
-        )
+        TaskRowDetails.lines(status: status, groups: directories.map(group(for:)))
     }
 
     var body: some View {
@@ -61,9 +77,9 @@ struct TaskRowView: View {
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    case .pullRequest(let state):
+                    case .pullRequest(let directory, let state):
                         PullRequestChip(state: state) {
-                            PullRequestStore.shared.checkRollup(for: task.workingDirectoryPath, of: $0)
+                            PullRequestStore.shared.checkRollup(for: directory, of: $0)
                         }
                     }
                 }
@@ -76,41 +92,44 @@ struct TaskRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(AccessibilityID.taskRow)
-        .onChange(of: task.workingDirectoryPath, initial: true) { _, current in
-            watch(current)
+        .onChange(of: directories, initial: true) { _, current in
+            watch(Set(current))
         }
         // Turning the setting off releases the pull request watch rather than
         // only hiding the chip, so no further request is made. The git watch
         // stays either way — the row still needs a branch.
         .onChange(of: AppSettings.shared.showsPullRequestStatus) { _, _ in
-            watch(task.workingDirectoryPath)
+            watch(Set(directories))
         }
         // The row keeps its own git watch: a task whose chat tab is closed
         // still needs a branch, and the refcount makes the overlap free.
-        .onChange(of: GitStateStore.shared.state(for: watchedDirectory), initial: true) { _, gitState in
-            if let watchedDirectory {
-                PullRequestStore.shared.apply(gitState: gitState, for: watchedDirectory)
+        .onChange(of: gitStates, initial: true) { _, states in
+            for (directory, state) in states {
+                PullRequestStore.shared.apply(gitState: state, for: directory)
             }
         }
-        .onDisappear { watch(nil) }
+        .onDisappear { watch([]) }
     }
 
-    /// The pull request watch is taken only while the setting is on, so the
-    /// two are released and retaken independently of each other.
-    private func watch(_ directory: String?) {
-        let wantsPullRequests = directory != nil && AppSettings.shared.showsPullRequestStatus
-        guard directory != watchedDirectory || wantsPullRequests != watchesPullRequests else { return }
+    /// Keyed rather than a bare array so a directory leaving the set cannot
+    /// shift another's state onto the wrong key.
+    private var gitStates: [String: GitState?] {
+        watched.git.reduce(into: [:]) { $0[$1] = GitStateStore.shared.state(for: $1) }
+    }
 
-        if let watchedDirectory {
-            if directory != watchedDirectory { GitStateStore.shared.release(watchedDirectory) }
-            if watchesPullRequests { PullRequestStore.shared.release(watchedDirectory) }
-        }
-        if let directory {
-            if directory != watchedDirectory { GitStateStore.shared.watch(directory) }
-            if wantsPullRequests { PullRequestStore.shared.watch(directory) }
-        }
-        watchedDirectory = directory
-        watchesPullRequests = wantsPullRequests
+    /// Diffed rather than blindly retaken: both stores are refcounted, so
+    /// releasing what left and taking only what arrived is what keeps the
+    /// counts balanced.
+    private func watch(_ directories: Set<String>) {
+        let wantsPullRequests = AppSettings.shared.showsPullRequestStatus
+        let change = watched.change(to: directories, watchesPullRequests: wantsPullRequests)
+        guard !change.isEmpty else { return }
+
+        for directory in change.gitToRelease { GitStateStore.shared.release(directory) }
+        for directory in change.pullRequestsToRelease { PullRequestStore.shared.release(directory) }
+        for directory in change.gitToWatch { GitStateStore.shared.watch(directory) }
+        for directory in change.pullRequestsToWatch { PullRequestStore.shared.watch(directory) }
+        watched.apply(change)
     }
 
     private var accessibilityLabel: String {

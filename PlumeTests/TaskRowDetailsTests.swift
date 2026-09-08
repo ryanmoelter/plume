@@ -3,66 +3,94 @@ import Foundation
 @testable import Plume
 
 struct TaskRowDetailsTests {
-    @Test func linesFollowStatusBranchDirectoryOrder() {
+    private func group(
+        _ directory: String?,
+        branch: String? = nil,
+        pullRequest: PullRequestFetchState? = nil
+    ) -> TaskRowDetails.DirectoryGroup {
+        TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
+    }
+
+    @Test func linesFollowStatusDirectoryBranchOrder() {
         let lines = TaskRowDetails.lines(
             status: .working,
-            branch: "ryanm/fix-login",
-            workingDirectory: "/Users/me/Plume"
+            groups: [group("/Users/me/Plume", branch: "ryanm/fix-login")]
         )
-        #expect(lines == [.text("working"), .text("ryanm/fix-login"), .text("Plume")])
+        #expect(lines == [.text("working"), .text("Plume"), .text("ryanm/fix-login")])
     }
 
     /// An unconfigured task should collapse to nothing rather than show gaps.
     @Test func absentValuesProduceNoLines() {
-        #expect(TaskRowDetails.lines(
-            status: .unset, branch: nil, workingDirectory: nil
-        ).isEmpty)
+        #expect(TaskRowDetails.lines(status: .unset, groups: [group(nil)]).isEmpty)
     }
 
     @Test func emptyStringsCountAsAbsent() {
-        #expect(TaskRowDetails.lines(
-            status: .unset, branch: "", workingDirectory: ""
-        ).isEmpty)
+        #expect(TaskRowDetails.lines(status: .unset, groups: [group("", branch: "")]).isEmpty)
     }
 
     @Test func aDirectoryWithoutABranchStillShows() {
-        let lines = TaskRowDetails.lines(
-            status: .idle, branch: nil, workingDirectory: "/Users/me/Plume"
-        )
+        let lines = TaskRowDetails.lines(status: .idle, groups: [group("/Users/me/Plume")])
         #expect(lines == [.text("idle"), .text("Plume")])
     }
 
-    /// Between the branch it belongs to and the directory it lives in.
-    @Test func thePullRequestLineSitsAfterTheBranch() {
+    @Test func thePullRequestLineSitsLastInItsGroup() {
+        let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
         let lines = TaskRowDetails.lines(
             status: .idle,
-            branch: "ryanm/fix-login",
-            workingDirectory: "/Users/me/Plume",
-            pullRequest: .noPR
+            groups: [group("/Users/me/Plume", branch: "ryanm/fix-login", pullRequest: open)]
         )
-        #expect(lines == [.text("idle"), .text("ryanm/fix-login"), .pullRequest(.noPR), .text("Plume")])
+        #expect(lines == [
+            .text("idle"),
+            .text("Plume"),
+            .text("ryanm/fix-login"),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+        ])
     }
 
-    @Test func aRepositoryOnAnUnsupportedForgeAddsNoLine() {
+    @Test func everyGroupRepeatsTheDirectoryAndBranch() {
+        let lines = TaskRowDetails.lines(
+            status: .unset,
+            groups: [
+                group("/Users/me/Plume", branch: "main"),
+                group("/Users/me/Other", branch: "ryanm/thing"),
+            ]
+        )
+        #expect(lines == [
+            .text("Plume"), .text("main"),
+            .text("Other"), .text("ryanm/thing"),
+        ])
+    }
+
+    /// A single faint glyph reads as dead space, so these states take no row.
+    @Test(arguments: [PullRequestFetchState.noPR, .localOnly, .loading, .forgeUnsupported])
+    func aStateWithNothingToSayTakesNoRow(state: PullRequestFetchState) {
+        #expect(TaskRowDetails.showsPullRequestLine(state) == false)
         let lines = TaskRowDetails.lines(
             status: .idle,
-            branch: "ryanm/fix-login",
-            workingDirectory: "/Users/me/Plume",
-            pullRequest: .forgeUnsupported
+            groups: [group("/Users/me/Plume", branch: "main", pullRequest: state)]
         )
-        #expect(lines == [.text("idle"), .text("ryanm/fix-login"), .text("Plume")])
+        #expect(lines == [.text("idle"), .text("Plume"), .text("main")])
     }
 
-    @Test func noPullRequestStateAddsNoLine() {
-        let lines = TaskRowDetails.lines(
-            status: .unset, branch: nil, workingDirectory: nil, pullRequest: nil
-        )
-        #expect(lines.isEmpty)
+    /// Being offline must not look like a repository with no pull requests.
+    @Test(arguments: [PullRequestFetchState.timedOut, .failed("offline")])
+    func anUnreachableForgeStillTakesARow(state: PullRequestFetchState) {
+        #expect(TaskRowDetails.showsPullRequestLine(state))
+        let lines = TaskRowDetails.lines(status: .unset, groups: [group("/Users/me/Plume", pullRequest: state)])
+        #expect(lines == [.text("Plume"), .pullRequest(directory: "/Users/me/Plume", state: state)])
+    }
+
+    /// The hidden states keep their glyphs, which the fixture view and the
+    /// accessibility label both still read.
+    @Test func aHiddenStateKeepsItsGlyphs() {
+        #expect(PullRequestChipContent.glyphs(for: .noPR).isEmpty == false)
+        #expect(PullRequestChipContent.accessibilityText(for: .noPR) == "no PR")
     }
 
     @Test func aPullRequestLineReachesTheAccessibilityLabel() {
         let line = TaskRowDetails.Line.pullRequest(
-            .pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
+            directory: "/Users/me/Plume",
+            state: .pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
         )
         #expect(TaskRowDetails.accessibilityText(line)?.contains("PR #42") == true)
     }
@@ -77,5 +105,137 @@ struct TaskRowDetailsTests {
 
     @Test func directoryUsesTheLastPathComponent() {
         #expect(TaskRowDetails.directoryName("/Users/me/Development/Plume") == "Plume")
+    }
+}
+
+struct TaskRowDirectoryGroupingTests {
+    @Test func twoTabsInOneFolderCollapseToOneGroup() {
+        let directories = TaskRowDetails.distinctDirectories(
+            agentTabDirectories: ["/Users/me/Plume", "/Users/me/Plume"],
+            taskDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Plume"])
+    }
+
+    @Test func twoFoldersGiveTwoGroupsInTabOrder() {
+        let directories = TaskRowDetails.distinctDirectories(
+            agentTabDirectories: ["/Users/me/Plume", "/Users/me/Other", "/Users/me/Plume"],
+            taskDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Plume", "/Users/me/Other"])
+    }
+
+    @Test func aTaskWithNoReportingAgentTabFallsBackToItsOwnFolder() {
+        let directories = TaskRowDetails.distinctDirectories(
+            agentTabDirectories: [nil, nil],
+            taskDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Plume"])
+    }
+
+    @Test func aTaskWithNoFolderAtAllHasNoGroups() {
+        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], taskDirectory: nil).isEmpty)
+    }
+}
+
+@MainActor
+struct TaskRowAgentTabFilterTests {
+    /// A terminal's cwd follows `cd`, so it must not contribute a group.
+    @Test func terminalTabsAreExcluded() throws {
+        let task = WorkTask(title: "T", orderIndex: 0)
+        task.workingDirectoryPath = "/Users/me/Plume"
+        let agent = TaskTab(kind: .agent, orderIndex: 0, task: task)
+        let terminal = TaskTab(kind: .terminal, orderIndex: 1, task: task)
+        task.tabs = [agent, terminal]
+
+        let store = TabDirectoryStore()
+        store.setDirectory("/Users/me/Plume", forTab: agent.id)
+        store.setDirectory("/tmp/wandered", forTab: terminal.id)
+
+        let directories = TaskRowDetails.distinctDirectories(
+            agentTabDirectories: task.orderedTabs
+                .filter { $0.kind == .agent }
+                .map { store.directory(for: $0) },
+            taskDirectory: task.workingDirectoryPath
+        )
+        #expect(directories == ["/Users/me/Plume"])
+    }
+}
+
+struct DirectoryWatchSetTests {
+    @Test func addingADirectoryTakesExactlyOneNewWatch() {
+        let watched = DirectoryWatchSet(git: ["/a"], pullRequests: ["/a"])
+        let change = watched.change(to: ["/a", "/b"], watchesPullRequests: true)
+        #expect(change.gitToWatch == ["/b"])
+        #expect(change.pullRequestsToWatch == ["/b"])
+        #expect(change.gitToRelease.isEmpty)
+        #expect(change.pullRequestsToRelease.isEmpty)
+    }
+
+    @Test func removingADirectoryReleasesExactlyOne() {
+        let watched = DirectoryWatchSet(git: ["/a", "/b"], pullRequests: ["/a", "/b"])
+        let change = watched.change(to: ["/a"], watchesPullRequests: true)
+        #expect(change.gitToRelease == ["/b"])
+        #expect(change.pullRequestsToRelease == ["/b"])
+        #expect(change.gitToWatch.isEmpty)
+        #expect(change.pullRequestsToWatch.isEmpty)
+    }
+
+    @Test func anUnchangedSetTakesNothing() {
+        let watched = DirectoryWatchSet(git: ["/a"], pullRequests: ["/a"])
+        #expect(watched.change(to: ["/a"], watchesPullRequests: true).isEmpty)
+    }
+
+    /// The git watch is taken regardless of the setting; only the pull request
+    /// watch follows it.
+    @Test func turningTheSettingOffReleasesOnlyThePullRequestWatch() {
+        let watched = DirectoryWatchSet(git: ["/a"], pullRequests: ["/a"])
+        let change = watched.change(to: ["/a"], watchesPullRequests: false)
+        #expect(change.pullRequestsToRelease == ["/a"])
+        #expect(change.gitToRelease.isEmpty)
+        #expect(change.gitToWatch.isEmpty)
+    }
+
+    @Test func aNewDirectoryWithTheSettingOffTakesOnlyTheGitWatch() {
+        let change = DirectoryWatchSet().change(to: ["/a"], watchesPullRequests: false)
+        #expect(change.gitToWatch == ["/a"])
+        #expect(change.pullRequestsToWatch.isEmpty)
+    }
+
+    @Test func applyingAChangeRecordsWhatTheCallerTook() {
+        var watched = DirectoryWatchSet(git: ["/a"], pullRequests: ["/a"])
+        watched.apply(watched.change(to: ["/b"], watchesPullRequests: true))
+        #expect(watched == DirectoryWatchSet(git: ["/b"], pullRequests: ["/b"]))
+    }
+
+    @Test func disappearingReleasesEverything() {
+        let watched = DirectoryWatchSet(git: ["/a", "/b"], pullRequests: ["/a"])
+        let change = watched.change(to: [], watchesPullRequests: true)
+        #expect(change.gitToRelease == ["/a", "/b"])
+        #expect(change.pullRequestsToRelease == ["/a"])
+    }
+}
+
+/// The stores are refcounted, so a diffed change must leave them balanced.
+@MainActor
+struct DirectoryWatchRefcountTests {
+    @Test func aBalancedDiffLeavesNoWatchBehind() {
+        let store = GitStateStore()
+        var watched = DirectoryWatchSet()
+
+        func perform(_ directories: Set<String>) {
+            let change = watched.change(to: directories, watchesPullRequests: false)
+            for directory in change.gitToRelease { store.release(directory) }
+            for directory in change.gitToWatch { store.watch(directory) }
+            watched.apply(change)
+        }
+
+        perform(["/a"])
+        perform(["/a", "/b"])
+        perform(["/b"])
+        #expect(store.state(for: "/a") == nil)
+        perform([])
+        #expect(watched == DirectoryWatchSet())
+        store.reset()
     }
 }
