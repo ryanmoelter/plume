@@ -26,7 +26,7 @@ struct TaskRowDetailsTests {
             checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/wt/fix-login")
         )])
         #expect(lines == [
-            .text("Plume"),
+            .project("Plume"),
             .branch("ryanm/fix-login", isWorktree: true, accompaniedBy: nil),
         ])
     }
@@ -37,19 +37,19 @@ struct TaskRowDetailsTests {
             branch: "main",
             checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/Users/me/Plume")
         )])
-        #expect(lines == [.text("Plume"), .branch("main", isWorktree: false, accompaniedBy: nil)])
+        #expect(lines == [.project("Plume"), .branch("main", isWorktree: false, accompaniedBy: nil)])
     }
 
     /// The lookup is async, so the row must read sensibly before it lands
     /// rather than showing a gap where the header goes.
     @Test func theFolderNameStandsInUntilTheLookupLands() {
         let lines = TaskRowDetails.lines(groups: [group("/wt/fix-login", branch: "main")])
-        #expect(lines == [.text("fix-login"), .branch("main", isWorktree: false, accompaniedBy: nil)])
+        #expect(lines == [.project("fix-login"), .branch("main", isWorktree: false, accompaniedBy: nil)])
     }
 
     @Test func linesFollowDirectoryThenBranchOrder() {
         let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", branch: "ryanm/fix-login")])
-        #expect(lines == [.text("Plume"), .branch("ryanm/fix-login", accompaniedBy: nil)])
+        #expect(lines == [.project("Plume"), .branch("ryanm/fix-login", accompaniedBy: nil)])
     }
 
     /// The trailing badge already says it, so no status takes a line.
@@ -69,7 +69,7 @@ struct TaskRowDetailsTests {
 
     @Test func aDirectoryWithoutABranchStillShows() {
         let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume")])
-        #expect(lines == [.text("Plume")])
+        #expect(lines == [.project("Plume")])
     }
 
     @Test func thePullRequestLineSitsLastInItsGroup() {
@@ -78,7 +78,7 @@ struct TaskRowDetailsTests {
             groups: [group("/Users/me/Plume", branch: "ryanm/fix-login", pullRequest: open)]
         )
         #expect(lines == [
-            .text("Plume"),
+            .project("Plume"),
             .branch("ryanm/fix-login", accompaniedBy: nil),
             .pullRequest(directory: "/Users/me/Plume", state: open),
         ])
@@ -92,8 +92,8 @@ struct TaskRowDetailsTests {
             ]
         )
         #expect(lines == [
-            .text("Plume"), .branch("main", accompaniedBy: nil),
-            .text("Other"), .branch("ryanm/thing", accompaniedBy: nil),
+            .project("Plume"), .branch("main", accompaniedBy: nil),
+            .project("Other"), .branch("ryanm/thing", accompaniedBy: nil),
         ])
     }
 
@@ -102,7 +102,7 @@ struct TaskRowDetailsTests {
     func aStateWithNothingToSayTakesNoRow(state: PullRequestFetchState) {
         #expect(TaskRowDetails.showsPullRequestLine(state) == false)
         let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", branch: "main", pullRequest: state)])
-        #expect(lines == [.text("Plume"), .branch("main", accompaniedBy: nil)])
+        #expect(lines == [.project("Plume"), .branch("main", accompaniedBy: nil)])
     }
 
     /// Having no upstream is a fact about the branch, so it survives the row
@@ -112,7 +112,7 @@ struct TaskRowDetailsTests {
         let lines = TaskRowDetails.lines(
             groups: [group("/Users/me/Plume", branch: "main", pullRequest: .localOnly)]
         )
-        #expect(lines == [.text("Plume"), .branch("main", accompaniedBy: .localOnly)])
+        #expect(lines == [.project("Plume"), .branch("main", accompaniedBy: .localOnly)])
     }
 
     /// It has nowhere to ride, so it is simply not shown.
@@ -130,7 +130,7 @@ struct TaskRowDetailsTests {
     func anUnreachableForgeStillTakesARow(state: PullRequestFetchState) {
         #expect(TaskRowDetails.showsPullRequestLine(state))
         let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", pullRequest: state)])
-        #expect(lines == [.text("Plume"), .pullRequest(directory: "/Users/me/Plume", state: state)])
+        #expect(lines == [.project("Plume"), .pullRequest(directory: "/Users/me/Plume", state: state)])
     }
 
     /// The hidden states keep their glyphs, which the fixture view and the

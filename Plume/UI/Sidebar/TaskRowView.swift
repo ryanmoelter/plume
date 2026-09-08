@@ -1,6 +1,7 @@
 import SwiftUI
 
-struct TaskRowView: View {
+struct TaskRowView: View, ThemedView {
+    @Environment(\.theme) var theme
     @Bindable var task: WorkTask
     /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
@@ -67,6 +68,7 @@ struct TaskRowView: View {
                         .onAppear { titleFocused = true }
                 } else {
                     Text(TitleStore.shared.displayTitle(for: task))
+                        .font(typography.body.font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -75,20 +77,26 @@ struct TaskRowView: View {
                     switch line {
                     case .text(let text):
                         Text(text)
-                            .font(.caption)
+                            .font(typography.caption.font)
+                            .emphasis(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    case .project(let name):
+                        Label(name, systemImage: "folder")
+                            .font(typography.caption.font)
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     case .branch(let branch, let isWorktree, let companion):
                         HStack(spacing: 4) {
                             if isWorktree {
-                                Image(systemName: "arrow.branch")
-                                    .font(.caption)
+                                Image(systemName: "tree")
+                                    .font(typography.caption.font)
                                     .imageScale(.small)
                                     .emphasis(.secondary)
                             }
                             Text(branch)
-                                .font(.caption)
+                                .font(typography.caption.font)
                                 .emphasis(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)

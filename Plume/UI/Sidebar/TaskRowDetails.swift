@@ -9,6 +9,8 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
+        /// The group header: which project this directory belongs to.
+        case project(String)
         /// A branch, marked when its checkout is a linked worktree, and with
         /// the chip drawn beside it for the states that take no row of their
         /// own — `.localOnly` has nowhere else to appear.
@@ -51,7 +53,7 @@ enum TaskRowDetails {
     /// belong to, and it is labelled even when the task has only one.
     static func lines(for group: DirectoryGroup) -> [Line] {
         var lines: [Line] = []
-        if let header = projectName(for: group) { lines.append(.text(header)) }
+        if let header = projectName(for: group) { lines.append(.project(header)) }
         if let branch = group.branch, !branch.isEmpty {
             lines.append(.branch(
                 branch,
@@ -119,6 +121,7 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
+        case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,
              companion.flatMap(PullRequestChipContent.accessibilityText(for:))]

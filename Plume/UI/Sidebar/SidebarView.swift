@@ -4,6 +4,7 @@ import SwiftData
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settings = AppSettings.shared
     @Binding var selection: UUID?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
@@ -90,6 +91,7 @@ struct SidebarView: View {
 
             SidebarFooter(archiveShown: $archiveShown)
         }
+        .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .themeTint(colorScheme: colorScheme)
         .navigationSplitViewColumnWidth(
             min: WindowMetrics.sidebarMinimumWidth,

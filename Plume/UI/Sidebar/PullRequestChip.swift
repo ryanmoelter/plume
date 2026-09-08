@@ -111,7 +111,8 @@ nonisolated enum PullRequestChipContent {
     }
 }
 
-struct PullRequestChip: View {
+struct PullRequestChip: View, ThemedView {
+    @Environment(\.theme) var theme
     let state: PullRequestFetchState
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
@@ -132,7 +133,7 @@ struct PullRequestChip: View {
                 .foregroundStyle(color(for: glyph.tint))
             }
         }
-        .font(.caption)
+        .font(typography.caption.font)
     }
 
     /// Verdicts take a `ChatRole` hue; the marks that carry none take the same
