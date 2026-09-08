@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Builds the batched GraphQL query and decodes its response.
 ///
@@ -250,7 +251,14 @@ actor GitHubForgeClient: ForgeClient {
         // A GUI-launched app inherits no shell PATH, and `gh` lives outside
         // the system directories, so it is only reachable through a login
         // shell.
-        process.arguments = ["-c", LoginShellCommand.wrap(command)]
+        //
+        // `-m` (job control) is what makes the timeout work. Without it the
+        // login shell's children join Plume's own process group, so killing
+        // the shell leaves `gh` alive holding the pipe's write end — the read
+        // then blocks until `gh` finishes on its own, and the deadline buys
+        // nothing. With it the child leads its own group, and `kill(-pid)`
+        // reaps the whole tree.
+        process.arguments = ["-mc", LoginShellCommand.wrap("exec " + command)]
         process.currentDirectoryURL = URL(fileURLWithPath: repository)
 
         let output = Pipe()
@@ -264,13 +272,12 @@ actor GitHubForgeClient: ForgeClient {
             throw ForgeError(message: "could not run gh: \(error.localizedDescription)")
         }
 
-        let deadline = DispatchWorkItem { [process] in
-            if process.isRunning { process.terminate() }
+        let timedOut = Mutex(false)
+        let deadline = DispatchWorkItem { [processIdentifier = process.processIdentifier] in
+            timedOut.withLock { $0 = true }
+            kill(-processIdentifier, SIGKILL)
         }
-        DispatchQueue.global().asyncAfter(
-            deadline: .now() + .milliseconds(Int(timeout / .milliseconds(1))),
-            execute: deadline
-        )
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout.seconds, execute: deadline)
         defer { deadline.cancel() }
 
         // Read both pipes before waiting: a full pipe deadlocks the child,
@@ -279,6 +286,9 @@ actor GitHubForgeClient: ForgeClient {
         let errorData = error.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
+        if timedOut.withLock({ $0 }) {
+            throw ForgeError(message: "gh timed out", kind: .timedOut)
+        }
         guard process.terminationStatus == 0 else {
             let stderr = String(decoding: errorData, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -287,5 +297,11 @@ actor GitHubForgeClient: ForgeClient {
                 : stderr)
         }
         return outputData
+    }
+}
+
+private extension Duration {
+    var seconds: Double {
+        Double(components.seconds) + Double(components.attoseconds) / 1e18
     }
 }
