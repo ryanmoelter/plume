@@ -31,6 +31,10 @@ final class HeadlessSession {
     let tabID: UUID
     let taskID: UUID
 
+    /// Where the process was launched, so a reported command list can be
+    /// remembered against a directory even before the tab reports its own.
+    @ObservationIgnored private var launchDirectory: String?
+
     private(set) var sessionID: String?
     private(set) var isWorking = false
     private(set) var hasExited = false
@@ -125,6 +129,7 @@ final class HeadlessSession {
         environment: [String: String] = [:]
     ) {
         guard process == nil else { return }
+        launchDirectory = workingDirectory
         self.permissionMode = permissionMode
         if let model { self.model = model }
         let arguments = HeadlessCommand.arguments(
@@ -422,7 +427,12 @@ final class HeadlessSession {
                 argumentHint: object["argumentHint"]?.stringValue ?? ""
             )
         }
-        SlashCommandMemory.shared.remember(slashCommands)
+        // Matches what `ChatComposer` reads back: wherever the tab is now,
+        // else where it started.
+        SlashCommandMemory.shared.remember(
+            slashCommands,
+            inDirectory: TabDirectoryStore.shared.directory(forTab: tabID) ?? launchDirectory
+        )
     }
 
     private func beginTurn() {

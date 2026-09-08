@@ -30,6 +30,7 @@ struct ChatComposer: View, ThemedView {
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
     @State private var commandMemory = SlashCommandMemory.shared
+    @State private var tabDirectories = TabDirectoryStore.shared
     @State private var caretLocation = 0
     @State private var pendingCaretLocation: Int?
     @State private var autocomplete = ComposerAutocompleteController()
@@ -58,7 +59,8 @@ struct ChatComposer: View, ThemedView {
     }
 
     /// The CLI's commands, from this session when it has reported and from
-    /// the last one until then, so a cold tab still completes them.
+    /// the last one to report in this tab's directory until then, so a cold
+    /// tab still completes them.
     ///
     /// Plume's own join them only once a session exists to run them against —
     /// `/rc` drives a control request, which has no process to reach without
@@ -66,9 +68,10 @@ struct ChatComposer: View, ThemedView {
     /// `/rc` headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         guard tab.transport == .headless else { return [] }
-        guard let headlessSession else { return commandMemory.commands }
+        let remembered = commandMemory.commands(inDirectory: tabDirectories.directory(for: tab))
+        guard let headlessSession else { return remembered }
         let reported = headlessSession.slashCommands.isEmpty
-            ? commandMemory.commands
+            ? remembered
             : headlessSession.slashCommands
         let reportedNames = Set(reported.map(\.name))
         return reported + PlumeSlashCommand.all.filter { !reportedNames.contains($0.name) }
