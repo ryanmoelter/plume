@@ -91,6 +91,11 @@ enum TaskStore {
         for tab in task.tabs {
             forgetTab(tab.id)
         }
+        // The row that took this watch is going away with the task, and a
+        // deleted row is not guaranteed to run its own teardown.
+        if let directory = task.workingDirectoryPath {
+            PullRequestStore.shared.forget(directory: directory)
+        }
         context.delete(task)
     }
 
