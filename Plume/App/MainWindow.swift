@@ -11,6 +11,7 @@ struct MainWindow: View {
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
     @State private var tabPendingStartFresh: TaskTab?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
     private var tasks: [WorkTask]
@@ -18,7 +19,7 @@ struct MainWindow: View {
     private var groups: [TaskGroup]
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: $selection, renamingTaskID: $renamingTaskID, archiveShown: $archiveShown)
         } detail: {
             if let task = selectedTask {
@@ -32,13 +33,10 @@ struct MainWindow: View {
                 .themeTint(colorScheme: colorScheme)
             }
         }
-        // Below this the statusline's `.fixedSize()` segments — every one but
-        // the branch chip, which is the one built to give way — start
-        // overlapping before the composer's controls even finish collapsing
-        // to icons (`ComposerControlsMetrics`). ~445pt of detail pane clears
-        // that, plus the sidebar's own 200pt floor
-        // (`SidebarView.navigationSplitViewColumnWidth`), with headroom.
-        .frame(minWidth: 680, minHeight: 420)
+        .frame(
+            minWidth: WindowMetrics.minimumWidth(sidebarVisible: columnVisibility != .detailOnly),
+            minHeight: WindowMetrics.minimumHeight
+        )
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }
