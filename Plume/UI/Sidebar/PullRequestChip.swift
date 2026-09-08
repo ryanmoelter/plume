@@ -49,7 +49,7 @@ nonisolated enum PullRequestChipContent {
         case .failed:
             return [PullRequestGlyph(symbol: "wifi.exclamationmark", tint: .dim, label: "PR status unavailable")]
         case .localOnly:
-            return [PullRequestGlyph(symbol: "circle.dotted", tint: .dim, label: "local only")]
+            return [PullRequestGlyph(symbol: "network.slash", tint: .dim, label: "local only")]
         case .noPR:
             return [PullRequestGlyph(symbol: "minus", tint: .dim, label: "no PR")]
         case .pullRequest(let pullRequest):
@@ -70,7 +70,7 @@ nonisolated enum PullRequestChipContent {
         case .merged:
             return [number, PullRequestGlyph(symbol: "arrow.triangle.merge", tint: .merged, label: "merged")]
         case .closed:
-            return [number, PullRequestGlyph(symbol: "xmark.circle", tint: .danger, label: "closed")]
+            return [number, PullRequestGlyph(symbol: "nosign", tint: .danger, label: "closed")]
         case .open:
             break
         }
@@ -81,7 +81,7 @@ nonisolated enum PullRequestChipContent {
         }
         switch checkRollup(pullRequest) {
         case .success:
-            glyphs.append(PullRequestGlyph(symbol: "checkmark", tint: .success, label: "checks pass"))
+            glyphs.append(PullRequestGlyph(symbol: "checkmark.circle.fill", tint: .success, label: "checks pass"))
         case .failure:
             glyphs.append(PullRequestGlyph(symbol: "xmark", tint: .danger, label: "checks fail"))
         case .pending:
@@ -91,16 +91,16 @@ nonisolated enum PullRequestChipContent {
         }
         switch pullRequest.reviewDecision {
         case .approved:
-            glyphs.append(PullRequestGlyph(symbol: "checkmark.seal", tint: .success, label: "approved"))
+            glyphs.append(PullRequestGlyph(symbol: "person.fill.checkmark", tint: .success, label: "approved"))
         case .changesRequested:
-            glyphs.append(PullRequestGlyph(symbol: "plusminus", tint: .danger, label: "changes requested"))
+            glyphs.append(PullRequestGlyph(symbol: "person.fill.xmark", tint: .danger, label: "changes requested"))
         case .none:
             break
         }
         // Nothing but the number to say, so the chip still reads as an open
         // pull request rather than a bare number.
         if glyphs.count == 1 {
-            glyphs.append(PullRequestGlyph(symbol: "smallcircle.filled.circle", tint: .neutral, label: "open"))
+            glyphs.append(PullRequestGlyph(symbol: "inset.filled.circle", tint: .neutral, label: "open"))
         }
         return glyphs
     }

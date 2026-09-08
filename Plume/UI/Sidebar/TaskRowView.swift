@@ -48,7 +48,7 @@ struct TaskRowView: View {
     }
 
     private var detailLines: [TaskRowDetails.Line] {
-        TaskRowDetails.lines(status: status, groups: directories.map(group(for:)))
+        TaskRowDetails.lines(groups: directories.map(group(for:)))
     }
 
     var body: some View {
@@ -77,6 +77,17 @@ struct TaskRowView: View {
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                    case .branch(let branch, let companion):
+                        HStack(spacing: 4) {
+                            Text(branch)
+                                .font(.caption)
+                                .emphasis(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            if let companion {
+                                PullRequestChip(state: companion)
+                            }
+                        }
                     case .pullRequest(let directory, let state):
                         PullRequestChip(state: state) {
                             PullRequestStore.shared.checkRollup(for: directory, of: $0)

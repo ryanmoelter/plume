@@ -11,72 +11,89 @@ struct TaskRowDetailsTests {
         TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
     }
 
-    @Test func linesFollowStatusDirectoryBranchOrder() {
-        let lines = TaskRowDetails.lines(
-            status: .working,
-            groups: [group("/Users/me/Plume", branch: "ryanm/fix-login")]
-        )
-        #expect(lines == [.text("working"), .text("Plume"), .text("ryanm/fix-login")])
+    @Test func linesFollowDirectoryThenBranchOrder() {
+        let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", branch: "ryanm/fix-login")])
+        #expect(lines == [.text("Plume"), .branch("ryanm/fix-login", accompaniedBy: nil)])
+    }
+
+    /// The trailing badge already says it, so no status takes a line.
+    @Test(arguments: TaskStatus.allCases)
+    func theAgentStatusNeverTakesALine(status: TaskStatus) {
+        #expect(TaskRowDetails.lines(groups: [group(nil)]).isEmpty)
     }
 
     /// An unconfigured task should collapse to nothing rather than show gaps.
     @Test func absentValuesProduceNoLines() {
-        #expect(TaskRowDetails.lines(status: .unset, groups: [group(nil)]).isEmpty)
+        #expect(TaskRowDetails.lines(groups: [group(nil)]).isEmpty)
     }
 
     @Test func emptyStringsCountAsAbsent() {
-        #expect(TaskRowDetails.lines(status: .unset, groups: [group("", branch: "")]).isEmpty)
+        #expect(TaskRowDetails.lines(groups: [group("", branch: "")]).isEmpty)
     }
 
     @Test func aDirectoryWithoutABranchStillShows() {
-        let lines = TaskRowDetails.lines(status: .idle, groups: [group("/Users/me/Plume")])
-        #expect(lines == [.text("idle"), .text("Plume")])
+        let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume")])
+        #expect(lines == [.text("Plume")])
     }
 
     @Test func thePullRequestLineSitsLastInItsGroup() {
         let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
         let lines = TaskRowDetails.lines(
-            status: .idle,
             groups: [group("/Users/me/Plume", branch: "ryanm/fix-login", pullRequest: open)]
         )
         #expect(lines == [
-            .text("idle"),
             .text("Plume"),
-            .text("ryanm/fix-login"),
+            .branch("ryanm/fix-login", accompaniedBy: nil),
             .pullRequest(directory: "/Users/me/Plume", state: open),
         ])
     }
 
     @Test func everyGroupRepeatsTheDirectoryAndBranch() {
         let lines = TaskRowDetails.lines(
-            status: .unset,
             groups: [
                 group("/Users/me/Plume", branch: "main"),
                 group("/Users/me/Other", branch: "ryanm/thing"),
             ]
         )
         #expect(lines == [
-            .text("Plume"), .text("main"),
-            .text("Other"), .text("ryanm/thing"),
+            .text("Plume"), .branch("main", accompaniedBy: nil),
+            .text("Other"), .branch("ryanm/thing", accompaniedBy: nil),
         ])
     }
 
     /// A single faint glyph reads as dead space, so these states take no row.
-    @Test(arguments: [PullRequestFetchState.noPR, .localOnly, .loading, .forgeUnsupported])
+    @Test(arguments: [PullRequestFetchState.noPR, .loading, .forgeUnsupported])
     func aStateWithNothingToSayTakesNoRow(state: PullRequestFetchState) {
         #expect(TaskRowDetails.showsPullRequestLine(state) == false)
+        let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", branch: "main", pullRequest: state)])
+        #expect(lines == [.text("Plume"), .branch("main", accompaniedBy: nil)])
+    }
+
+    /// Having no upstream is a fact about the branch, so it survives the row
+    /// being hidden by riding along on the branch line.
+    @Test func localOnlyMovesOntoTheBranchLine() {
+        #expect(TaskRowDetails.showsPullRequestLine(.localOnly) == false)
         let lines = TaskRowDetails.lines(
-            status: .idle,
-            groups: [group("/Users/me/Plume", branch: "main", pullRequest: state)]
+            groups: [group("/Users/me/Plume", branch: "main", pullRequest: .localOnly)]
         )
-        #expect(lines == [.text("idle"), .text("Plume"), .text("main")])
+        #expect(lines == [.text("Plume"), .branch("main", accompaniedBy: .localOnly)])
+    }
+
+    /// It has nowhere to ride, so it is simply not shown.
+    @Test func localOnlyWithoutABranchShowsNothing() {
+        #expect(TaskRowDetails.lines(groups: [group(nil, pullRequest: .localOnly)]).isEmpty)
+    }
+
+    @Test func theBranchCompanionReachesTheAccessibilityLabel() {
+        let line = TaskRowDetails.Line.branch("main", accompaniedBy: .localOnly)
+        #expect(TaskRowDetails.accessibilityText(line) == "main local only")
     }
 
     /// Being offline must not look like a repository with no pull requests.
     @Test(arguments: [PullRequestFetchState.timedOut, .failed("offline")])
     func anUnreachableForgeStillTakesARow(state: PullRequestFetchState) {
         #expect(TaskRowDetails.showsPullRequestLine(state))
-        let lines = TaskRowDetails.lines(status: .unset, groups: [group("/Users/me/Plume", pullRequest: state)])
+        let lines = TaskRowDetails.lines(groups: [group("/Users/me/Plume", pullRequest: state)])
         #expect(lines == [.text("Plume"), .pullRequest(directory: "/Users/me/Plume", state: state)])
     }
 
@@ -93,14 +110,6 @@ struct TaskRowDetailsTests {
             state: .pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
         )
         #expect(TaskRowDetails.accessibilityText(line)?.contains("PR #42") == true)
-    }
-
-    @Test func needsInputReadsAsWords() {
-        #expect(TaskRowDetails.statusText(.needsInput) == "needs input")
-    }
-
-    @Test func unsetStatusHasNoLine() {
-        #expect(TaskRowDetails.statusText(.unset) == nil)
     }
 
     @Test func directoryUsesTheLastPathComponent() {

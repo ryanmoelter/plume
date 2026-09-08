@@ -9,6 +9,9 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
+        /// A branch, with the chip drawn beside it for the states that take no
+        /// row of their own — `.localOnly` has nowhere else to appear.
+        case branch(String, accompaniedBy: PullRequestFetchState?)
         /// Carries its directory so the chip can ask the store for that
         /// repository's ignored checks, not the task's.
         case pullRequest(directory: String?, state: PullRequestFetchState)
@@ -28,11 +31,10 @@ enum TaskRowDetails {
         }
     }
 
-    static func lines(status: TaskStatus, groups: [DirectoryGroup]) -> [Line] {
-        var lines: [Line] = []
-        if let status = statusText(status) { lines.append(.text(status)) }
-        for group in groups { lines.append(contentsOf: self.lines(for: group)) }
-        return lines
+    /// The agent's status is the trailing badge's job, so it takes no line of
+    /// its own.
+    static func lines(groups: [DirectoryGroup]) -> [Line] {
+        groups.flatMap(lines(for:))
     }
 
     /// Directory first: it is the header the branch and pull request under it
@@ -40,7 +42,9 @@ enum TaskRowDetails {
     static func lines(for group: DirectoryGroup) -> [Line] {
         var lines: [Line] = []
         if let directory = directoryName(group.directory) { lines.append(.text(directory)) }
-        if let branch = group.branch, !branch.isEmpty { lines.append(.text(branch)) }
+        if let branch = group.branch, !branch.isEmpty {
+            lines.append(.branch(branch, accompaniedBy: group.pullRequest.flatMap(branchCompanion)))
+        }
         if let pullRequest = group.pullRequest, showsPullRequestLine(pullRequest) {
             lines.append(.pullRequest(directory: group.directory, state: pullRequest))
         }
@@ -77,13 +81,11 @@ enum TaskRowDetails {
         }
     }
 
-    /// `.unset` means no agent has ever run, which is not worth a line.
-    static func statusText(_ status: TaskStatus) -> String? {
-        switch status {
-        case .unset: nil
-        case .needsInput: "needs input"
-        default: status.rawValue
-        }
+    /// A branch with no upstream is a fact about the branch, so it rides on
+    /// the branch line rather than vanishing with the pull request row. The
+    /// other hidden states say nothing a branch name does not already.
+    static func branchCompanion(_ state: PullRequestFetchState) -> PullRequestFetchState? {
+        state == .localOnly ? state : nil
     }
 
     static func directoryName(_ path: String?) -> String? {
@@ -95,6 +97,9 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
+        case .branch(let branch, let companion):
+            [branch, companion.flatMap(PullRequestChipContent.accessibilityText(for:))]
+                .compactMap { $0 }.joined(separator: " ")
         case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
         }
     }
