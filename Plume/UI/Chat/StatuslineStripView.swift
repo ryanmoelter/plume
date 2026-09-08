@@ -19,13 +19,10 @@ import Foundation
 /// trailing one, so the whole row reads left to right as where this runs,
 /// then what it has spent.
 ///
-/// `body` is a `ViewThatFits` over two candidates: `wideLayout`, which is
-/// exactly the meters-side-by-side design above, and `narrowLayout`, which
-/// drops down to when the window is too narrow for it — the same meters
-/// stacked vertically, bars only, cost gone entirely. `wideLayout` is
-/// `.fixedSize()` so it reports its true intrinsic width rather than
-/// shrinking to whatever `ViewThatFits` proposes; without that it would
-/// always "fit" and the narrow layout would never be picked.
+/// Which of the two layouts to draw is the caller's decision, not this
+/// view's: `ChatTabView.statuslineFooter` runs one `ViewThatFits` over the
+/// whole row, so the branch name and the meters give way in a single
+/// ordering rather than shrinking against each other.
 ///
 /// What a message will do next — permission mode, model, effort — lives in
 /// `ChatComposer` instead: those describe the *next* turn, not the session as
@@ -36,6 +33,8 @@ import Foundation
 struct StatuslineStripView: View, ThemedView {
     @Environment(\.theme) var theme
 
+    let layout: StatuslineStripLayout
+
     // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
@@ -45,11 +44,13 @@ struct StatuslineStripView: View, ThemedView {
     let sessionCostUSD: Double?
 
     init(
+        layout: StatuslineStripLayout = .wide,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
     ) {
+        self.layout = layout
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.rateLimit = rateLimit
@@ -57,9 +58,11 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            wideLayout
-            narrowLayout
+        Group {
+            switch layout {
+            case .wide: wideLayout
+            case .stacked: stackedLayout
+            }
         }
         .font(typography.caption.font)
     }
@@ -98,11 +101,11 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     /// Bars only, stacked top to bottom instead of side by side, and no cost
-    /// — everything `ViewThatFits` falls back to once `wideLayout` no longer
-    /// fits. Reuses `statuslineSegmentSpacing` for the vertical gap, the same
-    /// constant that spaces the meters apart horizontally in `wideLayout`.
-    private var narrowLayout: some View {
-        VStack(alignment: .leading, spacing: dimensions.statuslineSegmentSpacing) {
+    /// — what the row falls back to once `wideLayout` no longer fits.
+    /// `statuslineStackedBarSpacing` keeps the three bars within the height
+    /// one reading-over-bar meter already takes.
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
             contextSegment(showsReading: false)
             if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
@@ -185,11 +188,20 @@ struct StatuslineStripView: View, ThemedView {
     }
 }
 
+/// Which shape the strip draws. `ChatTabView.statuslineFooter` picks one per
+/// `ViewThatFits` candidate: `wide` is the full row of side-by-side meters
+/// with their readings and the session cost, `stacked` is the same meters as
+/// bars alone, one above the next.
+enum StatuslineStripLayout {
+    case wide
+    case stacked
+}
+
 /// Bar lengths, longest first: the context window reads most precisely, the
 /// seven-day quota next, the five-hour quota least. The row now lays out from
 /// each segment's own intrinsic size rather than squeezing to fit, so these
 /// can run a bit longer than a reading needs and still cost nothing but the
-/// branch chip's own truncation room. `narrowLayout` reuses the same widths,
+/// branch chip's own truncation room. The stacked layout reuses the same widths,
 /// so a bar means the same thing whichever layout is showing.
 enum StatuslineMeterWidth {
     static let context: CGFloat = 50
@@ -205,7 +217,7 @@ struct StackedMeter: View, ThemedView {
     let fraction: Double
     let barWidth: CGFloat
     let attention: StatuslineAttention
-    /// The narrow statusline layout drops the reading and keeps only the
+    /// The stacked statusline layout drops the reading and keeps only the
     /// bar; the reading still reaches VoiceOver, as the bar's
     /// `accessibilityValue`, rather than disappearing with the label.
     var showsReading: Bool = true
@@ -455,8 +467,9 @@ struct MeterView: View, ThemedView {
     .frame(width: 640)
 }
 
-#Preview("Narrow fallback") {
+#Preview("Stacked fallback") {
     StatuslineStripView(
+        layout: .stacked,
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
         rateLimit: RateLimitInfo(

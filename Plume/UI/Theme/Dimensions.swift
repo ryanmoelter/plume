@@ -118,4 +118,18 @@ struct Dimensions {
     /// `panelContentInset` so the antenna doesn't read as one more segment of
     /// the group it's actually reporting on.
     let statuslineTrailingGap: CGFloat = 16
+
+    /// Between one stacked bar and the next. Tight enough that three bars
+    /// stand no taller than one meter's reading-over-bar, so the fallback
+    /// layout doesn't grow the row.
+    let statuslineStackedBarSpacing: CGFloat = 4
+
+    /// How far the branch chip may shrink before the row gives up on the
+    /// side-by-side meters — still enough for a few characters and the
+    /// truncation ellipsis.
+    let statuslineBranchMinWidth: CGFloat = 72
+
+    /// How far the branch chip may grow. Branch names run arbitrarily long,
+    /// and past this the name crowds out everything it sits beside.
+    let statuslineBranchMaxWidth: CGFloat = 220
 }

@@ -301,21 +301,50 @@ struct ChatTabView: View, ThemedView {
     /// written rather than as a heading over it.
     ///
     /// It reads left to right as where this runs, then what it has spent,
-    /// then whether anyone else can drive it. The branch name gives way
-    /// first — `WorkspacePickerView`'s own `.fixedSize()` chips keep the
-    /// branch label the only flexible thing in that group. `StatuslineStripView`
-    /// degrades to a narrower layout of its own (see its doc comment) once
-    /// the branch has nothing left to give, so this row is left unconstrained
-    /// rather than wrapped in `.fixedSize()` — that would propose it an
-    /// unbounded width and it would never pick its narrow layout. Remote
-    /// Control's `RemoteControlControl` holds its own intrinsic size
-    /// regardless.
+    /// then whether anyone else can drive it.
+    ///
+    /// One `ViewThatFits` governs the whole row, because the branch name and
+    /// the meters are the two things that give way and they have to give way
+    /// in a fixed order. Three candidates, widest first:
+    ///
+    /// 1. Everything at its natural size, with the slack between the branch
+    ///    name and the meters.
+    /// 2. The branch name takes the leftover and truncates, down to
+    ///    `statuslineBranchMinWidth`; the meters stay side by side.
+    /// 3. The meters drop to bars alone, stacked.
+    ///
+    /// Nothing above this may be `.fixedSize()` horizontally: an unbounded
+    /// width proposal makes the first candidate fit forever. Vertically it
+    /// must be, or the row stretches to whatever height the chat leaves it.
     private func statuslineFooter(transcript: Transcript) -> some View {
+        ViewThatFits(in: .horizontal) {
+            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide, hasSlack: true)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide, hasSlack: false)
+            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked, hasSlack: false)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        // The one leading edge the composer's text and controls also sit on.
+        .padding(.horizontal, dimensions.composerFieldInset)
+        .padding(.vertical, dimensions.statuslineVerticalPadding)
+    }
+
+    /// `hasSlack` puts a `Spacer` between the two groups. Only the widest
+    /// candidate wants one: everywhere else the branch name is the flexible
+    /// segment, and a spacer beside it would halve the room it gets.
+    private func statuslineRow(
+        transcript: Transcript,
+        branchWidth: BranchWidth,
+        meters: StatuslineStripLayout,
+        hasSlack: Bool
+    ) -> some View {
         HStack(alignment: .top, spacing: dimensions.panelContentInset) {
-            workspaceGroup
-            Spacer(minLength: dimensions.panelContentInset)
+            workspaceGroup(branchWidth: branchWidth)
+            if hasSlack {
+                Spacer(minLength: dimensions.panelContentInset)
+            }
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 StatuslineStripView(
+                    layout: meters,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.
@@ -334,19 +363,18 @@ struct ChatTabView: View, ThemedView {
                     RemoteControlControl(session: headlessSession)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
-        // The one leading edge the composer's text and controls also sit on.
-        .padding(.horizontal, dimensions.composerFieldInset)
-        .padding(.vertical, dimensions.statuslineVerticalPadding)
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
     /// ahead/behind and dirty markers. Editable only until an agent starts,
     /// which fixes the working directory.
-    private var workspaceGroup: some View {
+    private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
             task: task,
             isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory)
         )
         .font(typography.caption.font)
@@ -603,7 +631,7 @@ struct ChatTabView: View, ThemedView {
                         .disabled(!isComposerEnabled)
                     Divider()
                     HStack(spacing: 0) {
-                        workspaceGroup
+                        workspaceGroup(branchWidth: .flexible)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, dimensions.composerFieldInset)
