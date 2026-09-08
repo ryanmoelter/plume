@@ -32,6 +32,13 @@ struct MainWindow: View {
                 .themeTint(colorScheme: colorScheme)
             }
         }
+        // Below this the statusline's `.fixedSize()` segments — every one but
+        // the branch chip, which is the one built to give way — start
+        // overlapping before the composer's controls even finish collapsing
+        // to icons (`ComposerControlsMetrics`). ~445pt of detail pane clears
+        // that, plus the sidebar's own 200pt floor
+        // (`SidebarView.navigationSplitViewColumnWidth`), with headroom.
+        .frame(minWidth: 680, minHeight: 420)
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }
