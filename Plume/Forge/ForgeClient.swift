@@ -33,7 +33,28 @@ nonisolated protocol ForgeClient: Sendable {
 }
 
 nonisolated struct ForgeError: LocalizedError, Equatable {
+    enum Kind: Sendable, Equatable {
+        case failed
+        /// The subprocess outlived its deadline and was killed. Distinct so a
+        /// caller can render `.timedOut` rather than a bare failure.
+        case timedOut
+    }
+
     let message: String
+    let kind: Kind
+
+    init(message: String, kind: Kind = .failed) {
+        self.message = message
+        self.kind = kind
+    }
 
     var errorDescription: String? { message }
+}
+
+extension PullRequestFetchState {
+    /// The state a thrown fetch error should render as.
+    static func failing(_ error: any Error) -> PullRequestFetchState {
+        if let forge = error as? ForgeError, forge.kind == .timedOut { return .timedOut }
+        return .failed(error.localizedDescription)
+    }
 }
