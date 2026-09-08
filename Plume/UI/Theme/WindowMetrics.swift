@@ -16,4 +16,12 @@ enum WindowMetrics {
     static func minimumWidth(sidebarVisible: Bool) -> CGFloat {
         sidebarVisible ? sidebarMinimumWidth + detailMinimumWidth : detailMinimumWidth
     }
+
+    /// The sidebar's ceiling for a given window width, so dragging the
+    /// divider can never squeeze the detail pane below its own floor.
+    /// Clamped to `sidebarMinimumWidth` regardless of how narrow the window
+    /// gets.
+    static func sidebarMaximumWidth(windowWidth: CGFloat) -> CGFloat {
+        max(sidebarMinimumWidth, windowWidth - detailMinimumWidth)
+    }
 }

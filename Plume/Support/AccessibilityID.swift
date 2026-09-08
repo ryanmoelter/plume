@@ -10,6 +10,8 @@ enum AccessibilityID {
     static let groupHeader = "group-header"
     static let newTaskButton = "new-task-button"
     static let newGroupButton = "new-group-button"
+    static let sidebarArchiveButton = "sidebar-archive-button"
+    static let sidebarSettingsButton = "sidebar-settings-button"
 
     // MARK: Tab strip
 
