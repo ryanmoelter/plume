@@ -96,6 +96,44 @@ struct AppSettingsTests {
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.defaultEffort == .xhigh)
     }
+
+    @Test func showsPullRequestStatusDefaultsToOnWhenUnset() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.showsPullRequestStatus)
+    }
+
+    @Test func showsPullRequestStatusPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.showsPullRequestStatus = false
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(!reloaded.showsPullRequestStatus)
+    }
+
+    @Test func ignoredPendingChecksDefaultsToEmpty() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.ignoredPendingChecks.isEmpty)
+    }
+
+    @Test func ignoredPendingChecksPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.ignoredPendingChecks = ["flaky-lint", "slow-e2e"]
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.ignoredPendingChecks == ["flaky-lint", "slow-e2e"])
+    }
+
+    @Test func ignoredPendingChecksTrimsBlankEntriesOnWrite() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.ignoredPendingChecks = ["real-check", "  ", ""]
+
+        #expect(settings.ignoredPendingChecks == ["real-check"])
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.ignoredPendingChecks == ["real-check"])
+    }
 }
 
 @MainActor

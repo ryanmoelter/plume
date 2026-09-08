@@ -25,6 +25,8 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
+        static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let ignoredPendingChecks = "ignoredPendingChecks"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -79,6 +81,12 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
+
+        // Unset must read as true: the feature is opt-out, not opt-in.
+        self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
+            ? true
+            : defaults.bool(forKey: Key.showsPullRequestStatus)
+        self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -179,6 +187,30 @@ final class AppSettings {
     var animateCharacterReveal: Bool {
         didSet {
             defaults.set(animateCharacterReveal, forKey: Key.animateCharacterReveal)
+        }
+    }
+
+    /// Master toggle for GitHub PR status in the sidebar. The feature makes
+    /// network calls, so it must be opt-outable; on by default.
+    var showsPullRequestStatus: Bool {
+        didSet {
+            defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
+        }
+    }
+
+    /// Plume-level half of `IgnoredChecksResolver`'s union: check names whose
+    /// perpetual PENDING is ignored, across every repo. Matched by exact
+    /// string equality against the check's name/context.
+    var ignoredPendingChecks: [String] {
+        didSet {
+            let trimmed = ignoredPendingChecks
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if trimmed != ignoredPendingChecks {
+                ignoredPendingChecks = trimmed
+                return
+            }
+            defaults.set(ignoredPendingChecks, forKey: Key.ignoredPendingChecks)
         }
     }
 
