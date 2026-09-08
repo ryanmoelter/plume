@@ -1,4 +1,7 @@
 import SwiftUI
+#if DEBUG
+import SwiftData
+#endif
 
 /// Pinned to the bottom of the sidebar, below the task list rather than
 /// after its last row — it stays put whether the list is empty or
@@ -8,6 +11,11 @@ struct SidebarFooter: View, ThemedView {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var archiveShown: Bool
 
+#if DEBUG
+    @Environment(\.modelContext) private var context
+    @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
+#endif
+
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
@@ -15,6 +23,16 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
+#if DEBUG
+                Button {
+                    SidebarFixtures.seed(in: context, existingGroups: groups)
+                } label: {
+                    SidebarFooterRow(icon: "ladybug", title: "Seed Fixtures")
+                }
+                .help("Seed a \"\(SidebarFixtures.groupName)\" group covering every sidebar state")
+                .buttonStyle(SidebarFooterButtonStyle())
+#endif
+
                 Button {
                     archiveShown = true
                 } label: {

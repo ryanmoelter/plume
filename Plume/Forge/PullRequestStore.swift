@@ -89,6 +89,13 @@ final class PullRequestStore {
             return
         }
         watches[directory] = Watch(refCount: 1)
+#if DEBUG
+        // A fixture directory has no real repository underneath it, so a
+        // resolution would only clobber the seeded state with `.loading`
+        // then `.forgeUnsupported`. The row still takes a refcounted watch,
+        // so `release` balances normally.
+        if fixtureDirectories.contains(directory) { return }
+#endif
         states[directory] = .loading
         resolveRepository(directory)
         startPollingIfNeeded()
@@ -284,7 +291,25 @@ final class PullRequestStore {
         states.removeAll()
         facts.removeAll()
         inFlight.removeAll()
+#if DEBUG
+        fixtureDirectories.removeAll()
+#endif
         pollTimer?.invalidate()
         pollTimer = nil
     }
+
+#if DEBUG
+    /// Directories the sidebar fixture catalog owns. `refresh(repository:)`
+    /// and `resolveRepository(_:)` skip these, so a seeded state is never
+    /// raced by a real (and here, nonexistent) repository resolution.
+    @ObservationIgnored private var fixtureDirectories: Set<String> = []
+
+    /// Force-publishes `state` for `directory` with no network call, for the
+    /// DEBUG sidebar fixture catalog. Bypasses `watch(_:)` entirely, so a
+    /// fixture directory needs no real git repository underneath it.
+    func seedFixture(directory: String, state: PullRequestFetchState) {
+        fixtureDirectories.insert(directory)
+        states[directory] = state
+    }
+#endif
 }
