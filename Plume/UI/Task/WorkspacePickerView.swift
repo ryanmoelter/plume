@@ -155,12 +155,13 @@ struct WorkspacePickerView: View {
                     .fixedSize()
                     .help("\(behind) behind \(state.upstream ?? "upstream")")
             }
-            // No upstream at all is worth saying: it is the common case on a
+            // No upstream at all is worth marking: it is the common case on a
             // fresh worktree branch, and silence would read as "level with
-            // upstream". Already dimmer than secondary, which is fine —
-            // `.subtle` still reads as attention-free chrome.
+            // upstream". An icon rather than words, so it sits beside the
+            // ahead/behind markers as one more glyph instead of crowding the
+            // branch name off the row.
             if !state.hasUpstream {
-                Text("no upstream")
+                Image(systemName: "network.slash")
                     .emphasis(.subtle)
                     .fixedSize()
                     .help("This branch tracks nothing")

@@ -234,12 +234,14 @@ struct RemoteControlControl: View, ThemedView {
                 Button("Connect Remote Control") { session.setRemoteControl(enabled: true) }
             }
         } label: {
+            // No explicit height: the composer's 22pt control height would
+            // centre the glyph well below the meter readings this sits beside,
+            // and the statusline's caption size follows the chat font.
             ComposerSegmentLabel(
                 systemImage: symbol,
                 text: "Remote Control",
                 showsText: false,
-                foreground: tint,
-                height: dimensions.composerControlHeight
+                foreground: tint
             )
         }
         .menuStyle(.borderlessButton)

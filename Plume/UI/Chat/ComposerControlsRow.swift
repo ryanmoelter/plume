@@ -151,18 +151,31 @@ struct ComposerSegmentLabel: View {
     var showsText = true
     var showsTrailingChevron = false
     let foreground: Color
-    let height: CGFloat
+    /// Nil sizes the segment to its own font, which is what keeps an
+    /// icon-only statusline segment level with the text beside it.
+    var height: CGFloat?
 
     var body: some View {
-        label
+        content
             .foregroundStyle(foreground)
             .lineLimit(1)
             .frame(height: height)
     }
 
+    @ViewBuilder
+    private var content: some View {
+        if showsText {
+            label
+        } else {
+            // A symbol inside a `Text` run is laid out from its own glyph box,
+            // so a symbol and its `.slash` variant sit at different heights and
+            // the segment shifts as its state changes. A plain `Image` does not.
+            Image(systemName: systemImage)
+        }
+    }
+
     private var label: Text {
         let icon = Text("\(Image(systemName: systemImage))")
-        guard showsText else { return icon }
         var result = icon + Text("  ") + Text(text)
         if showsTrailingChevron {
             result = result + Text(" \(Image(systemName: "chevron.right"))")
