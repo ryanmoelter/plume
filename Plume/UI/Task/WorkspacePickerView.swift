@@ -38,11 +38,8 @@ struct WorkspacePickerView: View, ThemedView {
             folderChip
                 .fixedSize()
             if task.repoPath != nil {
-                HStack(spacing: 4) {
-                    branchChip
-                    branchMarkers
-                }
-                .accessibilityIdentifier(AccessibilityID.statuslineBranch)
+                branchGroup
+                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
             }
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
@@ -111,21 +108,28 @@ struct WorkspacePickerView: View, ThemedView {
 
     // MARK: - Worktree
 
-    /// The branch chip under whatever ceiling the row asked for. Truncation
-    /// comes from `chip`'s own `lineLimit(1)`; all this decides is where the
-    /// name is allowed to stop.
+    /// The branch name and its markers under whatever ceiling the row asked
+    /// for. The width belongs to the pair rather than the name alone: a frame
+    /// wide enough to truncate against is wider than a short branch name, and
+    /// putting it on the name would strand the markers at its far edge.
+    /// Truncation comes from `chip`'s own `lineLimit(1)`.
     @ViewBuilder
-    private var branchChip: some View {
+    private var branchGroup: some View {
+        let group = HStack(spacing: 4) {
+            worktreeChip
+            branchMarkers
+            Spacer(minLength: 0)
+        }
         switch branchWidth {
         case .natural:
-            // Fixed at its natural width so the row's spacer, not this chip,
+            // Fixed at its natural width so the row's spacer, not this group,
             // absorbs the slack — the two are otherwise both flexible and
             // split it evenly.
-            worktreeChip
+            group
                 .frame(maxWidth: dimensions.statuslineBranchMaxWidth, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
         case .flexible:
-            worktreeChip
+            group
                 .frame(
                     minWidth: dimensions.statuslineBranchMinWidth,
                     maxWidth: dimensions.statuslineBranchMaxWidth,
