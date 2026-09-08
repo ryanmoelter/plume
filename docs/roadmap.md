@@ -64,6 +64,8 @@ What exists:
 - The wrapper also delivers OSC 9 / OSC 777 desktop notifications with a title and body (`terminalDidRequestDesktopNotification`). A shell can already notify Plume with `printf '\033]777;notify;Title;Body\a'` — the CLI helper is a convenience wrapper, not a new transport.
 - `Notification` hook events are already decoded and already drive `needsInput` (`HookEvent`, `StatusEngine`). Notifying is a delivery layer over a signal that exists.
 
+**Shipping this means updating whatever tells agents to use `cmux notify`.** `~/.claude/CLAUDE.md` currently instructs every agent on this machine to fire `cmux notify` for milestones the automatic hooks miss, guarded so it no-ops elsewhere. That instruction — and any sibling copy of it, since that file is one of two machine variants kept in sync by hand — is the thing to repoint once a Plume helper exists. The helper need not match cmux's flags; the instruction just has to name the right command.
+
 ## Subagents
 
 Parallel subagents are the case Plume exists to make legible, so this is a real view rather than the patched-up disclosure row it started as.
