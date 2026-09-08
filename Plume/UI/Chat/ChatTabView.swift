@@ -20,6 +20,10 @@ struct ChatTabView: View, ThemedView {
     /// "not approved yet" rather than claiming an approval we never saw.
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
+    /// The plan file, read once for both the overlay that renders it and the
+    /// dock bar that names it. Followed whenever a plan exists, not only while
+    /// the overlay is up: the dock bar is what shows when it is not.
+    @State private var planFile = MarkdownFileStore()
     @FocusState private var planFeedbackFocused: Bool
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
@@ -145,6 +149,9 @@ struct ChatTabView: View, ThemedView {
         }
         .onDisappear {
             if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
+        }
+        .onChange(of: planFilePath, initial: true) { _, path in
+            if let path { planFile.watch(path: path) } else { planFile.stop() }
         }
         .onChange(of: tab.sessionJSONLPath) { _, _ in registerWatchIfNeeded() }
         // Only fires once per completed turn, not per stream event, so this
@@ -374,7 +381,7 @@ struct ChatTabView: View, ThemedView {
             }
             .padding(12)
             Divider()
-            MarkdownFileView(path: path)
+            MarkdownContentView(content: planFile.content)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -503,8 +510,20 @@ struct ChatTabView: View, ThemedView {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text")
                         .emphasis(.secondary)
-                    Text((path as NSString).lastPathComponent)
-                        .lineLimit(1)
+                    if let title = planFile.content.flatMap(PlanSummary.title(of:)) {
+                        Text(title)
+                            .lineLimit(1)
+                        // Same size as the title, so the bar is the same
+                        // height with or without one and the conversation
+                        // above it never shifts. It yields its width first.
+                        Text((path as NSString).lastPathComponent)
+                            .lineLimit(1)
+                            .emphasis(.secondary)
+                            .layoutPriority(-1)
+                    } else {
+                        Text((path as NSString).lastPathComponent)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.up")
                         .emphasis(.secondary)
