@@ -107,6 +107,11 @@ enum ChatRole {
         ThemeChrome.successAccent(for: colorScheme) ?? .green
     }
 
+    /// A pull request that landed.
+    static func merged(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.mergedAccent(for: colorScheme) ?? .purple
+    }
+
     /// The user's choice, and only that. Follows the system accent color.
     static let selection = Color.accentColor
 

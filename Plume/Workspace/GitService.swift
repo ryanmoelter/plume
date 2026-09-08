@@ -34,6 +34,10 @@ actor GitService {
         GitRunner.currentBranch(in: repository)
     }
 
+    func repositoryFacts(in repository: String) -> RepositoryFacts {
+        GitRunner.repositoryFacts(in: repository)
+    }
+
     func worktrees(in repository: String) -> [GitWorktree] {
         GitRunner.worktrees(in: repository)
     }

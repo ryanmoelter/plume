@@ -6,6 +6,9 @@ struct TaskRowView: View {
     @Binding var renamingTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
+    /// The directory this row currently holds watches on, so a path change
+    /// releases the one it took rather than whatever the task points at now.
+    @State private var watchedDirectory: String?
 
     private var isEditing: Bool { renamingTaskID == task.id }
 
@@ -16,11 +19,16 @@ struct TaskRowView: View {
         return live == .unset ? task.lastStatus : live
     }
 
-    private var detailLines: [String] {
+    private var pullRequestState: PullRequestFetchState? {
+        PullRequestStore.shared.state(for: task.workingDirectoryPath)
+    }
+
+    private var detailLines: [TaskRowDetails.Line] {
         TaskRowDetails.lines(
             status: status,
             branch: task.branchName,
-            workingDirectory: task.workingDirectoryPath
+            workingDirectory: task.workingDirectoryPath,
+            pullRequest: pullRequestState
         )
     }
 
@@ -42,12 +50,19 @@ struct TaskRowView: View {
                         .truncationMode(.tail)
                 }
 
-                ForEach(detailLines, id: \.self) { line in
-                    Text(line)
-                        .font(.caption)
-                        .emphasis(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                ForEach(Array(detailLines.enumerated()), id: \.offset) { _, line in
+                    switch line {
+                    case .text(let text):
+                        Text(text)
+                            .font(.caption)
+                            .emphasis(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    case .pullRequest(let state):
+                        PullRequestChip(state: state) {
+                            PullRequestStore.shared.checkRollup(for: task.workingDirectoryPath, of: $0)
+                        }
+                    }
                 }
             }
             Spacer(minLength: 4)
@@ -58,10 +73,35 @@ struct TaskRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(AccessibilityID.taskRow)
+        .onChange(of: task.workingDirectoryPath, initial: true) { _, current in
+            watch(current)
+        }
+        // The row keeps its own git watch: a task whose chat tab is closed
+        // still needs a branch, and the refcount makes the overlap free.
+        .onChange(of: GitStateStore.shared.state(for: watchedDirectory), initial: true) { _, gitState in
+            if let watchedDirectory {
+                PullRequestStore.shared.apply(gitState: gitState, for: watchedDirectory)
+            }
+        }
+        .onDisappear { watch(nil) }
+    }
+
+    private func watch(_ directory: String?) {
+        guard directory != watchedDirectory else { return }
+        if let watchedDirectory {
+            GitStateStore.shared.release(watchedDirectory)
+            PullRequestStore.shared.release(watchedDirectory)
+        }
+        if let directory {
+            GitStateStore.shared.watch(directory)
+            PullRequestStore.shared.watch(directory)
+        }
+        watchedDirectory = directory
     }
 
     private var accessibilityLabel: String {
-        ([TitleStore.shared.displayTitle(for: task)] + detailLines).joined(separator: ", ")
+        ([TitleStore.shared.displayTitle(for: task)]
+            + detailLines.compactMap(TaskRowDetails.accessibilityText)).joined(separator: ", ")
     }
 
     /// Clearing the name is how the user goes back to showing the agent's own

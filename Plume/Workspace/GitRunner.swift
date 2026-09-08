@@ -104,3 +104,38 @@ private extension Substring {
         hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
     }
 }
+
+/// What a repository's forge column needs to know about the repository
+/// itself, as opposed to any one branch.
+nonisolated struct RepositoryFacts: Sendable, Equatable {
+    let originURL: String?
+    /// The branch `origin/HEAD` points at, which is the trunk no row should
+    /// show a pull request for.
+    let defaultBranch: String?
+}
+
+extension GitRunner {
+    static func originURL(in repository: String) -> String? {
+        try? run(["remote", "get-url", "origin"], in: repository)
+    }
+
+    /// `origin/HEAD` is only set once someone has fetched or cloned with it,
+    /// so a repository that never got one falls back to whichever of
+    /// `main`/`master` exists as a remote branch.
+    static func defaultBranch(in repository: String) -> String? {
+        if let ref = try? run(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: repository),
+           let name = ref.split(separator: "/").last, !name.isEmpty {
+            return String(name)
+        }
+        for candidate in ["main", "master"] {
+            if (try? run(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(candidate)"], in: repository)) != nil {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    static func repositoryFacts(in repository: String) -> RepositoryFacts {
+        RepositoryFacts(originURL: originURL(in: repository), defaultBranch: defaultBranch(in: repository))
+    }
+}
