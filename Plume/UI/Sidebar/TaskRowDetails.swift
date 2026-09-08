@@ -9,27 +9,72 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
-        case pullRequest(PullRequestFetchState)
+        /// Carries its directory so the chip can ask the store for that
+        /// repository's ignored checks, not the task's.
+        case pullRequest(directory: String?, state: PullRequestFetchState)
     }
 
-    static func lines(
-        status: TaskStatus,
-        branch: String?,
-        workingDirectory: String?,
-        pullRequest: PullRequestFetchState? = nil
-    ) -> [Line] {
+    /// One open directory of a task: where it is, what it is on, and its pull
+    /// request. A task shows one of these per distinct agent-tab directory.
+    struct DirectoryGroup: Equatable {
+        var directory: String?
+        var branch: String?
+        var pullRequest: PullRequestFetchState?
+
+        init(directory: String?, branch: String? = nil, pullRequest: PullRequestFetchState? = nil) {
+            self.directory = directory
+            self.branch = branch
+            self.pullRequest = pullRequest
+        }
+    }
+
+    static func lines(status: TaskStatus, groups: [DirectoryGroup]) -> [Line] {
         var lines: [Line] = []
         if let status = statusText(status) { lines.append(.text(status)) }
-        if let branch, !branch.isEmpty { lines.append(.text(branch)) }
-        if let pullRequest, let line = pullRequestLine(pullRequest) { lines.append(line) }
-        if let directory = directoryName(workingDirectory) { lines.append(.text(directory)) }
+        for group in groups { lines.append(contentsOf: self.lines(for: group)) }
         return lines
     }
 
-    /// A state with nothing to draw takes no line — a non-GitHub origin must
-    /// not push the row taller for an empty chip.
-    static func pullRequestLine(_ state: PullRequestFetchState) -> Line? {
-        PullRequestChipContent.glyphs(for: state).isEmpty ? nil : .pullRequest(state)
+    /// Directory first: it is the header the branch and pull request under it
+    /// belong to, and it is labelled even when the task has only one.
+    static func lines(for group: DirectoryGroup) -> [Line] {
+        var lines: [Line] = []
+        if let directory = directoryName(group.directory) { lines.append(.text(directory)) }
+        if let branch = group.branch, !branch.isEmpty { lines.append(.text(branch)) }
+        if let pullRequest = group.pullRequest, showsPullRequestLine(pullRequest) {
+            lines.append(.pullRequest(directory: group.directory, state: pullRequest))
+        }
+        return lines
+    }
+
+    /// The distinct directories a task shows a group for, in the order its
+    /// agent tabs report them. Two tabs in one folder are one group; a task
+    /// whose agent tabs have reported nothing falls back to its own folder.
+    static func distinctDirectories(
+        agentTabDirectories: [String?],
+        taskDirectory: String?
+    ) -> [String] {
+        var seen: Set<String> = []
+        var directories: [String] = []
+        for directory in agentTabDirectories.compactMap({ $0 }) where !directory.isEmpty {
+            if seen.insert(directory).inserted { directories.append(directory) }
+        }
+        if directories.isEmpty, let taskDirectory, !taskDirectory.isEmpty {
+            directories = [taskDirectory]
+        }
+        return directories
+    }
+
+    /// Drawing nothing and taking no row are separate facts: these states keep
+    /// their glyphs for the accessibility label, but a row holding one faint
+    /// mark reads as dead space, so they take none. `.timedOut` and `.failed`
+    /// stay — an offline Plume must not look like a repository with no pull
+    /// requests.
+    static func showsPullRequestLine(_ state: PullRequestFetchState) -> Bool {
+        switch state {
+        case .forgeUnsupported, .noPR, .localOnly, .loading: false
+        default: !PullRequestChipContent.glyphs(for: state).isEmpty
+        }
     }
 
     /// `.unset` means no agent has ever run, which is not worth a line.
@@ -50,7 +95,7 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .pullRequest(let state): PullRequestChipContent.accessibilityText(for: state)
+        case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
         }
     }
 }
