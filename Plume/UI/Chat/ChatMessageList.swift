@@ -94,16 +94,35 @@ struct ChatMessageList: View, ThemedView {
         )
     }
 
+    /// The conversation reduced to its prompts, rebuilt beside the pieces it
+    /// reads so the markdown is parsed once.
+    @State private var outline = ChatOutline()
+
     var body: some View {
+        HStack(spacing: 0) {
+            list
+            if !outline.isEmpty {
+                ChatMinimap(outline: outline) { id in
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        position.scrollTo(id: id, anchor: .top)
+                    }
+                }
+            }
+        }
+    }
+
+    private var list: some View {
         ScrollView {
             // Lazy so a long transcript only builds the rows on screen.
             //
-            // No `ScrollViewReader` and no `scrollTo`: a programmatic scroll
-            // into a lazy stack whose rows are still estimates retargets on
-            // every placement pass, and the stack's prefetch asks for another
-            // pass each time. With a stream growing the content it never
-            // settles and pins the main thread — `docs/chat-list-hang.md`.
-            // The scroll view's own anchors follow the bottom instead.
+            // Following the newest content is the scroll view's own job,
+            // through `defaultScrollAnchor` — no `ScrollViewReader` and no
+            // per-row `.id()`. `scrollTo` is reserved for a jump the user
+            // asked for: the button below, and the minimap. The trials in
+            // `docs/chat-list-hang.md` put the hang in the lazy stack's own
+            // height estimation rather than in scrolling, so an animated
+            // jump is fine; what is not is feeding a measured height back
+            // into the piece model.
             LazyVStack(alignment: .leading, spacing: 0) {
                 // One item per piece, not per message, so no item is tall
                 // enough to make the stack's height estimates oscillate.
@@ -243,6 +262,7 @@ struct ChatMessageList: View, ThemedView {
         previousPieceIDs = ids
         previousStreaming = overlay
         pieces = rebuilt
+        outline = ChatOutlineBuilder.outline(from: rebuilt)
         #if DEBUG
         ChatItemStats.shared.record(list: statsToken, rebuild: started.duration(to: .now))
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
