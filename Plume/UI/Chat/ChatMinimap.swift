@@ -2,13 +2,15 @@ import SwiftUI
 
 /// A skimmable map of the conversation, down the right edge of the chat.
 ///
-/// The reader anchors on their own prompts, so those keep their text and the
-/// agent's replies become de-emphasized mass between them. Clicking a prompt
-/// puts that message at the top of the viewport.
+/// The reader anchors on their own input, so prompts and questions keep their
+/// text while a whole run of agent output between two of them collapses into
+/// one tinted area. Clicking an entry puts it at the top of the viewport.
 struct ChatMinimap: View, ThemedView {
     @Environment(\.theme) var theme
 
     let outline: ChatOutline
+    /// The piece ids on screen, so the reader can see where they are.
+    var visiblePieceIDs: Set<String> = []
     /// Scrolls the list to a piece id.
     let onSelect: (String) -> Void
 
@@ -18,8 +20,8 @@ struct ChatMinimap: View, ThemedView {
     static let width: CGFloat = 168
 
     var body: some View {
-        // Weights are relative, so the whole conversation is laid out as
-        // fractions of the height available rather than at any fixed scale.
+        // Weights are relative, so the conversation is laid out as fractions
+        // of the height available rather than at any fixed scale.
         GeometryReader { proxy in
             let scale = proxy.size.height / outline.totalWeight
             VStack(alignment: .leading, spacing: Self.entrySpacing) {
@@ -27,6 +29,7 @@ struct ChatMinimap: View, ThemedView {
                     ChatMinimapEntryView(
                         entry: entry,
                         height: max(Self.minimumEntryHeight, entry.weight * scale),
+                        isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
                         onSelect: onSelect
                     )
                 }
@@ -43,42 +46,47 @@ struct ChatMinimap: View, ThemedView {
     /// that neighbouring entries do not merge.
     private static let entrySpacing: CGFloat = 2
 
-    /// The shortest an entry draws, so a brief message stays clickable
-    /// however long the conversation grows around it.
+    /// The shortest an entry draws, so a brief one stays clickable however
+    /// long the conversation grows around it.
     private static let minimumEntryHeight: CGFloat = 3
 
     private static let edgeInset: CGFloat = 8
 }
 
-/// One message in the map: a legible line for a prompt, a tinted block for
-/// anything else.
+/// One entry: a legible line for something the user said or was asked, a
+/// tinted area for a run of the agent's output.
 private struct ChatMinimapEntryView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let entry: ChatOutline.Entry
     let height: CGFloat
+    /// Whether any of what this entry covers is on screen.
+    let isVisible: Bool
     let onSelect: (String) -> Void
 
     var body: some View {
         Button { onSelect(entry.id) } label: {
             switch entry.kind {
             case .prompt(let text):
-                prompt(text)
-            case .response, .notice:
-                block
+                label(text)
+            case .question(let text):
+                label(text)
+            case .response:
+                area
             }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityID.chatMinimapEntry)
     }
 
-    /// A prompt is the thing being scanned for, so it takes its natural line
-    /// height rather than its share of the conversation — a one-line question
-    /// between two long replies has to stay readable.
-    private func prompt(_ text: String) -> some View {
+    /// User input takes its natural line height rather than its share of the
+    /// conversation: a one-line question between two long replies is the
+    /// landmark being scanned for, so it has to stay readable.
+    private func label(_ text: String) -> some View {
         Text(text.isEmpty ? "…" : text)
             .font(typography.caption.font)
-            .emphasis(.primary)
+            .fontWeight(isVisible ? .semibold : .regular)
+            .emphasis(isVisible ? .primary : .secondary)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,9 +95,9 @@ private struct ChatMinimapEntryView: View, ThemedView {
             .help(text)
     }
 
-    private var block: some View {
+    private var area: some View {
         RoundedRectangle(cornerRadius: 1.5)
-            .fill(colors.surface(entry.kind == .notice ? .divider : .backgroundTint))
+            .fill(colors.surface(isVisible ? .disabled : .backgroundTint))
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)

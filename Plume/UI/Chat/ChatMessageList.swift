@@ -98,11 +98,17 @@ struct ChatMessageList: View, ThemedView {
     /// reads so the markdown is parsed once.
     @State private var outline = ChatOutline()
 
+    /// The piece ids currently on screen, so the map can mark where the
+    /// reader is. Reported by the scroll view in one callback rather than by
+    /// a per-row visibility observer, which would be one observer per
+    /// realized item.
+    @State private var visiblePieceIDs: Set<String> = []
+
     var body: some View {
         HStack(spacing: 0) {
             list
             if !outline.isEmpty {
-                ChatMinimap(outline: outline) { id in
+                ChatMinimap(outline: outline, visiblePieceIDs: visiblePieceIDs) { id in
                     withAnimation(.easeInOut(duration: 0.25)) {
                         position.scrollTo(id: id, anchor: .top)
                     }
@@ -181,6 +187,9 @@ struct ChatMessageList: View, ThemedView {
         .onChange(of: streaming) { rebuildPieces() }
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .scrollPosition($position)
+        .onScrollTargetVisibilityChange(idType: String.self) { ids in
+            visiblePieceIDs = Set(ids)
+        }
         .defaultScrollAnchor(.bottom)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
