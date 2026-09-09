@@ -94,10 +94,7 @@ private struct ChatMinimapEntryView: View, ThemedView {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityID.chatMinimapEntry)
-        // One driver for both halves of the emphasis, so the weight and the
-        // darkening arrive together rather than the color easing while the
-        // weight snaps.
-        .modifier(MinimapEmphasis(progress: isVisible ? 1 : 0))
+        .modifier(MinimapEmphasis(progress: isVisible ? 1 : 0, ceiling: entry.kind.minimapOpacityCeiling))
         .animation(.easeOut(duration: 0.2), value: isVisible)
     }
 
@@ -125,13 +122,19 @@ private struct ChatMinimapEntryView: View, ThemedView {
 
 /// Fades an entry between its resting and on-screen emphasis.
 ///
-/// `Emphasis` resolves to a `HierarchicalShapeStyle` and `fontWeight` takes a
-/// discrete `Font.Weight`, neither of which interpolates — so both would snap
-/// while anything else on the row eased. Driving a single animatable fraction
-/// and deriving a concrete opacity and weight from it animates the pair
-/// together.
+/// `Emphasis` resolves to a `HierarchicalShapeStyle`, which does not
+/// interpolate, so it would snap while anything else on the row eased.
+/// Driving a single animatable fraction and deriving a concrete opacity from
+/// it lets the emphasis ease.
+///
+/// Only the color carries the emphasis. Weight is deliberately left alone:
+/// the map is a column of text the reader scans while scrolling, and
+/// re-weighting a line reflows its glyphs, so entries would shift under the
+/// eye as the viewport moves across them.
 private struct MinimapEmphasis: ViewModifier, Animatable {
     var progress: Double
+    /// The most this entry ever asserts itself.
+    var ceiling: Double
 
     var animatableData: Double {
         get { progress }
@@ -139,13 +142,21 @@ private struct MinimapEmphasis: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        content
-            .foregroundStyle(.primary.opacity(Self.restingOpacity + progress * Self.emphasisRange))
-            .fontWeight(progress > 0.5 ? .semibold : .regular)
+        content.foregroundStyle(.primary.opacity(ceiling * (Self.restingFraction + progress * Self.emphasisRange)))
     }
 
-    /// What an off-screen entry reads at. The map is supporting chrome, so
-    /// even its resting state sits below body text.
-    private static let restingOpacity: Double = 0.4
+    /// What an off-screen entry reads at, as a fraction of its ceiling. The
+    /// map is supporting chrome, so even its emphasized state sits below body
+    /// text.
+    private static let restingFraction: Double = 0.4
     private static let emphasisRange: Double = 0.6
+}
+
+private extension ChatOutline.Kind {
+    /// A response draws as a filled shape rather than glyphs, and a solid
+    /// area reads far heavier than a line of text at the same opacity. Sitting
+    /// it below the prompts keeps them the thing the eye lands on.
+    var minimapOpacityCeiling: Double {
+        isUserInput ? 1 : 0.45
+    }
 }

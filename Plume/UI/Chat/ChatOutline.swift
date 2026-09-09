@@ -106,29 +106,33 @@ enum ChatOutlineBuilder {
     /// two of them.
     static let minimumWeight: CGFloat = 4
 
-    /// How much of a run's real size survives compression. Raising it makes
-    /// the map more literal, lowering it more even.
-    static let compressionScale: CGFloat = 60
+    /// The raw weight at which compression starts to bite — the knee of the
+    /// curve. A run well under this draws at close to its true relative size;
+    /// one well over it grows only as fast as the logarithm. Raise it to keep
+    /// more of the realistic range proportional, lower it to even everything
+    /// out sooner.
+    static let compressionKnee: CGFloat = 120
 
-    /// How far a compressed run is then scaled down against the prompts.
-    /// The map is for finding prompts, so a response should read as the
-    /// distance between two of them rather than competing with them.
-    static let responseScale: CGFloat = 0.1
+    /// How tall a run one knee-width long draws. The whole curve scales with
+    /// this, so it sets the size of responses against a prompt's fixed
+    /// `promptWeight` without changing their shape relative to each other.
+    static let responseScale: CGFloat = 6
 
     /// Compresses a run of agent output into the room it gets on the map.
     ///
-    /// Two things at once. Response lengths run to orders of magnitude — a
-    /// one-line answer against a turn with forty tool calls — so at true
-    /// scale the longest runs own the map entirely; the logarithm pulls that
-    /// range in while staying monotonic, so a longer run is still always
-    /// taller than a shorter one. And the result is deliberately small
-    /// against a prompt's line of text, because the prompts are what the
-    /// reader is scanning for and the responses are the distance between
-    /// them.
+    /// Response lengths run to orders of magnitude — a one-line answer
+    /// against a turn with forty tool calls — so at true scale the longest
+    /// runs own the map entirely. The logarithm pulls that range in while
+    /// staying monotonic, so a longer run is still always taller than a
+    /// shorter one.
+    ///
+    /// The base is fixed at 2 because it is not a free parameter: changing it
+    /// only multiplies the result by a constant, which is what
+    /// `responseScale` already does. Shape and size are the two knobs, and
+    /// they are `compressionKnee` and `responseScale`.
     static func compress(_ weight: CGFloat) -> CGFloat {
         guard weight > 0 else { return minimumWeight }
-        let compressed = compressionScale * log2(1 + weight / compressionScale)
-        return max(minimumWeight, compressed * responseScale)
+        return max(minimumWeight, responseScale * log2(1 + weight / compressionKnee))
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
