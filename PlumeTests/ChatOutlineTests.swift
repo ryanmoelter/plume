@@ -275,11 +275,33 @@ struct ChatOutlineTests {
 
     @Test func aToolCallWeighsItsRowRatherThanItsText() throws {
         // A collapsed call draws one short row whatever it contains, so its
-        // input length says nothing about the room it takes.
-        let result = outline([message("a", .assistant, [toolCall("t1"), toolCall("t2")])])
+        // input length says nothing about the room it takes. Two identical
+        // calls therefore weigh the same as two of any other call, however
+        // much text they carry.
+        let brief = outline([message("a", .assistant, [toolCall("t1"), toolCall("t2")])])
+        var verbose = ToolCall(
+            id: "t3",
+            name: "Read",
+            summary: ToolCallSummary(name: "Read", detail: "a file"),
+            input: .json(String(repeating: "x", count: 5_000))
+        )
+        verbose.result = String(repeating: "y", count: 5_000)
+        let wordy = outline([message("a", .assistant, [toolCall("t1"), .toolCall(verbose)])])
 
-        let weight = try #require(result.entries.first?.weight)
-        #expect(weight == ChatOutlineBuilder.toolCallWeight * 2)
+        #expect(try #require(brief.entries.first?.weight) == #require(wordy.entries.first?.weight))
+    }
+
+    @Test func aPromptOutweighsATypicalResponse() throws {
+        // The map is for finding prompts, so a response reads as the
+        // distance between two of them rather than competing with them.
+        let result = outline([
+            message("a", .user, [.markdown("Ask.")]),
+            message("b", .assistant, [.markdown(String(repeating: "A reply. ", count: 20))])
+        ])
+
+        let prompt = try #require(result.entries.first)
+        let response = try #require(result.entries.last)
+        #expect(prompt.weight > response.weight)
     }
 
     @Test func anAreasPiecesSumIntoOneWeight() throws {

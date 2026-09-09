@@ -95,24 +95,40 @@ enum ChatOutlineBuilder {
     /// characters are base64 and would otherwise dwarf everything.
     static let imageWeight: CGFloat = 200
 
-    /// The floor for any entry, so a brief one is still clickable.
-    static let minimumWeight: CGFloat = 20
+    /// What a prompt occupies. It draws as one line of text whatever its
+    /// length, so a fixed weight is what keeps the map's own geometry —
+    /// which is what the scroll position is read from — agreeing with what
+    /// is actually on screen.
+    static let promptWeight: CGFloat = 22
+
+    /// The floor for a run of responses. Small: the map exists to find
+    /// prompts, so a response only has to show that *something* sits between
+    /// two of them.
+    static let minimumWeight: CGFloat = 4
 
     /// How much of a run's real size survives compression. Raising it makes
     /// the map more literal, lowering it more even.
     static let compressionScale: CGFloat = 60
 
-    /// Compresses a raw weight logarithmically.
+    /// How far a compressed run is then scaled down against the prompts.
+    /// The map is for finding prompts, so a response should read as the
+    /// distance between two of them rather than competing with them.
+    static let responseScale: CGFloat = 0.1
+
+    /// Compresses a run of agent output into the room it gets on the map.
     ///
-    /// Response lengths run to orders of magnitude — a one-line answer
-    /// against a turn with forty tool calls — and at true scale the longest
-    /// runs own the map while everything else is too small to read or click.
-    /// Growth stays monotonic, so a longer run is always taller than a
-    /// shorter one; it simply stops being proportional.
+    /// Two things at once. Response lengths run to orders of magnitude — a
+    /// one-line answer against a turn with forty tool calls — so at true
+    /// scale the longest runs own the map entirely; the logarithm pulls that
+    /// range in while staying monotonic, so a longer run is still always
+    /// taller than a shorter one. And the result is deliberately small
+    /// against a prompt's line of text, because the prompts are what the
+    /// reader is scanning for and the responses are the distance between
+    /// them.
     static func compress(_ weight: CGFloat) -> CGFloat {
-        guard weight > minimumWeight else { return minimumWeight }
-        let excess = weight - minimumWeight
-        return minimumWeight + compressionScale * log2(1 + excess / compressionScale)
+        guard weight > 0 else { return minimumWeight }
+        let compressed = compressionScale * log2(1 + weight / compressionScale)
+        return max(minimumWeight, compressed * responseScale)
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
@@ -166,7 +182,9 @@ enum ChatOutlineBuilder {
         }
 
         for index in entries.indices {
-            entries[index].weight = compress(entries[index].weight)
+            entries[index].weight = entries[index].kind.isUserInput
+                ? promptWeight
+                : compress(entries[index].weight)
         }
         return ChatOutline(entries: entries)
     }
