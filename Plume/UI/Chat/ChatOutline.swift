@@ -14,6 +14,9 @@ struct ChatOutline: Equatable {
         /// The id of the piece to scroll to, which is the first of whatever
         /// this entry covers.
         var id: String
+        /// The message this entry starts in, so a prompt long enough to split
+        /// across pieces stays one landmark.
+        var messageID: String
         var kind: Kind
         /// How much room this entry takes in the conversation, relative to
         /// the other entries. Never a measured layout height.
@@ -30,6 +33,10 @@ struct ChatOutline: Equatable {
         case question(String)
         /// Everything the agent produced between two pieces of user input.
         case response
+
+        /// Whether the user said this or was asked it, as opposed to the
+        /// agent's own output.
+        var isUserInput: Bool { self != .response }
     }
 
     var isEmpty: Bool { entries.isEmpty }
@@ -67,6 +74,23 @@ enum ChatOutlineBuilder {
     /// The floor for any entry, so a brief one is still clickable.
     static let minimumWeight: CGFloat = 20
 
+    /// How much of a run's real size survives compression. Raising it makes
+    /// the map more literal, lowering it more even.
+    static let compressionScale: CGFloat = 60
+
+    /// Compresses a raw weight logarithmically.
+    ///
+    /// Response lengths run to orders of magnitude — a one-line answer
+    /// against a turn with forty tool calls — and at true scale the longest
+    /// runs own the map while everything else is too small to read or click.
+    /// Growth stays monotonic, so a longer run is always taller than a
+    /// shorter one; it simply stops being proportional.
+    static func compress(_ weight: CGFloat) -> CGFloat {
+        guard weight > minimumWeight else { return minimumWeight }
+        let excess = weight - minimumWeight
+        return minimumWeight + compressionScale * log2(1 + excess / compressionScale)
+    }
+
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
         var entries: [ChatOutline.Entry] = []
 
@@ -77,9 +101,19 @@ enum ChatOutlineBuilder {
             let weight = self.weight(of: piece)
 
             if let kind = userInputKind(of: piece) {
+                // A prompt long enough to split across pieces is still one
+                // thing the user said, so the later pieces join the entry
+                // rather than repeating it down the map. Its text and its
+                // scroll target stay the first piece's, which is where the
+                // prompt starts.
+                if let last = entries.last, last.kind.isUserInput, last.messageID == piece.messageID {
+                    entries[entries.count - 1].pieceIDs.insert(piece.id)
+                    continue
+                }
                 entries.append(
                     ChatOutline.Entry(
                         id: piece.id,
+                        messageID: piece.messageID,
                         kind: kind,
                         weight: weight,
                         pieceIDs: [piece.id]
@@ -98,6 +132,7 @@ enum ChatOutlineBuilder {
                 entries.append(
                     ChatOutline.Entry(
                         id: piece.id,
+                        messageID: piece.messageID,
                         kind: .response,
                         weight: weight,
                         pieceIDs: [piece.id]
@@ -107,7 +142,7 @@ enum ChatOutlineBuilder {
         }
 
         for index in entries.indices {
-            entries[index].weight = max(minimumWeight, entries[index].weight)
+            entries[index].weight = compress(entries[index].weight)
         }
         return ChatOutline(entries: entries)
     }

@@ -67,9 +67,7 @@ private struct ChatMinimapEntryView: View, ThemedView {
     var body: some View {
         Button { onSelect(entry.id) } label: {
             switch entry.kind {
-            case .prompt(let text):
-                label(text)
-            case .question(let text):
+            case .prompt(let text), .question(let text):
                 label(text)
             case .response:
                 area
@@ -77,6 +75,11 @@ private struct ChatMinimapEntryView: View, ThemedView {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(AccessibilityID.chatMinimapEntry)
+        // One driver for both halves of the emphasis, so the weight and the
+        // darkening arrive together rather than the color easing while the
+        // weight snaps.
+        .modifier(MinimapEmphasis(progress: isVisible ? 1 : 0))
+        .animation(.easeOut(duration: 0.2), value: isVisible)
     }
 
     /// User input takes its natural line height rather than its share of the
@@ -85,8 +88,6 @@ private struct ChatMinimapEntryView: View, ThemedView {
     private func label(_ text: String) -> some View {
         Text(text.isEmpty ? "…" : text)
             .font(typography.caption.font)
-            .fontWeight(isVisible ? .semibold : .regular)
-            .emphasis(isVisible ? .primary : .secondary)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,9 +98,35 @@ private struct ChatMinimapEntryView: View, ThemedView {
 
     private var area: some View {
         RoundedRectangle(cornerRadius: 1.5)
-            .fill(colors.surface(isVisible ? .disabled : .backgroundTint))
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
     }
+}
+
+/// Fades an entry between its resting and on-screen emphasis.
+///
+/// `Emphasis` resolves to a `HierarchicalShapeStyle` and `fontWeight` takes a
+/// discrete `Font.Weight`, neither of which interpolates — so both would snap
+/// while anything else on the row eased. Driving a single animatable fraction
+/// and deriving a concrete opacity and weight from it animates the pair
+/// together.
+private struct MinimapEmphasis: ViewModifier, Animatable {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(.primary.opacity(Self.restingOpacity + progress * Self.emphasisRange))
+            .fontWeight(progress > 0.5 ? .semibold : .regular)
+    }
+
+    /// What an off-screen entry reads at. The map is supporting chrome, so
+    /// even its resting state sits below body text.
+    private static let restingOpacity: Double = 0.4
+    private static let emphasisRange: Double = 0.6
 }

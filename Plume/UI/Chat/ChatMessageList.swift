@@ -166,16 +166,6 @@ struct ChatMessageList: View, ThemedView {
                         .listItemPadding(bleed: true, column: .unpadded)
                         .animatedHeight(enabled: settings.animateChatMotion)
                 }
-                // The room the floating composer panel covers. Eased on the
-                // leaf, so a composer that grows a line slides the
-                // conversation instead of snapping it, and the transaction
-                // reaches nothing else.
-                Color.clear
-                    .frame(height: bottomPadding + floatingPanelHeight)
-                    .animation(
-                        settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
-                        value: floatingPanelHeight
-                    )
             }
             .scrollTargetLayout()
         }
@@ -187,6 +177,17 @@ struct ChatMessageList: View, ThemedView {
         .onChange(of: streaming) { rebuildPieces() }
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .scrollPosition($position)
+        // The room the floating composer panel covers, as a content margin
+        // rather than a spacer row. A spacer inside `scrollTargetLayout` is
+        // itself a scroll target, and the region it occupies still counts as
+        // viewport — so a piece behind the glass read as visible and the
+        // minimap marked the reader's place too far down. Eased so a
+        // composer that gains a line slides the conversation.
+        .contentMargins(.bottom, bottomPadding + floatingPanelHeight, for: .scrollContent)
+        .animation(
+            settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
+            value: floatingPanelHeight
+        )
         .onScrollTargetVisibilityChange(idType: String.self) { ids in
             visiblePieceIDs = Set(ids)
         }

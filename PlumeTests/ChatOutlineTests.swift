@@ -164,7 +164,43 @@ struct ChatOutlineTests {
         #expect(result.entries.map(\.kind) == [.question("Which approach?")])
     }
 
+    @Test func aMultiPiecePromptIsOneEntry() throws {
+        // A long prompt splits into several pieces, but the user said it
+        // once, so the map marks it once.
+        let long = String(repeating: "Some words to wrap. ", count: 30)
+        let result = outline([
+            message("a", .user, [.markdown("\(long)\n\n\(long)\n\n\(long)")])
+        ])
+
+        #expect(result.entries.count == 1)
+        let entry = try #require(result.entries.first)
+        #expect(entry.kind.isUserInput)
+        // It still covers every piece it split into, so scrolling through
+        // any of them keeps the entry marked.
+        #expect(entry.pieceIDs.count > 1)
+    }
+
+    @Test func anEntryScrollsToWhereItStarts() throws {
+        let long = String(repeating: "Some words to wrap. ", count: 30)
+        let all = pieces([message("a", .user, [.markdown("\(long)\n\n\(long)")])])
+        let result = ChatOutlineBuilder.outline(from: all)
+
+        #expect(result.entries.first?.id == all.first?.id)
+    }
+
     // MARK: - Weight
+
+    @Test func weightGrowsWithLengthButNotProportionally() {
+        // A response ten times longer must read as bigger, without owning
+        // the whole map.
+        let small = ChatOutlineBuilder.compress(100)
+        let large = ChatOutlineBuilder.compress(1_000)
+        let huge = ChatOutlineBuilder.compress(10_000)
+
+        #expect(small < large)
+        #expect(large < huge)
+        #expect(huge / small < 10)
+    }
 
     @Test func alongerReplyOutweighsAShorterOne() throws {
         let brief = outline([message("a", .assistant, [.markdown("Brief.")])])
