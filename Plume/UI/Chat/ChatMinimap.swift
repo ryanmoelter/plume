@@ -19,22 +19,41 @@ struct ChatMinimap: View, ThemedView {
     /// minimum.
     static let width: CGFloat = 168
 
+    /// Follows the conversation rather than being scrolled by hand.
+    @State private var position = ScrollPosition(edge: .top)
+
     var body: some View {
-        // Weights are relative, so the conversation is laid out as fractions
-        // of the height available rather than at any fixed scale.
         GeometryReader { proxy in
-            let scale = proxy.size.height / outline.totalWeight
-            VStack(alignment: .leading, spacing: Self.entrySpacing) {
-                ForEach(outline.entries) { entry in
-                    ChatMinimapEntryView(
-                        entry: entry,
-                        height: max(Self.minimumEntryHeight, entry.weight * scale),
-                        isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
-                        onSelect: onSelect
-                    )
+            // Entries take their natural size until the map outgrows the
+            // pane; past that it scrolls rather than compressing every entry
+            // into illegibility.
+            let scale = max(1, proxy.size.height / outline.totalWeight)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Self.entrySpacing) {
+                    ForEach(outline.entries) { entry in
+                        ChatMinimapEntryView(
+                            entry: entry,
+                            height: max(Self.minimumEntryHeight, entry.weight * scale),
+                            isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
+                            onSelect: onSelect
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .scrollPosition($position)
+            // Kept where the reader is, from the map's own geometry rather
+            // than the chat's uneven offset.
+            .onChange(of: outline.position(of: visiblePieceIDs)) { _, fraction in
+                guard let fraction else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    position.scrollTo(point: CGPoint(
+                        x: 0,
+                        y: max(0, outline.totalWeight * scale * fraction - proxy.size.height / 2)
+                    ))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: Self.width)
         .padding(.vertical, dimensions.verticalPadding)

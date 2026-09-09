@@ -188,6 +188,50 @@ struct ChatOutlineTests {
         #expect(result.entries.first?.id == all.first?.id)
     }
 
+    // MARK: - Where the reader is
+
+    @Test func positionRunsFromTopToBottom() throws {
+        let result = outline([
+            message("a", .user, [.markdown("First.")]),
+            message("b", .assistant, [.markdown("Reply.")]),
+            message("c", .user, [.markdown("Last.")])
+        ])
+
+        let first = try #require(result.entries.first)
+        let last = try #require(result.entries.last)
+        let top = try #require(result.position(of: first.pieceIDs))
+        let bottom = try #require(result.position(of: last.pieceIDs))
+
+        #expect(top < bottom)
+        #expect(top >= 0)
+        #expect(bottom <= 1)
+    }
+
+    @Test func severalVisibleEntriesAverage() throws {
+        let result = outline([
+            message("a", .user, [.markdown("First.")]),
+            message("b", .assistant, [.markdown("Reply.")]),
+            message("c", .user, [.markdown("Last.")])
+        ])
+
+        let first = try #require(result.entries.first)
+        let last = try #require(result.entries.last)
+        let top = try #require(result.position(of: first.pieceIDs))
+        let bottom = try #require(result.position(of: last.pieceIDs))
+        let both = try #require(result.position(of: first.pieceIDs.union(last.pieceIDs)))
+
+        #expect(both > top)
+        #expect(both < bottom)
+    }
+
+    @Test func nothingVisibleHasNoPosition() {
+        let result = outline([message("a", .user, [.markdown("Only.")])])
+
+        #expect(result.position(of: []) == nil)
+        #expect(result.position(of: ["not-a-piece"]) == nil)
+        #expect(ChatOutline().position(of: ["anything"]) == nil)
+    }
+
     // MARK: - Weight
 
     @Test func weightGrowsWithLengthButNotProportionally() {

@@ -41,6 +41,30 @@ struct ChatOutline: Equatable {
 
     var isEmpty: Bool { entries.isEmpty }
 
+    /// Where the given pieces sit in the map, as a 0...1 fraction of its
+    /// height, or nil when none of them are in it.
+    ///
+    /// Read from the map's own weight space rather than from the chat's
+    /// scroll offset. The chat's items are wildly uneven, so its offset moves
+    /// in jumps that would make the map twitch; the map's own space is
+    /// smooth, because that is exactly what compressing the weights bought.
+    /// Several visible pieces average, so the mark tracks the middle of what
+    /// is on screen rather than snapping between its edges.
+    func position(of pieceIDs: Set<String>) -> CGFloat? {
+        guard !pieceIDs.isEmpty, !entries.isEmpty else { return nil }
+        let total = totalWeight
+        var offset: CGFloat = 0
+        var centers: [CGFloat] = []
+        for entry in entries {
+            if !entry.pieceIDs.isDisjoint(with: pieceIDs) {
+                centers.append((offset + entry.weight / 2) / total)
+            }
+            offset += entry.weight
+        }
+        guard !centers.isEmpty else { return nil }
+        return centers.reduce(0, +) / CGFloat(centers.count)
+    }
+
     /// Guarded against zero so a caller can always divide by it.
     var totalWeight: CGFloat {
         max(1, entries.reduce(0) { $0 + $1.weight })

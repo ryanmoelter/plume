@@ -104,6 +104,19 @@ struct ChatMessageList: View, ThemedView {
     /// realized item.
     @State private var visiblePieceIDs: Set<String> = []
 
+    /// The viewport's height, as the scroll view last reported it. Only
+    /// `jumpRoom` reads it, and it changes when the window resizes rather
+    /// than while scrolling.
+    @State private var viewportHeight: CGFloat = 0
+
+    /// Blank space below the last message, so a jump can put any piece at the
+    /// top. A viewport's worth is the most any single jump needs; the
+    /// composer's own room is already a content margin, so it is not counted
+    /// twice.
+    private var jumpRoom: CGFloat {
+        max(0, viewportHeight - bottomPadding - floatingPanelHeight)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             list
@@ -168,6 +181,16 @@ struct ChatMessageList: View, ThemedView {
                 }
             }
             .scrollTargetLayout()
+            // Room below the last message so any piece can reach the top of
+            // the viewport. Without it the scroll view runs out of travel
+            // and a jump to one of the last few pieces lands mid-screen —
+            // the reader asked to read a prompt and its reply, so both have
+            // to be able to get up there. Outside `scrollTargetLayout`, so
+            // the blank space is never itself something to scroll to or a
+            // piece the visibility callback reports.
+            Color.clear
+                .frame(height: jumpRoom)
+                .allowsHitTesting(false)
         }
         .environment(\.revealClock, revealClock)
         .chatItemStatsViewport(list: statsToken)
@@ -204,6 +227,7 @@ struct ChatMessageList: View, ThemedView {
             // list keeps reporting geometry. Its viewport measures zero,
             // which reads as a huge distance from the bottom.
             guard new.viewportHeight > 0 else { return }
+            if viewportHeight != new.viewportHeight { viewportHeight = new.viewportHeight }
             if ChatScrollAnchor.reflectsUserScroll(
                 previousContentHeight: old.contentHeight,
                 newContentHeight: new.contentHeight
