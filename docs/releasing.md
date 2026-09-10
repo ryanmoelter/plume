@@ -1,6 +1,6 @@
 # Releasing
 
-Plume currently ships one way: a local install on the machine that builds it. There is no archive, no notarization, and no DMG. This document covers that path only — public distribution is a separate problem, sketched at the end.
+Plume ships two ways. A **local install** on the machine that builds it — no archive, no notarization, no DMG — which is how Ryan installs it on his own Macs, and is what most of this document covers. And a **shared build** for other people, which needs a Developer ID signature and notarization; that path is at the end, and `scripts/package-release.sh` runs it.
 
 ## What a local release is
 
@@ -103,12 +103,74 @@ Installing a new build does not touch it — that is the point, and it is what m
 
 To test first-run behavior, quit the app and delete the store.
 
-## Not yet: public distribution
+## Sharing a build with other people
 
-Shipping to another Mac needs more than this document covers. The shape of it:
+The local path above signs with an Apple Development identity, which Gatekeeper accepts only on the machine that signed it. Another Mac shows "Plume is damaged and can't be opened" — a misleading way of saying the signature is not valid there. Sharing a build means a **Developer ID Application** signature, notarization, and a stapled ticket.
 
-- A **Developer ID Application** certificate, which this machine does not have — only Apple Development identities. Gatekeeper rejects a Development-signed app on any other machine.
-- **Notarization** and stapling, which is why `ENABLE_HARDENED_RUNTIME = YES` is already set.
-- A DMG or ZIP, and somewhere to host it.
+`scripts/package-release.sh` does all of it: builds Release, re-signs with Developer ID, notarizes, builds a drag-to-install DMG, notarizes that too, verifies both, and opens a **draft** GitHub release with the DMG attached. Nothing is public until you publish the draft.
 
-The static link means there is still nothing to embed, so the packaging step stays simple whenever this becomes worth doing.
+**Hardened runtime is not new here.** `ENABLE_HARDENED_RUNTIME = YES` applies at signing, not at notarization, so every local Release install has already enforced it — `codesign -d` reports `flags=0x10000(runtime)`. Plume spawns PTYs, launches `claude`, and runs `git worktree` under it today. Hardened runtime restricts what is done *to* the process (code injection, unsigned library loads, JIT), not the processes it spawns, which is why there is no `.entitlements` file and none is needed. Notarization adds a malware scan and a Gatekeeper ticket, not new runtime restrictions.
+
+### One-time setup
+
+1. **A Developer ID Application certificate.** Xcode → Settings → Accounts → Manage Certificates → **+** → Developer ID Application. Check with `security find-identity -v -p codesigning`; the script picks the identity up itself.
+2. **An app-specific password** from appleid.apple.com. Notarization rejects the account password.
+3. **A notary keychain profile**, so the password stays out of the repo and out of shell history:
+
+   ```
+   xcrun notarytool store-credentials plume-notary \
+     --apple-id <apple id> --team-id U6J478KTGV --password <app-specific password>
+   ```
+
+4. **`brew install create-dmg`.**
+
+The script checks all four before building and names the fix for whichever is missing.
+
+### Running it
+
+```
+scripts/package-release.sh
+```
+
+It refuses on a dirty tree, so commit the version bump first. Notarization is two round trips to Apple, a few minutes each. Output goes to `/tmp/plume-package.log` (override with `LOG`) and the DMG to `out/` (override with `OUT`).
+
+Then review the draft on GitHub and publish it:
+
+```
+gh release edit v0.5.0 --draft=false
+```
+
+The version comes from the app target's `MARKETING_VERSION`, and the tag is `v<version>`. `gh` creates the tag from `HEAD` if it does not exist, so this replaces step 4's manual tagging when you are shipping a DMG.
+
+### Why the DMG is notarized separately
+
+Gatekeeper evaluates the *downloaded file*. A stapled app inside an unnotarized DMG still warns the first time someone opens it, and that failure is invisible on the machine that built it — the build machine has no quarantine attribute to trigger it. The script notarizes and staples both, then verifies both. To check by hand, simulate a download:
+
+```
+xattr -w com.apple.quarantine "0081;00000000;Safari;" out/Plume-0.5.0.dmg
+spctl -a -vvv --type open --context context:primary-signature out/Plume-0.5.0.dmg
+```
+
+Expect `accepted` and `source=Notarized Developer ID`. An `Apple Development` authority in `codesign -d` output means the re-sign silently did not take.
+
+**The real check is someone else's Mac.** Every check above can pass on the build machine while a signing mistake still bites elsewhere. Have one person install before announcing it broadly.
+
+### What to tell people
+
+Open the DMG, drag Plume to Applications. A correctly notarized build opens normally — **if anyone needs the right-click → Open workaround, the notarization is broken**, and that is the signal to check it rather than to talk them through the workaround.
+
+First launch prompts for permissions this machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
+
+## Bundle ID and signing team migration
+
+Plume is expected to move to company ownership, with the bundle ID becoming `com.gingerlabs.plume` and the signing team changing to the work one. Neither blocks distribution, and they are independent knobs.
+
+**Signing team: free to change.** Nothing user-visible depends on it. A Mac cares that the signature is valid and notarized, not which team produced it. There is no auto-updater pinning a team ID.
+
+**Bundle ID: preserves data, resets preferences.** `AppPaths.directoryName` keys only off the `.debug` suffix and otherwise returns a hardcoded `"Plume"`, so the store path is not derived from the bundle ID. Tasks, groups and tabs survive a rename. What resets is the state macOS keys by bundle ID:
+
+- `UserDefaults` / `AppSettings` — window state and everything in the settings pane
+- Accessibility and automation permission grants, which prompt again
+- Login Items
+
+Warn people on that build. Shipping the rename and the team change together makes it one disruption instead of two.

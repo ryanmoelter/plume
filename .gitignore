@@ -6,3 +6,4 @@ xcuserdata/
 *.moved-aside
 *.profraw
 .swiftpm/
+out/
