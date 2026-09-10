@@ -10,6 +10,13 @@ import Foundation
 struct ChatPiece: Identifiable, Equatable {
     /// Deterministic from the message id and the block's original index, so a
     /// re-parse or a tool result landing keeps a row's view state alive.
+    ///
+    /// Unique across kinds by the depth of the path rather than by naming the
+    /// kind: `<message>/<block>` for a whole block, one component deeper for a
+    /// markdown block within it, one deeper again for a segment of a split
+    /// one. Every component is an `Int`, so no shorter path can collide with a
+    /// longer one. A duplicate here is a hang rather than a visible glitch, so
+    /// `ChatPieceSplitterTests` asserts it.
     var id: String
     var messageID: String
     var role: ChatMessage.Role

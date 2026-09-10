@@ -98,6 +98,52 @@ struct ChatPieceSplitterTests {
         #expect(first[0].content == second[0].content)
     }
 
+    /// Ids must be unique across every kind of piece, because a duplicate id
+    /// in the `ForEach` thrashes the lazy stack's layout into the same freeze
+    /// `docs/chat-list-hang.md` records — a hang, with nothing visibly wrong.
+    ///
+    /// What keeps them unique is the depth of the `/`-separated path, not the
+    /// kind: one component past the message id for a whole block, two for a
+    /// markdown block inside it, three for a segment of a split one. Every
+    /// component is an `Int`, so a shorter path can never equal a longer one.
+    @Test func everyPieceIDIsUniqueAcrossKinds() {
+        let longList = (1...40).map { "- item \($0)" }.joined(separator: "\n")
+        let result = pieces(
+            [
+                message("a", .assistant, [
+                    .markdown("One.\n\nTwo.\n\nThree."),
+                    .thinking("Considering."),
+                    toolCall("t1"),
+                    .image(ChatImage(mediaType: "image/png", base64: "abc")),
+                    .markdown("Intro.\n\n" + longList)
+                ]),
+                message("b", .user, [
+                    .injected(.slashCommand(name: "clear"), text: "/clear"),
+                    .markdown("go")
+                ]),
+                message("c", .notice, [
+                    .notice(ChatNotice(kind: .compaction, title: "Compacted", detail: nil))
+                ]),
+                message("d", .assistant, [.markdown("Nearly done.")])
+            ],
+            status: .working,
+            streaming: ChatStreamHandoff.Overlay(
+                thinking: "Thinking out loud.",
+                text: "Settled block.\n\nStill arriving"
+            )
+        )
+        let ids = result.map(\ChatPiece.id)
+        #expect(Set(ids).count == ids.count)
+        // The kinds this transcript is meant to cover, so a piece kind added
+        // later without an id of its own fails here rather than silently
+        // going untested.
+        let kinds = Set(result.map(\ChatPiece.kindName))
+        #expect(kinds.isSuperset(of: [
+            "thinking", "toolCall", "injected", "notice", "image", "working", "list"
+        ]))
+        #expect(kinds.contains { $0.hasPrefix("markdown.") })
+    }
+
     // MARK: - Segments
 
     @Test func aMessageOfOnePieceIsWholeAndOneOfSeveralIsJoined() {
