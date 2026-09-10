@@ -52,7 +52,7 @@ struct ChatMinimap: View, ThemedView {
             // into illegibility.
             let scale = max(1, proxy.size.height / outline.totalWeight)
             ScrollView {
-                VStack(alignment: .leading, spacing: Self.entrySpacing) {
+                VStack(alignment: .leading, spacing: isRevealed ? Self.entrySpacing * 2 : Self.entrySpacing) {
                     ForEach(outline.entries) { entry in
                         ChatMinimapEntryView(
                             entry: entry,
@@ -83,7 +83,7 @@ struct ChatMinimap: View, ThemedView {
             // an entry still scrolls out from under the composer before it
             // can be clicked.
             .contentMargins(.top, dimensions.verticalPadding, for: .scrollContent)
-            .contentMargins(.bottom, bottomInset, for: .scrollContent)
+            .contentMargins(.bottom, bottomInset + dimensions.verticalPadding, for: .scrollContent)
             // Kept where the reader is, from the map's own geometry rather
             // than the chat's uneven offset. While the cursor is in the rail
             // it drives the map instead, so following the chat would fight
@@ -118,7 +118,7 @@ struct ChatMinimap: View, ThemedView {
                     // full height: the margins are not part of the
                     // conversation, so travelling over them would mean the
                     // ends of the map were unreachable.
-                    let live = max(1, proxy.size.height - dimensions.verticalPadding - bottomInset)
+                    let live = max(1, proxy.size.height - 2 * dimensions.verticalPadding - bottomInset)
                     hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
                 case .ended:
                     hoverFraction = nil
@@ -163,7 +163,7 @@ struct ChatMinimap: View, ThemedView {
         // Both margins count as content to scroll past. Leaving the top one
         // out stops short of the end by its height, which cuts off the last
         // entry.
-        let travel = max(0, contentHeight + dimensions.verticalPadding + bottomInset - size.height)
+        let travel = max(0, contentHeight + 2 * dimensions.verticalPadding + bottomInset - size.height)
         return travel * Self.eased(fraction)
     }
 
@@ -186,8 +186,10 @@ struct ChatMinimap: View, ThemedView {
     /// which are hard to hit and easy to overshoot.
     static let liveRange: ClosedRange<CGFloat> = 0.05...0.95
 
-    /// Small enough that the map still reads as continuous mass, large enough
-    /// that neighbouring entries do not merge.
+    /// Small enough that the rail still reads as continuous mass, large
+    /// enough that neighbouring entries do not merge. The open map doubles
+    /// it, where the entries are lines of text rather than marks and want
+    /// the air between them.
     private static let entrySpacing: CGFloat = 2
 
     /// The shortest an entry draws, so a brief one stays clickable however
