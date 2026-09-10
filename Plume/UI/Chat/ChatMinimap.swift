@@ -140,13 +140,19 @@ struct ChatMinimap: View, ThemedView {
             // reflows the conversation under the cursor.
             .frame(width: isRevealed ? width : Self.collapsedWidth, alignment: .trailing)
             .background(mapBackground)
-            .overlay(alignment: .leading) { resizeHandle }
             .frame(width: Self.collapsedWidth, alignment: .trailing)
             // Answered by a region that does not move when the map opens.
             // Hanging it off the map's own body would mean revealing the map
             // moved the region the pointer is being tracked in, which
             // changes whether the pointer is inside it — the map would open,
             // lose the pointer, close, and find it again.
+            // Outside the rail's frame, like the map it belongs to: a
+            // handle placed within those bounds would sit a map's width
+            // away from them, where nothing can be hit.
+            .overlay(alignment: .trailing) {
+                resizeHandle
+                    .frame(width: isRevealed ? width : Self.collapsedWidth, alignment: .leading)
+            }
             .overlay(alignment: .trailing) {
                 Color.clear
                     .frame(width: isRevealed ? width : Self.collapsedWidth)
@@ -189,9 +195,11 @@ struct ChatMinimap: View, ThemedView {
                 .fill(.clear)
                 .frame(width: Self.resizeHandleWidth)
                 .contentShape(.rect)
-                .onHover { inside in
-                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                }
+                // Rather than pushing and popping the cursor, which leaves
+                // the resize arrows on screen if the handle goes away with
+                // the pointer still over it — which is exactly what closing
+                // the map does.
+                .pointerStyle(.frameResize(position: .leading))
                 .gesture(
                     DragGesture(coordinateSpace: .global)
                         .onChanged { value in
