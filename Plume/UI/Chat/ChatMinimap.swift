@@ -13,6 +13,7 @@ import SwiftUI
 /// of a book.
 struct ChatMinimap: View, ThemedView {
     @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     let outline: ChatOutline
     /// The piece ids on screen, so the reader can see where they are.
@@ -57,6 +58,9 @@ struct ChatMinimap: View, ThemedView {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Clear of the background's fade, so a prompt's first
+                // characters are never the ones drawn over bare chat.
+                .padding(.leading, isRevealed ? Self.contentInset : 0)
             }
             .scrollIndicators(.hidden)
             .scrollDisabled(true)
@@ -79,11 +83,11 @@ struct ChatMinimap: View, ThemedView {
             // the rail holds layout space, so revealing the map never
             // reflows the conversation under the cursor.
             .frame(width: isRevealed ? Self.width : Self.collapsedWidth, alignment: .trailing)
-            .background(revealedBackground)
-            .frame(width: Self.collapsedWidth, alignment: .trailing)
-            // The rail is the hover target, not the revealed map, so the
-            // pointer leaving the rail closes it rather than the map holding
-            // itself open under its own body.
+            .background(mapBackground)
+            // Whatever the map currently occupies is what answers the
+            // pointer: the rail while it is closed, the whole map once it is
+            // open, so reading down the labels keeps driving it.
+            .contentShape(.rect)
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
@@ -92,6 +96,7 @@ struct ChatMinimap: View, ThemedView {
                     hoverFraction = nil
                 }
             }
+            .frame(width: Self.collapsedWidth, alignment: .trailing)
         }
         .frame(width: Self.collapsedWidth)
         .padding(.vertical, dimensions.verticalPadding)
@@ -102,14 +107,27 @@ struct ChatMinimap: View, ThemedView {
         }
     }
 
-    /// The revealed map needs something behind it, since it draws over the
-    /// conversation rather than beside it.
-    @ViewBuilder private var revealedBackground: some View {
+    /// The chat's own background, so the revealed map reads as part of the
+    /// surface it covers rather than as a panel over it. It fades out toward
+    /// the conversation instead of ending on an edge, which would draw a line
+    /// down the text it overlaps.
+    @ViewBuilder private var mapBackground: some View {
         if isRevealed {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.regularMaterial)
-                .padding(.trailing, -Self.edgeInset)
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: chatBackground, location: Self.backgroundFalloff),
+                    .init(color: chatBackground, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .padding(.trailing, -Self.edgeInset)
         }
+    }
+
+    private var chatBackground: Color {
+        ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .textBackgroundColor)
     }
 
     /// Puts `fraction` of the way down the conversation in the middle of the
@@ -128,6 +146,13 @@ struct ChatMinimap: View, ThemedView {
     private static let minimumEntryHeight: CGFloat = 3
 
     private static let edgeInset: CGFloat = 8
+
+    /// How far across the revealed map the background has fully arrived.
+    private static let backgroundFalloff: CGFloat = 0.3
+
+    /// Keeps the entries clear of the background's fade. Derived from it, so
+    /// tuning the falloff cannot leave text stranded over bare chat.
+    private static var contentInset: CGFloat { width * backgroundFalloff }
 }
 
 /// One entry: a legible line for something the user said or was asked, a
