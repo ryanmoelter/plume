@@ -51,7 +51,6 @@ if [ $? -ne 0 ]; then
   xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <id> --team-id <team> --password <app-specific>"
 fi
 
-command -v create-dmg >/dev/null || fail "create-dmg missing — brew install create-dmg"
 command -v gh >/dev/null || fail "gh missing — brew install gh"
 gh auth status >/dev/null 2>&1 || fail "gh not authenticated — gh auth login"
 
@@ -127,23 +126,31 @@ xcrun stapler staple "$APP" || fail "stapling the app failed"
 rm -f "$ZIP"
 
 # --- 5. DMG -----------------------------------------------------------------
-# create-dmg wants a directory holding only what should appear in the window;
-# --app-drop-link supplies the /Applications side of the drag.
+# hdiutil rather than create-dmg. create-dmg mounts a read-write image, styles
+# the Finder window with AppleScript, ejects, then converts — and on macOS 26
+# that conversion fails with "Resource temporarily unavailable", because the
+# ejected image is left pointing at a backing store that no longer exists
+# (CBSDBackingStore::newProbe stat() failed). The window it produces is nicer,
+# but nothing recovers the intermediate once it is broken.
+#
+# The cost is an unstyled window: the app and an /Applications symlink, with no
+# positioned icons. Dragging one onto the other still installs it.
 echo "--- building DMG ---"
 STAGE="$OUT/stage"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/Plume.app"
+ln -s /Applications "$STAGE/Applications"
 
-# create-dmg can exit non-zero when only the optional Finder styling failed, so
-# the real gate is the spctl check below rather than this exit code.
-create-dmg --volname "Plume $VERSION" \
-  --window-size 500 340 --icon-size 100 \
-  --icon "Plume.app" 130 150 --app-drop-link 370 150 \
-  --codesign "$IDENTITY" \
-  "$DMG" "$STAGE" || echo "note: create-dmg returned non-zero; verifying anyway"
+hdiutil create -volname "Plume $VERSION" -srcfolder "$STAGE" -ov -format UDZO \
+  "$DMG" || fail "hdiutil could not create the DMG"
 
 [ -f "$DMG" ] || fail "no DMG produced at $DMG"
 rm -rf "$STAGE"
+
+# hdiutil does not sign, so do it here — the DMG is notarized next and
+# Gatekeeper evaluates its signature on download.
+codesign --force --sign "$IDENTITY" --timestamp "$DMG" \
+  || fail "could not sign the DMG"
 
 # --- 6. notarize the DMG ----------------------------------------------------
 # Separately from the app. Gatekeeper evaluates the downloaded DMG itself, so a

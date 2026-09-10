@@ -122,9 +122,7 @@ The local path above signs with an Apple Development identity, which Gatekeeper 
      --apple-id <apple id> --team-id U6J478KTGV --password <app-specific password>
    ```
 
-4. **`brew install create-dmg`.**
-
-The script checks all four before building and names the fix for whichever is missing.
+The script checks all three before building and names the fix for whichever is missing.
 
 ### Running it
 
@@ -149,6 +147,21 @@ Then review the draft on GitHub and publish it:
 ```
 gh release edit v0.5.1 --draft=false
 ```
+
+### The DMG is built with `hdiutil`, not `create-dmg`
+
+`create-dmg` makes a prettier window — positioned icons, a sized frame — by mounting a read-write image, styling it with AppleScript, ejecting, then converting. On macOS 26 that final conversion fails:
+
+```
+CBSDBackingStore::newProbe stat() failed.  No such file or directory.
+hdiutil: convert failed - Resource temporarily unavailable
+```
+
+The ejected intermediate points at a backing store that no longer exists, and nothing recovers it — retrying converts the same broken image. `hdiutil create` from the same staged folder works instantly and produces a smaller file (9 MB against a 27 MB intermediate).
+
+So the DMG is plain: `Plume.app` beside an `/Applications` symlink, unstyled. Dragging one onto the other installs it. If someone revisits this, the styling is the only thing to gain.
+
+`hdiutil` does not sign, so the script signs the DMG itself before notarizing it.
 
 ### Why the DMG is notarized separately
 
