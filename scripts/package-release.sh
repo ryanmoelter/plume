@@ -64,8 +64,8 @@ DMG="$OUT/Plume-$VERSION.dmg"
 echo "version: $VERSION  tag: $TAG"
 
 git rev-parse "$TAG" >/dev/null 2>&1 \
-  && echo "note: tag $TAG already exists — reusing it for the draft" \
-  || echo "note: tag $TAG does not exist yet; it is created at the draft step"
+  && echo "note: tag $TAG already exists" \
+  || echo "note: tag $TAG does not exist yet — the script stops before the draft to let you make it"
 
 rm -rf "$OUT"; mkdir -p "$OUT"
 
@@ -167,9 +167,29 @@ xcrun stapler validate "$APP" || fail "app ticket does not validate"
 xcrun stapler validate "$DMG" || fail "DMG ticket does not validate"
 
 # --- 8. draft release -------------------------------------------------------
-# Draft, so nothing is public until it is published by hand. gh creates the tag
-# from the target commit when it does not already exist.
+# The tag is made by hand, annotated, after the artifacts are known good — so
+# packaging never leaves a tag behind for a build that failed to notarize.
+# gh would create a lightweight one silently, so require it up front.
 echo "--- draft release ---"
+
+if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+  echo
+  echo "Artifacts are built, notarized and verified:"
+  echo "  $DMG"
+  echo
+  echo "Tag this commit, push it, then re-run to attach the DMG to a draft:"
+  echo "  git tag -a $TAG -m \"$TAG\""
+  echo "  git push origin main $TAG"
+  echo "  scripts/package-release.sh"
+  exit 0
+fi
+
+# A tag that predates the commit being packaged would ship the wrong source.
+if [ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
+  fail "tag $TAG points at $(git rev-parse --short "$TAG^{commit}"), not HEAD
+  ($(git rev-parse --short HEAD)). Move the tag or package the tagged commit."
+fi
+
 if gh release view "$TAG" >/dev/null 2>&1; then
   # An existing release may already be published, and re-running should never
   # quietly replace a shipped artifact.
@@ -181,7 +201,7 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   echo "attached to the existing draft $TAG"
 else
   gh release create "$TAG" "$DMG" \
-    --draft --title "$TAG" --target "$(git rev-parse HEAD)" \
+    --draft --title "$TAG" --verify-tag \
     --notes "Plume $VERSION for macOS.
 
 Open the DMG and drag Plume to Applications. Signed and notarized, so it opens

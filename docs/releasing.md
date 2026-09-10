@@ -134,13 +134,21 @@ scripts/package-release.sh
 
 It refuses on a dirty tree, so commit the version bump first. Notarization is two round trips to Apple, a few minutes each. Output goes to `/tmp/plume-package.log` (override with `LOG`) and the DMG to `out/` (override with `OUT`).
 
+The version comes from the app target's `MARKETING_VERSION`, and the tag is `v<version>`. **The script never creates the tag.** On the first run it builds and notarizes, then stops and tells you to tag — so a build that fails notarization never leaves a tag behind. Tag as in step 4 above, then re-run to attach the DMG:
+
+```
+git tag -a v0.5.1 -m "v0.5.1"
+git push origin main v0.5.1
+scripts/package-release.sh
+```
+
+The second run reuses nothing — it rebuilds and re-notarizes, which takes the same few minutes. It also refuses if the tag points anywhere but `HEAD`, so the DMG and the tagged source always agree.
+
 Then review the draft on GitHub and publish it:
 
 ```
-gh release edit v0.5.0 --draft=false
+gh release edit v0.5.1 --draft=false
 ```
-
-The version comes from the app target's `MARKETING_VERSION`, and the tag is `v<version>`. `gh` creates the tag from `HEAD` if it does not exist, so this replaces step 4's manual tagging when you are shipping a DMG.
 
 ### Why the DMG is notarized separately
 
