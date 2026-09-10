@@ -112,8 +112,13 @@ struct ChatMinimap: View, ThemedView {
             // than the chat's uneven offset. While the cursor is in the rail
             // it drives the map instead, so following the chat would fight
             // it for the same scroll position.
-            .onChange(of: outline.position(of: visiblePieceIDs)) { _, fraction in
-                guard !isRevealed, let fraction else { return }
+            //
+            // Watched together with the reveal so that closing re-asserts
+            // the chat's position. The chat has not moved while the pointer
+            // was steering, so nothing else would put the map back, and it
+            // would keep whatever the pointer left it showing.
+            .onChange(of: FollowDrive(position: outline.position(of: visiblePieceIDs), revealed: isRevealed)) { _, drive in
+                guard !drive.revealed, let fraction = drive.position else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
                 }
@@ -146,6 +151,11 @@ struct ChatMinimap: View, ThemedView {
                 Color.clear
                     .frame(width: isRevealed ? width : Self.collapsedWidth)
                     .contentShape(.rect)
+                    // Watches the pointer without standing in its way: this
+                    // sits over the entries and the resize handle, and a
+                    // hit-testable overlay would swallow every click meant
+                    // for them.
+                    .allowsHitTesting(false)
                     .onContinuousHover(coordinateSpace: .named(Self.railSpace)) { phase in
                         switch phase {
                         case .active(let point):
@@ -283,6 +293,13 @@ struct ChatMinimap: View, ThemedView {
 private struct ScrollDrive: Equatable {
     var fraction: CGFloat?
     var contentHeight: CGFloat
+}
+
+/// What returns the map to the conversation: where the chat is, and whether
+/// the pointer has stopped overriding it.
+private struct FollowDrive: Equatable {
+    var position: CGFloat?
+    var revealed: Bool
 }
 
 /// One entry: a legible line for something the user said or was asked, a
