@@ -94,11 +94,15 @@ struct ChatMinimap: View, ThemedView {
                     position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
                 }
             }
-            // Keyed to the pointer and the reveal together. The map's own
-            // height changes as it opens, so an offset computed only when
-            // the pointer moves would be stale for the rest of the
-            // transition and the map would not track until it settled.
-            .onChange(of: ScrollDrive(fraction: hoverFraction, revealed: isRevealed)) { _, drive in
+            // Keyed to the pointer and to the height it is measured
+            // against. Opening the map both doubles the space between its
+            // entries and turns each prompt into a line of text, so the
+            // content grows as it reveals; an offset computed once from the
+            // closed height would be short by that growth, and the map
+            // would lurch when the new height arrived. Recomputing as the
+            // height settles keeps the pointer pointing at the same place
+            // throughout.
+            .onChange(of: ScrollDrive(fraction: hoverFraction, contentHeight: contentHeight)) { _, drive in
                 guard let fraction = drive.fraction else { return }
                 position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
             }
@@ -207,11 +211,10 @@ struct ChatMinimap: View, ThemedView {
 }
 
 /// What the map's scroll position is a function of: where the pointer is,
-/// and whether the map is open. Both have to be watched, because the second
-/// changes the height the first is measured against.
+/// and how tall the content it is pointing into has become.
 private struct ScrollDrive: Equatable {
     var fraction: CGFloat?
-    var revealed: Bool
+    var contentHeight: CGFloat
 }
 
 /// One entry: a legible line for something the user said or was asked, a

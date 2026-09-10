@@ -210,6 +210,9 @@ struct ChatMessageList: View, ThemedView {
             settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
             value: floatingPanelHeight
         )
+        // The minimap says everything the indicator does and more, right
+        // beside it, so two of them is one too many.
+        .scrollIndicators(.hidden)
         .onScrollTargetVisibilityChange(idType: String.self) { ids in
             visiblePieceIDs = Set(ids)
         }
