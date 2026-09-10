@@ -114,7 +114,12 @@ struct ChatMinimap: View, ThemedView {
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
-                    hoverFraction = min(max(point.y / max(1, proxy.size.height), 0), 1)
+                    // Against the space the entries occupy, not the rail's
+                    // full height: the margins are not part of the
+                    // conversation, so travelling over them would mean the
+                    // ends of the map were unreachable.
+                    let live = max(1, proxy.size.height - dimensions.verticalPadding - bottomInset)
+                    hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
                 case .ended:
                     hoverFraction = nil
                 }
@@ -155,7 +160,10 @@ struct ChatMinimap: View, ThemedView {
     /// Puts `fraction` of the way down the conversation in the middle of the
     /// pane, clamped so neither end scrolls past itself.
     private func offset(for fraction: CGFloat, in size: CGSize) -> CGFloat {
-        let travel = max(0, contentHeight + bottomInset - size.height)
+        // Both margins count as content to scroll past. Leaving the top one
+        // out stops short of the end by its height, which cuts off the last
+        // entry.
+        let travel = max(0, contentHeight + dimensions.verticalPadding + bottomInset - size.height)
         return travel * Self.eased(fraction)
     }
 
@@ -219,10 +227,9 @@ private struct ChatMinimapEntryView: View, ThemedView {
 
     var body: some View {
         Button { onSelect(entry.id) } label: {
-            switch entry.kind {
-            case .prompt(let text), .question(let text):
-                promptEntry(text)
-            case .response:
+            if entry.kind.isUserInput {
+                promptEntry(entry.kind.text)
+            } else {
                 area
             }
         }
@@ -241,20 +248,28 @@ private struct ChatMinimapEntryView: View, ThemedView {
     /// bar's height. Two views would be two identities to SwiftUI, and the
     /// transition would slide one out while the other grew.
     private func promptEntry(_ text: String) -> some View {
-        Text(text.isEmpty ? "…" : text)
-            .font(typography.caption.font)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .opacity(isRevealed ? 1 : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: isRevealed ? nil : Self.promptBarHeight)
-            .background {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .opacity(isRevealed ? 0 : 1)
+        HStack(spacing: 3) {
+            // Only what the user did not write themselves is marked, and
+            // only at a size where the mark is legible.
+            if let symbol = entry.kind.symbol {
+                Image(systemName: symbol)
+                    .imageScale(.small)
             }
-            .padding(.vertical, 2)
-            .contentShape(.rect)
-            .help(text)
+            Text(text.isEmpty ? "…" : text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .font(typography.caption.font)
+        .opacity(isRevealed ? 1 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: isRevealed ? nil : Self.promptBarHeight)
+        .background {
+            RoundedRectangle(cornerRadius: 1.5)
+                .opacity(isRevealed ? 0 : 1)
+        }
+        .padding(.vertical, 2)
+        .contentShape(.rect)
+        .help(text)
     }
 
     /// A response is the same shape either way — only its width changes, and
@@ -311,14 +326,6 @@ private struct MinimapEmphasis: ViewModifier, Animatable {
 }
 
 private extension ChatOutline.Kind {
-    /// The line this entry carries, for the rail's tooltip.
-    var text: String {
-        switch self {
-        case .prompt(let text), .question(let text): text
-        case .response: ""
-        }
-    }
-
     /// A response draws as a filled shape rather than glyphs, and a solid
     /// area reads far heavier than a line of text at the same opacity. Sitting
     /// it below the prompts keeps them the thing the eye lands on.

@@ -164,6 +164,30 @@ struct ChatOutlineTests {
         #expect(result.entries.map(\.kind) == [.question("Which approach?")])
     }
 
+    @Test func aPlanAnchorsLikeAPrompt() throws {
+        // The agent wrote it, but approving it is the user's turn, so it is
+        // a landmark in the same way a question is.
+        var call = ToolCall(
+            id: "p1",
+            name: "ExitPlanMode",
+            summary: ToolCallSummary(name: "ExitPlanMode"),
+            input: .json("{}")
+        )
+        call.interactive = .plan(markdown: "# Rework the minimap\n\nSome detail.", filePath: nil)
+        let result = outline([message("a", .assistant, [.toolCall(call)])])
+
+        #expect(result.entries.map(\.kind) == [.plan("Rework the minimap")])
+    }
+
+    @Test func onlyWhatTheUserDidNotWriteIsMarked() {
+        // A mark against every one of the user's own messages would be
+        // noise; the icons are there to pick out what is not one.
+        #expect(ChatOutline.Kind.prompt("Hi").symbol == nil)
+        #expect(ChatOutline.Kind.response.symbol == nil)
+        #expect(ChatOutline.Kind.question("Which?").symbol != nil)
+        #expect(ChatOutline.Kind.plan("A plan").symbol != nil)
+    }
+
     @Test func aMultiPiecePromptIsOneEntry() throws {
         // A long prompt splits into several pieces, but the user said it
         // once, so the map marks it once.

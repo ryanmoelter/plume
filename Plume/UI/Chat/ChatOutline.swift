@@ -31,12 +31,34 @@ struct ChatOutline: Equatable {
         case prompt(String)
         /// A question the agent asked, which is the user's turn to answer.
         case question(String)
+        /// A plan the agent proposed, which is the user's turn to approve.
+        case plan(String)
         /// Everything the agent produced between two pieces of user input.
         case response
 
         /// Whether the user said this or was asked it, as opposed to the
         /// agent's own output.
         var isUserInput: Bool { self != .response }
+
+        /// The line this entry carries, empty for a run of agent output.
+        var text: String {
+            switch self {
+            case .prompt(let text), .question(let text), .plan(let text): text
+            case .response: ""
+            }
+        }
+
+        /// What marks this as something other than the user's own words.
+        /// The user's messages carry no icon: they are the common case, and
+        /// a mark against every one of them would be noise rather than a
+        /// distinction.
+        var symbol: String? {
+            switch self {
+            case .prompt, .response: nil
+            case .question: "questionmark.bubble"
+            case .plan: "doc.text"
+            }
+        }
     }
 
     var isEmpty: Bool { entries.isEmpty }
@@ -202,11 +224,15 @@ enum ChatOutlineBuilder {
     /// `InjectedContent.isUserProse` already draws that line for the chat, so
     /// the map follows it rather than inventing a second rule.
     private static func userInputKind(of piece: ChatPiece) -> ChatOutline.Kind? {
-        if case .toolCall(let call, _) = piece.content,
-           case .questions(let questions)? = call.interactive {
-            // A question is the agent's message but the user's turn, so it
-            // anchors like a prompt.
-            return .question(questions.first?.question ?? "Question")
+        if case .toolCall(let call, _) = piece.content, let interactive = call.interactive {
+            // Neither is the user's message, but both are the user's turn,
+            // so they anchor like a prompt.
+            switch interactive {
+            case .questions(let questions):
+                return .question(questions.first?.question ?? "Question")
+            case .plan(let markdown, _):
+                return .plan(PlanSummary.title(of: markdown) ?? "Plan")
+            }
         }
         guard piece.role == .user else { return nil }
         switch piece.content {
