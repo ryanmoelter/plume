@@ -57,4 +57,5 @@ struct ChatScrollGeometry: Equatable {
     /// Zero while the list is offscreen, which is how a hidden tab is told
     /// apart from a visible one scrolled to its top.
     var viewportHeight: CGFloat = 0
+    var visibleMinY: CGFloat = 0
 }

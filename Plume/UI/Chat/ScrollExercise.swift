@@ -36,9 +36,7 @@ enum ScrollExercise {
             try? await Task.sleep(for: .seconds(interval))
             if Task.isCancelled { return }
             let target = targets[index % targets.count]
-            withAnimation(.easeInOut(duration: interval * 0.8)) {
-                scrollTo(target)
-            }
+            scrollTo(target)
             Log.app.info("Scroll exercise jumped to target \(index % targets.count) of \(targets.count)")
             index += 1
         }

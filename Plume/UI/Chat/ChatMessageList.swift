@@ -104,14 +104,19 @@ struct ChatMessageList: View, ThemedView {
     /// realized item.
     @State private var visiblePieceIDs: Set<String> = []
 
+    /// The piece a downward jump is heading for. Only that row reports its
+    /// frame, so the list carries one geometry observer at most, not one
+    /// per realized item.
+    @State private var jumpTargetID: String?
+
+    private static let contentSpace = "chatContent"
+
     var body: some View {
         HStack(spacing: 0) {
             list
             if !outline.isEmpty {
                 ChatMinimap(outline: outline, visiblePieceIDs: visiblePieceIDs) { id in
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        position.scrollTo(id: id, anchor: .top)
-                    }
+                    jump(to: id)
                 }
             }
         }
@@ -152,6 +157,15 @@ struct ChatMessageList: View, ThemedView {
                     .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                     .padding(.bottom, piece.bottomInset)
                     .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
+                    .background {
+                        if piece.id == jumpTargetID {
+                            Color.clear.onGeometryChange(for: CGRect.self) { proxy in
+                                proxy.frame(in: .named(Self.contentSpace))
+                            } action: { frame in
+                                targetFrameChanged(frame)
+                            }
+                        }
+                    }
                 }
                 if let tabID {
                     // Both draw nothing until they have something, so their
@@ -168,6 +182,11 @@ struct ChatMessageList: View, ThemedView {
                 }
             }
             .scrollTargetLayout()
+            // The content's own coordinate space, so a jump target's frame
+            // is its scroll offset in one reading. Adding a viewport-relative
+            // frame to the reported offset pairs two callbacks that are a
+            // frame apart mid-animation, and lands short by that travel.
+            .coordinateSpace(.named(Self.contentSpace))
         }
         .environment(\.revealClock, revealClock)
         .chatItemStatsViewport(list: statsToken)
@@ -204,13 +223,16 @@ struct ChatMessageList: View, ThemedView {
             ChatScrollGeometry(
                 distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
                 contentHeight: geometry.contentSize.height,
-                viewportHeight: geometry.containerSize.height
+                viewportHeight: geometry.containerSize.height,
+                visibleMinY: geometry.visibleRect.minY
             )
         } action: { old, new in
             // Every tab stays mounted, hidden by opacity, so an offscreen
             // list keeps reporting geometry. Its viewport measures zero,
             // which reads as a huge distance from the bottom.
             guard new.viewportHeight > 0 else { return }
+            followState.visibleMinY = new.visibleMinY
+            if jumpTargetID != nil { scheduleSettle() }
             if ChatScrollAnchor.reflectsUserScroll(
                 previousContentHeight: old.contentHeight,
                 newContentHeight: new.contentHeight
@@ -234,7 +256,7 @@ struct ChatMessageList: View, ThemedView {
         #if DEBUG
         .task(id: pieces.count) {
             await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
-                position.scrollTo(id: id, anchor: .top)
+                jump(to: id)
             }
         }
         #endif
@@ -252,6 +274,80 @@ struct ChatMessageList: View, ThemedView {
             }
             .opacity(isDetached ? 1 : 0)
             .allowsHitTesting(isDetached)
+        }
+    }
+
+    /// Puts the piece at the top of the viewport.
+    ///
+    /// Above the viewport, `scrollTo(id:anchor:)` is enough. Below it, the
+    /// lazy stack resolves the request against an estimated frame, and once
+    /// the target has entered from the bottom edge the scroll view treats
+    /// the request as satisfied there — a repeat of it, or the same request
+    /// with a different anchor, scrolls nothing. So a downward jump uses the
+    /// anchored request only to get the target realized, and finishes on an
+    /// offset computed from the realized row's frame.
+    private func jump(to id: String) {
+        guard let index = pieces.firstIndex(where: { $0.id == id }) else { return }
+        let topVisibleIndex = pieces.indices.first { visiblePieceIDs.contains(pieces[$0].id) } ?? 0
+        followState.targetY = nil
+        followState.requestedY = nil
+        followState.corrected = false
+        jumpTargetID = index < topVisibleIndex ? nil : id
+        withAnimation(.smooth(duration: 0.3)) {
+            position.scrollTo(id: id, anchor: .top)
+        }
+    }
+
+    /// Redirects the in-flight animation to the target's offset as soon as
+    /// the row exists, so the motion stays one continuous scroll. A spring
+    /// carries the velocity across the retarget. The frame is reported again
+    /// if rows realizing above the target move it, and `settleJump` checks
+    /// the landing.
+    private func targetFrameChanged(_ frame: CGRect) {
+        followState.targetY = frame.minY
+        let y = frame.minY
+        guard y != followState.requestedY else { return }
+        followState.requestedY = y
+        Task { @MainActor in
+            withAnimation(.smooth(duration: 0.3)) {
+                position.scrollTo(y: y)
+            }
+            scheduleSettle()
+        }
+    }
+
+    /// The scroll has rested once the geometry has held still for a beat.
+    private func scheduleSettle() {
+        followState.settle?.cancel()
+        followState.settle = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            settleJump()
+        }
+    }
+
+    /// At rest both readings are current; re-aim if the row is not at the top.
+    private func settleJump() {
+        guard jumpTargetID != nil else { return }
+        guard let targetY = followState.targetY else {
+            jumpTargetID = nil
+            return
+        }
+        let error = targetY - followState.visibleMinY
+        guard abs(error) > 1, !followState.corrected else {
+            jumpTargetID = nil
+            return
+        }
+        followState.corrected = true
+        // The anchored request can finish after the offset request and win,
+        // leaving the position holding the target offset the view is not
+        // at. Setting the same offset again is not a change, so first record
+        // where the view actually is — which moves nothing — and then ask.
+        position.scrollTo(y: followState.visibleMinY)
+        Task { @MainActor in
+            withAnimation(.smooth(duration: 0.3)) {
+                position.scrollTo(y: targetY)
+            }
         }
     }
 
@@ -307,4 +403,13 @@ struct ChatMessageList: View, ThemedView {
 @MainActor
 private final class ScrollFollowState {
     var distanceFromBottom: CGFloat = 0
+    var visibleMinY: CGFloat = 0
+    /// The jump target's scroll offset, once its row has realized.
+    var targetY: CGFloat?
+    /// The last content offset a retarget asked for, so an unchanged
+    /// reading does not re-issue it.
+    var requestedY: CGFloat?
+    /// One correction covers the lost race; a second only adds a segment.
+    var corrected = false
+    var settle: Task<Void, Never>?
 }
