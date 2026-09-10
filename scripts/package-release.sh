@@ -38,9 +38,18 @@ if [ -z "$IDENTITY" ]; then
 fi
 echo "identity: $IDENTITY"
 
-xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
-  || fail "notary profile '$NOTARY_PROFILE' not usable. Create it with:
+# Reading the stored credential can raise a Touch ID prompt, which nobody
+# answers if this is running detached — so the failure here is as often an
+# unattended run as a missing profile. Notarization itself reads it again
+# later, so stay at the keyboard for the whole run.
+notary_check="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "$notary_check"
+  fail "could not read notary profile '$NOTARY_PROFILE'.
+  If a Touch ID prompt appeared and timed out, run this in the foreground and
+  stay at the keyboard. If the profile does not exist, create it with:
   xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <id> --team-id <team> --password <app-specific>"
+fi
 
 command -v create-dmg >/dev/null || fail "create-dmg missing — brew install create-dmg"
 command -v gh >/dev/null || fail "gh missing — brew install gh"
