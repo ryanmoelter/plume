@@ -119,7 +119,7 @@ struct ChatMessageList: View, ThemedView {
                     outline: outline,
                     visiblePieceIDs: visiblePieceIDs,
                     onSelect: { jump(to: $0) },
-                    bottomInset: bottomPadding + floatingPanelHeight
+                    bottomInset: floatingPanelHeight
                 )
             }
         }

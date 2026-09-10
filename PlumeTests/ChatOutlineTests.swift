@@ -322,3 +322,36 @@ struct ChatOutlineTests {
         #expect(result.totalWeight == result.entries.reduce(0) { $0 + $1.weight })
     }
 }
+
+/// How the pointer's height down the minimap's rail maps to how far through
+/// the conversation the map has travelled.
+@MainActor
+struct ChatMinimapEasingTests {
+    @Test func theEndsArePinned() {
+        #expect(ChatMinimap.eased(0) == 0)
+        #expect(ChatMinimap.eased(ChatMinimap.liveRange.lowerBound) == 0)
+        #expect(ChatMinimap.eased(ChatMinimap.liveRange.upperBound) == 1)
+        #expect(ChatMinimap.eased(1) == 1)
+    }
+
+    @Test func theMiddleOfTheRailIsTheMiddleOfTheConversation() {
+        #expect(abs(ChatMinimap.eased(0.5) - 0.5) < 0.0001)
+    }
+
+    @Test func travelOnlyEverGrows() {
+        var previous = ChatMinimap.eased(0)
+        for step in 1...100 {
+            let next = ChatMinimap.eased(CGFloat(step) / 100)
+            #expect(next >= previous)
+            previous = next
+        }
+    }
+
+    /// The point of the curve: the same movement of the hand covers more
+    /// ground in the middle than at either end.
+    @Test func theMiddleIsFasterThanTheEnds() {
+        let atEnd = ChatMinimap.eased(0.20) - ChatMinimap.eased(0.15)
+        let atMiddle = ChatMinimap.eased(0.55) - ChatMinimap.eased(0.50)
+        #expect(atMiddle > atEnd * 2)
+    }
+}

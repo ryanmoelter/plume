@@ -41,6 +41,9 @@ struct ChatMinimap: View, ThemedView {
     /// Where the cursor sits in the rail, 0 at the top and 1 at the bottom,
     /// which is the fraction of the conversation the revealed map shows.
     @State private var hoverFraction: CGFloat?
+    /// What the entries actually measure, which is what the map scrolls
+    /// through.
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -64,14 +67,21 @@ struct ChatMinimap: View, ThemedView {
                 // Clear of the background's fade, so a prompt's first
                 // characters are never the ones drawn over bare chat.
                 .padding(.leading, isRevealed ? Self.contentInset : 0)
+                // Read rather than derived from the weights: a revealed
+                // prompt draws as a line of text, not as the bar its weight
+                // describes, so the two heights are far apart and scrolling
+                // against the wrong one strands the end of the map.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
             .scrollIndicators(.hidden)
             .scrollDisabled(true)
             .scrollPosition($position)
-            // The chat's own margins, so the map lines up with the
-            // conversation it maps. The bottom one keeps an entry that draws
-            // behind the composer reachable: it scrolls out from under it
-            // before it can be clicked, rather than sitting there unhittable.
+            // The chat's top margin, so the map starts level with the
+            // conversation it maps. The bottom only has to clear the
+            // composer — the map is a column of small marks rather than
+            // text, so it can run closer to the edge than the chat does, and
+            // an entry still scrolls out from under the composer before it
+            // can be clicked.
             .contentMargins(.top, dimensions.verticalPadding, for: .scrollContent)
             .contentMargins(.bottom, bottomInset, for: .scrollContent)
             // Kept where the reader is, from the map's own geometry rather
@@ -81,7 +91,7 @@ struct ChatMinimap: View, ThemedView {
             .onChange(of: outline.position(of: visiblePieceIDs)) { _, fraction in
                 guard !isRevealed, let fraction else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, scale: scale, in: proxy.size)))
+                    position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
                 }
             }
             // Keyed to the pointer and the reveal together. The map's own
@@ -90,7 +100,7 @@ struct ChatMinimap: View, ThemedView {
             // transition and the map would not track until it settled.
             .onChange(of: ScrollDrive(fraction: hoverFraction, revealed: isRevealed)) { _, drive in
                 guard let fraction = drive.fraction else { return }
-                position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, scale: scale, in: proxy.size)))
+                position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
             }
             // Drawn wider than the rail it sits in, toward the chat. Only
             // the rail holds layout space, so revealing the map never
@@ -144,10 +154,29 @@ struct ChatMinimap: View, ThemedView {
 
     /// Puts `fraction` of the way down the conversation in the middle of the
     /// pane, clamped so neither end scrolls past itself.
-    private func offset(for fraction: CGFloat, scale: CGFloat, in size: CGSize) -> CGFloat {
-        let mapped = outline.totalWeight * scale * fraction - size.height / 2
-        return max(0, min(mapped, max(0, outline.totalWeight * scale - size.height)))
+    private func offset(for fraction: CGFloat, in size: CGSize) -> CGFloat {
+        let travel = max(0, contentHeight + bottomInset - size.height)
+        return travel * Self.eased(fraction)
     }
+
+    /// Maps where the pointer is to how far through the conversation the map
+    /// has travelled.
+    ///
+    /// The ends are dead bands: the first and last twentieth of the rail pin
+    /// to the top and the bottom, so reaching either end does not demand the
+    /// very edge of the window. Between them the curve is smoothstep, which
+    /// leaves the pointer least sensitive where it enters and most sensitive
+    /// through the middle — most of the conversation is covered by the middle
+    /// of the travel, where the hand is steadiest.
+    static func eased(_ fraction: CGFloat) -> CGFloat {
+        let span = liveRange.upperBound - liveRange.lowerBound
+        let t = min(max((fraction - liveRange.lowerBound) / span, 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Where the rail starts and stops responding. Short of the very edges,
+    /// which are hard to hit and easy to overshoot.
+    static let liveRange: ClosedRange<CGFloat> = 0.05...0.95
 
     /// Small enough that the map still reads as continuous mass, large enough
     /// that neighbouring entries do not merge.
