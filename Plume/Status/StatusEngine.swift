@@ -28,6 +28,12 @@ final class StatusEngine {
     /// notification layer has to hook.
     @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus) -> Void)?
 
+    /// When each working tab started working, for the elapsed time the
+    /// sidebar shows. Kept here rather than on the session so it covers both
+    /// transports, and dropped as soon as a tab stops working so a stale
+    /// start can never be read.
+    private var workStartedAt: [UUID: Date] = [:]
+
     private var tabsByTask: [UUID: Set<UUID>] = [:]
 
     init() {}
@@ -117,6 +123,19 @@ final class StatusEngine {
         report(taskID: taskID, tabID: tabID, previousTabStatus: previousTabStatus, previousTaskStatus: previousTaskStatus)
     }
 
+    /// When the tab started the work it is doing now, or nil if it is not
+    /// working. Reset every time work starts, so the clock times this stretch
+    /// rather than the tab's whole life.
+    func workStarted(forTab id: UUID) -> Date? {
+        workStartedAt[id]
+    }
+
+    /// The oldest running clock among a task's tabs, so a collapsed task
+    /// reports the work that has been going longest.
+    func workStarted(forTask id: UUID) -> Date? {
+        tabsByTask[id]?.compactMap { workStartedAt[$0] }.min()
+    }
+
     /// Announces effective status, so a notifier or snapshot never sees a
     /// finished turn the subagents contradict.
     private func report(
@@ -127,6 +146,13 @@ final class StatusEngine {
     ) {
         let newTabStatus = status(forTab: tabID)
         if newTabStatus != previousTabStatus {
+            // Keyed off the effective status, so working subagents start the
+            // clock too and a tab that stops working never keeps a stale one.
+            if newTabStatus == .working {
+                workStartedAt[tabID] = Date()
+            } else {
+                workStartedAt.removeValue(forKey: tabID)
+            }
             onTabStatusChanged?(taskID, tabID, newTabStatus)
         }
         let newTaskStatus = status(forTask: taskID)
@@ -147,6 +173,7 @@ final class StatusEngine {
     func forget(tabID: UUID, taskID: UUID) {
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
+        workStartedAt.removeValue(forKey: tabID)
         tabsByTask[taskID]?.remove(tabID)
         if tabsByTask[taskID]?.isEmpty == true {
             tabsByTask.removeValue(forKey: taskID)
@@ -156,6 +183,7 @@ final class StatusEngine {
     func reset() {
         tabStatuses.removeAll()
         tabsWithWorkingSubagents.removeAll()
+        workStartedAt.removeAll()
         tabsByTask.removeAll()
     }
 

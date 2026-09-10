@@ -44,16 +44,7 @@ nonisolated struct SubagentCaption: Equatable {
         return parts.joined(separator: " · ")
     }
 
-    /// Coarse on purpose. The row redraws when the transcript does, so a
-    /// seconds-precise figure would read stale between writes and would rewrite
-    /// every live row's height for nothing.
     static func formatted(elapsed: TimeInterval) -> String {
-        let seconds = Int(max(elapsed, 0).rounded())
-        if seconds < 60 { return "\(seconds)s" }
-        let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+        ElapsedTime.formatted(elapsed)
     }
 }

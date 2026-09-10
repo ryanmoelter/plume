@@ -110,7 +110,7 @@ struct TaskRowView: View {
                 }
             }
             Spacer(minLength: 4)
-            StatusBadge(status: status)
+            StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
         }
         .padding(.vertical, 2)
         .contentShape(.rect)

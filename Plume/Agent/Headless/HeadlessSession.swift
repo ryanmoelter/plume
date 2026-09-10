@@ -37,10 +37,6 @@ final class HeadlessSession {
 
     private(set) var sessionID: String?
     private(set) var isWorking = false
-
-    /// When the turn in flight began, for the elapsed time the UI shows.
-    /// Nil whenever no turn is running.
-    private(set) var turnStartedAt: Date?
     private(set) var hasExited = false
     private(set) var exitStatus: Int32?
 
@@ -473,7 +469,6 @@ final class HeadlessSession {
 
     private func beginTurn() {
         isWorking = true
-        turnStartedAt = Date()
         streamingText = ""
         streamingThinking = ""
         lastError = nil
@@ -482,7 +477,6 @@ final class HeadlessSession {
 
     private func endTurn(_ result: TurnResult) {
         isWorking = false
-        turnStartedAt = nil
         // The streamed text is not cleared here — see its declaration.
         if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
@@ -510,7 +504,6 @@ final class HeadlessSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         isWorking = false
-        turnStartedAt = nil
         streamingText = ""
         streamingThinking = ""
         exitStatus = status
