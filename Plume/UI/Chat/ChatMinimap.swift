@@ -20,6 +20,9 @@ struct ChatMinimap: View, ThemedView {
     var visiblePieceIDs: Set<String> = []
     /// Scrolls the list to a piece id.
     let onSelect: (String) -> Void
+    /// What the composer and anything floating above it cover, matching the
+    /// chat's own bottom margin.
+    var bottomInset: CGFloat = 0
 
     /// Wide enough for a few words of a prompt. Only the rail holds layout
     /// space, so this is what the revealed map draws over the chat rather
@@ -65,6 +68,12 @@ struct ChatMinimap: View, ThemedView {
             .scrollIndicators(.hidden)
             .scrollDisabled(true)
             .scrollPosition($position)
+            // The chat's own margins, so the map lines up with the
+            // conversation it maps. The bottom one keeps an entry that draws
+            // behind the composer reachable: it scrolls out from under it
+            // before it can be clicked, rather than sitting there unhittable.
+            .contentMargins(.top, dimensions.verticalPadding, for: .scrollContent)
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
             // Kept where the reader is, from the map's own geometry rather
             // than the chat's uneven offset. While the cursor is in the rail
             // it drives the map instead, so following the chat would fight
@@ -75,8 +84,12 @@ struct ChatMinimap: View, ThemedView {
                     position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, scale: scale, in: proxy.size)))
                 }
             }
-            .onChange(of: hoverFraction) { _, fraction in
-                guard let fraction else { return }
+            // Keyed to the pointer and the reveal together. The map's own
+            // height changes as it opens, so an offset computed only when
+            // the pointer moves would be stale for the rest of the
+            // transition and the map would not track until it settled.
+            .onChange(of: ScrollDrive(fraction: hoverFraction, revealed: isRevealed)) { _, drive in
+                guard let fraction = drive.fraction else { return }
                 position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, scale: scale, in: proxy.size)))
             }
             // Drawn wider than the rail it sits in, toward the chat. Only
@@ -99,7 +112,6 @@ struct ChatMinimap: View, ThemedView {
             .frame(width: Self.collapsedWidth, alignment: .trailing)
         }
         .frame(width: Self.collapsedWidth)
-        .padding(.vertical, dimensions.verticalPadding)
         .padding(.trailing, Self.edgeInset)
         .accessibilityIdentifier(AccessibilityID.chatMinimap)
         .onChange(of: hoverFraction == nil) { _, away in
@@ -155,6 +167,14 @@ struct ChatMinimap: View, ThemedView {
     private static var contentInset: CGFloat { width * backgroundFalloff }
 }
 
+/// What the map's scroll position is a function of: where the pointer is,
+/// and whether the map is open. Both have to be watched, because the second
+/// changes the height the first is measured against.
+private struct ScrollDrive: Equatable {
+    var fraction: CGFloat?
+    var revealed: Bool
+}
+
 /// One entry: a legible line for something the user said or was asked, a
 /// tinted area for a run of the agent's output.
 private struct ChatMinimapEntryView: View, ThemedView {
@@ -172,7 +192,7 @@ private struct ChatMinimapEntryView: View, ThemedView {
         Button { onSelect(entry.id) } label: {
             switch entry.kind {
             case .prompt(let text), .question(let text):
-                if isRevealed { label(text) } else { bar }
+                promptEntry(text)
             case .response:
                 area
             }
@@ -186,27 +206,26 @@ private struct ChatMinimapEntryView: View, ThemedView {
     /// User input takes its natural line height rather than its share of the
     /// conversation: a one-line question between two long replies is the
     /// landmark being scanned for, so it has to stay readable.
-    private func label(_ text: String) -> some View {
+    ///
+    /// The bar the rail shows is this same view, not a second one swapped in
+    /// for it — the text fades out over a filled shape that shrinks to the
+    /// bar's height. Two views would be two identities to SwiftUI, and the
+    /// transition would slide one out while the other grew.
+    private func promptEntry(_ text: String) -> some View {
         Text(text.isEmpty ? "…" : text)
             .font(typography.caption.font)
             .lineLimit(1)
             .truncationMode(.tail)
+            .opacity(isRevealed ? 1 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: isRevealed ? nil : Self.promptBarHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .opacity(isRevealed ? 0 : 1)
+            }
             .padding(.vertical, 2)
             .contentShape(.rect)
             .help(text)
-    }
-
-    /// What a prompt is in the rail: a bar the height of the line it would
-    /// draw. Full width and full opacity, so the rail reads as the prompts
-    /// with the responses as the gaps between them.
-    private var bar: some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .frame(height: Self.promptBarHeight)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.vertical, 2)
-            .contentShape(.rect)
-            .help(entry.kind.text)
     }
 
     /// A response is the same shape either way — only its width changes, and

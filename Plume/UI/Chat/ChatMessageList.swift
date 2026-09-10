@@ -115,9 +115,12 @@ struct ChatMessageList: View, ThemedView {
         HStack(spacing: 0) {
             list
             if !outline.isEmpty {
-                ChatMinimap(outline: outline, visiblePieceIDs: visiblePieceIDs) { id in
-                    jump(to: id)
-                }
+                ChatMinimap(
+                    outline: outline,
+                    visiblePieceIDs: visiblePieceIDs,
+                    onSelect: { jump(to: $0) },
+                    bottomInset: bottomPadding + floatingPanelHeight
+                )
             }
         }
     }
