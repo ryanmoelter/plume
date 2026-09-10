@@ -33,6 +33,8 @@ struct ChatOutline: Equatable {
         case question(String)
         /// A plan the agent proposed, which is the user's turn to approve.
         case plan(String)
+        /// The user stopping the agent mid-turn.
+        case interruption
         /// Everything the agent produced between two pieces of user input.
         case response
 
@@ -44,6 +46,7 @@ struct ChatOutline: Equatable {
         var text: String {
             switch self {
             case .prompt(let text), .question(let text), .plan(let text): text
+            case .interruption: "Interrupted"
             case .response: ""
             }
         }
@@ -57,6 +60,7 @@ struct ChatOutline: Equatable {
             case .prompt, .response: nil
             case .question: "questionmark.bubble"
             case .plan: "doc.text"
+            case .interruption: "hand.raised"
             }
         }
     }
@@ -237,6 +241,10 @@ enum ChatOutlineBuilder {
         guard piece.role == .user else { return nil }
         switch piece.content {
         case .injected(let content, let text):
+            // An interruption is the user reaching for the conversation
+            // rather than writing in it, and it marks where a turn was cut
+            // short — which is exactly what a reader scans back for.
+            if content == .interrupted { return .interruption }
             return content.isUserProse ? .prompt(firstLine(of: text)) : nil
         case .markdown, .codeSegment, .listSegment, .image:
             return .prompt(firstLine(of: promptText(of: piece)))

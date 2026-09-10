@@ -117,8 +117,7 @@ struct ChatOutlineTests {
     /// The user's role covers a lot the user never typed, and anchoring on
     /// any of it would put a landmark where nothing was said.
     @Test(arguments: [
-        InjectedContent.interrupted,
-        .commandCaveat,
+        InjectedContent.commandCaveat,
         .slashCommand(name: "/rename", arguments: "chat-minimap"),
         .commandOutput(command: "/context"),
         .taskNotification,
@@ -132,6 +131,17 @@ struct ChatOutlineTests {
         ])
 
         #expect(result.entries.map(\.kind) == [.response])
+    }
+
+    @Test func anInterruptionAnchors() {
+        // Pressing escape is the user acting on the conversation, and it
+        // marks where a turn was cut short — what a reader scans back for.
+        let result = outline([
+            message("a", .user, [.injected(.interrupted, text: "[Request interrupted by user]")])
+        ])
+
+        #expect(result.entries.map(\.kind) == [.interruption])
+        #expect(ChatOutline.Kind.interruption.symbol != nil)
     }
 
     @Test func whatTheUserActuallyTypedIsAPrompt() {
