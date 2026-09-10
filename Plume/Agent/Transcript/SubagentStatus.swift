@@ -45,14 +45,16 @@ nonisolated enum SubagentStatusDeriver {
         parentResultIsError: Bool = false,
         stoppedByUser: Bool = false
     ) -> TaskStatus {
-        guard let last = transcript.messages.last else { return .unset }
+        guard let last = transcript.messages.last else { return .notStarted }
 
         if parentResultIsError || parentSignal == .failed { return .error }
         if last.blocks.contains(where: isErrorNotice) { return .error }
-        if last.blocks.contains(where: isQuestion) { return .needsInput }
+        if let waiting = last.blocks.compactMap(waitingStatus).max(by: { $0.priority < $1.priority }) {
+            return waiting
+        }
 
         if isFinished(transcript: transcript, parentSignal: parentSignal, stoppedByUser: stoppedByUser) {
-            return .done
+            return .awaitingReply
         }
         if last.blocks.contains(where: isInterruption) { return .interrupted }
         return .working
@@ -96,11 +98,16 @@ nonisolated enum SubagentStatusDeriver {
         return content == .interrupted
     }
 
-    /// The two tools that stop and wait for a person.
-    private static func isQuestion(_ block: ChatBlock) -> Bool {
-        guard case .toolCall(let call) = block else { return false }
-        guard call.result == nil else { return false }
-        return call.name == "AskUserQuestion" || call.name == "ExitPlanMode"
+    /// What an unanswered call to one of the two tools that stop and wait for
+    /// a person is waiting on. Nil for every other block.
+    private static func waitingStatus(_ block: ChatBlock) -> TaskStatus? {
+        guard case .toolCall(let call) = block else { return nil }
+        guard call.result == nil else { return nil }
+        return switch call.name {
+        case "AskUserQuestion": .questionAsked
+        case "ExitPlanMode": .planApproval
+        default: nil
+        }
     }
 
     private static func isErrorNotice(_ block: ChatBlock) -> Bool {

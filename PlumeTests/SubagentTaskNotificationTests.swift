@@ -130,7 +130,7 @@ struct StoppedSubagentTests {
     @Test func aStoppedAgentStaysInterruptedDespiteItsCompletion() {
         let parsed = transcript(interruptedTail)
 
-        #expect(SubagentStatusDeriver.derive(transcript: parsed, parentSignal: .completed) == .done)
+        #expect(SubagentStatusDeriver.derive(transcript: parsed, parentSignal: .completed) == .awaitingReply)
         #expect(
             SubagentStatusDeriver.derive(transcript: parsed, parentSignal: .completed, stoppedByUser: true)
                 == .interrupted
@@ -145,7 +145,7 @@ struct StoppedSubagentTests {
         ])
 
         #expect(
-            SubagentStatusDeriver.derive(transcript: parsed, parentSignal: .completed, stoppedByUser: true) == .done
+            SubagentStatusDeriver.derive(transcript: parsed, parentSignal: .completed, stoppedByUser: true) == .awaitingReply
         )
     }
 

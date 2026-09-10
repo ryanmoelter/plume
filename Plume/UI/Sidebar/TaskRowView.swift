@@ -17,7 +17,7 @@ struct TaskRowView: View {
     /// covers the window before any agent has run this launch.
     private var status: TaskStatus {
         let live = StatusEngine.shared.status(forTask: task.id)
-        return live == .unset ? task.lastStatus : live
+        return live == .notStarted ? task.lastStatus : live
     }
 
     /// One group per distinct directory the task's agent tabs are open in. A

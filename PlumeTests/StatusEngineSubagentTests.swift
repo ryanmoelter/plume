@@ -15,11 +15,11 @@ struct StatusEngineSubagentTests {
     }
 
     @Test(arguments: [
-        (TaskStatus.done, TaskStatus.working),
-        (.idle, .working),
-        (.unset, .working),
+        (TaskStatus.awaitingReply, TaskStatus.working),
+        (.awaitingReply, .working),
+        (.notStarted, .working),
         (.working, .working),
-        (.needsInput, .needsInput),
+        (.permissionNeeded, .permissionNeeded),
         (.error, .error),
         (.interrupted, .interrupted),
     ])
@@ -36,25 +36,25 @@ struct StatusEngineSubagentTests {
         let (engine, task, tab) = engineWithTab()
 
         engine.setSubagentActivity(tabID: tab, working: true)
-        engine.setStatus(.done, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
 
         #expect(engine.status(forTab: tab) == .working)
         #expect(engine.status(forTask: task) == .working)
-        #expect(engine.ownStatus(forTab: tab) == .done)
+        #expect(engine.ownStatus(forTab: tab) == .awaitingReply)
 
         engine.setSubagentActivity(tabID: tab, working: false)
-        #expect(engine.status(forTab: tab) == .done)
-        #expect(engine.status(forTask: task) == .done)
+        #expect(engine.status(forTab: tab) == .awaitingReply)
+        #expect(engine.status(forTask: task) == .awaitingReply)
     }
 
     @Test func needsInputSurvivesWorkingSubagents() {
         let (engine, task, tab) = engineWithTab()
 
-        engine.setStatus(.needsInput, taskID: task, tabID: tab)
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: true)
 
-        #expect(engine.status(forTab: tab) == .needsInput)
-        #expect(engine.status(forTask: task) == .needsInput)
+        #expect(engine.status(forTab: tab) == .permissionNeeded)
+        #expect(engine.status(forTask: task) == .permissionNeeded)
         #expect(engine.tasksNeedingInput == 1)
     }
 
@@ -74,18 +74,18 @@ struct StatusEngineSubagentTests {
 
         engine.setSubagentActivity(tabID: tab, working: true)
 
-        #expect(engine.status(forTab: tab) == .unset)
+        #expect(engine.status(forTab: tab) == .notStarted)
     }
 
     @Test func forgettingATabDropsItsSubagentActivity() {
         let (engine, task, tab) = engineWithTab()
 
-        engine.setStatus(.done, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: true)
         engine.forget(tabID: tab, taskID: task)
-        engine.register(tabID: tab, taskID: task, status: .done)
+        engine.register(tabID: tab, taskID: task, status: .awaitingReply)
 
-        #expect(engine.status(forTab: tab) == .done)
+        #expect(engine.status(forTab: tab) == .awaitingReply)
     }
 
     // MARK: - Callbacks
@@ -98,34 +98,34 @@ struct StatusEngineSubagentTests {
         engine.setSubagentActivity(tabID: tab, working: true)
         engine.onTabStatusChanged = { _, _, status in seen.append(status) }
 
-        engine.setStatus(.done, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         #expect(seen == [])
 
         engine.setSubagentActivity(tabID: tab, working: false)
-        #expect(seen == [.done])
+        #expect(seen == [.awaitingReply])
     }
 
     @Test func theNotifierWouldFireOnceOnTheFinalSettle() {
         let (engine, task, tab) = engineWithTab()
         var bodies: [String] = []
         engine.onTabStatusChanged = { _, _, status in
-            if let body = StatusNotifier.body(for: status) { bodies.append(body) }
+            if let body = StatusNotifier.body(for: status, notifiesOnTurnEnd: true) { bodies.append(body) }
         }
 
         engine.setStatus(.working, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: true)
-        engine.setStatus(.done, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         #expect(bodies.isEmpty)
 
         engine.setSubagentActivity(tabID: tab, working: false)
-        #expect(bodies == ["Finished its turn."])
+        #expect(bodies == ["It's your turn."])
     }
 
     /// Subagent activity that changes nothing visible must not re-announce a
     /// status the user has already been told about.
     @Test func activityThatChangesNothingIsSilent() {
         let (engine, task, tab) = engineWithTab()
-        engine.setStatus(.needsInput, taskID: task, tabID: tab)
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: tab)
 
         var seen = 0
         engine.onTabStatusChanged = { _, _, _ in seen += 1 }
@@ -141,22 +141,22 @@ struct StatusEngineSubagentTests {
         engine.onTaskStatusChanged = { _, status in seen.append(status) }
 
         engine.setSubagentActivity(tabID: tab, working: true)
-        engine.setStatus(.done, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: false)
 
-        #expect(seen == [.working, .done])
+        #expect(seen == [.working, .awaitingReply])
     }
 
     /// One tab's subagents must not hold a sibling tab at working.
     @Test func subagentActivityIsPerTab() {
         let engine = StatusEngine()
         let (task, a, b) = (UUID(), UUID(), UUID())
-        engine.setStatus(.done, taskID: task, tabID: a)
-        engine.setStatus(.idle, taskID: task, tabID: b)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: a)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: b)
 
         engine.setSubagentActivity(tabID: a, working: true)
 
         #expect(engine.status(forTab: a) == .working)
-        #expect(engine.status(forTab: b) == .idle)
+        #expect(engine.status(forTab: b) == .awaitingReply)
     }
 }

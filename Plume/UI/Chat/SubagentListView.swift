@@ -171,7 +171,7 @@ private struct SubagentRow: View, ThemedView {
                 transcript: Transcript(),
                 modifiedAt: nil,
                 descriptor: SubagentDescriptor(description: "Design the notification layer", agentType: "Plan"),
-                status: .done
+                status: .awaitingReply
             ),
         ],
         tabID: UUID()

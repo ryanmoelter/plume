@@ -6,18 +6,22 @@ struct StatusBadge: View {
 
     var body: some View {
         switch status {
-        case .unset:
+        case .notStarted:
             EmptyView()
-        case .idle:
-            Circle().fill(Emphasis.subtle.textHierarchy).frame(width: 7, height: 7)
         case .working:
             WorkingIndicator()
-        case .needsInput:
+        case .awaitingReply:
+            Circle().fill(Emphasis.subtle.textHierarchy).frame(width: 7, height: 7)
+        case .planApproval:
+            Image(systemName: "list.bullet.clipboard.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .questionAsked:
+            Image(systemName: "questionmark.circle.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .permissionNeeded:
+            Image(systemName: "hand.raised.fill").foregroundStyle(ChatRole.warning(for: colorScheme))
+        case .needsTerminalInput:
             Image(systemName: "bell.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
         case .interrupted:
-            Image(systemName: "hand.raised.fill").foregroundStyle(Emphasis.subtle.textHierarchy)
-        case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success(for: colorScheme))
+            Image(systemName: "hand.raised.slash.fill").foregroundStyle(Emphasis.subtle.textHierarchy)
         case .error:
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatRole.danger(for: colorScheme))
         }

@@ -119,6 +119,6 @@ final class SubagentCompletionTracker {
     }
 
     private func isFinished(_ status: TaskStatus) -> Bool {
-        status == .done || status == .error || status == .interrupted
+        status == .awaitingReply || status == .error || status == .interrupted
     }
 }

@@ -37,7 +37,7 @@ struct SubagentStatusTests {
     }
 
     @Test func anEmptyTranscriptHasNoStatus() {
-        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .unset)
+        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .notStarted)
     }
 
     /// A tool call with no result yet is the agent mid-step.
@@ -56,7 +56,7 @@ struct SubagentStatusTests {
             parentSignal: nil
         )
 
-        #expect(status == .done)
+        #expect(status == .awaitingReply)
     }
 
     /// The shape behind the false green checks: an agent narrating between
@@ -109,7 +109,7 @@ struct SubagentStatusTests {
             parentSignal: .completed
         )
 
-        #expect(status == .done)
+        #expect(status == .awaitingReply)
     }
 
     /// A resumed agent works past the turn it already closed, so the newest
@@ -151,7 +151,7 @@ struct SubagentStatusTests {
             parentSignal: nil
         )
 
-        #expect(status == .done)
+        #expect(status == .awaitingReply)
     }
 
     /// Interruption is checked last, so it can only ever replace `working`.
@@ -161,7 +161,7 @@ struct SubagentStatusTests {
             parentSignal: .completed
         )
 
-        #expect(status == .done)
+        #expect(status == .awaitingReply)
     }
 
     @Test func aFailedSpawnOutranksATrailingInterruption() {
@@ -196,22 +196,22 @@ struct SubagentStatusTests {
     }
 
     /// A question outranks a closed turn: the model stops speaking to wait.
-    @Test func anUnansweredQuestionIsWaitingForInput() {
+    @Test func anUnansweredQuestionSaysItAskedOne() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "AskUserQuestion", stopReason: "end_turn")]),
             parentSignal: nil
         )
 
-        #expect(status == .needsInput)
+        #expect(status == .questionAsked)
     }
 
-    @Test func anUnansweredPlanProposalIsWaitingForInput() {
+    @Test func anUnansweredPlanProposalSaysItWantsApproval() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "ExitPlanMode")]),
             parentSignal: nil
         )
 
-        #expect(status == .needsInput)
+        #expect(status == .planApproval)
     }
 
     /// Once the question is answered the agent is running again.
@@ -242,7 +242,7 @@ struct SubagentStatusTests {
 
         #expect(transcript(lines).lastStopReason == "tool_use")
         #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
-        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .awaitingReply)
     }
 
     /// An agent cut off mid-response closes on `stop_sequence`, which is not
@@ -254,7 +254,7 @@ struct SubagentStatusTests {
         ]
 
         #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
-        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .awaitingReply)
     }
 
     /// A background agent's completion never touches the spawning call, so a

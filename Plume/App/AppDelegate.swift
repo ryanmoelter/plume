@@ -117,6 +117,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) -> Bool {
         let confirmationEnabled = isSystemInitiated ? confirmSystemQuit : confirmUserQuit
         guard confirmationEnabled else { return false }
-        return statuses.contains { $0 == .working || $0 == .needsInput }
+        return statuses.contains { $0 == .working || $0.wantsAttention }
     }
 }

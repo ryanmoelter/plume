@@ -227,7 +227,7 @@ private struct SegmentBorder: Shape {
     ]
     let pieces = ChatPieceSplitter.pieces(
         for: messages,
-        status: .needsInput,
+        status: .questionAsked,
         hiddenToolUseIDs: [],
         streaming: ChatStreamHandoff.Overlay(),
         dimensions: dimensions

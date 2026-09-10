@@ -1,32 +1,83 @@
 import Foundation
 
 /// Status of an agent tab, and (aggregated) of a task.
+///
+/// The vocabulary is working or not working, and every not-working state that
+/// wants the user names what it wants. There is no general "needs attention":
+/// a summons that cannot say why is worse than none, so the only unnamed one
+/// is `needsTerminalInput`, which exists because the terminal transport's hook
+/// genuinely cannot say more.
 enum TaskStatus: String, CaseIterable, Sendable {
-    case unset
-    case idle
+    /// No agent has run, or none is running after a relaunch. Distinct from
+    /// `awaitingReply`, which claims a turn actually ended.
+    case notStarted
     case working
-    case needsInput
-    case done
-    /// Stopped mid-turn because the user said so. Distinct from `done`, which
-    /// claims the work finished, and from `error`, which blames the agent.
+    /// The one resting state: the agent's turn is over and it is the user's
+    /// move. Covers a finished turn and a cleanly exited process alike, which
+    /// read the same to someone scanning the sidebar.
+    case awaitingReply
+    case planApproval
+    case questionAsked
+    case permissionNeeded
+    /// The terminal transport wants the user but cannot say why: its hook
+    /// reports only that Claude Code asked for someone.
+    case needsTerminalInput
+    /// Stopped mid-turn because the user said so. Distinct from
+    /// `awaitingReply`, which claims the work reached an end, and from
+    /// `error`, which blames the agent.
     case interrupted
     case error
 
-    /// Higher wins when aggregating tab statuses into a task status.
+    /// Higher wins when aggregating tab statuses into a task status. Every
+    /// state that wants the user outranks `working`, because a tab stalled on
+    /// a question is more worth surfacing than one still busy. Among those,
+    /// the more consequential the answer, the higher — and an unnamed summons
+    /// ranks below every named one, so a tie shows the reason it can state.
     var priority: Int {
         switch self {
-        case .unset: 0
-        case .idle: 1
-        case .done: 2
-        case .interrupted: 3
-        case .error: 4
-        case .working: 5
-        case .needsInput: 6
+        case .notStarted: 0
+        case .awaitingReply: 1
+        case .interrupted: 2
+        case .error: 3
+        case .working: 4
+        case .needsTerminalInput: 5
+        case .permissionNeeded: 6
+        case .questionAsked: 7
+        case .planApproval: 8
+        }
+    }
+
+    /// Whether the agent has stopped and wants a specific answer.
+    var wantsAttention: Bool {
+        switch self {
+        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
+            true
+        case .notStarted, .working, .awaitingReply, .interrupted, .error:
+            false
         }
     }
 
     static func aggregate(_ statuses: some Sequence<TaskStatus>) -> TaskStatus {
-        statuses.max { $0.priority < $1.priority } ?? .unset
+        statuses.max { $0.priority < $1.priority } ?? .notStarted
+    }
+
+    /// Reads a snapshot written before the vocabulary was split, so an
+    /// existing store keeps its meaning.
+    ///
+    /// A persisted `needsInput` becomes `needsTerminalInput` whatever the
+    /// transport: the reason lived only in the running session, so a snapshot
+    /// can say that the agent wanted the user but never why.
+    init(migratingRawValue raw: String) {
+        if let known = TaskStatus(rawValue: raw) {
+            self = known
+            return
+        }
+        switch raw {
+        case "unset": self = .notStarted
+        case "idle", "done": self = .awaitingReply
+        case "needsInput": self = .needsTerminalInput
+        default: self = .notStarted
+        }
     }
 }
 

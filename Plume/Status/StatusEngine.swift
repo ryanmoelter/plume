@@ -45,34 +45,37 @@ final class StatusEngine {
 
     /// The tab's own status, ignoring its subagents.
     func ownStatus(forTab id: UUID) -> TaskStatus {
-        tabStatuses[id] ?? .unset
+        tabStatuses[id] ?? .notStarted
     }
 
-    /// Working subagents raise a settled tab to `working`. `needsInput`,
-    /// `error` and `interrupted` outrank that: they need the user either way,
-    /// and a subagent cannot clear them.
+    /// Working subagents raise a settled tab to `working`. Every state that
+    /// wants the user outranks that, along with `error` and `interrupted`:
+    /// they need the user either way, and a subagent cannot answer for them.
     static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
         guard subagentsWorking else { return own }
         switch own {
-        case .unset, .idle, .done, .working: return .working
-        case .needsInput, .error, .interrupted: return own
+        case .notStarted, .awaitingReply, .working:
+            return .working
+        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
+             .error, .interrupted:
+            return own
         }
     }
 
     func status(forTask id: UUID) -> TaskStatus {
-        guard let tabs = tabsByTask[id] else { return .unset }
+        guard let tabs = tabsByTask[id] else { return .notStarted }
         return TaskStatus.aggregate(tabs.map { status(forTab: $0) })
     }
 
     var tasksNeedingInput: Int {
-        tabsByTask.keys.count { status(forTask: $0) == .needsInput }
+        tabsByTask.keys.count { status(forTask: $0).wantsAttention }
     }
 
     // MARK: - Writing
 
     func apply(_ event: HookEvent, taskID: UUID, tabID: UUID) {
         // A `/clear` ends a session while the agent keeps running, so the
-        // usual "session ended means idle" reading is wrong here.
+        // usual "session ended means the turn is over" reading is wrong here.
         guard !event.endsClearedSession else { return }
         guard let status = Self.status(for: event.kind) else { return }
         setStatus(status, taskID: taskID, tabID: tabID)
@@ -81,7 +84,7 @@ final class StatusEngine {
     /// The PTY child exiting means no agent is running, whatever the last
     /// hook said.
     func handleSurfaceExit(taskID: UUID, tabID: UUID, processAlive: Bool) {
-        setStatus(processAlive ? .error : .idle, taskID: taskID, tabID: tabID)
+        setStatus(processAlive ? .error : .awaitingReply, taskID: taskID, tabID: tabID)
     }
 
     func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID) {
@@ -115,7 +118,7 @@ final class StatusEngine {
     }
 
     /// Announces effective status, so a notifier or snapshot never sees a
-    /// `done` the subagents contradict.
+    /// finished turn the subagents contradict.
     private func report(
         taskID: UUID,
         tabID: UUID,
@@ -134,7 +137,7 @@ final class StatusEngine {
 
     /// Registers a tab so its task aggregates correctly before any event
     /// arrives.
-    func register(tabID: UUID, taskID: UUID, status: TaskStatus = .unset) {
+    func register(tabID: UUID, taskID: UUID, status: TaskStatus = .notStarted) {
         tabsByTask[taskID, default: []].insert(tabID)
         if tabStatuses[tabID] == nil {
             tabStatuses[tabID] = status
@@ -157,16 +160,18 @@ final class StatusEngine {
     }
 
     /// Nil means the event carries no status meaning and is ignored.
+    ///
+    /// A notification is the terminal transport's only way to say the agent
+    /// wants the user, and it never says why — hence the unnamed status. The
+    /// headless transport names its reason instead, in `HeadlessSession`.
     static func status(for kind: HookEvent.Kind) -> TaskStatus? {
         switch kind {
         case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse:
             .working
         case .notification:
-            .needsInput
-        case .stop, .subagentStop:
-            .done
-        case .sessionEnd:
-            .idle
+            .needsTerminalInput
+        case .stop, .subagentStop, .sessionEnd:
+            .awaitingReply
         case .unknown:
             nil
         }

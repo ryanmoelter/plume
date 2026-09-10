@@ -37,6 +37,10 @@ final class HeadlessSession {
 
     private(set) var sessionID: String?
     private(set) var isWorking = false
+
+    /// When the turn in flight began, for the elapsed time the UI shows.
+    /// Nil whenever no turn is running.
+    private(set) var turnStartedAt: Date?
     private(set) var hasExited = false
     private(set) var exitStatus: Int32?
 
@@ -282,6 +286,7 @@ final class HeadlessSession {
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
         pendingPermissions.removeAll { $0.id == permission.id }
         send(StreamJSONEncoder.permissionResponse(requestID: permission.id, decision: decision))
+        reportPendingPermissions()
     }
 
     /// Approves an `ExitPlanMode` call. Allowing the call only answers the
@@ -372,6 +377,7 @@ final class HeadlessSession {
         case .controlCancel(let requestID):
             // The CLI no longer needs an answer; drop any UI for it.
             pendingPermissions.removeAll { $0.id == requestID }
+            reportPendingPermissions()
 
         case .unknown:
             break
@@ -399,7 +405,37 @@ final class HeadlessSession {
             agentID: request.agentID,
             interactive: InteractiveToolPayload.decoding(name: name, input: request.input)
         ))
-        StatusEngine.shared.setStatus(.needsInput, taskID: taskID, tabID: tabID)
+        reportPendingPermissions()
+    }
+
+    /// Tells the status engine what the tab is waiting on, derived from every
+    /// request still outstanding rather than from whichever arrived last.
+    ///
+    /// Nothing left pending means the turn resumes: answering a permission
+    /// happens mid-turn, so the agent goes back to working rather than to
+    /// rest. A process that has already exited keeps whatever `handleExit`
+    /// decided.
+    private func reportPendingPermissions() {
+        guard !hasExited else { return }
+        let status = Self.attentionStatus(for: pendingPermissions) ?? .working
+        StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID)
+    }
+
+    /// What the tab is waiting on, or nil when it is waiting on nothing.
+    ///
+    /// More than one request can be outstanding at once, so this ranks them:
+    /// a plan gate decides the most and an ordinary tool call the least.
+    static func attentionStatus(for pending: [PendingPermission]) -> TaskStatus? {
+        var status: TaskStatus?
+        for permission in pending {
+            let candidate: TaskStatus = switch permission.interactive {
+            case .plan: .planApproval
+            case .questions: .questionAsked
+            case nil: .permissionNeeded
+            }
+            if candidate.priority > (status?.priority ?? -1) { status = candidate }
+        }
+        return status
     }
 
     private func handle(_ response: ControlResponse) {
@@ -437,6 +473,7 @@ final class HeadlessSession {
 
     private func beginTurn() {
         isWorking = true
+        turnStartedAt = Date()
         streamingText = ""
         streamingThinking = ""
         lastError = nil
@@ -445,6 +482,7 @@ final class HeadlessSession {
 
     private func endTurn(_ result: TurnResult) {
         isWorking = false
+        turnStartedAt = nil
         // The streamed text is not cleared here — see its declaration.
         if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
@@ -453,7 +491,7 @@ final class HeadlessSession {
             lastError = result.text ?? "The turn failed."
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
         } else {
-            StatusEngine.shared.setStatus(.done, taskID: taskID, tabID: tabID)
+            StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
         sendNextQueuedMessage()
     }
@@ -472,6 +510,7 @@ final class HeadlessSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         isWorking = false
+        turnStartedAt = nil
         streamingText = ""
         streamingThinking = ""
         exitStatus = status
@@ -484,7 +523,7 @@ final class HeadlessSession {
         pendingControlRequests.removeAll()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
-        StatusEngine.shared.setStatus(status == 0 ? .idle : .error, taskID: taskID, tabID: tabID)
+        StatusEngine.shared.setStatus(status == 0 ? .awaitingReply : .error, taskID: taskID, tabID: tabID)
     }
 
     @discardableResult

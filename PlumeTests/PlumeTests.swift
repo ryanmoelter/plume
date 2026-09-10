@@ -136,24 +136,62 @@ struct TaskStoreTests {
 }
 
 struct TaskStatusTests {
-    @Test func needsInputOutranksWorking() {
-        #expect(TaskStatus.aggregate([.idle, .working, .needsInput, .done]) == .needsInput)
+    @Test func wantingAttentionOutranksWorking() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .working, .questionAsked]) == .questionAsked)
     }
 
-    @Test func workingOutranksErrorAndDone() {
-        #expect(TaskStatus.aggregate([.done, .error, .working]) == .working)
+    /// Among tabs that all want the user, the one whose answer decides the
+    /// most is the one worth surfacing.
+    @Test func namedReasonsRankByConsequence() {
+        #expect(TaskStatus.aggregate([.permissionNeeded, .planApproval]) == .planApproval)
+        #expect(TaskStatus.aggregate([.permissionNeeded, .questionAsked]) == .questionAsked)
+        #expect(TaskStatus.aggregate([.needsTerminalInput, .permissionNeeded]) == .permissionNeeded)
+    }
+
+    @Test func workingOutranksErrorAndRest() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .error, .working]) == .working)
     }
 
     /// An interruption is a settled state, so it loses to anything still
-    /// running — but it outranks a `done` on a sibling tab, since a tab the
-    /// user stopped is the one worth going back to.
-    @Test func interruptedSitsBetweenDoneAndError() {
-        #expect(TaskStatus.aggregate([.done, .interrupted]) == .interrupted)
+    /// running — but it outranks a finished turn on a sibling tab, since a
+    /// tab the user stopped is the one worth going back to.
+    @Test func interruptedSitsBetweenAwaitingReplyAndError() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .interrupted]) == .interrupted)
         #expect(TaskStatus.aggregate([.interrupted, .error]) == .error)
         #expect(TaskStatus.aggregate([.interrupted, .working]) == .working)
     }
 
-    @Test func emptyAggregatesToUnset() {
-        #expect(TaskStatus.aggregate([]) == .unset)
+    @Test func emptyAggregatesToNotStarted() {
+        #expect(TaskStatus.aggregate([]) == .notStarted)
+    }
+
+    @Test func onlyTheStatusesWaitingOnSomeoneWantAttention() {
+        let wanting: Set<TaskStatus> = [.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput]
+        for status in TaskStatus.allCases {
+            #expect(status.wantsAttention == wanting.contains(status), "\(status)")
+        }
+    }
+
+    @Test(arguments: [
+        ("unset", TaskStatus.notStarted),
+        ("idle", .awaitingReply),
+        ("done", .awaitingReply),
+        ("needsInput", .needsTerminalInput),
+        ("working", .working),
+        ("interrupted", .interrupted),
+        ("error", .error),
+    ])
+    func aSnapshotFromTheOldVocabularyStillReads(raw: String, expected: TaskStatus) {
+        #expect(TaskStatus(migratingRawValue: raw) == expected)
+    }
+
+    @Test func anUnreadableSnapshotClaimsNothing() {
+        #expect(TaskStatus(migratingRawValue: "banana") == .notStarted)
+    }
+
+    @Test func everyCurrentRawValueSurvivesMigration() {
+        for status in TaskStatus.allCases {
+            #expect(TaskStatus(migratingRawValue: status.rawValue) == status)
+        }
     }
 }

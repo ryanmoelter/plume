@@ -10,7 +10,7 @@ struct SubagentTranscript: Identifiable, Equatable {
     /// What the subagent was asked to do, from its `.meta.json` sidecar or
     /// the parent's spawning tool call. Nil when neither names it.
     var descriptor: SubagentDescriptor?
-    var status: TaskStatus = .unset
+    var status: TaskStatus = .notStarted
 
     /// What to call this subagent in the list. Falls back to the raw id only
     /// when nothing describes it.

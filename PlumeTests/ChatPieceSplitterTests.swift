@@ -8,7 +8,7 @@ struct ChatPieceSplitterTests {
 
     private func pieces(
         _ messages: [ChatMessage],
-        status: TaskStatus = .idle,
+        status: TaskStatus = .awaitingReply,
         hidden: Set<String> = [],
         streaming: ChatStreamHandoff.Overlay = .init()
     ) -> [ChatPiece] {
@@ -184,7 +184,7 @@ struct ChatPieceSplitterTests {
                 message("b", .user, [.markdown("go")]),
                 message("c", .assistant, [.markdown("Should I proceed?")])
             ],
-            status: .needsInput
+            status: .permissionNeeded
         )
         #expect(result.map(\.wash) == [.none, .bubble, .attention])
     }
@@ -468,7 +468,7 @@ struct ChatPieceSplitterTests {
         ]
         let first = cache.pieces(
             for: messages,
-            status: .idle,
+            status: .awaitingReply,
             hiddenToolUseIDs: [],
             streaming: .init(),
             dimensions: dimensions
@@ -477,7 +477,7 @@ struct ChatPieceSplitterTests {
 
         let again = cache.pieces(
             for: messages,
-            status: .idle,
+            status: .awaitingReply,
             hiddenToolUseIDs: [],
             streaming: .init(),
             dimensions: dimensions
@@ -487,7 +487,7 @@ struct ChatPieceSplitterTests {
 
         _ = cache.pieces(
             for: [messages[0], message("b", .assistant, [.markdown("Two, revised.")])],
-            status: .idle,
+            status: .awaitingReply,
             hiddenToolUseIDs: [],
             streaming: .init(),
             dimensions: dimensions
@@ -502,7 +502,7 @@ struct ChatPieceSplitterTests {
         func build(_ text: String) {
             _ = cache.pieces(
                 for: [message("a", .assistant, [.markdown(text)])],
-                status: .idle,
+                status: .awaitingReply,
                 hiddenToolUseIDs: [],
                 streaming: .init(),
                 dimensions: dimensions
