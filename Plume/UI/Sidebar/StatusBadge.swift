@@ -47,14 +47,13 @@ struct StatusBadge: View {
 ///
 /// Driven by `TimelineView` off the clock rather than by a timer writing
 /// state, so the redraw stays inside this label instead of invalidating the
-/// row — the reason `ChatWorkingIndicator` does the same. The cadence drops to
-/// once a minute past the first minute, where the text stops changing faster
-/// than that.
+/// row — the reason `ChatWorkingIndicator` does the same. The schedule slows
+/// itself once the text stops changing by the second.
 private struct ElapsedLabel: View {
     let since: Date
 
     var body: some View {
-        TimelineView(.periodic(from: since, by: ElapsedTime.tickInterval(for: Date().timeIntervalSince(since)))) { context in
+        TimelineView(ElapsedSchedule(since: since)) { context in
             Text(ElapsedTime.formatted(context.date.timeIntervalSince(since)))
                 .font(.caption)
                 .monospacedDigit()

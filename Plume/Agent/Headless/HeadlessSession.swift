@@ -407,13 +407,14 @@ final class HeadlessSession {
     /// Tells the status engine what the tab is waiting on, derived from every
     /// request still outstanding rather than from whichever arrived last.
     ///
-    /// Nothing left pending means the turn resumes: answering a permission
-    /// happens mid-turn, so the agent goes back to working rather than to
-    /// rest. A process that has already exited keeps whatever `handleExit`
-    /// decided.
+    /// With nothing left pending the tab reports the turn it is actually in,
+    /// so answering the last prompt resumes `working` mid-turn but answering
+    /// a stale one after the turn ended does not claim work that stopped. A
+    /// process that has already exited keeps whatever `handleExit` decided.
     private func reportPendingPermissions() {
         guard !hasExited else { return }
-        let status = Self.attentionStatus(for: pendingPermissions) ?? .working
+        let resting: TaskStatus = isWorking ? .working : .awaitingReply
+        let status = Self.attentionStatus(for: pendingPermissions) ?? resting
         StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID)
     }
 

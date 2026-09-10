@@ -111,6 +111,22 @@ struct AppSettingsTests {
         #expect(!reloaded.showsPullRequestStatus)
     }
 
+    /// A finished turn is frequent enough that notifying on every one is a
+    /// nuisance, so it stays off until asked for.
+    @Test func notifiesOnTurnEndDefaultsToOffWhenUnset() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(!settings.notifiesOnTurnEnd)
+    }
+
+    @Test func notifiesOnTurnEndPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.notifiesOnTurnEnd = true
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.notifiesOnTurnEnd)
+    }
+
     @Test func ignoredPendingChecksDefaultsToEmpty() {
         let settings = AppSettings(defaults: makeDefaults())
         #expect(settings.ignoredPendingChecks.isEmpty)

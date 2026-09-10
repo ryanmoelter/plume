@@ -24,7 +24,7 @@ struct ChatWorkingIndicator: View, ThemedView {
                 // Its own timeline, an order of magnitude slower than the
                 // dot's: the text changes once a second at most, so driving
                 // it off the pulse would rebuild it twenty times for nothing.
-                TimelineView(.periodic(from: workStartedAt, by: 1)) { context in
+                TimelineView(ElapsedSchedule(since: workStartedAt)) { context in
                     Text(caption(at: context.date, startedAt: workStartedAt))
                         .font(typography.caption.font)
                         .emphasis(.secondary)

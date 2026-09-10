@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Plume
 
@@ -25,6 +26,33 @@ struct ElapsedTimeTests {
     @Test func theTickSlowsOnceSecondsStopShowing() {
         #expect(ElapsedTime.tickInterval(for: 10) == 1)
         #expect(ElapsedTime.tickInterval(for: 120) == 60)
+    }
+}
+
+struct ElapsedScheduleTests {
+    /// The schedule has to slow down as the clock ages. A fixed-rate
+    /// `.periodic` would keep a label that started young redrawing every
+    /// second forever.
+    @Test func theRateDropsOnceTheTextStopsCountingSeconds() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let schedule = ElapsedSchedule(since: since)
+
+        var entries = schedule.entries(from: since, mode: .normal)
+        let early = (0..<3).compactMap { _ in entries.next() }
+        #expect(early[1].timeIntervalSince(early[0]) == 1)
+
+        var later = schedule.entries(from: since.addingTimeInterval(600), mode: .normal)
+        let aged = (0..<3).compactMap { _ in later.next() }
+        #expect(aged[1].timeIntervalSince(aged[0]) == 60)
+    }
+
+    @Test func entriesAlwaysMoveForward() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        var entries = ElapsedSchedule(since: since).entries(from: since, mode: .normal)
+        let dates = (0..<120).compactMap { _ in entries.next() }
+
+        #expect(dates == dates.sorted())
+        #expect(Set(dates).count == dates.count)
     }
 }
 
