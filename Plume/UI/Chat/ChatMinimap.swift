@@ -20,6 +20,9 @@ struct ChatMinimap: View, ThemedView {
     var visiblePieceIDs: Set<String> = []
     /// Scrolls the list to a piece id.
     let onSelect: (String) -> Void
+    /// Scrolls the list to the very bottom, where it starts following new
+    /// content again.
+    var onSelectEnd: () -> Void = {}
     /// What the composer and anything floating above it cover, matching the
     /// chat's own bottom margin.
     var bottomInset: CGFloat = 0
@@ -27,7 +30,12 @@ struct ChatMinimap: View, ThemedView {
     /// Wide enough for a few words of a prompt. Only the rail holds layout
     /// space, so this is what the revealed map draws over the chat rather
     /// than a contribution to the pane's minimum width.
-    static let width: CGFloat = 168
+    static let defaultWidth: CGFloat = 260
+
+    /// How far the reader may drag the map's edge. The lower bound keeps a
+    /// few words legible; the upper stops it swallowing the conversation it
+    /// is a map of.
+    static let widthRange: ClosedRange<CGFloat> = 168...520
 
     /// The rail's width, which is what the minimap costs the chat. A tenth
     /// of the revealed map: enough for a prompt's bar to read as wider than
@@ -36,6 +44,15 @@ struct ChatMinimap: View, ThemedView {
 
     /// Follows the conversation rather than being scrolled by hand.
     @State private var position = ScrollPosition(edge: .top)
+
+    @AppStorage("chatMinimapWidth") private var storedWidth: Double = Double(ChatMinimap.defaultWidth)
+    /// Non-nil only while the edge is being dragged, so the committed width
+    /// is not rewritten on every frame of the gesture.
+    @State private var dragWidth: CGFloat?
+
+    private var width: CGFloat {
+        min(max(dragWidth ?? CGFloat(storedWidth), Self.widthRange.lowerBound), Self.widthRange.upperBound)
+    }
 
     @State private var isRevealed = false
     /// Where the cursor sits in the rail, 0 at the top and 1 at the bottom,
@@ -59,7 +76,14 @@ struct ChatMinimap: View, ThemedView {
                             height: max(Self.minimumEntryHeight, entry.weight * scale),
                             isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
                             isRevealed: isRevealed,
-                            onSelect: onSelect
+                            // The end of the map means the end of the
+                            // conversation, not the top of its last entry:
+                            // that is where the list picks up following new
+                            // content, and anchoring the last entry to the
+                            // top would stop short of it.
+                            onSelect: entry.id == outline.entries.last?.id
+                                ? { _ in onSelectEnd() }
+                                : onSelect
                         )
                     }
                 }
@@ -109,26 +133,34 @@ struct ChatMinimap: View, ThemedView {
             // Drawn wider than the rail it sits in, toward the chat. Only
             // the rail holds layout space, so revealing the map never
             // reflows the conversation under the cursor.
-            .frame(width: isRevealed ? Self.width : Self.collapsedWidth, alignment: .trailing)
+            .frame(width: isRevealed ? width : Self.collapsedWidth, alignment: .trailing)
             .background(mapBackground)
-            // Whatever the map currently occupies is what answers the
-            // pointer: the rail while it is closed, the whole map once it is
-            // open, so reading down the labels keeps driving it.
-            .contentShape(.rect)
-            .onContinuousHover(coordinateSpace: .local) { phase in
-                switch phase {
-                case .active(let point):
-                    // Against the space the entries occupy, not the rail's
-                    // full height: the margins are not part of the
-                    // conversation, so travelling over them would mean the
-                    // ends of the map were unreachable.
-                    let live = max(1, proxy.size.height - 2 * dimensions.verticalPadding - bottomInset)
-                    hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
-                case .ended:
-                    hoverFraction = nil
-                }
-            }
+            .overlay(alignment: .leading) { resizeHandle }
             .frame(width: Self.collapsedWidth, alignment: .trailing)
+            // Answered by a region that does not move when the map opens.
+            // Hanging it off the map's own body would mean revealing the map
+            // moved the region the pointer is being tracked in, which
+            // changes whether the pointer is inside it — the map would open,
+            // lose the pointer, close, and find it again.
+            .overlay(alignment: .trailing) {
+                Color.clear
+                    .frame(width: isRevealed ? width : Self.collapsedWidth)
+                    .contentShape(.rect)
+                    .onContinuousHover(coordinateSpace: .named(Self.railSpace)) { phase in
+                        switch phase {
+                        case .active(let point):
+                            // Against the space the entries occupy, not the
+                            // rail's full height: the margins are not part of
+                            // the conversation, so travelling over them would
+                            // mean the ends of the map were unreachable.
+                            let live = max(1, proxy.size.height - 2 * dimensions.verticalPadding - bottomInset)
+                            hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
+                        case .ended:
+                            hoverFraction = nil
+                        }
+                    }
+            }
+            .coordinateSpace(.named(Self.railSpace))
         }
         .frame(width: Self.collapsedWidth)
         .padding(.trailing, Self.edgeInset)
@@ -137,6 +169,38 @@ struct ChatMinimap: View, ThemedView {
             withAnimation(.easeOut(duration: 0.15)) { isRevealed = !away }
         }
     }
+
+    /// The map's leading edge, draggable to set how much room it takes.
+    /// Only while it is open: there is nothing to resize otherwise, and the
+    /// rail is too narrow to host a target that is not in the way.
+    @ViewBuilder private var resizeHandle: some View {
+        if isRevealed {
+            Rectangle()
+                .fill(.clear)
+                .frame(width: Self.resizeHandleWidth)
+                .contentShape(.rect)
+                .onHover { inside in
+                    if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .gesture(
+                    DragGesture(coordinateSpace: .global)
+                        .onChanged { value in
+                            // Against the width the drag started from, not
+                            // the live one, which already carries this
+                            // translation and would compound it every frame.
+                            // Dragging the leading edge left widens the map,
+                            // since it is pinned to the trailing edge.
+                            dragWidth = CGFloat(storedWidth) - value.translation.width
+                        }
+                        .onEnded { _ in
+                            storedWidth = Double(width)
+                            dragWidth = nil
+                        }
+                )
+        }
+    }
+
+    private static let resizeHandleWidth: CGFloat = 6
 
     /// The chat's own background, so the revealed map reads as part of the
     /// surface it covers rather than as a panel over it. It fades out toward
@@ -202,12 +266,16 @@ struct ChatMinimap: View, ThemedView {
 
     private static let edgeInset: CGFloat = 8
 
+    /// The rail's own space, which stays put while the map grows out of it,
+    /// so the pointer's height means the same thing open or closed.
+    private static let railSpace = "chatMinimapRail"
+
     /// How far across the revealed map the background has fully arrived.
     private static let backgroundFalloff: CGFloat = 0.3
 
     /// Keeps the entries clear of the background's fade. Derived from it, so
     /// tuning the falloff cannot leave text stranded over bare chat.
-    private static var contentInset: CGFloat { width * backgroundFalloff }
+    private static var contentInset: CGFloat { Self.defaultWidth * backgroundFalloff }
 }
 
 /// What the map's scroll position is a function of: where the pointer is,

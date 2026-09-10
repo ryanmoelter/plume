@@ -119,6 +119,11 @@ struct ChatMessageList: View, ThemedView {
                     outline: outline,
                     visiblePieceIDs: visiblePieceIDs,
                     onSelect: { jump(to: $0) },
+                    onSelectEnd: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            position.scrollTo(edge: .bottom)
+                        }
+                    },
                     bottomInset: floatingPanelHeight
                 )
             }
