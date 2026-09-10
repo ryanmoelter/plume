@@ -57,7 +57,12 @@ struct ChatOutline: Equatable {
         /// distinction.
         var symbol: String? {
             switch self {
-            case .prompt, .response: nil
+            case .response: nil
+            // A slash command reaches the map as the message the user
+            // typed, which is the one the chat shows too. The leading slash
+            // already marks it; this only makes the map say so as plainly
+            // as the row does.
+            case .prompt(let text): text.hasPrefix("/") ? "chevron.forward.square" : nil
             case .question: "questionmark.bubble"
             case .plan: "doc.text"
             case .interruption: "hand.raised"

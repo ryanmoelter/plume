@@ -196,6 +196,15 @@ struct ChatOutlineTests {
         #expect(ChatOutline.Kind.response.symbol == nil)
         #expect(ChatOutline.Kind.question("Which?").symbol != nil)
         #expect(ChatOutline.Kind.plan("A plan").symbol != nil)
+        #expect(ChatOutline.Kind.interruption.symbol != nil)
+    }
+
+    @Test func aTypedCommandIsMarkedAsOne() {
+        // A slash command anchors as the message the user typed, the same
+        // one the chat draws, rather than as the marker Claude Code writes
+        // beside it — which would put one action on the map twice.
+        #expect(ChatOutline.Kind.prompt("/compact").symbol != nil)
+        #expect(ChatOutline.Kind.prompt("Just words.").symbol == nil)
     }
 
     @Test func aMultiPiecePromptIsOneEntry() throws {
