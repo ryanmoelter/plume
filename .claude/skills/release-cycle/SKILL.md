@@ -1,22 +1,22 @@
 ---
 name: release-cycle
-description: Turn the roadmap's Up Next queue into a shipped local release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
+description: Turn the roadmap's Todo queue in Linear into a shipped local release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
 ---
 
 # Release cycle
 
-Run this when the user says "make the next release" or asks to work through the roadmap queue. You are the **coordinator**. Keep your own context small: read only the roadmap, `docs/releasing.md`, and agent reports. Delegate every implementation, build, and verification to subagents.
+Run this when the user says "make the next release" or asks to work through the roadmap queue. You are the **coordinator**. Keep your own context small: read only the roadmap (through the `roadmap` skill), `docs/releasing.md`, and agent reports. Delegate every implementation, build, and verification to subagents.
 
 ## Inputs
 
-- Optional: extra roadmap items beyond Up Next. Recommend two or three cheap, high-value ones from other sections and ask which to include. Always ask about any Up Next item the roadmap marks as blocked on a decision.
+- Optional: extra items beyond the Todo queue. Recommend two or three cheap, high-value Backlog issues — prefer small estimates — and ask which to include. Always ask about a `blocked-on-decision` issue before pulling it in — the decision in its description has to be settled first.
 - Target version. Default: bump the minor for a feature release, the patch for fixes only.
 
 ## 1. Plan the packages
 
-Read `docs/roadmap.md`. Group the queued items into work packages so that **no two packages edit the same files**. The roadmap names the files for each item; cluster by those.
+Invoke the `roadmap` skill to list the Todo queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
 
-- S-only groups go to **Sonnet**; anything M or L, or anything touching the headless wire protocol, goes to **Opus**. Always set `model` explicitly.
+- S-only groups (estimate 2) go to **Sonnet**; anything M or larger (estimate 3+), unsized, or touching the headless wire protocol, goes to **Opus**. Always set `model` explicitly.
 - Cross-cutting passes (accessibility identifiers, a styling sweep) touch every view. Run them **after** the merge, on the release branch, not in parallel.
 - Note the seams where packages share a file anyway (`ChatTabView`, `ChatComposer` are the usual ones) and tell each agent which other agents are in that file so they keep their footprint minimal.
 
@@ -31,7 +31,7 @@ You are running inside a dedicated git worktree of <repo root>. First run `pwd` 
 worktree root. HARD BOUNDARY: every file you read, edit, build, or run a command against must live
 under that root. Never cd out of it, never touch the parent repo or sibling worktrees.
 
-Read CLAUDE.md at your worktree root first and follow it. Read the roadmap section(s) for your items.
+Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear issues state the items; read each one, then read the code before planning.
 
 - Create a branch: `git checkout -b ryanm/<slug>`. Commit on it (signing works normally), early and often.
 - NEVER run `git stash`. The stash ref is shared by every worktree, so a concurrent agent's pop takes your
@@ -41,8 +41,8 @@ Read CLAUDE.md at your worktree root first and follow it. Read the roadmap secti
   Confirm test names scroll past. Two suites fail in ANY worktree for environmental reasons:
   `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` and `SurfaceCommandTests`.
   Report those as environmental; anything else is yours to fix. Add tests for pure logic.
-- Roadmap: check off shipped items in the item's own **section only** and add a short "what shipped"
-  note there. Do NOT edit the "Up Next" list at the top; the coordinator prunes it.
+- Roadmap: do NOT touch Linear. Report which issue identifiers you completed; the coordinator moves
+  them to Done after the merge.
 - Comments: terse, why-only, per CLAUDE.md. No changelog-style comments.
 - `distress-call "<question>" "<context>"` for decisions only the user can make (blocks; exit 3 =
   dismissed, decide and state the assumption). `papercut add "<title>" "<expected vs got>"` for
@@ -66,7 +66,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-Prune the Up Next list in `docs/roadmap.md`: remove shipped lines, renumber, keep the deferred and not-queued paragraphs. Commit.
+Move every shipped issue to Done through the `roadmap` skill. Then rewrite the `Queue position` line on the issues still in Todo so the numbering is dense again.
 
 ## 4. Debug build for manual evaluation
 
@@ -105,6 +105,6 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 
 - **A failed push is not a failed commit.** `git push` signs with the SSH agent, so a locked 1Password fails with `sign_and_send_pubkey: signing failed` and `Permission denied (publickey)`. There is no `--no-gpg-sign` equivalent — the only fix is unlocking, so ask. This is unrelated to the commit-signing fallback in CLAUDE.md, and the commits themselves may all be signed while the push still fails.
 - A schema change meets the installed store for the first time on the release launch. Watch the log for a `Plume.store.<timestamp>.bak` move.
-- Roadmap edits: agents own their sections, the coordinator owns Up Next. Both editing Up Next is a guaranteed conflict.
+- Roadmap edits: only the coordinator writes to Linear. An issue is Done when its work is on the release branch, not when an agent's turn ends.
 - The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
 - Six parallel `xcodebuild`s are slow but each worktree gets its own DerivedData. Do not try to share one.

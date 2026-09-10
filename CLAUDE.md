@@ -4,7 +4,9 @@ Native macOS app for organizing and parallelizing coding-agent work: a sidebar o
 
 ## The roadmap
 
-`docs/roadmap.md` tracks the features we intend to build. Read it before starting work, and check items off as they land. It records what each item is and what the code already provides, not how to build it — work out the approach when you pick an item up.
+The roadmap lives in **Linear**, team `Plume` — seven projects by area, one issue per item. **Use the `roadmap` skill** rather than the MCP tools directly; it knows the queue's conventions. Read the issue before starting work, and move it to Done as it lands.
+
+Todo means queued, Backlog means wanted but not queued. `estimate` is the size: 2 = S, 3 = M, 5 = L, 8 = XL. An issue states the item and any real blocker, not what the code already does — read the code for that.
 
 ## Build and test
 
