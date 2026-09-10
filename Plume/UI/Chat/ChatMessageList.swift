@@ -94,16 +94,54 @@ struct ChatMessageList: View, ThemedView {
         )
     }
 
+    /// The conversation reduced to its prompts, rebuilt beside the pieces it
+    /// reads so the markdown is parsed once.
+    @State private var outline = ChatOutline()
+
+    /// The piece ids currently on screen, so the map can mark where the
+    /// reader is. Reported by the scroll view in one callback rather than by
+    /// a per-row visibility observer, which would be one observer per
+    /// realized item.
+    @State private var visiblePieceIDs: Set<String> = []
+
+    /// The piece a downward jump is heading for. Only that row reports its
+    /// frame, so the list carries one geometry observer at most, not one
+    /// per realized item.
+    @State private var jumpTargetID: String?
+
+    private static let contentSpace = "chatContent"
+
     var body: some View {
+        HStack(spacing: 0) {
+            list
+            if !outline.isEmpty {
+                ChatMinimap(
+                    outline: outline,
+                    visiblePieceIDs: visiblePieceIDs,
+                    onSelect: { jump(to: $0) },
+                    onSelectEnd: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            position.scrollTo(edge: .bottom)
+                        }
+                    },
+                    bottomInset: floatingPanelHeight
+                )
+            }
+        }
+    }
+
+    private var list: some View {
         ScrollView {
             // Lazy so a long transcript only builds the rows on screen.
             //
-            // No `ScrollViewReader` and no `scrollTo`: a programmatic scroll
-            // into a lazy stack whose rows are still estimates retargets on
-            // every placement pass, and the stack's prefetch asks for another
-            // pass each time. With a stream growing the content it never
-            // settles and pins the main thread — `docs/chat-list-hang.md`.
-            // The scroll view's own anchors follow the bottom instead.
+            // Following the newest content is the scroll view's own job,
+            // through `defaultScrollAnchor` — no `ScrollViewReader` and no
+            // per-row `.id()`. `scrollTo` is reserved for a jump the user
+            // asked for: the button below, and the minimap. The trials in
+            // `docs/chat-list-hang.md` put the hang in the lazy stack's own
+            // height estimation rather than in scrolling, so an animated
+            // jump is fine; what is not is feeding a measured height back
+            // into the piece model.
             LazyVStack(alignment: .leading, spacing: 0) {
                 // One item per piece, not per message, so no item is tall
                 // enough to make the stack's height estimates oscillate.
@@ -127,6 +165,15 @@ struct ChatMessageList: View, ThemedView {
                     .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                     .padding(.bottom, piece.bottomInset)
                     .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
+                    .background {
+                        if piece.id == jumpTargetID {
+                            Color.clear.onGeometryChange(for: CGRect.self) { proxy in
+                                proxy.frame(in: .named(Self.contentSpace))
+                            } action: { frame in
+                                targetFrameChanged(frame)
+                            }
+                        }
+                    }
                 }
                 if let tabID {
                     // Both draw nothing until they have something, so their
@@ -141,18 +188,13 @@ struct ChatMessageList: View, ThemedView {
                         .listItemPadding(bleed: true, column: .unpadded)
                         .animatedHeight(enabled: settings.animateChatMotion)
                 }
-                // The room the floating composer panel covers. Eased on the
-                // leaf, so a composer that grows a line slides the
-                // conversation instead of snapping it, and the transaction
-                // reaches nothing else.
-                Color.clear
-                    .frame(height: bottomPadding + floatingPanelHeight)
-                    .animation(
-                        settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
-                        value: floatingPanelHeight
-                    )
             }
             .scrollTargetLayout()
+            // The content's own coordinate space, so a jump target's frame
+            // is its scroll offset in one reading. Adding a viewport-relative
+            // frame to the reported offset pairs two callbacks that are a
+            // frame apart mid-animation, and lands short by that travel.
+            .coordinateSpace(.named(Self.contentSpace))
         }
         .environment(\.revealClock, revealClock)
         .chatItemStatsViewport(list: statsToken)
@@ -162,19 +204,46 @@ struct ChatMessageList: View, ThemedView {
         .onChange(of: streaming) { rebuildPieces() }
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .scrollPosition($position)
+        // The room the floating composer panel covers, as a content margin
+        // rather than a spacer row. A spacer inside `scrollTargetLayout` is
+        // itself a scroll target, and the region it occupies still counts as
+        // viewport — so a piece behind the glass read as visible and the
+        // minimap marked the reader's place too far down. Eased so a
+        // composer that gains a line slides the conversation.
+        .contentMargins(.bottom, bottomPadding + floatingPanelHeight, for: .scrollContent)
+        .animation(
+            settings.animateChatMotion ? .easeOut(duration: 0.2) : nil,
+            value: floatingPanelHeight
+        )
+        // The minimap says everything the indicator does and more, right
+        // beside it, so two of them is one too many.
+        .scrollIndicators(.hidden)
+        .onScrollTargetVisibilityChange(idType: String.self) { ids in
+            visiblePieceIDs = Set(ids)
+        }
         .defaultScrollAnchor(.bottom)
-        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        // Only while the list is actually following the newest content.
+        // Scrolling *down* realizes rows the lazy stack had only estimated,
+        // which changes the content height; preserving the bottom distance
+        // through that drags a jump's target down to the bottom edge, so a
+        // jump to a mid-conversation prompt landed at the bottom of the
+        // viewport instead of the top. A reader who has scrolled away is not
+        // following anything, so there is nothing to preserve for them.
+        .defaultScrollAnchor(isDetached ? nil : .bottom, for: .sizeChanges)
         .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
             ChatScrollGeometry(
                 distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
                 contentHeight: geometry.contentSize.height,
-                viewportHeight: geometry.containerSize.height
+                viewportHeight: geometry.containerSize.height,
+                visibleMinY: geometry.visibleRect.minY
             )
         } action: { old, new in
             // Every tab stays mounted, hidden by opacity, so an offscreen
             // list keeps reporting geometry. Its viewport measures zero,
             // which reads as a huge distance from the bottom.
             guard new.viewportHeight > 0 else { return }
+            followState.visibleMinY = new.visibleMinY
+            if jumpTargetID != nil { scheduleSettle() }
             if ChatScrollAnchor.reflectsUserScroll(
                 previousContentHeight: old.contentHeight,
                 newContentHeight: new.contentHeight
@@ -198,7 +267,7 @@ struct ChatMessageList: View, ThemedView {
         #if DEBUG
         .task(id: pieces.count) {
             await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
-                position.scrollTo(id: id, anchor: .top)
+                jump(to: id)
             }
         }
         #endif
@@ -216,6 +285,80 @@ struct ChatMessageList: View, ThemedView {
             }
             .opacity(isDetached ? 1 : 0)
             .allowsHitTesting(isDetached)
+        }
+    }
+
+    /// Puts the piece at the top of the viewport.
+    ///
+    /// Above the viewport, `scrollTo(id:anchor:)` is enough. Below it, the
+    /// lazy stack resolves the request against an estimated frame, and once
+    /// the target has entered from the bottom edge the scroll view treats
+    /// the request as satisfied there — a repeat of it, or the same request
+    /// with a different anchor, scrolls nothing. So a downward jump uses the
+    /// anchored request only to get the target realized, and finishes on an
+    /// offset computed from the realized row's frame.
+    private func jump(to id: String) {
+        guard let index = pieces.firstIndex(where: { $0.id == id }) else { return }
+        let topVisibleIndex = pieces.indices.first { visiblePieceIDs.contains(pieces[$0].id) } ?? 0
+        followState.targetY = nil
+        followState.requestedY = nil
+        followState.corrected = false
+        jumpTargetID = index < topVisibleIndex ? nil : id
+        withAnimation(.smooth(duration: 0.3)) {
+            position.scrollTo(id: id, anchor: .top)
+        }
+    }
+
+    /// Redirects the in-flight animation to the target's offset as soon as
+    /// the row exists, so the motion stays one continuous scroll. A spring
+    /// carries the velocity across the retarget. The frame is reported again
+    /// if rows realizing above the target move it, and `settleJump` checks
+    /// the landing.
+    private func targetFrameChanged(_ frame: CGRect) {
+        followState.targetY = frame.minY
+        let y = frame.minY
+        guard y != followState.requestedY else { return }
+        followState.requestedY = y
+        Task { @MainActor in
+            withAnimation(.smooth(duration: 0.3)) {
+                position.scrollTo(y: y)
+            }
+            scheduleSettle()
+        }
+    }
+
+    /// The scroll has rested once the geometry has held still for a beat.
+    private func scheduleSettle() {
+        followState.settle?.cancel()
+        followState.settle = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            settleJump()
+        }
+    }
+
+    /// At rest both readings are current; re-aim if the row is not at the top.
+    private func settleJump() {
+        guard jumpTargetID != nil else { return }
+        guard let targetY = followState.targetY else {
+            jumpTargetID = nil
+            return
+        }
+        let error = targetY - followState.visibleMinY
+        guard abs(error) > 1, !followState.corrected else {
+            jumpTargetID = nil
+            return
+        }
+        followState.corrected = true
+        // The anchored request can finish after the offset request and win,
+        // leaving the position holding the target offset the view is not
+        // at. Setting the same offset again is not a change, so first record
+        // where the view actually is — which moves nothing — and then ask.
+        position.scrollTo(y: followState.visibleMinY)
+        Task { @MainActor in
+            withAnimation(.smooth(duration: 0.3)) {
+                position.scrollTo(y: targetY)
+            }
         }
     }
 
@@ -243,6 +386,7 @@ struct ChatMessageList: View, ThemedView {
         previousPieceIDs = ids
         previousStreaming = overlay
         pieces = rebuilt
+        outline = ChatOutlineBuilder.outline(from: rebuilt)
         #if DEBUG
         ChatItemStats.shared.record(list: statsToken, rebuild: started.duration(to: .now))
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
@@ -270,4 +414,13 @@ struct ChatMessageList: View, ThemedView {
 @MainActor
 private final class ScrollFollowState {
     var distanceFromBottom: CGFloat = 0
+    var visibleMinY: CGFloat = 0
+    /// The jump target's scroll offset, once its row has realized.
+    var targetY: CGFloat?
+    /// The last content offset a retarget asked for, so an unchanged
+    /// reading does not re-issue it.
+    var requestedY: CGFloat?
+    /// One correction covers the lost race; a second only adds a segment.
+    var corrected = false
+    var settle: Task<Void, Never>?
 }

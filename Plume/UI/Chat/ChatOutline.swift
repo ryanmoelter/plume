@@ -1,0 +1,324 @@
+import Foundation
+
+/// The conversation reduced to what a minimap draws: the things the user
+/// said or was asked, legible, with everything the agent produced between
+/// them collapsed into de-emphasized mass.
+///
+/// The reader anchors on their own input — there is far less of it than agent
+/// output — so those entries keep their text and a whole run of replies
+/// between two of them becomes one weighted area.
+struct ChatOutline: Equatable {
+    var entries: [Entry] = []
+
+    struct Entry: Equatable, Identifiable {
+        /// The id of the piece to scroll to, which is the first of whatever
+        /// this entry covers.
+        var id: String
+        /// The message this entry starts in, so a prompt long enough to split
+        /// across pieces stays one landmark.
+        var messageID: String
+        var kind: Kind
+        /// How much room this entry takes in the conversation, relative to
+        /// the other entries. Never a measured layout height.
+        var weight: CGFloat
+        /// Every piece this entry stands for, so the panel can tell whether
+        /// any of it is on screen.
+        var pieceIDs: Set<String> = []
+    }
+
+    enum Kind: Equatable {
+        /// Something the user typed, carrying its first line.
+        case prompt(String)
+        /// A question the agent asked, which is the user's turn to answer.
+        case question(String)
+        /// A plan the agent proposed, which is the user's turn to approve.
+        case plan(String)
+        /// The user stopping the agent mid-turn.
+        case interruption
+        /// Everything the agent produced between two pieces of user input.
+        case response
+
+        /// Whether the user said this or was asked it, as opposed to the
+        /// agent's own output.
+        var isUserInput: Bool { self != .response }
+
+        /// The line this entry carries, empty for a run of agent output.
+        var text: String {
+            switch self {
+            case .prompt(let text), .question(let text), .plan(let text): text
+            case .interruption: "Interrupted"
+            case .response: ""
+            }
+        }
+
+        /// What marks this as something other than the user's own words.
+        /// The user's messages carry no icon: they are the common case, and
+        /// a mark against every one of them would be noise rather than a
+        /// distinction.
+        var symbol: String? {
+            switch self {
+            case .response: nil
+            // A slash command reaches the map as the message the user
+            // typed, which is the one the chat shows too. The leading slash
+            // already marks it; this only makes the map say so as plainly
+            // as the row does.
+            case .prompt(let text): text.hasPrefix("/") ? "chevron.forward.square" : nil
+            case .question: "questionmark.bubble"
+            case .plan: "doc.text"
+            case .interruption: "hand.raised"
+            }
+        }
+    }
+
+    var isEmpty: Bool { entries.isEmpty }
+
+    /// Where the given pieces sit in the map, as a 0...1 fraction of its
+    /// height, or nil when none of them are in it.
+    ///
+    /// Read from the map's own weight space rather than from the chat's
+    /// scroll offset. The chat's items are wildly uneven, so its offset moves
+    /// in jumps that would make the map twitch; the map's own space is
+    /// smooth, because that is exactly what compressing the weights bought.
+    /// Several visible pieces average, so the mark tracks the middle of what
+    /// is on screen rather than snapping between its edges.
+    func position(of pieceIDs: Set<String>) -> CGFloat? {
+        guard !pieceIDs.isEmpty, !entries.isEmpty else { return nil }
+        let total = totalWeight
+        var offset: CGFloat = 0
+        var centers: [CGFloat] = []
+        for entry in entries {
+            if !entry.pieceIDs.isDisjoint(with: pieceIDs) {
+                centers.append((offset + entry.weight / 2) / total)
+            }
+            offset += entry.weight
+        }
+        guard !centers.isEmpty else { return nil }
+        return centers.reduce(0, +) / CGFloat(centers.count)
+    }
+
+    /// Guarded against zero so a caller can always divide by it.
+    var totalWeight: CGFloat {
+        max(1, entries.reduce(0) { $0 + $1.weight })
+    }
+}
+
+/// Builds the outline from the same pieces the list renders.
+///
+/// Weight is a crude estimate — character count, plus a flat allowance for
+/// the things that take room without carrying much text. It follows
+/// `ChatPieceMetrics`' rule: nothing here may be fed by a measured layout
+/// height, which is the feedback loop `docs/chat-list-hang.md` exists to
+/// remove. The constants are meant to be tuned by eye.
+enum ChatOutlineBuilder {
+    /// Roughly the characters a line of the chat's reading measure holds,
+    /// borrowed from `ChatPieceMetrics`' own estimate.
+    static let charactersPerLine: CGFloat = 60
+
+    /// What a collapsed tool call is worth. It draws one short row whatever
+    /// it contains, so its text length says nothing about its height.
+    static let toolCallWeight: CGFloat = 40
+
+    /// A code block is denser and taller per character than prose, and a long
+    /// one is bounded rather than growing without limit.
+    static let codeBlockWeight: CGFloat = 120
+
+    /// An image draws at a fixed size regardless of its payload, whose
+    /// characters are base64 and would otherwise dwarf everything.
+    static let imageWeight: CGFloat = 200
+
+    /// What a prompt occupies. It draws as one line of text whatever its
+    /// length, so a fixed weight is what keeps the map's own geometry —
+    /// which is what the scroll position is read from — agreeing with what
+    /// is actually on screen.
+    static let promptWeight: CGFloat = 22
+
+    /// The floor for a run of responses. Small: the map exists to find
+    /// prompts, so a response only has to show that *something* sits between
+    /// two of them.
+    static let minimumWeight: CGFloat = 4
+
+    /// The raw weight at which compression starts to bite — the knee of the
+    /// curve. A run well under this draws at close to its true relative size;
+    /// one well over it grows only as fast as the logarithm. Raise it to keep
+    /// more of the realistic range proportional, lower it to even everything
+    /// out sooner.
+    static let compressionKnee: CGFloat = 120
+
+    /// How tall a run one knee-width long draws. The whole curve scales with
+    /// this, so it sets the size of responses against a prompt's fixed
+    /// `promptWeight` without changing their shape relative to each other.
+    static let responseScale: CGFloat = 6
+
+    /// Compresses a run of agent output into the room it gets on the map.
+    ///
+    /// Response lengths run to orders of magnitude — a one-line answer
+    /// against a turn with forty tool calls — so at true scale the longest
+    /// runs own the map entirely. The logarithm pulls that range in while
+    /// staying monotonic, so a longer run is still always taller than a
+    /// shorter one.
+    ///
+    /// The base is fixed at 2 because it is not a free parameter: changing it
+    /// only multiplies the result by a constant, which is what
+    /// `responseScale` already does. Shape and size are the two knobs, and
+    /// they are `compressionKnee` and `responseScale`.
+    static func compress(_ weight: CGFloat) -> CGFloat {
+        guard weight > 0 else { return minimumWeight }
+        return max(minimumWeight, responseScale * log2(1 + weight / compressionKnee))
+    }
+
+    static func outline(from pieces: [ChatPiece]) -> ChatOutline {
+        var entries: [ChatOutline.Entry] = []
+
+        for piece in pieces {
+            // The stream stands in for a message the transcript has yet to
+            // take over, and its pieces carry no real message id.
+            guard !piece.isStreaming, piece.messageID != "stream" else { continue }
+            let weight = self.weight(of: piece)
+
+            if let kind = userInputKind(of: piece) {
+                // A prompt long enough to split across pieces is still one
+                // thing the user said, so the later pieces join the entry
+                // rather than repeating it down the map. Its text and its
+                // scroll target stay the first piece's, which is where the
+                // prompt starts.
+                if let last = entries.last, last.kind.isUserInput, last.messageID == piece.messageID {
+                    entries[entries.count - 1].pieceIDs.insert(piece.id)
+                    continue
+                }
+                entries.append(
+                    ChatOutline.Entry(
+                        id: piece.id,
+                        messageID: piece.messageID,
+                        kind: kind,
+                        weight: weight,
+                        pieceIDs: [piece.id]
+                    )
+                )
+                continue
+            }
+
+            // Everything else is the agent working. A run of it between two
+            // pieces of user input reads as one area, however many messages
+            // the transcript split it into.
+            if entries.last?.kind == .response {
+                entries[entries.count - 1].weight += weight
+                entries[entries.count - 1].pieceIDs.insert(piece.id)
+            } else {
+                entries.append(
+                    ChatOutline.Entry(
+                        id: piece.id,
+                        messageID: piece.messageID,
+                        kind: .response,
+                        weight: weight,
+                        pieceIDs: [piece.id]
+                    )
+                )
+            }
+        }
+
+        for index in entries.indices {
+            entries[index].weight = entries[index].kind.isUserInput
+                ? promptWeight
+                : compress(entries[index].weight)
+        }
+        return ChatOutline(entries: entries)
+    }
+
+    /// What the user said or was asked, or nil for the agent's own output.
+    ///
+    /// The user's role alone is not the test. A transcript records plenty
+    /// under that role that the user never typed — an interruption marker, a
+    /// slash command's caveat and output, a background task reporting back —
+    /// and anchoring on those would put a landmark where nothing was said.
+    /// `InjectedContent.isUserProse` already draws that line for the chat, so
+    /// the map follows it rather than inventing a second rule.
+    private static func userInputKind(of piece: ChatPiece) -> ChatOutline.Kind? {
+        if case .toolCall(let call, _) = piece.content, let interactive = call.interactive {
+            // Neither is the user's message, but both are the user's turn,
+            // so they anchor like a prompt.
+            switch interactive {
+            case .questions(let questions):
+                return .question(questions.first?.question ?? "Question")
+            case .plan(let markdown, _):
+                return .plan(PlanSummary.title(of: markdown) ?? "Plan")
+            }
+        }
+        guard piece.role == .user else { return nil }
+        switch piece.content {
+        case .injected(let content, let text):
+            // An interruption is the user reaching for the conversation
+            // rather than writing in it, and it marks where a turn was cut
+            // short — which is exactly what a reader scans back for.
+            if content == .interrupted { return .interruption }
+            return content.isUserProse ? .prompt(firstLine(of: text)) : nil
+        case .markdown, .codeSegment, .listSegment, .image:
+            return .prompt(firstLine(of: promptText(of: piece)))
+        default:
+            return nil
+        }
+    }
+
+    /// The opening line, which is all the panel has room for.
+    private static func firstLine(of text: String) -> String {
+        text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+    }
+
+    private static func promptText(of piece: ChatPiece) -> String {
+        switch piece.content {
+        case .markdown(let block, _): text(of: block)
+        case .codeSegment(let segment): segment.code
+        case .listSegment(let segment): segment.items.first ?? ""
+        case .injected(_, let text): text
+        default: ""
+        }
+    }
+
+    private static func weight(of piece: ChatPiece) -> CGFloat {
+        switch piece.content {
+        case .markdown(let block, _):
+            proseWeight(of: text(of: block), block: block)
+        case .codeSegment:
+            codeBlockWeight
+        case .listSegment(let segment):
+            proseWeight(of: segment.items.joined(separator: "\n"), block: nil)
+        case .thinking(let text):
+            proseWeight(of: text, block: nil)
+        case .toolCall:
+            toolCallWeight
+        case .injected(_, let text):
+            proseWeight(of: text, block: nil)
+        case .notice(let notice):
+            proseWeight(of: notice.title, block: nil)
+        case .image:
+            imageWeight
+        case .streaming, .working:
+            0
+        }
+    }
+
+    /// Lines of reading measure, scaled so a weight reads as points of height
+    /// rather than as a character count.
+    private static func proseWeight(of text: String, block: MarkdownBlock?) -> CGFloat {
+        if case .codeBlock = block { return codeBlockWeight }
+        let wrapped = CGFloat(text.count) / charactersPerLine
+        let explicit = CGFloat(text.split(separator: "\n").count)
+        return max(wrapped, explicit) * 24
+    }
+
+    private static func text(of block: MarkdownBlock) -> String {
+        switch block {
+        case .heading(_, let text): text
+        case .paragraph(let text): text
+        case .bulletList(let items): items.joined(separator: "\n")
+        case .numberedList(let items, _): items.joined(separator: "\n")
+        case .codeBlock(_, let code): code
+        case .quote(let text): text
+        case .table(let header, _, let rows):
+            (header + rows.flatMap { $0 }).joined(separator: " ")
+        case .rule: ""
+        }
+    }
+}
