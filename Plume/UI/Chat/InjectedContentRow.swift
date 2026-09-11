@@ -15,11 +15,17 @@ struct InjectedContentRow: View, ThemedView {
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
-            expandedBody
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(washColor, in: .rect(cornerRadius: 6))
-                .padding(.top, 4)
+            // Bounded and scrolling inside itself: an injected line carries a
+            // whole skill body or an approved plan, which expanded would make
+            // one lazy item many times its neighbours' height.
+            ScrollView {
+                expandedBody
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: ChatPieceMetrics.maxDisclosedHeight)
+            .padding(8)
+            .background(washColor, in: .rect(cornerRadius: 6))
+            .padding(.top, 4)
         } label: {
             Label {
                 Text(kind.markerLabel ?? "")

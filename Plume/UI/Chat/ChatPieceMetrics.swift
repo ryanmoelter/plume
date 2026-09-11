@@ -17,6 +17,14 @@ enum ChatPieceMetrics {
     /// one artifact, and slicing it costs the reader a continuous scroll.
     static let maxCodeHeight: CGFloat = maxPieceHeight
 
+    /// The tallest the disclosed body of a row draws — a tool call's input
+    /// and result, a thinking block, an injected line. Past it the body
+    /// scrolls inside itself, so expanding one can never hand the lazy stack
+    /// an item taller than the ceiling. Below `maxPieceHeight` because these
+    /// bodies are asides: a 28,000 character tool result beside a 27 pt
+    /// collapsed row is the height contrast the ceiling exists to prevent.
+    static let maxDisclosedHeight: CGFloat = 240
+
     /// The most items a list segment carries.
     static let listSegmentItems = 12
 
