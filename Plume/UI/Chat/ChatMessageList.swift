@@ -170,6 +170,9 @@ struct ChatMessageList: View, ThemedView {
                     .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                     .padding(.bottom, piece.bottomInset)
                     .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
+                    #if DEBUG
+                    .chatItemOutline(id: piece.id, kind: piece.kindName)
+                    #endif
                     .background {
                         if piece.id == jumpTargetID {
                             Color.clear.onGeometryChange(for: CGRect.self) { proxy in

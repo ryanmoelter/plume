@@ -271,6 +271,47 @@ struct ChatPieceSplitterTests {
         }
     }
 
+    /// A quote long enough to clear the ceiling splits at its blank lines, so
+    /// the seam falls where the source already had a gap. Planning threads
+    /// carry quotes past 1,000 characters, which is several hundred points
+    /// beside a 27 pt collapsed tool call — the contrast the ceiling exists
+    /// to prevent.
+    @Test func anOversizedQuoteSplitsByParagraph() {
+        let paragraph = String(repeating: "Quoted reasoning about the plan. ", count: 8)
+        let quote = (1...4).map { "\($0). \(paragraph)" }.joined(separator: "\n\n")
+        let result = pieces([message("m", .assistant, [.markdown("> " + quote.replacingOccurrences(of: "\n\n", with: "\n>\n> "))])])
+        #expect(result.count > 1)
+        for piece in result {
+            guard case .markdown(let block, _) = piece.content else {
+                Issue.record("expected a markdown piece, got \(piece.kindName)")
+                continue
+            }
+            guard case .quote = block else {
+                Issue.record("every piece of a split quote stays a quote")
+                continue
+            }
+        }
+    }
+
+    @Test func aShortQuoteStaysOnePiece() {
+        let result = pieces([message("m", .assistant, [.markdown("> A brief aside.")])])
+        #expect(result.count == 1)
+    }
+
+    /// Splitting must not drop or duplicate any of the source's paragraphs.
+    @Test func aSplitQuoteKeepsEveryParagraph() {
+        let paragraph = String(repeating: "Words that wrap across the measure. ", count: 8)
+        let source = (1...5).map { "Para \($0). \(paragraph)" }.joined(separator: "\n\n")
+        let parts = ChatPieceMetrics.proseParagraphs(source)
+        #expect(parts.count > 1)
+        let rejoined = parts.joined(separator: "\n\n")
+        #expect(rejoined.contains("Para 1."))
+        #expect(rejoined.contains("Para 5."))
+        for n in 1...5 {
+            #expect(rejoined.components(separatedBy: "Para \(n).").count == 2)
+        }
+    }
+
     // MARK: - Spacing
 
     @Test func theFirstPieceOfTheListPaysTheListsOwnInset() {

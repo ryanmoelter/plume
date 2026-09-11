@@ -68,6 +68,53 @@ enum ChatPieceMetrics {
         CGFloat(wrappedLines(of: item)) * proseLineHeight + listItemSpacing
     }
 
+    /// Whether a run of prose is over the ceiling and so splits by paragraph.
+    ///
+    /// A quote and a paragraph were left whole on the reading that prose is
+    /// never long enough to be worth splitting. Real transcripts disagree: a
+    /// planning thread's quotes run past 1,000 characters, which is several
+    /// hundred points beside a 27 pt collapsed tool call.
+    static func splitsProse(_ text: String) -> Bool {
+        proseHeight(text) > maxPieceHeight
+    }
+
+    /// A run of prose broken at its blank lines. Paragraphs are never merged
+    /// across a split, so the seam always falls where the source already had
+    /// a gap and the reader sees nothing.
+    ///
+    /// Packed greedily against the ceiling rather than into equal shares:
+    /// paragraphs vary enough in length that equal shares leave a piece over
+    /// the ceiling, which is the one thing the split exists to prevent. A
+    /// paragraph taller than the ceiling on its own still gets its own piece
+    /// — there is no seam inside it to use.
+    static func proseParagraphs(_ text: String) -> [String] {
+        let paragraphs = text
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard paragraphs.count > 1 else { return paragraphs.isEmpty ? [text] : paragraphs }
+
+        var result: [String] = []
+        var current: [String] = []
+        var height: CGFloat = 0
+        for paragraph in paragraphs {
+            let paragraphHeight = proseHeight(paragraph)
+            if !current.isEmpty, height + paragraphHeight > maxPieceHeight {
+                result.append(current.joined(separator: "\n\n"))
+                current = []
+                height = 0
+            }
+            current.append(paragraph)
+            height += paragraphHeight
+        }
+        if !current.isEmpty { result.append(current.joined(separator: "\n\n")) }
+        return result
+    }
+
+    private static func proseHeight(_ text: String) -> CGFloat {
+        CGFloat(wrappedLines(of: text)) * proseLineHeight
+    }
+
     /// Splits into as few chunks as the limit allows, all of the same size, so
     /// a block just over the threshold does not end on a one-line segment.
     static func chunks<T>(_ items: [T], limit: Int) -> [[T]] {

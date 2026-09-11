@@ -229,7 +229,7 @@ enum ChatPieceSplitter {
             let blockLeading = index == 0
                 ? leading
                 : ChatBlockSpacing.markdownBlockTopInset(block, at: index, dimensions: dimensions)
-            let segments = segments(of: block, at: index)
+            let segments = segments(of: block, at: index, dimensions: dimensions)
             for (segmentIndex, segment) in segments.enumerated() {
                 result.append(ChatPiece(
                     id: segments.count == 1
@@ -259,7 +259,11 @@ enum ChatPieceSplitter {
         let joinInset: CGFloat
     }
 
-    private static func segments(of block: MarkdownBlock, at index: Int) -> [Segmented] {
+    private static func segments(
+        of block: MarkdownBlock,
+        at index: Int,
+        dimensions: Dimensions
+    ) -> [Segmented] {
         switch block {
         // A code block is never split. It stays one piece and `CodeSegmentView`
         // bounds a long one at `ChatPieceMetrics.maxCodeHeight`, scrolling
@@ -306,11 +310,35 @@ enum ChatPieceSplitter {
                 )
             }
 
+        // Prose splits at the blank lines it already has, so the join falls
+        // where the source had a gap and the reader sees nothing. A quote's
+        // bar is drawn per piece, the way a message's wash is.
+        case .quote(let text) where ChatPieceMetrics.splitsProse(text):
+            let parts = ChatPieceMetrics.proseParagraphs(text)
+            guard parts.count > 1 else { break }
+            return parts.map { part in
+                Segmented(
+                    content: .markdown(.quote(part), index: index),
+                    joinInset: dimensions.blockSpacing
+                )
+            }
+
+        case .paragraph(let text) where ChatPieceMetrics.splitsProse(text):
+            let parts = ChatPieceMetrics.proseParagraphs(text)
+            guard parts.count > 1 else { break }
+            return parts.map { part in
+                Segmented(
+                    content: .markdown(.paragraph(part), index: index),
+                    joinInset: dimensions.blockSpacing
+                )
+            }
+
         default:
-            // A table's columns would size independently either side of a
-            // join; prose and headings are never long enough to be worth it.
-            return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
+            break
         }
+        // A table's columns would size independently either side of a join,
+        // and a heading is never long enough to be worth one.
+        return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
     }
 
     /// The turn in flight: the thinking text, then the prose it has produced,
