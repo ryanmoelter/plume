@@ -20,7 +20,12 @@ final class KeepAwakeCoordinator {
 
     /// Whether an assertion is actually held. Not a promise the Mac will stay
     /// awake — the OS may ignore an assertion under battery or thermal load.
-    var isHolding: Bool { assertion.held != nil }
+    ///
+    /// Mirrored into observable storage rather than read through to the
+    /// assertion, which is not observable: switching to Always with nothing
+    /// working changes this without changing `reasons`, and a view reading
+    /// straight through would never redraw.
+    private(set) var isHolding = false
 
     @ObservationIgnored private let engine: StatusEngine
     @ObservationIgnored private let sessions: HeadlessSessionManager
@@ -79,6 +84,7 @@ final class KeepAwakeCoordinator {
     func releaseForTermination() {
         assertion.apply(nil)
         reasons = []
+        isHolding = false
     }
 
     /// Recomputes the reason set and applies it. Idempotent, so redundant
@@ -98,6 +104,9 @@ final class KeepAwakeCoordinator {
             allowsBattery: settings.keepsAwakeOnBattery
         )
         assertion.apply(request)
+        if isHolding != (assertion.held != nil) {
+            isHolding = assertion.held != nil
+        }
     }
 
     /// Re-arms itself on every change, because `withObservationTracking` fires

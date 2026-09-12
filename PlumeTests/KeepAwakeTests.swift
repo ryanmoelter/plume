@@ -228,6 +228,21 @@ struct KeepAwakeTests {
         #expect(assertion.held == nil)
     }
 
+    /// `isHolding` drives the footer icon, and switching to Always with
+    /// nothing working moves it without moving `reasons` — so it has to be
+    /// observable storage of its own, not a read through to the assertion.
+    @Test func switchingToAlwaysWithNoReasonsStartsHolding() {
+        let (coordinator, _, settings) = makeCoordinator(engine: StatusEngine())
+        coordinator.refresh()
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.reasons.isEmpty)
+
+        settings.keepAwakeMode = .always
+        coordinator.refresh()
+        #expect(coordinator.isHolding)
+        #expect(coordinator.reasons.isEmpty)
+    }
+
     @Test func terminationReleasesTheAssertion() {
         let engine = StatusEngine()
         let (coordinator, assertion, _) = makeCoordinator(engine: engine)
