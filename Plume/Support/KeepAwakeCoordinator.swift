@@ -180,6 +180,17 @@ final class KeepAwakeCoordinator {
         )
     }
 
+    /// A few words for the sidebar row, where the whole reason list would not
+    /// fit. Nil when the mode alone already says everything.
+    var shortSummary: String? {
+        guard !reasons.isEmpty else { return nil }
+        let working = reasons.count { if case .working = $0.kind { true } else { false } }
+        let remote = reasons.count { $0.kind == .remoteControl }
+        if working > 0 && remote > 0 { return "\(working) working, RC" }
+        if working > 0 { return "\(working) working" }
+        return remote == 1 ? "RC active" : "\(remote) RC"
+    }
+
     /// What the user reads in `pmset -g assertions` and the battery menu.
     /// ASCII only: that listing mangles anything else.
     static func summary(reasons: [KeepAwakeReason], mode: KeepAwakeMode) -> String {

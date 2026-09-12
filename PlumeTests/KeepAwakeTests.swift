@@ -169,6 +169,21 @@ struct KeepAwakeTests {
         #expect(request?.reason.count ?? 0 <= SleepAssertionRequest.reasonLimit)
     }
 
+    @Test func theSidebarLabelNamesWhatIsHolding() {
+        let engine = StatusEngine()
+        let (coordinator, _, _) = makeCoordinator(engine: engine)
+        #expect(coordinator.shortSummary == nil)
+
+        let taskID = UUID()
+        engine.setStatus(.working, taskID: taskID, tabID: UUID())
+        coordinator.refresh()
+        #expect(coordinator.shortSummary == "1 working")
+
+        engine.setStatus(.working, taskID: taskID, tabID: UUID())
+        coordinator.refresh()
+        #expect(coordinator.shortSummary == "2 working")
+    }
+
     // MARK: - The assertion itself
 
     @Test func statusEventsDoNotChurnTheAssertion() {

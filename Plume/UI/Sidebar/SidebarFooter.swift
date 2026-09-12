@@ -55,7 +55,8 @@ struct SidebarFooter: View, ThemedView {
                         icon: keepAwakeIcon,
                         title: keepAwakeTitle,
                         iconTint: keepAwakeTint,
-                        hasMoreOptions: true
+                        hasMoreOptions: true,
+                        detail: keepAwakeDetail
                     )
                 }
                 .help(keepAwakeHelp)
@@ -101,6 +102,13 @@ struct SidebarFooter: View, ThemedView {
         coordinator.isHolding ? "Keeping Awake" : "Keep Awake"
     }
 
+    /// What is holding the Mac awake, or the mode when nothing is. Auto with
+    /// no reasons needs no label: the title already says what it does.
+    private var keepAwakeDetail: String? {
+        if let reasons = coordinator.shortSummary { return reasons }
+        return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
+    }
+
     private var keepAwakeHelp: String {
         coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
@@ -129,6 +137,8 @@ private struct SidebarFooterRow: View {
     /// Draws a trailing chevron, for a row that opens a popover rather than
     /// performing its action outright.
     var hasMoreOptions = false
+    /// A few words of state, shown before the chevron.
+    var detail: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -140,10 +150,16 @@ private struct SidebarFooterRow: View {
             Text(title)
                 .contentTransition(.numericText())
             Spacer(minLength: 0)
+            if let detail {
+                Text(detail)
+                    .emphasis(.secondary)
+                    .contentTransition(.numericText())
+                    .lineLimit(1)
+            }
             if hasMoreOptions {
                 Image(systemName: "chevron.right")
                     .imageScale(.small)
-                    .emphasis(.subtle)
+                    .emphasis(.secondary)
             }
         }
         // Untinted rows keep the inherited style rather than being forced to
@@ -151,6 +167,7 @@ private struct SidebarFooterRow: View {
         .foregroundStyle(tintOrInherited)
         .animation(.default, value: icon)
         .animation(.default, value: title)
+        .animation(.default, value: detail)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
