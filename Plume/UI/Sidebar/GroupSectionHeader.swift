@@ -33,6 +33,8 @@ struct GroupSectionHeader: View {
                         .onAppear { focused = true }
                 } else {
                     Text(group.name)
+                        .contentShape(Rectangle())
+                        .onTapGesture { group.isExpanded.toggle() }
                 }
             }
 
@@ -45,6 +47,7 @@ struct GroupSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(AccessibilityID.groupHeaderNewTaskButton)
+                .padding(.trailing, 4)
             }
         }
         .contentShape(Rectangle())
