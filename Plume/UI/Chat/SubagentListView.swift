@@ -41,10 +41,13 @@ struct SubagentListView: View, ThemedView {
         if !subagents.isEmpty {
             VStack(alignment: .leading, spacing: 2) {
                 if !live.isEmpty {
-                    Text("\(live.count) subagent\(live.count == 1 ? "" : "s")")
-                        .font(typography.caption.font)
-                        .emphasis(.subtle)
-                        .padding(.bottom, 2)
+                    Label(
+                        "\(live.count) subagent\(live.count == 1 ? "" : "s")",
+                        systemImage: StatusSymbol.subagents.name
+                    )
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .padding(.bottom, 2)
                 }
                 ForEach(live) { subagent in
                     SubagentRow(subagent: subagent) { onOpen(subagent) }
@@ -67,8 +70,11 @@ struct SubagentListView: View, ThemedView {
                     Image(systemName: "chevron.right")
                         .font(typography.caption.font)
                         .rotationEffect(.degrees(showsCompleted ? 90 : 0))
-                    Text("Completed subagents (\(completed.count))")
-                        .font(typography.caption.font)
+                    Label(
+                        "Completed subagents (\(completed.count))",
+                        systemImage: StatusSymbol.subagents.name
+                    )
+                    .font(typography.caption.font)
                     Spacer(minLength: 0)
                 }
                 .emphasis(.subtle)
@@ -87,7 +93,6 @@ struct SubagentListView: View, ThemedView {
             }
         }
     }
-
 }
 
 private struct SubagentRow: View, ThemedView {
@@ -163,7 +168,7 @@ private struct SubagentRow: View, ThemedView {
                 transcript: Transcript(),
                 modifiedAt: nil,
                 descriptor: SubagentDescriptor(description: "Design the notification layer", agentType: "Plan"),
-                status: .awaitingReply
+                status: .done
             ),
         ],
         tabID: UUID()
