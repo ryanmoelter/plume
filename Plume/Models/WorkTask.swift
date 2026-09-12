@@ -22,6 +22,9 @@ final class WorkTask {
     /// Snapshot so the sidebar can show badges before any agent process is live.
     var lastStatusRaw: String = TaskStatus.notStarted.rawValue
     var isArchived: Bool = false
+    /// Nil for a task archived before this field existed, or one never
+    /// archived at all; the archive list treats nil as oldest.
+    var archivedAt: Date? = nil
 
     /// Reserved for PR/Linear integration payloads.
     var integrationsData: Data?

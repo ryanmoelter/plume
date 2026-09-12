@@ -209,7 +209,7 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
-        Button("Archive") { task.isArchived = true }
+        Button("Archive") { TaskStore.archive(task) }
         Divider()
         Button("Delete", role: .destructive) {
             // A worktree task owns a branch and a directory on disk, so
