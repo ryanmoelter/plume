@@ -361,11 +361,20 @@ struct CodeSegmentView: View, ThemedView {
 
     private var lines: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(segment.code)
+            Text(highlighted)
                 .font(typography.body.mono)
-                .foregroundStyle(colors.foreground)
                 .padding(padding)
         }
+    }
+
+    /// An untagged or unrecognized fence yields plain text in the block's own
+    /// foreground, which is the common case.
+    private var highlighted: AttributedString {
+        CodeSyntaxCache.highlighted(
+            segment.code,
+            language: segment.language,
+            palette: CodeSyntaxPalette(palette: colors)
+        )
     }
 
     private var copyButton: some View {
