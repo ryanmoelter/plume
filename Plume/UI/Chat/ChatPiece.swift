@@ -133,17 +133,11 @@ struct CodeSegment: Equatable {
     var isMermaid: Bool = false
 }
 
-/// A slice of one bullet or numbered list.
+/// A slice of one list.
+///
+/// Each item carries its own depth and number, so a segment needs nothing
+/// from the items above it to indent and number itself correctly.
 struct ListSegment: Equatable {
-    enum Kind: Equatable {
-        case bullet
-        case numbered
-    }
-
-    var kind: Kind
-    var items: [String]
-    /// What the first item of this segment is numbered, so a split list keeps
-    /// counting.
-    var startNumber: Int = 1
+    var items: [MarkdownBlock.ListItem]
     var position: ChatPiece.Segment = .single
 }

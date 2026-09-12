@@ -314,32 +314,19 @@ enum ChatPieceSplitter {
                 joinInset: 0
             )]
 
-        case .bulletList(let items), .numberedList(let items, _):
-            let kind: ListSegment.Kind = {
-                if case .numberedList = block { return .numbered }
-                return .bullet
-            }()
-            let firstNumber: Int = {
-                if case .numberedList(_, let start) = block { return start }
-                return 1
-            }()
+        case .list(let items):
             // One piece per item, however short. A list item is already a
             // unit with a gap above it, so the seam is free, and one item per
-            // piece is the most even height spread the list can offer.
+            // piece is the most even height spread the list can offer. Each
+            // item carries its own depth and number, so a piece of one needs
+            // nothing from the items it was cut away from.
             guard items.count > 1 else {
-                return [Segmented(
-                    content: .listSegment(
-                        ListSegment(kind: kind, items: items, startNumber: firstNumber)
-                    ),
-                    joinInset: 0
-                )]
+                return [Segmented(content: .listSegment(ListSegment(items: items)), joinInset: 0)]
             }
             return items.enumerated().map { position, item in
                 Segmented(
                     content: .listSegment(ListSegment(
-                        kind: kind,
                         items: [item],
-                        startNumber: firstNumber + position,
                         position: place(position, of: items.count)
                     )),
                     joinInset: ChatBlockSpacing.listSegmentSpacing
