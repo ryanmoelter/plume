@@ -193,14 +193,17 @@ private struct SidebarFooterRow: View {
         if detail != nil || showsRemoteControl {
             HStack(spacing: 3) {
                 if let detail {
-                    Text(detail).contentTransition(.numericText())
+                    Text(detail)
+                        .contentTransition(.numericText())
+                        .emphasis(.secondary)
                 }
                 if showsRemoteControl {
+                    // Full emphasis: it is a state, not a caption on one.
                     Image(systemName: StatusSymbol.remoteControl.name)
                         .imageScale(.small)
+                        .emphasis(.primary)
                 }
             }
-            .emphasis(.secondary)
             .fixedSize()
         }
     }
