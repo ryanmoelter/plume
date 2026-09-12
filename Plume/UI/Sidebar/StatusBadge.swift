@@ -26,7 +26,7 @@ struct StatusBadge: View {
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .awaitingReply:
-            Image(systemName: StatusSymbol.awaitingReply.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
+            Image(systemName: StatusSymbol.awaitingReply.filled).foregroundStyle(Emphasis.secondary.textHierarchy)
         case .done:
             Image(systemName: StatusSymbol.done.filled).foregroundStyle(ChatRole.success(for: colorScheme))
         case .planApproval:
@@ -59,7 +59,7 @@ private struct ElapsedLabel: View {
             Text(ElapsedTime.formatted(context.date.timeIntervalSince(since)))
                 .font(.caption)
                 .monospacedDigit()
-                .foregroundStyle(Emphasis.subtle.textHierarchy)
+                .foregroundStyle(Emphasis.secondary.textHierarchy)
         }
     }
 }

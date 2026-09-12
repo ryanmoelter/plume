@@ -46,13 +46,12 @@ struct TaskActivityRow: View, ThemedView {
                 ForEach(rows, id: \.subagent.id) { row in
                     StatusBadge(status: row.subagent.status)
                         .imageScale(.small)
-                        // The working ellipsis is three dots of ink at this
-                        // size, so it needs the extra weight to read at all.
-                        .fontWeight(row.subagent.status == .working ? .bold : nil)
                         .help(row.subagent.title)
                 }
             }
-            .font(.caption)
+            // These symbols carry little ink at this size — the working
+            // ellipsis is three dots — so they take the extra weight to read.
+            .font(.caption.weight(.bold))
         }
     }
 }
