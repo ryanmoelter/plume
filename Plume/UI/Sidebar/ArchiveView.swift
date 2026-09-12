@@ -31,6 +31,8 @@ struct ArchiveView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(TitleStore.shared.displayTitle(for: task))
+                            .lineLimit(2)
+                            .truncationMode(.tail)
                         if let path = task.workingDirectoryPath {
                             Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                                 .font(.caption)
