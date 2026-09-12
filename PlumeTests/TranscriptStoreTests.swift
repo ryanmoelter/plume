@@ -217,7 +217,7 @@ struct TranscriptStoreTests {
         let working = "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n"
         write(working, to: subagentPath)
 
-        let store = TranscriptStore(debounce: .milliseconds(10))
+        let store = TranscriptStore(debounce: .milliseconds(10), isTabLive: { _ in true })
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
         await waitUntil { store.subagents(forTab: tab).first?.status == .working }
@@ -251,7 +251,7 @@ struct TranscriptStoreTests {
             to: dir.appending(path: "session/subagents/agent-abc123.jsonl")
         )
 
-        let store = TranscriptStore(debounce: .milliseconds(10))
+        let store = TranscriptStore(debounce: .milliseconds(10), isTabLive: { _ in true })
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
         await waitUntil { store.subagents(forTab: tab).count == 1 }
@@ -364,13 +364,47 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         ).write(to: dir.appending(path: "session/subagents/agent-abc123.jsonl"))
 
         let engine = StatusEngine()
-        let store = TranscriptStore(debounce: .milliseconds(10), statusEngine: engine)
+        let store = TranscriptStore(
+            debounce: .milliseconds(10),
+            statusEngine: engine,
+            isTabLive: { _ in true }
+        )
         let (task, tab) = (UUID(), UUID())
         engine.setStatus(.working, taskID: task, tabID: tab)
         store.watch(tabID: tab, transcriptPath: path.path)
         await waitUntil { !store.subagents(forTab: tab).isEmpty }
 
         #expect(store.subagents(forTab: tab).first?.status == .working)
+    }
+
+    /// The reported bug's actual trigger: a tab that ran this session (never
+    /// restored, so not dormant) loses its process — sleep, a quit mid-turn —
+    /// leaving a subagent transcript stuck mid-step with nothing behind it.
+    @Test func aTabWhoseProcessDiedSettlesItsWorkingSubagent() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let path = dir.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: dir.appending(path: "session/subagents"),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: path)
+        try Data(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n".utf8
+        ).write(to: dir.appending(path: "session/subagents/agent-abc123.jsonl"))
+
+        let engine = StatusEngine()
+        let store = TranscriptStore(
+            debounce: .milliseconds(10),
+            statusEngine: engine,
+            isTabLive: { _ in false }
+        )
+        let (task, tab) = (UUID(), UUID())
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { store.subagents(forTab: tab).first?.status == .interrupted }
+
+        #expect(store.subagents(forTab: tab).first?.status == .interrupted)
+        #expect(!engine.isDormant(tabID: tab), "this tab was never restored from disk")
     }
 
     @Test func readingATranscriptObservesItsSubagents() async throws {

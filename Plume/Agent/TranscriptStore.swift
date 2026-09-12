@@ -48,15 +48,28 @@ final class TranscriptStore {
     private let debounce: Duration
     private let statusEngine: StatusEngine
     private let completionTracker: SubagentCompletionTracker
+    /// Whether a live process backs a tab, checked across both transports. A
+    /// tab that ran this session and then lost its process (sleep, a quit
+    /// mid-turn) is not dormant — it was never restored from disk — so
+    /// `settlingDormant` needs this in addition to `StatusEngine.isDormant`
+    /// to catch a subagent left reading `working` with nothing behind it.
+    private let isTabLive: (UUID) -> Bool
 
     init(
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
-        completionTracker: SubagentCompletionTracker = .shared
+        completionTracker: SubagentCompletionTracker = .shared,
+        isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
         self.completionTracker = completionTracker
+        self.isTabLive = isTabLive
+    }
+
+    private static func hasLiveSession(tabID: UUID) -> Bool {
+        SurfaceManager.shared.existingSession(for: tabID) != nil
+            || HeadlessSessionManager.shared.existingSession(for: tabID) != nil
     }
 
     /// Starts watching a tab's transcript and parses whatever it already
@@ -242,13 +255,15 @@ final class TranscriptStore {
         }
     }
 
-    /// A dormant tab's transcripts are a record, not a running process, so a
-    /// subagent left mid-step reads as interrupted rather than working. The
-    /// deriver cannot tell the difference — it parses files off the main actor
-    /// with no idea whether anything is alive — so the correction happens here,
-    /// where the tab's dormancy is known.
+    /// A tab with no process behind it — restored from disk and never
+    /// resumed, or one whose process died mid-turn (sleep, a quit) — has a
+    /// transcript that is a record, not a running process, so a subagent left
+    /// mid-step reads as interrupted rather than working. The deriver cannot
+    /// tell the difference — it parses files off the main actor with no idea
+    /// whether anything is alive — so the correction happens here, where
+    /// liveness is known.
     private func settlingDormant(_ subagents: [SubagentTranscript], tabID: UUID) -> [SubagentTranscript] {
-        guard statusEngine.isDormant(tabID: tabID) else { return subagents }
+        guard statusEngine.isDormant(tabID: tabID) || !isTabLive(tabID) else { return subagents }
         return subagents.map { subagent in
             guard subagent.status == .working else { return subagent }
             var settled = subagent
