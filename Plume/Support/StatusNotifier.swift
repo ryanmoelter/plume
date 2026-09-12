@@ -25,7 +25,7 @@ final class StatusNotifier {
     }
 
     private func handle(taskID: UUID, tabID: UUID, status: TaskStatus) {
-        guard let body = Self.body(for: status) else { return }
+        guard let body = Self.body(for: status, notifiesOnTurnEnd: AppSettings.shared.notifiesOnTurnEnd) else { return }
         notifier.notifyIfUnseen(.init(
             taskID: taskID,
             tabID: tabID,
@@ -37,15 +37,26 @@ final class StatusNotifier {
         ))
     }
 
-    /// Nil means the status isn't worth interrupting for. `working` and
-    /// `idle` are transitions the user asked for, and `unset` says nothing.
-    nonisolated static func body(for status: TaskStatus) -> String? {
+    /// Nil means the status isn't worth interrupting for. Every state that
+    /// wants the user says what it wants, so the notification is worth acting
+    /// on rather than just worth reading.
+    ///
+    /// A finished turn is the one judgement call: it happens every time the
+    /// agent stops talking, which is far too often to interrupt over by
+    /// default, so it notifies only when asked to.
+    nonisolated static func body(for status: TaskStatus, notifiesOnTurnEnd: Bool) -> String? {
         switch status {
-        case .needsInput: "Waiting for your input."
-        case .done: "Finished its turn."
+        case .planApproval: "A plan is waiting for your approval."
+        case .questionAsked: "The agent asked you a question."
+        case .permissionNeeded: "A tool is waiting for your approval."
+        case .needsTerminalInput: "Waiting for your input."
         case .error: "The agent stopped unexpectedly."
-        // An interruption is the user's own doing, so it needs no telling.
-        case .working, .idle, .unset, .interrupted: nil
+        case .awaitingReply: notifiesOnTurnEnd ? "It's your turn." : nil
+        // Starting and working are transitions the user asked for, and an
+        // interruption is the user's own doing, so it needs no telling. A
+        // subagent finishing is one step inside a turn the chat already shows,
+        // and several can land in a row.
+        case .working, .notStarted, .interrupted, .done: nil
         }
     }
 }

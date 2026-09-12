@@ -12,14 +12,15 @@ struct StatusEngineTests {
         #expect(StatusEngine.status(for: .sessionStart) == .working)
         #expect(StatusEngine.status(for: .userPromptSubmit) == .working)
         #expect(StatusEngine.status(for: .preToolUse) == .working)
-        #expect(StatusEngine.status(for: .notification) == .needsInput)
-        #expect(StatusEngine.status(for: .stop) == .done)
-        #expect(StatusEngine.status(for: .subagentStop) == .done)
-        #expect(StatusEngine.status(for: .sessionEnd) == .idle)
+        #expect(StatusEngine.status(for: .notification) == .needsTerminalInput)
+        #expect(StatusEngine.status(for: .stop) == .awaitingReply)
+        #expect(StatusEngine.status(for: .subagentStop) == .awaitingReply)
+        #expect(StatusEngine.status(for: .sessionEnd) == .awaitingReply)
     }
 
     /// `/clear` ends the session while the agent keeps running, so the usual
-    /// session-ended-means-idle reading would misreport a live agent.
+    /// session-ended-means-the-turn-is-over reading would misreport a live
+    /// agent.
     @Test func aClearedSessionEndLeavesTheAgentWorking() {
         let engine = StatusEngine()
         let (task, tab) = (UUID(), UUID())
@@ -33,7 +34,7 @@ struct StatusEngineTests {
         #expect(engine.status(forTab: tab) == .working)
     }
 
-    @Test func anOrdinarySessionEndStillGoesIdle() {
+    @Test func anOrdinarySessionEndStillSettles() {
         let engine = StatusEngine()
         let (task, tab) = (UUID(), UUID())
         engine.apply(event("UserPromptSubmit"), taskID: task, tabID: tab)
@@ -43,7 +44,7 @@ struct StatusEngineTests {
             taskID: task, tabID: tab
         )
 
-        #expect(engine.status(forTab: tab) == .idle)
+        #expect(engine.status(forTab: tab) == .awaitingReply)
     }
 
     @Test func unknownEventsAreIgnored() {
@@ -68,7 +69,7 @@ struct StatusEngineTests {
         #expect(engine.status(forTab: tab) == .working)
 
         engine.apply(event("Stop"), taskID: task, tabID: tab)
-        #expect(engine.status(forTab: tab) == .done)
+        #expect(engine.status(forTab: tab) == .awaitingReply)
     }
 
     @Test func permissionPromptNeedsInputThenResumesWorking() {
@@ -77,7 +78,7 @@ struct StatusEngineTests {
 
         engine.apply(event("PreToolUse"), taskID: task, tabID: tab)
         engine.apply(event("Notification"), taskID: task, tabID: tab)
-        #expect(engine.status(forTab: tab) == .needsInput)
+        #expect(engine.status(forTab: tab) == .needsTerminalInput)
 
         engine.apply(event("PreToolUse"), taskID: task, tabID: tab)
         #expect(engine.status(forTab: tab) == .working)
@@ -88,13 +89,13 @@ struct StatusEngineTests {
         let task = UUID()
         let (a, b, c) = (UUID(), UUID(), UUID())
 
-        engine.setStatus(.done, taskID: task, tabID: a)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: a)
         engine.setStatus(.working, taskID: task, tabID: b)
-        engine.setStatus(.needsInput, taskID: task, tabID: c)
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: c)
 
-        #expect(engine.status(forTask: task) == .needsInput)
+        #expect(engine.status(forTask: task) == .permissionNeeded)
 
-        engine.setStatus(.done, taskID: task, tabID: c)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: c)
         #expect(engine.status(forTask: task) == .working)
     }
 
@@ -102,11 +103,11 @@ struct StatusEngineTests {
         let engine = StatusEngine()
         let (taskA, taskB) = (UUID(), UUID())
 
-        engine.setStatus(.needsInput, taskID: taskA, tabID: UUID())
-        engine.setStatus(.idle, taskID: taskB, tabID: UUID())
+        engine.setStatus(.permissionNeeded, taskID: taskA, tabID: UUID())
+        engine.setStatus(.awaitingReply, taskID: taskB, tabID: UUID())
 
-        #expect(engine.status(forTask: taskA) == .needsInput)
-        #expect(engine.status(forTask: taskB) == .idle)
+        #expect(engine.status(forTask: taskA) == .permissionNeeded)
+        #expect(engine.status(forTask: taskB) == .awaitingReply)
     }
 
     @Test func surfaceExitWhileAliveIsAnError() {
@@ -126,7 +127,7 @@ struct StatusEngineTests {
         engine.apply(event("Stop"), taskID: task, tabID: tab)
         engine.handleSurfaceExit(taskID: task, tabID: tab, processAlive: false)
 
-        #expect(engine.status(forTab: tab) == .idle)
+        #expect(engine.status(forTab: tab) == .awaitingReply)
     }
 
     @Test func taskStatusChangesAreReportedOnce() {
@@ -139,18 +140,18 @@ struct StatusEngineTests {
         engine.apply(event("PreToolUse"), taskID: task, tabID: tab) // still working
         engine.apply(event("Stop"), taskID: task, tabID: tab)
 
-        #expect(changes == [.working, .done])
+        #expect(changes == [.working, .awaitingReply])
     }
 
     @Test func needsInputCountTracksTasksNotTabs() {
         let engine = StatusEngine()
         let task = UUID()
 
-        engine.setStatus(.needsInput, taskID: task, tabID: UUID())
-        engine.setStatus(.needsInput, taskID: task, tabID: UUID())
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: UUID())
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: UUID())
         #expect(engine.tasksNeedingInput == 1)
 
-        engine.setStatus(.needsInput, taskID: UUID(), tabID: UUID())
+        engine.setStatus(.permissionNeeded, taskID: UUID(), tabID: UUID())
         #expect(engine.tasksNeedingInput == 2)
     }
 
@@ -158,10 +159,10 @@ struct StatusEngineTests {
         let engine = StatusEngine()
         let (task, tab) = (UUID(), UUID())
 
-        engine.setStatus(.needsInput, taskID: task, tabID: tab)
+        engine.setStatus(.permissionNeeded, taskID: task, tabID: tab)
         engine.forget(tabID: tab, taskID: task)
 
-        #expect(engine.status(forTask: task) == .unset)
+        #expect(engine.status(forTask: task) == .notStarted)
         #expect(engine.tasksNeedingInput == 0)
     }
 
@@ -170,7 +171,7 @@ struct StatusEngineTests {
         let (task, tab) = (UUID(), UUID())
 
         engine.setStatus(.working, taskID: task, tabID: tab)
-        engine.register(tabID: tab, taskID: task, status: .idle)
+        engine.register(tabID: tab, taskID: task, status: .awaitingReply)
 
         #expect(engine.status(forTab: tab) == .working)
     }

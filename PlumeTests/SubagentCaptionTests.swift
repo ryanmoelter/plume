@@ -20,7 +20,7 @@ struct SubagentCaptionTests {
 
     private func subagent(
         _ lines: [String],
-        status: TaskStatus = .done,
+        status: TaskStatus = .awaitingReply,
         descriptor: SubagentDescriptor? = nil
     ) -> SubagentTranscript {
         SubagentTranscript(

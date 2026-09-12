@@ -119,6 +119,20 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Notify when an agent finishes its turn", isOn: $settings.notifiesOnTurnEnd)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text(
+                    "An agent that needs an answer — a plan to approve, a question, " +
+                    "a tool waiting on permission — always notifies, and says which. " +
+                    "A finished turn is quieter and far more frequent, so it is off " +
+                    "by default."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {

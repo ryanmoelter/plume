@@ -60,7 +60,7 @@ struct InteractiveToolRow: View, ThemedView {
     /// the same plan twice and choose in two places.
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
-        header(symbol: "list.clipboard", title: "Proposed plan")
+        header(symbol: StatusSymbol.plan.name, title: "Proposed plan")
         Text(PlanSummary.firstLine(of: markdown))
             .font(typography.body.medium)
             .chatTextColumn()
@@ -105,7 +105,7 @@ struct InteractiveToolRow: View, ThemedView {
     /// re-asks a question that already has an answer.
     @ViewBuilder
     private func questionsBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
-        header(symbol: "questionmark.bubble", title: questions.count == 1 ? "Question" : "Questions")
+        header(symbol: StatusSymbol.question.name, title: questions.count == 1 ? "Question" : "Questions")
         if let answer {
             askingBody(questions, answer: answer)
         } else {

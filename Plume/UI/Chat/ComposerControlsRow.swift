@@ -198,7 +198,7 @@ private struct PlanButton: View, ThemedView {
     var body: some View {
         Button(action: action) {
             ComposerSegmentLabel(
-                systemImage: "doc.text",
+                systemImage: StatusSymbol.plan.name,
                 text: "Plan",
                 showsText: form.showsLabels,
                 showsTrailingChevron: true,
@@ -386,7 +386,7 @@ extension PermissionMode {
     /// document it produces read as the same concept.
     var symbol: String {
         switch self {
-        case .plan: return "doc.text"
+        case .plan: return StatusSymbol.plan.name
         case .acceptEdits: return "pencil.line"
         case .auto: return "bolt.fill"
         case .bypassPermissions: return "exclamationmark.triangle.fill"

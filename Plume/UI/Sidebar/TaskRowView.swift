@@ -6,6 +6,7 @@ struct TaskRowView: View {
     @Binding var renamingTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
     /// What this row currently holds watches on, so a directory leaving the
     /// set releases the watch it took rather than whatever the task points at
     /// now.
@@ -17,7 +18,7 @@ struct TaskRowView: View {
     /// covers the window before any agent has run this launch.
     private var status: TaskStatus {
         let live = StatusEngine.shared.status(forTask: task.id)
-        return live == .unset ? task.lastStatus : live
+        return live == .notStarted ? task.lastStatus.afterRelaunch : live
     }
 
     /// One group per distinct directory the task's agent tabs are open in. A
@@ -53,6 +54,23 @@ struct TaskRowView: View {
         TaskRowDetails.lines(groups: directories.map(group(for:)))
     }
 
+    /// A task with several directories repeats the project header per group,
+    /// and the bridge belongs to the task rather than to any one of them.
+    private var firstProjectLineIndex: Int? {
+        detailLines.firstIndex { if case .project = $0 { true } else { false } }
+    }
+
+    private var agentTabIDs: [UUID] {
+        task.orderedTabs.filter { $0.kind == .agent }.map(\.id)
+    }
+
+    /// Whether any of the task's tabs can be driven from elsewhere. Only the
+    /// headless transport carries the bridge; a terminal tab's own TUI serves
+    /// `/rc` itself.
+    private var isRemoteControlled: Bool {
+        agentTabIDs.contains { HeadlessSessionManager.shared.existingSession(for: $0)?.remoteControl.link != nil }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
@@ -71,7 +89,7 @@ struct TaskRowView: View {
                         .truncationMode(.tail)
                 }
 
-                ForEach(Array(detailLines.enumerated()), id: \.offset) { _, line in
+                ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
                     switch line {
                     case .text(let text):
                         Text(text)
@@ -80,11 +98,20 @@ struct TaskRowView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     case .project(let name):
-                        Text(name)
-                            .font(.caption)
-                            .emphasis(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        HStack(spacing: 4) {
+                            Text(name)
+                                .font(.caption)
+                                .emphasis(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            if isRemoteControlled, index == firstProjectLineIndex {
+                                Image(systemName: StatusSymbol.remoteControl.name)
+                                    .font(.caption)
+                                    .imageScale(.small)
+                                    .foregroundStyle(ChatRole.attention(for: colorScheme))
+                                    .help("Remote control is on")
+                            }
+                        }
                     case .branch(let branch, let isWorktree, let companion):
                         HStack(spacing: 4) {
                             if isWorktree {
@@ -108,9 +135,11 @@ struct TaskRowView: View {
                         }
                     }
                 }
+
+                TaskActivityRow(tabIDs: agentTabIDs)
             }
             Spacer(minLength: 4)
-            StatusBadge(status: status)
+            StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
         }
         .padding(.vertical, 2)
         .contentShape(.rect)

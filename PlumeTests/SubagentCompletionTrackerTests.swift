@@ -178,7 +178,7 @@ struct SubagentCompletionTrackerTests {
     /// visible rather than fold away.
     @Test func aSubagentNeedingInputNeverSettles() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let waiting = subagent("a1", .needsInput)
+        let waiting = subagent("a1", .permissionNeeded)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([waiting], tabID: tab)
@@ -241,5 +241,41 @@ struct SubagentCompletionTrackerTests {
         tracker.observe([done], tabID: tab)
         #expect(!tracker.hasSettled(done, tabID: tab))
         #expect(tracker.completionInstant(forSubagentID: "a1", tabID: tab) != nil)
+    }
+}
+
+/// The sidebar shows a task's live subagents using the same tracker the chat
+/// does. Neither view observes — `TranscriptStore` does — so a subagent folds
+/// away in both places at the same moment, whether or not either is mounted.
+@MainActor
+struct SidebarSubagentVisibilityTests {
+    private let tab = UUID()
+
+    private func subagent(_ id: String, _ status: TaskStatus) -> SubagentTranscript {
+        SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, descriptor: nil, status: status)
+    }
+
+    /// Reading alone never promotes anything, so a view that renders before
+    /// the store has observed cannot settle a row behind its back.
+    @Test func readingAloneDoesNotSettleASubagent() {
+        let tracker = SubagentCompletionTracker(linger: .zero)
+        let done = subagent("a1", .done)
+
+        #expect(!tracker.hasSettled(done, tabID: tab))
+        #expect(tracker.completionInstant(forSubagentID: "a1", tabID: tab) == nil)
+    }
+
+    /// The sidebar and the chat ask the same question of the same tracker, so
+    /// one cannot show a subagent the other has folded away.
+    @Test func bothViewsAgreeOnWhatIsVisible() {
+        let tracker = SubagentCompletionTracker(linger: .zero)
+        let working = subagent("a1", .working)
+        tracker.observe([working], tabID: tab)
+        #expect(!tracker.hasSettled(working, tabID: tab))
+
+        let done = subagent("a1", .done)
+        tracker.observe([done], tabID: tab)
+
+        #expect(tracker.hasSettled(done, tabID: tab))
     }
 }

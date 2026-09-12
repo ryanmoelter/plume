@@ -35,7 +35,7 @@ enum ChatPieceSplitter {
             )
             let context = MessageContext(
                 message: message,
-                needsInput: isLast && status == .needsInput,
+                needsInput: isLast && status.wantsAttention,
                 isWorking: isLast && status == .working,
                 hiddenToolUseIDs: isLast ? hiddenToolUseIDs : [],
                 streaming: isLast && attachesToLastMessage ? streaming : .init(),

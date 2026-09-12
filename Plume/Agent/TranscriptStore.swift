@@ -10,7 +10,7 @@ struct SubagentTranscript: Identifiable, Equatable {
     /// What the subagent was asked to do, from its `.meta.json` sidecar or
     /// the parent's spawning tool call. Nil when neither names it.
     var descriptor: SubagentDescriptor?
-    var status: TaskStatus = .unset
+    var status: TaskStatus = .notStarted
 
     /// What to call this subagent in the list. Falls back to the raw id only
     /// when nothing describes it.
@@ -47,10 +47,16 @@ final class TranscriptStore {
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
     private let debounce: Duration
     private let statusEngine: StatusEngine
+    private let completionTracker: SubagentCompletionTracker
 
-    init(debounce: Duration = .milliseconds(250), statusEngine: StatusEngine = .shared) {
+    init(
+        debounce: Duration = .milliseconds(250),
+        statusEngine: StatusEngine = .shared,
+        completionTracker: SubagentCompletionTracker = .shared
+    ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
+        self.completionTracker = completionTracker
     }
 
     /// Starts watching a tab's transcript and parses whatever it already
@@ -226,8 +232,8 @@ final class TranscriptStore {
                     return
                 }
                 self.transcripts[tabID] = parsed.0
-                self.subagentTranscripts[tabID] = parsed.1
-                self.publishSubagentActivity(tabID: tabID, subagents: parsed.1)
+                self.subagentTranscripts[tabID] = self.settlingDormant(parsed.1, tabID: tabID)
+                self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)
@@ -236,9 +242,32 @@ final class TranscriptStore {
         }
     }
 
-    /// This is the only place that sees every subagent's status per tab, so
-    /// it is what tells `StatusEngine` a finished turn is still not done.
+    /// A dormant tab's transcripts are a record, not a running process, so a
+    /// subagent left mid-step reads as interrupted rather than working. The
+    /// deriver cannot tell the difference — it parses files off the main actor
+    /// with no idea whether anything is alive — so the correction happens here,
+    /// where the tab's dormancy is known.
+    private func settlingDormant(_ subagents: [SubagentTranscript], tabID: UUID) -> [SubagentTranscript] {
+        guard statusEngine.isDormant(tabID: tabID) else { return subagents }
+        return subagents.map { subagent in
+            guard subagent.status == .working else { return subagent }
+            var settled = subagent
+            settled.status = .interrupted
+            return settled
+        }
+    }
+
+    /// This is the only place that sees every subagent's status per tab, so it
+    /// is what tells `StatusEngine` a finished turn is still not done, and what
+    /// starts a finished subagent's linger.
+    ///
+    /// The linger is driven from here rather than from the chat's list because
+    /// this store watches every tab whether or not a view is mounted. Driven
+    /// from a view, a subagent that finished while the user was looking
+    /// elsewhere would never start its clock, and would sit in the sidebar
+    /// forever.
     private func publishSubagentActivity(tabID: UUID, subagents: [SubagentTranscript]) {
+        completionTracker.observe(subagents, tabID: tabID)
         statusEngine.setSubagentActivity(
             tabID: tabID,
             working: subagents.contains { $0.status == .working }

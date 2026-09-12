@@ -66,8 +66,8 @@ nonisolated enum InjectedContent: Equatable {
         case .slashCommand, .commandOutput: return "chevron.forward.square"
         case .commandCaveat: return "info.circle"
         case .shellCommand, .shellOutput: return "terminal"
-        case .taskNotification: return "bell"
-        case .interrupted: return "hand.raised"
+        case .taskNotification: return StatusSymbol.terminalInput.name
+        case .interrupted: return StatusSymbol.interruption.name
         case .systemNote: return "info.circle"
         case .compactSummary: return "arrow.down.right.and.arrow.up.left"
         }

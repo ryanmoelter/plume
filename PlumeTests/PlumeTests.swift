@@ -136,24 +136,121 @@ struct TaskStoreTests {
 }
 
 struct TaskStatusTests {
-    @Test func needsInputOutranksWorking() {
-        #expect(TaskStatus.aggregate([.idle, .working, .needsInput, .done]) == .needsInput)
+    @Test func wantingAttentionOutranksWorking() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .working, .questionAsked]) == .questionAsked)
     }
 
-    @Test func workingOutranksErrorAndDone() {
-        #expect(TaskStatus.aggregate([.done, .error, .working]) == .working)
+    /// Among tabs that all want the user, the one whose answer decides the
+    /// most is the one worth surfacing.
+    @Test func namedReasonsRankByConsequence() {
+        #expect(TaskStatus.aggregate([.permissionNeeded, .planApproval]) == .planApproval)
+        #expect(TaskStatus.aggregate([.permissionNeeded, .questionAsked]) == .questionAsked)
+        #expect(TaskStatus.aggregate([.needsTerminalInput, .permissionNeeded]) == .permissionNeeded)
+    }
+
+    @Test func workingOutranksErrorAndRest() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .error, .working]) == .working)
     }
 
     /// An interruption is a settled state, so it loses to anything still
-    /// running — but it outranks a `done` on a sibling tab, since a tab the
-    /// user stopped is the one worth going back to.
-    @Test func interruptedSitsBetweenDoneAndError() {
-        #expect(TaskStatus.aggregate([.done, .interrupted]) == .interrupted)
+    /// running — but it outranks a finished turn on a sibling tab, since a
+    /// tab the user stopped is the one worth going back to.
+    @Test func interruptedSitsBetweenAwaitingReplyAndError() {
+        #expect(TaskStatus.aggregate([.awaitingReply, .interrupted]) == .interrupted)
         #expect(TaskStatus.aggregate([.interrupted, .error]) == .error)
         #expect(TaskStatus.aggregate([.interrupted, .working]) == .working)
     }
 
-    @Test func emptyAggregatesToUnset() {
-        #expect(TaskStatus.aggregate([]) == .unset)
+    @Test func emptyAggregatesToNotStarted() {
+        #expect(TaskStatus.aggregate([]) == .notStarted)
+    }
+
+    @Test func onlyTheStatusesWaitingOnSomeoneWantAttention() {
+        let wanting: Set<TaskStatus> = [.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput]
+        for status in TaskStatus.allCases {
+            #expect(status.wantsAttention == wanting.contains(status), "\(status)")
+        }
+    }
+
+    @Test(arguments: [
+        ("unset", TaskStatus.notStarted),
+        ("idle", .awaitingReply),
+        ("needsInput", .needsTerminalInput),
+        ("working", .working),
+        ("interrupted", .interrupted),
+        ("error", .error),
+    ])
+    func aSnapshotFromTheOldVocabularyStillReads(raw: String, expected: TaskStatus) {
+        #expect(TaskStatus(migratingRawValue: raw) == expected)
+    }
+
+    /// A finished subagent is over; a tab handing its turn back is not. The
+    /// two must not aggregate to the same thing, or a task holding a done
+    /// subagent would read as finished itself.
+    @Test func aFinishedSubagentDoesNotOutrankATabWaitingOnTheUser() {
+        #expect(TaskStatus.aggregate([.done, .awaitingReply]) == .awaitingReply)
+        #expect(TaskStatus.aggregate([.done, .questionAsked]) == .questionAsked)
+        #expect(TaskStatus.aggregate([.done, .working]) == .working)
+    }
+
+    @Test func anUnreadableSnapshotClaimsNothing() {
+        #expect(TaskStatus(migratingRawValue: "banana") == .notStarted)
+    }
+
+    @Test func everyCurrentRawValueSurvivesMigration() {
+        for status in TaskStatus.allCases {
+            #expect(TaskStatus(migratingRawValue: status.rawValue) == status)
+        }
+    }
+}
+
+/// Quitting kills every agent, so a snapshot that claimed activity is stale by
+/// the time it is read back.
+@MainActor
+struct RelaunchStatusTests {
+    @Test func aStatusClaimingActivityDoesNotSurviveAQuit() {
+        for status in [TaskStatus.working, .awaitingReply] {
+            #expect(status.afterRelaunch == .notStarted, "\(status)")
+        }
+    }
+
+    /// Quitting is what stopped a tab that was waiting on an answer, and the
+    /// unanswered question is still sitting in the transcript.
+    @Test func aQuestionTheUserNeverAnsweredReadsAsInterrupted() {
+        for status in [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput] {
+            #expect(status.afterRelaunch == .interrupted, "\(status)")
+        }
+    }
+
+    /// These describe an outcome rather than a process, so they stay true.
+    @Test func anOutcomeSurvivesAQuit() {
+        for status in [TaskStatus.interrupted, .error, .done] {
+            #expect(status.afterRelaunch == status, "\(status)")
+        }
+    }
+
+    /// A restored tab's old transcript still lists whatever was in flight when
+    /// the app quit. Nothing read from it may raise the tab to working.
+    @Test func aRestoredTabIgnoresItsOldTranscriptsSubagents() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.restore(tabID: tab, taskID: task)
+
+        engine.setSubagentActivity(tabID: tab, working: true)
+
+        #expect(engine.status(forTab: tab) == .notStarted)
+        #expect(engine.status(forTask: task) == .notStarted)
+    }
+
+    /// Once a real session reports, the tab is live and behaves normally.
+    @Test func aLiveReportWakesARestoredTab() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.restore(tabID: tab, taskID: task)
+
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+        engine.setSubagentActivity(tabID: tab, working: true)
+
+        #expect(engine.status(forTab: tab) == .working)
     }
 }

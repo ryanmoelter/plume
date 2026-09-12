@@ -69,6 +69,11 @@ final class HeadlessSession {
 
     /// Whether this conversation is published to claude.ai/code. In memory
     /// only — the bridge belongs to the process, not to the tab.
+    /// Set when the user interrupts, so the turn that comes back as an error
+    /// is reported as their doing rather than the agent's. Cleared as soon as
+    /// that turn is accounted for.
+    private var wasInterrupted = false
+
     private(set) var remoteControl: RemoteControlState = .disconnected
 
     /// The last Remote Control change worth telling the user about, until it
@@ -206,6 +211,7 @@ final class HeadlessSession {
     /// Ends the turn in flight but keeps the session alive, unlike a signal.
     func interrupt() {
         guard isWorking else { return }
+        wasInterrupted = true
         send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
     }
 
@@ -282,6 +288,7 @@ final class HeadlessSession {
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
         pendingPermissions.removeAll { $0.id == permission.id }
         send(StreamJSONEncoder.permissionResponse(requestID: permission.id, decision: decision))
+        reportPendingPermissions()
     }
 
     /// Approves an `ExitPlanMode` call. Allowing the call only answers the
@@ -372,6 +379,7 @@ final class HeadlessSession {
         case .controlCancel(let requestID):
             // The CLI no longer needs an answer; drop any UI for it.
             pendingPermissions.removeAll { $0.id == requestID }
+            reportPendingPermissions()
 
         case .unknown:
             break
@@ -399,7 +407,38 @@ final class HeadlessSession {
             agentID: request.agentID,
             interactive: InteractiveToolPayload.decoding(name: name, input: request.input)
         ))
-        StatusEngine.shared.setStatus(.needsInput, taskID: taskID, tabID: tabID)
+        reportPendingPermissions()
+    }
+
+    /// Tells the status engine what the tab is waiting on, derived from every
+    /// request still outstanding rather than from whichever arrived last.
+    ///
+    /// With nothing left pending the tab reports the turn it is actually in,
+    /// so answering the last prompt resumes `working` mid-turn but answering
+    /// a stale one after the turn ended does not claim work that stopped. A
+    /// process that has already exited keeps whatever `handleExit` decided.
+    private func reportPendingPermissions() {
+        guard !hasExited else { return }
+        let resting: TaskStatus = isWorking ? .working : .awaitingReply
+        let status = Self.attentionStatus(for: pendingPermissions) ?? resting
+        StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID)
+    }
+
+    /// What the tab is waiting on, or nil when it is waiting on nothing.
+    ///
+    /// More than one request can be outstanding at once, so this ranks them:
+    /// a plan gate decides the most and an ordinary tool call the least.
+    static func attentionStatus(for pending: [PendingPermission]) -> TaskStatus? {
+        var status: TaskStatus?
+        for permission in pending {
+            let candidate: TaskStatus = switch permission.interactive {
+            case .plan: .planApproval
+            case .questions: .questionAsked
+            case nil: .permissionNeeded
+            }
+            if candidate.priority > (status?.priority ?? -1) { status = candidate }
+        }
+        return status
     }
 
     private func handle(_ response: ControlResponse) {
@@ -440,6 +479,7 @@ final class HeadlessSession {
         streamingText = ""
         streamingThinking = ""
         lastError = nil
+        wasInterrupted = false
         StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
     }
 
@@ -449,12 +489,18 @@ final class HeadlessSession {
         if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }
-        if result.isError {
+        if wasInterrupted {
+            // The turn ends as an error because it was cut short, but the user
+            // is who cut it — blaming the agent would send them looking for a
+            // failure that never happened.
+            StatusEngine.shared.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+        } else if result.isError {
             lastError = result.text ?? "The turn failed."
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
         } else {
-            StatusEngine.shared.setStatus(.done, taskID: taskID, tabID: tabID)
+            StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
+        wasInterrupted = false
         sendNextQueuedMessage()
     }
 
@@ -484,7 +530,16 @@ final class HeadlessSession {
         pendingControlRequests.removeAll()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
-        StatusEngine.shared.setStatus(status == 0 ? .idle : .error, taskID: taskID, tabID: tabID)
+        // A process the user stopped exits non-zero, which is not a failure
+        // worth reporting as one.
+        let reported: TaskStatus = if status == 0 {
+            .awaitingReply
+        } else if wasInterrupted {
+            .interrupted
+        } else {
+            .error
+        }
+        StatusEngine.shared.setStatus(reported, taskID: taskID, tabID: tabID)
     }
 
     @discardableResult

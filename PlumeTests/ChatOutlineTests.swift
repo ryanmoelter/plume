@@ -14,7 +14,7 @@ struct ChatOutlineTests {
     ) -> [ChatPiece] {
         ChatPieceSplitter.pieces(
             for: messages,
-            status: .idle,
+            status: .awaitingReply,
             hiddenToolUseIDs: [],
             streaming: streaming,
             dimensions: dimensions

@@ -79,7 +79,7 @@ enum SidebarFixtureCatalog {
 
         func addPullRequest(
             _ name: String,
-            status: TaskStatus = .idle,
+            status: TaskStatus = .awaitingReply,
             state: PullRequestState = .open,
             isDraft: Bool = false,
             reviewDecision: ReviewDecision = .none,
@@ -102,7 +102,7 @@ enum SidebarFixtureCatalog {
             ))
         }
 
-        func addState(_ name: String, status: TaskStatus = .idle, _ state: PullRequestFetchState?) {
+        func addState(_ name: String, status: TaskStatus = .awaitingReply, _ state: PullRequestFetchState?) {
             cases.append(SidebarFixtureCase(
                 name: name,
                 status: status,
@@ -140,7 +140,7 @@ enum SidebarFixtureCatalog {
         for name in ["worktree-one", "worktree-two"] {
             cases.append(SidebarFixtureCase(
                 name: name,
-                status: .idle,
+                status: .awaitingReply,
                 directory: "worktrees/\(name)",
                 branch: "ryanm/\(name)",
                 pullRequestState: .noPR,
@@ -152,7 +152,7 @@ enum SidebarFixtureCatalog {
         }
         cases.append(SidebarFixtureCase(
             name: "main-checkout",
-            status: .idle,
+            status: .awaitingReply,
             directory: "projects/Notability",
             branch: "main",
             pullRequestState: .noPR,

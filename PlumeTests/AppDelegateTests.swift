@@ -12,9 +12,9 @@ struct AppDelegateTests {
         ) == false)
     }
 
-    @Test func idleAndDoneTabsDoNotConfirm() {
+    @Test func settledTabsDoNotConfirm() {
         #expect(AppDelegate.shouldConfirmQuit(
-            statuses: [.idle, .done, .unset],
+            statuses: [.awaitingReply, .awaitingReply, .notStarted],
             isSystemInitiated: false,
             confirmUserQuit: true,
             confirmSystemQuit: true
@@ -23,7 +23,7 @@ struct AppDelegateTests {
 
     @Test func aWorkingTabConfirmsWhenUserInitiatedAndSettingOn() {
         #expect(AppDelegate.shouldConfirmQuit(
-            statuses: [.idle, .working],
+            statuses: [.awaitingReply, .working],
             isSystemInitiated: false,
             confirmUserQuit: true,
             confirmSystemQuit: true
@@ -32,7 +32,7 @@ struct AppDelegateTests {
 
     @Test func aTabNeedingInputConfirmsWhenUserInitiatedAndSettingOn() {
         #expect(AppDelegate.shouldConfirmQuit(
-            statuses: [.needsInput],
+            statuses: [.permissionNeeded],
             isSystemInitiated: false,
             confirmUserQuit: true,
             confirmSystemQuit: true

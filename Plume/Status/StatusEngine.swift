@@ -19,6 +19,12 @@ final class StatusEngine {
     /// "done" invites the user back to a task that is still moving.
     private var tabsWithWorkingSubagents: Set<UUID> = []
 
+    /// Tabs restored from disk with no process behind them. Their transcripts
+    /// still describe whatever was in flight when the app last quit, so until
+    /// a live session reports, nothing read from those files may claim the tab
+    /// is doing anything.
+    private var dormantTabs: Set<UUID> = []
+
     /// Called with a task ID when its aggregated status changes, so the
     /// snapshot can be persisted without this type depending on SwiftData.
     @ObservationIgnored var onTaskStatusChanged: ((UUID, TaskStatus) -> Void)?
@@ -27,6 +33,12 @@ final class StatusEngine {
     /// Both transports funnel through `setStatus`, so this is the one place a
     /// notification layer has to hook.
     @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus) -> Void)?
+
+    /// When each working tab started working, for the elapsed time the
+    /// sidebar shows. Kept here rather than on the session so it covers both
+    /// transports, and dropped as soon as a tab stops working so a stale
+    /// start can never be read.
+    private var workStartedAt: [UUID: Date] = [:]
 
     private var tabsByTask: [UUID: Set<UUID>] = [:]
 
@@ -39,40 +51,58 @@ final class StatusEngine {
     func status(forTab id: UUID) -> TaskStatus {
         Self.effectiveStatus(
             own: ownStatus(forTab: id),
-            subagentsWorking: tabsWithWorkingSubagents.contains(id)
+            subagentsWorking: tabsWithWorkingSubagents.contains(id),
+            dormant: dormantTabs.contains(id)
         )
+    }
+
+    /// Whether a tab was restored from disk with no process behind it. Its
+    /// transcripts describe what was in flight when the app quit, so nothing
+    /// read from them is happening now.
+    func isDormant(tabID: UUID) -> Bool {
+        dormantTabs.contains(tabID)
     }
 
     /// The tab's own status, ignoring its subagents.
     func ownStatus(forTab id: UUID) -> TaskStatus {
-        tabStatuses[id] ?? .unset
+        tabStatuses[id] ?? .notStarted
     }
 
-    /// Working subagents raise a settled tab to `working`. `needsInput`,
-    /// `error` and `interrupted` outrank that: they need the user either way,
-    /// and a subagent cannot clear them.
-    static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
+    /// Working subagents raise a settled tab to `working`. Every state that
+    /// wants the user outranks that, along with `error` and `interrupted`:
+    /// they need the user either way, and a subagent cannot answer for them.
+    ///
+    /// A tab never holds `done` — only a subagent reaches it — so it is left
+    /// alone rather than raised.
+    ///
+    /// Restored tabs are dormant and never raised at all: their subagents'
+    /// "working" is the state the transcript was left in, not a live process.
+    static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool, dormant: Bool = false) -> TaskStatus {
+        guard !dormant else { return own }
         guard subagentsWorking else { return own }
         switch own {
-        case .unset, .idle, .done, .working: return .working
-        case .needsInput, .error, .interrupted: return own
+        case .notStarted, .awaitingReply, .working:
+            return .working
+        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
+             .error, .interrupted, .done:
+            return own
         }
     }
 
     func status(forTask id: UUID) -> TaskStatus {
-        guard let tabs = tabsByTask[id] else { return .unset }
+        guard let tabs = tabsByTask[id] else { return .notStarted }
         return TaskStatus.aggregate(tabs.map { status(forTab: $0) })
     }
 
     var tasksNeedingInput: Int {
-        tabsByTask.keys.count { status(forTask: $0) == .needsInput }
+        tabsByTask.keys.count { status(forTask: $0).wantsAttention }
     }
 
     // MARK: - Writing
 
     func apply(_ event: HookEvent, taskID: UUID, tabID: UUID) {
         // A `/clear` ends a session while the agent keeps running, so the
-        // usual "session ended means idle" reading is wrong here.
+        // usual "session ended means the turn is over" reading is wrong here.
         guard !event.endsClearedSession else { return }
         guard let status = Self.status(for: event.kind) else { return }
         setStatus(status, taskID: taskID, tabID: tabID)
@@ -81,11 +111,20 @@ final class StatusEngine {
     /// The PTY child exiting means no agent is running, whatever the last
     /// hook said.
     func handleSurfaceExit(taskID: UUID, tabID: UUID, processAlive: Bool) {
-        setStatus(processAlive ? .error : .idle, taskID: taskID, tabID: tabID)
+        setStatus(processAlive ? .error : .awaitingReply, taskID: taskID, tabID: tabID)
+    }
+
+    /// Registers a tab restored from disk. It has no process behind it and
+    /// will not get one until the user sends a message, so it reads as
+    /// `notStarted` and stays deaf to anything its old transcript says.
+    func restore(tabID: UUID, taskID: UUID) {
+        setStatus(.notStarted, taskID: taskID, tabID: tabID)
+        dormantTabs.insert(tabID)
     }
 
     func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID) {
         tabsByTask[taskID, default: []].insert(tabID)
+        dormantTabs.remove(tabID)
         guard tabStatuses[tabID] != status else { return }
 
         let previousTabStatus = self.status(forTab: tabID)
@@ -114,8 +153,21 @@ final class StatusEngine {
         report(taskID: taskID, tabID: tabID, previousTabStatus: previousTabStatus, previousTaskStatus: previousTaskStatus)
     }
 
+    /// When the tab started the work it is doing now, or nil if it is not
+    /// working. Reset every time work starts, so the clock times this stretch
+    /// rather than the tab's whole life.
+    func workStarted(forTab id: UUID) -> Date? {
+        workStartedAt[id]
+    }
+
+    /// The oldest running clock among a task's tabs, so a collapsed task
+    /// reports the work that has been going longest.
+    func workStarted(forTask id: UUID) -> Date? {
+        tabsByTask[id]?.compactMap { workStartedAt[$0] }.min()
+    }
+
     /// Announces effective status, so a notifier or snapshot never sees a
-    /// `done` the subagents contradict.
+    /// finished turn the subagents contradict.
     private func report(
         taskID: UUID,
         tabID: UUID,
@@ -124,6 +176,13 @@ final class StatusEngine {
     ) {
         let newTabStatus = status(forTab: tabID)
         if newTabStatus != previousTabStatus {
+            // Keyed off the effective status, so working subagents start the
+            // clock too and a tab that stops working never keeps a stale one.
+            if newTabStatus == .working {
+                workStartedAt[tabID] = Date()
+            } else {
+                workStartedAt.removeValue(forKey: tabID)
+            }
             onTabStatusChanged?(taskID, tabID, newTabStatus)
         }
         let newTaskStatus = status(forTask: taskID)
@@ -134,7 +193,7 @@ final class StatusEngine {
 
     /// Registers a tab so its task aggregates correctly before any event
     /// arrives.
-    func register(tabID: UUID, taskID: UUID, status: TaskStatus = .unset) {
+    func register(tabID: UUID, taskID: UUID, status: TaskStatus = .notStarted) {
         tabsByTask[taskID, default: []].insert(tabID)
         if tabStatuses[tabID] == nil {
             tabStatuses[tabID] = status
@@ -144,6 +203,8 @@ final class StatusEngine {
     func forget(tabID: UUID, taskID: UUID) {
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
+        dormantTabs.remove(tabID)
+        workStartedAt.removeValue(forKey: tabID)
         tabsByTask[taskID]?.remove(tabID)
         if tabsByTask[taskID]?.isEmpty == true {
             tabsByTask.removeValue(forKey: taskID)
@@ -153,20 +214,24 @@ final class StatusEngine {
     func reset() {
         tabStatuses.removeAll()
         tabsWithWorkingSubagents.removeAll()
+        dormantTabs.removeAll()
+        workStartedAt.removeAll()
         tabsByTask.removeAll()
     }
 
     /// Nil means the event carries no status meaning and is ignored.
+    ///
+    /// A notification is the terminal transport's only way to say the agent
+    /// wants the user, and it never says why — hence the unnamed status. The
+    /// headless transport names its reason instead, in `HeadlessSession`.
     static func status(for kind: HookEvent.Kind) -> TaskStatus? {
         switch kind {
         case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse:
             .working
         case .notification:
-            .needsInput
-        case .stop, .subagentStop:
-            .done
-        case .sessionEnd:
-            .idle
+            .needsTerminalInput
+        case .stop, .subagentStop, .sessionEnd:
+            .awaitingReply
         case .unknown:
             nil
         }

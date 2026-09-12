@@ -136,7 +136,7 @@ struct ToolCallRow: View, ThemedView {
         case "Read": "doc.text"
         case "Write", "Edit": "pencil"
         case "Grep", "Glob": "magnifyingglass"
-        case "Agent": "person.2"
+        case "Agent": StatusSymbol.subagents.name
         case "Skill": "sparkles"
         case "WebFetch", "WebSearch": "globe"
         default: "wrench.and.screwdriver"

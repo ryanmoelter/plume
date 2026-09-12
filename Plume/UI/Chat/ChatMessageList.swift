@@ -205,6 +205,7 @@ struct ChatMessageList: View, ThemedView {
             .coordinateSpace(.named(Self.contentSpace))
         }
         .environment(\.revealClock, revealClock)
+        .environment(\.workStartedAt, tabID.flatMap { StatusEngine.shared.workStarted(forTab: $0) })
         .chatItemStatsViewport(list: statsToken)
         .onChange(of: messages, initial: true) { rebuildPieces() }
         .onChange(of: status) { rebuildPieces() }

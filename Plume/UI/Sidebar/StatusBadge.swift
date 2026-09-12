@@ -2,39 +2,65 @@ import SwiftUI
 
 struct StatusBadge: View {
     let status: TaskStatus
+    /// When the current stretch of work began. A working badge counts up from
+    /// it; every other status ignores it.
+    var workStartedAt: Date?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        if status == .working, let workStartedAt {
+            HStack(spacing: 4) {
+                ElapsedLabel(since: workStartedAt)
+                symbol
+            }
+        } else {
+            symbol
+        }
+    }
+
+    @ViewBuilder
+    private var symbol: some View {
         switch status {
-        case .unset:
+        case .notStarted:
             EmptyView()
-        case .idle:
-            Circle().fill(Emphasis.subtle.textHierarchy).frame(width: 7, height: 7)
         case .working:
-            WorkingIndicator()
-        case .needsInput:
-            Image(systemName: "bell.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
-        case .interrupted:
-            Image(systemName: "hand.raised.fill").foregroundStyle(Emphasis.subtle.textHierarchy)
+            WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
+        case .awaitingReply:
+            Image(systemName: StatusSymbol.awaitingReply.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
         case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success(for: colorScheme))
+            Image(systemName: StatusSymbol.done.filled).foregroundStyle(ChatRole.success(for: colorScheme))
+        case .planApproval:
+            Image(systemName: StatusSymbol.plan.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .questionAsked:
+            Image(systemName: StatusSymbol.question.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .permissionNeeded:
+            Image(systemName: StatusSymbol.permission.filled).foregroundStyle(ChatRole.warning(for: colorScheme))
+        case .needsTerminalInput:
+            Image(systemName: StatusSymbol.terminalInput.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .interrupted:
+            Image(systemName: StatusSymbol.interruption.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatRole.danger(for: colorScheme))
+            Image(systemName: StatusSymbol.error.filled).foregroundStyle(ChatRole.danger(for: colorScheme))
         }
     }
 }
 
-private struct WorkingIndicator: View {
-    @State private var pulsing = false
-    @Environment(\.colorScheme) private var colorScheme
+/// How long the current stretch of work has been going, counting up.
+///
+/// Driven by `TimelineView` off the clock rather than by a timer writing
+/// state, so the redraw stays inside this label instead of invalidating the
+/// row — the reason `ChatWorkingIndicator` does the same. The schedule slows
+/// itself once the text stops changing by the second.
+private struct ElapsedLabel: View {
+    let since: Date
 
     var body: some View {
-        Circle()
-            .fill(ChatRole.activity(for: colorScheme))
-            .frame(width: 7, height: 7)
-            .opacity(pulsing ? 0.3 : 1)
-            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
-            .onAppear { pulsing = true }
+        TimelineView(ElapsedSchedule(since: since)) { context in
+            Text(ElapsedTime.formatted(context.date.timeIntervalSince(since)))
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(Emphasis.subtle.textHierarchy)
+        }
     }
 }
 

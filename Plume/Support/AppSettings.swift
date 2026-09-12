@@ -27,6 +27,7 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let ignoredPendingChecks = "ignoredPendingChecks"
+        static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -87,6 +88,9 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
+
+        // Unset reads as false, which is the wanted default.
+        self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -120,7 +124,7 @@ final class AppSettings {
     }
 
     /// Whether a user-initiated quit (⌘Q, Quit menu item) while a tab is
-    /// `.working` or `.needsInput` shows a confirmation alert.
+    /// `.working` or waiting on the user shows a confirmation alert.
     var confirmQuitWhileWorking: Bool {
         didSet {
             defaults.set(confirmQuitWhileWorking, forKey: Key.confirmQuitWhileWorking)
@@ -128,7 +132,7 @@ final class AppSettings {
     }
 
     /// Whether a system-initiated quit (logout, restart, shutdown) while a
-    /// tab is `.working` or `.needsInput` also shows the alert. Off by
+    /// tab is `.working` or waiting on the user also shows the alert. Off by
     /// default: a modal during an OS-initiated shutdown blocks that shutdown
     /// until someone dismisses it, and nobody may be there to do so.
     var confirmSystemInitiatedQuit: Bool {
@@ -211,6 +215,16 @@ final class AppSettings {
                 return
             }
             defaults.set(ignoredPendingChecks, forKey: Key.ignoredPendingChecks)
+        }
+    }
+
+    /// Whether a tab finishing its turn posts a notification. Off by default:
+    /// a turn ends every time the agent stops talking, so notifying on each
+    /// one is far chattier than the states that actually need an answer,
+    /// which notify regardless of this setting.
+    var notifiesOnTurnEnd: Bool {
+        didSet {
+            defaults.set(notifiesOnTurnEnd, forKey: Key.notifiesOnTurnEnd)
         }
     }
 

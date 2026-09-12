@@ -20,7 +20,7 @@ final class WorkTask {
     var permissionModeRaw: String?
 
     /// Snapshot so the sidebar can show badges before any agent process is live.
-    var lastStatusRaw: String = TaskStatus.unset.rawValue
+    var lastStatusRaw: String = TaskStatus.notStarted.rawValue
     var isArchived: Bool = false
 
     /// Reserved for PR/Linear integration payloads.
@@ -52,7 +52,7 @@ final class WorkTask {
     }
 
     var lastStatus: TaskStatus {
-        get { TaskStatus(rawValue: lastStatusRaw) ?? .unset }
+        get { TaskStatus(migratingRawValue: lastStatusRaw) }
         set { lastStatusRaw = newValue.rawValue }
     }
 

@@ -37,7 +37,7 @@ struct SubagentStatusTests {
     }
 
     @Test func anEmptyTranscriptHasNoStatus() {
-        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .unset)
+        #expect(SubagentStatusDeriver.derive(transcript: Transcript(), parentSignal: nil) == .notStarted)
     }
 
     /// A tool call with no result yet is the agent mid-step.
@@ -196,22 +196,22 @@ struct SubagentStatusTests {
     }
 
     /// A question outranks a closed turn: the model stops speaking to wait.
-    @Test func anUnansweredQuestionIsWaitingForInput() {
+    @Test func anUnansweredQuestionSaysItAskedOne() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "AskUserQuestion", stopReason: "end_turn")]),
             parentSignal: nil
         )
 
-        #expect(status == .needsInput)
+        #expect(status == .questionAsked)
     }
 
-    @Test func anUnansweredPlanProposalIsWaitingForInput() {
+    @Test func anUnansweredPlanProposalSaysItWantsApproval() {
         let status = SubagentStatusDeriver.derive(
             transcript: transcript([toolUse(id: "t1", name: "ExitPlanMode")]),
             parentSignal: nil
         )
 
-        #expect(status == .needsInput)
+        #expect(status == .planApproval)
     }
 
     /// Once the question is answered the agent is running again.

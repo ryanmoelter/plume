@@ -88,13 +88,40 @@ struct BellStoreTests {
 
 struct StatusNotifierBodyTests {
     @Test func onlyStatusesWorthInterruptingForHaveABody() {
-        #expect(StatusNotifier.body(for: .needsInput) != nil)
-        #expect(StatusNotifier.body(for: .done) != nil)
-        #expect(StatusNotifier.body(for: .error) != nil)
+        #expect(StatusNotifier.body(for: .planApproval, notifiesOnTurnEnd: false) != nil)
+        #expect(StatusNotifier.body(for: .questionAsked, notifiesOnTurnEnd: false) != nil)
+        #expect(StatusNotifier.body(for: .permissionNeeded, notifiesOnTurnEnd: false) != nil)
+        #expect(StatusNotifier.body(for: .needsTerminalInput, notifiesOnTurnEnd: false) != nil)
+        #expect(StatusNotifier.body(for: .error, notifiesOnTurnEnd: false) != nil)
 
-        #expect(StatusNotifier.body(for: .working) == nil)
-        #expect(StatusNotifier.body(for: .idle) == nil)
-        #expect(StatusNotifier.body(for: .unset) == nil)
+        #expect(StatusNotifier.body(for: .working, notifiesOnTurnEnd: false) == nil)
+        #expect(StatusNotifier.body(for: .notStarted, notifiesOnTurnEnd: false) == nil)
+        #expect(StatusNotifier.body(for: .interrupted, notifiesOnTurnEnd: false) == nil)
+    }
+
+    /// Every reason the agent can want the user names what it wants, so no
+    /// two of them read the same.
+    @Test func eachReasonReadsDifferently() {
+        let bodies = [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput]
+            .compactMap { StatusNotifier.body(for: $0, notifiesOnTurnEnd: false) }
+        #expect(Set(bodies).count == 4)
+    }
+
+    @Test func aFinishedTurnNotifiesOnlyWhenAskedTo() {
+        #expect(StatusNotifier.body(for: .awaitingReply, notifiesOnTurnEnd: false) == nil)
+        #expect(StatusNotifier.body(for: .awaitingReply, notifiesOnTurnEnd: true) != nil)
+    }
+
+    /// The setting covers the finished turn alone — a state that wants an
+    /// answer notifies either way.
+    @Test func theTurnEndSettingLeavesTheOtherStatusesAlone() {
+        for status in TaskStatus.allCases where status != .awaitingReply {
+            #expect(
+                StatusNotifier.body(for: status, notifiesOnTurnEnd: false)
+                    == StatusNotifier.body(for: status, notifiesOnTurnEnd: true),
+                "\(status)"
+            )
+        }
     }
 }
 
@@ -111,7 +138,7 @@ struct StatusEngineTabCallbackTests {
         #expect(seen.count == 1)
         #expect(seen.first?.0 == task)
         #expect(seen.first?.1 == tab)
-        #expect(seen.first?.2 == .needsInput)
+        #expect(seen.first?.2 == .needsTerminalInput)
     }
 
     /// `setStatus` returns early on an unchanged status, so a repeated

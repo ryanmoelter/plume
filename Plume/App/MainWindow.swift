@@ -194,8 +194,8 @@ struct MainWindow: View {
     }
 
     /// Replays events written while Plume was closed, then settles every tab
-    /// to idle — nothing is running yet this launch, whatever the last event
-    /// said.
+    /// to `notStarted` — nothing is running yet this launch, whatever the
+    /// last event said, and claiming a turn ended would overstate that.
     private func restoreStatusMonitoring() {
         AgentEventMonitor.shared.onSessionIDDiscovered = { tabID, sessionID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
@@ -246,7 +246,7 @@ struct MainWindow: View {
                     // events are a TUI-only concern.
                     break
                 }
-                StatusEngine.shared.setStatus(.idle, taskID: task.id, tabID: tab.id)
+                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
                 if let path = tab.sessionJSONLPath, !path.isEmpty {
                     AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
                     TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
