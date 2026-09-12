@@ -26,10 +26,8 @@ enum MarkdownSource {
             String(repeating: "#", count: level) + " " + text
         case let .paragraph(text):
             text
-        case let .bulletList(items):
-            markdown(of: ListSegment(kind: .bullet, items: items))
-        case let .numberedList(items, start):
-            markdown(of: ListSegment(kind: .numbered, items: items, startNumber: start))
+        case let .list(items):
+            markdown(of: ListSegment(items: items))
         case let .codeBlock(language, code):
             markdown(of: CodeSegment(language: language, code: code))
         case let .quote(text, _):
@@ -49,11 +47,10 @@ enum MarkdownSource {
     }
 
     static func markdown(of segment: ListSegment) -> String {
-        segment.items.enumerated().map { index, item in
-            switch segment.kind {
-            case .bullet: "- " + item
-            case .numbered: "\(segment.startNumber + index). " + item
-            }
+        segment.items.map { item in
+            let indent = String(repeating: "  ", count: item.depth)
+            let marker = item.number.map { "\($0). " } ?? "- "
+            return indent + marker + item.text
         }
         .joined(separator: "\n")
     }

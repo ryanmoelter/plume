@@ -40,13 +40,21 @@ struct MarkdownSourceTests {
     }
 
     @Test func aNumberedListKeepsItsStart() {
-        let segment = ListSegment(kind: .numbered, items: ["third"], startNumber: 3)
+        let segment = ListSegment(items: [.init(text: "third", number: 3)])
         #expect(MarkdownSource.markdown(of: segment) == "3. third")
     }
 
     @Test func aBulletListTakesDashes() {
-        let segment = ListSegment(kind: .bullet, items: ["one", "two"])
+        let segment = ListSegment(items: [.init(text: "one"), .init(text: "two")])
         #expect(MarkdownSource.markdown(of: segment) == "- one\n- two")
+    }
+
+    @Test func aNestedItemIndentsByItsDepth() {
+        let segment = ListSegment(items: [
+            .init(text: "outer", number: 1),
+            .init(text: "inner", depth: 1),
+        ])
+        #expect(MarkdownSource.markdown(of: segment) == "1. outer\n  - inner")
     }
 
     @Test func aCodeBlockTakesItsLanguage() {
