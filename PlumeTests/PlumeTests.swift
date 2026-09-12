@@ -209,9 +209,16 @@ struct TaskStatusTests {
 @MainActor
 struct RelaunchStatusTests {
     @Test func aStatusClaimingActivityDoesNotSurviveAQuit() {
-        for status in [TaskStatus.working, .awaitingReply, .planApproval, .questionAsked,
-                       .permissionNeeded, .needsTerminalInput] {
+        for status in [TaskStatus.working, .awaitingReply] {
             #expect(status.afterRelaunch == .notStarted, "\(status)")
+        }
+    }
+
+    /// Quitting is what stopped a tab that was waiting on an answer, and the
+    /// unanswered question is still sitting in the transcript.
+    @Test func aQuestionTheUserNeverAnsweredReadsAsInterrupted() {
+        for status in [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput] {
+            #expect(status.afterRelaunch == .interrupted, "\(status)")
         }
     }
 

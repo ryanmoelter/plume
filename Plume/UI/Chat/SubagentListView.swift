@@ -11,8 +11,10 @@ import SwiftUI
 /// A finished subagent stays among the live rows for
 /// `SubagentCompletionTracker.lingerDuration` so its result is seen landing,
 /// then folds into a collapsed section that keeps the live list short on a
-/// long session. That timing lives in the shared tracker rather than here,
-/// because selecting another task unmounts this view.
+/// long session. Both the timing and the observation that starts it live
+/// outside this view — in the shared tracker, driven by `TranscriptStore` —
+/// because selecting another task unmounts this view while the agents it was
+/// showing keep working.
 struct SubagentListView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -53,11 +55,6 @@ struct SubagentListView: View, ThemedView {
                 }
             }
             .padding(.vertical, 6)
-            // Writing tracker state from `body` would make the render
-            // invalidate itself, so every observation happens here.
-            .onChange(of: statusSignature, initial: true) {
-                tracker.observe(subagents, tabID: tabID)
-            }
         }
     }
 
@@ -91,11 +88,6 @@ struct SubagentListView: View, ThemedView {
         }
     }
 
-    /// Only a status change can move a row between the sections, so the
-    /// tracker ignores the far more frequent transcript growth.
-    private var statusSignature: [String] {
-        subagents.map { "\($0.id):\($0.status.rawValue)" }
-    }
 }
 
 private struct SubagentRow: View, ThemedView {

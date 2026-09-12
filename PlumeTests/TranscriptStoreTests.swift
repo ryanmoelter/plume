@@ -308,3 +308,40 @@ struct TranscriptStoreTests {
         #expect(engine.status(forTab: tab) == .awaitingReply)
     }
 }
+
+/// The linger that hides a finished subagent is driven by the store, not by a
+/// mounted view — a subagent that finishes while the user is looking at
+/// another task still disappears on its own.
+@MainActor
+struct SubagentLingerIsDrivenByTheStoreTests {
+    private func waitUntil(timeout: Duration = .seconds(2), _ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    @Test func readingATranscriptObservesItsSubagents() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let path = dir.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: dir.appending(path: "session/subagents"),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: path)
+        try Data(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"text\",\"text\":\"Report.\"}]}}\n".utf8
+        ).write(to: dir.appending(path: "session/subagents/agent-abc123.jsonl"))
+
+        let tracker = SubagentCompletionTracker(linger: .zero)
+        let store = TranscriptStore(debounce: .milliseconds(10), completionTracker: tracker)
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+
+        let subagent = try #require(store.subagents(forTab: tab).first)
+        #expect(subagent.status == .done)
+        // No view was ever mounted, so only the store can have observed this.
+        #expect(tracker.hasSettled(subagent, tabID: tab))
+    }
+}

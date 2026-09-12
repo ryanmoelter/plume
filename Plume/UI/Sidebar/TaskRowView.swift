@@ -53,6 +53,10 @@ struct TaskRowView: View {
         TaskRowDetails.lines(groups: directories.map(group(for:)))
     }
 
+    private var agentTabIDs: [UUID] {
+        task.orderedTabs.filter { $0.kind == .agent }.map(\.id)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
@@ -108,6 +112,8 @@ struct TaskRowView: View {
                         }
                     }
                 }
+
+                TaskSubagentStatuses(tabIDs: agentTabIDs)
             }
             Spacer(minLength: 4)
             StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))

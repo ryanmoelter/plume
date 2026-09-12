@@ -47,10 +47,16 @@ final class TranscriptStore {
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
     private let debounce: Duration
     private let statusEngine: StatusEngine
+    private let completionTracker: SubagentCompletionTracker
 
-    init(debounce: Duration = .milliseconds(250), statusEngine: StatusEngine = .shared) {
+    init(
+        debounce: Duration = .milliseconds(250),
+        statusEngine: StatusEngine = .shared,
+        completionTracker: SubagentCompletionTracker = .shared
+    ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
+        self.completionTracker = completionTracker
     }
 
     /// Starts watching a tab's transcript and parses whatever it already
@@ -236,9 +242,17 @@ final class TranscriptStore {
         }
     }
 
-    /// This is the only place that sees every subagent's status per tab, so
-    /// it is what tells `StatusEngine` a finished turn is still not done.
+    /// This is the only place that sees every subagent's status per tab, so it
+    /// is what tells `StatusEngine` a finished turn is still not done, and what
+    /// starts a finished subagent's linger.
+    ///
+    /// The linger is driven from here rather than from the chat's list because
+    /// this store watches every tab whether or not a view is mounted. Driven
+    /// from a view, a subagent that finished while the user was looking
+    /// elsewhere would never start its clock, and would sit in the sidebar
+    /// forever.
     private func publishSubagentActivity(tabID: UUID, subagents: [SubagentTranscript]) {
+        completionTracker.observe(subagents, tabID: tabID)
         statusEngine.setSubagentActivity(
             tabID: tabID,
             working: subagents.contains { $0.status == .working }
