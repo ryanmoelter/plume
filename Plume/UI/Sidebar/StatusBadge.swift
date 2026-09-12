@@ -8,16 +8,21 @@ struct StatusBadge: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        if status == .working, let workStartedAt {
-            HStack(spacing: 4) {
-                ElapsedLabel(since: workStartedAt)
+        Group {
+            if status == .working, let workStartedAt {
+                HStack(spacing: 4) {
+                    ElapsedLabel(since: workStartedAt)
+                    symbol
+                }
+            } else {
                 symbol
             }
-        } else {
-            symbol
         }
+        .animation(.default, value: status)
     }
 
+    // Each case is its own branch, so a status change replaces the view
+    // rather than mutating it — `.transition` is what animates that swap.
     @ViewBuilder
     private var symbol: some View {
         switch status {
@@ -26,21 +31,37 @@ struct StatusBadge: View {
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .awaitingReply:
-            Image(systemName: StatusSymbol.awaitingReply.filled).foregroundStyle(Emphasis.secondary.textHierarchy)
+            Image(systemName: StatusSymbol.awaitingReply.filled)
+                .foregroundStyle(Emphasis.secondary.textHierarchy)
+                .transition(.symbolEffect)
         case .done:
-            Image(systemName: StatusSymbol.done.filled).foregroundStyle(ChatRole.success(for: colorScheme))
+            Image(systemName: StatusSymbol.done.filled)
+                .foregroundStyle(ChatRole.success(for: colorScheme))
+                .transition(.symbolEffect)
         case .planApproval:
-            Image(systemName: StatusSymbol.plan.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.plan.filled)
+                .foregroundStyle(ChatRole.attention(for: colorScheme))
+                .transition(.symbolEffect)
         case .questionAsked:
-            Image(systemName: StatusSymbol.question.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.question.filled)
+                .foregroundStyle(ChatRole.attention(for: colorScheme))
+                .transition(.symbolEffect)
         case .permissionNeeded:
-            Image(systemName: StatusSymbol.permission.filled).foregroundStyle(ChatRole.warning(for: colorScheme))
+            Image(systemName: StatusSymbol.permission.filled)
+                .foregroundStyle(ChatRole.warning(for: colorScheme))
+                .transition(.symbolEffect)
         case .needsTerminalInput:
-            Image(systemName: StatusSymbol.terminalInput.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.terminalInput.filled)
+                .foregroundStyle(ChatRole.attention(for: colorScheme))
+                .transition(.symbolEffect)
         case .interrupted:
-            Image(systemName: StatusSymbol.interruption.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
+            Image(systemName: StatusSymbol.interruption.filled)
+                .foregroundStyle(Emphasis.subtle.textHierarchy)
+                .transition(.symbolEffect)
         case .error:
-            Image(systemName: StatusSymbol.error.filled).foregroundStyle(ChatRole.danger(for: colorScheme))
+            Image(systemName: StatusSymbol.error.filled)
+                .foregroundStyle(ChatRole.danger(for: colorScheme))
+                .transition(.symbolEffect)
         }
     }
 }

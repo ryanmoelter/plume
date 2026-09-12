@@ -33,11 +33,12 @@ enum ChatPieceSplitter {
                 messageID: message.id,
                 lastMessageID: lastMessageID
             )
+            let messageHiddenToolUseIDs = isLast ? hiddenToolUseIDs : []
             let context = MessageContext(
                 message: message,
                 needsInput: isLast && status.wantsAttention,
                 isWorking: isLast && status == .working,
-                hiddenToolUseIDs: isLast ? hiddenToolUseIDs : [],
+                hiddenToolUseIDs: messageHiddenToolUseIDs,
                 streaming: isLast && attachesToLastMessage ? streaming : .init(),
                 previousMessageKind: previousMessageKind,
                 dimensions: dimensions
@@ -45,7 +46,14 @@ enum ChatPieceSplitter {
             let group = pieces(of: context, parse: parse)
             guard !group.isEmpty else { continue }
             result += grouped(group, role: message.role)
-            previousMessageKind = ChatBlockSpacing.rowKind(of: message)
+            // The last *rendered* block, not the whole message: a message
+            // ending in a call after prose still opens a run with whatever
+            // follows it, and a message whose only call the dock has taken
+            // over draws nothing here and must not count as either.
+            previousMessageKind = ChatBlockSpacing.lastRenderedKind(
+                message.blocks,
+                hiddenToolUseIDs: messageHiddenToolUseIDs
+            ) ?? previousMessageKind
         }
 
         if !attachesToLastMessage, !streaming.isEmpty {
@@ -93,11 +101,17 @@ enum ChatPieceSplitter {
             }
         }
 
-        /// The gap above the message's first piece.
+        /// The gap above the message's first piece, from what the previous
+        /// message actually ended on and what this one actually opens with —
+        /// not from whether either message is calls throughout.
         var leadingInset: CGFloat {
-            ChatBlockSpacing.rowTopInset(
+            let current = ChatBlockSpacing.firstRenderedKind(
+                message.blocks,
+                hiddenToolUseIDs: hiddenToolUseIDs
+            ) ?? .other
+            return ChatBlockSpacing.rowTopInset(
                 previous: previousMessageKind,
-                current: ChatBlockSpacing.rowKind(of: message),
+                current: current,
                 dimensions: dimensions
             )
         }
@@ -157,7 +171,7 @@ enum ChatPieceSplitter {
                 role: message.role,
                 content: .working,
                 wash: context.wash,
-                topInset: result.isEmpty ? context.leadingInset : context.dimensions.messageBlockSpacing
+                topInset: result.isEmpty ? context.leadingInset : context.dimensions.workingIndicatorSpacing
             ))
         }
 

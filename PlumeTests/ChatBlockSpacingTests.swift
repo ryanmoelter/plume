@@ -20,18 +20,18 @@ struct ChatBlockSpacingTests {
         #expect(ChatBlockSpacing.kind(of: .thinking("hm")) == .other)
     }
 
-    @Test func aMessageOfNothingButToolCallsContinuesARun() {
-        #expect(ChatBlockSpacing.rowKind(of: message(
-            id: "a",
-            role: .assistant,
-            blocks: [toolCall(id: "1"), toolCall(id: "2")]
-        )) == .toolCall)
-        #expect(ChatBlockSpacing.rowKind(of: message(
-            id: "b",
-            role: .assistant,
-            blocks: [toolCall(), .markdown("done")]
-        )) == .other)
-        #expect(ChatBlockSpacing.rowKind(of: message(id: "c", role: .user, blocks: [])) == .other)
+    @Test func firstAndLastRenderedKindReadTheEndsOfAMessage() {
+        let allCalls = message(id: "a", role: .assistant, blocks: [toolCall(id: "1"), toolCall(id: "2")])
+        #expect(ChatBlockSpacing.firstRenderedKind(allCalls.blocks) == .toolCall)
+        #expect(ChatBlockSpacing.lastRenderedKind(allCalls.blocks) == .toolCall)
+
+        let callThenProse = message(id: "b", role: .assistant, blocks: [toolCall(), .markdown("done")])
+        #expect(ChatBlockSpacing.firstRenderedKind(callThenProse.blocks) == .toolCall)
+        #expect(ChatBlockSpacing.lastRenderedKind(callThenProse.blocks) == .other)
+
+        let empty = message(id: "c", role: .user, blocks: [])
+        #expect(ChatBlockSpacing.firstRenderedKind(empty.blocks) == nil)
+        #expect(ChatBlockSpacing.lastRenderedKind(empty.blocks) == nil)
     }
 
     @Test func consecutiveToolCallsSitTighterThanAnythingElse() {
@@ -100,6 +100,35 @@ struct ChatBlockSpacingTests {
             dimensions.toolCallSpacing,
             dimensions.messageSpacing
         ])
+    }
+
+    /// A message ending in a call after prose is not "calls and nothing else",
+    /// but the call opening the next message should still sit tight against
+    /// it — the cliff PLUME-18 fixes.
+    @Test func aCallAfterProseStillCollapsesWithACallInTheNextMessage() {
+        let insets = ChatBlockSpacing.rowTopInsets(
+            [
+                message(id: "a", role: .assistant, blocks: [.markdown("Looking"), toolCall(id: "1")]),
+                message(id: "b", role: .assistant, blocks: [toolCall(id: "2")])
+            ],
+            dimensions: dimensions
+        )
+        #expect(insets == [dimensions.verticalPadding, dimensions.toolCallSpacing])
+    }
+
+    /// A call the pending dock has taken over draws nothing, so a message
+    /// whose only block is that call must not count as a tool-call row for
+    /// whatever follows it.
+    @Test func aMessageWhoseOnlyCallTheDockDrawsDoesNotCollapseWithWhatFollows() {
+        let insets = ChatBlockSpacing.rowTopInsets(
+            [
+                message(id: "a", role: .assistant, blocks: [toolCall(id: "1")]),
+                message(id: "b", role: .assistant, blocks: [.markdown("done")])
+            ],
+            hiddenToolUseIDs: ["1"],
+            dimensions: dimensions
+        )
+        #expect(insets == [0, dimensions.verticalPadding])
     }
 
     /// The pending dock draws a stalled call instead of the row, so the block

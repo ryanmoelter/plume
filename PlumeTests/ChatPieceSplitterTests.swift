@@ -359,12 +359,13 @@ struct ChatPieceSplitterTests {
         #expect(result[2].topInset == dimensions.blockSpacing)
     }
 
-    @Test func theWorkingIndicatorSitsABlockBelowWhateverPrecedesIt() {
+    @Test func theWorkingIndicatorSitsWellBelowWhateverPrecedesIt() {
         let following = pieces(
             [message("m", .assistant, [.markdown("hi")])],
             status: .working
         )
-        #expect(following.last?.topInset == dimensions.messageBlockSpacing)
+        #expect(following.last?.topInset == dimensions.workingIndicatorSpacing)
+        #expect(dimensions.workingIndicatorSpacing >= dimensions.messageSpacing)
 
         let alone = pieces([message("m", .assistant, [])], status: .working)
         #expect(alone.map(\.id) == ["m/working"])
