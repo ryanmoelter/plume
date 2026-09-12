@@ -109,6 +109,20 @@ struct ChatPiece: Identifiable, Equatable {
 
     /// Whether the list applies this piece's top inset outside its wash.
     var paysInsetOutside: Bool { !isJoined || segment == .first }
+
+    /// The markdown this piece offers to copy on its own.
+    ///
+    /// A table only. Every other block is either prose the reader can select,
+    /// or a code block that carries `CodeBlockCopyButton` already — a button
+    /// on each of them would put one on every paragraph of every reply.
+    var tableCopySource: String? {
+        guard case .markdown(.table, _) = content else { return nil }
+        return copySource
+    }
+
+    /// Whether this piece offers the whole message's markdown. Never while
+    /// the turn is still writing it, when the source is still growing.
+    var offersMessageCopy: Bool { messageCopySource != nil && !isLive }
 }
 
 /// One fenced code block, always whole: a long one is bounded and scrolls

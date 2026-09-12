@@ -17,6 +17,8 @@ struct ChatPieceView: View, ThemedView {
     /// Set for a block the stream has just opened, so it types itself out.
     var typesFromZero: Bool = false
 
+    @State private var isHovered = false
+
     // One modifier chain for every wash, so a message gaining the
     // needs-input treatment changes values rather than structure. A `switch`
     // here would give the branches different identities, and every expanded
@@ -40,6 +42,8 @@ struct ChatPieceView: View, ThemedView {
                 enabled: animatesHeight
             )
             .background(washFill, in: washShape)
+            .overlay(alignment: .topTrailing) { copyButtons }
+            .onHover { isHovered = $0 }
             .overlay {
                 if piece.wash == .attention {
                     SegmentBorder(segment: piece.segment, radius: washRadius)
@@ -54,6 +58,26 @@ struct ChatPieceView: View, ThemedView {
             // is the same width and the joined shape reads as one bubble.
             .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
+    }
+
+    /// The whole reply on the first piece, the table on a table's own piece.
+    /// A first piece that is a table offers both.
+    @ViewBuilder
+    private var copyButtons: some View {
+        HStack(spacing: 2) {
+            if let table = piece.tableCopySource {
+                ChatCopyButton(markdown: table, isRevealed: isHovered, label: "Copy table as markdown")
+            }
+            if let message = piece.messageCopySource, piece.offersMessageCopy {
+                ChatCopyButton(
+                    markdown: message,
+                    isRevealed: isHovered,
+                    symbol: "text.document",
+                    label: "Copy message as markdown"
+                )
+            }
+        }
+        .padding(4)
     }
 
     @ViewBuilder
