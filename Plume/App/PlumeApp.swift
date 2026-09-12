@@ -10,6 +10,12 @@ struct PlumeApp: App {
 
     init() {
         BundledFonts.registerIfNeeded()
+
+        // Xcode Previews launch this app as their host, and libghostty
+        // startup stalls under the preview agent until the launch times out.
+        // No preview needs a live terminal runtime, so skip it there.
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
+
         GhosttyRuntime.shared.start()
         PullRequestStore.shared.resolveIgnoredPendingChecks = { repository in
             let setting = await MainActor.run { AppSettings.shared.ignoredPendingChecks }
