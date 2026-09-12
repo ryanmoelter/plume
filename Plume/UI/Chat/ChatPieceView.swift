@@ -68,7 +68,7 @@ struct ChatPieceView: View, ThemedView {
             if let table = piece.tableCopySource {
                 ChatCopyButton(markdown: table, isRevealed: isHovered, label: "Copy table as markdown")
             }
-            if let message = piece.messageCopySource, piece.offersMessageCopy {
+            if piece.offersMessageCopy, let message = piece.messageCopySource {
                 ChatCopyButton(
                     markdown: message,
                     isRevealed: isHovered,
@@ -78,6 +78,9 @@ struct ChatPieceView: View, ThemedView {
             }
         }
         .padding(4)
+        // A hidden button still takes clicks, which would swallow a tap on
+        // the text under it.
+        .allowsHitTesting(isHovered)
     }
 
     @ViewBuilder
