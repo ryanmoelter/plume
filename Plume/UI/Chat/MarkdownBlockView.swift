@@ -60,7 +60,11 @@ struct MarkdownBlockView: View, ThemedView {
                 isMermaid: MermaidDocument.isMermaidFence(language: language)
             ))
 
-        case let .quote(text):
+        case let .quote(text, continues):
+            // A split quote's bar runs through the gap above each piece after
+            // the first, so several pieces read as one quote. The gap is the
+            // piece's top inset, paid inside the bar rather than above it —
+            // the same trick a joined bubble's wash uses.
             HStack(spacing: 8) {
                 Rectangle()
                     .fill(quoteBarColor)
@@ -70,6 +74,8 @@ struct MarkdownBlockView: View, ThemedView {
                     .emphasis(.secondary)
                     .lineSpacing(prose.body.lineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, continues ? quoteSegmentGap : 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .listItemPadding(vertical: false)
 
@@ -246,6 +252,10 @@ struct MarkdownBlockView: View, ThemedView {
     private func headingIsUppercased(level: Int) -> Bool {
         level >= 5
     }
+
+    /// The gap between two pieces of one split quote, drawn inside the bar.
+    /// Matches the gap a paragraph already has from the one above it.
+    private var quoteSegmentGap: CGFloat { dimensions.blockSpacing }
 
     private var quoteBarColor: Color {
         colors.surface(.disabled)

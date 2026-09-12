@@ -17,7 +17,10 @@ nonisolated enum MarkdownBlock: Equatable {
     /// beginning at 3 keeps counting from 3.
     case numberedList([String], start: Int)
     case codeBlock(language: String?, code: String)
-    case quote(String)
+    /// `continues` is set on every piece of a quote the splitter broke up, so
+    /// the bar is drawn through the gap above it and the split reads as one
+    /// quote. False for a quote that was never split, and for its first piece.
+    case quote(String, continues: Bool = false)
     case table(header: [String], alignments: [ColumnAlignment], rows: [[String]])
     case rule
 

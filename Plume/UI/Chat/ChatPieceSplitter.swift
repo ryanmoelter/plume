@@ -229,7 +229,7 @@ enum ChatPieceSplitter {
             let blockLeading = index == 0
                 ? leading
                 : ChatBlockSpacing.markdownBlockTopInset(block, at: index, dimensions: dimensions)
-            let segments = segments(of: block, at: index)
+            let segments = segments(of: block, at: index, dimensions: dimensions)
             for (segmentIndex, segment) in segments.enumerated() {
                 result.append(ChatPiece(
                     id: segments.count == 1
@@ -259,7 +259,11 @@ enum ChatPieceSplitter {
         let joinInset: CGFloat
     }
 
-    private static func segments(of block: MarkdownBlock, at index: Int) -> [Segmented] {
+    private static func segments(
+        of block: MarkdownBlock,
+        at index: Int,
+        dimensions: Dimensions
+    ) -> [Segmented] {
         switch block {
         // A code block is never split. It stays one piece and `CodeSegmentView`
         // bounds a long one at `ChatPieceMetrics.maxCodeHeight`, scrolling
@@ -283,7 +287,10 @@ enum ChatPieceSplitter {
                 if case .numberedList(_, let start) = block { return start }
                 return 1
             }()
-            guard ChatPieceMetrics.splitsList(items) else {
+            // One piece per item, however short. A list item is already a
+            // unit with a gap above it, so the seam is free, and one item per
+            // piece is the most even height spread the list can offer.
+            guard items.count > 1 else {
                 return [Segmented(
                     content: .listSegment(
                         ListSegment(kind: kind, items: items, startNumber: firstNumber)
@@ -291,26 +298,51 @@ enum ChatPieceSplitter {
                     joinInset: 0
                 )]
             }
-            let chunks = ChatPieceMetrics.listChunks(items)
-            var start = firstNumber
-            return chunks.enumerated().map { position, chunk in
-                defer { start += chunk.count }
-                return Segmented(
+            return items.enumerated().map { position, item in
+                Segmented(
                     content: .listSegment(ListSegment(
                         kind: kind,
-                        items: chunk,
-                        startNumber: start,
-                        position: place(position, of: chunks.count)
+                        items: [item],
+                        startNumber: firstNumber + position,
+                        position: place(position, of: items.count)
                     )),
                     joinInset: ChatBlockSpacing.listSegmentSpacing
                 )
             }
 
+        // Prose takes one piece per paragraph, however short: the seam is a
+        // gap the source already has, so it costs the reader nothing, and an
+        // even spread of heights is the whole point — the estimator's error
+        // comes from the variance within the realized set, not from how many
+        // items there are.
+        case .quote(let text, _):
+            let parts = ChatPieceMetrics.proseParagraphs(text)
+            guard parts.count > 1 else { break }
+            return parts.enumerated().map { position, part in
+                // The gap is drawn inside the bar, so a split quote reads as
+                // one. The list must not also pay it above the piece.
+                Segmented(
+                    content: .markdown(.quote(part, continues: position > 0), index: index),
+                    joinInset: 0
+                )
+            }
+
+        case .paragraph(let text):
+            let parts = ChatPieceMetrics.proseParagraphs(text)
+            guard parts.count > 1 else { break }
+            return parts.map { part in
+                Segmented(
+                    content: .markdown(.paragraph(part), index: index),
+                    joinInset: dimensions.blockSpacing
+                )
+            }
+
         default:
-            // A table's columns would size independently either side of a
-            // join; prose and headings are never long enough to be worth it.
-            return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
+            break
         }
+        // A table's columns would size independently either side of a join,
+        // and a heading is never long enough to be worth one.
+        return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
     }
 
     /// The turn in flight: the thinking text, then the prose it has produced,

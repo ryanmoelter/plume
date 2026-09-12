@@ -45,20 +45,22 @@ struct ChatPieceSplitterTests {
         #expect(result.allSatisfy { $0.messageID == "m" })
     }
 
+    /// A list takes one piece per item, so the two items below are the last
+    /// two pieces rather than one segment holding both.
     @Test func aMarkdownBlockSplitsIntoOnePiecePerSubBlock() {
         let result = pieces([message("m", .assistant, [
             .markdown("# Title\n\nBody text.\n\n- one\n- two")
         ])])
-        #expect(result.map(\.id) == ["m/0/0", "m/0/1", "m/0/2"])
+        #expect(result.map(\.id) == ["m/0/0", "m/0/1", "m/0/2/0", "m/0/2/1"])
         guard case .markdown(.heading(1, "Title"), 0) = result[0].content else {
             Issue.record("expected a heading piece, got \(result[0].content)")
             return
         }
-        guard case .listSegment(let list) = result[2].content else {
-            Issue.record("expected a list piece, got \(result[2].content)")
-            return
+        let items = result.compactMap { piece -> [String]? in
+            guard case .listSegment(let list) = piece.content else { return nil }
+            return list.items
         }
-        #expect(list.items == ["one", "two"])
+        #expect(items == [["one"], ["two"]])
     }
 
     /// The dock draws a stalled call instead, so it renders nothing here and
@@ -96,6 +98,52 @@ struct ChatPieceSplitterTests {
         #expect(first[0].id == second[0].id)
         #expect(first[0].topInset == second[0].topInset)
         #expect(first[0].content == second[0].content)
+    }
+
+    /// Ids must be unique across every kind of piece, because a duplicate id
+    /// in the `ForEach` thrashes the lazy stack's layout into the same freeze
+    /// `docs/chat-list-hang.md` records — a hang, with nothing visibly wrong.
+    ///
+    /// What keeps them unique is the depth of the `/`-separated path, not the
+    /// kind: one component past the message id for a whole block, two for a
+    /// markdown block inside it, three for a segment of a split one. Every
+    /// component is an `Int`, so a shorter path can never equal a longer one.
+    @Test func everyPieceIDIsUniqueAcrossKinds() {
+        let longList = (1...40).map { "- item \($0)" }.joined(separator: "\n")
+        let result = pieces(
+            [
+                message("a", .assistant, [
+                    .markdown("One.\n\nTwo.\n\nThree."),
+                    .thinking("Considering."),
+                    toolCall("t1"),
+                    .image(ChatImage(mediaType: "image/png", base64: "abc")),
+                    .markdown("Intro.\n\n" + longList)
+                ]),
+                message("b", .user, [
+                    .injected(.slashCommand(name: "clear"), text: "/clear"),
+                    .markdown("go")
+                ]),
+                message("c", .notice, [
+                    .notice(ChatNotice(kind: .compaction, title: "Compacted", detail: nil))
+                ]),
+                message("d", .assistant, [.markdown("Nearly done.")])
+            ],
+            status: .working,
+            streaming: ChatStreamHandoff.Overlay(
+                thinking: "Thinking out loud.",
+                text: "Settled block.\n\nStill arriving"
+            )
+        )
+        let ids = result.map(\ChatPiece.id)
+        #expect(Set(ids).count == ids.count)
+        // The kinds this transcript is meant to cover, so a piece kind added
+        // later without an id of its own fails here rather than silently
+        // going untested.
+        let kinds = Set(result.map(\ChatPiece.kindName))
+        #expect(kinds.isSuperset(of: [
+            "thinking", "toolCall", "injected", "notice", "image", "working", "list"
+        ]))
+        #expect(kinds.contains { $0.hasPrefix("markdown.") })
     }
 
     // MARK: - Segments
@@ -223,6 +271,40 @@ struct ChatPieceSplitterTests {
             Issue.record("expected a table piece, got \(result[0].content)")
             return
         }
+    }
+
+    /// A quote takes one piece per paragraph however short it is, and every
+    /// piece after the first continues the bar so the split reads as one
+    /// quote rather than several.
+    @Test func aQuoteSplitsByParagraphAndKeepsItsBar() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("> First thought.\n>\n> Second thought.\n>\n> Third thought.")
+        ])])
+        let quotes = result.compactMap { piece -> (String, Bool)? in
+            guard case .markdown(.quote(let text, let continues), _) = piece.content else { return nil }
+            return (text, continues)
+        }
+        #expect(quotes.map(\.0) == ["First thought.", "Second thought.", "Third thought."])
+        #expect(quotes.map(\.1) == [false, true, true])
+        // The gap rides inside the bar, so the list must not pay it again.
+        #expect(result.dropFirst().allSatisfy { $0.topInset == 0 })
+    }
+
+    @Test func aOneParagraphQuoteStaysOnePiece() {
+        let result = pieces([message("m", .assistant, [.markdown("> A brief aside.")])])
+        #expect(result.count == 1)
+        guard case .markdown(.quote(_, let continues), _) = result[0].content else {
+            Issue.record("expected a quote piece, got \(result[0].kindName)")
+            return
+        }
+        #expect(!continues)
+    }
+
+    /// Splitting must not drop or duplicate any of the source's paragraphs.
+    @Test func aSplitProseRunKeepsEveryParagraph() {
+        let source = (1...5).map { "Para \($0)." }.joined(separator: "\n\n")
+        let parts = ChatPieceMetrics.proseParagraphs(source)
+        #expect(parts == ["Para 1.", "Para 2.", "Para 3.", "Para 4.", "Para 5."])
     }
 
     // MARK: - Spacing

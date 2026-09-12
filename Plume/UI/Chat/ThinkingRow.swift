@@ -15,11 +15,18 @@ struct ThinkingRow: View, ThemedView {
     var body: some View {
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DisclosureGroup(isExpanded: $expanded) {
-                Text(text)
-                    .font(typography.body.font)
-                    .emphasis(.subtle)
-                    .textSelection(.enabled)
-                    .padding(.top, 4)
+                // Bounded and scrolling inside itself, so expanding a long
+                // reasoning block cannot hand the lazy stack an item many
+                // times its neighbours' height.
+                ScrollView {
+                    Text(text)
+                        .font(typography.body.font)
+                        .emphasis(.subtle)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: ChatPieceMetrics.maxDisclosedHeight)
+                .padding(.top, 4)
             } label: {
                 Text("Thinking")
                     .font(typography.body.font)

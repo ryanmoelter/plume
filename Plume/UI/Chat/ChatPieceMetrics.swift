@@ -17,20 +17,16 @@ enum ChatPieceMetrics {
     /// one artifact, and slicing it costs the reader a continuous scroll.
     static let maxCodeHeight: CGFloat = maxPieceHeight
 
-    /// The most items a list segment carries.
-    static let listSegmentItems = 12
+    /// The tallest the disclosed body of a row draws — a tool call's input
+    /// and result, a thinking block, an injected line. Past it the body
+    /// scrolls inside itself, so expanding one can never hand the lazy stack
+    /// an item taller than the ceiling. Below `maxPieceHeight` because these
+    /// bodies are asides: a 28,000 character tool result beside a 27 pt
+    /// collapsed row is the height contrast the ceiling exists to prevent.
+    static let maxDisclosedHeight: CGFloat = 240
 
-    private static let proseLineHeight: CGFloat = 24
-    /// Roughly what fits on a line of reading measure at the default body
-    /// size. Deliberately low, as `proseLineHeight` is deliberately high:
-    /// underestimating leaves a piece over the ceiling, which is the thing
-    /// the ceiling exists to prevent, while overestimating only splits a
-    /// list that would have fit — and a list's segments join at the gap its
-    /// items already have between them.
-    private static let charactersPerLine = 60
     private static let codeLineHeight: CGFloat = 17
     private static let codePadding: CGFloat = 28
-    private static let listItemSpacing: CGFloat = 4
 
     /// Whether a code block is taller than its ceiling, and so scrolls
     /// inside itself.
@@ -39,40 +35,23 @@ enum ChatPieceMetrics {
         return CGFloat(count) * codeLineHeight + codePadding > maxCodeHeight
     }
 
-    /// Splitting a list costs only the gap its items already have between
-    /// them, so unlike a code block it splits as soon as it is over the
-    /// ceiling rather than waiting for a length that makes it worth it.
-    static func splitsList(_ items: [String]) -> Bool {
-        guard items.count > 1 else { return false }
-        return items.reduce(0) { $0 + height(ofItem: $1) } > maxPieceHeight
+    /// A run of prose broken into one piece per paragraph.
+    ///
+    /// Unconditional, unlike a list's ceiling check: a paragraph break is a
+    /// gap the source already has, so the seam costs the reader nothing and
+    /// there is no reason to wait for a height to justify it. Paragraphs are
+    /// never merged, which keeps the heights the estimator sees even — its
+    /// error comes from the spread within the realized set rather than from
+    /// the number of items, and `docs/chat-list-hang.md`'s Trial E3 found a
+    /// wall of small uniform rows harmless.
+    ///
+    /// A single paragraph has no seam to use and stays whole, however tall.
+    static func proseParagraphs(_ text: String) -> [String] {
+        let paragraphs = text
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return paragraphs.isEmpty ? [text] : paragraphs
     }
 
-    /// Segments of equal length, as few as the ceiling allows, so a list
-    /// just over it does not end on a segment of one item.
-    static func listChunks(_ items: [String]) -> [[String]] {
-        let total = items.reduce(0) { $0 + height(ofItem: $1) }
-        let segments = max(1, Int((total / maxPieceHeight).rounded(.up)))
-        let perSegment = max(1, (items.count + segments - 1) / segments)
-        return chunks(items, limit: min(perSegment, listSegmentItems))
-    }
-
-    private static func height(ofItem item: String) -> CGFloat {
-        CGFloat(wrappedLines(of: item)) * proseLineHeight + listItemSpacing
-    }
-
-    /// Splits into as few chunks as the limit allows, all of the same size, so
-    /// a block just over the threshold does not end on a one-line segment.
-    static func chunks<T>(_ items: [T], limit: Int) -> [[T]] {
-        guard !items.isEmpty, limit > 0 else { return [items] }
-        let count = (items.count + limit - 1) / limit
-        let size = (items.count + count - 1) / count
-        return stride(from: 0, to: items.count, by: size).map {
-            Array(items[$0..<min($0 + size, items.count)])
-        }
-    }
-
-    private static func wrappedLines(of text: String) -> Int {
-        let explicit = text.components(separatedBy: "\n").count
-        return explicit + text.count / charactersPerLine
-    }
 }

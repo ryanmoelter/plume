@@ -14,6 +14,7 @@ struct SidebarFooter: View, ThemedView {
 #if DEBUG
     @Environment(\.modelContext) private var context
     @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
+    @State private var outlines = ChatItemOutlines.shared
 #endif
 
     var body: some View {
@@ -24,6 +25,17 @@ struct SidebarFooter: View, ThemedView {
 
             VStack(spacing: 0) {
 #if DEBUG
+                Button {
+                    outlines.isEnabled.toggle()
+                } label: {
+                    SidebarFooterRow(
+                        icon: outlines.isEnabled ? "square.dashed.inset.filled" : "square.dashed",
+                        title: "Chat Item Boxes"
+                    )
+                }
+                .help("Outline every lazy item in the chat, labelled with its kind and height")
+                .buttonStyle(SidebarFooterButtonStyle())
+
                 Button {
                     SidebarFixtures.seed(in: context, existingGroups: groups)
                 } label: {

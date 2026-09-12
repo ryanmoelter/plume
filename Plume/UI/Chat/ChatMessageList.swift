@@ -25,11 +25,12 @@ struct ChatMessageList: View, ThemedView {
     var tabID: UUID?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
 
-    /// Distance from the bottom, held in a reference box rather than `@State`.
+    /// Scroll bookkeeping, held in a reference box rather than `@State`.
     ///
     /// `onScrollGeometryChange` fires on every scroll frame, so writing this
     /// to `@State` invalidated the list once per frame while scrolling.
-    /// Nothing renders from it — it only decides whether `isDetached` flips.
+    /// Nothing renders from it — it decides whether the jump-back button
+    /// shows, and the button reads its own mirror of that.
     @State private var followState = ScrollFollowState()
 
     /// Drives the jump-to-bottom button. Following the newest content is not
@@ -38,9 +39,13 @@ struct ChatMessageList: View, ThemedView {
     @State private var position = ScrollPosition(edge: .bottom)
 
     /// Whether the user has scrolled away far enough to want a jump back.
-    /// Unlike `followState`, this does render, so it is `@State` — the
-    /// `ChatScrollAnchor` threshold keeps it from flipping every frame.
-    @State private var isDetached = false
+    ///
+    /// An observable box rather than `@State`, and read only by the button
+    /// itself: read here, the flag re-ran this body — the one that builds the
+    /// `LazyVStack` — every time it flipped, which is the loop
+    /// `docs/chat-list-hang.md` records as hypothesis 4. `followState` holds
+    /// the latch behind it; this is only the mirror the button renders from.
+    @State private var jumpButton = JumpButtonVisibility()
 
     @State private var settings = AppSettings.shared
 
@@ -165,6 +170,9 @@ struct ChatMessageList: View, ThemedView {
                     .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                     .padding(.bottom, piece.bottomInset)
                     .chatItemStatsProbe(list: statsToken, id: piece.id, kind: piece.kindName)
+                    #if DEBUG
+                    .chatItemOutline(id: piece.id, kind: piece.kindName)
+                    #endif
                     .background {
                         if piece.id == jumpTargetID {
                             Color.clear.onGeometryChange(for: CGRect.self) { proxy in
@@ -222,14 +230,18 @@ struct ChatMessageList: View, ThemedView {
             visiblePieceIDs = Set(ids)
         }
         .defaultScrollAnchor(.bottom)
-        // Only while the list is actually following the newest content.
-        // Scrolling *down* realizes rows the lazy stack had only estimated,
-        // which changes the content height; preserving the bottom distance
-        // through that drags a jump's target down to the bottom edge, so a
-        // jump to a mid-conversation prompt landed at the bottom of the
-        // viewport instead of the top. A reader who has scrolled away is not
-        // following anything, so there is nothing to preserve for them.
-        .defaultScrollAnchor(isDetached ? nil : .bottom, for: .sizeChanges)
+        // Only while no downward jump is in flight. Scrolling *down* realizes
+        // rows the lazy stack had only estimated, which changes the content
+        // height; preserving the bottom distance through that drags the jump's
+        // target down to the bottom edge, so a jump to a mid-conversation
+        // prompt landed at the bottom of the viewport instead of the top.
+        //
+        // Keyed off the jump rather than off how far the reader has scrolled,
+        // because this modifier feeds the scroll view's own anchoring, and a
+        // value derived from the scroll position driving it is hypothesis 4 in
+        // `docs/chat-list-hang.md`. `jumpTargetID` is already read by the
+        // `ForEach` above, and only ever moves id → nil, so it cannot chatter.
+        .defaultScrollAnchor(jumpTargetID == nil ? .bottom : nil, for: .sizeChanges)
         .onScrollGeometryChange(for: ChatScrollGeometry.self) { geometry in
             ChatScrollGeometry(
                 distanceFromBottom: max(0, geometry.contentSize.height - geometry.visibleRect.maxY),
@@ -257,11 +269,13 @@ struct ChatMessageList: View, ThemedView {
             // single frame, and writing view state from inside one is what
             // SwiftUI reports as modifying state during a view update.
             let detached = ChatScrollAnchor.isDetached(
-                distanceFromBottom: followState.distanceFromBottom
+                distanceFromBottom: followState.distanceFromBottom,
+                wasDetached: followState.detached
             )
-            guard detached != isDetached else { return }
+            guard detached != followState.detached else { return }
+            followState.detached = detached
             Task { @MainActor in
-                if detached != isDetached { isDetached = detached }
+                jumpButton.isDetached = detached
             }
         }
         #if DEBUG
@@ -271,20 +285,16 @@ struct ChatMessageList: View, ThemedView {
             }
         }
         #endif
-        // Always mounted, shown by opacity. Inserting it on demand
-        // resizes the scroll view, which reports new geometry, which
-        // toggles it again.
         .overlay(alignment: .bottom) {
-            scrollToBottomButton {
+            ChatJumpToBottomButton(visibility: jumpButton, bottomInset: floatingPanelHeight) {
                 // The programmatic scroll reports as growth-free
                 // geometry, but only after the fact; resetting here
                 // hides the button at once.
                 followState.distanceFromBottom = 0
-                isDetached = false
+                followState.detached = false
+                jumpButton.isDetached = false
                 position.scrollTo(edge: .bottom)
             }
-            .opacity(isDetached ? 1 : 0)
-            .allowsHitTesting(isDetached)
         }
     }
 
@@ -392,8 +402,21 @@ struct ChatMessageList: View, ThemedView {
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
         #endif
     }
+}
 
-    private func scrollToBottomButton(action: @escaping () -> Void) -> some View {
+/// The jump-to-bottom button, and the only thing that renders from how far the
+/// reader has scrolled.
+///
+/// Its own view so that reading the flag subscribes this body and not
+/// `ChatMessageList`'s, which builds the `LazyVStack`. Always mounted and
+/// shown by opacity: inserting it on demand resized the scroll view, which
+/// reported new geometry, which toggled it again.
+private struct ChatJumpToBottomButton: View {
+    let visibility: JumpButtonVisibility
+    let bottomInset: CGFloat
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: "arrow.down")
                 .font(.system(size: 12, weight: .semibold))
@@ -402,9 +425,22 @@ struct ChatMessageList: View, ThemedView {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular, in: .circle)
-        .padding(.bottom, floatingPanelHeight + 12)
+        .padding(.bottom, bottomInset + 12)
         .help("Jump to the newest message")
+        .opacity(visibility.isDetached ? 1 : 0)
+        .allowsHitTesting(visibility.isDetached)
     }
+}
+
+/// Whether the jump-to-bottom button is showing.
+///
+/// Observable and passed by reference, so only the button's own body reads the
+/// flag. `ChatMessageList` writes it without ever reading it, which is what
+/// keeps the list's body off the scroll position.
+@MainActor
+@Observable
+private final class JumpButtonVisibility {
+    var isDetached = false
 }
 
 /// Mutable scroll state that must not invalidate a view when it changes.
@@ -415,6 +451,9 @@ struct ChatMessageList: View, ThemedView {
 private final class ScrollFollowState {
     var distanceFromBottom: CGFloat = 0
     var visibleMinY: CGFloat = 0
+    /// The latch behind `ChatScrollAnchor.isDetached`, so the hysteresis' own
+    /// input is not a view dependency either.
+    var detached = false
     /// The jump target's scroll offset, once its row has realized.
     var targetY: CGFloat?
     /// The last content offset a retarget asked for, so an unchanged

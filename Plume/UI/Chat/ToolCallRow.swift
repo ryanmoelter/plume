@@ -77,7 +77,7 @@ struct ToolCallRow: View, ThemedView {
                     MarkdownView(blocks: [.codeBlock(language: language, code: text)])
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 240)
+                .frame(maxHeight: ChatPieceMetrics.maxDisclosedHeight)
             case .json(let text):
                 ScrollView {
                     Text(text)
@@ -85,7 +85,7 @@ struct ToolCallRow: View, ThemedView {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 240)
+                .frame(maxHeight: ChatPieceMetrics.maxDisclosedHeight)
                 .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
                 .padding(6)
             }
@@ -116,7 +116,7 @@ struct ToolCallRow: View, ThemedView {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
             }
-            .frame(maxHeight: 240)
+            .frame(maxHeight: ChatPieceMetrics.maxDisclosedHeight)
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(colors.divider, lineWidth: 1)
