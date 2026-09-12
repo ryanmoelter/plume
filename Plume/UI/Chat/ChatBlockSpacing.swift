@@ -19,19 +19,24 @@ enum ChatBlockSpacing {
         return .other
     }
 
-    /// A message the reader sees as tool calls and nothing else, so a run
-    /// continues through it.
-    static func rowKind(of message: ChatMessage) -> Kind {
-        guard !message.blocks.isEmpty else { return .other }
-        return message.blocks.allSatisfy { kind(of: $0) == .toolCall } ? .toolCall : .other
-    }
-
     /// Gap above each message in the list, in order.
-    static func rowTopInsets(_ messages: [ChatMessage], dimensions: Dimensions) -> [CGFloat] {
+    ///
+    /// A run of calls continues across a message boundary wherever the last
+    /// rendered block above it and the first rendered block below it are both
+    /// calls — not only when a whole message is calls and nothing else, so a
+    /// message that ends in a call after prose still tightens against a call
+    /// that opens the next one.
+    static func rowTopInsets(
+        _ messages: [ChatMessage],
+        hiddenToolUseIDs: Set<String> = [],
+        dimensions: Dimensions
+    ) -> [CGFloat] {
         var previous: Kind?
         return messages.map { message in
-            let current = rowKind(of: message)
-            defer { previous = current }
+            guard let current = firstRenderedKind(message.blocks, hiddenToolUseIDs: hiddenToolUseIDs) else {
+                return 0
+            }
+            defer { previous = lastRenderedKind(message.blocks, hiddenToolUseIDs: hiddenToolUseIDs) }
             return rowTopInset(previous: previous, current: current, dimensions: dimensions)
         }
     }
@@ -72,6 +77,14 @@ enum ChatBlockSpacing {
         hiddenToolUseIDs: Set<String> = []
     ) -> Kind? {
         blocks.last { isRendered($0, hiddenToolUseIDs: hiddenToolUseIDs) }.map(kind(of:))
+    }
+
+    /// The first block a message actually draws, or nil when it draws none.
+    static func firstRenderedKind(
+        _ blocks: [ChatBlock],
+        hiddenToolUseIDs: Set<String> = []
+    ) -> Kind? {
+        blocks.first { isRendered($0, hiddenToolUseIDs: hiddenToolUseIDs) }.map(kind(of:))
     }
 
     /// Gap above the turn in flight, drawn below `previous`.
