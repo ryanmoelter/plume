@@ -10,6 +10,9 @@ struct SubagentTranscript: Identifiable, Equatable {
     /// What the subagent was asked to do, from its `.meta.json` sidecar or
     /// the parent's spawning tool call. Nil when neither names it.
     var descriptor: SubagentDescriptor?
+    /// What the parent recorded about this agent's outcome, kept so a status
+    /// can be re-derived without re-reading the parent.
+    var parentSignal: SubagentParentSignal?
     var status: TaskStatus = .notStarted
 
     /// What to call this subagent in the list. Falls back to the raw id only
@@ -48,6 +51,7 @@ final class TranscriptStore {
     private let debounce: Duration
     private let statusEngine: StatusEngine
     private let completionTracker: SubagentCompletionTracker
+    private let statusOverrides: SubagentStatusOverrides
     /// Whether a live process backs a tab, checked across both transports. A
     /// tab that ran this session and then lost its process (sleep, a quit
     /// mid-turn) is not dormant — it was never restored from disk — so
@@ -64,11 +68,13 @@ final class TranscriptStore {
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
         completionTracker: SubagentCompletionTracker = .shared,
+        statusOverrides: SubagentStatusOverrides = .shared,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
         self.completionTracker = completionTracker
+        self.statusOverrides = statusOverrides
         self.isTabLive = isTabLive
     }
 
@@ -193,14 +199,16 @@ final class TranscriptStore {
                 descriptor = table[id]
             }
 
+            let parentSignal = results.signal(forAgentID: id)
             return SubagentTranscript(
                 id: id,
                 transcript: transcript,
                 modifiedAt: SessionJSONLReader.lastModified(atPath: subagentPath),
                 descriptor: descriptor,
+                parentSignal: parentSignal,
                 status: SubagentStatusDeriver.derive(
                     transcript: transcript,
-                    parentSignal: results.signal(forAgentID: id),
+                    parentSignal: parentSignal,
                     stoppedByUser: descriptor?.stoppedByUser ?? false
                 )
             )
@@ -251,7 +259,7 @@ final class TranscriptStore {
                     return
                 }
                 self.transcripts[tabID] = parsed.0
-                self.subagentTranscripts[tabID] = self.settlingDormant(parsed.1, tabID: tabID)
+                self.subagentTranscripts[tabID] = self.settled(parsed.1, tabID: tabID)
                 self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
@@ -259,6 +267,36 @@ final class TranscriptStore {
                 }
             }
         }
+    }
+
+    /// The corrections a freshly derived list needs, both of which depend on
+    /// state the deriver cannot see from the file it parses.
+    private func settled(_ subagents: [SubagentTranscript], tabID: UUID) -> [SubagentTranscript] {
+        statusOverrides.applying(settlingDormant(subagents, tabID: tabID), tabID: tabID)
+    }
+
+    /// Records a status the user set by hand on a subagent row, and republishes
+    /// the tab's rows so the change lands without waiting for a file write.
+    func setOverride(
+        _ override: SubagentStatusOverrides.Override?,
+        tabID: UUID,
+        subagentID: String
+    ) {
+        statusOverrides.set(override, tabID: tabID, subagentID: subagentID)
+        guard let subagents = subagentTranscripts[tabID] else { return }
+        // Re-derives from the parsed transcripts rather than the corrected
+        // list, so clearing an override restores the real status.
+        let rederived = subagents.map { subagent -> SubagentTranscript in
+            var reset = subagent
+            reset.status = SubagentStatusDeriver.derive(
+                transcript: subagent.transcript,
+                parentSignal: subagent.parentSignal,
+                stoppedByUser: subagent.descriptor?.stoppedByUser ?? false
+            )
+            return reset
+        }
+        subagentTranscripts[tabID] = settled(rederived, tabID: tabID)
+        publishSubagentActivity(tabID: tabID, subagents: subagentTranscripts[tabID] ?? [])
     }
 
     /// A tab with no process behind it — restored from disk and never
