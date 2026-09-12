@@ -28,6 +28,7 @@ final class KeepAwakeCoordinator {
     @ObservationIgnored private let assertion: any SleepAssertion
     @ObservationIgnored private let powerSource: () -> PowerSource
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var powerSourceObserver: CFRunLoopSource?
 
     enum PowerSource {
         case ac
@@ -55,6 +56,24 @@ final class KeepAwakeCoordinator {
         hasStarted = true
         refresh()
         observe()
+        watchPowerSource()
+    }
+
+    /// Power source is not observable state, so unplugging the Mac has to be
+    /// heard from IOKit or a running turn would keep its assertion until some
+    /// unrelated input happened to change.
+    private func watchPowerSource() {
+        let callback: IOPowerSourceCallbackType = { context in
+            guard let context else { return }
+            let coordinator = Unmanaged<KeepAwakeCoordinator>.fromOpaque(context).takeUnretainedValue()
+            Task { @MainActor in coordinator.refresh() }
+        }
+        guard let source = IOPSNotificationCreateRunLoopSource(
+            callback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )?.takeRetainedValue() else { return }
+        powerSourceObserver = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
     }
 
     func releaseForTermination() {
@@ -72,14 +91,13 @@ final class KeepAwakeCoordinator {
         if derived != reasons {
             reasons = derived
         }
-        assertion.apply(
-            Self.decide(
-                reasons: derived,
-                mode: settings.keepAwakeMode,
-                powerSource: powerSource(),
-                allowsBattery: settings.keepsAwakeOnBattery
-            )
+        let request = Self.decide(
+            reasons: derived,
+            mode: settings.keepAwakeMode,
+            powerSource: powerSource(),
+            allowsBattery: settings.keepsAwakeOnBattery
         )
+        assertion.apply(request)
     }
 
     /// Re-arms itself on every change, because `withObservationTracking` fires
@@ -154,9 +172,10 @@ final class KeepAwakeCoordinator {
     }
 
     /// What the user reads in `pmset -g assertions` and the battery menu.
+    /// ASCII only: that listing mangles anything else.
     static func summary(reasons: [KeepAwakeReason], mode: KeepAwakeMode) -> String {
         guard mode != .always || !reasons.isEmpty else {
-            return "Plume — Keep Awake is set to Always"
+            return "Plume: Keep Awake is set to Always"
         }
         let working = reasons.count { if case .working = $0.kind { true } else { false } }
         let remote = reasons.count { $0.kind == .remoteControl }
@@ -167,7 +186,7 @@ final class KeepAwakeCoordinator {
         if remote > 0 {
             parts.append("\(remote) remotely controlled")
         }
-        return "Plume — " + parts.joined(separator: ", ")
+        return "Plume: " + parts.joined(separator: ", ")
     }
 
     nonisolated static func systemPowerSource() -> PowerSource {
