@@ -13,6 +13,9 @@ nonisolated enum SubagentParentSignal: Equatable {
     /// The agent was launched asynchronously and this says only that it
     /// started.
     case launched
+    /// The agent stopped without reporting — killed, or stopped by the user.
+    /// The parent states that it is no longer running, but not what it did.
+    case stopped
     /// The spawn itself failed.
     case failed
 }
@@ -28,7 +31,10 @@ nonisolated enum SubagentParentSignal: Equatable {
 ///   `status: "completed"`, or a `task_status` attachment saying the same.
 ///
 /// A transcript whose last message is the user's interruption reads as
-/// `interrupted` instead. Everything softer reads as working. Trailing prose
+/// `interrupted` instead, as does one the parent reports killed or stopped —
+/// an agent that died mid-tool-call writes no marker of its own, so the
+/// parent's notification is the only record that it is no longer running.
+/// Everything softer reads as working. Trailing prose
 /// is *not* a signal,
 /// though it looks like one: a subagent narrates between tool calls, so its
 /// file very often ends on an assistant paragraph while the agent is still
@@ -57,6 +63,7 @@ nonisolated enum SubagentStatusDeriver {
             return .done
         }
         if last.blocks.contains(where: isInterruption) { return .interrupted }
+        if parentSignal == .stopped { return .interrupted }
         return .working
     }
 
