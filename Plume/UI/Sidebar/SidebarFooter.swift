@@ -51,7 +51,12 @@ struct SidebarFooter: View, ThemedView {
                 Button {
                     keepAwakeShown = true
                 } label: {
-                    SidebarFooterRow(icon: keepAwakeIcon, title: "Keep Awake", iconTint: keepAwakeTint)
+                    SidebarFooterRow(
+                        icon: keepAwakeIcon,
+                        title: keepAwakeTitle,
+                        iconTint: keepAwakeTint,
+                        hasMoreOptions: true
+                    )
                 }
                 .help(keepAwakeHelp)
                 .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
@@ -90,6 +95,12 @@ struct SidebarFooter: View, ThemedView {
         coordinator.isHolding ? ChatRole.warning(for: colorScheme) : nil
     }
 
+    /// The present participle says it is happening now, rather than naming
+    /// the setting.
+    private var keepAwakeTitle: String {
+        coordinator.isHolding ? "Keeping Awake" : "Keep Awake"
+    }
+
     private var keepAwakeHelp: String {
         coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
@@ -112,33 +123,41 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
-    /// Set only when the icon carries state of its own, which the footer's
-    /// plain rows do not.
+    /// Set only when the row carries state of its own, which the footer's
+    /// plain rows do not. Tints the title too, not just the icon.
     var iconTint: Color?
+    /// Draws a trailing chevron, for a row that opens a popover rather than
+    /// performing its action outright.
+    var hasMoreOptions = false
 
     var body: some View {
         HStack(spacing: 8) {
-            glyph
+            // One `Image` across both states, not a branch per state: an
+            // if/else reads as two different views and never transitions.
+            Image(systemName: icon)
                 .contentTransition(.symbolEffect(.replace))
-                .animation(.default, value: icon)
                 .frame(width: 16)
             Text(title)
+                .contentTransition(.numericText())
             Spacer(minLength: 0)
+            if hasMoreOptions {
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .emphasis(.subtle)
+            }
         }
+        // Untinted rows keep the inherited style rather than being forced to
+        // `.primary`, so they render as the unstated default did.
+        .foregroundStyle(tintOrInherited)
+        .animation(.default, value: icon)
+        .animation(.default, value: title)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
     }
 
-    /// Untinted rows keep the inherited style rather than being forced to
-    /// `.primary`, so they render exactly as the unstated default did.
-    @ViewBuilder
-    private var glyph: some View {
-        if let iconTint {
-            Image(systemName: icon).foregroundStyle(iconTint)
-        } else {
-            Image(systemName: icon)
-        }
+    private var tintOrInherited: AnyShapeStyle {
+        iconTint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.foreground)
     }
 }
 
