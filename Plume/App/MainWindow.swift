@@ -129,6 +129,9 @@ struct MainWindow: View {
         .task {
             statusPersistence = StatusPersistence(context: context)
             installNotifications()
+            // Held by the singleton, not this view: the assertion has to
+            // outlive a closed window, or the Mac would sleep mid-turn.
+            KeepAwakeCoordinator.shared.start()
             restoreStatusMonitoring()
             restoreLastOpenTask()
             #if DEBUG
