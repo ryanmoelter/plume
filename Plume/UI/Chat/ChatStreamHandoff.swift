@@ -51,6 +51,10 @@ enum ChatStreamHandoff {
         /// The raw source of the block still arriving.
         var tail: String = ""
         var tailBlock: MarkdownBlock?
+
+        var settled: [MarkdownBlock.Parsed] {
+            zip(blocks, sources).map { MarkdownBlock.Parsed(block: $0, source: $1) }
+        }
     }
 
     static func settledBlocks(in text: String) -> SettledStream {
