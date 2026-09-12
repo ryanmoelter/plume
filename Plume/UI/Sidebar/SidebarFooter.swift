@@ -51,7 +51,7 @@ struct SidebarFooter: View, ThemedView {
                 Button {
                     keepAwakeShown = true
                 } label: {
-                    SidebarFooterRow(icon: keepAwakeIcon, title: "Keep Awake", isIconProminent: coordinator.isHolding)
+                    SidebarFooterRow(icon: keepAwakeIcon, title: "Keep Awake", iconTint: keepAwakeTint)
                 }
                 .help(keepAwakeHelp)
                 .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
@@ -79,11 +79,15 @@ struct SidebarFooter: View, ThemedView {
         }
     }
 
-    /// Slashed when the feature is off, so "off" never reads the same as
-    /// "on with nothing to hold".
+    /// An empty cup is not caffeinated; a steaming one is.
     private var keepAwakeIcon: String {
-        if settings.keepAwakeMode == .never { return "cup.and.saucer" }
-        return coordinator.isHolding ? "cup.and.saucer.fill" : "cup.and.saucer"
+        coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
+    }
+
+    /// Tinted only while held. Warning rather than attention: the Mac staying
+    /// up is a condition worth knowing about, not the agent wanting the user.
+    private var keepAwakeTint: Color? {
+        coordinator.isHolding ? ChatRole.warning(for: colorScheme) : nil
     }
 
     private var keepAwakeHelp: String {
@@ -108,14 +112,15 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
-    /// Dims the icon alone, rather than the whole row, which would read as
-    /// disabled.
-    var isIconProminent = true
+    /// Set only when the icon carries state of its own, which the footer's
+    /// plain rows do not.
+    var iconTint: Color?
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
-                .emphasis(isIconProminent ? .primary : .secondary)
+            glyph
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.default, value: icon)
                 .frame(width: 16)
             Text(title)
             Spacer(minLength: 0)
@@ -123,6 +128,17 @@ private struct SidebarFooterRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
+    }
+
+    /// Untinted rows keep the inherited style rather than being forced to
+    /// `.primary`, so they render exactly as the unstated default did.
+    @ViewBuilder
+    private var glyph: some View {
+        if let iconTint {
+            Image(systemName: icon).foregroundStyle(iconTint)
+        } else {
+            Image(systemName: icon)
+        }
     }
 }
 

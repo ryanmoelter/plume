@@ -50,7 +50,7 @@ struct KeepAwakePanel: View {
 
             Text("Closing the lid always sleeps the Mac.")
                 .font(.caption)
-                .emphasis(.subtle)
+                .emphasis(.secondary)
         }
         .padding(12)
         .frame(width: 280)
