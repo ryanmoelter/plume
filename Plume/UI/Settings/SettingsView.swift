@@ -133,6 +133,27 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("Keep the Mac awake", selection: $settings.keepAwakeMode) {
+                    ForEach(KeepAwakeMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+            } header: {
+                Text("Keep Awake")
+            } footer: {
+                Text(
+                    "Auto holds the Mac awake while an agent is working, while a " +
+                    "session is under remote control, and while a remotely " +
+                    "controlled agent waits for an answer. Closing the lid always " +
+                    "sleeps the Mac, and the system may ignore the request on " +
+                    "battery or under thermal load."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {

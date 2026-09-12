@@ -10,6 +10,9 @@ struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @Binding var archiveShown: Bool
+    @State private var keepAwakeShown = false
+    @State private var coordinator = KeepAwakeCoordinator.shared
+    @State private var settings = AppSettings.shared
 
 #if DEBUG
     @Environment(\.modelContext) private var context
@@ -46,6 +49,18 @@ struct SidebarFooter: View, ThemedView {
 #endif
 
                 Button {
+                    keepAwakeShown = true
+                } label: {
+                    SidebarFooterRow(icon: keepAwakeIcon, title: "Keep Awake", isIconProminent: coordinator.isHolding)
+                }
+                .help(keepAwakeHelp)
+                .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
+                .buttonStyle(SidebarFooterButtonStyle())
+                .popover(isPresented: $keepAwakeShown, arrowEdge: .trailing) {
+                    KeepAwakePanel()
+                }
+
+                Button {
                     archiveShown = true
                 } label: {
                     SidebarFooterRow(icon: "archivebox", title: "Archive")
@@ -62,6 +77,17 @@ struct SidebarFooter: View, ThemedView {
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
         }
+    }
+
+    /// Slashed when the feature is off, so "off" never reads the same as
+    /// "on with nothing to hold".
+    private var keepAwakeIcon: String {
+        if settings.keepAwakeMode == .never { return "cup.and.saucer" }
+        return coordinator.isHolding ? "cup.and.saucer.fill" : "cup.and.saucer"
+    }
+
+    private var keepAwakeHelp: String {
+        coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
 
     /// The last row's wash sits inside the window's corner, so it curves
@@ -82,10 +108,14 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
+    /// Dims the icon alone, rather than the whole row, which would read as
+    /// disabled.
+    var isIconProminent = true
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
+                .emphasis(isIconProminent ? .primary : .secondary)
                 .frame(width: 16)
             Text(title)
             Spacer(minLength: 0)

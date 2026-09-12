@@ -14,6 +14,10 @@ enum AccessibilityID {
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let sidebarSettingsButton = "sidebar-settings-button"
+    static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
+    static let keepAwakePanel = "keep-awake-panel"
+    static let keepAwakeModePicker = "keep-awake-mode-picker"
+    static let keepAwakeReasonRow = "keep-awake-reason-row"
 
     // MARK: Tab strip
 

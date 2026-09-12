@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// they notice the pipe has gone.
     func applicationWillTerminate(_ notification: Notification) {
         HeadlessSessionManager.shared.closeAll()
+        KeepAwakeCoordinator.shared.releaseForTermination()
     }
 
     /// True when the current terminate request originated from the OS
