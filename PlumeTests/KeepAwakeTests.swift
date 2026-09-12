@@ -169,19 +169,19 @@ struct KeepAwakeTests {
         #expect(request?.reason.count ?? 0 <= SleepAssertionRequest.reasonLimit)
     }
 
-    @Test func theSidebarLabelNamesWhatIsHolding() {
+    @Test func theSidebarTallyCountsWhatIsHolding() {
         let engine = StatusEngine()
         let (coordinator, _, _) = makeCoordinator(engine: engine)
-        #expect(coordinator.shortSummary == nil)
+        #expect(coordinator.tally == (working: 0, remotelyControlled: false))
 
         let taskID = UUID()
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.shortSummary == "1 working")
+        #expect(coordinator.tally == (working: 1, remotelyControlled: false))
 
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.shortSummary == "2 working")
+        #expect(coordinator.tally == (working: 2, remotelyControlled: false))
     }
 
     // MARK: - The assertion itself

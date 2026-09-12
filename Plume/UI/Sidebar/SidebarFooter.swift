@@ -56,7 +56,8 @@ struct SidebarFooter: View, ThemedView {
                         title: keepAwakeTitle,
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
-                        detail: keepAwakeDetail
+                        detail: keepAwakeDetail,
+                        showsRemoteControl: coordinator.tally.remotelyControlled
                     )
                 }
                 .help(keepAwakeHelp)
@@ -103,9 +104,12 @@ struct SidebarFooter: View, ThemedView {
     }
 
     /// What is holding the Mac awake, or the mode when nothing is. Auto with
-    /// no reasons needs no label: the title already says what it does.
+    /// no reasons needs no label: the title already says what it does. The
+    /// remote-control glyph rides alongside, so it is never named in words.
     private var keepAwakeDetail: String? {
-        if let reasons = coordinator.shortSummary { return reasons }
+        let tally = coordinator.tally
+        if tally.working > 0 { return "\(tally.working) working" }
+        if tally.remotelyControlled { return nil }
         return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
     }
 
@@ -139,38 +143,77 @@ private struct SidebarFooterRow: View {
     var hasMoreOptions = false
     /// A few words of state, shown before the chevron.
     var detail: String?
+    /// Appends the remote-control glyph after `detail`.
+    var showsRemoteControl = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            // One `Image` across both states, not a branch per state: an
-            // if/else reads as two different views and never transitions.
-            Image(systemName: icon)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: 16)
-            Text(title)
-                .contentTransition(.numericText())
-            Spacer(minLength: 0)
-            if let detail {
-                Text(detail)
-                    .emphasis(.secondary)
-                    .contentTransition(.numericText())
-                    .lineLimit(1)
+        // Stacks only when the title and its detail cannot share a line,
+        // rather than at a guessed sidebar width.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                glyph
+                Text(title).contentTransition(.numericText())
+                Spacer(minLength: 4)
+                detailLabel
+                chevron
             }
-            if hasMoreOptions {
-                Image(systemName: "chevron.right")
-                    .imageScale(.small)
-                    .emphasis(.secondary)
+            HStack(spacing: 8) {
+                glyph
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).contentTransition(.numericText())
+                    detailLabel
+                }
+                Spacer(minLength: 0)
+                chevron
             }
         }
+        .lineLimit(1)
         // Untinted rows keep the inherited style rather than being forced to
         // `.primary`, so they render as the unstated default did.
         .foregroundStyle(tintOrInherited)
         .animation(.default, value: icon)
         .animation(.default, value: title)
         .animation(.default, value: detail)
+        .animation(.default, value: showsRemoteControl)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
+    }
+
+    /// One `Image` across both states, not a branch per state: an if/else
+    /// reads as two different views and never transitions.
+    private var glyph: some View {
+        Image(systemName: icon)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 16)
+    }
+
+    @ViewBuilder
+    private var detailLabel: some View {
+        if detail != nil || showsRemoteControl {
+            HStack(spacing: 3) {
+                if let detail {
+                    Text(detail).contentTransition(.numericText())
+                }
+                if showsRemoteControl {
+                    Image(systemName: StatusSymbol.remoteControl.name)
+                        .imageScale(.small)
+                }
+            }
+            .emphasis(.secondary)
+            .fixedSize()
+        }
+    }
+
+    /// Full emphasis, not a hint: it is the only thing saying this row opens
+    /// something rather than acting.
+    @ViewBuilder
+    private var chevron: some View {
+        if hasMoreOptions {
+            Image(systemName: "chevron.right")
+                .imageScale(.small)
+                .emphasis(.primary)
+        }
     }
 
     private var tintOrInherited: AnyShapeStyle {
