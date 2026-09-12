@@ -321,8 +321,17 @@ struct CodeSegmentView: View, ThemedView {
         Group {
             if segment.isMermaid {
                 // Copying still yields the source, not the drawn diagram.
-                MermaidBlock(source: segment.code, isRevealed: isHovered) { code }
-                    .overlay(alignment: .topTrailing) { copyButton }
+                MermaidBlock(source: segment.code, isRevealed: isHovered) { reason in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let reason {
+                            Text(reason)
+                                .font(typography.body.font)
+                                .emphasis(.secondary)
+                        }
+                        code
+                    }
+                }
+                .overlay(alignment: .topTrailing) { copyButton }
             } else {
                 code
                     .overlay(alignment: .topTrailing) { copyButton }
