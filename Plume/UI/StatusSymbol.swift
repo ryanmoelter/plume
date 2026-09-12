@@ -19,6 +19,8 @@ enum StatusSymbol: CaseIterable {
     case awaitingReply
     /// A session someone can drive from elsewhere.
     case remoteControl
+    /// The agents working under a conversation.
+    case subagents
 
     var name: String {
         switch self {
@@ -33,6 +35,7 @@ enum StatusSymbol: CaseIterable {
         case .error: "exclamationmark.triangle"
         case .awaitingReply: "arrow.uturn.backward"
         case .remoteControl: "antenna.radiowaves.left.and.right"
+        case .subagents: "gearshape.2"
         }
     }
 

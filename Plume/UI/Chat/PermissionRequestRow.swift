@@ -58,7 +58,7 @@ struct PermissionRequestRow: View, ThemedView {
                 .font(typography.caption.semibold)
                 .foregroundStyle(colors.warning)
             if permission.agentID != nil {
-                Label("subagent", systemImage: "person.2")
+                Label("subagent", systemImage: StatusSymbol.subagents.name)
                     .font(typography.caption.font)
                     .emphasis(.subtle)
             }

@@ -232,13 +232,28 @@ final class TranscriptStore {
                     return
                 }
                 self.transcripts[tabID] = parsed.0
-                self.subagentTranscripts[tabID] = parsed.1
-                self.publishSubagentActivity(tabID: tabID, subagents: parsed.1)
+                self.subagentTranscripts[tabID] = self.settlingDormant(parsed.1, tabID: tabID)
+                self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)
                 }
             }
+        }
+    }
+
+    /// A dormant tab's transcripts are a record, not a running process, so a
+    /// subagent left mid-step reads as interrupted rather than working. The
+    /// deriver cannot tell the difference — it parses files off the main actor
+    /// with no idea whether anything is alive — so the correction happens here,
+    /// where the tab's dormancy is known.
+    private func settlingDormant(_ subagents: [SubagentTranscript], tabID: UUID) -> [SubagentTranscript] {
+        guard statusEngine.isDormant(tabID: tabID) else { return subagents }
+        return subagents.map { subagent in
+            guard subagent.status == .working else { return subagent }
+            var settled = subagent
+            settled.status = .interrupted
+            return settled
         }
     }
 

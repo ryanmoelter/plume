@@ -321,6 +321,58 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         }
     }
 
+    /// The reported bug: a subagent left mid-step when the app quit came back
+    /// reading as working, because the deriver parses files with no idea
+    /// whether a process is alive.
+    @Test func aDormantTabsSubagentsAreNotStillWorking() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let path = dir.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: dir.appending(path: "session/subagents"),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: path)
+        // Ends on an unanswered tool call, which is what "still working" looks
+        // like on disk.
+        try Data(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n".utf8
+        ).write(to: dir.appending(path: "session/subagents/agent-abc123.jsonl"))
+
+        let engine = StatusEngine()
+        let store = TranscriptStore(debounce: .milliseconds(10), statusEngine: engine)
+        let (task, tab) = (UUID(), UUID())
+        engine.restore(tabID: tab, taskID: task)
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+
+        #expect(store.subagents(forTab: tab).first?.status == .interrupted)
+        #expect(engine.status(forTab: tab) == .notStarted)
+    }
+
+    /// A live tab is untouched — the correction is only for tabs with no
+    /// process behind them.
+    @Test func aLiveTabsSubagentsStillReadAsWorking() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let path = dir.appending(path: "session.jsonl")
+        try FileManager.default.createDirectory(
+            at: dir.appending(path: "session/subagents"),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: path)
+        try Data(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":true,\"message\":{\"role\":\"assistant\",\"stop_reason\":\"tool_use\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}]}}\n".utf8
+        ).write(to: dir.appending(path: "session/subagents/agent-abc123.jsonl"))
+
+        let engine = StatusEngine()
+        let store = TranscriptStore(debounce: .milliseconds(10), statusEngine: engine)
+        let (task, tab) = (UUID(), UUID())
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        store.watch(tabID: tab, transcriptPath: path.path)
+        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+
+        #expect(store.subagents(forTab: tab).first?.status == .working)
+    }
+
     @Test func readingATranscriptObservesItsSubagents() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let path = dir.appending(path: "session.jsonl")

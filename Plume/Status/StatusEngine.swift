@@ -56,6 +56,13 @@ final class StatusEngine {
         )
     }
 
+    /// Whether a tab was restored from disk with no process behind it. Its
+    /// transcripts describe what was in flight when the app quit, so nothing
+    /// read from them is happening now.
+    func isDormant(tabID: UUID) -> Bool {
+        dormantTabs.contains(tabID)
+    }
+
     /// The tab's own status, ignoring its subagents.
     func ownStatus(forTab id: UUID) -> TaskStatus {
         tabStatuses[id] ?? .notStarted
