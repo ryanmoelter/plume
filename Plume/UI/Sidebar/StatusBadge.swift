@@ -24,9 +24,9 @@ struct StatusBadge: View {
         case .notStarted:
             EmptyView()
         case .working:
-            WorkingIndicator()
+            WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .awaitingReply:
-            Circle().fill(Emphasis.subtle.textHierarchy).frame(width: 7, height: 7)
+            Image(systemName: "arrow.uturn.backward").foregroundStyle(Emphasis.subtle.textHierarchy)
         case .planApproval:
             Image(systemName: "list.bullet.clipboard.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
         case .questionAsked:
@@ -59,26 +59,6 @@ private struct ElapsedLabel: View {
                 .monospacedDigit()
                 .foregroundStyle(Emphasis.subtle.textHierarchy)
         }
-    }
-}
-
-/// An ellipsis whose dots light in turn, the way a chat app shows someone
-/// typing.
-///
-/// `.variableColor` animates in the render server rather than through the
-/// view graph, so unlike a `repeatForever` opacity animation it costs no
-/// per-frame SwiftUI update — the reason this is a symbol effect and not an
-/// animated `Circle`.
-private struct WorkingIndicator: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        Image(systemName: "ellipsis")
-            .foregroundStyle(ChatRole.activity(for: colorScheme))
-            .symbolEffect(
-                .variableColor.iterative.hideInactiveLayers.nonReversing,
-                options: .repeat(.periodic)
-            )
     }
 }
 

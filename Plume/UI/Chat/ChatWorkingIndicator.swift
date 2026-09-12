@@ -1,26 +1,14 @@
 import SwiftUI
 
-/// Local re-export of the sidebar's pulsing dot, sized for inline use next to
-/// prose rather than a status list.
+/// The working ellipsis with a caption beside it, for inline use next to prose
+/// rather than in a status list.
 struct ChatWorkingIndicator: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.workStartedAt) private var workStartedAt
 
     var body: some View {
         HStack(spacing: 6) {
-            // A symbol effect rather than an animation modifier. Both
-            // `phaseAnimator` and a `repeatForever` opacity animation drive a
-            // display-list rebuild for every tick, and this sits in the same
-            // stack as the message list — a trace showed those ticks
-            // rebuilding the whole chat tree ~37,000 times over 15 seconds.
-            // `.variableColor` animates in the render server, so the view
-            // graph sees nothing at all.
-            Image(systemName: "ellipsis")
-                .foregroundStyle(colors.activity)
-                .symbolEffect(
-                    .variableColor.iterative.hideInactiveLayers.nonReversing,
-                    options: .repeat(.periodic)
-                )
+            WorkingEllipsis(color: colors.activity)
             if let workStartedAt {
                 // Its own timeline, an order of magnitude slower than the
                 // dot's: the text changes once a second at most, so driving
