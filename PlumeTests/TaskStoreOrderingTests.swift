@@ -75,4 +75,15 @@ struct TaskStoreOrderingTests {
 
         #expect(task.orderedTabs.last?.id == tabs[0].id)
     }
+
+    @Test func movingAGroupForwardReordersTheOnesBetween() throws {
+        let context = ModelContext(try container())
+        let groups = (0..<4).map { TaskStore.createGroup(in: context, name: "Group \($0)", existing: []) }
+        for (index, group) in groups.enumerated() { group.orderIndex = index }
+
+        TaskStore.moveGroups(groups, from: IndexSet(integer: 0), to: 3)
+
+        let expected = [groups[1], groups[2], groups[0], groups[3]]
+        #expect(groups.sorted { $0.orderIndex < $1.orderIndex }.map(\.id) == expected.map(\.id))
+    }
 }

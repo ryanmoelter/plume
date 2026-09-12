@@ -45,6 +45,9 @@ struct SidebarView: View {
                         }
                     }
                 }
+                .onMove { offsets, destination in
+                    TaskStore.moveGroups(groups, from: offsets, to: destination)
+                }
 
                 Section("Ungrouped") {
                     taskRows(in: ungroupedTasks)
