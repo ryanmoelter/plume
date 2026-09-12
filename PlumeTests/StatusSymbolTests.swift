@@ -27,9 +27,11 @@ struct StatusSymbolTests {
         #expect(Set(names).count == names.count, "\(names)")
     }
 
-    /// `arrow.uturn.backward` has no `.fill`, so `filled` returns it unchanged
-    /// rather than naming a symbol that does not exist.
+    /// Some symbols are strokes with nothing to fill, so `filled` returns them
+    /// unchanged rather than naming a symbol that does not exist — which would
+    /// draw nothing at all.
     @Test func aSymbolWithNoFillVariantStandsAsItself() {
         #expect(StatusSymbol.awaitingReply.filled == StatusSymbol.awaitingReply.name)
+        #expect(StatusSymbol.remoteControl.filled == StatusSymbol.remoteControl.name)
     }
 }

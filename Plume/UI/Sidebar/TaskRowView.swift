@@ -113,7 +113,7 @@ struct TaskRowView: View {
                     }
                 }
 
-                TaskSubagentStatuses(tabIDs: agentTabIDs)
+                TaskActivityRow(tabIDs: agentTabIDs)
             }
             Spacer(minLength: 4)
             StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))

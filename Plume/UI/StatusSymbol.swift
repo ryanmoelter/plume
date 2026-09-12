@@ -17,6 +17,8 @@ enum StatusSymbol: CaseIterable {
     case done
     case error
     case awaitingReply
+    /// A session someone can drive from elsewhere.
+    case remoteControl
 
     var name: String {
         switch self {
@@ -30,16 +32,19 @@ enum StatusSymbol: CaseIterable {
         case .done: "checkmark.circle"
         case .error: "exclamationmark.triangle"
         case .awaitingReply: "arrow.uturn.backward"
+        case .remoteControl: "antenna.radiowaves.left.and.right"
         }
     }
 
     /// The filled variant, for a status badge that stands alone.
     ///
-    /// `arrow.uturn.backward` has no `.fill` in the system catalog, so it
-    /// stands as itself — an arrow reads as solid either way.
+    /// Not every symbol has one — `arrow.uturn.backward` and the antenna are
+    /// strokes with nothing to fill — and naming a symbol that does not exist
+    /// draws nothing at all, so those stand as themselves. `StatusSymbolTests`
+    /// is what keeps this list honest.
     var filled: String {
         switch self {
-        case .awaitingReply: name
+        case .awaitingReply, .remoteControl: name
         default: "\(name).fill"
         }
     }

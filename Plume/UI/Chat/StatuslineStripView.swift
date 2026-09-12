@@ -337,8 +337,8 @@ struct RemoteControlControl: View, ThemedView {
 
     private var symbol: String {
         switch session.remoteControl {
-        case .connected, .connecting: return "antenna.radiowaves.left.and.right"
-        case .disconnected, .failed: return "antenna.radiowaves.left.and.right.slash"
+        case .connected, .connecting: return StatusSymbol.remoteControl.name
+        case .disconnected, .failed: return "\(StatusSymbol.remoteControl.name).slash"
         }
     }
 
