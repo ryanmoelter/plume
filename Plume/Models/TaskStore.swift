@@ -111,6 +111,7 @@ enum TaskStore {
         DraftStore.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)
+        SubagentStatusOverrides.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         UntrustedDirectoryStore.shared.clear(tabID: tabID)
     }

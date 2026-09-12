@@ -27,7 +27,17 @@ struct SubagentListView: View, ThemedView {
     var onOpen: (SubagentTranscript) -> Void = { _ in }
 
     private var tracker: SubagentCompletionTracker { .shared }
+    private var overrides: SubagentStatusOverrides { .shared }
     @State private var showsCompleted = false
+
+    private func row(_ subagent: SubagentTranscript) -> some View {
+        SubagentRow(
+            subagent: subagent,
+            onOpen: { onOpen(subagent) },
+            onOverride: { TranscriptStore.shared.setOverride($0, tabID: tabID, subagentID: subagent.id) },
+            currentOverride: overrides.override(tabID: tabID, subagentID: subagent.id)
+        )
+    }
 
     private var live: [SubagentTranscript] {
         subagents.filter { !tracker.hasSettled($0, tabID: tabID) }
@@ -50,7 +60,7 @@ struct SubagentListView: View, ThemedView {
                     .padding(.bottom, 2)
                 }
                 ForEach(live) { subagent in
-                    SubagentRow(subagent: subagent) { onOpen(subagent) }
+                    row(subagent)
                         .id(subagent.id)
                 }
                 if !completed.isEmpty {
@@ -87,7 +97,7 @@ struct SubagentListView: View, ThemedView {
 
             if showsCompleted {
                 ForEach(completed) { subagent in
-                    SubagentRow(subagent: subagent) { onOpen(subagent) }
+                    row(subagent)
                         .id(subagent.id)
                 }
             }
@@ -100,6 +110,8 @@ private struct SubagentRow: View, ThemedView {
 
     let subagent: SubagentTranscript
     let onOpen: () -> Void
+    var onOverride: (SubagentStatusOverrides.Override?) -> Void = { _ in }
+    var currentOverride: SubagentStatusOverrides.Override?
 
     @State private var isHovering = false
 
@@ -148,6 +160,23 @@ private struct SubagentRow: View, ThemedView {
         .onHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
         .accessibilityIdentifier(AccessibilityID.subagentRow)
+        .contextMenu { menu }
+    }
+
+    /// The escape hatch for a row nothing can settle on its own. Offered only
+    /// where it applies: a subagent still reporting working, or one the user
+    /// already marked and may want to put back.
+    @ViewBuilder
+    private var menu: some View {
+        if currentOverride != nil {
+            Button("Clear Status Override") { onOverride(nil) }
+                .accessibilityIdentifier(AccessibilityID.subagentClearOverride)
+        } else if subagent.status == .working {
+            Button("Mark as Done") { onOverride(.done) }
+                .accessibilityIdentifier(AccessibilityID.subagentMarkDone)
+            Button("Mark as Interrupted") { onOverride(.interrupted) }
+                .accessibilityIdentifier(AccessibilityID.subagentMarkInterrupted)
+        }
     }
 }
 
