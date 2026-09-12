@@ -166,6 +166,12 @@ enum TaskStore {
         reindex(ordered)
     }
 
+    static func moveGroups(_ groups: [TaskGroup], from offsets: IndexSet, to destination: Int) {
+        var ordered = groups.sorted { $0.orderIndex < $1.orderIndex }
+        ordered.move(fromOffsets: offsets, toOffset: destination)
+        reindex(ordered)
+    }
+
     // MARK: - Ordering helpers
 
     private static func nextIndex(after items: [some Ordered]) -> Int {
