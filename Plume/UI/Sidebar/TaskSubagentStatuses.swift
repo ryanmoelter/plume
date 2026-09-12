@@ -32,14 +32,22 @@ struct TaskSubagentStatuses: View {
     var body: some View {
         let rows = visible
         if !rows.isEmpty {
+            // Centred, not baseline-aligned. Every SF Symbol reports the same
+            // ascent whatever its ink, so a baseline puts `ellipsis` — 3pt of
+            // ink centred in a 14pt box — visibly low against taller symbols.
             HStack(spacing: 4) {
+                // Also sets the row's height, which a row of only ellipses
+                // would otherwise leave shorter than its neighbours.
+                Image(systemName: "person.2")
+                    .imageScale(.small)
+                    .emphasis(.subtle)
                 ForEach(rows, id: \.subagent.id) { row in
                     StatusBadge(status: row.subagent.status)
-                        .font(.caption)
                         .imageScale(.small)
                         .help(row.subagent.title)
                 }
             }
+            .font(.caption)
         }
     }
 }

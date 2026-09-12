@@ -9,6 +9,7 @@ struct ChatWorkingIndicator: View, ThemedView {
     var body: some View {
         HStack(spacing: 6) {
             WorkingEllipsis(color: colors.activity)
+                .font(typography.caption.font)
             if let workStartedAt {
                 // Its own timeline, an order of magnitude slower than the
                 // dot's: the text changes once a second at most, so driving

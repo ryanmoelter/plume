@@ -26,21 +26,21 @@ struct StatusBadge: View {
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .awaitingReply:
-            Image(systemName: "arrow.uturn.backward").foregroundStyle(Emphasis.subtle.textHierarchy)
+            Image(systemName: StatusSymbol.awaitingReply.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
         case .done:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success(for: colorScheme))
+            Image(systemName: StatusSymbol.done.filled).foregroundStyle(ChatRole.success(for: colorScheme))
         case .planApproval:
-            Image(systemName: "list.bullet.clipboard.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.plan.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
         case .questionAsked:
-            Image(systemName: "questionmark.circle.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.question.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
         case .permissionNeeded:
-            Image(systemName: "hand.raised.fill").foregroundStyle(ChatRole.warning(for: colorScheme))
+            Image(systemName: StatusSymbol.permission.filled).foregroundStyle(ChatRole.warning(for: colorScheme))
         case .needsTerminalInput:
-            Image(systemName: "bell.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
+            Image(systemName: StatusSymbol.terminalInput.filled).foregroundStyle(ChatRole.attention(for: colorScheme))
         case .interrupted:
-            Image(systemName: "hand.raised.slash.fill").foregroundStyle(Emphasis.subtle.textHierarchy)
+            Image(systemName: StatusSymbol.interruption.filled).foregroundStyle(Emphasis.subtle.textHierarchy)
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatRole.danger(for: colorScheme))
+            Image(systemName: StatusSymbol.error.filled).foregroundStyle(ChatRole.danger(for: colorScheme))
         }
     }
 }

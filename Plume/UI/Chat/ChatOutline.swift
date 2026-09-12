@@ -63,9 +63,9 @@ struct ChatOutline: Equatable {
             // already marks it; this only makes the map say so as plainly
             // as the row does.
             case .prompt(let text): text.hasPrefix("/") ? "chevron.forward.square" : nil
-            case .question: "questionmark.bubble"
-            case .plan: "doc.text"
-            case .interruption: "hand.raised"
+            case .question: StatusSymbol.question.name
+            case .plan: StatusSymbol.plan.name
+            case .interruption: StatusSymbol.interruption.name
             }
         }
     }

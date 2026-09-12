@@ -54,7 +54,7 @@ struct PermissionRequestRow: View, ThemedView {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Label(permission.displayName, systemImage: "hand.raised")
+            Label(permission.displayName, systemImage: StatusSymbol.permission.name)
                 .font(typography.caption.semibold)
                 .foregroundStyle(colors.warning)
             if permission.agentID != nil {
