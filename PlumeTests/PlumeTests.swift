@@ -203,3 +203,47 @@ struct TaskStatusTests {
         }
     }
 }
+
+/// Quitting kills every agent, so a snapshot that claimed activity is stale by
+/// the time it is read back.
+@MainActor
+struct RelaunchStatusTests {
+    @Test func aStatusClaimingActivityDoesNotSurviveAQuit() {
+        for status in [TaskStatus.working, .awaitingReply, .planApproval, .questionAsked,
+                       .permissionNeeded, .needsTerminalInput] {
+            #expect(status.afterRelaunch == .notStarted, "\(status)")
+        }
+    }
+
+    /// These describe an outcome rather than a process, so they stay true.
+    @Test func anOutcomeSurvivesAQuit() {
+        for status in [TaskStatus.interrupted, .error, .done] {
+            #expect(status.afterRelaunch == status, "\(status)")
+        }
+    }
+
+    /// A restored tab's old transcript still lists whatever was in flight when
+    /// the app quit. Nothing read from it may raise the tab to working.
+    @Test func aRestoredTabIgnoresItsOldTranscriptsSubagents() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.restore(tabID: tab, taskID: task)
+
+        engine.setSubagentActivity(tabID: tab, working: true)
+
+        #expect(engine.status(forTab: tab) == .notStarted)
+        #expect(engine.status(forTask: task) == .notStarted)
+    }
+
+    /// Once a real session reports, the tab is live and behaves normally.
+    @Test func aLiveReportWakesARestoredTab() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.restore(tabID: tab, taskID: task)
+
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+        engine.setSubagentActivity(tabID: tab, working: true)
+
+        #expect(engine.status(forTab: tab) == .working)
+    }
+}

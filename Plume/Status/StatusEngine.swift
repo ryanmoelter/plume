@@ -19,6 +19,12 @@ final class StatusEngine {
     /// "done" invites the user back to a task that is still moving.
     private var tabsWithWorkingSubagents: Set<UUID> = []
 
+    /// Tabs restored from disk with no process behind them. Their transcripts
+    /// still describe whatever was in flight when the app last quit, so until
+    /// a live session reports, nothing read from those files may claim the tab
+    /// is doing anything.
+    private var dormantTabs: Set<UUID> = []
+
     /// Called with a task ID when its aggregated status changes, so the
     /// snapshot can be persisted without this type depending on SwiftData.
     @ObservationIgnored var onTaskStatusChanged: ((UUID, TaskStatus) -> Void)?
@@ -45,7 +51,8 @@ final class StatusEngine {
     func status(forTab id: UUID) -> TaskStatus {
         Self.effectiveStatus(
             own: ownStatus(forTab: id),
-            subagentsWorking: tabsWithWorkingSubagents.contains(id)
+            subagentsWorking: tabsWithWorkingSubagents.contains(id),
+            dormant: dormantTabs.contains(id)
         )
     }
 
@@ -60,7 +67,11 @@ final class StatusEngine {
     ///
     /// A tab never holds `done` — only a subagent reaches it — so it is left
     /// alone rather than raised.
-    static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
+    ///
+    /// Restored tabs are dormant and never raised at all: their subagents'
+    /// "working" is the state the transcript was left in, not a live process.
+    static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool, dormant: Bool = false) -> TaskStatus {
+        guard !dormant else { return own }
         guard subagentsWorking else { return own }
         switch own {
         case .notStarted, .awaitingReply, .working:
@@ -96,8 +107,17 @@ final class StatusEngine {
         setStatus(processAlive ? .error : .awaitingReply, taskID: taskID, tabID: tabID)
     }
 
+    /// Registers a tab restored from disk. It has no process behind it and
+    /// will not get one until the user sends a message, so it reads as
+    /// `notStarted` and stays deaf to anything its old transcript says.
+    func restore(tabID: UUID, taskID: UUID) {
+        setStatus(.notStarted, taskID: taskID, tabID: tabID)
+        dormantTabs.insert(tabID)
+    }
+
     func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID) {
         tabsByTask[taskID, default: []].insert(tabID)
+        dormantTabs.remove(tabID)
         guard tabStatuses[tabID] != status else { return }
 
         let previousTabStatus = self.status(forTab: tabID)
@@ -176,6 +196,7 @@ final class StatusEngine {
     func forget(tabID: UUID, taskID: UUID) {
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
+        dormantTabs.remove(tabID)
         workStartedAt.removeValue(forKey: tabID)
         tabsByTask[taskID]?.remove(tabID)
         if tabsByTask[taskID]?.isEmpty == true {
@@ -186,6 +207,7 @@ final class StatusEngine {
     func reset() {
         tabStatuses.removeAll()
         tabsWithWorkingSubagents.removeAll()
+        dormantTabs.removeAll()
         workStartedAt.removeAll()
         tabsByTask.removeAll()
     }

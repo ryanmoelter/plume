@@ -64,6 +64,23 @@ enum TaskStatus: String, CaseIterable, Sendable {
         }
     }
 
+    /// How a snapshot of this status reads once the app has restarted.
+    ///
+    /// Quitting kills every agent, so a status that claimed something was
+    /// happening is describing a process that no longer exists. Only the
+    /// states that outlive the process survive: `interrupted` and `error` say
+    /// the work stopped and did not finish, which stays true, and a finished
+    /// subagent stays finished. Everything else — working, or waiting on an
+    /// answer nothing is left to receive — reads as `notStarted`, because a
+    /// restored tab does nothing until the user sends a message.
+    var afterRelaunch: TaskStatus {
+        switch self {
+        case .interrupted, .error, .done: self
+        case .notStarted, .working, .awaitingReply,
+             .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput: .notStarted
+        }
+    }
+
     static func aggregate(_ statuses: some Sequence<TaskStatus>) -> TaskStatus {
         statuses.max { $0.priority < $1.priority } ?? .notStarted
     }

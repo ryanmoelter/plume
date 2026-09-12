@@ -246,7 +246,7 @@ struct MainWindow: View {
                     // events are a TUI-only concern.
                     break
                 }
-                StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
+                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
                 if let path = tab.sessionJSONLPath, !path.isEmpty {
                     AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
                     TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
