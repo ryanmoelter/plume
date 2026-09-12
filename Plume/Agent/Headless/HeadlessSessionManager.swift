@@ -31,5 +31,23 @@ final class HeadlessSessionManager {
         sessions.removeAll()
     }
 
+    /// Tabs whose conversation is published to claude.ai/code, or on its way
+    /// there. Connecting counts, because sleeping through the handshake is
+    /// how it fails to finish.
+    ///
+    /// A stopped session is excluded: `stop()` leaves `remoteControl` alone,
+    /// so a tab the user closed would otherwise read as connected forever.
+    var remoteControlledTabs: [(taskID: UUID, tabID: UUID)] {
+        sessions.values.compactMap { session in
+            guard !session.hasExited else { return nil }
+            switch session.remoteControl {
+            case .connected, .connecting:
+                return (session.taskID, session.tabID)
+            case .disconnected, .failed:
+                return nil
+            }
+        }
+    }
+
     var activeSessionCount: Int { sessions.count }
 }

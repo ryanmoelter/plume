@@ -28,6 +28,8 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
+        static let keepAwakeModeRaw = "keepAwakeModeRaw"
+        static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -91,6 +93,13 @@ final class AppSettings {
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
+
+        self.keepAwakeMode = defaults.string(forKey: Key.keepAwakeModeRaw)
+            .flatMap(KeepAwakeMode.init(rawValue:)) ?? .auto
+
+        // Unset reads as false: holding a Mac awake on battery drains it,
+        // so it is the direction to ask for rather than inherit.
+        self.keepsAwakeOnBattery = defaults.bool(forKey: Key.keepsAwakeOnBattery)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -215,6 +224,23 @@ final class AppSettings {
                 return
             }
             defaults.set(ignoredPendingChecks, forKey: Key.ignoredPendingChecks)
+        }
+    }
+
+    /// How much say Plume has over system sleep. `auto` holds the Mac awake
+    /// only while `KeepAwakeCoordinator` finds a reason.
+    var keepAwakeMode: KeepAwakeMode {
+        didSet {
+            defaults.set(keepAwakeMode.rawValue, forKey: Key.keepAwakeModeRaw)
+        }
+    }
+
+    /// Whether keep-awake also applies on battery power. Off by default: the
+    /// OS may ignore a sleep assertion on battery anyway, and draining a
+    /// laptop the user walked away from is the worse failure.
+    var keepsAwakeOnBattery: Bool {
+        didSet {
+            defaults.set(keepsAwakeOnBattery, forKey: Key.keepsAwakeOnBattery)
         }
     }
 
