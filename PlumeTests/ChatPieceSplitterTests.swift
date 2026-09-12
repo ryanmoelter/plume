@@ -514,4 +514,60 @@ struct ChatPieceSplitterTests {
         build("One.")
         #expect(cache.parseCount == 3)
     }
+
+    // MARK: - Copy source
+
+    /// A block the splitter left whole copies the lines it was parsed from,
+    /// not a re-rendering of them.
+    @Test func aWholeBlockKeepsItsOwnSource() {
+        let table = "| a | b |\n| --- | --- |\n| 1 | 2 |"
+        let result = pieces([message("m", .assistant, [.markdown("Intro.\n\n" + table)])])
+        #expect(result.count == 2)
+        #expect(result[0].copySource == "Intro.")
+        #expect(result[1].copySource == table)
+        #expect(result[1].tableCopySource == table)
+    }
+
+    /// A split block has no lines of its own, so each segment is written back
+    /// from its structure.
+    @Test func aSplitListSegmentCopiesJustItsOwnItem() {
+        let result = pieces([message("m", .assistant, [.markdown("1. one\n2. two")])])
+        #expect(result.map(\.copySource) == ["1. one", "2. two"])
+    }
+
+    /// Only a table offers its own button. Prose is selectable and a code
+    /// block carries `CodeBlockCopyButton` already.
+    @Test func onlyATableOffersItsOwnCopyButton() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("Text.\n\n```swift\nlet x = 1\n```")
+        ])])
+        #expect(result.allSatisfy { $0.tableCopySource == nil })
+    }
+
+    /// One button for the whole reply, on its first piece only.
+    @Test func onlyTheFirstPieceCarriesTheWholeMessage() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("One."),
+            toolCall("t1"),
+            .markdown("Two.")
+        ])])
+        #expect(result[0].messageCopySource == "One.\n\nTwo.")
+        #expect(result.dropFirst().allSatisfy { $0.messageCopySource == nil })
+        #expect(result[0].offersMessageCopy)
+    }
+
+    /// A message that says nothing in markdown has nothing to copy.
+    @Test func aMessageWithoutMarkdownOffersNoMessageCopy() {
+        let result = pieces([message("m", .assistant, [toolCall("t1")])])
+        #expect(result.allSatisfy { $0.messageCopySource == nil })
+    }
+
+    /// The source is still growing, so the button would copy a fragment.
+    @Test func aLiveMessageOffersNoMessageCopy() {
+        let result = pieces(
+            [message("m", .assistant, [.markdown("Partial")])],
+            streaming: ChatStreamHandoff.Overlay(text: "and more")
+        )
+        #expect(result.first { $0.isLive }?.offersMessageCopy == false)
+    }
 }

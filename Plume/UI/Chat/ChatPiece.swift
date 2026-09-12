@@ -34,6 +34,13 @@ struct ChatPiece: Identifiable, Equatable {
     var streamSource: String?
     /// Whether the stream is still writing this block.
     var isArriving: Bool = false
+    /// The markdown this piece's own copy button yields — the lines it was
+    /// parsed from where the splitter kept them, written back from the block
+    /// otherwise. Nil for a piece that is not markdown at all.
+    var copySource: String?
+    /// The markdown of every block in this piece's message, set only on the
+    /// message's first piece so one button copies the whole reply.
+    var messageCopySource: String?
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -102,6 +109,20 @@ struct ChatPiece: Identifiable, Equatable {
 
     /// Whether the list applies this piece's top inset outside its wash.
     var paysInsetOutside: Bool { !isJoined || segment == .first }
+
+    /// The markdown this piece offers to copy on its own.
+    ///
+    /// A table only. Every other block is either prose the reader can select,
+    /// or a code block that carries `CodeBlockCopyButton` already — a button
+    /// on each of them would put one on every paragraph of every reply.
+    var tableCopySource: String? {
+        guard case .markdown(.table, _) = content else { return nil }
+        return copySource
+    }
+
+    /// Whether this piece offers the whole message's markdown. Never while
+    /// the turn is still writing it, when the source is still growing.
+    var offersMessageCopy: Bool { messageCopySource != nil && !isLive }
 }
 
 /// One fenced code block, always whole: a long one is bounded and scrolls

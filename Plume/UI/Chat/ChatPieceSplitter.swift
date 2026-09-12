@@ -19,7 +19,7 @@ enum ChatPieceSplitter {
         hiddenToolUseIDs: Set<String>,
         streaming: ChatStreamHandoff.Overlay,
         dimensions: Dimensions,
-        parse: (String) -> [MarkdownBlock] = MarkdownBlock.parse
+        parse: (String) -> [MarkdownBlock.Parsed] = MarkdownBlock.parseWithSources
     ) -> [ChatPiece] {
         var result: [ChatPiece] = []
         let lastMessageID = messages.last?.id
@@ -101,6 +101,18 @@ enum ChatPieceSplitter {
             }
         }
 
+        /// Every markdown block of the message, as one document. Nil when the
+        /// message says nothing in markdown — a lone tool call has no prose
+        /// to copy.
+        var messageMarkdown: String? {
+            let blocks = message.blocks.compactMap { block -> String? in
+                guard case .markdown(let text) = block else { return nil }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")
+        }
+
         /// The gap above the message's first piece, from what the previous
         /// message actually ended on and what this one actually opens with —
         /// not from whether either message is calls throughout.
@@ -119,7 +131,7 @@ enum ChatPieceSplitter {
 
     private static func pieces(
         of context: MessageContext,
-        parse: (String) -> [MarkdownBlock]
+        parse: (String) -> [MarkdownBlock.Parsed]
     ) -> [ChatPiece] {
         let message = context.message
         var result: [ChatPiece] = []
@@ -175,6 +187,12 @@ enum ChatPieceSplitter {
             ))
         }
 
+        // Only the first piece carries it, so the reply offers one button for
+        // the whole of what it said rather than one per block.
+        if !result.isEmpty, let whole = context.messageMarkdown {
+            result[0].messageCopySource = whole
+        }
+
         return result
     }
 
@@ -183,7 +201,7 @@ enum ChatPieceSplitter {
         at blockIndex: Int,
         in context: MessageContext,
         leading: CGFloat,
-        parse: (String) -> [MarkdownBlock]
+        parse: (String) -> [MarkdownBlock.Parsed]
     ) -> [ChatPiece] {
         let message = context.message
         let base = "\(message.id)/\(blockIndex)"
@@ -229,17 +247,18 @@ enum ChatPieceSplitter {
     /// One `.markdown` block's parsed blocks, each its own piece, oversized
     /// ones split further.
     private static func markdownPieces(
-        _ blocks: [MarkdownBlock],
+        _ parsed: [MarkdownBlock.Parsed],
         idPrefix: String,
         messageID: String,
         role: ChatMessage.Role,
         wash: ChatPiece.Wash,
         leading: CGFloat,
         dimensions: Dimensions,
-        streamSources: [String] = []
+        streams: Bool = false
     ) -> [ChatPiece] {
         var result: [ChatPiece] = []
-        for (index, block) in blocks.enumerated() {
+        for (index, entry) in parsed.enumerated() {
+            let block = entry.block
             let blockLeading = index == 0
                 ? leading
                 : ChatBlockSpacing.markdownBlockTopInset(block, at: index, dimensions: dimensions)
@@ -257,9 +276,12 @@ enum ChatPieceSplitter {
                     // Only a block that stayed whole can go on typing: a
                     // reveal counts characters of one source, and a split
                     // block has no single piece to count them in.
-                    streamSource: segments.count == 1 && index < streamSources.count
-                        ? streamSources[index]
-                        : nil
+                    streamSource: streams && segments.count == 1 ? entry.source : nil,
+                    // A whole block copies the lines it was parsed from; a
+                    // segment has no lines of its own, so it is written back.
+                    copySource: segments.count == 1
+                        ? entry.source
+                        : MarkdownSource.markdown(of: segment.content)
                 ))
             }
         }
@@ -387,25 +409,25 @@ enum ChatPieceSplitter {
 
         guard !overlay.text.isEmpty else { return result }
         let textLeading = result.isEmpty ? leading : ChatBlockSpacing.streamingBlockSpacing
-        let settled = ChatStreamHandoff.settledBlocks(in: overlay.text)
+        let stream = ChatStreamHandoff.settledBlocks(in: overlay.text)
 
         result += markdownPieces(
-            settled.blocks,
+            stream.settled,
             idPrefix: "stream",
             messageID: "stream",
             role: .assistant,
             wash: wash,
             leading: textLeading,
             dimensions: dimensions,
-            streamSources: settled.sources
+            streams: true
         )
 
-        guard !settled.tail.isEmpty, let tailBlock = settled.tailBlock else { return result }
-        let tailLeading: CGFloat = settled.blocks.isEmpty
+        guard !stream.tail.isEmpty, let tailBlock = stream.tailBlock else { return result }
+        let tailLeading: CGFloat = stream.blocks.isEmpty
             ? textLeading
             : ChatBlockSpacing.markdownBlockTopInset(
                 tailBlock,
-                at: settled.blocks.count,
+                at: stream.blocks.count,
                 dimensions: dimensions
             )
         // Keyed by its block index, not by being the live one, so the piece
@@ -415,13 +437,13 @@ enum ChatPieceSplitter {
         // Never split, however long it grows. A reveal counts characters of
         // one source, and the block is about to settle anyway.
         result.append(ChatPiece(
-            id: "stream/\(settled.blocks.count)",
+            id: "stream/\(stream.blocks.count)",
             messageID: "stream",
             role: .assistant,
-            content: .markdown(tailBlock, index: settled.blocks.count),
+            content: .markdown(tailBlock, index: stream.blocks.count),
             wash: wash,
             topInset: tailLeading,
-            streamSource: settled.tail,
+            streamSource: stream.tail,
             isArriving: true
         ))
         return result
