@@ -53,16 +53,12 @@ struct ChatMinimap: View, ThemedView {
 
     var body: some View {
         GeometryReader { proxy in
-            // Entries take their natural size until the map outgrows the
-            // pane; past that it scrolls rather than compressing every entry
-            // into illegibility.
-            let scale = max(1, proxy.size.height / outline.totalWeight)
             ScrollView {
                 VStack(alignment: .leading, spacing: isRevealed ? Self.entrySpacing * 2 : Self.entrySpacing) {
                     ForEach(outline.entries) { entry in
                         ChatMinimapEntryView(
                             entry: entry,
-                            height: max(Self.minimumEntryHeight, entry.weight * scale),
+                            height: max(Self.minimumEntryHeight, entry.weight * Self.pointsPerWeight),
                             isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
                             isRevealed: isRevealed,
                             // The end of the map means the end of the
@@ -76,7 +72,11 @@ struct ChatMinimap: View, ThemedView {
                         )
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // Held to at least the pane so a conversation too short to
+                // fill it sits in the middle rather than hanging from the
+                // top. Once the entries outgrow that the minimum stops
+                // binding and the map scrolls as before.
+                .frame(maxWidth: .infinity, minHeight: liveHeight(in: proxy.size), alignment: .leading)
                 // Clear of the background's fade, so a prompt's first
                 // characters are never the ones drawn over bare chat.
                 .padding(.leading, isRevealed ? Self.contentInset : 0)
@@ -151,7 +151,7 @@ struct ChatMinimap: View, ThemedView {
                             // rail's full height: the margins are not part of
                             // the conversation, so travelling over them would
                             // mean the ends of the map were unreachable.
-                            let live = max(1, proxy.size.height - 2 * dimensions.verticalPadding - bottomInset)
+                            let live = max(1, liveHeight(in: proxy.size))
                             hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
                         case .ended:
                             hoverFraction = nil
@@ -191,6 +191,12 @@ struct ChatMinimap: View, ThemedView {
         ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .textBackgroundColor)
     }
 
+    /// The room the entries actually get: the pane less the margins the
+    /// content is inset by, which are not part of the conversation.
+    private func liveHeight(in size: CGSize) -> CGFloat {
+        max(0, size.height - 2 * dimensions.verticalPadding - bottomInset)
+    }
+
     /// Puts `fraction` of the way down the conversation in the middle of the
     /// pane, clamped so neither end scrolls past itself.
     private func offset(for fraction: CGFloat, in size: CGSize) -> CGFloat {
@@ -225,6 +231,15 @@ struct ChatMinimap: View, ThemedView {
     /// it, where the entries are lines of text rather than marks and want
     /// the air between them.
     private static let entrySpacing: CGFloat = 2
+
+    /// How tall a unit of weight draws. Fixed rather than fitted to the pane
+    /// so the rail reads at the same density whatever the conversation's
+    /// length — a bar means the same thing in a long chat as in a short one.
+    /// `ChatOutlineBuilder`'s weights are already authored in rough points,
+    /// so this is a correction to them rather than a scale of its own.
+    /// Raising it spaces the conversation out and reaches the scrolling
+    /// threshold sooner.
+    private static let pointsPerWeight: CGFloat = 1
 
     /// The shortest an entry draws, so a brief one stays clickable however
     /// long the conversation grows around it.
