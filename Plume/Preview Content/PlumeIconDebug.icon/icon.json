@@ -1,25 +1,38 @@
 {
   "fill" : {
-    "linear-gradient" : [
-      "display-p3:0.34118,0.39608,0.83529,1.00000",
-      "srgb:0.50196,0.27451,0.72941,1.00000"
-    ],
-    "orientation" : {
-      "start" : {
-        "x" : 0.5,
-        "y" : 0
-      },
-      "stop" : {
-        "x" : 0.5,
-        "y" : 0.7
-      }
-    }
+    "solid" : "display-p3:1.00000,1.00000,1.00000,1.00000"
   },
   "groups" : [
     {
       "blur-material" : null,
       "layers" : [
         {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "display-p3:0.50196,0.27451,0.72941,1.00000",
+                  "srgb:0.64314,0.20784,0.58039,1.00000"
+                ],
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 0
+                  },
+                  "stop" : {
+                    "x" : 0.5,
+                    "y" : 0.7
+                  }
+                }
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
+            }
+          ],
           "image-name" : "Plume icon 3.svg",
           "name" : "Plume icon",
           "position" : {
@@ -39,7 +52,7 @@
       "specular" : true,
       "translucency" : {
         "enabled" : true,
-        "value" : 1
+        "value" : 0.5
       }
     }
   ],
