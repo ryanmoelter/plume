@@ -55,6 +55,11 @@ final class TranscriptStore {
     /// to catch a subagent left reading `working` with nothing behind it.
     private let isTabLive: (UUID) -> Bool
 
+    /// Fires after every read settles, whether or not it published anything.
+    /// Tests await this instead of polling a clock, which a parallel run's
+    /// CPU-bound suites can outlast.
+    var didRead: ((UUID) -> Void)?
+
     init(
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
@@ -236,6 +241,7 @@ final class TranscriptStore {
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                defer { self.didRead?(tabID) }
                 self.inFlight.remove(tabID)
                 // The tab may have been dropped, or re-pointed at a different
                 // session file, while this parse was in flight.
