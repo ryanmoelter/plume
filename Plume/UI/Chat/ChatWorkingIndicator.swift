@@ -8,18 +8,19 @@ struct ChatWorkingIndicator: View, ThemedView {
 
     var body: some View {
         HStack(spacing: 6) {
-            // `TimelineView` rather than an animation modifier. Both
+            // A symbol effect rather than an animation modifier. Both
             // `phaseAnimator` and a `repeatForever` opacity animation drive a
-            // display-list rebuild for every tick, and this dot lives in the
-            // same stack as the message list — a trace showed those ticks
+            // display-list rebuild for every tick, and this sits in the same
+            // stack as the message list — a trace showed those ticks
             // rebuilding the whole chat tree ~37,000 times over 15 seconds.
-            // Deriving opacity from the clock keeps the redraw to this view.
-            TimelineView(.periodic(from: .now, by: 1.0 / 20.0)) { context in
-                Circle()
-                    .fill(colors.activity)
-                    .opacity(Self.opacity(at: context.date))
-            }
-            .frame(width: 7, height: 7)
+            // `.variableColor` animates in the render server, so the view
+            // graph sees nothing at all.
+            Image(systemName: "ellipsis")
+                .foregroundStyle(colors.activity)
+                .symbolEffect(
+                    .variableColor.iterative.hideInactiveLayers.nonReversing,
+                    options: .repeat(.periodic)
+                )
             if let workStartedAt {
                 // Its own timeline, an order of magnitude slower than the
                 // dot's: the text changes once a second at most, so driving
@@ -42,16 +43,6 @@ struct ChatWorkingIndicator: View, ThemedView {
     private func caption(at now: Date, startedAt: Date) -> String {
         let verb = WorkingVerb.forTurn(startedAt: startedAt)
         return "\(verb)… \(ElapsedTime.formatted(now.timeIntervalSince(startedAt)))"
-    }
-
-    private static let pulsePeriod: TimeInterval = 1.4
-
-    /// A smooth 1.0 → 0.3 → 1.0 pulse from wall-clock time, so the phase does
-    /// not restart when a recycled row remounts.
-    private static func opacity(at date: Date) -> Double {
-        let phase = date.timeIntervalSinceReferenceDate
-            .truncatingRemainder(dividingBy: pulsePeriod) / pulsePeriod
-        return 0.65 + 0.35 * cos(phase * 2 * .pi)
     }
 }
 

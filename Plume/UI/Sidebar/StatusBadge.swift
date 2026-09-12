@@ -62,17 +62,23 @@ private struct ElapsedLabel: View {
     }
 }
 
+/// An ellipsis whose dots light in turn, the way a chat app shows someone
+/// typing.
+///
+/// `.variableColor` animates in the render server rather than through the
+/// view graph, so unlike a `repeatForever` opacity animation it costs no
+/// per-frame SwiftUI update — the reason this is a symbol effect and not an
+/// animated `Circle`.
 private struct WorkingIndicator: View {
-    @State private var pulsing = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Circle()
-            .fill(ChatRole.activity(for: colorScheme))
-            .frame(width: 7, height: 7)
-            .opacity(pulsing ? 0.3 : 1)
-            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
-            .onAppear { pulsing = true }
+        Image(systemName: "ellipsis")
+            .foregroundStyle(ChatRole.activity(for: colorScheme))
+            .symbolEffect(
+                .variableColor.iterative.hideInactiveLayers.nonReversing,
+                options: .repeat(.periodic)
+            )
     }
 }
 
