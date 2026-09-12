@@ -62,16 +62,25 @@ struct KeepAwakePanel: View {
         case .never:
             "Keep Awake is off."
         case .always:
-            coordinator.isHolding ? "Holding the Mac awake." : "Not holding — the Mac is on battery."
+            coordinator.isHolding ? "Holding the Mac awake." : notHoldingReason
         case .auto:
             if coordinator.isHolding {
                 "Holding the Mac awake."
             } else if coordinator.reasons.isEmpty {
                 "Not holding — nothing needs it."
             } else {
-                "Not holding — the Mac is on battery."
+                notHoldingReason
             }
         }
+    }
+
+    /// Something wanted the Mac awake and it is still not held. On battery
+    /// that is the setting; otherwise the request itself failed, which the
+    /// panel should not dress up as a choice.
+    private var notHoldingReason: String {
+        settings.keepsAwakeOnBattery
+            ? "Not holding — the system refused."
+            : "Not holding — the Mac is on battery."
     }
 
     /// Falls back to the task's title, because a tab only has one once its
