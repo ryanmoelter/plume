@@ -36,7 +36,8 @@ Plume/
   Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
-  Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, SmokeHarness (DEBUG)
+  Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
+  Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
   UI/         Sidebar/, Task/, Settings/
 ```
 
@@ -139,6 +140,8 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - **`MarkdownFileStoreTests.appendingToTheFileUpdatesContentAfterTheDebounce` is timing-flaky**, not broken. It waits out a real debounce, so it fails under the load of a full parallel run and passes every time in isolation. Re-run it alone before believing it.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
+- **A shell script under `Plume/Resources/` ships executable.** The synchronized group flattens it into `Contents/Resources/`, and neither the copy nor the codesign clears its mode bits, so `plume-notify` needs no build phase of its own. `docs/releasing.md` covers how it reaches PATH.
+- **`[ -w /dev/tty ]` is true even with no controlling terminal**, and the redirect then fails at the shell, where `2>/dev/null` on the command does not catch it. A script that must write to the real terminal has to *attempt* the open inside a subshell — `if ! (printf … >/dev/tty) 2>/dev/null`. `plume-notify` falls back to stdout that way.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - **A GUI-launched app does not inherit your shell PATH.** Launched from Xcode or a terminal it does, so a PATH bug hides completely until the app is opened from Finder or the Dock — `claude` at `~/.local/bin` then fails with `No such file or directory`. Both transports run through `LoginShellCommand.wrap` for this reason. Test PATH-sensitive changes by opening the installed bundle, not from a terminal.
 - Deployment target is macOS 26.2, matching the Xcode 26.2 SDK ceiling. Raising it above the installed SDK makes every build warn.

@@ -74,6 +74,19 @@ codesign --verify --deep --strict "$DEST" && echo "ok"
 echo "--- non-system dylibs (expect none; Release links Ghostty statically) ---"
 otool -L "$DEST/Contents/MacOS/Plume" | grep -v '/usr/lib\|/System/Library'
 
+# The symlink points at a path inside the bundle, so replacing the bundle
+# re-resolves it. It only breaks if the helper stopped shipping.
+echo "--- plume-notify on PATH ---"
+if [ -L "$HOME/.local/bin/plume-notify" ]; then
+  if [ -x "$HOME/.local/bin/plume-notify" ]; then
+    echo "ok -> $(readlink "$HOME/.local/bin/plume-notify")"
+  else
+    echo "BROKEN -> $(readlink "$HOME/.local/bin/plume-notify") — reinstall from Settings"
+  fi
+else
+  echo "not installed (Settings → Command Line)"
+fi
+
 open "$DEST"
 sleep 20
 

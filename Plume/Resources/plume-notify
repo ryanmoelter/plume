@@ -1,0 +1,69 @@
+#!/bin/sh
+# Sends a desktop notification to the Plume window hosting this shell.
+#
+# Usage: plume-notify <title> [body]
+#        plume-notify --title <title> [--body <body>]
+#
+# The transport is OSC 777, which Plume's terminal already handles: whichever
+# tab this shell runs in is the one the notification routes back to. Outside
+# Plume the escape is inert, so this is safe to call unconditionally.
+set -eu
+
+usage() {
+	echo "usage: plume-notify <title> [body]" >&2
+	echo "       plume-notify --title <title> [--body <body>]" >&2
+	exit 2
+}
+
+title=""
+body=""
+positional=0
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--title)
+		[ $# -ge 2 ] || usage
+		title="$2"
+		shift 2
+		;;
+	--body | --message)
+		[ $# -ge 2 ] || usage
+		body="$2"
+		shift 2
+		;;
+	-h | --help)
+		usage
+		;;
+	--)
+		shift
+		;;
+	*)
+		positional=$((positional + 1))
+		case $positional in
+		1) title="$1" ;;
+		2) body="$1" ;;
+		*) usage ;;
+		esac
+		shift
+		;;
+	esac
+done
+
+[ -n "$title" ] || usage
+
+# OSC 777 delimits its fields with semicolons and ends at BEL, so either
+# character inside the text would truncate the payload or split it into the
+# wrong fields. Other control characters go to spaces for the same reason.
+sanitize() {
+	printf '%s' "$1" | tr ';' ',' | tr -d '\007' | tr '\000-\037' ' '
+}
+
+payload="$(printf '\033]777;notify;%s;%s\a' "$(sanitize "$title")" "$(sanitize "$body")")"
+
+# The escape has to reach the terminal, not a pipe or a file — called inside
+# `$(...)` or with stdout redirected, writing to stdout would notify nothing.
+# `-w /dev/tty` is true even with no controlling terminal, so the open has to
+# be attempted rather than tested.
+if ! (printf '%s' "$payload" >/dev/tty) 2>/dev/null; then
+	printf '%s' "$payload"
+fi

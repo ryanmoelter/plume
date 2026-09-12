@@ -88,6 +88,14 @@ git push origin main v0.1.0
 
 Tag the commit that carries the version bump, so the tag and `CFBundleShortVersionString` agree.
 
+## The command-line helper
+
+`plume-notify` ships inside the bundle at `Contents/Resources/plume-notify`, as a plain shell script. The file-system synchronized group puts it there automatically because it lives under `Plume/Resources/`, and both the copy and the signing preserve its executable bit — so nothing in the release path needs a step for it.
+
+It reaches the user's PATH as a symlink at `~/.local/bin/plume-notify`, created from **Settings → Command Line**. A symlink rather than a copy, so the helper follows whatever Plume is installed instead of going stale after an upgrade.
+
+Replacing the bundle does not break the link. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but the link stores a *path*, so it re-resolves to the new bundle. The script prints the link's state after installing; a `BROKEN` line there means the helper stopped shipping, not that the symlink needs recreating.
+
 ## The store survives releases
 
 Plume's SwiftData store lives at `~/Library/Application Support/Plume/Plume.store`, beside the `hooks` and `events` directories. It is deliberately *not* at SwiftData's default path, so it belongs to Plume alone.
