@@ -312,4 +312,51 @@ struct SubagentStatusTests {
 
         #expect(parsed.lastStopReason == "tool_use")
     }
+
+    /// A subagent killed mid-tool-call writes no marker of its own: its file
+    /// ends on the unanswered call or on an attachment, carrying
+    /// `stop_reason: tool_use`, so every transcript signal reads as working.
+    /// The parent's `killed`/`stopped` notification is the only record that
+    /// it has ended.
+    @Test func anAgentTheParentReportsStoppedIsInterrupted() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([assistantText("building"), toolUse(id: "t1", name: "Bash")]),
+            parentSignal: .stopped
+        )
+
+        #expect(status == .interrupted)
+    }
+
+    /// The guard that matters: a stop must never outrank the agent's own
+    /// report, so one resumed after a stop still reads as done.
+    @Test func aStopDoesNotOverrideTheAgentsOwnEndTurn() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([assistantText("Here is the report.", stopReason: "end_turn")]),
+            parentSignal: .stopped
+        )
+
+        #expect(status == .done)
+    }
+
+    /// A stopped agent left holding an unanswered question is still waiting on
+    /// a person, which is the more actionable thing to say about it.
+    @Test func aStopDoesNotOverrideAWaitingPrompt() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([toolUse(id: "t1", name: "AskUserQuestion")]),
+            parentSignal: .stopped
+        )
+
+        #expect(status == .questionAsked)
+    }
+
+    /// Nothing about a stop implies failure, and an errored agent is reported
+    /// by its own notice.
+    @Test func aStopIsNotAnError() {
+        let status = SubagentStatusDeriver.derive(
+            transcript: transcript([assistantText("working"), toolUse(id: "t1", name: "Bash")]),
+            parentSignal: .stopped
+        )
+
+        #expect(status != .error)
+    }
 }

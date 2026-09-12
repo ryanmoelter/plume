@@ -71,6 +71,9 @@ enum AccessibilityID {
 
     static let subagentRow = "subagent-row"
     static let completedSubagentsToggle = "completed-subagents-toggle"
+    static let subagentMarkDone = "subagent-mark-done"
+    static let subagentMarkInterrupted = "subagent-mark-interrupted"
+    static let subagentClearOverride = "subagent-clear-override"
     static let subagentTranscriptClose = "subagent-transcript-close"
 
     // MARK: Minimap

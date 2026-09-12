@@ -15,6 +15,10 @@ final class MarkdownFileStore {
 
     private let debounce: Duration
 
+    /// Fires after every published read. Tests await this instead of polling a
+    /// clock, which a parallel run's CPU-bound suites can outlast.
+    var didRead: (() -> Void)?
+
     init(debounce: Duration = .milliseconds(250)) {
         self.debounce = debounce
     }
@@ -57,5 +61,6 @@ final class MarkdownFileStore {
     private func read() {
         guard let path else { return }
         content = try? String(contentsOfFile: path, encoding: .utf8)
+        didRead?()
     }
 }

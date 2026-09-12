@@ -7,6 +7,8 @@ import SwiftUI
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
     @State private var newIgnoredCheckName = ""
+    @State private var helperState = CommandLineHelper.state()
+    @State private var helperError: String?
 
     var body: some View {
         Form {
@@ -133,6 +135,28 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack {
+                    Text(helperStatusText)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(helperButtonTitle, action: toggleHelperInstall)
+                }
+                if let helperError {
+                    Text(helperError)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Command Line")
+            } footer: {
+                Text(
+                    "Installs plume-notify into ~/.local/bin, as a link into the app bundle. " +
+                    "Run `plume-notify \"Build finished\" \"12 tests passed\"` from any terminal " +
+                    "or agent tab and the notification routes back to that tab."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker("Keep the Mac awake", selection: $settings.keepAwakeMode) {
                     ForEach(KeepAwakeMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -207,6 +231,34 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
+        .onAppear { helperState = CommandLineHelper.state() }
+    }
+
+    private var helperStatusText: String {
+        switch helperState {
+        case .installed: "Installed at \(CommandLineHelper.installedURL.path)"
+        case .notInstalled: "Not installed"
+        case .occupiedByOther: "Another file owns that name"
+        case .brokenLink: "Installed, but pointing at a bundle that is gone"
+        }
+    }
+
+    private var helperButtonTitle: String {
+        if case .installed = helperState { "Remove" } else { "Install" }
+    }
+
+    private func toggleHelperInstall() {
+        helperError = nil
+        do {
+            if case .installed = helperState {
+                try CommandLineHelper.uninstall()
+            } else {
+                try CommandLineHelper.install()
+            }
+        } catch {
+            helperError = error.localizedDescription
+        }
+        helperState = CommandLineHelper.state()
     }
 
     private func addIgnoredCheck() {

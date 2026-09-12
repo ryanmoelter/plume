@@ -41,17 +41,8 @@ struct MarkdownBlockView: View, ThemedView {
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
-        case let .bulletList(items):
-            ListSegmentView(
-                segment: ListSegment(kind: .bullet, items: items),
-                isAgentVoice: isAgentVoice
-            )
-
-        case let .numberedList(items, start):
-            ListSegmentView(
-                segment: ListSegment(kind: .numbered, items: items, startNumber: start),
-                isAgentVoice: isAgentVoice
-            )
+        case let .list(items):
+            ListSegmentView(segment: ListSegment(items: items), isAgentVoice: isAgentVoice)
 
         case let .codeBlock(language, code):
             CodeSegmentView(segment: CodeSegment(
@@ -264,7 +255,7 @@ struct MarkdownBlockView: View, ThemedView {
     private var tableCornerRadius: CGFloat { 6 }
 }
 
-/// A bullet or numbered list, or one slice of a long one.
+/// A list, nesting included, or one slice of a long one.
 struct ListSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -278,10 +269,11 @@ struct ListSegmentView: View, ThemedView {
     var body: some View {
         VStack(alignment: .leading, spacing: ChatBlockSpacing.listSegmentSpacing) {
             ForEach(segment.items.indices, id: \.self) { index in
+                let item = segment.items[index]
                 HStack(alignment: .top, spacing: 6) {
-                    Text(marker(at: index))
+                    Text(marker(for: item))
                     Text(MarkdownCache.styledInline(
-                        segment.items[index],
+                        item.text,
                         fontSize: typography.bodySize,
                         tint: colors.surfaceTint
                     ))
@@ -289,20 +281,27 @@ struct ListSegmentView: View, ThemedView {
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, Self.indent * CGFloat(item.depth))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .textSelection(.enabled)
         .listItemPadding(vertical: false)
     }
 
-    /// Numbering runs from the segment's own start, so a split list keeps
-    /// counting rather than restarting at one.
-    private func marker(at index: Int) -> String {
-        switch segment.kind {
-        case .bullet: "\u{2022}"
-        case .numbered: "\(segment.startNumber + index)."
-        }
+    /// Each item renders the number the parser resolved for it, so a segment
+    /// of a split list needs no running count of its own.
+    private func marker(for item: MarkdownBlock.ListItem) -> String {
+        guard let number = item.number else { return Self.bullets[item.depth % Self.bullets.count] }
+        return "\(number)."
     }
+
+    /// Enough to clear a two-digit marker at the depth above.
+    private static let indent: CGFloat = 20
+
+    /// Depth reads from the glyph as well as the indent, the way a rendered
+    /// markdown document's nested bullets do.
+    private static let bullets = ["\u{2022}", "\u{25E6}", "\u{25AA}"]
 }
 
 /// A fenced code block, always drawn whole.
@@ -362,11 +361,20 @@ struct CodeSegmentView: View, ThemedView {
 
     private var lines: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(segment.code)
+            Text(highlighted)
                 .font(typography.body.mono)
-                .foregroundStyle(colors.foreground)
                 .padding(padding)
         }
+    }
+
+    /// An untagged or unrecognized fence yields plain text in the block's own
+    /// foreground, which is the common case.
+    private var highlighted: AttributedString {
+        CodeSyntaxCache.highlighted(
+            segment.code,
+            language: segment.language,
+            palette: CodeSyntaxPalette(palette: colors)
+        )
     }
 
     private var copyButton: some View {

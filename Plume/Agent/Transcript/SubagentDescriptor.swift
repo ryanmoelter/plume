@@ -143,8 +143,12 @@ nonisolated struct SubagentSpawnResults {
 
         // A completed report can only follow the launch that produced it, so
         // it must never be overwritten by an earlier record for the same agent.
+        // A stop is kept for the same reason, against the launch that preceded
+        // it, but still yields to a completion — an agent resumed after a stop
+        // goes on to report.
         func record(_ signal: SubagentParentSignal, for agentID: String) {
             guard signals[agentID] != .completed else { return }
+            guard !(signals[agentID] == .stopped && signal != .completed) else { return }
             signals[agentID] = signal
         }
 
@@ -177,12 +181,17 @@ nonisolated struct SubagentSpawnResults {
     /// than pinning the row at working forever.
     /// A notification's status is a word lifted out of a plain string, so an
     /// unrecognized one yields no signal at all rather than a wrong one.
-    /// `killed` and `stopped` are left to the subagent's own transcript, where
-    /// the interruption marker says the user asked for the ending.
+    ///
+    /// `killed` and `stopped` say the agent is no longer running without
+    /// saying what it did. The CLI writes them only once it has stopped, so
+    /// they cannot fold away live work — and they are the only record of an
+    /// agent that died mid-tool-call, whose own transcript ends on an
+    /// attachment with no interruption marker to read.
     private static func signal(forNotificationStatus status: String?) -> SubagentParentSignal? {
         switch status {
         case "completed": .completed
         case "failed", "error": .failed
+        case "killed", "stopped": .stopped
         default: nil
         }
     }

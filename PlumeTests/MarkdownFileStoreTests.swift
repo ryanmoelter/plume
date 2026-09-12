@@ -24,13 +24,23 @@ struct MarkdownFileStoreTests {
         handle.write(text.data(using: .utf8) ?? Data())
     }
 
-    /// Bounded poll instead of a fixed sleep, so the check isn't flaky on a
-    /// loaded machine but also doesn't wait the full timeout when it's fast.
-    private func waitUntil(timeout: Duration = .seconds(2), _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + timeout
-        while !condition(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
+    /// Waits on the store's own read signal rather than a wall clock. The
+    /// corpus suites saturate every core for tens of seconds, so any deadline
+    /// short enough to be useful is one a parallel run can blow through.
+    private func waitUntil(
+        _ store: MarkdownFileStore,
+        _ condition: @escaping () -> Bool
+    ) async {
+        guard !condition() else { return }
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            store.didRead = {
+                guard !resumed, condition() else { return }
+                resumed = true
+                continuation.resume()
+            }
         }
+        store.didRead = nil
     }
 
     @Test func watchingAFileReadsItsContent() async {
@@ -57,7 +67,7 @@ struct MarkdownFileStoreTests {
 
         append("\n\nMore detail.", to: path)
 
-        await waitUntil { store.content == "# First plan\n\nMore detail." }
+        await waitUntil(store) { store.content == "# First plan\n\nMore detail." }
         #expect(store.content == "# First plan\n\nMore detail.")
     }
 

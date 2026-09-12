@@ -95,7 +95,7 @@ struct MainWindow: View {
                     return true
                 },
                 archiveSelectedTask: {
-                    task.isArchived = true
+                    TaskStore.archive(task)
                     if selection == task.id { selection = nil }
                 },
                 startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
