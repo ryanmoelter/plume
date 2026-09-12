@@ -69,6 +69,11 @@ final class HeadlessSession {
 
     /// Whether this conversation is published to claude.ai/code. In memory
     /// only — the bridge belongs to the process, not to the tab.
+    /// Set when the user interrupts, so the turn that comes back as an error
+    /// is reported as their doing rather than the agent's. Cleared as soon as
+    /// that turn is accounted for.
+    private var wasInterrupted = false
+
     private(set) var remoteControl: RemoteControlState = .disconnected
 
     /// The last Remote Control change worth telling the user about, until it
@@ -206,6 +211,7 @@ final class HeadlessSession {
     /// Ends the turn in flight but keeps the session alive, unlike a signal.
     func interrupt() {
         guard isWorking else { return }
+        wasInterrupted = true
         send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
     }
 
@@ -473,6 +479,7 @@ final class HeadlessSession {
         streamingText = ""
         streamingThinking = ""
         lastError = nil
+        wasInterrupted = false
         StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
     }
 
@@ -482,12 +489,18 @@ final class HeadlessSession {
         if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }
-        if result.isError {
+        if wasInterrupted {
+            // The turn ends as an error because it was cut short, but the user
+            // is who cut it — blaming the agent would send them looking for a
+            // failure that never happened.
+            StatusEngine.shared.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+        } else if result.isError {
             lastError = result.text ?? "The turn failed."
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
         } else {
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
+        wasInterrupted = false
         sendNextQueuedMessage()
     }
 
@@ -517,7 +530,16 @@ final class HeadlessSession {
         pendingControlRequests.removeAll()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
-        StatusEngine.shared.setStatus(status == 0 ? .awaitingReply : .error, taskID: taskID, tabID: tabID)
+        // A process the user stopped exits non-zero, which is not a failure
+        // worth reporting as one.
+        let reported: TaskStatus = if status == 0 {
+            .awaitingReply
+        } else if wasInterrupted {
+            .interrupted
+        } else {
+            .error
+        }
+        StatusEngine.shared.setStatus(reported, taskID: taskID, tabID: tabID)
     }
 
     @discardableResult
