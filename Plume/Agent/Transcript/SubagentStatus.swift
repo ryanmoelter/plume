@@ -34,8 +34,7 @@ nonisolated enum SubagentParentSignal: Equatable {
 /// `interrupted` instead, as does one the parent reports killed or stopped —
 /// an agent that died mid-tool-call writes no marker of its own, so the
 /// parent's notification is the only record that it is no longer running.
-/// Everything softer reads as working. Trailing prose
-/// is *not* a signal,
+/// Everything softer reads as working. Trailing prose is *not* a signal,
 /// though it looks like one: a subagent narrates between tool calls, so its
 /// file very often ends on an assistant paragraph while the agent is still
 /// mid-task — 49 of 210 transcripts in a sampled corpus, every one of which
