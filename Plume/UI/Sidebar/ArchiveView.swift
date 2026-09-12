@@ -8,13 +8,27 @@ struct ArchiveView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
-    @Query(filter: #Predicate<WorkTask> { $0.isArchived }, sort: \WorkTask.orderIndex)
+    @Query(filter: #Predicate<WorkTask> { $0.isArchived })
     private var archivedTasks: [WorkTask]
+
+    /// Most recently archived first. `archivedAt` is nil for tasks archived
+    /// before this field existed, which fall to the bottom rather than
+    /// scrambling in among dated ones.
+    private var sortedTasks: [WorkTask] {
+        archivedTasks.sorted { lhs, rhs in
+            switch (lhs.archivedAt, rhs.archivedAt) {
+            case let (l?, r?): l > r
+            case (nil, nil): lhs.orderIndex < rhs.orderIndex
+            case (nil, _): false
+            case (_, nil): true
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            List(archivedTasks) { task in
-                HStack {
+            List(sortedTasks) { task in
+                HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(TitleStore.shared.displayTitle(for: task))
                         if let path = task.workingDirectoryPath {
@@ -26,12 +40,25 @@ struct ArchiveView: View {
                         }
                     }
                     Spacer()
-                    Button("Unarchive") { task.isArchived = false }
-                    Button("Delete", role: .destructive) { TaskStore.delete(task, in: context) }
+                    Button {
+                        TaskStore.unarchive(task)
+                    } label: {
+                        Image(systemName: "tray.and.arrow.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Unarchive")
+                    Button(role: .destructive) {
+                        TaskStore.delete(task, in: context)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete")
                 }
+                .padding(.vertical, 4)
             }
             .overlay {
-                if archivedTasks.isEmpty {
+                if sortedTasks.isEmpty {
                     ContentUnavailableView(
                         "No Archived Tasks",
                         systemImage: "archivebox",

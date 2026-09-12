@@ -83,6 +83,18 @@ enum TaskStore {
         }
     }
 
+    // MARK: - Archive
+
+    static func archive(_ task: WorkTask) {
+        task.isArchived = true
+        task.archivedAt = Date()
+    }
+
+    static func unarchive(_ task: WorkTask) {
+        task.isArchived = false
+        task.archivedAt = nil
+    }
+
     // MARK: - Delete
 
     /// The cascade delete removes the tabs, but their terminals are held
