@@ -287,7 +287,10 @@ enum ChatPieceSplitter {
                 if case .numberedList(_, let start) = block { return start }
                 return 1
             }()
-            guard ChatPieceMetrics.splitsList(items) else {
+            // One piece per item, however short. A list item is already a
+            // unit with a gap above it, so the seam is free, and one item per
+            // piece is the most even height spread the list can offer.
+            guard items.count > 1 else {
                 return [Segmented(
                     content: .listSegment(
                         ListSegment(kind: kind, items: items, startNumber: firstNumber)
@@ -295,35 +298,36 @@ enum ChatPieceSplitter {
                     joinInset: 0
                 )]
             }
-            let chunks = ChatPieceMetrics.listChunks(items)
-            var start = firstNumber
-            return chunks.enumerated().map { position, chunk in
-                defer { start += chunk.count }
-                return Segmented(
+            return items.enumerated().map { position, item in
+                Segmented(
                     content: .listSegment(ListSegment(
                         kind: kind,
-                        items: chunk,
-                        startNumber: start,
-                        position: place(position, of: chunks.count)
+                        items: [item],
+                        startNumber: firstNumber + position,
+                        position: place(position, of: items.count)
                     )),
                     joinInset: ChatBlockSpacing.listSegmentSpacing
                 )
             }
 
-        // Prose splits at the blank lines it already has, so the join falls
-        // where the source had a gap and the reader sees nothing. A quote's
-        // bar is drawn per piece, the way a message's wash is.
-        case .quote(let text) where ChatPieceMetrics.splitsProse(text):
+        // Prose takes one piece per paragraph, however short: the seam is a
+        // gap the source already has, so it costs the reader nothing, and an
+        // even spread of heights is the whole point — the estimator's error
+        // comes from the variance within the realized set, not from how many
+        // items there are.
+        case .quote(let text, _):
             let parts = ChatPieceMetrics.proseParagraphs(text)
             guard parts.count > 1 else { break }
-            return parts.map { part in
+            return parts.enumerated().map { position, part in
+                // The gap is drawn inside the bar, so a split quote reads as
+                // one. The list must not also pay it above the piece.
                 Segmented(
-                    content: .markdown(.quote(part), index: index),
-                    joinInset: dimensions.blockSpacing
+                    content: .markdown(.quote(part, continues: position > 0), index: index),
+                    joinInset: 0
                 )
             }
 
-        case .paragraph(let text) where ChatPieceMetrics.splitsProse(text):
+        case .paragraph(let text):
             let parts = ChatPieceMetrics.proseParagraphs(text)
             guard parts.count > 1 else { break }
             return parts.map { part in

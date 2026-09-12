@@ -315,7 +315,7 @@ enum ChatOutlineBuilder {
         case .bulletList(let items): items.joined(separator: "\n")
         case .numberedList(let items, _): items.joined(separator: "\n")
         case .codeBlock(_, let code): code
-        case .quote(let text): text
+        case .quote(let text, _): text
         case .table(let header, _, let rows):
             (header + rows.flatMap { $0 }).joined(separator: " ")
         case .rule: ""
