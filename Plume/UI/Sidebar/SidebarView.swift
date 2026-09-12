@@ -24,12 +24,15 @@ struct SidebarView: View {
             List(selection: $selection) {
                 ForEach(groups) { group in
                     Section {
-                        taskRows(in: tasksFor(group))
+                        if group.isExpanded {
+                            taskRows(in: tasksFor(group))
+                        }
                     } header: {
                         GroupSectionHeader(
                             group: group,
                             isRenaming: renamingGroupID == group.id,
-                            onDoneRenaming: { renamingGroupID = nil }
+                            onDoneRenaming: { renamingGroupID = nil },
+                            onCreateTask: { createTask(in: group) }
                         )
                         .accessibilityIdentifier(AccessibilityID.groupHeader)
                         .contextMenu {
