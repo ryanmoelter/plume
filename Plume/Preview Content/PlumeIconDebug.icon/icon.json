@@ -1,0 +1,53 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.50196,0.27451,0.72941,1.00000",
+      "srgb:0.34118,0.39608,0.83529,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "blur-material" : 1,
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "Plume icon 2.svg",
+          "name" : "Plume icon",
+          "position" : {
+            "scale" : 0.25,
+            "translation-in-points" : [
+              -5.065180160392629,
+              6.382184100158611
+            ]
+          }
+        }
+      ],
+      "opacity" : 1,
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 1
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
