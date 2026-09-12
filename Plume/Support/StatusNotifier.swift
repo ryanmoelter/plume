@@ -53,8 +53,10 @@ final class StatusNotifier {
         case .error: "The agent stopped unexpectedly."
         case .awaitingReply: notifiesOnTurnEnd ? "It's your turn." : nil
         // Starting and working are transitions the user asked for, and an
-        // interruption is the user's own doing, so it needs no telling.
-        case .working, .notStarted, .interrupted: nil
+        // interruption is the user's own doing, so it needs no telling. A
+        // subagent finishing is one step inside a turn the chat already shows,
+        // and several can land in a row.
+        case .working, .notStarted, .interrupted, .done: nil
         }
     }
 }

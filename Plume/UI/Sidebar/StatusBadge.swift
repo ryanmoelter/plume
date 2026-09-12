@@ -27,6 +27,8 @@ struct StatusBadge: View {
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .awaitingReply:
             Image(systemName: "arrow.uturn.backward").foregroundStyle(Emphasis.subtle.textHierarchy)
+        case .done:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(ChatRole.success(for: colorScheme))
         case .planApproval:
             Image(systemName: "list.bullet.clipboard.fill").foregroundStyle(ChatRole.attention(for: colorScheme))
         case .questionAsked:

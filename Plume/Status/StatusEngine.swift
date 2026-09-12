@@ -57,13 +57,16 @@ final class StatusEngine {
     /// Working subagents raise a settled tab to `working`. Every state that
     /// wants the user outranks that, along with `error` and `interrupted`:
     /// they need the user either way, and a subagent cannot answer for them.
+    ///
+    /// A tab never holds `done` — only a subagent reaches it — so it is left
+    /// alone rather than raised.
     static func effectiveStatus(own: TaskStatus, subagentsWorking: Bool) -> TaskStatus {
         guard subagentsWorking else { return own }
         switch own {
         case .notStarted, .awaitingReply, .working:
             return .working
         case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
-             .error, .interrupted:
+             .error, .interrupted, .done:
             return own
         }
     }

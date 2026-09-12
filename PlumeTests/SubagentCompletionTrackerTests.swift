@@ -33,7 +33,7 @@ struct SubagentCompletionTrackerTests {
 
     @Test func aFinishedSubagentStaysLiveForItsLinger() {
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -43,7 +43,7 @@ struct SubagentCompletionTrackerTests {
 
     @Test func aFinishedSubagentSettlesOnceTheLingerElapses() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -80,7 +80,7 @@ struct SubagentCompletionTrackerTests {
     /// re-observing an already-settled one does not restart its linger.
     @Test func reobservingDoesNotRestartTheLinger() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -94,7 +94,7 @@ struct SubagentCompletionTrackerTests {
     /// fresh linger when it finishes again.
     @Test func returningToWorkClearsTheCompletion() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -115,7 +115,7 @@ struct SubagentCompletionTrackerTests {
         // Long enough that no scheduling delay can elapse it mid-test; the
         // point is that re-observing does not reset the clock, not the timing.
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -132,7 +132,7 @@ struct SubagentCompletionTrackerTests {
     /// while the task was off screen has already settled on return.
     @Test func aLingerElapsesWhileNoViewIsMounted() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
 
         tracker.observe([done], tabID: tab)
@@ -145,7 +145,7 @@ struct SubagentCompletionTrackerTests {
     /// not answer for the other's.
     @Test func lingersAreKeptPerTab() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         let other = UUID()
         startWorking(tracker, "a1", tabID: tab)
         startWorking(tracker, "a1", tabID: other)
@@ -159,7 +159,7 @@ struct SubagentCompletionTrackerTests {
 
     @Test func closingATabForgetsItsRows() async throws {
         let tracker = SubagentCompletionTracker(linger: .milliseconds(20))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         let other = UUID()
         startWorking(tracker, "a1", tabID: tab)
         startWorking(tracker, "a1", tabID: other)
@@ -194,7 +194,7 @@ struct SubagentCompletionTrackerTests {
     /// than filling the live list with work that ended days ago.
     @Test func aSubagentAlreadyFinishedOnTheFirstReadIsSettledAtOnce() {
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
 
         tracker.observe([done], tabID: tab)
 
@@ -206,7 +206,7 @@ struct SubagentCompletionTrackerTests {
     /// to a task does not count as one — a row mid-linger keeps its linger.
     @Test func remountingIsNotAFirstRead() {
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
         startWorking(tracker, "a1", tabID: tab)
         tracker.observe([done], tabID: tab)
 
@@ -219,20 +219,20 @@ struct SubagentCompletionTrackerTests {
     /// it finishes, which is the whole point of the distinction.
     @Test func aSubagentStillWorkingOnTheFirstReadStillLingers() {
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
 
-        tracker.observe([subagent("a1", .working), subagent("a2", .awaitingReply)], tabID: tab)
-        tracker.observe([done, subagent("a2", .awaitingReply)], tabID: tab)
+        tracker.observe([subagent("a1", .working), subagent("a2", .done)], tabID: tab)
+        tracker.observe([done, subagent("a2", .done)], tabID: tab)
 
         #expect(!tracker.hasSettled(done, tabID: tab))
-        #expect(tracker.hasSettled(subagent("a2", .awaitingReply), tabID: tab))
+        #expect(tracker.hasSettled(subagent("a2", .done), tabID: tab))
     }
 
     /// A resumed agent that goes back to work loses its pre-completion, and
     /// finishing again is then a transition worth watching land.
     @Test func aPreCompletedSubagentThatResumesEarnsALinger() {
         let tracker = SubagentCompletionTracker(linger: .seconds(30))
-        let done = subagent("a1", .awaitingReply)
+        let done = subagent("a1", .done)
 
         tracker.observe([done], tabID: tab)
         tracker.observe([subagent("a1", .working)], tabID: tab)

@@ -54,7 +54,7 @@ nonisolated enum SubagentStatusDeriver {
         }
 
         if isFinished(transcript: transcript, parentSignal: parentSignal, stoppedByUser: stoppedByUser) {
-            return .awaitingReply
+            return .done
         }
         if last.blocks.contains(where: isInterruption) { return .interrupted }
         return .working

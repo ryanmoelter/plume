@@ -175,7 +175,6 @@ struct TaskStatusTests {
     @Test(arguments: [
         ("unset", TaskStatus.notStarted),
         ("idle", .awaitingReply),
-        ("done", .awaitingReply),
         ("needsInput", .needsTerminalInput),
         ("working", .working),
         ("interrupted", .interrupted),
@@ -183,6 +182,15 @@ struct TaskStatusTests {
     ])
     func aSnapshotFromTheOldVocabularyStillReads(raw: String, expected: TaskStatus) {
         #expect(TaskStatus(migratingRawValue: raw) == expected)
+    }
+
+    /// A finished subagent is over; a tab handing its turn back is not. The
+    /// two must not aggregate to the same thing, or a task holding a done
+    /// subagent would read as finished itself.
+    @Test func aFinishedSubagentDoesNotOutrankATabWaitingOnTheUser() {
+        #expect(TaskStatus.aggregate([.done, .awaitingReply]) == .awaitingReply)
+        #expect(TaskStatus.aggregate([.done, .questionAsked]) == .questionAsked)
+        #expect(TaskStatus.aggregate([.done, .working]) == .working)
     }
 
     @Test func anUnreadableSnapshotClaimsNothing() {

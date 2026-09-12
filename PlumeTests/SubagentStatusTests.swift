@@ -56,7 +56,7 @@ struct SubagentStatusTests {
             parentSignal: nil
         )
 
-        #expect(status == .awaitingReply)
+        #expect(status == .done)
     }
 
     /// The shape behind the false green checks: an agent narrating between
@@ -109,7 +109,7 @@ struct SubagentStatusTests {
             parentSignal: .completed
         )
 
-        #expect(status == .awaitingReply)
+        #expect(status == .done)
     }
 
     /// A resumed agent works past the turn it already closed, so the newest
@@ -151,7 +151,7 @@ struct SubagentStatusTests {
             parentSignal: nil
         )
 
-        #expect(status == .awaitingReply)
+        #expect(status == .done)
     }
 
     /// Interruption is checked last, so it can only ever replace `working`.
@@ -161,7 +161,7 @@ struct SubagentStatusTests {
             parentSignal: .completed
         )
 
-        #expect(status == .awaitingReply)
+        #expect(status == .done)
     }
 
     @Test func aFailedSpawnOutranksATrailingInterruption() {
@@ -242,7 +242,7 @@ struct SubagentStatusTests {
 
         #expect(transcript(lines).lastStopReason == "tool_use")
         #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
-        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .awaitingReply)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
     }
 
     /// An agent cut off mid-response closes on `stop_sequence`, which is not
@@ -254,7 +254,7 @@ struct SubagentStatusTests {
         ]
 
         #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
-        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .awaitingReply)
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .completed) == .done)
     }
 
     /// A background agent's completion never touches the spawning call, so a

@@ -16,6 +16,12 @@ enum TaskStatus: String, CaseIterable, Sendable {
     /// move. Covers a finished turn and a cleanly exited process alike, which
     /// read the same to someone scanning the sidebar.
     case awaitingReply
+    /// Finished for good, with no one expected to reply. Only a subagent
+    /// reaches this: it is spawned to do one thing and then it is over. An
+    /// agent tab never does — a turn ending hands the conversation back to the
+    /// user, and calling that "done" would claim a decision only the user can
+    /// make by archiving the task.
+    case done
     case planApproval
     case questionAsked
     case permissionNeeded
@@ -36,14 +42,15 @@ enum TaskStatus: String, CaseIterable, Sendable {
     var priority: Int {
         switch self {
         case .notStarted: 0
-        case .awaitingReply: 1
-        case .interrupted: 2
-        case .error: 3
-        case .working: 4
-        case .needsTerminalInput: 5
-        case .permissionNeeded: 6
-        case .questionAsked: 7
-        case .planApproval: 8
+        case .done: 1
+        case .awaitingReply: 2
+        case .interrupted: 3
+        case .error: 4
+        case .working: 5
+        case .needsTerminalInput: 6
+        case .permissionNeeded: 7
+        case .questionAsked: 8
+        case .planApproval: 9
         }
     }
 
@@ -52,7 +59,7 @@ enum TaskStatus: String, CaseIterable, Sendable {
         switch self {
         case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
             true
-        case .notStarted, .working, .awaitingReply, .interrupted, .error:
+        case .notStarted, .working, .awaitingReply, .done, .interrupted, .error:
             false
         }
     }
@@ -74,7 +81,7 @@ enum TaskStatus: String, CaseIterable, Sendable {
         }
         switch raw {
         case "unset": self = .notStarted
-        case "idle", "done": self = .awaitingReply
+        case "idle": self = .awaitingReply
         case "needsInput": self = .needsTerminalInput
         default: self = .notStarted
         }

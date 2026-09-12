@@ -201,7 +201,7 @@ struct TranscriptStoreTests {
 
         let subagent = store.subagents(forTab: tab).first
         #expect(subagent?.title == "Explore: Find the leak")
-        #expect(subagent?.status == .awaitingReply)
+        #expect(subagent?.status == .done)
         #expect(subagent?.transcript.messages.count == 1)
     }
 
@@ -229,9 +229,9 @@ struct TranscriptStoreTests {
             to: subagentPath
         )
 
-        await waitUntil { store.subagents(forTab: tab).first?.status == .awaitingReply }
+        await waitUntil { store.subagents(forTab: tab).first?.status == .done }
         #expect(
-            store.subagents(forTab: tab).first?.status == .awaitingReply,
+            store.subagents(forTab: tab).first?.status == .done,
             "a subagent's own write did not refresh the list"
         )
     }
