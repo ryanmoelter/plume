@@ -73,21 +73,62 @@ final class GhosttyRuntime {
     private func resolveThemeDefinitions(
         in expanded: GhosttyConfigLoader.ExpandedConfig
     ) -> GhosttyThemeResolver.ResolvedDefinitions? {
+        Self.resolveThemeDefinitions(
+            in: expanded,
+            bundledDefault: Self.bundledLumDefinitions
+        )
+    }
+
+    /// Pure form of the above, taking the bundled default as a parameter so
+    /// tests can exercise the fallback logic without touching `Bundle.main`.
+    static func resolveThemeDefinitions(
+        in expanded: GhosttyConfigLoader.ExpandedConfig,
+        bundledDefault: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> GhosttyThemeResolver.ResolvedDefinitions? {
         guard let themeSourcePath = GhosttyConfigLoader.winningThemeSourcePath(in: expanded) else {
-            Log.ghostty.info("Ghostty config declares no theme; using default colors")
-            return nil
+            Log.ghostty.info("Ghostty config declares no theme; defaulting to the bundled Lum palette")
+            return bundledDefault
         }
 
         guard let definitions = GhosttyThemeResolver.resolveDefinitions(
             configContents: expanded.rawContents,
             userThemesDirectory: GhosttyConfigLoader.themesDirectory(forConfigPath: themeSourcePath)
         ) else {
-            Log.ghostty.error("Ghostty theme in \(themeSourcePath, privacy: .public) resolved to nothing; using default colors")
-            return nil
+            Log.ghostty.error("Ghostty theme in \(themeSourcePath, privacy: .public) resolved to nothing; defaulting to the bundled Lum palette")
+            return bundledDefault
         }
 
         Log.ghostty.info("Ghostty theme resolved from \(themeSourcePath, privacy: .public)")
         return definitions
+    }
+
+    /// Plume's default palette when the user's config names no theme (or
+    /// names one that fails to resolve). Vendored from Ryan's own ghostty
+    /// themes rather than referencing `~/dotfiles`, which would not exist on
+    /// another machine.
+    ///
+    /// Nil only if the bundled files are missing or malformed, which would be
+    /// a packaging bug — `Palette.init` still has its system-color fallback
+    /// as a last resort.
+    static let bundledLumDefinitions: GhosttyThemeResolver.ResolvedDefinitions? = {
+        guard
+            let dark = bundledThemeDefinition(name: "Lum dark"),
+            let light = bundledThemeDefinition(name: "Lum light")
+        else {
+            Log.ghostty.error("Bundled Lum theme files are missing or malformed")
+            return nil
+        }
+        return GhosttyThemeResolver.ResolvedDefinitions(light: light, dark: dark)
+    }()
+
+    private static func bundledThemeDefinition(name: String) -> GhosttyThemeDefinition? {
+        guard
+            let url = Bundle.main.url(forResource: name, withExtension: nil),
+            let contents = try? String(contentsOf: url, encoding: .utf8)
+        else {
+            return nil
+        }
+        return GhosttyThemeResolver.parseThemeFile(name: name, contents: contents)
     }
 
     /// The controller, starting the runtime if a surface is requested before

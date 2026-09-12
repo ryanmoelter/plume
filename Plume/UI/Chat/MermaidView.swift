@@ -21,9 +21,10 @@ struct MermaidBlock<Fallback: View>: View, ThemedView {
 
     let source: String
     var isRevealed: Bool = false
-    @ViewBuilder let fallback: () -> Fallback
+    @ViewBuilder let fallback: (String?) -> Fallback
 
     @State private var height: CGFloat?
+    @State private var failureReason: String?
     @State private var isFullScreen = false
 
     private var isCapped: Bool {
@@ -37,7 +38,7 @@ struct MermaidBlock<Fallback: View>: View, ThemedView {
     var body: some View {
         ZStack(alignment: .topLeading) {
             if height == nil {
-                fallback()
+                fallback(failureReason)
             }
             MermaidWebView(
                 source: source,
@@ -53,8 +54,9 @@ struct MermaidBlock<Fallback: View>: View, ThemedView {
                         // height, and taking that would shrink the frame,
                         // which would rescale, which would report again.
                         if !isCapped { height = value }
-                    case .failed:
+                    case let .failed(reason):
                         height = nil
+                        failureReason = reason
                     }
                 }
             )
@@ -314,7 +316,7 @@ private struct MermaidZoomableWebView: NSViewRepresentable {
 private struct MermaidWebView: NSViewRepresentable {
     enum Outcome: Equatable {
         case rendered(CGFloat)
-        case failed
+        case failed(String)
     }
 
     let source: String
@@ -409,7 +411,7 @@ private struct MermaidWebView: NSViewRepresentable {
             case "error":
                 let message = payload["message"] as? String ?? "unknown"
                 Log.app.error("mermaid \(self.role, privacy: .public) parse error: \(message, privacy: .public)")
-                onOutcome(.failed)
+                onOutcome(.failed(message))
             default:
                 break
             }

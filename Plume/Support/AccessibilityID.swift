@@ -8,6 +8,8 @@ enum AccessibilityID {
 
     static let taskRow = "task-row"
     static let groupHeader = "group-header"
+    static let groupHeaderNewTaskButton = "group-header-new-task-button"
+    static let groupHeaderDisclosureButton = "group-header-disclosure-button"
     static let newTaskButton = "new-task-button"
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"

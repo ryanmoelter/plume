@@ -171,13 +171,7 @@ private struct TabChip: View {
         guard let themeForeground else {
             return isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear)
         }
-        let opacity: Double = if isSelected {
-            SidebarSelectionFill.opacity
-        } else if isHovering {
-            Emphasis.backgroundTint.fillOpacity(for: colorScheme)
-        } else {
-            0
-        }
+        let opacity = isSelected ? SidebarSelectionFill.opacity(for: colorScheme) : 0
         return AnyShapeStyle(themeForeground.opacity(opacity))
     }
 }

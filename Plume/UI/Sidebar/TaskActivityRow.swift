@@ -49,7 +49,9 @@ struct TaskActivityRow: View, ThemedView {
                         .help(row.subagent.title)
                 }
             }
-            .font(.caption)
+            // These symbols carry little ink at this size — the working
+            // ellipsis is three dots — so they take the extra weight to read.
+            .font(.caption.weight(.bold))
         }
     }
 }
