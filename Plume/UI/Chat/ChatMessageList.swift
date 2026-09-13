@@ -114,7 +114,18 @@ struct ChatMessageList: View, ThemedView {
     /// per realized item.
     @State private var jumpTargetID: String?
 
+    /// The custom list's handle, and the message ids of the last rebuild so
+    /// a prompt the user just sent can be told from a transcript loading.
+    @State private var commands = ChatListCommands()
+    @State private var previousMessageIDs: [String] = []
+    @Environment(\.chatFontSize) private var chatFontSize
+
     private static let contentSpace = "chatContent"
+
+    /// Fixed for this list's life: switching containers under a mounted
+    /// list would rebuild every row, so the setting applies to the next
+    /// chat opened.
+    @State private var engine = AppSettings.shared.effectiveChatListEngine
 
     var body: some View {
         HStack(spacing: 0) {
@@ -124,11 +135,7 @@ struct ChatMessageList: View, ThemedView {
                     outline: outline,
                     visiblePieceIDs: visiblePieceIDs,
                     onSelect: { jump(to: $0) },
-                    onSelectEnd: {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            position.scrollTo(edge: .bottom)
-                        }
-                    },
+                    onSelectEnd: { jumpToBottom(animated: true) },
                     bottomInset: floatingPanelHeight
                 )
             }
@@ -136,6 +143,59 @@ struct ChatMessageList: View, ThemedView {
     }
 
     private var list: some View {
+        Group {
+            switch engine {
+            case .lazyStack: lazyList
+            case .custom: customList
+            }
+        }
+        .onChange(of: messages, initial: true) { rebuildPieces() }
+        .onChange(of: status) { rebuildPieces() }
+        .onChange(of: pendingToolUseIDs) { rebuildPieces() }
+        .onChange(of: streaming) { rebuildPieces() }
+        .onChange(of: dimensions.contentWidth) { rebuildPieces() }
+        #if DEBUG
+        .task(id: pieces.count) {
+            await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
+                jump(to: id)
+            }
+        }
+        #endif
+        .overlay(alignment: .bottom) {
+            ChatJumpToBottomButton(visibility: jumpButton, bottomInset: floatingPanelHeight) {
+                // The programmatic scroll reports as growth-free
+                // geometry, but only after the fact; resetting here
+                // hides the button at once.
+                followState.distanceFromBottom = 0
+                followState.detached = false
+                jumpButton.isDetached = false
+                jumpToBottom(animated: false)
+            }
+        }
+    }
+
+    private var customList: some View {
+        ChatListView(
+            inputs: ChatListInputs(
+                pieces: pieces,
+                tabID: tabID,
+                subagents: subagents,
+                animate: settings.animateChatMotion,
+                trailingInset: bottomPadding + floatingPanelHeight,
+                chatFontSize: chatFontSize,
+                workStartedAt: tabID.flatMap { StatusEngine.shared.workStarted(forTab: $0) },
+                arrivals: arrivals,
+                openings: openings
+            ),
+            revealClock: revealClock,
+            commands: commands,
+            onOpenSubagent: onOpenSubagent,
+            onVisiblePieceIDs: { visiblePieceIDs = $0 },
+            onDetachedChange: { jumpButton.isDetached = $0 }
+        )
+    }
+
+    private var lazyList: some View {
         ScrollView {
             // Lazy so a long transcript only builds the rows on screen.
             //
@@ -207,11 +267,6 @@ struct ChatMessageList: View, ThemedView {
         .environment(\.revealClock, revealClock)
         .environment(\.workStartedAt, tabID.flatMap { StatusEngine.shared.workStarted(forTab: $0) })
         .chatItemStatsViewport(list: statsToken)
-        .onChange(of: messages, initial: true) { rebuildPieces() }
-        .onChange(of: status) { rebuildPieces() }
-        .onChange(of: pendingToolUseIDs) { rebuildPieces() }
-        .onChange(of: streaming) { rebuildPieces() }
-        .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .scrollPosition($position)
         // The room the floating composer panel covers, as a content margin
         // rather than a spacer row. A spacer inside `scrollTargetLayout` is
@@ -279,21 +334,18 @@ struct ChatMessageList: View, ThemedView {
                 jumpButton.isDetached = detached
             }
         }
-        #if DEBUG
-        .task(id: pieces.count) {
-            await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
-                jump(to: id)
-            }
-        }
-        #endif
-        .overlay(alignment: .bottom) {
-            ChatJumpToBottomButton(visibility: jumpButton, bottomInset: floatingPanelHeight) {
-                // The programmatic scroll reports as growth-free
-                // geometry, but only after the fact; resetting here
-                // hides the button at once.
-                followState.distanceFromBottom = 0
-                followState.detached = false
-                jumpButton.isDetached = false
+    }
+
+    private func jumpToBottom(animated: Bool) {
+        switch engine {
+        case .custom:
+            commands.scrollToBottom(animated: animated)
+        case .lazyStack:
+            if animated {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    position.scrollTo(edge: .bottom)
+                }
+            } else {
                 position.scrollTo(edge: .bottom)
             }
         }
@@ -301,7 +353,8 @@ struct ChatMessageList: View, ThemedView {
 
     /// Puts the piece at the top of the viewport.
     ///
-    /// Above the viewport, `scrollTo(id:anchor:)` is enough. Below it, the
+    /// The custom list resolves the target itself. In the lazy stack, above
+    /// the viewport `scrollTo(id:anchor:)` is enough. Below it, the
     /// lazy stack resolves the request against an estimated frame, and once
     /// the target has entered from the bottom edge the scroll view treats
     /// the request as satisfied there — a repeat of it, or the same request
@@ -309,6 +362,10 @@ struct ChatMessageList: View, ThemedView {
     /// anchored request only to get the target realized, and finishes on an
     /// offset computed from the realized row's frame.
     private func jump(to id: String) {
+        if engine == .custom {
+            commands.jump(to: id)
+            return
+        }
         guard let index = pieces.firstIndex(where: { $0.id == id }) else { return }
         let topVisibleIndex = pieces.indices.first { visiblePieceIDs.contains(pieces[$0].id) } ?? 0
         followState.targetY = nil
@@ -398,10 +455,29 @@ struct ChatMessageList: View, ThemedView {
         previousStreaming = overlay
         pieces = rebuilt
         outline = ChatOutlineBuilder.outline(from: rebuilt)
+        pinSentPrompt(in: rebuilt)
         #if DEBUG
         ChatItemStats.shared.record(list: statsToken, rebuild: started.duration(to: .now))
         ChatItemStats.shared.setOrder(pieces.map(\.id), for: statsToken)
         #endif
+    }
+
+    /// A prompt the user just sent goes to the top of the viewport, with
+    /// room below it for the reply. Detected from the transcript rather than
+    /// the composer, so both transports and a queued message all count.
+    ///
+    /// Only a message appended to a conversation already showing: the first
+    /// build is a transcript loading, and a resume replaces the whole list.
+    private func pinSentPrompt(in pieces: [ChatPiece]) {
+        let ids = messages.map(\.id)
+        defer { previousMessageIDs = ids }
+        guard !previousMessageIDs.isEmpty,
+              ids.count > previousMessageIDs.count,
+              ids.starts(with: previousMessageIDs) else { return }
+        let appended = messages[previousMessageIDs.count...]
+        guard let prompt = appended.last(where: { $0.role == .user }),
+              let piece = pieces.first(where: { $0.messageID == prompt.id }) else { return }
+        commands.pin(pieceID: piece.id)
     }
 }
 

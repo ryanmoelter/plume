@@ -85,6 +85,16 @@ struct ChatLayoutModel {
         invalidate()
     }
 
+    /// Replaces the guess for an item that has not measured yet. A measured
+    /// item keeps its measurement.
+    mutating func updateEstimate(_ height: CGFloat, for id: String) {
+        guard let index = indexByID[id], !entries[index].hasMeasurement else { return }
+        entries[index].item.estimatedHeight = height
+        entries[index].targetHeight = height
+        entries[index].displayHeight = height
+        invalidate()
+    }
+
     // MARK: - Heights
 
     func targetHeight(of id: String) -> CGFloat {

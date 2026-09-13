@@ -23,6 +23,22 @@ struct ChatLayoutModelTests {
         #expect(model.displayHeight(of: "a") == 10)
     }
 
+    @Test func anEstimateUpdatesOnlyAnUnmeasuredItem() {
+        var model = ChatLayoutModel()
+        model.measurementWidth = 300
+        model.setItems([item("a", 10), item("b", 10)])
+        let generation = model.realize("b")
+        model.setTargetHeight(50, for: "b", width: 300, generation: generation)
+
+        model.updateEstimate(30, for: "a")
+        model.updateEstimate(30, for: "b")
+
+        #expect(model.targetHeight(of: "a") == 30)
+        #expect(model.displayHeight(of: "a") == 30)
+        #expect(model.targetHeight(of: "b") == 50)
+        #expect(model.contentHeight == 80)
+    }
+
     @Test func measuredHeightsSurviveAcrossSetItemsForIDsStillPresent() {
         var model = ChatLayoutModel()
         model.measurementWidth = 300
