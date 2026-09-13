@@ -17,6 +17,9 @@ struct ChatCopyButton: View, ThemedView {
     let markdown: String
     let isRevealed: Bool
     var label: String
+    /// Set for a button that floats over content, which needs a chip behind
+    /// it to stay legible. An inline one sits on the surface already.
+    var isFloating: Bool = true
 
     @State private var didCopy = false
 
@@ -24,9 +27,7 @@ struct ChatCopyButton: View, ThemedView {
         Button(action: copy) {
             Image(systemName: didCopy ? "checkmark" : Self.symbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(colors.foreground)
-                .padding(6)
-                .background(colors.surface(.backgroundTint), in: .circle)
+                .modifier(CopyGlyphStyle(isFloating: isFloating, didCopy: didCopy))
         }
         .buttonStyle(.plain)
         .opacity(isRevealed || didCopy ? 1 : 0)
@@ -41,6 +42,29 @@ struct ChatCopyButton: View, ThemedView {
         Task {
             try? await Task.sleep(for: .seconds(1.2))
             didCopy = false
+        }
+    }
+}
+
+/// The two treatments a copy glyph takes: a chip where it floats over
+/// content, dimmed and bare where it sits inline on the surface.
+private struct CopyGlyphStyle: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
+
+    let isFloating: Bool
+    let didCopy: Bool
+
+    func body(content: Content) -> some View {
+        if isFloating {
+            content
+                .foregroundStyle(colors.foreground)
+                .padding(6)
+                .background(colors.surface(.backgroundTint), in: .circle)
+        } else {
+            content
+                .emphasis(didCopy ? .primary : .subtle)
+                .padding(2)
+                .contentShape(.rect)
         }
     }
 }

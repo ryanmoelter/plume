@@ -349,12 +349,13 @@ struct CodeSegmentView: View, ThemedView {
 
     /// Names the language and carries the copy button, both drawn always.
     ///
-    /// Always present even for an untagged fence, so the copy button keeps a
-    /// fixed home and every block in a reply lines up. Its height is part of
-    /// `ChatPieceMetrics.codeHeaderHeight`, which the scroll ceiling counts.
+    /// An untagged fence says so rather than going blank, which keeps the
+    /// copy button from sitting alone and every block in a reply lined up.
+    /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
+    /// ceiling counts.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(CodeSyntax.displayName(for: segment.language) ?? "")
+            Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
                 .font(typography.caption.mono)
                 .emphasis(.secondary)
             Spacer(minLength: 0)
