@@ -57,7 +57,7 @@ struct SidebarFooter: View, ThemedView {
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
                         detail: keepAwakeDetail,
-                        showsRemoteControl: isBatteryBlocked ? false : coordinator.tally.remotelyControlled
+                        detailSymbol: keepAwakeDetailSymbol
                     )
                 }
                 .help(keepAwakeHelp)
@@ -90,11 +90,9 @@ struct SidebarFooter: View, ThemedView {
         coordinator.offReason == .battery
     }
 
-    /// An empty cup is not caffeinated; a steaming one is. Battery blocking
-    /// gets its own glyph, since neither cup explains why it's not held.
+    /// An empty cup is not caffeinated; a steaming one is.
     private var keepAwakeIcon: String {
-        if isBatteryBlocked { return "battery.25percent" }
-        return coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
+        coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
     }
 
     /// Tinted only while held. Warning rather than attention: the Mac staying
@@ -112,16 +110,26 @@ struct SidebarFooter: View, ThemedView {
     /// What is holding the Mac awake, or the mode when nothing is. Auto with
     /// no reasons needs no label: the title already says what it does. The
     /// remote-control glyph rides alongside, so it is never named in words.
+    /// Battery blocking is glyph-only too, via `keepAwakeDetailSymbol`.
     private var keepAwakeDetail: String? {
-        if isBatteryBlocked { return "On battery" }
+        if isBatteryBlocked { return nil }
         let tally = coordinator.tally
         if tally.working > 0 { return "\(tally.working) working" }
         if tally.remotelyControlled { return nil }
         return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
     }
 
+    /// The reason keep-awake is off or on, as a glyph rather than words.
+    /// Battery blocking takes priority over remote control, the same way it
+    /// takes priority over the working count in `keepAwakeDetail`.
+    private var keepAwakeDetailSymbol: String? {
+        if isBatteryBlocked { return "battery.25percent" }
+        return coordinator.tally.remotelyControlled ? StatusSymbol.remoteControl.name : nil
+    }
+
     private var keepAwakeHelp: String {
-        coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
+        if isBatteryBlocked { return "Keep Awake is off while on battery" }
+        return coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
 
     /// The last row's wash sits inside the window's corner, so it curves
@@ -150,8 +158,9 @@ private struct SidebarFooterRow: View {
     var hasMoreOptions = false
     /// A few words of state, shown before the chevron.
     var detail: String?
-    /// Appends the remote-control glyph after `detail`.
-    var showsRemoteControl = false
+    /// A system symbol appended after `detail`, e.g. remote-control or
+    /// battery-blocked.
+    var detailSymbol: String?
 
     var body: some View {
         // Stacks only when the title and its detail cannot share a line,
@@ -181,7 +190,7 @@ private struct SidebarFooterRow: View {
         .animation(.default, value: icon)
         .animation(.default, value: title)
         .animation(.default, value: detail)
-        .animation(.default, value: showsRemoteControl)
+        .animation(.default, value: detailSymbol)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
@@ -197,16 +206,16 @@ private struct SidebarFooterRow: View {
 
     @ViewBuilder
     private var detailLabel: some View {
-        if detail != nil || showsRemoteControl {
+        if detail != nil || detailSymbol != nil {
             HStack(spacing: 3) {
                 if let detail {
                     Text(detail)
                         .contentTransition(.numericText())
                         .emphasis(.secondary)
                 }
-                if showsRemoteControl {
+                if let detailSymbol {
                     // Full emphasis: it is a state, not a caption on one.
-                    Image(systemName: StatusSymbol.remoteControl.name)
+                    Image(systemName: detailSymbol)
                         .imageScale(.small)
                         .emphasis(.primary)
                 }
