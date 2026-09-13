@@ -99,9 +99,14 @@ struct ChatPieceView: View, ThemedView {
                     isFloating: false
                 )
                 if let timestamp = piece.timestamp {
-                    Text(Self.timeFormat.string(from: timestamp))
+                    Text(ChatTimestampFormat.string(for: timestamp, now: .now))
                         .font(typography.caption.font)
                         .emphasis(.subtle)
+                        // A dated timestamp is long enough to wrap in a narrow
+                        // column, and a two-line footer would change the
+                        // piece's height (`docs/chat-list-hang.md`).
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             // The glyph sits centred in a circle wider than itself, so the
@@ -111,13 +116,6 @@ struct ChatPieceView: View, ThemedView {
             .listItemPadding(vertical: false)
         }
     }
-
-    private static let timeFormat: DateFormatter = {
-        let format = DateFormatter()
-        format.dateStyle = .none
-        format.timeStyle = .short
-        return format
-    }()
 
     @ViewBuilder
     private var content: some View {
