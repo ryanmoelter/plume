@@ -578,17 +578,46 @@ struct ChatPieceSplitterTests {
         #expect(result.allSatisfy { $0.tableCopySource == nil })
     }
 
-    /// One button for the whole reply, on its first piece only.
-    /// The footer closes the message, so the source rides its last piece.
-    @Test func onlyTheLastPieceCarriesTheWholeMessage() {
+    @Test func theFooterSitsOnTheLastMarkdownPieceAfterACall() {
         let result = pieces([message("m", .assistant, [
             .markdown("One."),
             toolCall("t1"),
             .markdown("Two.")
         ])])
-        #expect(result.last?.messageCopySource == "One.\n\nTwo.")
+        #expect(result.map(\.id) == ["m/0/0", "m/1", "m/2/0"])
+        #expect(result[2].messageCopySource == "One.\n\nTwo.")
         #expect(result.dropLast().allSatisfy { $0.messageCopySource == nil })
-        #expect(result.last?.offersMessageCopy == true)
+        #expect(result[2].offersMessageCopy == true)
+    }
+
+    @Test func theFooterStaysOnTheMarkdownWhenACallFollowsIt() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("One.\n\nTwo."),
+            toolCall("t1")
+        ])])
+        #expect(result.map(\.id) == ["m/0/0", "m/0/1", "m/1"])
+        #expect(result[1].messageCopySource == "One.\n\nTwo.")
+        #expect(result[1].offersMessageCopy == true)
+        #expect(result[0].messageCopySource == nil)
+        #expect(result[2].messageCopySource == nil)
+        #expect(result[2].timestamp == nil)
+    }
+
+    /// Each new block would move the footer to another piece mid-turn, so it
+    /// waits for the turn to end.
+    @Test func anInFlightReplyHasNoFooter() {
+        let blocks: [ChatBlock] = [.markdown("One."), toolCall("t1")]
+        let working = pieces([message("m", .assistant, blocks)], status: .working)
+        #expect(working.allSatisfy { $0.messageCopySource == nil })
+
+        let parked = pieces([message("m", .assistant, blocks)], status: .permissionNeeded)
+        #expect(parked.allSatisfy { $0.messageCopySource == nil })
+    }
+
+    /// Only the reply is in flight; the prompt the user sent is finished.
+    @Test func aSentPromptKeepsItsFooterWhileTheReplyWorks() {
+        let result = pieces([message("m", .user, [.markdown("go")])], status: .working)
+        #expect(result.first { $0.messageID == "m" }?.messageCopySource == "go")
     }
 
     /// The footer shows it beside the copy button, and only there.
@@ -630,6 +659,6 @@ struct ChatPieceSplitterTests {
             [message("m", .assistant, [.markdown("Partial")])],
             streaming: ChatStreamHandoff.Overlay(text: "and more")
         )
-        #expect(result.first { $0.isLive }?.offersMessageCopy == false)
+        #expect(result.allSatisfy { !$0.offersMessageCopy })
     }
 }
