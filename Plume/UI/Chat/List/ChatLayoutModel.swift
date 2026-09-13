@@ -88,11 +88,21 @@ struct ChatLayoutModel {
     /// Replaces the guess for an item that has not measured yet. A measured
     /// item keeps its measurement.
     mutating func updateEstimate(_ height: CGFloat, for id: String) {
-        guard let index = indexByID[id], !entries[index].hasMeasurement else { return }
-        entries[index].item.estimatedHeight = height
-        entries[index].targetHeight = height
-        entries[index].displayHeight = height
-        invalidate()
+        updateEstimates([id: height])
+    }
+
+    /// One recompute for the whole batch; a width change re-estimates
+    /// every unmeasured item at once.
+    mutating func updateEstimates(_ heights: [String: CGFloat]) {
+        var changed = false
+        for (id, height) in heights {
+            guard let index = indexByID[id], !entries[index].hasMeasurement else { continue }
+            entries[index].item.estimatedHeight = height
+            entries[index].targetHeight = height
+            entries[index].displayHeight = height
+            changed = true
+        }
+        if changed { invalidate() }
     }
 
     // MARK: - Heights
@@ -198,6 +208,12 @@ struct ChatLayoutModel {
     // MARK: - Windows
 
     func realizedRange(offset: CGFloat) -> Range<Int> {
+        realizedRange(offset: offset, overscan: overscan)
+    }
+
+    /// The same window at another overscan, so a controller can keep hosts
+    /// for longer than it takes to realize them.
+    func realizedRange(offset: CGFloat, overscan: CGFloat) -> Range<Int> {
         guard viewportHeight > 0, !entries.isEmpty else { return 0..<0 }
         let lower = offset - overscan * viewportHeight
         let upper = offset + viewportHeight + overscan * viewportHeight

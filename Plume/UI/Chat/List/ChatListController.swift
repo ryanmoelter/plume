@@ -70,6 +70,9 @@ final class ChatListController: NSObject {
     /// scroll the reader made can turn it off; a scroll the list made never
     /// counts.
     private var isFollowing = true
+    /// How far above the bottom the reader settled while still counting as
+    /// following, so growth keeps that gap rather than snapping it shut.
+    private var followDistance: CGFloat = 0
     private var isDetached = false
     /// The item under the viewport's top edge and how far into it the reader
     /// is, captured whenever the reader scrolls, so heights changing above
@@ -78,9 +81,10 @@ final class ChatListController: NSObject {
     private var easedOffset: CGFloat?
     private var isOwnScroll = false
     private var isLayingOut = false
-    /// Set by the reader's scroll, so the pass it schedules leaves the
-    /// offset where they put it — including a rubber-band past the end.
-    private var leavesOffsetAlone = false
+    /// The offset the policy last asked for. A pass writes the offset only
+    /// when its policy asks for a different one, so a reader mid-gesture —
+    /// rubber-banding past the end included — is left where they are.
+    private var lastResolvedOffset: CGFloat?
     private var consumedArrivals: Set<String> = []
     private var consumedOpenings: Set<String> = []
     private var arriving: Set<String> = []
@@ -131,6 +135,13 @@ final class ChatListController: NSObject {
             self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: clip
         )
         animator.onTick = { [weak self] now in self?.tick(at: now) }
+    }
+
+    /// Breaks the display link's hold on the animator; nothing else keeps
+    /// the controller alive once its view is gone.
+    func tearDown() {
+        animator.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Inputs
@@ -192,7 +203,7 @@ final class ChatListController: NSObject {
         }
         items = next
         model.setItems(layoutItems)
-        for id in Array(hosts.keys) where next[id] == nil { free(id) }
+        for id in Array(hosts.keys) where next[id] == nil { free(id, force: true) }
         consumedArrivals = consumedArrivals.intersection(next.keys)
         consumedOpenings = consumedOpenings.intersection(next.keys)
 
@@ -214,9 +225,11 @@ final class ChatListController: NSObject {
     /// first to know.
     private func reestimateUnmeasured() {
         let width = max(1, model.measurementWidth)
+        var estimates: [String: CGFloat] = [:]
         for piece in inputs.pieces where !model.hasMeasurement(piece.id) {
-            model.updateEstimate(ChatPieceEstimate.height(of: piece, width: width), for: piece.id)
+            estimates[piece.id] = ChatPieceEstimate.height(of: piece, width: width)
         }
+        model.updateEstimates(estimates)
     }
 
     // MARK: - Commands
@@ -243,31 +256,46 @@ final class ChatListController: NSObject {
 
     /// Sets the follow state a finished scroll leaves behind.
     private func land(_ target: ChatListScrollTarget) {
+        // Whatever follows the pinned prompt is on screen and measured by
+        // the time the scroll lands; from here the slack only shrinks.
+        pendingPin = nil
         switch target {
         case .bottom:
             isFollowing = true
+            followDistance = 0
             readerAnchor = nil
             setDetached(false)
         case let .item(id):
             isFollowing = false
             readerAnchor = (id: id, distance: 0)
         }
+        Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) max=\(Int(self.model.maxOffset))")
     }
 
     // MARK: - Scroll events
 
     @objc private func clipBoundsChanged() {
         guard !isOwnScroll, !isLayingOut else { return }
-        // Anything not written by a layout pass is the reader's: a wheel, a
-        // momentum tail, a keyboard page, or AppKit clamping to a resize.
+        let clip = scrollView.contentView
+        // A size change is geometry, not intent; the pass it schedules
+        // re-resolves the offset from the state the reader already has.
+        guard clip.bounds.height == model.viewportHeight, clip.bounds.width == model.measurementWidth,
+              model.viewportHeight > 0 else {
+            documentView.needsLayout = true
+            return
+        }
+        // Anything else not written by a layout pass is the reader's: a
+        // wheel, a momentum tail, a keyboard page.
         animator.cancelScroll()
         easedOffset = nil
-        let offset = scrollView.contentView.bounds.origin.y
+        pendingPin = nil
+        let offset = clip.bounds.origin.y
         let distance = max(0, model.maxOffset - offset)
         isFollowing = distance <= ChatScrollAnchor.bottomTolerance
+        followDistance = isFollowing ? distance : 0
         readerAnchor = isFollowing ? nil : model.readerAnchor(offset: offset)
         setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
-        leavesOffsetAlone = true
+        lastResolvedOffset = resolvedOffset()
         documentView.needsLayout = true
     }
 
@@ -287,6 +315,7 @@ final class ChatListController: NSObject {
     private func report(id: String, height: CGFloat, width: CGFloat, generation: Int) {
         guard let host = hosts[id], host.generation == generation else { return }
         if model.targetHeight(of: id) == height, model.hasMeasurement(id) { return }
+        pendingMeasurements.removeAll { $0.id == id }
         pendingMeasurements.append(Measurement(id: id, height: height, width: width, generation: generation))
         documentView.needsLayout = true
     }
@@ -318,12 +347,24 @@ final class ChatListController: NSObject {
             }
         }
         for key in animator.eases.keys where animator.eases[key]!.isFinished(at: now) {
-            arriving.remove(key)
-            hosts[key]?.view.alphaValue = 1
+            finishArrival(key)
         }
         animator.prune(at: now)
         documentView.needsLayout = true
         documentView.layoutSubtreeIfNeeded()
+    }
+
+    private func finishArrival(_ id: String) {
+        guard arriving.remove(id) != nil else { return }
+        hosts[id]?.view.alphaValue = 1
+    }
+
+    /// The offset the current policy asks for, before clamping.
+    private func resolvedOffset() -> CGFloat {
+        if let easedOffset { return easedOffset }
+        if isFollowing { return model.maxOffset - followDistance }
+        if let readerAnchor { return model.offset(keeping: readerAnchor.id, distance: readerAnchor.distance) }
+        return scrollView.contentView.bounds.origin.y
     }
 
     private func resolve(_ target: ChatListScrollTarget) -> CGFloat {
@@ -358,34 +399,28 @@ final class ChatListController: NSObject {
             }
         }
 
-        var offset = easedOffset ?? clip.bounds.origin.y
+        let actual = clip.bounds.origin.y
         if width > 0, viewport > 0 {
-            realizeWindow(around: offset)
-        }
-        if let pendingPin, model.index(of: pendingPin) != nil {
-            // Re-pin once the prompt and what follows it have real heights,
-            // so the slack cap is set from measurements, not estimates.
-            model.setAnchor(pendingPin)
-            if hasMeasuredEverything(from: pendingPin) { self.pendingPin = nil }
+            realizeWindow(around: easedOffset ?? actual)
         }
 
-        if let easedOffset {
-            offset = easedOffset
-        } else if isFollowing {
-            offset = model.maxOffset
-        } else if let readerAnchor {
-            offset = model.offset(keeping: readerAnchor.id, distance: readerAnchor.distance)
-        }
-        offset = min(max(0, offset), model.maxOffset)
+        let desired = min(max(0, resolvedOffset()), model.maxOffset)
+        let writes = easedOffset != nil || desired != lastResolvedOffset
+        let offset = writes ? desired : actual
 
         documentView.setFrameSize(NSSize(width: width, height: max(model.totalHeight, viewport)))
-        let writesOffset = !leavesOffsetAlone
-        leavesOffsetAlone = false
-        if writesOffset, clip.bounds.origin.y != offset {
-            isOwnScroll = true
-            clip.scroll(to: NSPoint(x: 0, y: offset))
-            scrollView.reflectScrolledClipView(clip)
-            isOwnScroll = false
+        if writes {
+            lastResolvedOffset = desired
+            if actual != desired {
+                isOwnScroll = true
+                clip.scroll(to: NSPoint(x: 0, y: desired))
+                scrollView.reflectScrolledClipView(clip)
+                isOwnScroll = false
+            }
+        }
+        if !isFollowing, easedOffset == nil {
+            let distance = max(0, model.maxOffset - offset)
+            setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
         for (id, host) in hosts {
@@ -401,12 +436,22 @@ final class ChatListController: NSObject {
     }
 
     private var lastLog: TimeInterval = 0
+    private var trailingLog: DispatchWorkItem?
 
-    /// One line a second at most, so a run with the screen off still leaves
-    /// evidence of what the list did.
+    /// One line a second at most, plus the state a burst settled on, so a
+    /// run with the screen off still leaves evidence of what the list did.
     private func logPass(offset: CGFloat, viewport: CGFloat) {
         let now = CACurrentMediaTime()
-        guard now - lastLog > 1 else { return }
+        guard now - lastLog > 1 else {
+            trailingLog?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.logPass(offset: self.scrollView.contentView.bounds.origin.y, viewport: viewport)
+            }
+            trailingLog = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
+            return
+        }
         lastLog = now
         Log.chatList.info(
             "pass items=\(self.model.count) realized=\(self.hosts.count) pool=\(self.pool.count) offset=\(Int(offset)) max=\(Int(self.model.maxOffset)) total=\(Int(self.model.totalHeight)) viewport=\(Int(viewport)) slack=\(Int(self.model.slack)) following=\(self.isFollowing) detached=\(self.isDetached) animating=\(self.animator.isAnimating)"
@@ -442,22 +487,22 @@ final class ChatListController: NSObject {
         }
     }
 
+    /// Re-pins while the prompt and what follows it are still measuring for
+    /// the first time, so the slack cap comes from measurements rather than
+    /// estimates. `land` ends the calibration.
     private func notePinMeasurement(_ id: String) {
         guard let pendingPin, let anchorIndex = model.index(of: pendingPin), let index = model.index(of: id),
               index >= anchorIndex else { return }
         model.setAnchor(pendingPin)
     }
 
-    private func hasMeasuredEverything(from id: String) -> Bool {
-        guard let start = model.index(of: id) else { return true }
-        return (start..<model.count).allSatisfy { model.hasMeasurement(model.id(at: $0)) }
-    }
-
+    /// Realizes inside the window and frees only well outside it, so an item
+    /// at the edge of a scroll is not built and torn down on every frame.
     private func realizeWindow(around offset: CGFloat) {
         let range = model.realizedRange(offset: offset)
         lastRealizedRange = range
-        let wanted = Set(range.map { model.id(at: $0) })
-        for id in Array(hosts.keys) where !wanted.contains(id) { free(id) }
+        let kept = Set(model.realizedRange(offset: offset, overscan: model.overscan * 3).map { model.id(at: $0) })
+        for id in Array(hosts.keys) where !kept.contains(id) { free(id) }
         for index in range {
             let id = model.id(at: index)
             guard hosts[id] == nil, let item = items[id] else { continue }
@@ -478,7 +523,7 @@ final class ChatListController: NSObject {
         hosts[id] = host
         let hadMeasurement = model.hasMeasurement(id)
         let before = model.displayHeight(of: id)
-        let measured = view.fittingSize.height
+        let measured = naturalHeight(of: view)
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: generation)
         if !hadMeasurement { notePinMeasurement(id) }
 
@@ -501,25 +546,35 @@ final class ChatListController: NSObject {
     }
 
     private func remeasure(id: String, item: Item, host: Host) {
+        // Measured at its natural height: with a container height still
+        // applied, `fittingSize` would report the frame, not the content.
+        host.state.containerHeight = nil
         host.view.rootView = makeRoot(for: item, id: id, state: host.state, generation: host.generation)
-        let measured = host.view.fittingSize.height
+        let measured = naturalHeight(of: host.view)
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: host.generation)
         // A width change re-wraps everything at once; easing every row would
         // only smear the reflow.
         model.setDisplayHeight(measured, for: id)
         animator.cancelEase(id)
+        finishArrival(id)
         host.state.containerHeight = inputs.animate ? measured : nil
     }
 
-    private func free(_ id: String) {
+    /// Returns a host to the pool. An evicted item keeps its host while it
+    /// holds the keyboard focus; a deleted one (`force`) gives it up.
+    private func free(_ id: String, force: Bool = false) {
         guard let host = hosts[id] else { return }
-        if let responder = host.view.window?.firstResponder as? NSView, responder.isDescendant(of: host.view) {
-            return
+        if let window = host.view.window, let responder = window.firstResponder as? NSView,
+           responder.isDescendant(of: host.view) {
+            guard force else { return }
+            window.makeFirstResponder(nil)
         }
         hosts[id] = nil
-        arriving.remove(id)
+        finishArrival(id)
         animator.cancelEase(id)
-        host.view.alphaValue = 1
+        // Dropped rather than kept: a pooled root that came back for the
+        // same id would keep its `@State`, and it holds its own graph.
+        host.view.rootView = AnyView(EmptyView())
         host.view.isHidden = true
         if pool.count < Self.poolLimit {
             pool.append(host.view)
@@ -528,10 +583,18 @@ final class ChatListController: NSObject {
         }
     }
 
+    /// `fittingSize` only answers while intrinsic sizing is on, and leaving
+    /// it on has every host's constraints re-evaluated on every pass.
+    private func naturalHeight(of view: NSHostingView<AnyView>) -> CGFloat {
+        view.sizingOptions = .intrinsicContentSize
+        defer { view.sizingOptions = [] }
+        return view.fittingSize.height
+    }
+
     private func dequeueHost() -> NSHostingView<AnyView> {
         if let view = pool.popLast() { return view }
         let view = NSHostingView(rootView: AnyView(EmptyView()))
-        view.sizingOptions = .intrinsicContentSize
+        view.sizingOptions = []
         view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = true
         documentView.addSubview(view)
@@ -550,11 +613,11 @@ final class ChatListController: NSObject {
         )
         switch item {
         case let .piece(piece):
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { height, typesFromZero in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, typesFromZero in
                 ChatPieceView(
                     piece: piece,
                     typesFromZero: typesFromZero,
-                    containerHeight: height,
+                    containerState: state,
                     onNaturalHeight: onMeasure
                 )
                 .listItemPadding(bleed: true, column: .unpadded, vertical: false)
@@ -563,17 +626,17 @@ final class ChatListController: NSObject {
             let subagents = inputs.subagents
             let tabID = inputs.tabID ?? UUID()
             let onOpen = onOpenSubagent
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { height, _ in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
                 SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen)
                     .listItemPadding(bleed: false, column: .unpadded)
-                    .containerHeight(height, onMeasure: onMeasure)
+                    .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { height, _ in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
                 PendingPermissionDock(tabID: tabID)
                     .listItemPadding(bleed: true, column: .unpadded)
-                    .containerHeight(height, onMeasure: onMeasure)
+                    .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         }
     }
@@ -621,10 +684,10 @@ struct ChatListItemRoot<Content: View>: View {
     let state: ChatListItemState
     let width: CGFloat
     let environment: ChatListItemEnvironment
-    @ViewBuilder let content: (CGFloat?, Bool) -> Content
+    @ViewBuilder let content: (ChatListItemState, Bool) -> Content
 
     var body: some View {
-        content(state.containerHeight, state.typesFromZero)
+        content(state, state.typesFromZero)
             .frame(width: width, alignment: .top)
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.revealClock, environment.revealClock)

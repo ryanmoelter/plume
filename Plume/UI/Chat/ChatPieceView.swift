@@ -17,9 +17,9 @@ struct ChatPieceView: View, ThemedView {
     /// Set for a block the stream has just opened, so it types itself out.
     var typesFromZero: Bool = false
     /// Set by the custom list, which eases the height itself: the piece
-    /// draws at `containerHeight` and reports its natural height through
-    /// `onNaturalHeight`. Nil leaves the piece to animate its own height.
-    var containerHeight: CGFloat?
+    /// draws at the state's `containerHeight` and reports its natural height
+    /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
+    var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
 
     @State private var isHovered = false
@@ -48,7 +48,7 @@ struct ChatPieceView: View, ThemedView {
                 animation: heightAnimation,
                 growsFromZero: growsFromZero,
                 animatesHeight: animatesHeight,
-                containerHeight: containerHeight,
+                containerState: containerState,
                 onNaturalHeight: onNaturalHeight
             ))
             .background(washFill, in: washShape)
@@ -214,12 +214,12 @@ private struct HeightSource: ViewModifier {
     let animation: Animation
     let growsFromZero: Bool
     let animatesHeight: Bool
-    let containerHeight: CGFloat?
+    let containerState: ChatListItemState?
     let onNaturalHeight: ((CGFloat) -> Void)?
 
     func body(content: Content) -> some View {
-        if let onNaturalHeight {
-            content.containerHeight(containerHeight, onMeasure: onNaturalHeight)
+        if let containerState, let onNaturalHeight {
+            content.containerHeight(containerState, onMeasure: onNaturalHeight)
         } else {
             content.animatedHeight(
                 animation,

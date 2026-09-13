@@ -52,6 +52,11 @@ final class ChatListAnimator: NSObject {
     private(set) var eases: [String: Ease] = [:]
     private(set) var scroll: Scroll?
     private var displayLink: CADisplayLink?
+    /// Drives the ticks when the display link is silent: a display that
+    /// has gone to sleep, or an occluded window, stops vsync but not the
+    /// stream, and an ease that never ends leaves rows clipped mid-growth.
+    private var fallback: Timer?
+    private var lastLinkTick: TimeInterval = 0
     private weak var view: NSView?
 
     /// Runs once per frame while anything is animating, after the animator
@@ -65,6 +70,17 @@ final class ChatListAnimator: NSObject {
 
     deinit {
         displayLink?.invalidate()
+        fallback?.invalidate()
+    }
+
+    /// The display link retains its target, so the owner has to cut it.
+    func invalidate() {
+        displayLink?.invalidate()
+        displayLink = nil
+        fallback?.invalidate()
+        fallback = nil
+        eases.removeAll()
+        scroll = nil
     }
 
     var isAnimating: Bool { !eases.isEmpty || scroll != nil }
@@ -96,7 +112,11 @@ final class ChatListAnimator: NSObject {
     func prune(at now: TimeInterval) {
         eases = eases.filter { !$0.value.isFinished(at: now) }
         if let scroll, scroll.isFinished(at: now) { self.scroll = nil }
-        if !isAnimating { displayLink?.isPaused = true }
+        if !isAnimating {
+            displayLink?.isPaused = true
+            fallback?.invalidate()
+            fallback = nil
+        }
     }
 
     private func resume() {
@@ -106,10 +126,25 @@ final class ChatListAnimator: NSObject {
             displayLink = link
         }
         displayLink?.isPaused = false
+        lastLinkTick = CACurrentMediaTime()
+        if fallback == nil {
+            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fallbackTick() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            fallback = timer
+        }
     }
 
     @objc private func step(_ link: CADisplayLink) {
-        onTick?(CACurrentMediaTime())
+        lastLinkTick = CACurrentMediaTime()
+        onTick?(lastLinkTick)
+    }
+
+    private func fallbackTick() {
+        let now = CACurrentMediaTime()
+        guard isAnimating, now - lastLinkTick > 0.1 else { return }
+        onTick?(now)
     }
 
     nonisolated static func easeOut(_ t: CGFloat) -> CGFloat {

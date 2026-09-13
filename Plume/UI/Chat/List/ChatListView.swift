@@ -28,6 +28,10 @@ struct ChatListView: NSViewRepresentable {
         apply(to: context.coordinator)
     }
 
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: ChatListController) {
+        coordinator.tearDown()
+    }
+
     private func apply(to controller: ChatListController) {
         // Callbacks first, unconditionally: they capture state the value
         // comparison below cannot see.
