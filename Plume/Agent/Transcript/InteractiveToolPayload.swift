@@ -58,16 +58,14 @@ nonisolated enum InteractiveToolPayload: Equatable {
     ///
     /// The text is fixed-format but not machine-generated JSON: `"question
     /// text"="chosen labels"` pairs joined by `, `, wrapped in a sentence
-    /// whose exact wording has changed before and will again, and a
-    /// multi-select answer can carry a `selected preview:` annotation after
-    /// its value with no closing quote of its own. Rather than parse that
-    /// generally, this looks for each known question's exact text as a
-    /// literal anchor and reads the answer up to whichever comes first: the
-    /// `selected preview:` marker, the closing quote followed by `. ` (the
-    /// sentence wrapping the answers ends there, whatever it says), or —
-    /// when another question follows — that question's own anchor, which is
-    /// the only marker safe against an answer that itself contains `". ` or
-    /// `", "`.
+    /// whose wording changes over time, and a multi-select answer can carry
+    /// a `selected preview:` annotation after its value with no closing
+    /// quote of its own. This anchors on each known question's exact text
+    /// and reads the answer up to whichever comes first: the `selected
+    /// preview:` marker, or — for every question but the last — the next
+    /// question's own anchor, the only marker safe against an answer
+    /// containing `". ` or `", "`. The last question has no next anchor, so
+    /// it stops at its closing quote followed by `. ` instead.
     static func answers(from resultText: String, for questions: [AskedQuestion]) -> [String: String] {
         var answers: [String: String] = [:]
         for (index, question) in questions.enumerated() {
@@ -77,11 +75,11 @@ nonisolated enum InteractiveToolPayload: Equatable {
             guard afterAnchor.hasPrefix("\"") else { continue }
             let valueStart = afterAnchor.index(after: afterAnchor.startIndex)
 
-            var stopMarkers = [" selected preview:", "\". "]
+            var stopMarkers = [" selected preview:"]
             if index + 1 < questions.count {
                 stopMarkers.append("\", \"\(questions[index + 1].question)\"=")
             } else {
-                stopMarkers.append("\", \"")
+                stopMarkers.append("\". ")
             }
 
             var valueEnd = afterAnchor.endIndex

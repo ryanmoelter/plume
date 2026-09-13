@@ -147,6 +147,24 @@ struct InteractiveToolPayloadTests {
         #expect(answers[questions[1].question] == "Skip PLUME-87")
     }
 
+    /// A non-last free-text answer can itself contain `". ` (e.g. an "Other"
+    /// reply). The generic sentence-end marker must not fire for it — only
+    /// the next question's own anchor may end a non-last answer.
+    @Test func aNonLastAnswerContainingSentenceEndPunctuationIsNotTruncated() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(header: "", question: "Should we ship it?", multiSelect: false, options: []),
+            InteractiveToolPayload.AskedQuestion(header: "", question: "Anything else?", multiSelect: false, options: [])
+        ]
+        let resultText = #"""
+        User has answered your questions: "Should we ship it?"="Yes. Also do X", "Anything else?"="No". Read the answers carefully.
+        """#
+
+        let answers = InteractiveToolPayload.answers(from: resultText, for: questions)
+
+        #expect(answers["Should we ship it?"] == "Yes. Also do X")
+        #expect(answers["Anything else?"] == "No")
+    }
+
     /// A question with no matching answer in the text — dismissed, or the
     /// text doesn't match at all — degrades to nothing rather than a bogus
     /// or crashing lookup.
