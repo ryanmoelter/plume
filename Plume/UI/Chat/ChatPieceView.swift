@@ -85,6 +85,9 @@ struct ChatPieceView: View, ThemedView {
     ///
     /// Laid out at the end of the message's last piece rather than floating
     /// over it, so the button is always present and needs no hover to reach.
+    ///
+    /// It takes the same column as the blocks above it, so it starts at the
+    /// prose's left edge — or, inside a bubble, at the message text's.
     @ViewBuilder
     private var footer: some View {
         if piece.offersMessageCopy, let message = piece.messageCopySource {
@@ -101,6 +104,11 @@ struct ChatPieceView: View, ThemedView {
                         .emphasis(.subtle)
                 }
             }
+            // The glyph sits centred in a circle wider than itself, so the
+            // row starts that overhang early and the icon — not the circle —
+            // lands on the column's edge.
+            .padding(.leading, -CopyGlyph.inset)
+            .listItemPadding(vertical: false)
         }
     }
 

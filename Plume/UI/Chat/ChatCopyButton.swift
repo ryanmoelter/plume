@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Copies markdown to the pasteboard, revealed on hover.
+/// Copies markdown to the pasteboard.
 ///
 /// The same affordance `CodeBlockCopyButton` gives a code block, for the rest
-/// of the chat: a table's own source, and a whole reply's.
+/// of the chat: a table's own source, and a whole reply's. A table's is
+/// revealed on hover, having no end of its own to sit at; a message's closes
+/// the message and stays put.
 struct ChatCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -25,9 +27,7 @@ struct ChatCopyButton: View, ThemedView {
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : Self.symbol)
-                .font(.system(size: 11, weight: .medium))
-                .modifier(CopyGlyphStyle(isFloating: isFloating, didCopy: didCopy))
+            CopyGlyph(didCopy: didCopy, alwaysFilled: isFloating)
         }
         .buttonStyle(.plain)
         .opacity(isRevealed || didCopy ? 1 : 0)
@@ -46,25 +46,72 @@ struct ChatCopyButton: View, ThemedView {
     }
 }
 
-/// The two treatments a copy glyph takes: a chip where it floats over
-/// content, dimmed and bare where it sits inline on the surface.
-private struct CopyGlyphStyle: ViewModifier, ThemedView {
+/// The copy glyph and the circle behind it, shared by every copy button in
+/// the chat.
+///
+/// The circle is a fixed-size container rather than padding around the glyph,
+/// so swapping the copy icon for the checkmark — two symbols of different
+/// width — moves nothing around it.
+struct CopyGlyph: View, ThemedView {
     @Environment(\.theme) var theme
 
-    let isFloating: Bool
+    let didCopy: Bool
+    /// Set where the glyph floats over content and needs the circle for
+    /// legibility rather than as a hover affordance.
+    var alwaysFilled: Bool = false
+    /// A wider region whose hover reveals the circle, for a button sitting in
+    /// a container the reader aims at rather than the button itself. Left
+    /// unset, the glyph tracks its own pointer.
+    var isContainerHovered: Bool?
+
+    @State private var isHovered = false
+
+    var body: some View {
+        // Each state is its own branch, so the swap replaces the image rather
+        // than mutating it — `.transition` is what animates that.
+        Group {
+            if didCopy {
+                Image(systemName: "checkmark")
+                    .transition(.symbolEffect)
+            } else {
+                Image(systemName: ChatCopyButton.symbol)
+                    .transition(.symbolEffect)
+            }
+        }
+        .font(.system(size: Self.glyphSize, weight: .medium))
+        .modifier(CopyGlyphTint(alwaysFilled: alwaysFilled, didCopy: didCopy))
+        .animation(.default, value: didCopy)
+        .frame(width: Self.diameter, height: Self.diameter)
+        .background(showsCircle ? colors.surface(.backgroundTint) : .clear, in: .circle)
+        .contentShape(.circle)
+        .onHover { isHovered = $0 }
+    }
+
+    private var showsCircle: Bool {
+        alwaysFilled || isHovered || isContainerHovered == true
+    }
+
+    /// How far the circle extends past the glyph on each side. A caller
+    /// aligning the glyph to an edge pulls the button back by this much.
+    static let inset: CGFloat = (diameter - glyphSize) / 2
+
+    private static let diameter: CGFloat = 22
+    private static let glyphSize: CGFloat = 11
+}
+
+/// A floating glyph keeps the theme foreground against its chip; an inline
+/// one dims to the surrounding text and brightens once the copy lands.
+private struct CopyGlyphTint: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
+
+    let alwaysFilled: Bool
     let didCopy: Bool
 
     func body(content: Content) -> some View {
-        if isFloating {
-            content
-                .foregroundStyle(colors.foreground)
-                .padding(6)
-                .background(colors.surface(.backgroundTint), in: .circle)
+        if alwaysFilled {
+            content.foregroundStyle(colors.foreground)
         } else {
-            content
-                .emphasis(didCopy ? .primary : .subtle)
-                .padding(2)
-                .contentShape(.rect)
+            content.emphasis(didCopy ? .primary : .subtle)
         }
     }
 }

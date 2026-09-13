@@ -28,7 +28,9 @@ enum ChatPieceMetrics {
     /// The header naming a code block's language and carrying its copy
     /// button. Fixed rather than measured, and drawn on every block, so the
     /// ceiling below can subtract it without consulting a layout result.
-    static let codeHeaderHeight: CGFloat = 24
+    /// Tall enough for the copy button's circle, which is the tallest thing
+    /// in the row.
+    static let codeHeaderHeight: CGFloat = 28
 
     private static let codeLineHeight: CGFloat = 17
     private static let codePadding: CGFloat = 28

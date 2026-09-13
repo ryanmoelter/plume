@@ -347,24 +347,26 @@ struct CodeSegmentView: View, ThemedView {
         .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
     }
 
-    /// Names the language and carries the copy button, both drawn always.
+    /// Names the language, with a code icon, and carries the copy button.
     ///
     /// An untagged fence says so rather than going blank, which keeps the
     /// copy button from sitting alone and every block in a reply lined up.
     /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
     /// ceiling counts.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
             Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
-                .font(typography.caption.mono)
+                .font(typography.caption.font)
                 .emphasis(.secondary)
             Spacer(minLength: 0)
-            CodeBlockCopyButton(code: segment.code)
+            CodeBlockCopyButton(code: segment.code, isBlockHovered: isHovered)
         }
-        // The label's leading edge meets the first character of code below.
+        // The icon's leading edge meets the first character of code below.
         .padding(.leading, padding)
         .padding(.trailing, 6)
-        .padding(.top, 6)
         .frame(height: ChatPieceMetrics.codeHeaderHeight)
         // The label is decoration; a drag over it should not start a
         // selection that competes with the code's own.
@@ -415,16 +417,15 @@ struct CodeBlockCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
     let code: String
+    /// Hovering anywhere over the block reveals the circle, so the reader
+    /// aims at the code rather than at a 22 pt target in its header.
+    let isBlockHovered: Bool
 
     @State private var didCopy = false
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : ChatCopyButton.symbol)
-                .font(.system(size: 11, weight: .medium))
-                .emphasis(didCopy ? .primary : .secondary)
-                .padding(4)
-                .contentShape(.rect)
+            CopyGlyph(didCopy: didCopy, isContainerHovered: isBlockHovered)
         }
         .buttonStyle(.plain)
         .help("Copy code")
