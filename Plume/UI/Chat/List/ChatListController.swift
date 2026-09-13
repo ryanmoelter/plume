@@ -73,6 +73,10 @@ final class ChatListController: NSObject {
     /// How far above the bottom the reader settled while still counting as
     /// following, so growth keeps that gap rather than snapping it shut.
     private var followDistance: CGFloat = 0
+    private var wheelMonitor: Any?
+    /// Which way the trackpad gesture in flight is going, decided once as it
+    /// begins so a diagonal drift cannot hand it back and forth mid-gesture.
+    private var wheelGestureIsVertical: Bool?
     private var isDetached = false
     /// The item under the viewport's top edge and how far into it the reader
     /// is, captured whenever the reader scrolls, so heights changing above
@@ -136,6 +140,9 @@ final class ChatListController: NSObject {
             self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: clip
         )
         animator.onTick = { [weak self] now in self?.tick(at: now) }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            self?.routeWheel(event) ?? event
+        }
     }
 
     /// Breaks the display link's hold on the animator; nothing else keeps
@@ -143,6 +150,48 @@ final class ChatListController: NSObject {
     func tearDown() {
         animator.invalidate()
         NotificationCenter.default.removeObserver(self)
+        if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+        wheelMonitor = nil
+    }
+
+    // MARK: - Nested scroll views
+
+    /// A row's own scroll view takes every wheel event over it, including a
+    /// vertical one it has no use for: a code block scrolls sideways only,
+    /// and AppKit still lets it swallow the scroll that should move the
+    /// list. A vertical gesture over a row scroller with no vertical room
+    /// goes to the list instead. One that can scroll vertically, a disclosed
+    /// tool result, keeps what it is given.
+    private func routeWheel(_ event: NSEvent) -> NSEvent? {
+        guard let window = scrollView.window, event.window === window,
+              let hit = window.contentView?.hitTest(event.locationInWindow),
+              hit.isDescendant(of: documentView),
+              let inner = nearestScrollView(above: hit)
+        else { return event }
+        let room = (inner.documentView?.frame.height ?? 0) - inner.contentView.bounds.height
+        guard room <= 0.5 else { return event }
+        if event.phase == .began || (event.phase.isEmpty && event.momentumPhase.isEmpty) {
+            wheelGestureIsVertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+        }
+        defer {
+            if event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                wheelGestureIsVertical = nil
+            }
+        }
+        guard wheelGestureIsVertical == true else { return event }
+        scrollView.scrollWheel(with: event)
+        return nil
+    }
+
+    /// The closest scroll view between a hit view and the list's own, or nil
+    /// when the hit lands straight on the list.
+    private func nearestScrollView(above view: NSView) -> NSScrollView? {
+        var current: NSView? = view
+        while let view = current, view !== scrollView {
+            if let scroll = view as? NSScrollView { return scroll }
+            current = view.superview
+        }
+        return nil
     }
 
     // MARK: - Inputs
