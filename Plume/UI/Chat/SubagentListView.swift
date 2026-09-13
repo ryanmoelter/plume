@@ -25,6 +25,15 @@ struct SubagentListView: View, ThemedView {
     /// Opens a subagent's transcript. The overlay is hosted by `ChatTabView`,
     /// which owns the space to draw it over.
     var onOpen: (SubagentTranscript) -> Void = { _ in }
+    var part: Part = .whole
+
+    /// The custom chat list draws the header and the rows as separate items,
+    /// so the rows can fold behind the composer while the header holds.
+    enum Part {
+        case whole
+        case header
+        case rows
+    }
 
     private var tracker: SubagentCompletionTracker { .shared }
     private var overrides: SubagentStatusOverrides { .shared }
@@ -49,25 +58,47 @@ struct SubagentListView: View, ThemedView {
 
     var body: some View {
         if !subagents.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                if !live.isEmpty {
-                    Label(
-                        "\(live.count) subagent\(live.count == 1 ? "" : "s")",
-                        systemImage: StatusSymbol.subagents.name
-                    )
-                    .font(typography.caption.font)
-                    .emphasis(.subtle)
-                    .padding(.bottom, 2)
+            switch part {
+            case .whole:
+                VStack(alignment: .leading, spacing: 2) {
+                    header
+                    rows
                 }
-                ForEach(live) { subagent in
-                    row(subagent)
-                        .id(subagent.id)
-                }
-                if !completed.isEmpty {
-                    completedSection
-                }
+                .padding(.vertical, 6)
+            case .header:
+                // Its own section after the reply, the way a message is.
+                header.padding(.top, dimensions.messageSpacing)
+            case .rows:
+                VStack(alignment: .leading, spacing: 2) { rows }
+                    // With no live rows the header draws nothing, and the
+                    // completed toggle opens the section instead.
+                    .padding(.top, live.isEmpty ? dimensions.messageSpacing : 2)
+                    .padding(.bottom, dimensions.verticalPadding)
             }
-            .padding(.vertical, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if !live.isEmpty {
+            Label(
+                "\(live.count) subagent\(live.count == 1 ? "" : "s")",
+                systemImage: StatusSymbol.subagents.name
+            )
+            .font(typography.caption.font)
+            .emphasis(.subtle)
+            .padding(.bottom, 2)
+        }
+    }
+
+    @ViewBuilder
+    private var rows: some View {
+        ForEach(live) { subagent in
+            row(subagent)
+                .id(subagent.id)
+        }
+        if !completed.isEmpty {
+            completedSection
         }
     }
 

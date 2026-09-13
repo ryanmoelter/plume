@@ -16,6 +16,11 @@ struct ChatPieceView: View, ThemedView {
     var growsFromZero: Bool = false
     /// Set for a block the stream has just opened, so it types itself out.
     var typesFromZero: Bool = false
+    /// Set by the custom list, which eases the height itself: the piece
+    /// draws at the state's `containerHeight` and reports its natural height
+    /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
+    var containerState: ChatListItemState?
+    var onNaturalHeight: ((CGFloat) -> Void)?
 
     @State private var isHovered = false
 
@@ -39,11 +44,13 @@ struct ChatPieceView: View, ThemedView {
             // cannot open a seam against its neighbour, and neither the
             // padding nor the segment this piece turns out to be — both
             // change when a neighbour does — jumps on its own.
-            .animatedHeight(
-                heightAnimation,
-                initialHeight: growsFromZero ? 0 : nil,
-                enabled: animatesHeight
-            )
+            .modifier(HeightSource(
+                animation: heightAnimation,
+                growsFromZero: growsFromZero,
+                animatesHeight: animatesHeight,
+                containerState: containerState,
+                onNaturalHeight: onNaturalHeight
+            ))
             .background(washFill, in: washShape)
             .overlay(alignment: .topTrailing) { copyButtons }
             .overlay {
@@ -197,6 +204,30 @@ struct ChatPieceView: View, ThemedView {
 
     private var washPadding: CGFloat { piece.wash == .none ? 0 : 10 }
     private var washRadius: CGFloat { 10 }
+}
+
+/// Where a piece's height comes from: its own ease, or the container's.
+///
+/// Both branches keep the same modifier count, so switching lists never
+/// restructures the chain and remounts the content underneath it.
+private struct HeightSource: ViewModifier {
+    let animation: Animation
+    let growsFromZero: Bool
+    let animatesHeight: Bool
+    let containerState: ChatListItemState?
+    let onNaturalHeight: ((CGFloat) -> Void)?
+
+    func body(content: Content) -> some View {
+        if let containerState, let onNaturalHeight {
+            content.containerHeight(containerState, onMeasure: onNaturalHeight)
+        } else {
+            content.animatedHeight(
+                animation,
+                initialHeight: growsFromZero ? 0 : nil,
+                enabled: animatesHeight
+            )
+        }
+    }
 }
 
 /// The edges of a wash that one piece owns: both sides always, the top and
