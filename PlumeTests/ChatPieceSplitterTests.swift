@@ -405,13 +405,26 @@ struct ChatPieceSplitterTests {
         #expect(result[0].topInset == dimensions.verticalPadding)
     }
 
-    /// The working indicator lives in the assistant's own body, so a turn
-    /// that has not produced an assistant message yet shows none of it — and
-    /// never inside the user's bubble.
+    /// A turn that has not produced an assistant message yet still shows it
+    /// is working, as the reply's own stand-in rather than inside the user's
+    /// bubble.
     @Test func theWorkingIndicatorNeverJoinsAUserMessage() {
         let result = pieces([message("m", .user, [.markdown("go")])], status: .working)
-        #expect(result.map(\.id) == ["m/0/0"])
-        #expect(result[0].segment == .single)
+        #expect(result.map(\.id) == ["m/0/0", "turn/working"])
+        #expect(result.map(\.segment) == [.single, .single])
+        #expect(result[1].wash == .none)
+        #expect(result[1].topInset == dimensions.messageSpacing)
+    }
+
+    @Test func theWorkingIndicatorFollowsAStreamAfterAUserMessage() {
+        let result = pieces(
+            [message("m", .user, [.markdown("go")])],
+            status: .working,
+            streaming: ChatStreamHandoff.Overlay(text: "On it.")
+        )
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "turn/working"])
+        #expect(result.map(\.segment) == [.single, .first, .last])
+        #expect(result[2].topInset == dimensions.workingIndicatorSpacing)
     }
 
     @Test func theStreamTakesTheGapItWillHaveOnceItSettles() {

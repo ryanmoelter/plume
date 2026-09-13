@@ -56,19 +56,28 @@ enum ChatPieceSplitter {
             ) ?? previousMessageKind
         }
 
-        if !attachesToLastMessage, !streaming.isEmpty {
-            // The stream stands in for the assistant message it will become,
+        if !attachesToLastMessage, !streaming.isEmpty || status == .working {
+            // The turn stands in for the assistant message it will become,
             // so it takes that message's gap and the reply doesn't shift as
-            // the transcript takes over.
+            // the transcript takes over. The working indicator belongs to it
+            // rather than to the user's bubble above.
             let leading = ChatBlockSpacing.rowTopInset(
                 previous: previousMessageKind,
                 current: .other,
                 dimensions: dimensions
             )
-            result += grouped(
-                streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions),
-                role: .assistant
-            )
+            var turn = streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions)
+            if status == .working {
+                turn.append(ChatPiece(
+                    id: "turn/working",
+                    messageID: "stream",
+                    role: .assistant,
+                    content: .working,
+                    wash: .none,
+                    topInset: turn.isEmpty ? leading : dimensions.workingIndicatorSpacing
+                ))
+            }
+            result += grouped(turn, role: .assistant)
         }
 
         return result
