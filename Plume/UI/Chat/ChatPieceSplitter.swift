@@ -122,6 +122,12 @@ enum ChatPieceSplitter {
             return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")
         }
 
+        /// An assistant message the turn can still add blocks to. A parked
+        /// turn counts: answering the prompt resumes it.
+        var isInFlight: Bool {
+            message.role == .assistant && (isWorking || needsInput || !streaming.isEmpty)
+        }
+
         /// The gap above the message's first piece, from what the previous
         /// message actually ended on and what this one actually opens with —
         /// not from whether either message is calls throughout.
@@ -145,6 +151,7 @@ enum ChatPieceSplitter {
         let message = context.message
         var result: [ChatPiece] = []
         var previousBlockKind: ChatBlockSpacing.Kind?
+        var lastMarkdownPieceIndex: Int?
 
         for (blockIndex, block) in message.blocks.enumerated() {
             // A block that draws nothing takes no item and does not space
@@ -160,13 +167,17 @@ enum ChatPieceSplitter {
                     role: message.role,
                     dimensions: context.dimensions
                 )
-            result += pieces(
+            let blockPieces = pieces(
                 of: block,
                 at: blockIndex,
                 in: context,
                 leading: leading,
                 parse: parse
             )
+            result += blockPieces
+            if case .markdown = block, !blockPieces.isEmpty {
+                lastMarkdownPieceIndex = result.count - 1
+            }
             previousBlockKind = ChatBlockSpacing.kind(of: block)
         }
 
@@ -196,12 +207,13 @@ enum ChatPieceSplitter {
             ))
         }
 
-        // Only the last piece carries it, so the footer closes the message
-        // where it ends and the reply offers one button for the whole of what
-        // it said rather than one per block.
-        if !result.isEmpty, let whole = context.messageMarkdown {
-            result[result.count - 1].messageCopySource = whole
-            result[result.count - 1].timestamp = message.timestamp
+        // One footer for the whole reply, under the prose it copies rather than
+        // under a tool call that followed it. Withheld while the turn is in
+        // flight: each new markdown block would move it to another piece, and
+        // both pieces would change height.
+        if !context.isInFlight, let index = lastMarkdownPieceIndex, let whole = context.messageMarkdown {
+            result[index].messageCopySource = whole
+            result[index].timestamp = message.timestamp
         }
 
         return result
