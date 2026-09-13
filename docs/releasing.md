@@ -52,9 +52,13 @@ Releasing from a session hosted *inside* Plume is the case to watch, though it s
 
 `scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately.
 
-**The conversation comes back.** The script relaunches Plume, the new build restores the session, and the agent resumes with its context intact — so a release run continues as if the install had never interrupted it. The install returns no output, though, because the process that started it is gone by the time the copy finishes. Read `/tmp/plume-install.log` once the session is back; that log is the whole record. An agent can do this itself rather than handing it to the user.
+**Stop after running the script and wait for Ryan.** The old `claude` process keeps running after the app quits, so an agent that carries straight on is talking from a session the relaunched app no longer hosts. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
 
-Verify the app that came back is the one just installed. Read `CFBundleShortVersionString` from `/Applications/Plume.app/Contents/Info.plist`, and walk the ancestry again to confirm the session's host PID is the relaunched process.
+**The conversation comes back**, in the new app: it relaunches Plume, which restores the session with its context intact. Once Ryan messages, read `/tmp/plume-install.log` — that log is the whole record of what the install did.
+
+Do the tag and push *before* the install. The resume is reliable, but the install is the one step that replaces the app underneath the session, so land anything you would hate to redo first.
+
+Verify the app that came back is the one just installed. Read `CFBundleShortVersionString` from `/Applications/Plume.app/Contents/Info.plist`, and walk the ancestry again to confirm the session's host PID is the relaunched process — not the stale one it started in.
 
 When reading the test output, confirm test names actually scroll past. A `-only-testing` argument that matches nothing prints `** TEST SUCCEEDED **` having run zero tests.
 
@@ -87,6 +91,14 @@ git push origin main v0.1.0
 ```
 
 Tag the commit that carries the version bump, so the tag and `CFBundleShortVersionString` agree.
+
+## The command-line helper
+
+`plume-notify` ships inside the bundle at `Contents/Resources/plume-notify`, as a plain shell script. The file-system synchronized group puts it there automatically because it lives under `Plume/Resources/`, and both the copy and the signing preserve its executable bit — so nothing in the release path needs a step for it.
+
+It reaches the user's PATH as a symlink at `~/.local/bin/plume-notify`, created from **Settings → Command Line**. A symlink rather than a copy, so the helper follows whatever Plume is installed instead of going stale after an upgrade.
+
+Replacing the bundle does not break the link. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but the link stores a *path*, so it re-resolves to the new bundle. The script prints the link's state after installing; a `BROKEN` line there means the helper stopped shipping, not that the symlink needs recreating.
 
 ## The store survives releases
 

@@ -56,9 +56,12 @@ struct GitHubForgeClientProcessTests {
         _ = read(output)
         process.waitUntilExit()
 
+        // Measured against the command's own 30s rather than a tighter bound:
+        // a parallel run's CPU-bound suites can stretch any arbitrary
+        // threshold, but never past the sleep the kill is beating.
         let elapsed = Date().timeIntervalSince(started)
-        #expect(elapsed < 10, "read blocked for \(elapsed)s — the kill did not reach the command")
-        #expect(process.terminationStatus != 0)
+        #expect(elapsed < 30, "read blocked for \(elapsed)s — the kill did not reach the command")
+        #expect(process.terminationReason == .uncaughtSignal)
     }
 
     @Test func aHungCommandLeavesNoSurvivor() throws {

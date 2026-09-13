@@ -34,6 +34,17 @@ struct ChatPiece: Identifiable, Equatable {
     var streamSource: String?
     /// Whether the stream is still writing this block.
     var isArriving: Bool = false
+    /// The markdown this piece's own copy button yields — the lines it was
+    /// parsed from where the splitter kept them, written back from the block
+    /// otherwise. Nil for a piece that is not markdown at all.
+    var copySource: String?
+    /// The markdown of every block in this piece's message, set only on the
+    /// message's last piece so one footer copies the whole reply.
+    var messageCopySource: String?
+    /// When the message was sent, shown beside the copy button in the footer.
+    /// Set on the same piece as `messageCopySource`, and nil where the
+    /// transcript recorded no time.
+    var timestamp: Date?
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -102,6 +113,20 @@ struct ChatPiece: Identifiable, Equatable {
 
     /// Whether the list applies this piece's top inset outside its wash.
     var paysInsetOutside: Bool { !isJoined || segment == .first }
+
+    /// The markdown this piece offers to copy on its own.
+    ///
+    /// A table only. Every other block is either prose the reader can select,
+    /// or a code block that carries `CodeBlockCopyButton` already — a button
+    /// on each of them would put one on every paragraph of every reply.
+    var tableCopySource: String? {
+        guard case .markdown(.table, _) = content else { return nil }
+        return copySource
+    }
+
+    /// Whether this piece offers the whole message's markdown. Never while
+    /// the turn is still writing it, when the source is still growing.
+    var offersMessageCopy: Bool { messageCopySource != nil && !isLive }
 }
 
 /// One fenced code block, always whole: a long one is bounded and scrolls
@@ -112,17 +137,11 @@ struct CodeSegment: Equatable {
     var isMermaid: Bool = false
 }
 
-/// A slice of one bullet or numbered list.
+/// A slice of one list.
+///
+/// Each item carries its own depth and number, so a segment needs nothing
+/// from the items above it to indent and number itself correctly.
 struct ListSegment: Equatable {
-    enum Kind: Equatable {
-        case bullet
-        case numbered
-    }
-
-    var kind: Kind
-    var items: [String]
-    /// What the first item of this segment is numbered, so a split list keeps
-    /// counting.
-    var startNumber: Int = 1
+    var items: [MarkdownBlock.ListItem]
     var position: ChatPiece.Segment = .single
 }

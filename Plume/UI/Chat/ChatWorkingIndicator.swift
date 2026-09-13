@@ -19,6 +19,8 @@ struct ChatWorkingIndicator: View, ThemedView {
                         .font(typography.caption.font)
                         .emphasis(.secondary)
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.default, value: context.date)
                 }
             } else {
                 Text("Working…")

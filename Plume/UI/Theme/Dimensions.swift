@@ -82,6 +82,11 @@ struct Dimensions {
     /// in a run of messages. Tight enough that a run reads as one list.
     let toolCallSpacing: CGFloat = 4
 
+    /// Gap above the working indicator when it follows other pieces of the
+    /// same message. Wider than `messageSpacing` so the indicator reads as
+    /// its own footer beneath the reply, never as more of it.
+    let workingIndicatorSpacing: CGFloat = 56
+
     private let bodySize: CGFloat
 
     init(bodySize: CGFloat) {

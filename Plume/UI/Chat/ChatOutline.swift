@@ -270,7 +270,7 @@ enum ChatOutlineBuilder {
         switch piece.content {
         case .markdown(let block, _): text(of: block)
         case .codeSegment(let segment): segment.code
-        case .listSegment(let segment): segment.items.first ?? ""
+        case .listSegment(let segment): segment.items.first?.text ?? ""
         case .injected(_, let text): text
         default: ""
         }
@@ -283,7 +283,7 @@ enum ChatOutlineBuilder {
         case .codeSegment:
             codeBlockWeight
         case .listSegment(let segment):
-            proseWeight(of: segment.items.joined(separator: "\n"), block: nil)
+            proseWeight(of: segment.items.map(\.text).joined(separator: "\n"), block: nil)
         case .thinking(let text):
             proseWeight(of: text, block: nil)
         case .toolCall:
@@ -312,8 +312,7 @@ enum ChatOutlineBuilder {
         switch block {
         case .heading(_, let text): text
         case .paragraph(let text): text
-        case .bulletList(let items): items.joined(separator: "\n")
-        case .numberedList(let items, _): items.joined(separator: "\n")
+        case .list(let items): items.map(\.text).joined(separator: "\n")
         case .codeBlock(_, let code): code
         case .quote(let text, _): text
         case .table(let header, _, let rows):

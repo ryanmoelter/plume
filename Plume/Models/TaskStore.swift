@@ -83,6 +83,18 @@ enum TaskStore {
         }
     }
 
+    // MARK: - Archive
+
+    static func archive(_ task: WorkTask) {
+        task.isArchived = true
+        task.archivedAt = Date()
+    }
+
+    static func unarchive(_ task: WorkTask) {
+        task.isArchived = false
+        task.archivedAt = nil
+    }
+
     // MARK: - Delete
 
     /// The cascade delete removes the tabs, but their terminals are held
@@ -111,6 +123,7 @@ enum TaskStore {
         DraftStore.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)
+        SubagentStatusOverrides.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         UntrustedDirectoryStore.shared.clear(tabID: tabID)
     }

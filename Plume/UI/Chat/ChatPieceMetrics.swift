@@ -25,15 +25,28 @@ enum ChatPieceMetrics {
     /// collapsed row is the height contrast the ceiling exists to prevent.
     static let maxDisclosedHeight: CGFloat = 240
 
+    /// The header naming a code block's language and carrying its copy
+    /// button. Fixed rather than measured, and drawn on every block, so the
+    /// ceiling below can subtract it without consulting a layout result.
+    /// Tall enough for the copy button's circle, which is the tallest thing
+    /// in the row.
+    static let codeHeaderHeight: CGFloat = 28
+
     private static let codeLineHeight: CGFloat = 17
     private static let codePadding: CGFloat = 28
 
     /// Whether a code block is taller than its ceiling, and so scrolls
     /// inside itself.
+    ///
+    /// The header sits above the scrolling region and is counted here, so a
+    /// block that scrolls still draws within `maxCodeHeight` overall.
     static func scrollsCode(_ code: String) -> Bool {
         let count = code.components(separatedBy: "\n").count
-        return CGFloat(count) * codeLineHeight + codePadding > maxCodeHeight
+        return CGFloat(count) * codeLineHeight + codePadding > scrollingCodeHeight
     }
+
+    /// The height left for code once the header has taken its share.
+    static var scrollingCodeHeight: CGFloat { maxCodeHeight - codeHeaderHeight }
 
     /// A run of prose broken into one piece per paragraph.
     ///

@@ -17,12 +17,17 @@ struct ChatPieceView: View, ThemedView {
     /// Set for a block the stream has just opened, so it types itself out.
     var typesFromZero: Bool = false
 
+    @State private var isHovered = false
+
     // One modifier chain for every wash, so a message gaining the
     // needs-input treatment changes values rather than structure. A `switch`
     // here would give the branches different identities, and every expanded
     // disclosure inside would collapse the moment the status changed.
     var body: some View {
-        content
+        VStack(alignment: .leading, spacing: 4) {
+            content
+            footer
+        }
             .environment(\.chatHugsContent, piece.wash == .bubble)
             .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
             .padding(.top, insideInset)
@@ -40,6 +45,7 @@ struct ChatPieceView: View, ThemedView {
                 enabled: animatesHeight
             )
             .background(washFill, in: washShape)
+            .overlay(alignment: .topTrailing) { copyButtons }
             .overlay {
                 if piece.wash == .attention {
                     SegmentBorder(segment: piece.segment, radius: washRadius)
@@ -54,6 +60,61 @@ struct ChatPieceView: View, ThemedView {
             // is the same width and the joined shape reads as one bubble.
             .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
+            // Outside both width frames, so the region tracked for the table
+            // button encloses the button as well as the text. Hovering the
+            // piece's own bounds loses the pointer on the way to a button
+            // that hangs past a short line.
+            .contentShape(.rect)
+            .onHover { isHovered = $0 }
+    }
+
+    /// The table's own source, on a table's piece. Hover-revealed, since a
+    /// table has no end of its own to close the way a message does.
+    @ViewBuilder
+    private var copyButtons: some View {
+        if let table = piece.tableCopySource {
+            ChatCopyButton(markdown: table, isRevealed: isHovered, label: "Copy table as markdown")
+                .padding(4)
+                // A hidden button still takes clicks, which would swallow a
+                // tap on the text under it.
+                .allowsHitTesting(isHovered)
+        }
+    }
+
+    /// Closes a message with when it was sent and a button for its markdown.
+    ///
+    /// Laid out at the end of the message's last piece rather than floating
+    /// over it, so the button is always present and needs no hover to reach.
+    ///
+    /// It takes the same column as the blocks above it, so it starts at the
+    /// prose's left edge — or, inside a bubble, at the message text's.
+    @ViewBuilder
+    private var footer: some View {
+        if piece.offersMessageCopy, let message = piece.messageCopySource {
+            HStack(spacing: 4) {
+                ChatCopyButton(
+                    markdown: message,
+                    isRevealed: true,
+                    label: "Copy message as markdown",
+                    isFloating: false
+                )
+                if let timestamp = piece.timestamp {
+                    Text(ChatTimestampFormat.string(for: timestamp, now: .now))
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                        // A dated timestamp is long enough to wrap in a narrow
+                        // column, and a two-line footer would change the
+                        // piece's height (`docs/chat-list-hang.md`).
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            // The glyph sits centred in a circle wider than itself, so the
+            // row starts that overhang early and the icon — not the circle —
+            // lands on the column's edge.
+            .padding(.leading, -CopyGlyph.inset)
+            .listItemPadding(vertical: false)
+        }
     }
 
     @ViewBuilder

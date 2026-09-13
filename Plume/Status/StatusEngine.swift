@@ -98,6 +98,21 @@ final class StatusEngine {
         tabsByTask.keys.count { status(forTask: $0).wantsAttention }
     }
 
+    /// Every tab doing something, with the task it belongs to.
+    ///
+    /// `KeepAwakeCoordinator` reads this to decide whether the Mac may sleep.
+    /// Waiting states are included and filtered there, because whether they
+    /// count depends on Remote Control, which this type knows nothing about.
+    var activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)] {
+        tabsByTask.flatMap { taskID, tabs in
+            tabs.compactMap { tabID -> (UUID, UUID, TaskStatus)? in
+                let status = status(forTab: tabID)
+                guard status == .working || status.wantsAttention else { return nil }
+                return (taskID, tabID, status)
+            }
+        }
+    }
+
     // MARK: - Writing
 
     func apply(_ event: HookEvent, taskID: UUID, tabID: UUID) {

@@ -7,15 +7,13 @@ import Foundation
 /// fenced code, lists, quotes. `parse(_:)` splits the raw text into blocks
 /// by hand; `MarkdownView` then inline-parses each paragraph and list item.
 ///
-/// Deliberately unsupported: nested lists. Their raw lines fall through to
-/// `.paragraph` rather than being mangled or dropped.
 nonisolated enum MarkdownBlock: Equatable {
     case heading(level: Int, text: String)
     case paragraph(String)
-    case bulletList([String])
-    /// `start` is the number the source's first item carried, so a list
-    /// beginning at 3 keeps counting from 3.
-    case numberedList([String], start: Int)
+    /// A whole list, nesting included. Its items are flat and each carries its
+    /// own depth and marker, so the list can be cut anywhere without losing
+    /// either — which is what `ChatPieceSplitter` does to a long one.
+    case list([ListItem])
     case codeBlock(language: String?, code: String)
     /// `continues` is set on every piece of a quote the splitter broke up, so
     /// the bar is drawn through the gap above it and the split reads as one
@@ -23,6 +21,22 @@ nonisolated enum MarkdownBlock: Equatable {
     case quote(String, continues: Bool = false)
     case table(header: [String], alignments: [ColumnAlignment], rows: [[String]])
     case rule
+
+    /// One item of a list, at whatever depth the source indented it to.
+    ///
+    /// `number` is nil for a bullet and the item's own rendered number
+    /// otherwise, resolved at parse time rather than from a position within
+    /// the list. A segment of a split list therefore numbers itself from what
+    /// its items already carry, and a sublist restarting at 1 inside an outer
+    /// list that is at 7 needs no extra state to say so.
+    nonisolated struct ListItem: Equatable {
+        var text: String
+        /// Nesting level, 0 for the outermost items.
+        var depth: Int = 0
+        var number: Int?
+
+        var isNumbered: Bool { number != nil }
+    }
 
     /// How a column's cells sit in their width, from the `:` markers in a
     /// table's delimiter row.
@@ -37,8 +51,7 @@ nonisolated enum MarkdownBlock: Equatable {
         switch self {
         case .heading: "heading"
         case .paragraph: "paragraph"
-        case .bulletList: "bulletList"
-        case .numberedList: "numberedList"
+        case .list: "list"
         case .codeBlock: "codeBlock"
         case .quote: "quote"
         case .table: "table"
@@ -148,14 +161,8 @@ nonisolated enum MarkdownBlock: Equatable {
                 continue
             }
 
-            if let list = list(startingAt: index, in: lines, kind: .bullet) {
-                append(.bulletList(list.items), from: index, to: list.end)
-                index = list.end
-                continue
-            }
-
-            if let list = list(startingAt: index, in: lines, kind: .numbered) {
-                append(.numberedList(list.items, start: list.start), from: index, to: list.end)
+            if let list = list(startingAt: index, in: lines) {
+                append(.list(list.items), from: index, to: list.end)
                 index = list.end
                 continue
             }
@@ -336,28 +343,33 @@ nonisolated enum MarkdownBlock: Equatable {
         return (number, String(afterDot.dropFirst()))
     }
 
-    private enum ListKind {
-        case bullet
-        case numbered
-
-        var other: ListKind { self == .bullet ? .numbered : .bullet }
+    /// One source line that opens a list item, before depths are assigned.
+    private struct RawItem {
+        /// Leading whitespace columns, which decide the item's depth.
+        let indent: Int
+        /// The number the source wrote, or nil for a bullet.
+        let sourceNumber: Int?
+        var text: String
     }
 
-    /// The list starting at `index`, or nil if the line there is not an item
-    /// of that kind.
+    /// The list starting at `index`, or nil if the line there is not a list
+    /// item.
     ///
     /// Two things beyond consecutive item lines belong to the list, and both
     /// are ordinary agent output: a blank line between items, and a wrapped
     /// item whose continuation sits on the next line. Ending the list at
     /// either gave every item a block of its own, which the numbered marker —
     /// positional within its block — rendered as a row of `1.`.
+    ///
+    /// A change of marker no longer ends the list: an indented sublist is
+    /// routinely a different kind from the list holding it, and each item
+    /// carries its own marker anyway.
     private static func list(
         startingAt index: Int,
-        in lines: [String],
-        kind: ListKind
-    ) -> (items: [String], start: Int, end: Int)? {
-        guard let first = item(lines[index], kind: kind) else { return nil }
-        var items = [first.text]
+        in lines: [String]
+    ) -> (items: [ListItem], end: Int)? {
+        guard let first = rawItem(lines[index]) else { return nil }
+        var raw = [first]
         var cursor = index + 1
         var end = cursor
         var followsBlankLine = false
@@ -370,8 +382,8 @@ nonisolated enum MarkdownBlock: Equatable {
                 continue
             }
             if beginsOtherBlock(at: cursor, in: lines) { break }
-            if let next = item(lines[cursor], kind: kind) {
-                items.append(next.text)
+            if let next = rawItem(lines[cursor]) {
+                raw.append(next)
                 cursor += 1
                 end = cursor
                 followsBlankLine = false
@@ -379,23 +391,74 @@ nonisolated enum MarkdownBlock: Equatable {
             }
             // A blank line closed the last item, so this line starts something
             // new rather than continuing it.
-            if followsBlankLine || item(lines[cursor], kind: kind.other) != nil { break }
-            items[items.count - 1] += " " + trimmed
+            if followsBlankLine { break }
+            raw[raw.count - 1].text += " " + trimmed
             cursor += 1
             end = cursor
         }
 
-        return (items, first.number ?? 1, end)
+        return (resolvingDepths(raw), end)
     }
 
-    private static func item(_ line: String, kind: ListKind) -> (number: Int?, text: String)? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        switch kind {
-        case .bullet:
-            return bulletItemText(trimmed).map { (nil, $0) }
-        case .numbered:
-            return numberedItem(trimmed).map { ($0.number, $0.text) }
+    /// Turns each item's indent into a depth, and each source marker into the
+    /// number that item renders with.
+    ///
+    /// Depth comes from a stack of the indents seen so far rather than from
+    /// dividing by a fixed width, because two and four space sublists are both
+    /// ordinary and a source mixes them. An indent deeper than the current
+    /// level opens one level, never several; an indent that matches no open
+    /// level closes back to the nearest one at or above it.
+    ///
+    /// Numbering runs per depth: a numbered run counts up from the number its
+    /// first item carried, and a sublist returning to its parent resumes the
+    /// parent's count rather than restarting.
+    private static func resolvingDepths(_ raw: [RawItem]) -> [ListItem] {
+        var indents: [Int] = []
+        // The number the next numbered item at each depth renders with, or nil
+        // where no numbered run is open there.
+        var counters: [Int?] = []
+        var items: [ListItem] = []
+
+        for entry in raw {
+            let depth: Int
+            if let match = indents.lastIndex(where: { $0 <= entry.indent }) {
+                // Deeper than every open level opens exactly one more.
+                depth = indents[match] < entry.indent ? match + 1 : match
+            } else {
+                depth = 0
+            }
+            indents = Array(indents.prefix(depth)) + [entry.indent]
+            // Every level this item closed loses its count, so a sublist
+            // reopening later starts from its own source number again.
+            counters = Array(counters.prefix(depth + 1))
+            while counters.count <= depth { counters.append(nil) }
+
+            var number: Int?
+            if let source = entry.sourceNumber {
+                // An open run ignores the source's number, so a list that
+                // repeats `1.` still renders 1, 2, 3. A run that has just
+                // opened takes it, so one beginning at 3 counts from 3.
+                number = counters[depth] ?? source
+                counters[depth] = number! + 1
+            } else {
+                counters[depth] = nil
+            }
+            items.append(ListItem(text: entry.text, depth: depth, number: number))
         }
+        return items
+    }
+
+    private static func rawItem(_ line: String) -> RawItem? {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+            .reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if let text = bulletItemText(trimmed) {
+            return RawItem(indent: indent, sourceNumber: nil, text: text)
+        }
+        if let numbered = numberedItem(trimmed) {
+            return RawItem(indent: indent, sourceNumber: numbered.number, text: numbered.text)
+        }
+        return nil
     }
 
     /// Whether the line starts a block that no list item can continue into.

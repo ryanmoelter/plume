@@ -10,6 +10,9 @@ struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @Binding var archiveShown: Bool
+    @State private var keepAwakeShown = false
+    @State private var coordinator = KeepAwakeCoordinator.shared
+    @State private var settings = AppSettings.shared
 
 #if DEBUG
     @Environment(\.modelContext) private var context
@@ -46,6 +49,25 @@ struct SidebarFooter: View, ThemedView {
 #endif
 
                 Button {
+                    keepAwakeShown = true
+                } label: {
+                    SidebarFooterRow(
+                        icon: keepAwakeIcon,
+                        title: keepAwakeTitle,
+                        iconTint: keepAwakeTint,
+                        hasMoreOptions: true,
+                        detail: keepAwakeDetail,
+                        showsRemoteControl: coordinator.tally.remotelyControlled
+                    )
+                }
+                .help(keepAwakeHelp)
+                .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
+                .buttonStyle(SidebarFooterButtonStyle())
+                .popover(isPresented: $keepAwakeShown, arrowEdge: .trailing) {
+                    KeepAwakePanel()
+                }
+
+                Button {
                     archiveShown = true
                 } label: {
                     SidebarFooterRow(icon: "archivebox", title: "Archive")
@@ -62,6 +84,37 @@ struct SidebarFooter: View, ThemedView {
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
         }
+    }
+
+    /// An empty cup is not caffeinated; a steaming one is.
+    private var keepAwakeIcon: String {
+        coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
+    }
+
+    /// Tinted only while held. Warning rather than attention: the Mac staying
+    /// up is a condition worth knowing about, not the agent wanting the user.
+    private var keepAwakeTint: Color? {
+        coordinator.isHolding ? ChatRole.warning(for: colorScheme) : nil
+    }
+
+    /// The present participle says it is happening now, rather than naming
+    /// the setting.
+    private var keepAwakeTitle: String {
+        coordinator.isHolding ? "Keeping Awake" : "Keep Awake"
+    }
+
+    /// What is holding the Mac awake, or the mode when nothing is. Auto with
+    /// no reasons needs no label: the title already says what it does. The
+    /// remote-control glyph rides alongside, so it is never named in words.
+    private var keepAwakeDetail: String? {
+        let tally = coordinator.tally
+        if tally.working > 0 { return "\(tally.working) working" }
+        if tally.remotelyControlled { return nil }
+        return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
+    }
+
+    private var keepAwakeHelp: String {
+        coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
 
     /// The last row's wash sits inside the window's corner, so it curves
@@ -82,17 +135,92 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
+    /// Set only when the row carries state of its own, which the footer's
+    /// plain rows do not. Tints the title too, not just the icon.
+    var iconTint: Color?
+    /// Draws a trailing chevron, for a row that opens a popover rather than
+    /// performing its action outright.
+    var hasMoreOptions = false
+    /// A few words of state, shown before the chevron.
+    var detail: String?
+    /// Appends the remote-control glyph after `detail`.
+    var showsRemoteControl = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .frame(width: 16)
-            Text(title)
-            Spacer(minLength: 0)
+        // Stacks only when the title and its detail cannot share a line,
+        // rather than at a guessed sidebar width.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                glyph
+                Text(title).contentTransition(.numericText())
+                Spacer(minLength: 4)
+                detailLabel
+                chevron
+            }
+            HStack(spacing: 8) {
+                glyph
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).contentTransition(.numericText())
+                    detailLabel
+                }
+                Spacer(minLength: 0)
+                chevron
+            }
         }
+        .lineLimit(1)
+        // Untinted rows keep the inherited style rather than being forced to
+        // `.primary`, so they render as the unstated default did.
+        .foregroundStyle(tintOrInherited)
+        .animation(.default, value: icon)
+        .animation(.default, value: title)
+        .animation(.default, value: detail)
+        .animation(.default, value: showsRemoteControl)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
+    }
+
+    /// One `Image` across both states, not a branch per state: an if/else
+    /// reads as two different views and never transitions.
+    private var glyph: some View {
+        Image(systemName: icon)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 16)
+    }
+
+    @ViewBuilder
+    private var detailLabel: some View {
+        if detail != nil || showsRemoteControl {
+            HStack(spacing: 3) {
+                if let detail {
+                    Text(detail)
+                        .contentTransition(.numericText())
+                        .emphasis(.secondary)
+                }
+                if showsRemoteControl {
+                    // Full emphasis: it is a state, not a caption on one.
+                    Image(systemName: StatusSymbol.remoteControl.name)
+                        .imageScale(.small)
+                        .emphasis(.primary)
+                }
+            }
+            .fixedSize()
+        }
+    }
+
+    /// Full emphasis, not a hint: it is the only thing saying this row opens
+    /// something rather than acting.
+    @ViewBuilder
+    private var chevron: some View {
+        if hasMoreOptions {
+            Image(systemName: "chevron.right")
+                .imageScale(.small)
+                .emphasis(.primary)
+        }
+    }
+
+    private var tintOrInherited: AnyShapeStyle {
+        iconTint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.foreground)
     }
 }
 

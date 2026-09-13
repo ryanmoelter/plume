@@ -41,17 +41,8 @@ struct MarkdownBlockView: View, ThemedView {
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
-        case let .bulletList(items):
-            ListSegmentView(
-                segment: ListSegment(kind: .bullet, items: items),
-                isAgentVoice: isAgentVoice
-            )
-
-        case let .numberedList(items, start):
-            ListSegmentView(
-                segment: ListSegment(kind: .numbered, items: items, startNumber: start),
-                isAgentVoice: isAgentVoice
-            )
+        case let .list(items):
+            ListSegmentView(segment: ListSegment(items: items), isAgentVoice: isAgentVoice)
 
         case let .codeBlock(language, code):
             CodeSegmentView(segment: CodeSegment(
@@ -264,7 +255,7 @@ struct MarkdownBlockView: View, ThemedView {
     private var tableCornerRadius: CGFloat { 6 }
 }
 
-/// A bullet or numbered list, or one slice of a long one.
+/// A list, nesting included, or one slice of a long one.
 struct ListSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -278,10 +269,11 @@ struct ListSegmentView: View, ThemedView {
     var body: some View {
         VStack(alignment: .leading, spacing: ChatBlockSpacing.listSegmentSpacing) {
             ForEach(segment.items.indices, id: \.self) { index in
+                let item = segment.items[index]
                 HStack(alignment: .top, spacing: 6) {
-                    Text(marker(at: index))
+                    Text(marker(for: item))
                     Text(MarkdownCache.styledInline(
-                        segment.items[index],
+                        item.text,
                         fontSize: typography.bodySize,
                         tint: colors.surfaceTint
                     ))
@@ -289,20 +281,27 @@ struct ListSegmentView: View, ThemedView {
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, Self.indent * CGFloat(item.depth))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .textSelection(.enabled)
         .listItemPadding(vertical: false)
     }
 
-    /// Numbering runs from the segment's own start, so a split list keeps
-    /// counting rather than restarting at one.
-    private func marker(at index: Int) -> String {
-        switch segment.kind {
-        case .bullet: "\u{2022}"
-        case .numbered: "\(segment.startNumber + index)."
-        }
+    /// Each item renders the number the parser resolved for it, so a segment
+    /// of a split list needs no running count of its own.
+    private func marker(for item: MarkdownBlock.ListItem) -> String {
+        guard let number = item.number else { return Self.bullets[item.depth % Self.bullets.count] }
+        return "\(number)."
     }
+
+    /// Enough to clear a two-digit marker at the depth above.
+    private static let indent: CGFloat = 20
+
+    /// Depth reads from the glyph as well as the indent, the way a rendered
+    /// markdown document's nested bullets do.
+    private static let bullets = ["\u{2022}", "\u{25E6}", "\u{25AA}"]
 }
 
 /// A fenced code block, always drawn whole.
@@ -331,10 +330,8 @@ struct CodeSegmentView: View, ThemedView {
                         code
                     }
                 }
-                .overlay(alignment: .topTrailing) { copyButton }
             } else {
                 code
-                    .overlay(alignment: .topTrailing) { copyButton }
             }
         }
         .textSelection(.enabled)
@@ -343,8 +340,37 @@ struct CodeSegmentView: View, ThemedView {
     }
 
     private var code: some View {
-        scroller
-            .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            scroller
+        }
+        .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+    }
+
+    /// Names the language, with a code icon, and carries the copy button.
+    ///
+    /// An untagged fence says so rather than going blank, which keeps the
+    /// copy button from sitting alone and every block in a reply lined up.
+    /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
+    /// ceiling counts.
+    private var header: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+            Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+            Spacer(minLength: 0)
+            CodeBlockCopyButton(code: segment.code)
+        }
+        // The icon's leading edge meets the first character of code below.
+        .padding(.leading, padding)
+        .padding(.trailing, 6)
+        .frame(height: ChatPieceMetrics.codeHeaderHeight)
+        // The label is decoration; a drag over it should not start a
+        // selection that competes with the code's own.
+        .textSelection(.disabled)
     }
 
     /// A block over the ceiling gains a vertical scroll view and a fixed
@@ -354,7 +380,7 @@ struct CodeSegmentView: View, ThemedView {
     private var scroller: some View {
         if ChatPieceMetrics.scrollsCode(segment.code) {
             ScrollView(.vertical) { lines }
-                .frame(height: ChatPieceMetrics.maxCodeHeight)
+                .frame(height: ChatPieceMetrics.scrollingCodeHeight)
         } else {
             lines
         }
@@ -362,43 +388,45 @@ struct CodeSegmentView: View, ThemedView {
 
     private var lines: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(segment.code)
+            Text(highlighted)
                 .font(typography.body.mono)
-                .foregroundStyle(colors.foreground)
-                .padding(padding)
+                .padding(.horizontal, padding)
+                .padding(.bottom, padding)
+                // The header already pays the gap above the first line.
+                .padding(.top, 2)
         }
     }
 
-    private var copyButton: some View {
-        CodeBlockCopyButton(code: segment.code, isRevealed: isHovered)
+    /// An untagged or unrecognized fence yields plain text in the block's own
+    /// foreground, which is the common case.
+    private var highlighted: AttributedString {
+        CodeSyntaxCache.highlighted(
+            segment.code,
+            language: segment.language,
+            palette: CodeSyntaxPalette(palette: colors)
+        )
     }
 
     private var padding: CGFloat { 14 }
     private var radius: CGFloat { 6 }
 }
 
-/// Copies a code block's raw text to the pasteboard, revealed on hover and
-/// pinned to the block's corner so it never scrolls with the code beneath it.
+/// Copies a code block's raw text to the pasteboard, from the block's header
+/// so it never scrolls with the code beneath it.
 struct CodeBlockCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
     let code: String
-    let isRevealed: Bool
 
     @State private var didCopy = false
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(colors.foreground)
-                .padding(6)
-                .background(colors.surface(.backgroundTint), in: .circle)
+            CopyGlyph(didCopy: didCopy)
         }
         .buttonStyle(.plain)
-        .padding(6)
-        .opacity(isRevealed || didCopy ? 1 : 0)
         .help("Copy code")
+        .accessibilityLabel("Copy code")
     }
 
     private func copy() {

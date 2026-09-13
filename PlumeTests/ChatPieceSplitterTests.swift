@@ -58,7 +58,7 @@ struct ChatPieceSplitterTests {
         }
         let items = result.compactMap { piece -> [String]? in
             guard case .listSegment(let list) = piece.content else { return nil }
-            return list.items
+            return list.items.map(\.text)
         }
         #expect(items == [["one"], ["two"]])
     }
@@ -247,19 +247,40 @@ struct ChatPieceSplitterTests {
             return nil
         }
         #expect(segments.count == result.count)
-        #expect(segments.map(\.items).flatMap { $0 }.count == 30)
-        #expect(segments.map(\.kind) == Array(repeating: .numbered, count: segments.count))
-        var expected = 1
-        for segment in segments {
-            #expect(segment.startNumber == expected)
-            expected += segment.items.count
-        }
+        let listItems = segments.flatMap(\.items)
+        #expect(listItems.count == 30)
+        #expect(listItems.map(\.number) == Array(1...30))
+        #expect(listItems.allSatisfy { $0.depth == 0 })
         #expect(result.dropFirst().allSatisfy { $0.topInset == ChatBlockSpacing.listSegmentSpacing })
         // Segments of equal length, so a list just over the ceiling does not
         // end on a segment of one item.
         let lengths = Set(segments.map(\.items.count))
         #expect(lengths.count <= 2)
         #expect((lengths.max() ?? 0) - (lengths.min() ?? 0) <= 1)
+    }
+
+    /// Every item carries its own depth and number, so a piece cut away from
+    /// the items around it still indents and numbers itself correctly.
+    @Test func aSplitNestedListKeepsEachItemsDepthAndNumber() {
+        let source = """
+        1. one
+           - inner a
+           - inner b
+        2. two
+           1. deep one
+           2. deep two
+        3. three
+        """
+        let result = pieces([message("m", .assistant, [.markdown(source)])])
+        let segments: [ListSegment] = result.compactMap {
+            if case .listSegment(let segment) = $0.content { return segment }
+            return nil
+        }
+        #expect(segments.count == 7)
+        #expect(segments.allSatisfy { $0.items.count == 1 })
+        let listItems = segments.flatMap(\.items)
+        #expect(listItems.map(\.depth) == [0, 1, 1, 0, 1, 1, 0])
+        #expect(listItems.map(\.number) == [1, nil, nil, 2, 1, 2, 3])
     }
 
     /// Segments would size their columns independently and the join would show.
@@ -359,12 +380,13 @@ struct ChatPieceSplitterTests {
         #expect(result[2].topInset == dimensions.blockSpacing)
     }
 
-    @Test func theWorkingIndicatorSitsABlockBelowWhateverPrecedesIt() {
+    @Test func theWorkingIndicatorSitsWellBelowWhateverPrecedesIt() {
         let following = pieces(
             [message("m", .assistant, [.markdown("hi")])],
             status: .working
         )
-        #expect(following.last?.topInset == dimensions.messageBlockSpacing)
+        #expect(following.last?.topInset == dimensions.workingIndicatorSpacing)
+        #expect(dimensions.workingIndicatorSpacing >= dimensions.messageSpacing)
 
         let alone = pieces([message("m", .assistant, [])], status: .working)
         #expect(alone.map(\.id) == ["m/working"])
@@ -512,5 +534,89 @@ struct ChatPieceSplitterTests {
         build("Two.")
         build("One.")
         #expect(cache.parseCount == 3)
+    }
+
+    // MARK: - Copy source
+
+    /// A block the splitter left whole copies the lines it was parsed from,
+    /// not a re-rendering of them.
+    @Test func aWholeBlockKeepsItsOwnSource() {
+        let table = "| a | b |\n| --- | --- |\n| 1 | 2 |"
+        let result = pieces([message("m", .assistant, [.markdown("Intro.\n\n" + table)])])
+        #expect(result.count == 2)
+        #expect(result[0].copySource == "Intro.")
+        #expect(result[1].copySource == table)
+        #expect(result[1].tableCopySource == table)
+    }
+
+    /// A split block has no lines of its own, so each segment is written back
+    /// from its structure.
+    @Test func aSplitListSegmentCopiesJustItsOwnItem() {
+        let result = pieces([message("m", .assistant, [.markdown("1. one\n2. two")])])
+        #expect(result.map(\.copySource) == ["1. one", "2. two"])
+    }
+
+    /// Only a table offers its own button. Prose is selectable and a code
+    /// block carries `CodeBlockCopyButton` already.
+    @Test func onlyATableOffersItsOwnCopyButton() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("Text.\n\n```swift\nlet x = 1\n```")
+        ])])
+        #expect(result.allSatisfy { $0.tableCopySource == nil })
+    }
+
+    /// One button for the whole reply, on its first piece only.
+    /// The footer closes the message, so the source rides its last piece.
+    @Test func onlyTheLastPieceCarriesTheWholeMessage() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("One."),
+            toolCall("t1"),
+            .markdown("Two.")
+        ])])
+        #expect(result.last?.messageCopySource == "One.\n\nTwo.")
+        #expect(result.dropLast().allSatisfy { $0.messageCopySource == nil })
+        #expect(result.last?.offersMessageCopy == true)
+    }
+
+    /// The footer shows it beside the copy button, and only there.
+    @Test func theLastPieceCarriesTheMessagesTimestamp() {
+        let sent = Date(timeIntervalSince1970: 1_700_000_000)
+        let result = pieces([ChatMessage(
+            id: "m",
+            role: .assistant,
+            blocks: [.markdown("One."), .markdown("Two.")],
+            timestamp: sent
+        )])
+        #expect(result.last?.timestamp == sent)
+        #expect(result.dropLast().allSatisfy { $0.timestamp == nil })
+    }
+
+    /// A transcript line without a time still offers the copy button.
+    @Test func aMessageWithoutATimestampStillOffersCopy() {
+        let result = pieces([message("m", .assistant, [.markdown("One.")])])
+        #expect(result.last?.timestamp == nil)
+        #expect(result.last?.offersMessageCopy == true)
+    }
+
+    /// What the user said is as worth copying as what Claude answered.
+    @Test func aUserMessageGetsTheFooterToo() {
+        let result = pieces([message("m", .user, [.markdown("Fix the build")])])
+        #expect(result.last?.messageCopySource == "Fix the build")
+        #expect(result.last?.offersMessageCopy == true)
+    }
+
+    /// A message that says nothing in markdown has nothing to copy.
+    @Test func aMessageWithoutMarkdownOffersNoMessageCopy() {
+        let result = pieces([message("m", .assistant, [toolCall("t1")])])
+        #expect(result.allSatisfy { $0.messageCopySource == nil })
+    }
+
+    /// The source is still growing, so the button would copy a fragment.
+    @Test func aLiveMessageOffersNoMessageCopy() {
+        let result = pieces(
+            [message("m", .assistant, [.markdown("Partial")])],
+            streaming: ChatStreamHandoff.Overlay(text: "and more")
+        )
+        #expect(result.first { $0.isLive }?.offersMessageCopy == false)
     }
 }

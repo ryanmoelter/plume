@@ -43,11 +43,15 @@ struct SubagentTaskNotificationTests {
         #expect(results([queueLine(notification(status: "failed"))]).signal(forAgentID: "a1") == .failed)
     }
 
-    /// The corpus's other two statuses. Neither says the agent reported, so
-    /// they leave the verdict to the subagent's own transcript.
-    @Test(arguments: ["killed", "stopped", "something-new"])
-    func anEndingTheParentCannotVouchForIsNoSignal(status: String) {
-        #expect(results([queueLine(notification(status: status))]).signal(forAgentID: "a1") == nil)
+    /// The corpus's other two statuses. Neither says what the agent did, but
+    /// both say it is no longer running.
+    @Test(arguments: ["killed", "stopped"])
+    func anEndingWithNoReportStopsTheSubagent(status: String) {
+        #expect(results([queueLine(notification(status: status))]).signal(forAgentID: "a1") == .stopped)
+    }
+
+    @Test func anUnrecognizedStatusIsNoSignal() {
+        #expect(results([queueLine(notification(status: "something-new"))]).signal(forAgentID: "a1") == nil)
     }
 
     @Test func aNotificationWithNoStatusIsNoSignal() {
@@ -62,8 +66,28 @@ struct SubagentTaskNotificationTests {
         ))
         let parsed = results([line])
 
-        #expect(parsed.signal(forAgentID: "a1") == nil)
+        #expect(parsed.signal(forAgentID: "a1") == .stopped)
         #expect(parsed.signal(forAgentID: "a2") == nil)
+    }
+
+    @Test func aStopOutranksTheLaunchThatPrecededIt() {
+        let lines = [
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"async_launched","agentId":"a1"}}"#,
+            queueLine(notification(status: "killed")),
+        ]
+
+        #expect(results(lines).signal(forAgentID: "a1") == .stopped)
+    }
+
+    /// An agent resumed after a stop goes on to report, and that report is
+    /// the later word on it.
+    @Test func aCompletionAfterAStopWins() {
+        let lines = [
+            queueLine(notification(status: "killed")),
+            queueLine(notification()),
+        ]
+
+        #expect(results(lines).signal(forAgentID: "a1") == .completed)
     }
 
     @Test func aQueueLineThatIsNotANotificationIsIgnored() {

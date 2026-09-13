@@ -12,7 +12,7 @@ import Foundation
 /// realized rows: filling it from here would evict what the view needs.
 @MainActor
 final class ChatPieceCache {
-    private var parsed: [String: [MarkdownBlock]] = [:]
+    private var parsed: [String: [MarkdownBlock.Parsed]] = [:]
 
     /// How many sources have actually been parsed since this cache was made.
     private(set) var parseCount = 0
@@ -24,7 +24,7 @@ final class ChatPieceCache {
         streaming: ChatStreamHandoff.Overlay,
         dimensions: Dimensions
     ) -> [ChatPiece] {
-        var next: [String: [MarkdownBlock]] = [:]
+        var next: [String: [MarkdownBlock.Parsed]] = [:]
         next.reserveCapacity(parsed.count)
         let pieces = ChatPieceSplitter.pieces(
             for: messages,
@@ -36,7 +36,7 @@ final class ChatPieceCache {
                 if let reused = next[markdown] { return reused }
                 let blocks = parsed[markdown] ?? {
                     parseCount += 1
-                    return MarkdownBlock.parse(markdown)
+                    return MarkdownBlock.parseWithSources(markdown)
                 }()
                 next[markdown] = blocks
                 return blocks

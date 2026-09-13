@@ -28,13 +28,23 @@ struct TranscriptStoreTests {
         "{\"type\":\"user\",\"uuid\":\"\(UUID().uuidString)\",\"isSidechain\":false,\"message\":{\"role\":\"user\",\"content\":\"\(text)\"}}\n"
     }
 
-    /// Bounded poll instead of a fixed sleep, so the check isn't flaky on a
-    /// loaded machine but also doesn't wait the full timeout when it's fast.
-    private func waitUntil(timeout: Duration = .seconds(2), _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + timeout
-        while !condition(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
+    /// Waits on the store's own read signal rather than a wall clock. The
+    /// corpus suites saturate every core for tens of seconds, so any deadline
+    /// short enough to be useful is one a parallel run can blow through.
+    private func waitUntil(
+        _ store: TranscriptStore,
+        _ condition: @escaping () -> Bool
+    ) async {
+        guard !condition() else { return }
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            store.didRead = { _ in
+                guard !resumed, condition() else { return }
+                resumed = true
+                continuation.resume()
+            }
         }
+        store.didRead = nil
     }
 
     @Test func watchingAFileReadsItsParsedTranscript() async {
@@ -47,7 +57,7 @@ struct TranscriptStoreTests {
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
 
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
     }
 
@@ -60,12 +70,12 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         append(userLine("Second"), to: path)
 
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 2 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 2 }
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
     }
 
@@ -80,16 +90,18 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: firstPath.path)
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         store.watch(tabID: tab, transcriptPath: secondPath.path)
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 2 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 2 }
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
 
-        // The old file changing must not resurrect the old watch.
+        // The old file changing must not resurrect the old watch. Waiting out
+        // a real interval is safe here because the assertion is an absence —
+        // a slower machine only gives the stale watch more room to misfire.
         append(userLine("Ignored"), to: firstPath)
-        await waitUntil(timeout: .milliseconds(200)) { false }
+        try? await Task.sleep(for: .milliseconds(200))
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
     }
 
@@ -105,7 +117,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(50))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: url.path)
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 1 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 1 }
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
 
         // Change the file behind the store's back, then re-watch the same
@@ -120,7 +132,7 @@ struct TranscriptStoreTests {
         )
 
         // The watcher still delivers it, on the debounce.
-        await waitUntil { store.transcript(forTab: tab)?.messages.count == 2 }
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 2 }
         #expect(store.transcript(forTab: tab)?.messages.count == 2)
     }
 
@@ -133,7 +145,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.transcript(forTab: tab) != nil }
+        await waitUntil(store) { store.transcript(forTab: tab) != nil }
         #expect(store.transcript(forTab: tab) != nil)
 
         store.stopWatching(tabID: tab)
@@ -160,7 +172,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).count == 2 }
+        await waitUntil(store) { store.subagents(forTab: tab).count == 2 }
 
         let subagents = store.subagents(forTab: tab)
         #expect(subagents.count == 2)
@@ -197,7 +209,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).count == 1 }
+        await waitUntil(store) { store.subagents(forTab: tab).count == 1 }
 
         let subagent = store.subagents(forTab: tab).first
         #expect(subagent?.title == "Explore: Find the leak")
@@ -220,7 +232,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10), isTabLive: { _ in true })
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).first?.status == .working }
+        await waitUntil(store) { store.subagents(forTab: tab).first?.status == .working }
         #expect(store.subagents(forTab: tab).first?.status == .working)
 
         // Only the subagent's file changes — the main transcript is untouched.
@@ -229,7 +241,7 @@ struct TranscriptStoreTests {
             to: subagentPath
         )
 
-        await waitUntil { store.subagents(forTab: tab).first?.status == .done }
+        await waitUntil(store) { store.subagents(forTab: tab).first?.status == .done }
         #expect(
             store.subagents(forTab: tab).first?.status == .done,
             "a subagent's own write did not refresh the list"
@@ -254,7 +266,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10), isTabLive: { _ in true })
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).count == 1 }
+        await waitUntil(store) { store.subagents(forTab: tab).count == 1 }
 
         let subagent = store.subagents(forTab: tab).first
         #expect(subagent?.title == "Explore: Check the parser")
@@ -275,7 +287,7 @@ struct TranscriptStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10))
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.transcript(forTab: tab) != nil }
+        await waitUntil(store) { store.transcript(forTab: tab) != nil }
         #expect(store.subagents(forTab: tab).isEmpty)
 
         write(userLine("Late subagent"), to: dir.appending(path: "session/subagents/agent-late.jsonl"))
@@ -302,7 +314,7 @@ struct TranscriptStoreTests {
 
         let store = TranscriptStore(debounce: .milliseconds(10), statusEngine: engine)
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).count == 1 }
+        await waitUntil(store) { store.subagents(forTab: tab).count == 1 }
 
         #expect(store.subagents(forTab: tab).first?.status == .interrupted)
         #expect(engine.status(forTab: tab) == .awaitingReply)
@@ -314,11 +326,20 @@ struct TranscriptStoreTests {
 /// another task still disappears on its own.
 @MainActor
 struct SubagentLingerIsDrivenByTheStoreTests {
-    private func waitUntil(timeout: Duration = .seconds(2), _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + timeout
-        while !condition(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
+    private func waitUntil(
+        _ store: TranscriptStore,
+        _ condition: @escaping () -> Bool
+    ) async {
+        guard !condition() else { return }
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            store.didRead = { _ in
+                guard !resumed, condition() else { return }
+                resumed = true
+                continuation.resume()
+            }
         }
+        store.didRead = nil
     }
 
     /// The reported bug: a subagent left mid-step when the app quit came back
@@ -343,7 +364,7 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         let (task, tab) = (UUID(), UUID())
         engine.restore(tabID: tab, taskID: task)
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+        await waitUntil(store) { !store.subagents(forTab: tab).isEmpty }
 
         #expect(store.subagents(forTab: tab).first?.status == .interrupted)
         #expect(engine.status(forTab: tab) == .notStarted)
@@ -372,7 +393,7 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         let (task, tab) = (UUID(), UUID())
         engine.setStatus(.working, taskID: task, tabID: tab)
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+        await waitUntil(store) { !store.subagents(forTab: tab).isEmpty }
 
         #expect(store.subagents(forTab: tab).first?.status == .working)
     }
@@ -401,7 +422,7 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         let (task, tab) = (UUID(), UUID())
         engine.setStatus(.working, taskID: task, tabID: tab)
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { store.subagents(forTab: tab).first?.status == .interrupted }
+        await waitUntil(store) { store.subagents(forTab: tab).first?.status == .interrupted }
 
         #expect(store.subagents(forTab: tab).first?.status == .interrupted)
         #expect(!engine.isDormant(tabID: tab), "this tab was never restored from disk")
@@ -423,7 +444,7 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         let store = TranscriptStore(debounce: .milliseconds(10), completionTracker: tracker)
         let tab = UUID()
         store.watch(tabID: tab, transcriptPath: path.path)
-        await waitUntil { !store.subagents(forTab: tab).isEmpty }
+        await waitUntil(store) { !store.subagents(forTab: tab).isEmpty }
 
         let subagent = try #require(store.subagents(forTab: tab).first)
         #expect(subagent.status == .done)
