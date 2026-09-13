@@ -119,9 +119,10 @@ final class KeepAwakeCoordinator {
         }
 
         let derivedOffReason: KeepAwakeOffReason? = {
-            if case .off(.battery) = decision { return .battery }
-            if !isHolding, !derived.isEmpty { return .refused }
-            return nil
+            switch decision {
+            case .off(let reason): return reason
+            case .hold: return isHolding ? nil : .refused
+            }
         }()
         if offReason != derivedOffReason {
             offReason = derivedOffReason

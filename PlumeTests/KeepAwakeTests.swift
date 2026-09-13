@@ -228,6 +228,20 @@ struct KeepAwakeTests {
         #expect(coordinator.offReason == nil)
     }
 
+    /// Never mode declines the hold on purpose, which is not the system
+    /// refusing anything.
+    @Test func offReasonIsNilInNeverModeEvenWithReasons() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine)
+        settings.keepAwakeMode = .never
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == nil)
+    }
+
     @Test func offReasonIsRefusedWhenTheAssertionIsRequestedButNotGranted() {
         let engine = StatusEngine()
         let coordinator = KeepAwakeCoordinator(

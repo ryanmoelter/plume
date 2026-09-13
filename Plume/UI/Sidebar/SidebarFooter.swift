@@ -86,9 +86,8 @@ struct SidebarFooter: View, ThemedView {
         }
     }
 
-    /// Reasons want to hold, but battery is blocking it.
     private var isBatteryBlocked: Bool {
-        coordinator.offReason == .battery && !coordinator.reasons.isEmpty
+        coordinator.offReason == .battery
     }
 
     /// An empty cup is not caffeinated; a steaming one is. Battery blocking
@@ -113,7 +112,6 @@ struct SidebarFooter: View, ThemedView {
     /// What is holding the Mac awake, or the mode when nothing is. Auto with
     /// no reasons needs no label: the title already says what it does. The
     /// remote-control glyph rides alongside, so it is never named in words.
-    /// Battery blocking overrides all of that: there's nothing being held.
     private var keepAwakeDetail: String? {
         if isBatteryBlocked { return "On battery" }
         let tally = coordinator.tally
