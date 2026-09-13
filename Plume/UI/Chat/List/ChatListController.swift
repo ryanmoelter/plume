@@ -257,7 +257,7 @@ final class ChatListController: NSObject {
     /// Sets the follow state a finished scroll leaves behind.
     private func land(_ target: ChatListScrollTarget) {
         // Whatever follows the pinned prompt is on screen and measured by
-        // the time the scroll lands; from here the slack only shrinks.
+        // the time the scroll lands.
         pendingPin = nil
         switch target {
         case .bottom:
@@ -488,8 +488,8 @@ final class ChatListController: NSObject {
     }
 
     /// Re-pins while the prompt and what follows it are still measuring for
-    /// the first time, so the slack cap comes from measurements rather than
-    /// estimates. `land` ends the calibration.
+    /// the first time, so only measurements can exhaust the slack, never an
+    /// estimate. `land` ends the calibration.
     private func notePinMeasurement(_ id: String) {
         guard let pendingPin, let anchorIndex = model.index(of: pendingPin), let index = model.index(of: id),
               index >= anchorIndex else { return }

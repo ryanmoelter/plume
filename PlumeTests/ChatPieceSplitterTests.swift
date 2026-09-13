@@ -160,7 +160,7 @@ struct ChatPieceSplitterTests {
             status: .working,
             streaming: ChatStreamHandoff.Overlay(text: "Nearly there.")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "m/working"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "working"])
         #expect(result.map(\.segment) == [.first, .middle, .last])
         #expect(result.allSatisfy { $0.messageID == "m" || $0.messageID == "stream" })
     }
@@ -389,7 +389,7 @@ struct ChatPieceSplitterTests {
         #expect(dimensions.workingIndicatorSpacing >= dimensions.messageSpacing)
 
         let alone = pieces([message("m", .assistant, [])], status: .working)
-        #expect(alone.map(\.id) == ["m/working"])
+        #expect(alone.map(\.id) == ["working"])
         #expect(alone[0].topInset == dimensions.verticalPadding)
     }
 
@@ -410,7 +410,7 @@ struct ChatPieceSplitterTests {
     /// bubble.
     @Test func theWorkingIndicatorNeverJoinsAUserMessage() {
         let result = pieces([message("m", .user, [.markdown("go")])], status: .working)
-        #expect(result.map(\.id) == ["m/0/0", "turn/working"])
+        #expect(result.map(\.id) == ["m/0/0", "working"])
         #expect(result.map(\.segment) == [.single, .single])
         #expect(result[1].wash == .none)
         #expect(result[1].topInset == dimensions.messageSpacing)
@@ -422,7 +422,7 @@ struct ChatPieceSplitterTests {
             status: .working,
             streaming: ChatStreamHandoff.Overlay(text: "On it.")
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "turn/working"])
+        #expect(result.map(\.id) == ["m/0/0", "stream/0", "working"])
         #expect(result.map(\.segment) == [.single, .first, .last])
         #expect(result[2].topInset == dimensions.workingIndicatorSpacing)
     }

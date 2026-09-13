@@ -69,7 +69,7 @@ enum ChatPieceSplitter {
             var turn = streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions)
             if status == .working {
                 turn.append(ChatPiece(
-                    id: "turn/working",
+                    id: Self.workingID,
                     messageID: "stream",
                     role: .assistant,
                     content: .working,
@@ -187,7 +187,7 @@ enum ChatPieceSplitter {
 
         if context.isWorking, message.role == .assistant {
             result.append(ChatPiece(
-                id: "\(message.id)/working",
+                id: Self.workingID,
                 messageID: message.id,
                 role: message.role,
                 content: .working,
@@ -386,6 +386,11 @@ enum ChatPieceSplitter {
     /// mid-stream is as bounded as the transcript it becomes. Parsing is not
     /// prefix-stable — a delimiter line re-reads the paragraph above it as a
     /// table — so a settled piece can be reinterpreted while the stream runs.
+    /// One id for the working indicator wherever it sits, so the row that
+    /// draws it survives the stream becoming a transcript message and its
+    /// ellipsis keeps pulsing through the handoff instead of restarting.
+    static let workingID = "working"
+
     private static func streamingPieces(
         _ overlay: ChatStreamHandoff.Overlay,
         wash: ChatPiece.Wash,

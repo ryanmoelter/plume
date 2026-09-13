@@ -187,9 +187,11 @@ struct ChatLayoutModelTests {
     // MARK: - Slack (send-to-top)
 
     /// Simulates a sent prompt anchored at the top while a reply streams in,
-    /// piece by piece, then a disclosure collapsing and the viewport
-    /// resizing — none of which may pull the slack back up.
-    @Test func slackPinsThePromptWhileTheReplyGrowsThenNeverGrowsBack() {
+    /// piece by piece. Until the reply fills the viewport the prompt stays
+    /// put through every height change in either direction; once it has,
+    /// a disclosure collapsing or the viewport growing leaves the reader
+    /// following the bottom rather than snapping back to the prompt.
+    @Test func slackPinsThePromptUntilTheReplyFillsTheViewport() {
         var model = ChatLayoutModel()
         model.viewportHeight = 100
         model.setItems([item("p", 20)])
@@ -202,17 +204,26 @@ struct ChatLayoutModelTests {
         #expect(model.slack == 50)
         #expect(model.maxOffset == 0)
 
+        // A block re-wrapping a line taller for a frame, then back.
+        model.setDisplayHeight(40, for: "r1")
+        #expect(model.slack == 40)
+        model.setDisplayHeight(30, for: "r1")
+        #expect(model.slack == 50)
+        #expect(model.maxOffset == 0)
+
         model.setItems([item("p", 20), item("r1", 30), item("r2", 60)])
         #expect(model.slack == 0)
         #expect(model.maxOffset == 10)
 
-        // A disclosure collapsing shrinks content; the cap keeps slack at 0.
         model.setDisplayHeight(10, for: "r2")
         #expect(model.slack == 0)
 
-        // The viewport growing must not resurrect slack either.
         model.viewportHeight = 200
         #expect(model.slack == 0)
+
+        // The next prompt starts over.
+        model.setAnchor("r2")
+        #expect(model.slack > 0)
     }
 
     @Test func anAnchorMissingFromItemsGivesZeroSlack() {

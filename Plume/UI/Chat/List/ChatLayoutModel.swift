@@ -51,9 +51,10 @@ struct ChatLayoutModel {
 
     private(set) var anchorID: String?
     private(set) var slack: CGFloat = 0
-    /// Upper bound the anchor's slack may never exceed again, until the next
-    /// `setAnchor`. Enforces the one-way "never grows back" rule.
-    private var slackCap: CGFloat = .infinity
+    /// Latched once the reply has filled the viewport, until the next
+    /// `setAnchor`: from then on content shrinking keeps the reader at the
+    /// bottom instead of snapping the prompt back to the top.
+    private var slackExhausted = false
 
     init(overscan: CGFloat = 0.5, maxRealized: Int = 120) {
         self.overscan = overscan
@@ -187,7 +188,7 @@ struct ChatLayoutModel {
 
     mutating func setAnchor(_ id: String?) {
         anchorID = id
-        slackCap = .infinity
+        slackExhausted = false
         recomputeSlack()
     }
 
@@ -200,9 +201,10 @@ struct ChatLayoutModel {
         }
         let anchorTop = prefixSums[index]
         let formula = max(0, viewportHeight - (contentHeight - anchorTop) - trailingInset)
-        let capped = min(slackCap, formula)
-        slackCap = capped
-        slack = capped
+        // Below the fill line the formula rules outright, so a streaming
+        // block that re-wraps a line taller for a frame takes nothing away.
+        if formula == 0 { slackExhausted = true }
+        slack = slackExhausted ? 0 : formula
     }
 
     // MARK: - Windows
