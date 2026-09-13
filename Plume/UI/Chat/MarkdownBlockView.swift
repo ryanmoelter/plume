@@ -347,7 +347,7 @@ struct CodeSegmentView: View, ThemedView {
         .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
     }
 
-    /// Names the language and carries the copy button, both drawn always.
+    /// Names the language, with a code icon, and carries the copy button.
     ///
     /// An untagged fence says so rather than going blank, which keeps the
     /// copy button from sitting alone and every block in a reply lined up.

@@ -1,10 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Copies markdown to the pasteboard, revealed on hover.
+/// Copies markdown to the pasteboard.
 ///
 /// The same affordance `CodeBlockCopyButton` gives a code block, for the rest
-/// of the chat: a table's own source, and a whole reply's.
+/// of the chat: a table's own source, and a whole reply's. A table's is
+/// revealed on hover, having no end of its own to sit at; a message's closes
+/// the message and stays put.
 struct ChatCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
