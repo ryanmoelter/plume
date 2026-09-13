@@ -70,7 +70,9 @@ struct SubagentListView: View, ThemedView {
                 header.padding(.top, dimensions.messageSpacing)
             case .rows:
                 VStack(alignment: .leading, spacing: 2) { rows }
-                    .padding(.top, 2)
+                    // With no live rows the header draws nothing, and the
+                    // completed toggle opens the section instead.
+                    .padding(.top, live.isEmpty ? dimensions.messageSpacing : 2)
                     .padding(.bottom, dimensions.verticalPadding)
             }
         }
