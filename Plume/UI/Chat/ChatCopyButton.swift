@@ -59,11 +59,6 @@ struct CopyGlyph: View, ThemedView {
     /// Set where the glyph floats over content and needs the circle for
     /// legibility rather than as a hover affordance.
     var alwaysFilled: Bool = false
-    /// A wider region whose hover reveals the circle, for a button sitting in
-    /// a container the reader aims at rather than the button itself. Left
-    /// unset, the glyph tracks its own pointer.
-    var isContainerHovered: Bool?
-
     @State private var isHovered = false
 
     var body: some View {
@@ -88,7 +83,7 @@ struct CopyGlyph: View, ThemedView {
     }
 
     private var showsCircle: Bool {
-        alwaysFilled || isHovered || isContainerHovered == true
+        alwaysFilled || isHovered
     }
 
     /// How far the circle extends past the glyph on each side. A caller
