@@ -169,7 +169,7 @@ struct ChatMessageList: View, ThemedView {
                 followState.distanceFromBottom = 0
                 followState.detached = false
                 jumpButton.isDetached = false
-                jumpToBottom(animated: false)
+                jumpToBottom(animated: engine == .custom)
             }
         }
     }

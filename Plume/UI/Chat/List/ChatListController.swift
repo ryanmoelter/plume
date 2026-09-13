@@ -636,7 +636,7 @@ final class ChatListController: NSObject {
             let onOpen = onOpenSubagent
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
                 SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
-                    .listItemPadding(bleed: false, column: .unpadded)
+                    .listItemPadding(bleed: false, column: .unpadded, vertical: false)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         case .dock:

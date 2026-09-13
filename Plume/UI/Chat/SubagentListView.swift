@@ -66,11 +66,12 @@ struct SubagentListView: View, ThemedView {
                 }
                 .padding(.vertical, 6)
             case .header:
-                header.padding(.top, 6)
+                // Its own section after the reply, the way a message is.
+                header.padding(.top, dimensions.messageSpacing)
             case .rows:
                 VStack(alignment: .leading, spacing: 2) { rows }
                     .padding(.top, 2)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, dimensions.verticalPadding)
             }
         }
     }
