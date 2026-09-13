@@ -354,17 +354,19 @@ struct CodeSegmentView: View, ThemedView {
     /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
     /// ceiling counts.
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
             Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
-                .font(typography.caption.mono)
+                .font(typography.caption.font)
                 .emphasis(.secondary)
             Spacer(minLength: 0)
             CodeBlockCopyButton(code: segment.code)
         }
-        // The label's leading edge meets the first character of code below.
+        // The icon's leading edge meets the first character of code below.
         .padding(.leading, padding)
         .padding(.trailing, 6)
-        .padding(.top, 6)
         .frame(height: ChatPieceMetrics.codeHeaderHeight)
         // The label is decoration; a drag over it should not start a
         // selection that competes with the code's own.
@@ -420,11 +422,7 @@ struct CodeBlockCopyButton: View, ThemedView {
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : ChatCopyButton.symbol)
-                .font(.system(size: 11, weight: .medium))
-                .emphasis(didCopy ? .primary : .secondary)
-                .padding(4)
-                .contentShape(.rect)
+            CopyGlyph(didCopy: didCopy)
         }
         .buttonStyle(.plain)
         .help("Copy code")
