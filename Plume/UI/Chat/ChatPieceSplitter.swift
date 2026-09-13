@@ -187,10 +187,12 @@ enum ChatPieceSplitter {
             ))
         }
 
-        // Only the first piece carries it, so the reply offers one button for
-        // the whole of what it said rather than one per block.
+        // Only the last piece carries it, so the footer closes the message
+        // where it ends and the reply offers one button for the whole of what
+        // it said rather than one per block.
         if !result.isEmpty, let whole = context.messageMarkdown {
-            result[0].messageCopySource = whole
+            result[result.count - 1].messageCopySource = whole
+            result[result.count - 1].timestamp = message.timestamp
         }
 
         return result

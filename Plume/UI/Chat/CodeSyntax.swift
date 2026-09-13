@@ -50,6 +50,20 @@ nonisolated enum CodeSyntax {
         return tokenize(Array(code.utf16), grammar: grammar)
     }
 
+    /// A fence tag normalized for display, or nil when the fence carries no
+    /// usable tag.
+    ///
+    /// A recognized alias resolves to its family's canonical spelling, so
+    /// `objc` and `Objective-C` both read as `Objective-C`. A tag no grammar
+    /// claims is still shown, trimmed and otherwise as the author typed it:
+    /// it names the content even when nothing here can color it.
+    static func displayName(for language: String?) -> String? {
+        guard let language else { return nil }
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Grammar.displayNames[trimmed.lowercased()] ?? trimmed
+    }
+
     // MARK: - Grammar
 
     /// The lexical rules of one language family.
@@ -94,6 +108,53 @@ nonisolated enum CodeSyntax {
             }
             return table
         }()
+
+        /// The canonical spelling of each tag a fence may carry.
+        ///
+        /// Keyed by tag rather than by grammar family: a family groups
+        /// languages that share lexical rules, so `cLike` covers Go, Rust and
+        /// Java at once and has no one name to show.
+        static let displayNames: [String: String] = {
+            var names: [String: String] = [:]
+            for (aliases, canonical) in spellings {
+                for alias in aliases { names[alias] = canonical }
+            }
+            return names
+        }()
+
+        private static let spellings: [([String], String)] = [
+            (["swift"], "Swift"),
+            (["c", "h"], "C"),
+            (["cpp", "c++", "cc", "hpp"], "C++"),
+            (["objc", "objective-c", "m", "mm"], "Objective-C"),
+            (["java"], "Java"),
+            (["kotlin", "kt"], "Kotlin"),
+            (["cs", "csharp"], "C#"),
+            (["go"], "Go"),
+            (["rust", "rs"], "Rust"),
+            (["js", "javascript", "mjs", "cjs"], "JavaScript"),
+            (["jsx"], "JSX"),
+            (["ts", "typescript"], "TypeScript"),
+            (["tsx"], "TSX"),
+            (["py", "python", "python3"], "Python"),
+            (["sh", "shell", "console", "shell-session"], "Shell"),
+            (["bash"], "Bash"),
+            (["zsh"], "Zsh"),
+            (["fish"], "Fish"),
+            (["rb", "ruby"], "Ruby"),
+            (["json", "json5", "jsonc"], "JSON"),
+            (["yaml", "yml"], "YAML"),
+            (["toml"], "TOML"),
+            (["ini"], "INI"),
+            (["cfg", "conf"], "Config"),
+            (["sql"], "SQL"),
+            (["markdown", "md"], "Markdown"),
+            (["html"], "HTML"),
+            (["css"], "CSS"),
+            (["xml"], "XML"),
+            (["diff", "patch"], "Diff"),
+            (["text", "txt", "plaintext"], "Text"),
+        ]
 
         private static let families: [([String], Grammar)] = [
             (["swift"], .swift),

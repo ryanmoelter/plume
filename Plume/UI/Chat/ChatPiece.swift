@@ -39,8 +39,12 @@ struct ChatPiece: Identifiable, Equatable {
     /// otherwise. Nil for a piece that is not markdown at all.
     var copySource: String?
     /// The markdown of every block in this piece's message, set only on the
-    /// message's first piece so one button copies the whole reply.
+    /// message's last piece so one footer copies the whole reply.
     var messageCopySource: String?
+    /// When the message was sent, shown beside the copy button in the footer.
+    /// Set on the same piece as `messageCopySource`, and nil where the
+    /// transcript recorded no time.
+    var timestamp: Date?
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)

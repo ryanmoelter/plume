@@ -566,15 +566,43 @@ struct ChatPieceSplitterTests {
     }
 
     /// One button for the whole reply, on its first piece only.
-    @Test func onlyTheFirstPieceCarriesTheWholeMessage() {
+    /// The footer closes the message, so the source rides its last piece.
+    @Test func onlyTheLastPieceCarriesTheWholeMessage() {
         let result = pieces([message("m", .assistant, [
             .markdown("One."),
             toolCall("t1"),
             .markdown("Two.")
         ])])
-        #expect(result[0].messageCopySource == "One.\n\nTwo.")
-        #expect(result.dropFirst().allSatisfy { $0.messageCopySource == nil })
-        #expect(result[0].offersMessageCopy)
+        #expect(result.last?.messageCopySource == "One.\n\nTwo.")
+        #expect(result.dropLast().allSatisfy { $0.messageCopySource == nil })
+        #expect(result.last?.offersMessageCopy == true)
+    }
+
+    /// The footer shows it beside the copy button, and only there.
+    @Test func theLastPieceCarriesTheMessagesTimestamp() {
+        let sent = Date(timeIntervalSince1970: 1_700_000_000)
+        let result = pieces([ChatMessage(
+            id: "m",
+            role: .assistant,
+            blocks: [.markdown("One."), .markdown("Two.")],
+            timestamp: sent
+        )])
+        #expect(result.last?.timestamp == sent)
+        #expect(result.dropLast().allSatisfy { $0.timestamp == nil })
+    }
+
+    /// A transcript line without a time still offers the copy button.
+    @Test func aMessageWithoutATimestampStillOffersCopy() {
+        let result = pieces([message("m", .assistant, [.markdown("One.")])])
+        #expect(result.last?.timestamp == nil)
+        #expect(result.last?.offersMessageCopy == true)
+    }
+
+    /// What the user said is as worth copying as what Claude answered.
+    @Test func aUserMessageGetsTheFooterToo() {
+        let result = pieces([message("m", .user, [.markdown("Fix the build")])])
+        #expect(result.last?.messageCopySource == "Fix the build")
+        #expect(result.last?.offersMessageCopy == true)
     }
 
     /// A message that says nothing in markdown has nothing to copy.

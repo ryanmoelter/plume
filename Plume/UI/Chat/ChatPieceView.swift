@@ -24,7 +24,10 @@ struct ChatPieceView: View, ThemedView {
     // here would give the branches different identities, and every expanded
     // disclosure inside would collapse the moment the status changed.
     var body: some View {
-        content
+        VStack(alignment: .leading, spacing: 4) {
+            content
+            footer
+        }
             .environment(\.chatHugsContent, piece.wash == .bubble)
             .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
             .padding(.top, insideInset)
@@ -43,7 +46,6 @@ struct ChatPieceView: View, ThemedView {
             )
             .background(washFill, in: washShape)
             .overlay(alignment: .topTrailing) { copyButtons }
-            .onHover { isHovered = $0 }
             .overlay {
                 if piece.wash == .attention {
                     SegmentBorder(segment: piece.segment, radius: washRadius)
@@ -58,30 +60,56 @@ struct ChatPieceView: View, ThemedView {
             // is the same width and the joined shape reads as one bubble.
             .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
+            // Outside both width frames, so the region tracked for the table
+            // button encloses the button as well as the text. Hovering the
+            // piece's own bounds loses the pointer on the way to a button
+            // that hangs past a short line.
+            .contentShape(.rect)
+            .onHover { isHovered = $0 }
     }
 
-    /// The whole reply on the first piece, the table on a table's own piece.
-    /// A first piece that is a table offers both.
+    /// The table's own source, on a table's piece. Hover-revealed, since a
+    /// table has no end of its own to close the way a message does.
     @ViewBuilder
     private var copyButtons: some View {
-        HStack(spacing: 2) {
-            if let table = piece.tableCopySource {
-                ChatCopyButton(markdown: table, isRevealed: isHovered, label: "Copy table as markdown")
-            }
-            if piece.offersMessageCopy, let message = piece.messageCopySource {
+        if let table = piece.tableCopySource {
+            ChatCopyButton(markdown: table, isRevealed: isHovered, label: "Copy table as markdown")
+                .padding(4)
+                // A hidden button still takes clicks, which would swallow a
+                // tap on the text under it.
+                .allowsHitTesting(isHovered)
+        }
+    }
+
+    /// Closes a message with when it was sent and a button for its markdown.
+    ///
+    /// Laid out at the end of the message's last piece rather than floating
+    /// over it, so the button is always present and needs no hover to reach.
+    @ViewBuilder
+    private var footer: some View {
+        if piece.offersMessageCopy, let message = piece.messageCopySource {
+            HStack(spacing: 4) {
                 ChatCopyButton(
                     markdown: message,
-                    isRevealed: isHovered,
-                    symbol: "text.document",
-                    label: "Copy message as markdown"
+                    isRevealed: true,
+                    label: "Copy message as markdown",
+                    isFloating: false
                 )
+                if let timestamp = piece.timestamp {
+                    Text(Self.timeFormat.string(from: timestamp))
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                }
             }
         }
-        .padding(4)
-        // A hidden button still takes clicks, which would swallow a tap on
-        // the text under it.
-        .allowsHitTesting(isHovered)
     }
+
+    private static let timeFormat: DateFormatter = {
+        let format = DateFormatter()
+        format.dateStyle = .none
+        format.timeStyle = .short
+        return format
+    }()
 
     @ViewBuilder
     private var content: some View {

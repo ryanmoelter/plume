@@ -330,10 +330,8 @@ struct CodeSegmentView: View, ThemedView {
                         code
                     }
                 }
-                .overlay(alignment: .topTrailing) { copyButton }
             } else {
                 code
-                    .overlay(alignment: .topTrailing) { copyButton }
             }
         }
         .textSelection(.enabled)
@@ -342,8 +340,35 @@ struct CodeSegmentView: View, ThemedView {
     }
 
     private var code: some View {
-        scroller
-            .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            scroller
+        }
+        .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+    }
+
+    /// Names the language and carries the copy button, both drawn always.
+    ///
+    /// An untagged fence says so rather than going blank, which keeps the
+    /// copy button from sitting alone and every block in a reply lined up.
+    /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
+    /// ceiling counts.
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
+                .font(typography.caption.mono)
+                .emphasis(.secondary)
+            Spacer(minLength: 0)
+            CodeBlockCopyButton(code: segment.code)
+        }
+        // The label's leading edge meets the first character of code below.
+        .padding(.leading, padding)
+        .padding(.trailing, 6)
+        .padding(.top, 6)
+        .frame(height: ChatPieceMetrics.codeHeaderHeight)
+        // The label is decoration; a drag over it should not start a
+        // selection that competes with the code's own.
+        .textSelection(.disabled)
     }
 
     /// A block over the ceiling gains a vertical scroll view and a fixed
@@ -353,7 +378,7 @@ struct CodeSegmentView: View, ThemedView {
     private var scroller: some View {
         if ChatPieceMetrics.scrollsCode(segment.code) {
             ScrollView(.vertical) { lines }
-                .frame(height: ChatPieceMetrics.maxCodeHeight)
+                .frame(height: ChatPieceMetrics.scrollingCodeHeight)
         } else {
             lines
         }
@@ -363,7 +388,10 @@ struct CodeSegmentView: View, ThemedView {
         ScrollView(.horizontal, showsIndicators: false) {
             Text(highlighted)
                 .font(typography.body.mono)
-                .padding(padding)
+                .padding(.horizontal, padding)
+                .padding(.bottom, padding)
+                // The header already pays the gap above the first line.
+                .padding(.top, 2)
         }
     }
 
@@ -377,36 +405,30 @@ struct CodeSegmentView: View, ThemedView {
         )
     }
 
-    private var copyButton: some View {
-        CodeBlockCopyButton(code: segment.code, isRevealed: isHovered)
-    }
-
     private var padding: CGFloat { 14 }
     private var radius: CGFloat { 6 }
 }
 
-/// Copies a code block's raw text to the pasteboard, revealed on hover and
-/// pinned to the block's corner so it never scrolls with the code beneath it.
+/// Copies a code block's raw text to the pasteboard, from the block's header
+/// so it never scrolls with the code beneath it.
 struct CodeBlockCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
     let code: String
-    let isRevealed: Bool
 
     @State private var didCopy = false
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+            Image(systemName: didCopy ? "checkmark" : ChatCopyButton.symbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(colors.foreground)
-                .padding(6)
-                .background(colors.surface(.backgroundTint), in: .circle)
+                .emphasis(didCopy ? .primary : .secondary)
+                .padding(4)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .padding(6)
-        .opacity(isRevealed || didCopy ? 1 : 0)
         .help("Copy code")
+        .accessibilityLabel("Copy code")
     }
 
     private func copy() {
