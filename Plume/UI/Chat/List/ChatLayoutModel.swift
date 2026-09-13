@@ -10,6 +10,10 @@ struct ChatLayoutItem: Equatable {
     var bottomInset: CGFloat = 0
     /// Starting height until the first measurement replaces it.
     var estimatedHeight: CGFloat
+    /// May sit behind the composer while the list follows. Only a run of
+    /// these at the very end of the list folds; one followed by an item
+    /// that must stay visible cannot.
+    var folds = false
 }
 
 /// The pure layout brain of the custom chat list.
@@ -51,6 +55,8 @@ struct ChatLayoutModel {
 
     private(set) var anchorID: String?
     private(set) var slack: CGFloat = 0
+    /// The trailing run of folding items, insets included.
+    private(set) var foldHeight: CGFloat = 0
     /// Latched once the reply has filled the viewport, until the next
     /// `setAnchor`: from then on content shrinking keeps the reader at the
     /// bottom instead of snapping the prompt back to the top.
@@ -180,9 +186,18 @@ struct ChatLayoutModel {
 
     var contentHeight: CGFloat { prefixSums[entries.count] }
 
+    /// The content the composer must not cover: everything but the fold.
+    var heldHeight: CGFloat { contentHeight - foldHeight }
+
     var totalHeight: CGFloat { contentHeight + slack + trailingInset }
 
+    /// How far the reader can scroll, which brings the fold out from behind
+    /// the composer.
     var maxOffset: CGFloat { max(0, totalHeight - viewportHeight) }
+
+    /// Where following rests: the held content just above the composer,
+    /// the fold behind it.
+    var followOffset: CGFloat { max(0, maxOffset - foldHeight) }
 
     // MARK: - Slack (send-to-top)
 
@@ -200,7 +215,7 @@ struct ChatLayoutModel {
             return
         }
         let anchorTop = prefixSums[index]
-        let formula = max(0, viewportHeight - (contentHeight - anchorTop) - trailingInset)
+        let formula = max(0, viewportHeight - (heldHeight - anchorTop) - trailingInset)
         // Below the fill line the formula rules outright, so a streaming
         // block that re-wraps a line taller for a frame takes nothing away.
         if formula == 0 { slackExhausted = true }
@@ -279,7 +294,17 @@ struct ChatLayoutModel {
 
     private mutating func invalidate() {
         recomputePrefixSums()
+        recomputeFold()
         recomputeSlack()
+    }
+
+    private mutating func recomputeFold() {
+        var height: CGFloat = 0
+        for entry in entries.reversed() {
+            guard entry.item.folds else { break }
+            height += entry.item.topInset + entry.displayHeight + entry.item.bottomInset
+        }
+        foldHeight = height
     }
 
     private mutating func recomputePrefixSums() {

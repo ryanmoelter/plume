@@ -91,15 +91,16 @@ final class ChatListController: NSObject {
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
 
-    private static let subagentsID = "plume.trailing.subagents"
     private static let dockID = "plume.trailing.dock"
+    private static let subagentsHeaderID = "plume.trailing.subagents.header"
+    private static let subagentRowsID = "plume.trailing.subagents.rows"
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
 
     private enum Item {
         case piece(ChatPiece)
-        case subagents
         case dock
+        case subagents(SubagentListView.Part)
     }
 
     private struct Host {
@@ -175,7 +176,10 @@ final class ChatListController: NSObject {
         if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt {
             stale.formUnion(hosts.keys)
         }
-        if new.subagents != old.subagents { stale.insert(Self.subagentsID) }
+        if new.subagents != old.subagents {
+            stale.insert(Self.subagentsHeaderID)
+            stale.insert(Self.subagentRowsID)
+        }
         refreshRoots(stale)
         documentView.needsLayout = true
     }
@@ -196,10 +200,14 @@ final class ChatListController: NSObject {
             ))
         }
         if inputs.tabID != nil {
-            next[Self.subagentsID] = .subagents
+            // The dock needs a click, so it stays above the composer; the
+            // subagent rows fold behind it and only their header holds.
             next[Self.dockID] = .dock
-            layoutItems.append(ChatLayoutItem(id: Self.subagentsID, estimatedHeight: 0))
+            next[Self.subagentsHeaderID] = .subagents(.header)
+            next[Self.subagentRowsID] = .subagents(.rows)
             layoutItems.append(ChatLayoutItem(id: Self.dockID, estimatedHeight: 0))
+            layoutItems.append(ChatLayoutItem(id: Self.subagentsHeaderID, estimatedHeight: 0))
+            layoutItems.append(ChatLayoutItem(id: Self.subagentRowsID, estimatedHeight: 0, folds: true))
         }
         items = next
         model.setItems(layoutItems)
@@ -269,7 +277,7 @@ final class ChatListController: NSObject {
             isFollowing = false
             readerAnchor = (id: id, distance: 0)
         }
-        Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) max=\(Int(self.model.maxOffset))")
+        Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.followOffset))")
     }
 
     // MARK: - Scroll events
@@ -290,7 +298,7 @@ final class ChatListController: NSObject {
         easedOffset = nil
         pendingPin = nil
         let offset = clip.bounds.origin.y
-        let distance = max(0, model.maxOffset - offset)
+        let distance = max(0, model.followOffset - offset)
         isFollowing = distance <= ChatScrollAnchor.bottomTolerance
         followDistance = isFollowing ? distance : 0
         readerAnchor = isFollowing ? nil : model.readerAnchor(offset: offset)
@@ -362,14 +370,14 @@ final class ChatListController: NSObject {
     /// The offset the current policy asks for, before clamping.
     private func resolvedOffset() -> CGFloat {
         if let easedOffset { return easedOffset }
-        if isFollowing { return model.maxOffset - followDistance }
+        if isFollowing { return model.followOffset - followDistance }
         if let readerAnchor { return model.offset(keeping: readerAnchor.id, distance: readerAnchor.distance) }
         return scrollView.contentView.bounds.origin.y
     }
 
     private func resolve(_ target: ChatListScrollTarget) -> CGFloat {
         switch target {
-        case .bottom: model.maxOffset
+        case .bottom: model.followOffset
         case let .item(id): min(model.slotTop(of: id), model.maxOffset)
         }
     }
@@ -419,7 +427,7 @@ final class ChatListController: NSObject {
             }
         }
         if !isFollowing, easedOffset == nil {
-            let distance = max(0, model.maxOffset - offset)
+            let distance = max(0, model.followOffset - offset)
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
@@ -454,7 +462,7 @@ final class ChatListController: NSObject {
         }
         lastLog = now
         Log.chatList.info(
-            "pass items=\(self.model.count) realized=\(self.hosts.count) pool=\(self.pool.count) offset=\(Int(offset)) max=\(Int(self.model.maxOffset)) total=\(Int(self.model.totalHeight)) viewport=\(Int(viewport)) slack=\(Int(self.model.slack)) following=\(self.isFollowing) detached=\(self.isDetached) animating=\(self.animator.isAnimating)"
+            "pass items=\(self.model.count) realized=\(self.hosts.count) pool=\(self.pool.count) offset=\(Int(offset)) follow=\(Int(self.model.followOffset)) max=\(Int(self.model.maxOffset)) total=\(Int(self.model.totalHeight)) viewport=\(Int(viewport)) slack=\(Int(self.model.slack)) following=\(self.isFollowing) detached=\(self.isDetached) animating=\(self.animator.isAnimating)"
         )
     }
 
@@ -622,12 +630,12 @@ final class ChatListController: NSObject {
                 )
                 .listItemPadding(bleed: true, column: .unpadded, vertical: false)
             }.id(id))
-        case .subagents:
+        case let .subagents(part):
             let subagents = inputs.subagents
             let tabID = inputs.tabID ?? UUID()
             let onOpen = onOpenSubagent
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
-                SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen)
+                SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
                     .listItemPadding(bleed: false, column: .unpadded)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))

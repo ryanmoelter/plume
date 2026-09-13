@@ -25,7 +25,7 @@
 Each pass resolves one **offset policy**, in this order (`resolvedOffset()`):
 
 1. **A programmatic scroll in flight** (`easedOffset` non-nil): the animator is driving toward a target (`.bottom` or `.item(id)`), re-resolved every tick so a jump can retarget as rows below it measure.
-2. **Following the bottom** (`isFollowing`): the offset is `model.maxOffset` minus `followDistance`, the gap the reader last settled at inside `ChatScrollAnchor.bottomTolerance`, so growth keeps that gap rather than snapping it shut. A landed scroll to the bottom resets the gap to zero.
+2. **Following the bottom** (`isFollowing`): the offset is `model.followOffset` minus `followDistance`, the gap the reader last settled at inside `ChatScrollAnchor.bottomTolerance`, so growth keeps that gap rather than snapping it shut. A landed scroll to the bottom resets the gap to zero. `followOffset` is `maxOffset` less the fold (below), so following rests with the fold behind the composer while a deliberate scroll can still reach `maxOffset` and bring it out.
 3. **Preserving the reader's anchor** (`readerAnchor`): the id and distance captured the last time the reader scrolled, so a height change above them moves nothing they can see.
 4. Otherwise, the scroll view's own current offset. Nothing wants to move it.
 
@@ -86,6 +86,10 @@ Slack follows the formula until it first reaches zero, then **latches at zero** 
 While the prompt and the pieces below it are still measuring for the first time, `notePinMeasurement` keeps calling `setAnchor(pendingPin)` again on every measurement at or past the anchor. This is the **calibration** window, and it clears the latch each time, so an estimate that overstated the reply cannot lock it in. `land(_:)`, called when the scroll to bottom finishes, sets `pendingPin = nil` and ends calibration for good.
 
 Sending always jumps: `pin(pieceID:)` unconditionally scrolls, regardless of where the reader currently is.
+
+## The fold
+
+The trailing items are, in order, the permission dock, the subagent header and the subagent rows. The rows are marked `folds` on their `ChatLayoutItem`, and `ChatLayoutModel.foldHeight` is the height of the trailing run of folding items. Following rests at `followOffset = maxOffset - foldHeight`: the header sits just above the composer and the rows behind it, where they can be read through the glass or scrolled out. The slack formula uses `heldHeight = contentHeight - foldHeight`, so while a reply is still shorter than the viewport the rows show in full below it and slide behind the composer as it grows, before the list starts scrolling. The dock comes first because it needs a click. `SubagentListView.Part` is what lets one view draw as two items.
 
 ## The engine switch
 

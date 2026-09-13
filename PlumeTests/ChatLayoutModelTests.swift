@@ -9,9 +9,10 @@ struct ChatLayoutModelTests {
         _ id: String,
         _ height: CGFloat,
         top: CGFloat = 0,
-        bottom: CGFloat = 0
+        bottom: CGFloat = 0,
+        folds: Bool = false
     ) -> ChatLayoutItem {
-        ChatLayoutItem(id: id, topInset: top, bottomInset: bottom, estimatedHeight: height)
+        ChatLayoutItem(id: id, topInset: top, bottomInset: bottom, estimatedHeight: height, folds: folds)
     }
 
     // MARK: - Items
@@ -224,6 +225,43 @@ struct ChatLayoutModelTests {
         // The next prompt starts over.
         model.setAnchor("r2")
         #expect(model.slack > 0)
+    }
+
+    // MARK: - The fold
+
+    @Test func followingRestsWithTheFoldBehindTheComposerAndScrollingRevealsIt() {
+        var model = ChatLayoutModel()
+        model.viewportHeight = 100
+        model.trailingInset = 20
+        model.setItems([item("a", 150), item("header", 10), item("rows", 40, bottom: 5, folds: true)])
+        #expect(model.foldHeight == 45)
+        #expect(model.maxOffset == 125)
+        #expect(model.followOffset == 80)
+    }
+
+    @Test func onlyATrailingRunFolds() {
+        var model = ChatLayoutModel()
+        model.viewportHeight = 100
+        model.setItems([item("a", 150, folds: true), item("b", 10), item("c", 30, folds: true), item("d", 20, folds: true)])
+        #expect(model.foldHeight == 50)
+        model.setItems([item("a", 150, folds: true), item("b", 10)])
+        #expect(model.foldHeight == 0)
+    }
+
+    /// The fold is not content the reply has to grow past: it slides behind
+    /// the composer before following starts.
+    @Test func slackCountsOnlyTheHeldContent() {
+        var model = ChatLayoutModel()
+        model.viewportHeight = 100
+        model.setItems([item("p", 20), item("rows", 30, folds: true)])
+        model.setAnchor("p")
+        #expect(model.slack == 80)
+        #expect(model.followOffset == 0)
+
+        model.setItems([item("p", 20), item("r1", 80), item("rows", 30, folds: true)])
+        #expect(model.slack == 0)
+        #expect(model.maxOffset == 30)
+        #expect(model.followOffset == 0)
     }
 
     @Test func anAnchorMissingFromItemsGivesZeroSlack() {
