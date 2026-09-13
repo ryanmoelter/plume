@@ -78,9 +78,10 @@ struct KeepAwakePanel: View {
     /// that is the setting; otherwise the request itself failed, which the
     /// panel should not dress up as a choice.
     private var notHoldingReason: String {
-        settings.keepsAwakeOnBattery
-            ? "Not holding — the system refused."
-            : "Not holding — the Mac is on battery."
+        switch coordinator.offReason {
+        case .battery: "Not holding — the Mac is on battery."
+        case .refused, nil: "Not holding — the system refused."
+        }
     }
 
     /// Falls back to the task's title, because a tab only has one once its
