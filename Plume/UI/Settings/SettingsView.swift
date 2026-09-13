@@ -105,7 +105,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Use the experimental chat layout", isOn: Binding(
+                Toggle("Use the new chat layout", isOn: Binding(
                     get: { settings.chatListEngine == .custom },
                     set: { settings.chatListEngine = $0 ? .custom : .lazyStack }
                 ))
@@ -113,7 +113,7 @@ struct SettingsView: View {
                 Text("Chat Layout")
             } footer: {
                 Text(
-                    "The experimental layout is Plume's own scrolling list: it pins a sent " +
+                    "The new layout is Plume's own scrolling list: it pins a sent " +
                     "prompt to the top of the view with room below for the reply, and " +
                     "animates the conversation itself rather than each message. Off, the " +
                     "list is the SwiftUI one it replaces. Takes effect on the next chat opened."

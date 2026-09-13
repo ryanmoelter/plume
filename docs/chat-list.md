@@ -89,7 +89,7 @@ Sending always jumps: `pin(pieceID:)` unconditionally scrolls, regardless of whe
 
 ## The engine switch
 
-`AppSettings.chatListEngine` (`Plume/Support/AppSettings.swift`) is `.lazyStack` or `.custom`, persisted under `chatListEngineRaw`, defaulting to `.lazyStack` until the custom list has proven itself. The Settings toggle is "Use the experimental chat layout" under the Chat Layout section in `SettingsView.swift`. `PLUME_CHAT_LIST_ENGINE=custom|lazy` (`ChatListEngine.environmentOverride` in `ChatListEngine.swift`) wins over the stored setting, for a harness run.
+`AppSettings.chatListEngine` (`Plume/Support/AppSettings.swift`) is `.lazyStack` or `.custom`, persisted under `chatListEngineRaw`, defaulting to `.custom` so the custom list gets daily use before the lazy stack is removed. The Settings toggle is "Use the new chat layout" under the Chat Layout section in `SettingsView.swift`. `PLUME_CHAT_LIST_ENGINE=custom|lazy` (`ChatListEngine.environmentOverride` in `ChatListEngine.swift`) wins over the stored setting, for a harness run.
 
 The choice **applies to the next chat opened, not the current one**: `ChatMessageList` reads `AppSettings.shared.effectiveChatListEngine` once into `@State` at init, because switching containers under a mounted list would rebuild every row.
 
