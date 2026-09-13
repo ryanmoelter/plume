@@ -12,13 +12,13 @@ enum ChatPieceEstimate {
             case let .paragraph(text): prose(text, width: width)
             case .heading: 32
             case let .list(items): CGFloat(items.count) * 24
-            case let .codeBlock(_, code): min(ChatPieceMetrics.maxCodeHeight, lines(in: code) * 17 + 56)
+            case let .codeBlock(_, code): lines(in: code) * 17 + 56
             case let .quote(text, _): prose(text, width: width)
             case let .table(_, _, rows): CGFloat(rows.count + 1) * 26
             case .rule: 20
             }
         case let .codeSegment(segment):
-            min(ChatPieceMetrics.maxCodeHeight, lines(in: segment.code) * 17 + 56)
+            lines(in: segment.code) * 17 + 56
         case let .listSegment(segment):
             CGFloat(segment.items.count) * 24
         case .thinking, .toolCall, .injected, .working:

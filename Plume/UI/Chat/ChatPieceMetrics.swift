@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// The ceiling on a lazy item's height, and the crude estimates used to
 /// decide whether a block exceeds it.
@@ -36,13 +36,14 @@ enum ChatPieceMetrics {
     private static let codePadding: CGFloat = 28
 
     /// Whether a code block is taller than its ceiling, and so scrolls
-    /// inside itself.
+    /// inside itself. No ceiling, no scrolling.
     ///
     /// The header sits above the scrolling region and is counted here, so a
     /// block that scrolls still draws within `maxCodeHeight` overall.
-    static func scrollsCode(_ code: String) -> Bool {
+    static func scrollsCode(_ code: String, ceiling: CGFloat? = maxCodeHeight) -> Bool {
+        guard let ceiling else { return false }
         let count = code.components(separatedBy: "\n").count
-        return CGFloat(count) * codeLineHeight + codePadding > scrollingCodeHeight
+        return CGFloat(count) * codeLineHeight + codePadding > ceiling - codeHeaderHeight
     }
 
     /// The height left for code once the header has taken its share.
@@ -66,5 +67,22 @@ enum ChatPieceMetrics {
             .filter { !$0.isEmpty }
         return paragraphs.isEmpty ? [text] : paragraphs
     }
+}
 
+/// The ceilings a chat list asks its rows to keep.
+///
+/// The lazy stack needs them: it estimates the rows it has not realized from
+/// the ones it has, and one towering row breaks that. The custom list never
+/// estimates one row from another, so it lets a code block draw whole.
+struct ChatPieceLimits: Equatable {
+    /// Nil draws every code block at its full height.
+    var maxCodeHeight: CGFloat?
+
+    static let lazyStack = ChatPieceLimits(maxCodeHeight: ChatPieceMetrics.maxCodeHeight)
+    static let unbounded = ChatPieceLimits(maxCodeHeight: nil)
+}
+
+extension EnvironmentValues {
+    /// Set by the list that hosts the row; the default is the lazy stack's.
+    @Entry var chatPieceLimits: ChatPieceLimits = .lazyStack
 }

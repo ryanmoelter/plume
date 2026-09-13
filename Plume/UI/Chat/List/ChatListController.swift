@@ -680,7 +680,8 @@ final class ChatListDocumentView: NSView {
 ///
 /// A fresh root has none of the list's environment, so this puts back what
 /// every row reads: the theme, the chat font size, the reveal clock and the
-/// working clock. It reads the item's state itself, so a height ease
+/// working clock. It also lifts the lazy stack's height ceilings, which this
+/// list has no need of. It reads the item's state itself, so a height ease
 /// re-renders only this root.
 struct ChatListItemEnvironment {
     var chatFontSize: CGFloat
@@ -700,6 +701,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.revealClock, environment.revealClock)
             .environment(\.workStartedAt, environment.workStartedAt)
+            .environment(\.chatPieceLimits, .unbounded)
             .plumeTheme(bodySize: environment.chatFontSize)
     }
 }

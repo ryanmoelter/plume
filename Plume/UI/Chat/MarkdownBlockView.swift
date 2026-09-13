@@ -306,11 +306,12 @@ struct ListSegmentView: View, ThemedView {
 
 /// A fenced code block, always drawn whole.
 ///
-/// A block taller than `ChatPieceMetrics.maxCodeHeight` is bounded at it and
-/// scrolls inside itself, which is what keeps it from towering over the chat
-/// list's other lazy items (`ChatPieceSplitter`).
+/// Under a `ChatPieceLimits.maxCodeHeight`, a taller block is bounded at it
+/// and scrolls inside itself, which is what keeps it from towering over the
+/// lazy stack's other items (`ChatPieceSplitter`).
 struct CodeSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
+    @Environment(\.chatPieceLimits) private var limits
 
     let segment: CodeSegment
 
@@ -378,9 +379,9 @@ struct CodeSegmentView: View, ThemedView {
     /// so wrapping every block would stretch each one to the full ceiling.
     @ViewBuilder
     private var scroller: some View {
-        if ChatPieceMetrics.scrollsCode(segment.code) {
+        if let ceiling = limits.maxCodeHeight, ChatPieceMetrics.scrollsCode(segment.code, ceiling: ceiling) {
             ScrollView(.vertical) { lines }
-                .frame(height: ChatPieceMetrics.scrollingCodeHeight)
+                .frame(height: ceiling - ChatPieceMetrics.codeHeaderHeight)
         } else {
             lines
         }

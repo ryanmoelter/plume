@@ -91,6 +91,10 @@ Sending always jumps: `pin(pieceID:)` unconditionally scrolls, regardless of whe
 
 The trailing items are, in order, the permission dock, the subagent header and the subagent rows. The rows are marked `folds` on their `ChatLayoutItem`, and `ChatLayoutModel.foldHeight` is the height of the trailing run of folding items. Following rests at `followOffset = maxOffset - foldHeight`: the header sits just above the composer and the rows behind it, where they can be read through the glass or scrolled out. The slack formula uses `heldHeight = contentHeight - foldHeight`, so while a reply is still shorter than the viewport the rows show in full below it and slide behind the composer as it grows, before the list starts scrolling. The dock comes first because it needs a click. `SubagentListView.Part` is what lets one view draw as two items.
 
+## Lifted ceilings
+
+`ChatPieceLimits` (`ChatPieceMetrics.swift`) carries the height ceilings a list asks its rows to keep, through the `\.chatPieceLimits` environment value. The default is the lazy stack's, and `CodeSegmentView` bounds a tall code block at it. `ChatListItemRoot` sets `.unbounded`, so under this engine a long code block draws whole and the outer scroll is the only scroll. The pieces themselves are the same for both engines: `ChatPieceSplitter` never split code blocks, and it still gives a list one piece per item, so a row stays a block, only taller. `ChatPieceEstimate` guesses a code block at its full line count for the same reason. The disclosed-body ceiling (`ChatPieceMetrics.maxDisclosedHeight`) still applies under both engines; it is as much a reading choice as a layout one.
+
 ## The engine switch
 
 `AppSettings.chatListEngine` (`Plume/Support/AppSettings.swift`) is `.lazyStack` or `.custom`, persisted under `chatListEngineRaw`, defaulting to `.custom` so the custom list gets daily use before the lazy stack is removed. The Settings toggle is "Use the new chat layout" under the Chat Layout section in `SettingsView.swift`. `PLUME_CHAT_LIST_ENGINE=custom|lazy` (`ChatListEngine.environmentOverride` in `ChatListEngine.swift`) wins over the stored setting, for a harness run.
