@@ -20,6 +20,13 @@ struct KeepAwakeTests {
         }
     }
 
+    /// Accepts every apply but never actually holds — stands in for the OS
+    /// declining an assertion under load.
+    private final class RefusingSleepAssertion: SleepAssertion {
+        let held: SleepAssertionRequest? = nil
+        func apply(_ request: SleepAssertionRequest?) {}
+    }
+
     private func makeSettings() -> AppSettings {
         AppSettings(defaults: UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!)
     }
@@ -107,66 +114,149 @@ struct KeepAwakeTests {
         )
         #expect(KeepAwakeCoordinator.decide(
             reasons: reasons, mode: .never, powerSource: .ac, allowsBattery: true
-        ) == nil)
+        ) == .off(nil))
     }
 
     @Test func alwaysHoldsWithNoReasons() {
-        let request = KeepAwakeCoordinator.decide(
+        let decision = KeepAwakeCoordinator.decide(
             reasons: [], mode: .always, powerSource: .ac, allowsBattery: false
         )
-        #expect(request != nil)
-        #expect(request?.reason.contains("Always") == true)
+        guard case .hold(let request) = decision else {
+            Issue.record("expected a hold, got \(decision)")
+            return
+        }
+        #expect(request.reason.contains("Always"))
     }
 
     @Test func autoHoldsOnlyWithAReason() {
         #expect(KeepAwakeCoordinator.decide(
             reasons: [], mode: .auto, powerSource: .ac, allowsBattery: false
-        ) == nil)
+        ) == .off(nil))
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
-        #expect(KeepAwakeCoordinator.decide(
+        guard case .hold = KeepAwakeCoordinator.decide(
             reasons: working, mode: .auto, powerSource: .ac, allowsBattery: false
-        ) != nil)
+        ) else {
+            Issue.record("expected a hold")
+            return
+        }
     }
 
     @Test func batteryHoldsOnlyWhenAllowed() {
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
         #expect(KeepAwakeCoordinator.decide(
             reasons: working, mode: .auto, powerSource: .battery, allowsBattery: false
-        ) == nil)
-        #expect(KeepAwakeCoordinator.decide(
+        ) == .off(.battery))
+        guard case .hold = KeepAwakeCoordinator.decide(
             reasons: working, mode: .auto, powerSource: .battery, allowsBattery: true
-        ) != nil)
+        ) else {
+            Issue.record("expected a hold")
+            return
+        }
         #expect(KeepAwakeCoordinator.decide(
             reasons: [], mode: .always, powerSource: .battery, allowsBattery: false
-        ) == nil)
+        ) == .off(.battery))
     }
 
     /// The network type is what Apple documents for a host serving remote
     /// clients, and it only applies on AC.
     @Test func remoteControlPicksTheNetworkAssertionOnlyOnAC() {
         let remote = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .remoteControl)]
-        #expect(KeepAwakeCoordinator.decide(
-            reasons: remote, mode: .auto, powerSource: .ac, allowsBattery: true
-        )?.type == .networkClientActive)
-        #expect(KeepAwakeCoordinator.decide(
-            reasons: remote, mode: .auto, powerSource: .battery, allowsBattery: true
-        )?.type == .preventIdleSystemSleep)
+        #expect(type(for: remote, mode: .auto, powerSource: .ac, allowsBattery: true) == .networkClientActive)
+        #expect(type(for: remote, mode: .auto, powerSource: .battery, allowsBattery: true) == .preventIdleSystemSleep)
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
-        #expect(KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .ac, allowsBattery: true
-        )?.type == .preventIdleSystemSleep)
+        #expect(type(for: working, mode: .auto, powerSource: .ac, allowsBattery: true) == .preventIdleSystemSleep)
+    }
+
+    private func type(
+        for reasons: [KeepAwakeReason],
+        mode: KeepAwakeMode,
+        powerSource: KeepAwakeCoordinator.PowerSource,
+        allowsBattery: Bool
+    ) -> SleepAssertionType? {
+        guard case .hold(let request) = KeepAwakeCoordinator.decide(
+            reasons: reasons, mode: mode, powerSource: powerSource, allowsBattery: allowsBattery
+        ) else { return nil }
+        return request.type
     }
 
     @Test func theReasonFitsWhatIOKitAccepts() {
         let many = (0..<50).map {
             KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working($0.isMultiple(of: 2) ? .working : .permissionNeeded))
         }
-        let request = KeepAwakeCoordinator.decide(
+        guard case .hold(let request) = KeepAwakeCoordinator.decide(
             reasons: many, mode: .auto, powerSource: .ac, allowsBattery: false
+        ) else {
+            Issue.record("expected a hold")
+            return
+        }
+        #expect(request.reason.count <= SleepAssertionRequest.reasonLimit)
+    }
+
+    // MARK: - Off reason
+
+    @Test func offReasonIsBatteryWhenBatteryBlocksAWantedHold() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        settings.keepsAwakeOnBattery = false
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == .battery)
+    }
+
+    @Test func offReasonIsNilOnBatteryWhenAllowed() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        settings.keepsAwakeOnBattery = true
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding)
+        #expect(coordinator.offReason == nil)
+    }
+
+    @Test func offReasonIsNilWithNothingWantingAHold() {
+        let engine = StatusEngine()
+        let (coordinator, _, _) = makeCoordinator(engine: engine, powerSource: .battery)
+        coordinator.refresh()
+
+        #expect(coordinator.offReason == nil)
+    }
+
+    /// Never mode declines the hold on purpose, which is not the system
+    /// refusing anything.
+    @Test func offReasonIsNilInNeverModeEvenWithReasons() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine)
+        settings.keepAwakeMode = .never
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == nil)
+    }
+
+    @Test func offReasonIsRefusedWhenTheAssertionIsRequestedButNotGranted() {
+        let engine = StatusEngine()
+        let coordinator = KeepAwakeCoordinator(
+            engine: engine,
+            sessions: HeadlessSessionManager(),
+            settings: makeSettings(),
+            assertion: RefusingSleepAssertion(),
+            powerSource: { .ac }
         )
-        #expect(request?.reason.count ?? 0 <= SleepAssertionRequest.reasonLimit)
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == .refused)
     }
 
     @Test func theSidebarTallyCountsWhatIsHolding() {

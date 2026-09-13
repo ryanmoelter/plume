@@ -90,7 +90,7 @@ struct ChatPieceView: View, ThemedView {
 
     /// Closes a message with when it was sent and a button for its markdown.
     ///
-    /// Laid out at the end of the message's last piece rather than floating
+    /// Laid out at the end of the message's last markdown piece rather than floating
     /// over it, so the button is always present and needs no hover to reach.
     ///
     /// It takes the same column as the blocks above it, so it starts at the

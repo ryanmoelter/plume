@@ -27,6 +27,10 @@ final class KeepAwakeCoordinator {
     /// straight through would never redraw.
     private(set) var isHolding = false
 
+    /// Why the Mac isn't held despite `reasons` wanting it, or nil when
+    /// nothing wants it or it's already held.
+    private(set) var offReason: KeepAwakeOffReason?
+
     @ObservationIgnored private let engine: StatusEngine
     @ObservationIgnored private let sessions: HeadlessSessionManager
     @ObservationIgnored private let settings: AppSettings
@@ -85,6 +89,7 @@ final class KeepAwakeCoordinator {
         assertion.apply(nil)
         reasons = []
         isHolding = false
+        offReason = nil
     }
 
     /// Recomputes the reason set and applies it. Idempotent, so redundant
@@ -97,15 +102,30 @@ final class KeepAwakeCoordinator {
         if derived != reasons {
             reasons = derived
         }
-        let request = Self.decide(
+        let decision = Self.decide(
             reasons: derived,
             mode: settings.keepAwakeMode,
             powerSource: powerSource(),
             allowsBattery: settings.keepsAwakeOnBattery
         )
-        assertion.apply(request)
+        switch decision {
+        case .hold(let request):
+            assertion.apply(request)
+        case .off:
+            assertion.apply(nil)
+        }
         if isHolding != (assertion.held != nil) {
             isHolding = assertion.held != nil
+        }
+
+        let derivedOffReason: KeepAwakeOffReason? = {
+            switch decision {
+            case .off(let reason): return reason
+            case .hold: return isHolding ? nil : .refused
+            }
+        }()
+        if offReason != derivedOffReason {
+            offReason = derivedOffReason
         }
     }
 
@@ -154,30 +174,38 @@ final class KeepAwakeCoordinator {
         return (working + remote).sorted { $0.id < $1.id }
     }
 
+    /// Whether to hold the Mac awake, or why not.
+    enum Decision: Equatable {
+        case hold(SleepAssertionRequest)
+        /// Battery blocking is worth naming; the mode simply not wanting a
+        /// hold isn't, so it carries no reason.
+        case off(KeepAwakeOffReason?)
+    }
+
     static func decide(
         reasons: [KeepAwakeReason],
         mode: KeepAwakeMode,
         powerSource: PowerSource,
         allowsBattery: Bool
-    ) -> SleepAssertionRequest? {
+    ) -> Decision {
         switch mode {
         case .never:
-            return nil
+            return .off(nil)
         case .auto where reasons.isEmpty:
-            return nil
+            return .off(nil)
         case .auto, .always:
             break
         }
-        guard powerSource == .ac || allowsBattery else { return nil }
+        guard powerSource == .ac || allowsBattery else { return .off(.battery) }
 
         let servesRemoteClients = reasons.contains { $0.kind == .remoteControl }
-        return SleepAssertionRequest(
+        return .hold(SleepAssertionRequest(
             // Apple documents the network type for a host serving remote
             // clients, and it holds through dark wake. It is AC-only, so idle
             // sleep prevention covers everything else.
             type: servesRemoteClients && powerSource == .ac ? .networkClientActive : .preventIdleSystemSleep,
             reason: summary(reasons: reasons, mode: mode)
-        )
+        ))
     }
 
     /// How many tabs are working, and whether any is remotely controlled, for
