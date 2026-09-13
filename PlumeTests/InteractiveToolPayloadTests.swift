@@ -119,6 +119,52 @@ struct InteractiveToolPayloadTests {
         #expect(answers["Which slice should I plan?"] == "Notify on agent needs-input (Recommended)")
     }
 
+    /// Current CLI wording ("User has answered your questions... Read the
+    /// answers carefully...") dropped the old "You can now continue" tail
+    /// the parser used to anchor on. The first answer's own comma and the
+    /// question text's parentheses/colon/semicolons must not be mistaken
+    /// for a marker.
+    @Test func answersSurviveCurrentCLIWordingAndPunctuationInTheQuestion() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(
+                header: "", question:
+                    "Which small items should ride along with your three? (Rest of Todo is L/XL or blocked; " +
+                    "PLUME-50 and the remaining PLUME-57 work are blocked or need a design call.)",
+                multiSelect: false, options: []
+            ),
+            InteractiveToolPayload.AskedQuestion(
+                header: "", question: "If PLUME-87 is in: how should the word reveal pace itself?",
+                multiSelect: false, options: []
+            )
+        ]
+        let resultText = #"""
+        User has answered your questions: "Which small items should ride along with your three? (Rest of Todo is L/XL or blocked; PLUME-50 and the remaining PLUME-57 work are blocked or need a design call.)"="None for now, let's get this release out", "If PLUME-87 is in: how should the word reveal pace itself?"="Skip PLUME-87". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.
+        """#
+
+        let answers = InteractiveToolPayload.answers(from: resultText, for: questions)
+
+        #expect(answers[questions[0].question] == "None for now, let's get this release out")
+        #expect(answers[questions[1].question] == "Skip PLUME-87")
+    }
+
+    /// A non-last free-text answer can itself contain `". ` (e.g. an "Other"
+    /// reply). The generic sentence-end marker must not fire for it — only
+    /// the next question's own anchor may end a non-last answer.
+    @Test func aNonLastAnswerContainingSentenceEndPunctuationIsNotTruncated() {
+        let questions = [
+            InteractiveToolPayload.AskedQuestion(header: "", question: "Should we ship it?", multiSelect: false, options: []),
+            InteractiveToolPayload.AskedQuestion(header: "", question: "Anything else?", multiSelect: false, options: [])
+        ]
+        let resultText = #"""
+        User has answered your questions: "Should we ship it?"="Yes. Also do X", "Anything else?"="No". Read the answers carefully.
+        """#
+
+        let answers = InteractiveToolPayload.answers(from: resultText, for: questions)
+
+        #expect(answers["Should we ship it?"] == "Yes. Also do X")
+        #expect(answers["Anything else?"] == "No")
+    }
+
     /// A question with no matching answer in the text — dismissed, or the
     /// text doesn't match at all — degrades to nothing rather than a bogus
     /// or crashing lookup.
