@@ -44,3 +44,12 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         return "\(tabID.uuidString)-\(discriminator)"
     }
 }
+
+/// Why the coordinator wants to hold the Mac awake but isn't.
+enum KeepAwakeOffReason: Equatable, Sendable {
+    /// The system is on battery and "Keep awake on battery" is off, so the
+    /// coordinator never asked for an assertion.
+    case battery
+    /// An assertion was requested, but the OS declined it anyway.
+    case refused
+}

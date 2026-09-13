@@ -57,7 +57,7 @@ struct SidebarFooter: View, ThemedView {
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
                         detail: keepAwakeDetail,
-                        showsRemoteControl: coordinator.tally.remotelyControlled
+                        showsRemoteControl: isBatteryBlocked ? false : coordinator.tally.remotelyControlled
                     )
                 }
                 .help(keepAwakeHelp)
@@ -86,9 +86,16 @@ struct SidebarFooter: View, ThemedView {
         }
     }
 
-    /// An empty cup is not caffeinated; a steaming one is.
+    /// Reasons want to hold, but battery is blocking it.
+    private var isBatteryBlocked: Bool {
+        coordinator.offReason == .battery && !coordinator.reasons.isEmpty
+    }
+
+    /// An empty cup is not caffeinated; a steaming one is. Battery blocking
+    /// gets its own glyph, since neither cup explains why it's not held.
     private var keepAwakeIcon: String {
-        coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
+        if isBatteryBlocked { return "battery.25percent" }
+        return coordinator.isHolding ? "cup.and.heat.waves.fill" : "cup.and.saucer"
     }
 
     /// Tinted only while held. Warning rather than attention: the Mac staying
@@ -106,7 +113,9 @@ struct SidebarFooter: View, ThemedView {
     /// What is holding the Mac awake, or the mode when nothing is. Auto with
     /// no reasons needs no label: the title already says what it does. The
     /// remote-control glyph rides alongside, so it is never named in words.
+    /// Battery blocking overrides all of that: there's nothing being held.
     private var keepAwakeDetail: String? {
+        if isBatteryBlocked { return "On battery" }
         let tally = coordinator.tally
         if tally.working > 0 { return "\(tally.working) working" }
         if tally.remotelyControlled { return nil }
