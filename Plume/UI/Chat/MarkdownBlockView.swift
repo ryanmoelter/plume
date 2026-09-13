@@ -362,7 +362,7 @@ struct CodeSegmentView: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
             Spacer(minLength: 0)
-            CodeBlockCopyButton(code: segment.code)
+            CodeBlockCopyButton(code: segment.code, isBlockHovered: isHovered)
         }
         // The icon's leading edge meets the first character of code below.
         .padding(.leading, padding)
@@ -417,12 +417,15 @@ struct CodeBlockCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
     let code: String
+    /// Hovering anywhere over the block reveals the circle, so the reader
+    /// aims at the code rather than at a 22 pt target in its header.
+    let isBlockHovered: Bool
 
     @State private var didCopy = false
 
     var body: some View {
         Button(action: copy) {
-            CopyGlyph(didCopy: didCopy)
+            CopyGlyph(didCopy: didCopy, isContainerHovered: isBlockHovered)
         }
         .buttonStyle(.plain)
         .help("Copy code")
