@@ -56,19 +56,28 @@ enum ChatPieceSplitter {
             ) ?? previousMessageKind
         }
 
-        if !attachesToLastMessage, !streaming.isEmpty {
-            // The stream stands in for the assistant message it will become,
+        if !attachesToLastMessage, !streaming.isEmpty || status == .working {
+            // The turn stands in for the assistant message it will become,
             // so it takes that message's gap and the reply doesn't shift as
-            // the transcript takes over.
+            // the transcript takes over. The working indicator belongs to it
+            // rather than to the user's bubble above.
             let leading = ChatBlockSpacing.rowTopInset(
                 previous: previousMessageKind,
                 current: .other,
                 dimensions: dimensions
             )
-            result += grouped(
-                streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions),
-                role: .assistant
-            )
+            var turn = streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions)
+            if status == .working {
+                turn.append(ChatPiece(
+                    id: Self.workingID,
+                    messageID: "stream",
+                    role: .assistant,
+                    content: .working,
+                    wash: .none,
+                    topInset: turn.isEmpty ? leading : dimensions.workingIndicatorSpacing
+                ))
+            }
+            result += grouped(turn, role: .assistant)
         }
 
         return result
@@ -178,7 +187,7 @@ enum ChatPieceSplitter {
 
         if context.isWorking, message.role == .assistant {
             result.append(ChatPiece(
-                id: "\(message.id)/working",
+                id: Self.workingID,
                 messageID: message.id,
                 role: message.role,
                 content: .working,
@@ -377,6 +386,11 @@ enum ChatPieceSplitter {
     /// mid-stream is as bounded as the transcript it becomes. Parsing is not
     /// prefix-stable — a delimiter line re-reads the paragraph above it as a
     /// table — so a settled piece can be reinterpreted while the stream runs.
+    /// One id for the working indicator wherever it sits, so the row that
+    /// draws it survives the stream becoming a transcript message and its
+    /// ellipsis keeps pulsing through the handoff instead of restarting.
+    static let workingID = "working"
+
     private static func streamingPieces(
         _ overlay: ChatStreamHandoff.Overlay,
         wash: ChatPiece.Wash,

@@ -28,6 +28,7 @@ struct ChatPieceMetricsTests {
 
     @Test func aShortBlockDoesNotScroll() {
         #expect(!ChatPieceMetrics.scrollsCode("let x = 1"))
+        #expect(!ChatPieceMetrics.scrollsCode(String(repeating: "x\n", count: 400), ceiling: nil))
         #expect(!ChatPieceMetrics.scrollsCode(String(repeating: "a\n", count: 3)))
     }
 
