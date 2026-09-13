@@ -8,16 +8,21 @@ import SwiftUI
 struct ChatCopyButton: View, ThemedView {
     @Environment(\.theme) var theme
 
+    /// The one copy glyph in the chat, shared with `CodeBlockCopyButton`.
+    /// Copying markdown and copying code are the same act on different text,
+    /// so distinguishing them by icon only asked the reader to learn a
+    /// difference that carries no meaning.
+    static let symbol = "doc.on.doc"
+
     let markdown: String
     let isRevealed: Bool
-    var symbol: String = "doc.on.doc"
     var label: String
 
     @State private var didCopy = false
 
     var body: some View {
         Button(action: copy) {
-            Image(systemName: didCopy ? "checkmark" : symbol)
+            Image(systemName: didCopy ? "checkmark" : Self.symbol)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(colors.foreground)
                 .padding(6)

@@ -43,7 +43,6 @@ struct ChatPieceView: View, ThemedView {
             )
             .background(washFill, in: washShape)
             .overlay(alignment: .topTrailing) { copyButtons }
-            .onHover { isHovered = $0 }
             .overlay {
                 if piece.wash == .attention {
                     SegmentBorder(segment: piece.segment, radius: washRadius)
@@ -58,6 +57,12 @@ struct ChatPieceView: View, ThemedView {
             // is the same width and the joined shape reads as one bubble.
             .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
             .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
+            // Outside both width frames, so the tracked region encloses the
+            // button as well as the text. Hovering the piece's own bounds
+            // loses the pointer on the way to a button that hangs past a
+            // short line, and the button vanishes before it can be clicked.
+            .contentShape(.rect)
+            .onHover { isHovered = $0 }
     }
 
     /// The whole reply on the first piece, the table on a table's own piece.
@@ -72,7 +77,6 @@ struct ChatPieceView: View, ThemedView {
                 ChatCopyButton(
                     markdown: message,
                     isRevealed: isHovered,
-                    symbol: "text.document",
                     label: "Copy message as markdown"
                 )
             }

@@ -173,3 +173,46 @@ struct CodeSyntaxTests {
         #expect(Self.text(code, "swift", .number) == ["1"])
     }
 }
+
+/// Covers the fence tag a code block's header shows: aliases fold onto one
+/// canonical spelling, an unrecognized tag still names itself, and a fence
+/// with nothing usable yields no label at all.
+struct CodeSyntaxDisplayNameTests {
+    @Test func aliasesResolveToOneCanonicalSpelling() {
+        #expect(CodeSyntax.displayName(for: "objc") == "Objective-C")
+        #expect(CodeSyntax.displayName(for: "objective-c") == "Objective-C")
+        #expect(CodeSyntax.displayName(for: "rs") == "Rust")
+        #expect(CodeSyntax.displayName(for: "py") == "Python")
+        #expect(CodeSyntax.displayName(for: "yml") == "YAML")
+    }
+
+    @Test func matchingFoldsCaseAndSurroundingSpace() {
+        #expect(CodeSyntax.displayName(for: "Swift") == "Swift")
+        #expect(CodeSyntax.displayName(for: "  SWIFT  ") == "Swift")
+        #expect(CodeSyntax.displayName(for: "JavaScript") == "JavaScript")
+    }
+
+    /// Shells share one grammar but not one name — the header says which.
+    @Test func tagsSharingAGrammarKeepSeparateNames() {
+        #expect(CodeSyntax.displayName(for: "bash") == "Bash")
+        #expect(CodeSyntax.displayName(for: "zsh") == "Zsh")
+        #expect(CodeSyntax.displayName(for: "sh") == "Shell")
+        #expect(CodeSyntax.displayName(for: "go") == "Go")
+        #expect(CodeSyntax.displayName(for: "java") == "Java")
+    }
+
+    /// A tag no grammar claims still names the content, so the header is
+    /// informative even where the tokenizer can add no color.
+    @Test func anUnrecognizedTagIsShownAsWritten() {
+        #expect(CodeSyntax.spans(for: "x", language: "prolog").isEmpty)
+        #expect(CodeSyntax.displayName(for: "prolog") == "prolog")
+        #expect(CodeSyntax.displayName(for: " mermaid ") == "mermaid")
+    }
+
+    @Test func anAbsentOrEmptyTagHasNoLabel() {
+        #expect(CodeSyntax.displayName(for: nil) == nil)
+        #expect(CodeSyntax.displayName(for: "") == nil)
+        #expect(CodeSyntax.displayName(for: "   ") == nil)
+        #expect(CodeSyntax.displayName(for: "\n") == nil)
+    }
+}
