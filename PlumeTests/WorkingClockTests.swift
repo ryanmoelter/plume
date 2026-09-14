@@ -174,3 +174,21 @@ struct StatusEngineClockTests {
         #expect(engine.workStarted(forTab: tab) == nil)
     }
 }
+
+struct WorkingEllipsisTests {
+    /// Every instance steps off one shared epoch, so two indicators on screen
+    /// light the same dot at the same moment.
+    @Test func theLitDotCyclesThroughEveryDotInOrder() {
+        let base = Date(timeIntervalSinceReferenceDate: 1000)
+        let lit = (0..<6).map { WorkingEllipsis.litDot(at: base.addingTimeInterval(Double($0) * WorkingEllipsis.step)) }
+        #expect(lit == [lit[0], (lit[0] + 1) % 3, (lit[0] + 2) % 3, lit[0], (lit[0] + 1) % 3, (lit[0] + 2) % 3])
+        #expect(lit.allSatisfy { (0..<WorkingEllipsis.dotCount).contains($0) })
+    }
+
+    @Test func theLitDotHoldsForAWholeStep() {
+        let base = Date(timeIntervalSinceReferenceDate: 7 * WorkingEllipsis.step)
+        let within = base.addingTimeInterval(WorkingEllipsis.step * 0.9)
+        #expect(WorkingEllipsis.litDot(at: base) == WorkingEllipsis.litDot(at: within))
+        #expect(WorkingEllipsis.litDot(at: base.addingTimeInterval(WorkingEllipsis.step)) != WorkingEllipsis.litDot(at: base))
+    }
+}
