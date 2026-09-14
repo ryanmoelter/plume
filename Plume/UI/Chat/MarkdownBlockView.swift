@@ -29,13 +29,17 @@ struct MarkdownBlockView: View, ThemedView {
     private var content: some View {
         switch block {
         case let .heading(level, text):
-            Text(heading(text, level: level))
+            let styled = heading(text, level: level)
+            styled.text()
+                .codeChips(styled, fill: colors.surfaceTint)
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
         case let .paragraph(text):
-            Text(inline(text))
+            let styled = inline(text)
+            styled.text()
+                .codeChips(styled, fill: colors.surfaceTint)
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
@@ -56,11 +60,13 @@ struct MarkdownBlockView: View, ThemedView {
             // the first, so several pieces read as one quote. The gap is the
             // piece's top inset, paid inside the bar rather than above it —
             // the same trick a joined bubble's wash uses.
+            let styled = inline(text)
             HStack(spacing: 8) {
                 Rectangle()
                     .fill(quoteBarColor)
                     .frame(width: 3)
-                Text(inline(text))
+                styled.text()
+                    .codeChips(styled, fill: colors.surfaceTint)
                     .font(prose.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(prose.body.lineSpacing)
@@ -151,7 +157,9 @@ struct MarkdownBlockView: View, ThemedView {
         isFirstRow: Bool,
         fill: Color
     ) -> some View {
-        Text(inline(text))
+        let styled = inline(text)
+        return styled.text()
+            .codeChips(styled, fill: colors.surfaceTint)
             .font(font)
             .lineSpacing(prose.body.lineSpacing)
             .fixedSize(horizontal: false, vertical: true)
@@ -191,12 +199,8 @@ struct MarkdownBlockView: View, ThemedView {
         }
     }
 
-    private func inline(_ text: String, fontSize: CGFloat? = nil) -> AttributedString {
-        MarkdownCache.styledInline(
-            text,
-            fontSize: fontSize ?? typography.bodySize,
-            tint: colors.surfaceTint
-        )
+    private func inline(_ text: String, fontSize: CGFloat? = nil) -> StyledInline {
+        MarkdownCache.styledInline(text, fontSize: fontSize ?? typography.bodySize)
     }
 
     /// A heading's text, uppercased at the levels that rank by case rather
@@ -205,16 +209,12 @@ struct MarkdownBlockView: View, ThemedView {
     /// Uppercases the parsed runs rather than the source: raising the markdown
     /// first would carry a link's URL up with it, and `.textCase` does not
     /// reach a `Text` built from an `AttributedString`.
-    private func heading(_ text: String, level: Int) -> AttributedString {
+    private func heading(_ text: String, level: Int) -> StyledInline {
         // Inline code carries its own font, which wins over the heading's, so
         // it has to be built at the heading's size rather than the body's.
         let parsed = inline(text, fontSize: headingStyle(level: level).size)
         guard headingIsUppercased(level: level) else { return parsed }
-        return parsed.runs.reduce(into: AttributedString()) { result, run in
-            var raised = AttributedString(String(parsed[run.range].characters).uppercased())
-            raised.mergeAttributes(run.attributes)
-            result.append(raised)
-        }
+        return parsed.uppercased()
     }
 
     /// Heading levels map to the type scale's own roles, preserving the
@@ -270,13 +270,11 @@ struct ListSegmentView: View, ThemedView {
         VStack(alignment: .leading, spacing: ChatBlockSpacing.listSegmentSpacing) {
             ForEach(segment.items.indices, id: \.self) { index in
                 let item = segment.items[index]
+                let styled = MarkdownCache.styledInline(item.text, fontSize: typography.bodySize)
                 HStack(alignment: .top, spacing: 6) {
                     Text(marker(for: item))
-                    Text(MarkdownCache.styledInline(
-                        item.text,
-                        fontSize: typography.bodySize,
-                        tint: colors.surfaceTint
-                    ))
+                    styled.text()
+                        .codeChips(styled, fill: colors.surfaceTint)
                 }
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)

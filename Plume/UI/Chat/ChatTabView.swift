@@ -20,6 +20,10 @@ struct ChatTabView: View, ThemedView {
     /// "not approved yet" rather than claiming an approval we never saw.
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
+    /// The feedback field's visible text, which is not its markdown: an empty
+    /// heading serializes to non-empty scaffolding, and the button's label
+    /// turns on whether the user actually wrote something.
+    @State private var planRejectionVisibleText = ""
     /// The plan file, read once for both the overlay that renders it and the
     /// dock bar that names it. Followed whenever a plan exists, not only while
     /// the overlay is up: the dock bar is what shows when it is not.
@@ -472,7 +476,7 @@ struct ChatTabView: View, ThemedView {
             HStack(alignment: .bottom, spacing: 8) {
                 feedbackField
                 ReservedWidthButton(
-                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
+                    title: PlanRejectionLabel.label(forReason: planRejectionVisibleText),
                     labels: PlanRejectionLabel.allLabels
                 ) {
                     answerPlan(.reject)
@@ -497,7 +501,8 @@ struct ChatTabView: View, ThemedView {
             isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
-            onOptionReturn: { answerPlan(.approveWithFeedback) }
+            onOptionReturn: { answerPlan(.approveWithFeedback) },
+            onTextChange: { planRejectionVisibleText = $0 }
         )
         .padding(.horizontal, dimensions.panelContentInset - Self.composerLineFragmentPadding)
         .background(.quaternary.opacity(0.4), in: feedbackFieldShape)
@@ -540,6 +545,7 @@ struct ChatTabView: View, ThemedView {
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
+        planRejectionVisibleText = ""
         planPresentation = .minimized
     }
 

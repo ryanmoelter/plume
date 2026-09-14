@@ -78,9 +78,9 @@ extension NSFont {
     /// The composer's body font, for its text storage.
     ///
     /// The system face rather than the bundled serif: what the user is typing
-    /// should read as input, not as published prose. `MarkdownComposerStyler`
+    /// should read as input, not as published prose. `ComposerTextStyle`
     /// derives bold and italic from this descriptor.
-    static func composerBody(ofSize size: CGFloat) -> NSFont {
+    nonisolated static func composerBody(ofSize size: CGFloat) -> NSFont {
         .systemFont(ofSize: size)
     }
 }

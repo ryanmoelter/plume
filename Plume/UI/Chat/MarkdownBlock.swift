@@ -193,12 +193,17 @@ nonisolated enum MarkdownBlock: Equatable {
         return blocks
     }
 
+    /// The run length matters, not just a fixed three: a closing fence must be
+    /// at least as long as the opener, so a four-backtick opener can hold a
+    /// three-backtick line without ending early. The extra backticks are the
+    /// token, never the language.
     private static func fenceMarker(_ trimmed: String) -> (token: String, language: String)? {
-        for token in ["```", "~~~"] {
-            if trimmed.hasPrefix(token) {
-                let language = String(trimmed.dropFirst(token.count)).trimmingCharacters(in: .whitespaces)
-                return (token, language)
-            }
+        for marker: Character in ["`", "~"] {
+            let runLength = trimmed.prefix { $0 == marker }.count
+            guard runLength >= 3 else { continue }
+            let token = String(repeating: marker, count: runLength)
+            let language = String(trimmed.dropFirst(runLength)).trimmingCharacters(in: .whitespaces)
+            return (token, language)
         }
         return nil
     }

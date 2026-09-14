@@ -19,11 +19,14 @@ enum SlashCommandMatcher {
         return prefixMatches + substringMatches
     }
 
-    /// The result of accepting a slash command: the composer's new text, and
-    /// the caret offset (UTF-16) it should land at — the end of the inserted
-    /// `/name `, ahead of any arguments the user goes on to type.
+    /// The result of accepting a slash command: the composer's new text, the
+    /// range of the leading token that was replaced, and the caret offset
+    /// (UTF-16) it should land at — the end of the inserted `/name `, ahead
+    /// of any arguments the user goes on to type.
     struct AcceptedCommand: Equatable {
         let text: String
+        let replacedRange: NSRange
+        let replacement: String
         let caretLocation: Int
     }
 
@@ -34,9 +37,15 @@ enum SlashCommandMatcher {
         let ns = text as NSString
         let tokenEnd = ns.rangeOfCharacter(from: .whitespacesAndNewlines).location
         let firstTokenLength = tokenEnd == NSNotFound ? ns.length : tokenEnd
+        let replacedRange = NSRange(location: 0, length: firstTokenLength)
         let replacement = "/\(command.name) "
-        let newText = ns.replacingCharacters(in: NSRange(location: 0, length: firstTokenLength), with: replacement)
-        return AcceptedCommand(text: newText, caretLocation: replacement.utf16.count)
+        let newText = ns.replacingCharacters(in: replacedRange, with: replacement)
+        return AcceptedCommand(
+            text: newText,
+            replacedRange: replacedRange,
+            replacement: replacement,
+            caretLocation: replacement.utf16.count
+        )
     }
 
     /// The range of a leading `/name` token in `text` when `name` exactly

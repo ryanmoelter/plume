@@ -1,20 +1,31 @@
 import Foundation
 
-/// The parts of a composer message that are code — inline spans and fenced
+/// The parts of a composer message that are code — inline spans and code
 /// blocks — so text checking can leave them alone. A message is prose mixed
 /// with identifiers, paths and shell commands, and spell-checking the code
 /// half produces nothing but red underlines.
 ///
-/// Ranges come from `MarkdownHighlighter`, which already answers "is this
-/// code?" for styling, so there is one parser rather than two.
+/// The document already knows which runs are code, so this reads the
+/// attributes rather than re-parsing markdown that is no longer in the text.
 nonisolated enum ComposerCodeRanges {
-    /// The code ranges in `text`, sorted and merged into disjoint runs.
-    static func codeRanges(in text: String) -> [NSRange] {
-        let raw = MarkdownHighlighter.spans(in: text)
-            .filter { $0.style == .inlineCode || $0.style == .codeBlock }
-            .map(\.range)
-            .filter { $0.length > 0 }
-            .sorted { $0.location < $1.location }
+    /// The code ranges in `document`, sorted and merged into disjoint runs:
+    /// `.plumeInline` runs carrying `.code`, plus whole paragraphs whose
+    /// `.plumeBlock` is a code block or a verbatim construct.
+    static func codeRanges(in document: NSAttributedString) -> [NSRange] {
+        var raw: [NSRange] = []
+        let full = NSRange(location: 0, length: document.length)
+        document.enumerateAttribute(.plumeInline, in: full, options: []) { value, range, _ in
+            guard let inline = value as? ComposerInlineStyle, inline.contains(.code) else { return }
+            raw.append(range)
+        }
+        document.enumerateAttribute(.plumeBlock, in: full, options: []) { value, range, _ in
+            guard let kind = value as? ComposerBlockKind else { return }
+            switch kind.kind {
+            case .codeBlock, .verbatim: raw.append(range)
+            default: break
+            }
+        }
+        raw = raw.filter { $0.length > 0 }.sorted { $0.location < $1.location }
 
         var merged: [NSRange] = []
         for range in raw {
@@ -25,6 +36,29 @@ nonisolated enum ComposerCodeRanges {
             }
         }
         return merged
+    }
+
+    /// The maximal ranges carrying inline code outside a code block or a
+    /// verbatim construct — one range per chip. A span splits into several
+    /// `.plumeInline` runs when something else changes inside it (a bold word,
+    /// the kern on its last character), and those are one span, not several.
+    static func inlineCodeSpans(in document: NSAttributedString) -> [NSRange] {
+        var spans: [NSRange] = []
+        let full = NSRange(location: 0, length: document.length)
+        document.enumerateAttribute(.plumeInline, in: full, options: []) { value, range, _ in
+            guard let inline = value as? ComposerInlineStyle, inline.contains(.code) else { return }
+            let kind = document.attribute(.plumeBlock, at: range.location, effectiveRange: nil) as? ComposerBlockKind
+            switch kind?.kind {
+            case .codeBlock, .verbatim: return
+            default: break
+            }
+            if let last = spans.last, NSMaxRange(last) == range.location {
+                spans[spans.count - 1] = NSUnionRange(last, range)
+            } else {
+                spans.append(range)
+            }
+        }
+        return spans
     }
 
     /// True when `range` overlaps any code at all. An empty range counts as

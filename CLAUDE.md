@@ -109,6 +109,15 @@ The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfig
 
 The config reaches libghostty as **generated contents with every `theme` directive stripped**, never as a file path. `GhosttyThemeResolver` applies the theme in Swift instead. Passing `theme` through breaks terminal launching outright — surfaces silently spawn a login shell instead of their command, with no diagnostic. `GhosttyConfigLoader.configContentsForGhostty` documents the mechanism.
 
+## Composer
+
+The chat composer (`Plume/UI/Chat/Composer/`, `Plume/UI/Chat/MarkdownComposerTextView.swift`) is a true WYSIWYG markdown editor: typing `- ` or `**bold**` converts as you type, and no marker characters ever sit in the text on screen. **`docs/composer.md` is the reference** — the attribute vocabulary, the serialization policy, the input-rule and list-editing tables, the undo transaction design, and the pasteboard contract. Read it before touching anything under those paths.
+
+- The `NSTextStorage` **is** the document. `.plumeBlock`/`.plumeInline`/`.plumeLink` carry all structure; `ComposerDocument` serializes it to markdown, which is what is sent and persisted.
+- **Overriding `draw(_:)` on an `NSTextView` silently drops it to TextKit 1.** `textLayoutManager` comes back nil, every TextKit 2 API is unavailable, and the only symptom is that anything reading the layout (the composer's decoration geometry) computes nothing. `ComposerNSTextView` draws its chips, code boxes, quote bars and placeholder from `drawBackground(in:)` instead, which keeps TextKit 2 and still runs before the glyphs — AppKit calls it even with `drawsBackground` false. Reading `layoutManager` forces the same fallback; `textStorage` and `textContainer` are safe.
+- **`NSTextView` cannot be subclassed with an `init(frame:)` override.** AppKit's own initializer comes back through it and overflows the stack, and the half-built view has already fallen back to TextKit 1. Set a subclass up from a method the host calls instead — `ComposerNSTextView.observeStorage()` is the pattern.
+- A markdown-shortcut conversion always lands as a second, separate undo step from the literal insertion that triggered it — see `asStepAfterTheInsertion` in `docs/composer.md`. Never apply a conversion inside the same keystroke that triggered it.
+
 ## Conventions
 
 - **SwiftData models are the persisted skeleton only.** Live process/terminal state belongs in in-memory `@Observable` objects keyed by model UUID. Never persist anything about a running PTY.
@@ -145,4 +154,5 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - **`[ -w /dev/tty ]` is true even with no controlling terminal**, and the redirect then fails at the shell, where `2>/dev/null` on the command does not catch it. A script that must write to the real terminal has to *attempt* the open inside a subshell — `if ! (printf … >/dev/tty) 2>/dev/null`. `plume-notify` falls back to stdout that way.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - **A GUI-launched app does not inherit your shell PATH.** Launched from Xcode or a terminal it does, so a PATH bug hides completely until the app is opened from Finder or the Dock — `claude` at `~/.local/bin` then fails with `No such file or directory`. Both transports run through `LoginShellCommand.wrap` for this reason. Test PATH-sensitive changes by opening the installed bundle, not from a terminal.
+- **Inline code in the chat transcript is a drawn chip, not a background color.** `CodeChipTextRenderer` paints the rounded rect over concatenated `Text` pieces at draw time; padding comes from `kern` on the surrounding characters, with no padding character in the text itself. `.textRenderer` is applied only to a block that actually contains code (`codeChips(_:fill:)`), since a `TextRenderer` isn't free to attach to text that never needs one.
 - Deployment target is macOS 26.2, matching the Xcode 26.2 SDK ceiling. Raising it above the installed SDK makes every build warn.

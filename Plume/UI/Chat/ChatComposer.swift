@@ -32,7 +32,7 @@ struct ChatComposer: View, ThemedView {
     @State private var commandMemory = SlashCommandMemory.shared
     @State private var tabDirectories = TabDirectoryStore.shared
     @State private var caretLocation = 0
-    @State private var pendingCaretLocation: Int?
+    @State private var pendingSlashCommand: SlashCommand?
     @State private var autocomplete = ComposerAutocompleteController()
 
     private var headlessSession: HeadlessSession? {
@@ -53,6 +53,12 @@ struct ChatComposer: View, ThemedView {
     /// invalidate this whole body. The draft changes on every character; only
     /// its emptiness matters here, and that flips twice a message.
     @State private var hasSendableText = false
+
+    /// The composer's visible text, which is not its draft: the draft is
+    /// markdown, and an empty heading or list item serializes to non-empty
+    /// scaffolding. Sendability and the slash-command caret both key off what
+    /// is actually on screen.
+    @State private var visibleText = ""
 
     private func sendableText(_ text: String) -> Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -90,15 +96,11 @@ struct ChatComposer: View, ThemedView {
         return "Press ↑ to edit a queued message"
     }
 
-    /// Accepts `command`, replacing the leading `/token` with `/name ` and
-    /// moving the caret to the end of it, ahead of any arguments the user
-    /// goes on to type.
+    /// Accepts `command` as an edit inside the text view rather than a new
+    /// draft written through the binding: the rest of the message keeps its
+    /// formatting, and ⌘Z steps back over the insertion.
     private func acceptSlashCommand(_ command: SlashCommand) {
-        let tabID = tab.id
-        let accepted = SlashCommandMatcher.accepting(command, in: drafts.draft(forTab: tabID))
-        drafts.setDraft(accepted.text, forTab: tabID)
-        hasSendableText = sendableText(accepted.text)
-        pendingCaretLocation = accepted.caretLocation
+        pendingSlashCommand = command
     }
 
     /// Pulls a queued message back into the composer for editing — the
@@ -132,20 +134,23 @@ struct ChatComposer: View, ThemedView {
                     sendKey: settings.composerSendKey,
                     onSend: send,
                     onTextChange: { text in
+                        visibleText = text
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
                         autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
                     },
                     onCaretChange: { location in
                         caretLocation = location
-                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
+                        autocomplete.update(text: visibleText, caretLocation: location, commands: availableSlashCommands)
                     },
-                    pendingCaretLocation: $pendingCaretLocation,
+                    pendingSlashCommand: $pendingSlashCommand,
                     autocompleteHandler: autocomplete,
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
-                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
+                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
+                    restoredDocument: { drafts.document(forTab: tab.id) },
+                    onDocumentChange: { drafts.setDocument($0, forTab: tab.id) }
                 )
                 // Its own line-fragment padding already covers part of the
                 // composer's inset, so the first glyph lands over the control
