@@ -25,7 +25,7 @@ A second, smaller cost sat next to it: `ChatWorkingIndicator` wrapped its per-se
   | Caption with `.animation(value: date)` only | 7.4% |
   | Caption with `.contentTransition(.numericText())` only | 0.3% |
   | Caption `TimelineView` with neither, inside an `NSHostingView` | 0.2% |
-  | New `WorkingEllipsis` (periodic three-dot), 1 and 4 instances | 0.4%, 0.6% |
+  | New `WorkingEllipsis` (masked glyph, stepped fade), 4 instances | 1.1% steady state, against 5.4% for the symbol effect measured the same way |
 
   The ellipsis-only reproducer's `sample` had the same stack as the release app, which is what ties the two together.
 
@@ -37,7 +37,7 @@ A second, smaller cost sat next to it: `ChatWorkingIndicator` wrapped its per-se
 
 ## The fix
 
-- `Plume/UI/WorkingEllipsis.swift`: three text bullets stepped by `TimelineView(.periodic(from: <fixed epoch>, by: 0.35))`, so all instances stay in step and each costs three cheap text updates a second. `litDot(at:)` is the pure phase function, covered by `WorkingEllipsisTests`.
+- `Plume/UI/WorkingEllipsis.swift`: the same SF Symbol in two layers, a dimmed ellipsis under three masked full-colour copies, one per dot, each faded in for its 0.5 s turn followed by an empty frame, stepped by `TimelineView(.periodic(from: <fixed epoch>, by: 0.5))` so all instances stay in step. `litDot(at:)` is the pure phase function, covered by `WorkingEllipsisTests`.
 - `Plume/UI/Chat/ChatWorkingIndicator.swift`: the caption ticks without an animation or content transition.
 
 ## Still on this branch from the first pass
