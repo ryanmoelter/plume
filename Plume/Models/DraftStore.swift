@@ -11,6 +11,12 @@ import Observation
 ///
 /// In memory only, like every other live-session fact — a draft is not worth
 /// persisting across launches.
+///
+/// A draft is kept twice: as markdown, which is what a send and any future
+/// persistence use, and as the composer's own attributed document. The second
+/// copy exists because the composer never escapes a literal markdown
+/// character, so a pasted literal `**x**` would come back bold if a tab switch
+/// had to re-parse the markdown to restore it.
 @MainActor
 @Observable
 final class DraftStore {
@@ -22,6 +28,7 @@ final class DraftStore {
     /// it is part of the same unsent state: the `!` that starts the mode is
     /// taken out of the text, so nothing in the draft records it.
     private var commandModeTabs: Set<UUID> = []
+    @ObservationIgnored private var documents: [UUID: NSAttributedString] = [:]
 
     init() {}
 
@@ -48,7 +55,11 @@ final class DraftStore {
         drafts[id] ?? ""
     }
 
+    /// Setting the markdown drops any attributed document behind it: every
+    /// caller but the composer's own echo is replacing the draft wholesale,
+    /// and the composer writes its snapshot back immediately afterwards.
     func setDraft(_ text: String, forTab id: UUID) {
+        documents.removeValue(forKey: id)
         if text.isEmpty {
             drafts.removeValue(forKey: id)
         } else {
@@ -68,15 +79,31 @@ final class DraftStore {
         }
     }
 
+    /// The composer document behind `draft(forTab:)`, when the composer has
+    /// been mounted since the draft was last set from elsewhere.
+    func document(forTab id: UUID) -> NSAttributedString? {
+        documents[id]
+    }
+
+    func setDocument(_ document: NSAttributedString, forTab id: UUID) {
+        if document.length == 0 {
+            documents.removeValue(forKey: id)
+        } else {
+            documents[id] = document
+        }
+    }
+
     func forget(tabID: UUID) {
         drafts.removeValue(forKey: tabID)
         attachments.removeValue(forKey: tabID)
         commandModeTabs.remove(tabID)
+        documents.removeValue(forKey: tabID)
     }
 
     func reset() {
         drafts.removeAll()
         attachments.removeAll()
         commandModeTabs.removeAll()
+        documents.removeAll()
     }
 }

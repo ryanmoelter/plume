@@ -560,6 +560,16 @@ extension View {
         modifier(RevealFade(text: text))
     }
 
+    /// Fades this `Text`, built by `styled.text()`, in behind the reveal with
+    /// its code chips painted beneath. Both are `TextRenderer`s and a `Text`
+    /// takes only one, so the chip renderer carries the fade.
+    func revealFade(_ styled: StyledInline, chipFill: Color) -> some View {
+        modifier(RevealFade(
+            text: styled.plainText,
+            chips: styled.hasCode ? RevealFade.Chips(pad: styled.pad, fill: chipFill) : nil
+        ))
+    }
+
     /// Hides content that is not `Text` until the reveal reaches it.
     func revealGate(_ context: ChatRevealContext?) -> some View {
         modifier(RevealGate(context: context))
@@ -567,7 +577,13 @@ extension View {
 }
 
 private struct RevealFade: ViewModifier {
+    struct Chips {
+        var pad: CGFloat
+        var fill: Color
+    }
+
     let text: String
+    var chips: Chips?
     @Environment(\.chatReveal) private var context
     @State private var tuning = RevealTuning.shared
 
@@ -577,12 +593,19 @@ private struct RevealFade: ViewModifier {
             let length = text.utf16.count
             let start = Double(context.offset)
             let end = start + Double(length)
-            content.textRenderer(renderer(
+            let reveal = renderer(
                 state: context.reveal.state(across: start, end),
                 start: start,
                 length: length,
                 values: values
-            ))
+            )
+            if let chips {
+                content.textRenderer(CodeChipRenderer(pad: chips.pad, fill: chips.fill, reveal: reveal))
+            } else {
+                content.textRenderer(reveal)
+            }
+        } else if let chips {
+            content.textRenderer(CodeChipRenderer(pad: chips.pad, fill: chips.fill))
         } else {
             content
         }

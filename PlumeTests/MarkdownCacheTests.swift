@@ -87,50 +87,86 @@ struct MarkdownCacheTests {
     }
 
     @Test func styledInlineTintsCodeSpansAndLeavesProseAlone() {
-        let styled = MarkdownCache.styledInline(
-            "Run `git status` now.",
-            fontSize: 16,
-            tint: .gray
-        )
+        let styled = MarkdownCache.styledInline("Run `git status` now.", fontSize: 16)
 
-        let tinted = styled.runs.filter { $0.backgroundColor != nil }
-        #expect(tinted.count == 1, "each code span should paint as one unbroken run")
-        #expect(String(styled.characters).contains("git status"))
-        #expect(styled.runs.contains { $0.backgroundColor == nil }, "prose stays untinted")
+        let chips = styled.segments.filter { $0.chipID != nil }
+        #expect(chips.count == 1, "each code span should become one chip segment")
+        #expect(styled.hasCode)
+        #expect(styled.segments.contains { $0.chipID == nil }, "prose stays in its own segment, uncharted")
+
+        let fullText = styled.segments.map { String($0.text.characters) }.joined()
+        #expect(fullText.contains("git status"))
     }
 
     /// Copying an inline code span must yield exactly the source text — no
     /// thin-space padding smuggled in around the chip, since that padding
     /// would ride along into a pasted shell command.
     @Test func styledInlineCodeCopiesExactlyWithNoThinSpaces() {
-        let styled = MarkdownCache.styledInline(
-            "Run `git status` now.",
-            fontSize: 16,
-            tint: .gray
-        )
+        let styled = MarkdownCache.styledInline("Run `git status` now.", fontSize: 16)
 
-        let string = String(styled.characters)
+        let string = styled.segments.map { String($0.text.characters) }.joined()
         #expect(string == "Run git status now.")
         #expect(!string.unicodeScalars.contains(Unicode.Scalar(0x2009)!))
     }
 
-    /// The tint and size are part of the key, so a light/dark switch or a font
-    /// change cannot serve chips built for the previous appearance.
-    @Test func styledInlineKeysOnTintAndSize() {
-        let text = "Run `git status` now."
-        let light = MarkdownCache.styledInline(text, fontSize: 16, tint: .white)
-        let dark = MarkdownCache.styledInline(text, fontSize: 16, tint: .black)
-        let bigger = MarkdownCache.styledInline(text, fontSize: 24, tint: .white)
+    /// The chip carries a kern on the character before it and on its own last
+    /// character — the layout-level padding that stands in for the padding
+    /// character the copy contract forbids.
+    @Test func styledInlineKernsAroundAChip() {
+        let styled = MarkdownCache.styledInline("Run `git status` now.", fontSize: 16)
 
-        let tint: (AttributedString) -> Color? = { string in
-            string.runs.compactMap(\.backgroundColor).first
+        guard let chipIndex = styled.segments.firstIndex(where: { $0.chipID != nil }) else {
+            Issue.record("expected one chip segment")
+            return
         }
-        #expect(tint(light) != tint(dark))
-        #expect(tint(bigger) == tint(light))
+        let preceding = styled.segments[chipIndex - 1].text
+        let precedingLastRun = preceding.runs[preceding.characters.index(before: preceding.endIndex)]
+        #expect(precedingLastRun.kern == styled.pad)
 
-        let font: (AttributedString) -> Font? = { string in
-            string.runs.first { $0.backgroundColor != nil }?.font
+        let chip = styled.segments[chipIndex].text
+        let chipLastRun = chip.runs[chip.characters.index(before: chip.endIndex)]
+        #expect(chipLastRun.kern == styled.pad)
+
+        // Nothing else in either segment carries a kern.
+        let precedingFirstRun = preceding.runs[preceding.startIndex]
+        #expect(String(preceding.characters).count == 1 || precedingFirstRun.kern == nil)
+    }
+
+    /// A code span inside bold or italic carries both intents, so a chip has
+    /// to be recognized by the code bit being present rather than by it being
+    /// the only one — otherwise the span loses its mono font and its chip.
+    @Test func styledInlineChipsABoldCodeSpan() {
+        let styled = MarkdownCache.styledInline("**`x`**", fontSize: 16)
+
+        #expect(styled.segments.filter { $0.chipID != nil }.count == 1)
+        #expect(styled.hasCode)
+    }
+
+    /// Uppercasing a heading must keep the chip id on the code segment, since
+    /// the renderer keys its chip grouping on that id.
+    @Test func styledInlineUppercasedHeadingKeepsItsChip() {
+        let styled = MarkdownCache.styledInline("See `git status` above", fontSize: 16)
+        let uppercased = styled.uppercased()
+
+        let originalChipID = styled.segments.first { $0.chipID != nil }?.chipID
+        let uppercasedChip = uppercased.segments.first { $0.chipID != nil }
+        #expect(uppercasedChip?.chipID == originalChipID)
+
+        let fullText = uppercased.segments.map { String($0.text.characters) }.joined()
+        #expect(fullText == "SEE GIT STATUS ABOVE")
+    }
+
+    /// The size is part of the key, so a font change cannot serve chips built
+    /// at the previous size.
+    @Test func styledInlineKeysOnSize() {
+        let text = "Run `git status` now."
+        let light = MarkdownCache.styledInline(text, fontSize: 16)
+        let bigger = MarkdownCache.styledInline(text, fontSize: 24)
+
+        let font: (StyledInline) -> Font? = { styled in
+            styled.segments.first { $0.chipID != nil }?.text.runs.first?.font
         }
         #expect(font(bigger) != font(light), "a size change must rebuild the chips")
+        #expect(bigger.pad != light.pad, "a size change must rebuild the chip padding")
     }
 }
