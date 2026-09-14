@@ -9,7 +9,7 @@ import Foundation
 /// named, so their markdown is written back from the structure instead. That
 /// round trip normalizes whitespace and list markers, which is why it is the
 /// fallback rather than the rule.
-enum MarkdownSource {
+nonisolated enum MarkdownSource {
     /// Nil for a piece that is not markdown — a tool call, a notice, an image.
     static func markdown(of content: ChatPiece.Content) -> String? {
         switch content {

@@ -28,6 +28,28 @@ struct MarkdownBlockTests {
         #expect(blocks == [.codeBlock(language: "swift", code: "let x = 1\nlet y = 2")])
     }
 
+    /// A four-backtick opener holds a three-backtick line without closing
+    /// early, and its extra backtick is part of the fence, not the language.
+    @Test func aFourBacktickFenceHoldsAThreeBacktickLine() {
+        let blocks = MarkdownBlock.parse("````md\n```\nnested\n```\n````")
+        #expect(blocks == [.codeBlock(language: "md", code: "```\nnested\n```")])
+    }
+
+    @Test func aFourBacktickFenceWithNoLanguage() {
+        let blocks = MarkdownBlock.parse("````\n```\nnested\n```\n````")
+        #expect(blocks == [.codeBlock(language: nil, code: "```\nnested\n```")])
+    }
+
+    @Test func aLongerClosingFenceStillCloses() {
+        let blocks = MarkdownBlock.parse("```swift\ncode\n`````")
+        #expect(blocks == [.codeBlock(language: "swift", code: "code")])
+    }
+
+    @Test func aTildeFenceOfFourAlsoHoldsAShorterTildeLine() {
+        let blocks = MarkdownBlock.parse("~~~~md\n~~~\nnested\n~~~\n~~~~")
+        #expect(blocks == [.codeBlock(language: "md", code: "~~~\nnested\n~~~")])
+    }
+
     @Test func headingLevels() {
         for level in 1...6 {
             let hashes = String(repeating: "#", count: level)

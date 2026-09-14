@@ -37,6 +37,7 @@ struct ChatComposer: View, ThemedView {
     @State private var tabDirectories = TabDirectoryStore.shared
     @State private var caretLocation = 0
     @State private var pendingCaretLocation: Int?
+    @State private var pendingSlashCommand: SlashCommand?
     @State private var autocomplete = ComposerAutocompleteController()
 
     private var headlessSession: (any AgentSession)? {
@@ -62,6 +63,12 @@ struct ChatComposer: View, ThemedView {
     /// task, say — starts with its send button enabled rather than waiting
     /// for the next keystroke to catch it up.
     @State private var hasSendableText = false
+
+    /// The composer's visible text, which is not its draft: the draft is
+    /// markdown, and an empty heading or list item serializes to non-empty
+    /// scaffolding. Sendability and the slash-command caret both key off what
+    /// is actually on screen.
+    @State private var visibleText = ""
 
     private func sendableText(_ text: String) -> Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -156,15 +163,11 @@ struct ChatComposer: View, ThemedView {
         return "Press ↑ to edit a queued message"
     }
 
-    /// Accepts `command`, replacing the leading `/token` with `/name ` and
-    /// moving the caret to the end of it, ahead of any arguments the user
-    /// goes on to type.
+    /// Accepts `command` as an edit inside the text view rather than a new
+    /// draft written through the binding: the rest of the message keeps its
+    /// formatting, and ⌘Z steps back over the insertion.
     private func acceptSlashCommand(_ command: SlashCommand) {
-        let tabID = tab.id
-        let accepted = SlashCommandMatcher.accepting(command, in: drafts.draft(forTab: tabID), prefix: completionPrefix)
-        drafts.setDraft(accepted.text, forTab: tabID)
-        hasSendableText = sendableText(accepted.text)
-        pendingCaretLocation = accepted.caretLocation
+        pendingSlashCommand = command
     }
 
     /// Pulls a queued message back into the composer for editing — the
@@ -177,6 +180,15 @@ struct ChatComposer: View, ThemedView {
         let text = plainText.hasPrefix("!") ? "\\" + plainText : plainText
         drafts.setCommandMode(false, forTab: tab.id)
         drafts.setDraft(text, forTab: tab.id)
+        if text != plainText {
+            // Parsing reads `\!` as an escaped `!`, which would put a bare `!`
+            // on screen and send the recalled prose back into command mode.
+            let document = NSMutableAttributedString(
+                attributedString: ComposerDocument.attributedString(markdown: text, style: ComposerTextStyle(bodySize: fontSize))
+            )
+            document.replaceCharacters(in: NSRange(location: 0, length: 0), with: "\\")
+            drafts.setDocument(document, forTab: tab.id)
+        }
         drafts.clearAttachments(forTab: tab.id)
         attach(blocks.compactMap { if case .image(let image) = $0 { image } else { nil } })
         hasSendableText = sendableText(text)
@@ -215,6 +227,7 @@ struct ChatComposer: View, ThemedView {
                     sendKey: settings.composerSendKey,
                     onSend: send,
                     onTextChange: { text in
+                        visibleText = text
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
                         updateCommandMode(for: text)
@@ -222,14 +235,18 @@ struct ChatComposer: View, ThemedView {
                     },
                     onCaretChange: { location in
                         caretLocation = location
-                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands, prefix: completionPrefix)
+                        autocomplete.update(text: visibleText, caretLocation: location, commands: availableSlashCommands, prefix: completionPrefix)
                     },
                     pendingCaretLocation: $pendingCaretLocation,
+                    pendingSlashCommand: $pendingSlashCommand,
+                    slashCommandPrefix: completionPrefix,
                     autocompleteHandler: autocomplete,
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
+                    restoredDocument: { drafts.document(forTab: tab.id) },
+                    onDocumentChange: { drafts.setDocument($0, forTab: tab.id) },
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
                     onDeleteBackwardWhenEmpty: isCommandMode
@@ -297,16 +314,14 @@ struct ChatComposer: View, ThemedView {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
         }
         .onChange(of: availableSlashCommands) { _, commands in
-            autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation, commands: commands, prefix: completionPrefix)
+            autocomplete.update(text: visibleText, caretLocation: caretLocation, commands: commands, prefix: completionPrefix)
         }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
-            let draft = drafts.draft(forTab: tab.id)
-            hasSendableText = sendableText(draft)
-            // A composer mounting with an existing draft — returning from
-            // another task — should pick up editing where it left off,
-            // rather than at offset 0.
-            pendingCaretLocation = (draft as NSString).length
+            // The composer reports its visible text a turn after it loads;
+            // until then the snapshot, or failing that the markdown, stands in.
+            visibleText = drafts.document(forTab: tab.id)?.string ?? drafts.draft(forTab: tab.id)
+            hasSendableText = sendableText(visibleText)
         }
     }
 

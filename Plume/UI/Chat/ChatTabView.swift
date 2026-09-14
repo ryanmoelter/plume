@@ -21,6 +21,10 @@ struct ChatTabView: View, ThemedView {
     /// "not approved yet" rather than claiming an approval we never saw.
     @State private var settledPlan: PlanApprovalState.Proposal?
     @State private var planRejectionReason = ""
+    /// The feedback field's visible text, which is not its markdown: an empty
+    /// heading serializes to non-empty scaffolding, and the button's label
+    /// turns on whether the user actually wrote something.
+    @State private var planRejectionVisibleText = ""
     /// The plan file, read once for both the overlay that renders it and the
     /// dock bar that names it. Followed whenever a plan exists, not only while
     /// the overlay is up: the dock bar is what shows when it is not.
@@ -682,7 +686,7 @@ struct ChatTabView: View, ThemedView {
                 feedbackField
                 ReservedWidthButton(
                     title: codexPlan == nil
-                        ? PlanRejectionLabel.label(forReason: planRejectionReason)
+                        ? PlanRejectionLabel.label(forReason: planRejectionVisibleText)
                         : "Request changes",
                     labels: codexPlan == nil ? PlanRejectionLabel.allLabels : ["Request changes"]
                 ) {
@@ -711,12 +715,13 @@ struct ChatTabView: View, ThemedView {
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
             onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) },
+            onTextChange: { planRejectionVisibleText = $0 },
             verticalInset: DecisionCard.composerFieldTextInset
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
-        .decisionField(isFilled: !planRejectionReason.isEmpty, isFocused: planFeedbackFocused, colors: colors)
+        .decisionField(isFilled: !planRejectionVisibleText.isEmpty, isFocused: planFeedbackFocused, colors: colors)
         .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
         .onAppear {
             guard planApproval.showsApprovalOptions else { return }
@@ -751,6 +756,7 @@ struct ChatTabView: View, ThemedView {
                 settledPlan = .init(toolUseID: codexPlan.id, decision: .rejected)
             }
             planRejectionReason = ""
+            planRejectionVisibleText = ""
             planPresentation = .hidden(.closed)
             return
         }
@@ -770,6 +776,7 @@ struct ChatTabView: View, ThemedView {
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
+        planRejectionVisibleText = ""
         planPresentation = .hidden(.closed)
     }
 
