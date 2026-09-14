@@ -13,9 +13,10 @@ import Observation
 final class GitStateStore {
     static let shared = GitStateStore()
 
-    /// Slow enough to stay off the critical path, fast enough that a stale
-    /// dirty flag is never surprising.
-    static let pollInterval: TimeInterval = 15
+    /// Every tick runs one `git status` per watched directory, and a sidebar
+    /// of worktrees watches dozens, so the sweep is priced per minute. The
+    /// `.git` watcher still reports everything but working-tree edits promptly.
+    static let pollInterval: TimeInterval = 60
 
     /// Long enough to collapse the burst of `.git` writes a single commit,
     /// checkout or fetch makes, short enough to feel immediate.

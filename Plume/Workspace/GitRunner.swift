@@ -25,6 +25,10 @@ nonisolated enum GitRunner {
         if let directory {
             process.currentDirectoryURL = URL(fileURLWithPath: directory)
         }
+        // Never take the optional index lock: `status` would otherwise rewrite
+        // `.git/index` and re-fire the `.git` watcher that asked for it.
+        process.environment = ProcessInfo.processInfo.environment
+            .merging(["GIT_OPTIONAL_LOCKS": "0"]) { _, override in override }
 
         let output = Pipe()
         let error = Pipe()

@@ -6,6 +6,11 @@ import Foundation
 ///
 /// Pure over injected file paths, mirroring `GhosttyConfigLoader`, so
 /// resolution is testable without touching the real `~/.claude`.
+///
+/// The composer resolves these on every render, so each file's parse is kept
+/// against its modification date and size: a call costs one `stat` unless the
+/// file has changed, and an edit to `~/.claude/settings.json` still shows up
+/// without a watcher.
 nonisolated enum ClaudeCodeSettingsResolver {
     /// `~/.claude/settings.json`, Claude Code's own settings file.
     static var defaultSettingsPath: String {
@@ -24,8 +29,8 @@ nonisolated enum ClaudeCodeSettingsResolver {
         settingsPath: String = defaultSettingsPath,
         localSettingsPath: String = localSettingsPath
     ) -> AgentModel? {
-        let configured = string(forKey: "model", inFileAt: localSettingsPath)
-            ?? string(forKey: "model", inFileAt: settingsPath)
+        let configured = settings(inFileAt: localSettingsPath).model
+            ?? settings(inFileAt: settingsPath).model
         return configured.flatMap(AgentModel.recognizing)
     }
 
@@ -35,21 +40,54 @@ nonisolated enum ClaudeCodeSettingsResolver {
     static func resolvedDefaultPermissionMode(
         settingsPath: String = defaultSettingsPath
     ) -> PermissionMode? {
-        guard
-            let permissions = object(inFileAt: settingsPath)?["permissions"] as? [String: Any],
-            let defaultMode = permissions["defaultMode"] as? String
-        else {
-            return nil
+        settings(inFileAt: settingsPath).permissionsDefaultMode.flatMap(PermissionMode.init(rawValue:))
+    }
+
+    /// The keys Plume reads from one settings file.
+    private struct Settings: Sendable {
+        var model: String?
+        var permissionsDefaultMode: String?
+
+        static let empty = Settings()
+    }
+
+    private struct CacheEntry: Sendable {
+        var modificationDate: Date?
+        var size: Int
+        var settings: Settings
+    }
+
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: CacheEntry] = [:]
+
+    private static func settings(inFileAt path: String) -> Settings {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
+            return .empty
         }
-        return PermissionMode(rawValue: defaultMode)
+        let modificationDate = attributes[.modificationDate] as? Date
+        let size = (attributes[.size] as? NSNumber)?.intValue ?? 0
+
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let entry = cache[path], entry.modificationDate == modificationDate, entry.size == size {
+            return entry.settings
+        }
+        let settings = parse(contentsOf: path)
+        cache[path] = CacheEntry(modificationDate: modificationDate, size: size, settings: settings)
+        return settings
     }
 
-    private static func string(forKey key: String, inFileAt path: String) -> String? {
-        object(inFileAt: path)?[key] as? String
-    }
-
-    private static func object(inFileAt path: String) -> [String: Any]? {
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    private static func parse(contentsOf path: String) -> Settings {
+        guard
+            let data = FileManager.default.contents(atPath: path),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return .empty
+        }
+        let permissions = object["permissions"] as? [String: Any]
+        return Settings(
+            model: object["model"] as? String,
+            permissionsDefaultMode: permissions?["defaultMode"] as? String
+        )
     }
 }
