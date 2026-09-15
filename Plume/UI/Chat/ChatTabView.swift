@@ -633,13 +633,11 @@ struct ChatTabView: View, ThemedView {
                 // The composer alone: the session facts don't exist yet, and
                 // where this runs has been hoisted above as the decision the
                 // empty state is actually about.
-                VStack(spacing: 0) {
-                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                        .disabled(!isComposerEnabled)
-                }
-                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                .listItemPadding(vertical: false)
-                .padding(.bottom, dimensions.panelInset)
+                ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                    .disabled(!isComposerEnabled)
+                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                    .listItemPadding(vertical: false)
+                    .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
