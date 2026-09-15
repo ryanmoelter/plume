@@ -35,6 +35,10 @@ struct ComposerControlsRow: View, ThemedView {
     @State private var availableWidth: CGFloat = 0
 
     var body: some View {
+        // Resolved once per render: the defaults come from the CLI's settings
+        // files, and four separate reads here would stat them four times.
+        let settings = settings
+        let form = form(state: settings)
         HStack(spacing: dimensions.panelContentInset) {
             if showsPlanButton {
                 PlanButton(form: form, action: onOpenPlan)
@@ -62,13 +66,13 @@ struct ComposerControlsRow: View, ThemedView {
     /// The measured width belongs to the whole row, Plan button included, so
     /// its own estimated width comes off the top before the three next-turn
     /// controls decide whether they fit.
-    private var form: ComposerControlsForm {
+    private func form(state: ComposerSettings) -> ComposerControlsForm {
         let planReservation = showsPlanButton
             ? ComposerControlsMetrics.segmentWidth(label: "Plan") + dimensions.panelContentInset
             : 0
         return ComposerControlsMetrics.form(
             availableWidth: availableWidth - planReservation,
-            labels: ComposerControlLabels.all(state: settings),
+            labels: ComposerControlLabels.all(state: state),
             spacing: dimensions.panelContentInset
         )
     }

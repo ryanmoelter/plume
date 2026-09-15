@@ -11,16 +11,16 @@ struct ChatWorkingIndicator: View, ThemedView {
             WorkingEllipsis(color: colors.activity)
                 .font(typography.caption.font)
             if let workStartedAt {
-                // Its own timeline, an order of magnitude slower than the
-                // dot's: the text changes once a second at most, so driving
-                // it off the pulse would rebuild it twenty times for nothing.
+                // Its own timeline, slower than the dots': the text changes
+                // once a second at most. The digits change without an
+                // animation on purpose — animating a `Text` on every tick
+                // kept an interpolation running most of the time and cost a
+                // measurable share of the main thread.
                 TimelineView(ElapsedSchedule(since: workStartedAt)) { context in
                     Text(caption(at: context.date, startedAt: workStartedAt))
                         .font(typography.caption.font)
                         .emphasis(.secondary)
                         .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .animation(.default, value: context.date)
                 }
             } else {
                 Text("Working…")
