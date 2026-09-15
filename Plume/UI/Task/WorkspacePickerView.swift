@@ -18,6 +18,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// How much room the branch name may take. The statusline row decides
     /// this, since it is the row's one compressible segment.
     var branchWidth: BranchWidth = .natural
+    var prominence: WorkspacePickerProminence = .statusline
     /// Ahead/behind and dirty for the directory the agent is actually in.
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
@@ -34,7 +35,7 @@ struct WorkspacePickerView: View, ThemedView {
         // intrinsic size (`.fixedSize()`); the branch name is the one
         // segment that gives way when the row runs out of room, since it's
         // the only thing here with room to lose without going illegible.
-        HStack(spacing: 10) {
+        HStack(spacing: prominence == .prominent ? 12 : 10) {
             folderChip
                 .fixedSize()
             if task.repoPath != nil {
@@ -241,7 +242,8 @@ struct WorkspacePickerView: View, ThemedView {
         }
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
-        .emphasis(.secondary)
+        .emphasis(prominence == .prominent ? .primary : .secondary)
+        .prominentChipBackground(prominence == .prominent, colors: colors)
     }
 
     private func abbreviate(_ path: String) -> String {
@@ -284,6 +286,34 @@ struct WorkspacePickerView: View, ThemedView {
         // subprocess, and the picker should not wait on one to show the
         // folder the user just chose.
         Task { task.repoPath = await GitService.shared.repositoryRoot(containing: path) }
+    }
+}
+
+/// How loudly the picker should present itself.
+enum WorkspacePickerProminence {
+    /// Metadata beside the meters: small, secondary, no chrome of its own.
+    case statusline
+    /// The main decision on screen. Before the first message, where the agent
+    /// will run is what the user is choosing, so the chips read as buttons.
+    case prominent
+}
+
+private extension View {
+    /// A bordered well behind a prominent chip, so the menu reads as
+    /// something to click rather than as a label.
+    @ViewBuilder
+    func prominentChipBackground(_ isEnabled: Bool, colors: Palette) -> some View {
+        if isEnabled {
+            padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(colors.surfaceTint, in: .rect(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(colors.divider, lineWidth: 1)
+                }
+        } else {
+            self
+        }
     }
 }
 

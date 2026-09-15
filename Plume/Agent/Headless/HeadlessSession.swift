@@ -178,6 +178,24 @@ final class HeadlessSession {
         hasExited = true
     }
 
+    /// Records a failure found before any process was spawned — a failed
+    /// pre-flight — in the same fields a died-on-launch process writes, so
+    /// the chat has one path for reporting a chat that never started.
+    func failToLaunch(reason: String) {
+        lastError = reason
+        hasExited = true
+        exitStatus = nil
+        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+    }
+
+    /// Why this conversation never started, or nil while it is healthy. Only
+    /// meaningful before any transcript exists: a session that ran and later
+    /// exited has its history on disk to explain itself.
+    var startFailure: ChatStartFailure? {
+        guard hasExited else { return nil }
+        return ChatStartFailure.classify(error: lastError, exitStatus: exitStatus)
+    }
+
     // MARK: - Sending
 
     func submit(text: String) {

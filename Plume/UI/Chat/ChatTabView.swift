@@ -132,6 +132,8 @@ struct ChatTabView: View, ThemedView {
                 .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
             } else if let untrustedPath {
                 untrustedDirectoryState(path: untrustedPath)
+            } else if let startFailure = headlessSession?.startFailure {
+                startFailureState(startFailure)
             } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
                 || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
                 || (tab.agentSessionID?.isEmpty == false) {
@@ -625,28 +627,43 @@ struct ChatTabView: View, ThemedView {
                     .buttonStyle(.link)
                     .help("Continue a past Claude conversation in this folder")
             }
+            workspaceChoice
             Spacer()
             GlassEffectContainer {
-                // The same panel the conversation gets, minus the facts a
-                // session has yet to produce: choosing where this runs is
-                // exactly what matters before the first message.
-                VStack(spacing: 0) {
-                    ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                        .disabled(!isComposerEnabled)
-                    Divider()
-                    HStack(spacing: 0) {
-                        workspaceGroup(branchWidth: .flexible)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, dimensions.composerFieldInset)
-                    .padding(.vertical, dimensions.statuslineVerticalPadding)
-                }
-                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                .listItemPadding(vertical: false)
-                .padding(.bottom, dimensions.panelInset)
+                // The composer alone: the session facts don't exist yet, and
+                // where this runs has been hoisted above as the decision the
+                // empty state is actually about.
+                ChatComposer(task: task, tab: tab, isVisible: isVisible)
+                    .disabled(!isComposerEnabled)
+                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                    .listItemPadding(vertical: false)
+                    .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Where the agent will run, as the empty state's own heading rather than
+    /// a statusline chip. Before the first message this is the decision the
+    /// screen is about, and the statusline drops its copy for that reason —
+    /// see `emptyState`.
+    private var workspaceChoice: some View {
+        VStack(spacing: 8) {
+            Text("Runs in")
+                .font(typography.caption.font)
+                .emphasis(.subtle)
+                .textCase(.uppercase)
+            WorkspacePickerView(
+                task: task,
+                isEditable: true,
+                branchWidth: .natural,
+                prominence: .prominent,
+                state: GitStateStore.shared.state(for: gitDirectory)
+            )
+            .font(.title3)
+            .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+        }
+        .padding(.bottom, 8)
     }
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn
@@ -674,6 +691,50 @@ struct ChatTabView: View, ThemedView {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Shown when the headless process died before writing any transcript, so
+    /// there is no conversation to put a notice inside. The reason is the
+    /// process's own last stderr line, which is the only account of what
+    /// happened.
+    private func startFailureState(_ failure: ChatStartFailure) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 28))
+                .emphasis(.secondary)
+            Text(failure.title)
+                .font(.headline)
+            if let detail = failure.detail {
+                ChatNoticeRow(notice: ChatNotice(kind: .error, title: detail, detail: nil))
+                    .frame(maxWidth: 420)
+            }
+            if failure.remedy == .installCLI {
+                Text("Plume runs `claude` through your login shell. Install Claude Code, or make sure it's on the PATH your shell profile sets.")
+                    .font(.callout)
+                    .emphasis(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+            HStack(spacing: 12) {
+                Button("Try Again", action: retryAfterStartFailure)
+                    .buttonStyle(.borderedProminent)
+                Button("Open Terminal Tab") {
+                    TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                }
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Drops the dead session so the tab returns to its empty state, ready to
+    /// launch again on the next message. The PATH probe is re-run because
+    /// installing the CLI is the fix this offers.
+    private func retryAfterStartFailure() {
+        ClaudeCLILocator.invalidate()
+        HeadlessSessionManager.shared.closeSession(for: tab.id)
+        StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
     }
 
     /// The terminal transport gets both watches from `MainWindow`'s hook
