@@ -21,6 +21,13 @@ struct TaskRowView: View {
         return live == .notStarted ? task.lastStatus.afterRelaunch : live
     }
 
+    /// Not actively being worked on — covers a task that hasn't started and
+    /// one resumed mid-turn (which `TaskStatus.afterRelaunch` maps to
+    /// `.interrupted`, whether relaunch or the user interrupted it).
+    private var isInactive: Bool {
+        status == .notStarted || status == .interrupted
+    }
+
     /// One group per distinct directory the task's agent tabs are open in. A
     /// terminal's cwd follows `cd`, so including terminal tabs would make the
     /// list shift as the user moves around a shell.
@@ -87,6 +94,7 @@ struct TaskRowView: View {
                     Text(TitleStore.shared.displayTitle(for: task))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .emphasis(isInactive ? .secondary : .primary)
                 }
 
                 ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
