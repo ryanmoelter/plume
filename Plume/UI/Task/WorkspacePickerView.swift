@@ -189,10 +189,10 @@ struct WorkspacePickerView: View, ThemedView {
     /// of the icon, label and chevron together.
     ///
     /// Every mark is sized from `inlineTextSize` rather than from a text
-    /// style, because a nested `.font` beats the outer one: pinned to
-    /// `.footnote`, the icons and chevron vanish beside a large sentence and
-    /// the hairline reads as nothing. They stay proportionally smaller than
-    /// the words, and the rule thickens with them.
+    /// style, because a nested `.font` beats the outer one: a fixed small
+    /// style leaves the icons and chevron invisible beside a large sentence,
+    /// and a hairline rule reads as nothing under it. They stay
+    /// proportionally smaller than the words, and the rule thickens with them.
     ///
     /// A launched agent's workspace is fixed, so its label keeps the words and
     /// drops both marks rather than advertising a menu that will not open.
