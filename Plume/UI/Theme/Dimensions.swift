@@ -134,10 +134,9 @@ struct Dimensions {
     let statuslineStackedBarSpacing: CGFloat = 4
 
     /// Between the clauses of the inline empty-state sentence, which stacks
-    /// each dropdown on its own line. Wider than the line spacing inside a
-    /// clause, so where the agent runs and where it resumes read as separate
-    /// choices rather than one list.
-    let inlineClauseSpacing: CGFloat = 6
+    /// each dropdown on its own line. Wide enough that where the agent runs
+    /// and where it resumes read as separate choices rather than one list.
+    let inlineClauseSpacing: CGFloat = 12
 
     /// How far the branch chip may shrink before the row gives up on the
     /// side-by-side meters — still enough for a few characters and the

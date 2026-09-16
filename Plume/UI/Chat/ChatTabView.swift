@@ -660,9 +660,12 @@ struct ChatTabView: View, ThemedView {
             // The composer's own column, so the sentence is as wide as the
             // panel below it and shares its leading edge rather than running
             // the width of the pane.
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: dimensions.inlineClauseSpacing) {
+                // Sized by the sentence's own font, like the folder and
+                // worktree marks below it.
                 Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 28))
+                    .font(typography.headline.font)
+                    .imageScale(.large)
                     .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
@@ -713,7 +716,6 @@ struct ChatTabView: View, ThemedView {
         .font(typography.headline.font)
         .emphasis(.secondary)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
-        .padding(.bottom, 8)
     }
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn

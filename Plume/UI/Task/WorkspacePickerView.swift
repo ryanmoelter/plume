@@ -110,13 +110,18 @@ struct WorkspacePickerView: View, ThemedView {
         VStack(alignment: .leading, spacing: 2) {
             Text("Start a conversation in")
             inlineFolderMenu
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, dimensions.inlineClauseSpacing)
             Text("in the worktree")
             inlineWorktreeMenu
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let branch = mainWorktreeBranchNote {
                 Text("on \(branch)")
                     .font(typography.body.font)
                     .emphasis(.subtle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let resumeAction {
                 // An inline button, not a hyperlink: the accent color alone
@@ -189,14 +194,20 @@ struct WorkspacePickerView: View, ThemedView {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .imageScale(.medium)
+                .layoutPriority(1)
+            // The one compressible part: the marks around it stay whole and
+            // the name loses its tail instead.
             Text(title)
+                .truncationMode(.tail)
             if isControl {
                 Image(systemName: "chevron.down")
                     .imageScale(.small)
                     .fontWeight(.semibold)
+                    .layoutPriority(1)
             }
         }
         .lineLimit(1)
+        .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .bottom) {
             if isControl {
                 Rectangle()
@@ -484,12 +495,15 @@ enum WorkspacePickerProminence {
 private struct InlineMenuChrome: ViewModifier {
     let help: String
 
+    /// Vertical-only `fixedSize`: the label still hugs its own height, but
+    /// leaving the width free is what lets a long name truncate instead of
+    /// running past the container.
     func body(content: Content) -> some View {
         content
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .help(help)
     }
 }
