@@ -99,21 +99,19 @@ struct WorkspacePickerView: View, ThemedView {
     /// a fixed place on the screen instead of moving with the text around
     /// them.
     ///
+    /// Each dropdown gets a line to itself, so a long folder or branch name
+    /// has the whole line's width to truncate against instead of splitting it
+    /// with static words.
+    ///
     /// The worktree clause is unconditional. A plain directory still names the
     /// checkout it is in, so the sentence keeps one shape and the folder
     /// dropdown never shifts as a repository is chosen.
     private var inlineSentence: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Start a conversation")
-            HStack(spacing: 6) {
-                Text("in")
-                inlineFolderMenu
-            }
-            HStack(spacing: 6) {
-                Text("in the")
-                inlineWorktreeMenu
-                Text("worktree")
-            }
+            Text("Start a conversation in")
+            inlineFolderMenu
+            Text("in the worktree")
+            inlineWorktreeMenu
             if let branch = mainWorktreeBranchNote {
                 Text("on \(branch)")
                     .font(typography.body.font)
