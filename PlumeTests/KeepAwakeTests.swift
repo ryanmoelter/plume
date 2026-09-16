@@ -428,3 +428,64 @@ struct KeepAwakeTests {
         #expect(AppSettings(defaults: defaults).keepAwakeMode == .auto)
     }
 }
+
+/// Covers what the keep-awake UI tells the user about closing the lid.
+///
+/// No assertion type survives a lid close, so this guidance is the whole of
+/// the lid-close feature — it must never read as a promise Plume can keep.
+@MainActor
+struct LidCloseGuidanceTests {
+    @Test func aLidThatSleepsWarnsAndOffersSettings() {
+        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
+        #expect(guidance == .sleepsOnLidClose)
+        #expect(guidance.summary != nil)
+        #expect(guidance.explanation != nil)
+        #expect(guidance.offersSystemSettings)
+    }
+
+    /// Clamshell mode is the one case where the lid can close and work
+    /// continues, so it states that rather than warning.
+    @Test func clamshellModeSaysTheLidCanClose() {
+        let guidance = LidCloseGuidance.resolve(clamshell: .staysAwake, mode: .auto)
+        #expect(guidance == .staysAwakeInClamshell)
+        #expect(guidance.summary != nil)
+        #expect(guidance.explanation == nil)
+        #expect(guidance.offersSystemSettings == false)
+    }
+
+    @Test func aMacWithNoLidSaysNothing() {
+        let guidance = LidCloseGuidance.resolve(clamshell: .noClamshell, mode: .auto)
+        #expect(guidance == .notApplicable)
+        #expect(guidance.summary == nil)
+        #expect(guidance.offersSystemSettings == false)
+    }
+
+    /// Never mode means the user declined Plume's say over sleep, so lid
+    /// advice would be noise whatever the hardware reports.
+    @Test func neverModeSuppressesLidAdvice() {
+        for clamshell in [ClamshellSleepBehavior.sleeps, .staysAwake, .noClamshell] {
+            let guidance = LidCloseGuidance.resolve(clamshell: clamshell, mode: .never)
+            #expect(guidance == .notApplicable, "\(clamshell)")
+            #expect(guidance.summary == nil, "\(clamshell)")
+        }
+    }
+
+    @Test func alwaysModeStillWarnsAboutTheLid() {
+        #expect(LidCloseGuidance.resolve(clamshell: .sleeps, mode: .always) == .sleepsOnLidClose)
+    }
+
+    /// The guidance must never claim the Mac will keep working through a lid
+    /// close, which is the promise macOS cannot deliver.
+    @Test func theWarningNeverPromisesTheMacStaysAwake() {
+        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
+        let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
+        #expect(text.contains("sleeps"))
+        #expect(!text.contains("plume keeps"))
+    }
+
+    @Test func onlyASleepingLidWarns() {
+        #expect(ClamshellSleepBehavior.sleeps.warnsAboutLidClose)
+        #expect(ClamshellSleepBehavior.staysAwake.warnsAboutLidClose == false)
+        #expect(ClamshellSleepBehavior.noClamshell.warnsAboutLidClose == false)
+    }
+}

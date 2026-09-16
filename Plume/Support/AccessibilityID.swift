@@ -20,6 +20,7 @@ enum AccessibilityID {
     static let keepAwakePanel = "keep-awake-panel"
     static let keepAwakeModePicker = "keep-awake-mode-picker"
     static let keepAwakeReasonRow = "keep-awake-reason-row"
+    static let keepAwakeLidNote = "keep-awake-lid-note"
 
     // MARK: Tab strip
 

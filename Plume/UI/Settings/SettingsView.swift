@@ -187,9 +187,10 @@ struct SettingsView: View {
                 Text(
                     "Auto holds the Mac awake while an agent is working, while a " +
                     "session is under remote control, and while a remotely " +
-                    "controlled agent waits for an answer. Closing the lid always " +
-                    "sleeps the Mac, and the system may ignore the request on " +
-                    "battery or under thermal load."
+                    "controlled agent waits for an answer. The system may ignore " +
+                    "the request on battery or under thermal load. Closing the lid " +
+                    "sleeps the Mac unless it is in clamshell mode, and macOS gives " +
+                    "apps no way to override that."
                 )
                 .foregroundStyle(.secondary)
             }

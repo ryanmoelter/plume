@@ -8,6 +8,7 @@ struct KeepAwakePanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
+    @State private var clamshell = IOKitClamshellState.shared
     @Query private var tasks: [WorkTask]
 
     var body: some View {
@@ -48,13 +49,42 @@ struct KeepAwakePanel: View {
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
-            Text("Closing the lid always sleeps the Mac.")
-                .font(.caption)
-                .emphasis(.secondary)
+            lidClose
         }
         .padding(12)
         .frame(width: 280)
         .accessibilityIdentifier(AccessibilityID.keepAwakePanel)
+        .onAppear { clamshell.refresh() }
+    }
+
+    private var guidance: LidCloseGuidance {
+        .resolve(clamshell: clamshell.behavior, mode: settings.keepAwakeMode)
+    }
+
+    @ViewBuilder
+    private var lidClose: some View {
+        if let summary = guidance.summary {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(summary)
+                    .font(.caption)
+                    .emphasis(.secondary)
+
+                if let explanation = guidance.explanation {
+                    Text(explanation)
+                        .font(.caption)
+                        .emphasis(.subtle)
+                }
+
+                if guidance.offersSystemSettings {
+                    Button("Open Battery Settings…") {
+                        SystemSettingsLink.battery.open()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+            }
+            .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
+        }
     }
 
     private var summary: String {
