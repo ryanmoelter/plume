@@ -115,7 +115,7 @@ struct WorkspacePickerView: View, ThemedView {
             Text("in the worktree")
             inlineWorktreeMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if let branch = mainWorktreeBranchNote {
+            if let branch = worktreeBranchNote {
                 HStack(spacing: 4) {
                     Text("on")
                     // Distinct from the worktree's tree: this names the branch
@@ -144,14 +144,6 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         .multilineTextAlignment(.leading)
-    }
-
-    /// The branch the repository's own checkout has out. The worktree name is
-    /// "main" there rather than a branch, so the branch still needs saying;
-    /// a linked worktree already names its branch and says nothing here.
-    private var mainWorktreeBranchNote: String? {
-        guard let worktree = selectedWorktree, worktree.isMain else { return nil }
-        return worktree.branch
     }
 
     @ViewBuilder
@@ -308,7 +300,14 @@ struct WorkspacePickerView: View, ThemedView {
     @ViewBuilder
     private var worktreeMenuItems: some View {
         ForEach(worktrees, id: \.self) { worktree in
-            Button(label(for: worktree)) { select(worktree) }
+            Button {
+                select(worktree)
+            } label: {
+                Text(name(for: worktree))
+                if let branch = worktree.branch {
+                    Text(branch)
+                }
+            }
         }
         Divider()
         Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
@@ -338,16 +337,24 @@ struct WorkspacePickerView: View, ThemedView {
         return worktrees.first(where: { standardized($0.path) == path })
     }
 
-    /// The repository's own checkout is "main" whatever branch it has out —
-    /// it is the one worktree that is not defined by its branch. Every linked
-    /// worktree goes by its branch, which is how the user thinks of it; its
-    /// directory name is an implementation detail of how it was created.
+    /// A worktree goes by its own name — "main" for the repository's own
+    /// checkout, the directory name for a linked one. The branch it has out is
+    /// a separate fact, said below it rather than in place of it.
     private var worktreeName: String {
         if let worktree = selectedWorktree {
-            if worktree.isMain { return "main" }
-            return worktree.branch ?? (worktree.path as NSString).lastPathComponent
+            return name(for: worktree)
         }
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+    }
+
+    private func name(for worktree: GitWorktree) -> String {
+        worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
+    }
+
+    /// The branch under the worktree's name. A detached HEAD has none, and
+    /// nothing is said rather than inventing a placeholder.
+    private var worktreeBranchNote: String? {
+        selectedWorktree?.branch ?? state?.branch
     }
 
     /// The path, since two worktrees of one repository differ only there.
@@ -391,11 +398,6 @@ struct WorkspacePickerView: View, ThemedView {
                     .help("Uncommitted changes")
             }
         }
-    }
-
-    private func label(for worktree: GitWorktree) -> String {
-        let branch = worktree.branch ?? (worktree.path as NSString).lastPathComponent
-        return worktree.isMain ? "\(branch) (repository)" : branch
     }
 
     private func select(_ worktree: GitWorktree) {
