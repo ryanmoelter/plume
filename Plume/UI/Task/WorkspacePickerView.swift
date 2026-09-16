@@ -24,6 +24,10 @@ struct WorkspacePickerView: View, ThemedView {
     /// markers beside it always come from the same `git` run.
     var state: GitState?
 
+    /// The line the resume affordance sits on, supplied by the empty state.
+    /// Nil everywhere else, and the picker draws nothing for it.
+    var resumeAction: (() -> Void)?
+
     @State private var worktrees: [GitWorktree] = []
     @State private var repositoryBranch: String?
     @State private var recentFolders = RecentFolders.load()
@@ -44,6 +48,11 @@ struct WorkspacePickerView: View, ThemedView {
         }
         .sheet(isPresented: $worktreeSheetShown) {
             NewWorktreeSheet(task: task)
+        }
+        // `folderName` reads this cache, which only a lifecycle event may
+        // fill — see `CheckoutFactsStore.load`.
+        .onChange(of: task.workingDirectoryPath, initial: true) { _, path in
+            if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
         }
         // `git` runs off the main actor and lands in state: a subprocess per
         // render would be ruinous, and writing observable state from `body`
@@ -67,7 +76,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// that gives way when the row runs out of room, since it's the only
     /// thing here with room to lose without going illegible.
     private var chipRow: some View {
-        HStack(spacing: prominence == .prominent ? 12 : 10) {
+        HStack(spacing: 10) {
             folderChip
                 .fixedSize()
             if task.repoPath != nil {
@@ -85,26 +94,36 @@ struct WorkspacePickerView: View, ThemedView {
 
     // MARK: - Inline sentence
 
-    /// "Start a conversation in ⟨folder⟩ in the ⟨worktree⟩ worktree", with the
-    /// two dropdowns sized like the words around them.
-    ///
-    /// The pieces flow through a `WrappingHStack` rather than a `Text`
-    /// concatenation, because a `Menu` is a view and cannot be interpolated
-    /// into an `AttributedString`. Baselines line up because every piece —
-    /// words and menus alike — inherits one font from the caller.
+    /// The sentence broken across lines, each clause on its own, sharing one
+    /// leading edge. Stacking rather than wrapping keeps the two dropdowns at
+    /// a fixed place on the screen instead of moving with the text around
+    /// them.
     ///
     /// The worktree clause is unconditional. A plain directory still names the
     /// checkout it is in, so the sentence keeps one shape and the folder
     /// dropdown never shifts as a repository is chosen.
     private var inlineSentence: some View {
-        WrappingHStack(horizontalSpacing: 6, verticalSpacing: 2) {
-            Text("Start a conversation in")
-            inlineFolderMenu
-            Text("in the")
-            inlineWorktreeMenu
-            Text("worktree")
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Start a conversation")
+            HStack(spacing: 6) {
+                Text("in")
+                inlineFolderMenu
+            }
+            HStack(spacing: 6) {
+                Text("in the")
+                inlineWorktreeMenu
+                Text("worktree")
+            }
+            if let resumeAction {
+                Button("or resume a conversation \u{2192}", action: resumeAction)
+                    .buttonStyle(.link)
+                    .font(.body)
+                    .padding(.top, 6)
+                    .help("Continue a past Claude conversation in this folder")
+            }
         }
         .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -113,11 +132,11 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 folderMenuItems
             } label: {
-                inlineLabel(folderName, systemImage: "folder", showsChevron: true)
+                inlineLabel(folderName, systemImage: "folder")
             }
             .modifier(InlineMenuChrome(help: folderHelp))
         } else {
-            inlineLabel(folderName, systemImage: "folder", showsChevron: false)
+            inlineLabel(folderName, systemImage: "folder")
                 .help(folderHelp)
         }
     }
@@ -128,29 +147,41 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 worktreeMenuItems
             } label: {
-                inlineLabel(worktreeName, systemImage: "tree", showsChevron: true)
+                inlineLabel(worktreeName, systemImage: "tree")
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
         } else {
-            inlineLabel(worktreeName, systemImage: "tree", showsChevron: false)
+            inlineLabel(worktreeName, systemImage: "tree")
                 .help(worktreeHelp)
         }
     }
 
     /// An underline and a trailing chevron are the only marks that this word
     /// is a control — no well, no border, no size change.
-    private func inlineLabel(_ title: String, systemImage: String, showsChevron: Bool) -> some View {
+    ///
+    /// The rule is drawn rather than applied with `.underline()`, which reaches
+    /// only the `Text` and takes the text's own color. This one runs the width
+    /// of the icon, label and chevron together, and sits at the palette's
+    /// divider weight so it stays quieter than the words above it. Icons drop a
+    /// step below the text so they sit inside the line rather than driving its
+    /// height.
+    private func inlineLabel(_ title: String, systemImage: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .imageScale(.small)
+                .font(.footnote)
             Text(title)
-                .underline()
-            if showsChevron {
-                Image(systemName: "chevron.down")
-                    .imageScale(.small)
-            }
+            Image(systemName: "chevron.down")
+                .imageScale(.small)
+                .font(.footnote)
         }
         .lineLimit(1)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(colors.divider)
+                .frame(height: 1)
+                .offset(y: 2)
+        }
     }
 
     // MARK: - Folder
@@ -189,8 +220,15 @@ struct WorkspacePickerView: View, ThemedView {
         Label(folderName, systemImage: "folder")
     }
 
+    /// The project the checkout belongs to, not the checkout's own directory.
+    /// Switching to a linked worktree changes the working directory, and
+    /// naming that directory here would make the project appear to change with
+    /// it.
     private var folderName: String {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return "Choose Folder" }
+        if let projectName = CheckoutFactsStore.shared.facts(for: path)?.projectName {
+            return projectName
+        }
         return (path as NSString).lastPathComponent
     }
 
@@ -252,8 +290,17 @@ struct WorkspacePickerView: View, ThemedView {
         Label(worktreeName, systemImage: "tree")
     }
 
+    /// Which worktree, not which branch. The repository's own checkout is
+    /// "main" whatever it happens to have checked out; a linked worktree goes
+    /// by its directory name, which is what distinguishes two worktrees of one
+    /// repository. Only a directory that is in no listing falls back to the
+    /// branch.
     private var worktreeName: String {
-        state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+        if let path = task.workingDirectoryPath,
+           let worktree = worktrees.first(where: { $0.path == path }) {
+            return worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
+        }
+        return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
     }
 
     /// The path, since two worktrees of one repository differ only there.
@@ -334,8 +381,7 @@ struct WorkspacePickerView: View, ThemedView {
         }
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
-        .emphasis(prominence == .prominent ? .primary : .secondary)
-        .prominentChipBackground(prominence == .prominent, colors: colors)
+        .emphasis(.secondary)
     }
 
     private func abbreviate(_ path: String) -> String {
@@ -385,9 +431,6 @@ struct WorkspacePickerView: View, ThemedView {
 enum WorkspacePickerProminence {
     /// Metadata beside the meters: small, secondary, no chrome of its own.
     case statusline
-    /// The main decision on screen. Before the first message, where the agent
-    /// will run is what the user is choosing, so the chips read as buttons.
-    case prominent
     /// Words in a sentence. The dropdowns take the surrounding text's size and
     /// are marked only by an underline and a chevron, so the sentence reads as
     /// prose the user can edit rather than as a row of controls.
@@ -407,25 +450,6 @@ private struct InlineMenuChrome: ViewModifier {
             .menuIndicator(.hidden)
             .fixedSize()
             .help(help)
-    }
-}
-
-private extension View {
-    /// A bordered well behind a prominent chip, so the menu reads as
-    /// something to click rather than as a label.
-    @ViewBuilder
-    func prominentChipBackground(_ isEnabled: Bool, colors: Palette) -> some View {
-        if isEnabled {
-            padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(colors.surfaceTint, in: .rect(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(colors.divider, lineWidth: 1)
-                }
-        } else {
-            self
-        }
     }
 }
 
