@@ -113,8 +113,17 @@ struct WorkspacePickerView: View, ThemedView {
             inlineFolderMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, dimensions.inlineGlyphLeading)
-                .padding(.bottom, dimensions.inlineClauseSpacing)
+            if let path = folderPathNote {
+                Text(path)
+                    .font(typography.body.font)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.top, dimensions.inlineBranchNoteSpacing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Text("in the worktree")
+                .padding(.top, dimensions.inlineClauseSpacing)
                 .emphasis(.secondary)
             inlineWorktreeMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -354,6 +363,14 @@ struct WorkspacePickerView: View, ThemedView {
             return name(for: worktree)
         }
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+    }
+
+    /// The folder the name above it stands for. The name is a project or a
+    /// directory's last component, so more than one can read alike; the path
+    /// is what tells them apart.
+    private var folderPathNote: String? {
+        guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
+        return abbreviate(path)
     }
 
     private func name(for worktree: GitWorktree) -> String {
