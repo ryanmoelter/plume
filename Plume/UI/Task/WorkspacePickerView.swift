@@ -109,12 +109,16 @@ struct WorkspacePickerView: View, ThemedView {
     private var inlineSentence: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Start a conversation in")
+                .emphasis(.secondary)
             inlineFolderMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, dimensions.inlineGlyphLeading)
                 .padding(.bottom, dimensions.inlineClauseSpacing)
             Text("in the worktree")
+                .emphasis(.secondary)
             inlineWorktreeMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, dimensions.inlineGlyphLeading)
             if let branch = worktreeBranchNote {
                 HStack(spacing: 4) {
                     Text("on")
@@ -128,6 +132,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .font(typography.body.font)
                 .emphasis(.secondary)
                 .lineLimit(1)
+                .padding(.top, dimensions.inlineBranchNoteSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let resumeAction {
@@ -189,6 +194,9 @@ struct WorkspacePickerView: View, ThemedView {
     ///
     /// A launched agent's workspace is fixed, so its label keeps the words and
     /// drops both marks rather than advertising a menu that will not open.
+    ///
+    /// The label carries the sentence's full weight while the words around it
+    /// step back: what you can change is what the eye should land on.
     private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
@@ -206,6 +214,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         .lineLimit(1)
+        .emphasis(.primary)
         .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .bottom) {
             if isControl {

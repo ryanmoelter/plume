@@ -138,6 +138,15 @@ struct Dimensions {
     /// and where it resumes read as separate choices rather than one list.
     let inlineClauseSpacing: CGFloat = 18
 
+    /// Between a worktree's name and the branch it has out. Double the
+    /// sentence's line spacing, so the branch reads as a detail hanging off
+    /// the name rather than the next line of the sentence.
+    let inlineBranchNoteSpacing: CGFloat = 4
+
+    /// Added above a dropdown whose glyph sits higher than the text beside
+    /// it, so the optical gap matches the one above a plain line.
+    let inlineGlyphLeading: CGFloat = 4
+
     /// How far the branch chip may shrink before the row gives up on the
     /// side-by-side meters — still enough for a few characters and the
     /// truncation ellipsis.
