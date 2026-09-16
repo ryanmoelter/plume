@@ -705,22 +705,16 @@ struct ChatTabView: View, ThemedView {
             isEditable: true,
             branchWidth: .natural,
             prominence: .inline,
-            inlineTextSize: Self.workspaceSentenceSize,
             state: GitStateStore.shared.state(for: gitDirectory),
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
             resumeAction: canResume ? { resumeSheetShown = true } : nil
         )
-        .font(.system(size: Self.workspaceSentenceSize))
+        .font(typography.headline.font)
         .emphasis(.secondary)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
         .padding(.bottom, 8)
     }
-
-    /// The sentence's own point size, stated rather than taken from a text
-    /// style: the picker sizes its icons, chevron and underline against it,
-    /// and SwiftUI cannot read an ambient font back out.
-    private static let workspaceSentenceSize: CGFloat = 26
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn
     /// because Claude Code has not been told to trust this directory. The
