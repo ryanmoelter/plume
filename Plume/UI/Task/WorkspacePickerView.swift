@@ -19,6 +19,12 @@ struct WorkspacePickerView: View, ThemedView {
     /// this, since it is the row's one compressible segment.
     var branchWidth: BranchWidth = .natural
     var prominence: WorkspacePickerProminence = .statusline
+    /// The point size the inline sentence is set at. The icons, the chevron
+    /// and the underline are sized from it, since SwiftUI offers no way to
+    /// read the ambient font back out — and a nested `.font` beats the outer
+    /// one, so pinning them to a fixed text style leaves them invisible
+    /// beside large text.
+    var inlineTextSize: CGFloat = 13
     /// Ahead/behind and dirty for the directory the agent is actually in.
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
@@ -114,16 +120,35 @@ struct WorkspacePickerView: View, ThemedView {
                 inlineWorktreeMenu
                 Text("worktree")
             }
+            if let branch = mainWorktreeBranchNote {
+                Text("on \(branch)")
+                    .font(.system(size: inlineTextSize * Self.secondaryLineScale))
+                    .emphasis(.subtle)
+            }
             if let resumeAction {
-                Button("or resume a conversation \u{2192}", action: resumeAction)
-                    .buttonStyle(.link)
-                    .font(.body)
-                    .padding(.top, 6)
-                    .help("Continue a past Claude conversation in this folder")
+                Button(action: resumeAction) {
+                    Text("or resume a conversation \u{2192}")
+                        .font(.system(size: inlineTextSize * Self.secondaryLineScale))
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 6)
+                .help("Continue a past Claude conversation in this folder")
             }
         }
         .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The secondary lines — main's branch, the resume affordance — against
+    /// the sentence's own size.
+    private static let secondaryLineScale: CGFloat = 0.45
+
+    /// The branch the repository's own checkout has out. The worktree name is
+    /// "main" there rather than a branch, so the branch still needs saying;
+    /// a linked worktree already names its branch and says nothing here.
+    private var mainWorktreeBranchNote: String? {
+        guard let worktree = selectedWorktree, worktree.isMain else { return nil }
+        return worktree.branch
     }
 
     @ViewBuilder
@@ -161,35 +186,40 @@ struct WorkspacePickerView: View, ThemedView {
     ///
     /// The rule is drawn rather than applied with `.underline()`, which reaches
     /// only the `Text` and takes the text's own color. This one runs the width
-    /// of the icon, label and chevron together, and sits at the palette's
-    /// divider weight so it stays quieter than the words above it. Icons drop a
-    /// step below the text so they sit inside the line rather than driving its
-    /// height.
+    /// of the icon, label and chevron together.
+    ///
+    /// Every mark is sized from `inlineTextSize` rather than from a text
+    /// style, because a nested `.font` beats the outer one: pinned to
+    /// `.footnote`, the icons and chevron vanish beside a large sentence and
+    /// the hairline reads as nothing. They stay proportionally smaller than
+    /// the words, and the rule thickens with them.
     ///
     /// A launched agent's workspace is fixed, so its label keeps the words and
     /// drops both marks rather than advertising a menu that will not open.
     private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: inlineTextSize * 0.18) {
             Image(systemName: systemImage)
-                .imageScale(.small)
-                .font(.footnote)
+                .font(.system(size: inlineTextSize * Self.inlineIconScale))
             Text(title)
             if isControl {
                 Image(systemName: "chevron.down")
-                    .imageScale(.small)
-                    .font(.footnote)
+                    .font(.system(size: inlineTextSize * Self.inlineIconScale, weight: .semibold))
             }
         }
         .lineLimit(1)
         .overlay(alignment: .bottom) {
             if isControl {
                 Rectangle()
-                    .fill(colors.divider)
-                    .frame(height: 1)
-                    .offset(y: 2)
+                    .fill(colors.surface(.disabled))
+                    .frame(height: max(1, (inlineTextSize * 0.055).rounded()))
+                    .offset(y: inlineTextSize * 0.12)
             }
         }
     }
+
+    /// Icons and the chevron sit deliberately below the words — small enough
+    /// to stay subordinate, large enough to be seen.
+    private static let inlineIconScale: CGFloat = 0.6
 
     // MARK: - Folder
 
@@ -297,15 +327,21 @@ struct WorkspacePickerView: View, ThemedView {
         Label(worktreeName, systemImage: "tree")
     }
 
-    /// Which worktree, not which branch. The repository's own checkout is
-    /// "main" whatever it happens to have checked out; a linked worktree goes
-    /// by its directory name, which is what distinguishes two worktrees of one
-    /// repository. Only a directory that is in no listing falls back to the
-    /// branch.
+    /// The worktree the task is working in, matched on a standardized path —
+    /// `git` and the stored path can spell one directory differently.
+    private var selectedWorktree: GitWorktree? {
+        guard let path = task.workingDirectoryPath.map(standardized) else { return nil }
+        return worktrees.first(where: { standardized($0.path) == path })
+    }
+
+    /// The repository's own checkout is "main" whatever branch it has out —
+    /// it is the one worktree that is not defined by its branch. Every linked
+    /// worktree goes by its branch, which is how the user thinks of it; its
+    /// directory name is an implementation detail of how it was created.
     private var worktreeName: String {
-        if let path = task.workingDirectoryPath.map(standardized),
-           let worktree = worktrees.first(where: { standardized($0.path) == path }) {
-            return worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
+        if let worktree = selectedWorktree {
+            if worktree.isMain { return "main" }
+            return worktree.branch ?? (worktree.path as NSString).lastPathComponent
         }
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
     }
