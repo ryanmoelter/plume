@@ -365,12 +365,12 @@ struct WorkspacePickerView: View, ThemedView {
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
     }
 
-    /// The folder the name above it stands for. The name is a project or a
-    /// directory's last component, so more than one can read alike; the path
-    /// is what tells them apart.
+    /// The folder the name above it stands for — the project's own root, the
+    /// same value from any of its worktrees, so the path and the name always
+    /// name one thing.
     private var folderPathNote: String? {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
-        return abbreviate(path)
+        return abbreviate(CheckoutFactsStore.shared.facts(for: path)?.projectRoot ?? path)
     }
 
     private func name(for worktree: GitWorktree) -> String {
@@ -430,8 +430,7 @@ struct WorkspacePickerView: View, ThemedView {
         task.workingDirectoryPath = worktree.path
         task.branchName = worktree.branch
         task.workspaceKind = worktree.isMain ? .directory : .worktree
-        RecentFolders.remember(worktree.path)
-        recentFolders = RecentFolders.load()
+        rememberProject(containing: worktree.path)
     }
 
     // MARK: - Chrome
@@ -463,6 +462,23 @@ struct WorkspacePickerView: View, ThemedView {
     /// trailing slash, or `..` left in.
     private func standardized(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// Records the project a chosen directory belongs to, never the directory
+    /// itself when that is a worktree. The facts are usually cached by now;
+    /// when they are not, the lookup lands after the fact rather than making
+    /// the picker wait on `git`.
+    private func rememberProject(containing path: String) {
+        if let facts = CheckoutFactsStore.shared.facts(for: path) {
+            RecentFolders.remember(facts.projectRoot)
+            recentFolders = RecentFolders.load()
+            return
+        }
+        Task {
+            let root = await GitService.shared.checkoutFacts(containing: path)?.projectRoot
+            RecentFolders.remember(root ?? path)
+            recentFolders = RecentFolders.load()
+        }
     }
 
     private func abbreviate(_ path: String) -> String {
@@ -499,8 +515,7 @@ struct WorkspacePickerView: View, ThemedView {
         task.workingDirectoryPath = path
         task.workspaceKind = .directory
         task.branchName = nil
-        RecentFolders.remember(path)
-        recentFolders = RecentFolders.load()
+        rememberProject(containing: path)
         // Resolved after the fact: finding the repository root is a
         // subprocess, and the picker should not wait on one to show the
         // folder the user just chose.
