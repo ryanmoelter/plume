@@ -215,6 +215,7 @@ struct WorkspacePickerView: View, ThemedView {
             // the name loses its tail instead.
             Text(title)
                 .truncationMode(.tail)
+                .contentTransition(.numericText())
             if isControl {
                 Image(systemName: "chevron.down")
                     .imageScale(.small)
@@ -224,6 +225,7 @@ struct WorkspacePickerView: View, ThemedView {
         }
         .lineLimit(1)
         .emphasis(.primary)
+        .animation(.default, value: title)
         .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .bottom) {
             if isControl {
