@@ -136,7 +136,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
             .modifier(InlineMenuChrome(help: folderHelp))
         } else {
-            inlineLabel(folderName, systemImage: "folder")
+            inlineLabel(folderName, systemImage: "folder", isControl: false)
                 .help(folderHelp)
         }
     }
@@ -151,7 +151,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
         } else {
-            inlineLabel(worktreeName, systemImage: "tree")
+            inlineLabel(worktreeName, systemImage: "tree", isControl: false)
                 .help(worktreeHelp)
         }
     }
@@ -165,22 +165,29 @@ struct WorkspacePickerView: View, ThemedView {
     /// divider weight so it stays quieter than the words above it. Icons drop a
     /// step below the text so they sit inside the line rather than driving its
     /// height.
-    private func inlineLabel(_ title: String, systemImage: String) -> some View {
+    ///
+    /// A launched agent's workspace is fixed, so its label keeps the words and
+    /// drops both marks rather than advertising a menu that will not open.
+    private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .imageScale(.small)
                 .font(.footnote)
             Text(title)
-            Image(systemName: "chevron.down")
-                .imageScale(.small)
-                .font(.footnote)
+            if isControl {
+                Image(systemName: "chevron.down")
+                    .imageScale(.small)
+                    .font(.footnote)
+            }
         }
         .lineLimit(1)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(colors.divider)
-                .frame(height: 1)
-                .offset(y: 2)
+            if isControl {
+                Rectangle()
+                    .fill(colors.divider)
+                    .frame(height: 1)
+                    .offset(y: 2)
+            }
         }
     }
 
@@ -296,8 +303,8 @@ struct WorkspacePickerView: View, ThemedView {
     /// repository. Only a directory that is in no listing falls back to the
     /// branch.
     private var worktreeName: String {
-        if let path = task.workingDirectoryPath,
-           let worktree = worktrees.first(where: { $0.path == path }) {
+        if let path = task.workingDirectoryPath.map(standardized),
+           let worktree = worktrees.first(where: { standardized($0.path) == path }) {
             return worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
         }
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
@@ -382,6 +389,12 @@ struct WorkspacePickerView: View, ThemedView {
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
         .emphasis(.secondary)
+    }
+
+    /// `git` and the stored path can spell one directory differently — a
+    /// trailing slash, or `..` left in.
+    private func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private func abbreviate(_ path: String) -> String {
