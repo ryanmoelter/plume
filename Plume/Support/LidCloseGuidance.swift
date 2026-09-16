@@ -43,9 +43,6 @@ enum LidCloseGuidance: Equatable, Sendable {
     }
 
     /// Why Plume cannot fix this itself, for the user who expected a toggle.
-    ///
-    /// Named for the commute the request came from, because that is the case
-    /// where the answer is genuinely "this is not possible".
     var explanation: String? {
         guard self == .sleepsOnLidClose else { return nil }
         return "macOS gives apps no way to override this. A Mac stays awake "
