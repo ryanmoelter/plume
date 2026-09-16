@@ -657,23 +657,22 @@ struct ChatTabView: View, ThemedView {
     private func emptyState(isComposerEnabled: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 28))
-                .emphasis(.secondary)
-            if isComposerEnabled {
-                workspaceChoice
-            } else {
-                Text("Waiting for the first message…")
-                    .font(.headline)
+            // One leading edge for the whole empty state, matching the
+            // composer's own text inset below it.
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 28))
                     .emphasis(.secondary)
+                if isComposerEnabled {
+                    workspaceChoice
+                } else {
+                    Text("Waiting for the first message…")
+                        .font(.title2)
+                        .emphasis(.secondary)
+                }
             }
-            // Only before the first message: once a session exists, the tab
-            // has the conversation it is going to have.
-            if isComposerEnabled, canResume {
-                Button("Resume…") { resumeSheetShown = true }
-                    .buttonStyle(.link)
-                    .help("Continue a past Claude conversation in this folder")
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, dimensions.composerFieldInset + dimensions.panelInset)
             Spacer()
             GlassEffectContainer {
                 // The composer alone: the session facts don't exist yet, and
@@ -704,11 +703,14 @@ struct ChatTabView: View, ThemedView {
             isEditable: true,
             branchWidth: .natural,
             prominence: .inline,
-            state: GitStateStore.shared.state(for: gitDirectory)
+            state: GitStateStore.shared.state(for: gitDirectory),
+            // Only before the first message: once a session exists, the tab
+            // has the conversation it is going to have.
+            resumeAction: canResume ? { resumeSheetShown = true } : nil
         )
-        .font(.title2)
+        .font(.largeTitle)
         .emphasis(.secondary)
-        .frame(maxWidth: 460)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
         .padding(.bottom, 8)
     }
