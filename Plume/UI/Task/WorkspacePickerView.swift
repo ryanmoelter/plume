@@ -116,12 +116,19 @@ struct WorkspacePickerView: View, ThemedView {
             inlineWorktreeMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let branch = mainWorktreeBranchNote {
-                Text("on \(branch)")
-                    .font(typography.body.font)
-                    .emphasis(.subtle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 4) {
+                    Text("on")
+                    // Distinct from the worktree's tree: this names the branch
+                    // that worktree has out, not the worktree itself.
+                    Image(systemName: "arrow.triangle.branch")
+                        .imageScale(.small)
+                    Text(branch)
+                        .truncationMode(.tail)
+                }
+                .font(typography.body.font)
+                .emphasis(.subtle)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let resumeAction {
                 // An inline button, not a hyperlink: the accent color alone
