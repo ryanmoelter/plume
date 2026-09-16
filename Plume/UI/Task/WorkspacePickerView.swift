@@ -19,12 +19,6 @@ struct WorkspacePickerView: View, ThemedView {
     /// this, since it is the row's one compressible segment.
     var branchWidth: BranchWidth = .natural
     var prominence: WorkspacePickerProminence = .statusline
-    /// The point size the inline sentence is set at. The icons, the chevron
-    /// and the underline are sized from it, since SwiftUI offers no way to
-    /// read the ambient font back out — and a nested `.font` beats the outer
-    /// one, so pinning them to a fixed text style leaves them invisible
-    /// beside large text.
-    var inlineTextSize: CGFloat = 13
     /// Ahead/behind and dirty for the directory the agent is actually in.
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
@@ -122,14 +116,16 @@ struct WorkspacePickerView: View, ThemedView {
             }
             if let branch = mainWorktreeBranchNote {
                 Text("on \(branch)")
-                    .font(.system(size: inlineTextSize * Self.secondaryLineScale))
+                    .font(typography.body.font)
                     .emphasis(.subtle)
             }
             if let resumeAction {
+                // An inline button, not a hyperlink: the accent color alone
+                // says it is clickable.
                 Button(action: resumeAction) {
                     Text("or resume a conversation \u{2192}")
-                        .font(.system(size: inlineTextSize * Self.secondaryLineScale))
-                        .underline()
+                        .font(typography.body.font)
+                        .foregroundStyle(colors.selection)
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 6)
@@ -138,10 +134,6 @@ struct WorkspacePickerView: View, ThemedView {
         }
         .multilineTextAlignment(.leading)
     }
-
-    /// The secondary lines — main's branch, the resume affordance — against
-    /// the sentence's own size.
-    private static let secondaryLineScale: CGFloat = 0.45
 
     /// The branch the repository's own checkout has out. The worktree name is
     /// "main" there rather than a branch, so the branch still needs saying;
@@ -188,38 +180,33 @@ struct WorkspacePickerView: View, ThemedView {
     /// only the `Text` and takes the text's own color. This one runs the width
     /// of the icon, label and chevron together.
     ///
-    /// Every mark is sized from `inlineTextSize` rather than from a text
-    /// style, because a nested `.font` beats the outer one: a fixed small
-    /// style leaves the icons and chevron invisible beside a large sentence,
-    /// and a hairline rule reads as nothing under it. They stay
-    /// proportionally smaller than the words, and the rule thickens with them.
+    /// The symbols take `.imageScale`, which sizes them against whatever font
+    /// the sentence is set in; giving them a font of their own would override
+    /// the ambient one and freeze them at a size the sentence has outgrown.
     ///
     /// A launched agent's workspace is fixed, so its label keeps the words and
     /// drops both marks rather than advertising a menu that will not open.
     private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
-        HStack(spacing: inlineTextSize * 0.18) {
+        HStack(spacing: 4) {
             Image(systemName: systemImage)
-                .font(.system(size: inlineTextSize * Self.inlineIconScale))
+                .imageScale(.medium)
             Text(title)
             if isControl {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: inlineTextSize * Self.inlineIconScale, weight: .semibold))
+                    .imageScale(.small)
+                    .fontWeight(.semibold)
             }
         }
         .lineLimit(1)
         .overlay(alignment: .bottom) {
             if isControl {
                 Rectangle()
-                    .fill(colors.surface(.disabled))
-                    .frame(height: max(1, (inlineTextSize * 0.055).rounded()))
-                    .offset(y: inlineTextSize * 0.12)
+                    .fill(colors.divider)
+                    .frame(height: 1)
+                    .offset(y: 2)
             }
         }
     }
-
-    /// Icons and the chevron sit deliberately below the words — small enough
-    /// to stay subordinate, large enough to be seen.
-    private static let inlineIconScale: CGFloat = 0.6
 
     // MARK: - Folder
 
@@ -490,12 +477,18 @@ enum WorkspacePickerProminence {
 /// no system disclosure arrow (the label draws its own chevron), and no claim
 /// on the row's slack — an unfixed menu stretches and pushes the words after
 /// it to the far edge.
+///
+/// `.button` is what preserves a custom label. `.borderlessButton` hands the
+/// menu to an AppKit popup button, which re-renders the label as its own title
+/// and discards everything else — the icon, the chevron and the rule all
+/// vanish, whatever they were built from.
 private struct InlineMenuChrome: ViewModifier {
     let help: String
 
     func body(content: Content) -> some View {
         content
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
             .help(help)
