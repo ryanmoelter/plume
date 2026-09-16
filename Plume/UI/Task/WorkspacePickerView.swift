@@ -110,6 +110,7 @@ struct WorkspacePickerView: View, ThemedView {
         VStack(alignment: .leading, spacing: 2) {
             Text("Start a conversation in")
             inlineFolderMenu
+                .padding(.bottom, dimensions.inlineClauseSpacing)
             Text("in the worktree")
             inlineWorktreeMenu
             if let branch = mainWorktreeBranchNote {
@@ -126,7 +127,7 @@ struct WorkspacePickerView: View, ThemedView {
                         .foregroundStyle(colors.selection)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 6)
+                .padding(.top, dimensions.inlineClauseSpacing)
                 .help("Continue a past Claude conversation in this folder")
             }
         }
