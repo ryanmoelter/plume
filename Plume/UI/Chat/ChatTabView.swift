@@ -657,8 +657,9 @@ struct ChatTabView: View, ThemedView {
     private func emptyState(isComposerEnabled: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
-            // One leading edge for the whole empty state, matching the
-            // composer's own text inset below it.
+            // The composer's own column, so the sentence is as wide as the
+            // panel below it and shares its leading edge rather than running
+            // the width of the pane.
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: "bubble.left.and.bubble.right")
                     .font(.system(size: 28))
@@ -672,7 +673,8 @@ struct ChatTabView: View, ThemedView {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, dimensions.composerFieldInset + dimensions.panelInset)
+            .padding(.horizontal, dimensions.composerFieldInset)
+            .listItemPadding(vertical: false)
             Spacer()
             GlassEffectContainer {
                 // The composer alone: the session facts don't exist yet, and
@@ -703,17 +705,22 @@ struct ChatTabView: View, ThemedView {
             isEditable: true,
             branchWidth: .natural,
             prominence: .inline,
+            inlineTextSize: Self.workspaceSentenceSize,
             state: GitStateStore.shared.state(for: gitDirectory),
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
             resumeAction: canResume ? { resumeSheetShown = true } : nil
         )
-        .font(.largeTitle)
+        .font(.system(size: Self.workspaceSentenceSize))
         .emphasis(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
         .padding(.bottom, 8)
     }
+
+    /// The sentence's own point size, stated rather than taken from a text
+    /// style: the picker sizes its icons, chevron and underline against it,
+    /// and SwiftUI cannot read an ambient font back out.
+    private static let workspaceSentenceSize: CGFloat = 26
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn
     /// because Claude Code has not been told to trust this directory. The
