@@ -31,6 +31,10 @@ struct ChatTabView: View, ThemedView {
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
+    /// The first message, from the moment it is sent until the transcript
+    /// contains it. Held here rather than on the session because it has to
+    /// outlive a launch that never produces one.
+    @State private var pendingFirstMessage: OptimisticFirstMessage?
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
@@ -51,6 +55,21 @@ struct ChatTabView: View, ThemedView {
 
     private var transcript: Transcript? {
         TranscriptStore.shared.transcript(forTab: tab.id)
+    }
+
+    private var transcriptMessages: [ChatMessage] {
+        transcript?.messages ?? []
+    }
+
+    /// What the chat renders: the transcript, plus the first message while it
+    /// is still in flight. `OptimisticChatReconciler` decides which — the
+    /// pending copy disappears the moment the transcript carries the line, so
+    /// the two are never both on screen.
+    private var conversationMessages: [ChatMessage] {
+        OptimisticChatReconciler.messages(
+            transcript: transcriptMessages,
+            pending: pendingFirstMessage
+        )
     }
 
     /// The transcript's plan path is a stale snapshot from when the line was
@@ -117,32 +136,38 @@ struct ChatTabView: View, ThemedView {
         return HeadlessSessionManager.shared.existingSession(for: tab.id)
     }
 
+    /// Which of the tab's states is on screen. An optimistic first message is
+    /// enough to reach the conversation, so the transcript is not what decides
+    /// it — `conversationMessages` is.
+    @ViewBuilder
+    private var content: some View {
+        if !conversationMessages.isEmpty {
+            conversationView(messages: conversationMessages)
+        } else if let untrustedPath {
+            untrustedDirectoryState(path: untrustedPath)
+        } else if let startFailure = headlessSession?.startFailure {
+            startFailureState(startFailure)
+        } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
+            || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+            || (tab.agentSessionID?.isEmpty == false) {
+            // A process (or a resumable session) exists but has written no
+            // transcript content yet — nothing to show but a quiet wait.
+            emptyState(isComposerEnabled: false)
+        } else {
+            emptyState(isComposerEnabled: true)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if let transcript, !transcript.messages.isEmpty {
-                ChatMessageList(
-                    messages: transcript.messages,
-                    subagents: subagents,
-                    status: status,
-                    bottomPadding: dimensions.listBottomPadding,
-                    floatingPanelHeight: panelHeight,
-                    tabID: tab.id,
-                    onOpenSubagent: { openSubagentID = $0.id }
-                )
-                .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
-            } else if let untrustedPath {
-                untrustedDirectoryState(path: untrustedPath)
-            } else if let startFailure = headlessSession?.startFailure {
-                startFailureState(startFailure)
-            } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
-                || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
-                || (tab.agentSessionID?.isEmpty == false) {
-                // A process (or a resumable session) exists but has written no
-                // transcript content yet — nothing to show but a quiet wait.
-                emptyState(isComposerEnabled: false)
-            } else {
-                emptyState(isComposerEnabled: true)
-            }
+            // The tracking rides on `content` rather than on the chain below,
+            // which is already at the type-checker's limit.
+            content
+                .modifier(OptimisticFirstMessageTracking(
+                    messages: transcriptMessages,
+                    startFailure: headlessSession?.startFailure,
+                    pending: $pendingFirstMessage
+                ))
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -609,6 +634,23 @@ struct ChatTabView: View, ThemedView {
         planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
+    /// The conversation itself. Reached with only an optimistic message too,
+    /// so the session facts below it fall back to an empty transcript — there
+    /// is nothing on disk to read them from yet.
+    private func conversationView(messages: [ChatMessage]) -> some View {
+        let transcript = transcript ?? Transcript()
+        return ChatMessageList(
+            messages: messages,
+            subagents: subagents,
+            status: status,
+            bottomPadding: dimensions.listBottomPadding,
+            floatingPanelHeight: panelHeight,
+            tabID: tab.id,
+            onOpenSubagent: { openSubagentID = $0.id }
+        )
+        .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
+    }
+
     /// The composer stays mounted once a session exists, disabled rather than
     /// removed: dropping it left a gap between sending the first message and
     /// the first line of transcript arriving.
@@ -618,9 +660,13 @@ struct ChatTabView: View, ThemedView {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 28))
                 .emphasis(.secondary)
-            Text(isComposerEnabled ? "Start a conversation" : "Waiting for the first message…")
-                .font(.headline)
-                .emphasis(.secondary)
+            if isComposerEnabled {
+                workspaceChoice
+            } else {
+                Text("Waiting for the first message…")
+                    .font(.headline)
+                    .emphasis(.secondary)
+            }
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
             if isComposerEnabled, canResume {
@@ -628,42 +674,42 @@ struct ChatTabView: View, ThemedView {
                     .buttonStyle(.link)
                     .help("Continue a past Claude conversation in this folder")
             }
-            workspaceChoice
             Spacer()
             GlassEffectContainer {
                 // The composer alone: the session facts don't exist yet, and
                 // where this runs has been hoisted above as the decision the
                 // empty state is actually about.
-                ChatComposer(task: task, tab: tab, isVisible: isVisible)
-                    .disabled(!isComposerEnabled)
-                    .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                    .listItemPadding(vertical: false)
-                    .padding(.bottom, dimensions.panelInset)
+                ChatComposer(
+                    task: task,
+                    tab: tab,
+                    isVisible: isVisible,
+                    onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+                )
+                .disabled(!isComposerEnabled)
+                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+                .listItemPadding(vertical: false)
+                .padding(.bottom, dimensions.panelInset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Where the agent will run, as the empty state's own heading rather than
-    /// a statusline chip. Before the first message this is the decision the
-    /// screen is about, and the statusline drops its copy for that reason —
-    /// see `emptyState`.
+    /// Where the agent will run, written as the empty state's own sentence
+    /// rather than as a statusline chip. Before the first message this is the
+    /// decision the screen is about, and the statusline drops its copy for
+    /// that reason — see `emptyState`.
     private var workspaceChoice: some View {
-        VStack(spacing: 8) {
-            Text("Runs in")
-                .font(typography.caption.font)
-                .emphasis(.subtle)
-                .textCase(.uppercase)
-            WorkspacePickerView(
-                task: task,
-                isEditable: true,
-                branchWidth: .natural,
-                prominence: .prominent,
-                state: GitStateStore.shared.state(for: gitDirectory)
-            )
-            .font(.title3)
-            .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
-        }
+        WorkspacePickerView(
+            task: task,
+            isEditable: true,
+            branchWidth: .natural,
+            prominence: .inline,
+            state: GitStateStore.shared.state(for: gitDirectory)
+        )
+        .font(.title2)
+        .emphasis(.secondary)
+        .frame(maxWidth: 460)
+        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
         .padding(.bottom, 8)
     }
 

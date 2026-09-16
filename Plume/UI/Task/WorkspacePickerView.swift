@@ -31,22 +31,11 @@ struct WorkspacePickerView: View, ThemedView {
     @State private var worktreeSheetShown = false
 
     var body: some View {
-        // The folder chip and the ahead/behind/dirty markers hold their own
-        // intrinsic size (`.fixedSize()`); the branch name is the one
-        // segment that gives way when the row runs out of room, since it's
-        // the only thing here with room to lose without going illegible.
-        HStack(spacing: prominence == .prominent ? 12 : 10) {
-            folderChip
-                .fixedSize()
-            if task.repoPath != nil {
-                branchGroup
-                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
-            }
-            if task.workingDirectoryPath != nil && !directoryExists {
-                Label("Missing", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .fixedSize()
-                    .help("This directory no longer exists.")
+        Group {
+            if prominence == .inline {
+                inlineSentence
+            } else {
+                chipRow
             }
         }
         .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
@@ -71,18 +60,116 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
+    // MARK: - Chips
+
+    /// The folder chip and the ahead/behind/dirty markers hold their own
+    /// intrinsic size (`.fixedSize()`); the branch name is the one segment
+    /// that gives way when the row runs out of room, since it's the only
+    /// thing here with room to lose without going illegible.
+    private var chipRow: some View {
+        HStack(spacing: prominence == .prominent ? 12 : 10) {
+            folderChip
+                .fixedSize()
+            if task.repoPath != nil {
+                branchGroup
+                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
+            }
+            if task.workingDirectoryPath != nil && !directoryExists {
+                Label("Missing", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .fixedSize()
+                    .help("This directory no longer exists.")
+            }
+        }
+    }
+
+    // MARK: - Inline sentence
+
+    /// "Start a conversation in ⟨folder⟩ in the ⟨worktree⟩ worktree", with the
+    /// two dropdowns sized like the words around them.
+    ///
+    /// The pieces flow through a `WrappingHStack` rather than a `Text`
+    /// concatenation, because a `Menu` is a view and cannot be interpolated
+    /// into an `AttributedString`. Baselines line up because every piece —
+    /// words and menus alike — inherits one font from the caller.
+    ///
+    /// The worktree clause is unconditional. A plain directory still names the
+    /// checkout it is in, so the sentence keeps one shape and the folder
+    /// dropdown never shifts as a repository is chosen.
+    private var inlineSentence: some View {
+        WrappingHStack(horizontalSpacing: 6, verticalSpacing: 2) {
+            Text("Start a conversation in")
+            inlineFolderMenu
+            Text("in the")
+            inlineWorktreeMenu
+            Text("worktree")
+        }
+        .multilineTextAlignment(.leading)
+    }
+
+    @ViewBuilder
+    private var inlineFolderMenu: some View {
+        if isEditable {
+            Menu {
+                folderMenuItems
+            } label: {
+                inlineLabel(folderName, systemImage: "folder", showsChevron: true)
+            }
+            .modifier(InlineMenuChrome(help: folderHelp))
+        } else {
+            inlineLabel(folderName, systemImage: "folder", showsChevron: false)
+                .help(folderHelp)
+        }
+    }
+
+    @ViewBuilder
+    private var inlineWorktreeMenu: some View {
+        if isEditable {
+            Menu {
+                worktreeMenuItems
+            } label: {
+                inlineLabel(worktreeName, systemImage: "tree", showsChevron: true)
+            }
+            .modifier(InlineMenuChrome(help: worktreeHelp))
+        } else {
+            inlineLabel(worktreeName, systemImage: "tree", showsChevron: false)
+                .help(worktreeHelp)
+        }
+    }
+
+    /// An underline and a trailing chevron are the only marks that this word
+    /// is a control — no well, no border, no size change.
+    private func inlineLabel(_ title: String, systemImage: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .imageScale(.small)
+            Text(title)
+                .underline()
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .imageScale(.small)
+            }
+        }
+        .lineLimit(1)
+    }
+
     // MARK: - Folder
+
+    @ViewBuilder
+    private var folderMenuItems: some View {
+        ForEach(recentFolders, id: \.self) { path in
+            Button(abbreviate(path)) { setDirectory(path) }
+        }
+        if !recentFolders.isEmpty {
+            Divider()
+        }
+        Button("Choose Folder…", action: chooseFolder)
+    }
 
     private var folderChip: some View {
         chip(isEditable: isEditable, help: folderHelp) {
             Menu {
-                ForEach(recentFolders, id: \.self) { path in
-                    Button(abbreviate(path)) { setDirectory(path) }
-                }
-                if !recentFolders.isEmpty {
-                    Divider()
-                }
-                Button("Choose Folder…", action: chooseFolder)
+                folderMenuItems
             } label: {
                 folderLabel
             }
@@ -139,14 +226,19 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
+    @ViewBuilder
+    private var worktreeMenuItems: some View {
+        ForEach(worktrees, id: \.self) { worktree in
+            Button(label(for: worktree)) { select(worktree) }
+        }
+        Divider()
+        Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+    }
+
     private var worktreeChip: some View {
         chip(isEditable: isEditable, help: worktreeHelp) {
             Menu {
-                ForEach(worktrees, id: \.self) { worktree in
-                    Button(label(for: worktree)) { select(worktree) }
-                }
-                Divider()
-                Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+                worktreeMenuItems
             } label: {
                 worktreeLabel
             }
@@ -296,6 +388,26 @@ enum WorkspacePickerProminence {
     /// The main decision on screen. Before the first message, where the agent
     /// will run is what the user is choosing, so the chips read as buttons.
     case prominent
+    /// Words in a sentence. The dropdowns take the surrounding text's size and
+    /// are marked only by an underline and a chevron, so the sentence reads as
+    /// prose the user can edit rather than as a row of controls.
+    case inline
+}
+
+/// Strips a `Menu` back to its label so it can sit in a run of text: no bezel,
+/// no system disclosure arrow (the label draws its own chevron), and no claim
+/// on the row's slack — an unfixed menu stretches and pushes the words after
+/// it to the far edge.
+private struct InlineMenuChrome: ViewModifier {
+    let help: String
+
+    func body(content: Content) -> some View {
+        content
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(help)
+    }
 }
 
 private extension View {
