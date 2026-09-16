@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import IOKit
 import IOKit.pwr_mgt
@@ -15,8 +16,19 @@ final class IOKitClamshellState: ClamshellStateReading {
 
     private(set) var behavior: ClamshellSleepBehavior = .noClamshell
 
+    @ObservationIgnored private var screenObserver: (any NSObjectProtocol)?
+
     init() {
         refresh()
+        // Attaching or detaching an external display is what flips clamshell
+        // mode, so the guidance would otherwise go stale mid-session.
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
     }
 
     func refresh() {
