@@ -666,7 +666,7 @@ struct ChatTabView: View, ThemedView {
                 Image(systemName: "bubble.left.and.bubble.right")
                     .font(typography.headline.font)
                     .imageScale(.large)
-                    .emphasis(.secondary)
+                    .emphasis(.primary)
                 if isComposerEnabled {
                     workspaceChoice
                 } else {
@@ -714,7 +714,7 @@ struct ChatTabView: View, ThemedView {
             resumeAction: canResume ? { resumeSheetShown = true } : nil
         )
         .font(typography.headline.font)
-        .emphasis(.secondary)
+        .emphasis(.primary)
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
     }
 

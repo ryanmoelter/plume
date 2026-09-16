@@ -126,7 +126,7 @@ struct WorkspacePickerView: View, ThemedView {
                         .truncationMode(.tail)
                 }
                 .font(typography.body.font)
-                .emphasis(.subtle)
+                .emphasis(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
