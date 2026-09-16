@@ -30,6 +30,10 @@ struct WorkspacePickerView: View, ThemedView {
 
     @State private var worktrees: [GitWorktree] = []
     @State private var repositoryBranch: String?
+    /// Which repository `worktrees` describes. Between choosing a workspace
+    /// and `git` answering for it the old listing is still in hand, and
+    /// reading it as the new one's names the wrong worktree.
+    @State private var loadedRepoPath: String?
     @State private var recentFolders = RecentFolders.load()
     @State private var isTargetedForDrop = false
     @State private var worktreeSheetShown = false
@@ -54,6 +58,11 @@ struct WorkspacePickerView: View, ThemedView {
         .onChange(of: task.workingDirectoryPath, initial: true) { _, path in
             if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
         }
+        // The repository answers for the project when the worktree's own
+        // facts have not arrived, so it needs loading too.
+        .onChange(of: task.repoPath, initial: true) { _, path in
+            if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
+        }
         // `git` runs off the main actor and lands in state: a subprocess per
         // render would be ruinous, and writing observable state from `body`
         // invalidates the view being rendered.
@@ -61,11 +70,13 @@ struct WorkspacePickerView: View, ThemedView {
             guard let repoPath = task.repoPath else {
                 worktrees = []
                 repositoryBranch = nil
+                loadedRepoPath = nil
                 return
             }
             let loaded = await GitService.shared.worktreeListing(in: repoPath)
             worktrees = loaded.worktrees
             repositoryBranch = loaded.branch
+            loadedRepoPath = repoPath
         }
     }
 
@@ -282,8 +293,19 @@ struct WorkspacePickerView: View, ThemedView {
         if let projectName = CheckoutFactsStore.shared.facts(for: path)?.projectName {
             return projectName
         }
-        return (path as NSString).lastPathComponent
+        // Every worktree of a repository answers with the same project, so the
+        // repository's own path names it while a newly chosen directory waits.
+        if let repoPath = task.repoPath,
+           let projectName = CheckoutFactsStore.shared.facts(for: repoPath)?.projectName {
+            return projectName
+        }
+        return Self.unsettledName
     }
+
+    /// Stands in for a name that cannot be known yet. An ellipsis rather than
+    /// a guess: the directory is in hand, but what it is *called* takes a
+    /// subprocess to learn.
+    private static let unsettledName = "\u{2026}"
 
     // MARK: - Worktree
 
@@ -353,8 +375,17 @@ struct WorkspacePickerView: View, ThemedView {
     /// The worktree the task is working in, matched on a standardized path —
     /// `git` and the stored path can spell one directory differently.
     private var selectedWorktree: GitWorktree? {
-        guard let path = task.workingDirectoryPath.map(standardized) else { return nil }
+        guard isSettled, let path = task.workingDirectoryPath.map(standardized) else { return nil }
         return worktrees.first(where: { standardized($0.path) == path })
+    }
+
+    /// Whether `worktrees` describes the repository the task is in now.
+    ///
+    /// Only choosing a project moves `repoPath`, so only that leaves the
+    /// listing stale. Choosing a worktree stays inside one repository and its
+    /// listing is already right.
+    private var isSettled: Bool {
+        task.repoPath == loadedRepoPath
     }
 
     /// A worktree goes by its own name — "main" for the repository's own
@@ -364,6 +395,7 @@ struct WorkspacePickerView: View, ThemedView {
         if let worktree = selectedWorktree {
             return name(for: worktree)
         }
+        guard isSettled else { return Self.unsettledName }
         return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
     }
 
@@ -372,7 +404,9 @@ struct WorkspacePickerView: View, ThemedView {
     /// name one thing.
     private var folderPathNote: String? {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
-        return abbreviate(CheckoutFactsStore.shared.facts(for: path)?.projectRoot ?? path)
+        let root = CheckoutFactsStore.shared.facts(for: path)?.projectRoot
+            ?? task.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
+        return root.map(abbreviate)
     }
 
     private func name(for worktree: GitWorktree) -> String {
