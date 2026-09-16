@@ -23,6 +23,10 @@ struct ChatComposer: View, ThemedView {
     /// Forwarded straight to `ComposerControlsRow` — see its own doc comment.
     var showsPlanButton = false
     var onOpenPlan: () -> Void = {}
+    /// The message that just launched the agent, so the caller can open the
+    /// conversation on it rather than waiting for the transcript. Fires only
+    /// on the launch path, which is a tab's first message.
+    var onLaunch: (String) -> Void = { _ in }
 
     @FocusState private var inputFocused: Bool
     @Environment(\.chatFontSize) private var fontSize
@@ -256,6 +260,7 @@ struct ChatComposer: View, ThemedView {
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {
+            onLaunch(text)
             AgentLauncher.launch(message: text, task: task, tab: tab)
         }
     }
