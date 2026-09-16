@@ -666,7 +666,7 @@ struct ChatTabView: View, ThemedView {
                 Image(systemName: "bubble.left.and.bubble.right")
                     .font(typography.headline.font)
                     .imageScale(.large)
-                    .emphasis(.primary)
+                    .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
                 } else {
