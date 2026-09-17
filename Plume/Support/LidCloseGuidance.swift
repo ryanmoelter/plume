@@ -18,17 +18,25 @@ enum LidCloseGuidance: Equatable, Sendable {
     case helperNeedsApproval
     /// The helper failed, with the reason.
     case helperUnavailable(String)
+    /// The override would otherwise be in effect, but the Mac is running hot
+    /// enough to trip the thermal cutoff.
+    case pausedForHeat
     /// Never mode, so nothing to say.
     case notApplicable
 
     static func resolve(
         mode: KeepAwakeMode,
         wantsLidClosed: Bool,
-        override: LidSleepOverrideStatus
+        override: LidSleepOverrideStatus,
+        pausedForHeat: Bool = false
     ) -> LidCloseGuidance {
         // Never mode already means the user does not want Plume touching
         // sleep, so lid advice would be noise.
         guard mode != .never else { return .notApplicable }
+
+        if wantsLidClosed, pausedForHeat {
+            return .pausedForHeat
+        }
 
         switch override {
         case .engaged:
@@ -57,6 +65,8 @@ enum LidCloseGuidance: Equatable, Sendable {
             "Plume's sleep helper needs your approval in Login Items."
         case .helperUnavailable(let reason):
             reason
+        case .pausedForHeat:
+            "The lid override is paused while the Mac is running hot."
         case .notApplicable:
             nil
         }

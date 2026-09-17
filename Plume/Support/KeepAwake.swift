@@ -50,6 +50,40 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
     }
 }
 
+/// The `ProcessInfo.thermalState` level at or above which the lid-closed
+/// override releases, since a shut lid can't shed heat as well as an open
+/// one.
+enum ThermalCutoffLevel: String, CaseIterable, Identifiable, Sendable {
+    case fair
+    case serious
+    case critical
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .fair: "Fair"
+        case .serious: "Serious"
+        case .critical: "Critical"
+        }
+    }
+
+    /// Whether `state` has reached this level or gone past it. Ordering:
+    /// nominal < fair < serious < critical.
+    func isReached(by state: ProcessInfo.ThermalState) -> Bool {
+        switch (self, state) {
+        case (.fair, .fair), (.fair, .serious), (.fair, .critical):
+            return true
+        case (.serious, .serious), (.serious, .critical):
+            return true
+        case (.critical, .critical):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 /// Why the coordinator wants to hold the Mac awake but isn't.
 enum KeepAwakeOffReason: Equatable, Sendable {
     /// The system is on battery and "Keep awake on battery" is off, so the

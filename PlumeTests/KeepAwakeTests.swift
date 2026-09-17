@@ -54,6 +54,12 @@ struct KeepAwakeTests {
         func refreshStatus() {}
     }
 
+    /// Stands in for `ThermalStateMonitor`, settable so a test can play a
+    /// heating-up and cooling-down sequence.
+    private final class FakeThermalStateSource: ThermalStateSource {
+        var state: ProcessInfo.ThermalState = .nominal
+    }
+
     private func makeSettings() -> AppSettings {
         AppSettings(defaults: UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!)
     }
@@ -64,7 +70,8 @@ struct KeepAwakeTests {
         settings: AppSettings? = nil,
         assertion: FakeSleepAssertion? = nil,
         power: KeepAwakeCoordinator.PowerSnapshot = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false),
-        lidOverride: FakeLidSleepOverride? = nil
+        lidOverride: FakeLidSleepOverride? = nil,
+        thermal: FakeThermalStateSource? = nil
     ) -> (KeepAwakeCoordinator, FakeSleepAssertion, AppSettings) {
         let settings = settings ?? makeSettings()
         let assertion = assertion ?? FakeSleepAssertion()
@@ -74,7 +81,8 @@ struct KeepAwakeTests {
             settings: settings,
             assertion: assertion,
             powerSnapshot: { power },
-            lidOverride: lidOverride ?? FakeLidSleepOverride()
+            lidOverride: lidOverride ?? FakeLidSleepOverride(),
+            thermal: thermal ?? FakeThermalStateSource()
         )
         return (coordinator, assertion, settings)
     }
@@ -698,6 +706,87 @@ struct KeepAwakeTests {
         #expect(coordinator.lidOverrideStatus == .engaged)
     }
 
+    // MARK: - Thermal cutoff
+
+    @Test func thermalCutoffLevelsOrderAgainstEveryThermalState() {
+        let allStates: [ProcessInfo.ThermalState] = [.nominal, .fair, .serious, .critical]
+
+        #expect(ThermalCutoffLevel.fair.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.fair.isReached(by: .fair))
+        #expect(ThermalCutoffLevel.fair.isReached(by: .serious))
+        #expect(ThermalCutoffLevel.fair.isReached(by: .critical))
+
+        #expect(ThermalCutoffLevel.serious.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.serious.isReached(by: .fair) == false)
+        #expect(ThermalCutoffLevel.serious.isReached(by: .serious))
+        #expect(ThermalCutoffLevel.serious.isReached(by: .critical))
+
+        #expect(ThermalCutoffLevel.critical.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .fair) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .serious) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .critical))
+
+        // Every level is monotone: reached-by is only truer at a hotter state.
+        for level in ThermalCutoffLevel.allCases {
+            var wasReached = false
+            for state in allStates {
+                let reached = level.isReached(by: state)
+                if wasReached { #expect(reached, "\(level) regressed at \(state)") }
+                wasReached = reached
+            }
+        }
+    }
+
+    @Test func decideLidOverrideReleasesAtAndAboveTheCutoffOnly() {
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .fair, cutoff: .fair
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .fair
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .nominal, cutoff: .fair
+        ))
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .fair, cutoff: .serious
+        ))
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .serious
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .critical, cutoff: .critical
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .critical
+        ))
+    }
+
+    @Test func aHotStateReleasesTheLidOverrideButKeepsThePlainHold() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let thermal = FakeThermalStateSource()
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid, thermal: thermal)
+        settings.keepsAwakeWithLidClosed = true
+        settings.lidClosedThermalCutoff = .serious
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+        #expect(assertion.held != nil)
+
+        thermal.state = .serious
+        coordinator.refresh()
+        #expect(lid.isEngaged == false)
+        #expect(assertion.held != nil)
+        #expect(coordinator.lidOverridePausedForHeat)
+
+        thermal.state = .nominal
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+        #expect(coordinator.lidOverridePausedForHeat == false)
+    }
+
     // MARK: - StatusEngine's enumeration
 
     @Test func activeTabsListsWorkingAndWaitingTabs() {
@@ -777,6 +866,22 @@ struct KeepAwakeTests {
         settings.keepAwakeBatteryCutoffPercent = 35
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.keepAwakeBatteryCutoffPercent == 35)
+    }
+
+    @Test func lidClosedThermalCutoffDefaultsToSeriousAndPersists() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.lidClosedThermalCutoff == .serious)
+
+        settings.lidClosedThermalCutoff = .critical
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.lidClosedThermalCutoff == .critical)
+    }
+
+    @Test func anUnrecognizedThermalCutoffFallsBackToSerious() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        defaults.set("scorching", forKey: "lidClosedThermalCutoffRaw")
+        #expect(AppSettings(defaults: defaults).lidClosedThermalCutoff == .serious)
     }
 
     @Test func batteryCutoffClampsTo0And100() {
@@ -890,5 +995,30 @@ struct LidCloseGuidanceTests {
     @Test func theHelperStateDoesPromiseTheLidCanClose() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged)
         #expect(guidance.summary?.lowercased().contains("can stay closed") == true)
+    }
+
+    /// Heat wins over whatever the override's own status would otherwise say,
+    /// as long as the user actually wants the lid to stay closed.
+    @Test func aHotMacPausesTheLidOverrideRegardlessOfHelperStatus() {
+        for override: LidSleepOverrideStatus in [.ready, .engaged] {
+            let guidance = LidCloseGuidance.resolve(
+                mode: .auto, wantsLidClosed: true, override: override, pausedForHeat: true
+            )
+            #expect(guidance == .pausedForHeat, "\(override)")
+        }
+        #expect(guidance(pausedForHeat: true).summary?.lowercased().contains("hot") == true)
+    }
+
+    /// Heat with the setting off is moot — the lid was already going to sleep
+    /// the Mac — so it must not surface as its own case.
+    @Test func pausedForHeatNeverFiresWithTheSettingOff() {
+        let guidance = LidCloseGuidance.resolve(
+            mode: .auto, wantsLidClosed: false, override: .ready, pausedForHeat: true
+        )
+        #expect(guidance != .pausedForHeat)
+    }
+
+    private func guidance(pausedForHeat: Bool) -> LidCloseGuidance {
+        .resolve(mode: .auto, wantsLidClosed: true, override: .engaged, pausedForHeat: pausedForHeat)
     }
 }
