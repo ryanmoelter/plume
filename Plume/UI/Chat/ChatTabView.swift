@@ -500,7 +500,7 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .bottom, spacing: DecisionCard.nestedPadding) {
                 feedbackField
                 ReservedWidthButton(
                     title: PlanRejectionLabel.label(forReason: planRejectionReason),
@@ -530,14 +530,11 @@ struct ChatTabView: View, ThemedView {
             onSend: { answerPlan(.reject) },
             onOptionReturn: { answerPlan(.approveWithFeedback) }
         )
-        .padding(.horizontal, dimensions.panelContentInset - Self.composerLineFragmentPadding)
-        .background(.quaternary.opacity(0.4), in: feedbackFieldShape)
-        .overlay { feedbackFieldShape.strokeBorder(.separator) }
+        // `NSTextView` already inset its first glyph, so the shared field's
+        // padding has to give that back rather than add to it.
+        .padding(.horizontal, -Self.composerLineFragmentPadding)
+        .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
         .accessibilityIdentifier(AccessibilityID.planFeedbackField)
-    }
-
-    private var feedbackFieldShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: dimensions.composerFieldCornerRadius, style: .continuous)
     }
 
     /// `NSTextView` draws its first glyph one line-fragment padding in from

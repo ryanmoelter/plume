@@ -5,7 +5,7 @@
 /// not-shown plan takes follows from `PlanApprovalState`, so a proposal
 /// waiting on the user can never be dismissed outright and a settled plan
 /// never keeps a dock bar the user cannot get rid of.
-enum PlanPresentation: Equatable {
+nonisolated enum PlanPresentation: Equatable {
     case expanded
     case hidden(HiddenForm)
 
