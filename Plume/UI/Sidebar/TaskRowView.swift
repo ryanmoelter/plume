@@ -1,3 +1,4 @@
+import Dispatch
 import SwiftUI
 
 struct TaskRowView: View {
@@ -89,7 +90,13 @@ struct TaskRowView: View {
                         .onChange(of: titleFocused) { _, focused in
                             if !focused { endEditing() }
                         }
-                        .onAppear { titleFocused = true }
+                        // Deferred a tick: this field replaces the row's own
+                        // `Text` in the same update rather than mounting
+                        // fresh, so `onAppear` fires before the row's prior
+                        // content finishes resigning first responder.
+                        // Claiming focus in that same transaction loses the
+                        // race silently; the next run loop turn wins it.
+                        .onAppear { DispatchQueue.main.async { titleFocused = true } }
                 } else {
                     Text(TitleStore.shared.displayTitle(for: task))
                         .lineLimit(1)
