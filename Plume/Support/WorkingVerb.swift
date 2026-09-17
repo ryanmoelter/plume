@@ -6,13 +6,23 @@ import Foundation
 /// over the wire — the headless stream carries no such field — so Plume keeps
 /// its own copy rather than reading one from the CLI.
 ///
-/// The word is chosen from the turn's start time, so it stays put for the
-/// whole turn instead of flickering on every redraw, and two tabs that start
-/// together do not say the same thing.
+/// The word cycles roughly every `slotDuration`, keyed off the turn's start
+/// time and elapsed duration, so it is stable for a given instant instead of
+/// flickering on every redraw, and two tabs that start together do not say
+/// the same thing.
 nonisolated enum WorkingVerb {
-    static func forTurn(startedAt: Date) -> String {
-        let key = Int(startedAt.timeIntervalSinceReferenceDate * 1000)
-        return all[abs(key) % all.count]
+    static let slotDuration: TimeInterval = 30
+
+    static func forTurn(startedAt: Date, elapsed: TimeInterval) -> String {
+        let turnKey = Int(startedAt.timeIntervalSinceReferenceDate * 1000)
+        let slot = Int(max(elapsed, 0) / slotDuration)
+        let index = abs(turnKey &+ slot) % all.count
+        // Consecutive slots hash independently and can land on the same word
+        // by chance; nudge forward by one rather than repeating it.
+        guard slot > 0 else { return all[index] }
+        let previousSlot = slot - 1
+        let previousIndex = abs(turnKey &+ previousSlot) % all.count
+        return index == previousIndex ? all[(index + 1) % all.count] : all[index]
     }
 
     static let all: [String] = [
