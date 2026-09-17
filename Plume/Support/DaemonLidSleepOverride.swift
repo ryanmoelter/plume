@@ -46,11 +46,10 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     func refreshStatus() {
         switch service.status {
-        case .notRegistered:
+        // A daemon that has never been registered reads `.notFound`; `.notRegistered`
+        // only appears after an unregister. Both mean "register me".
+        case .notRegistered, .notFound:
             set(.notRegistered)
-            stopApprovalPoll()
-        case .notFound:
-            set(.unavailable("The sleep helper is missing from this copy of Plume."))
             stopApprovalPoll()
         case .requiresApproval:
             set(.needsApproval)
