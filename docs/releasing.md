@@ -21,6 +21,16 @@ This is a Release-only property. In Debug the real code lives in `Plume.debug.dy
 
 ## Steps
 
+**Tag and release a commit that is already on `main`.** A tag pointing at a release branch names a commit that history may never keep, and the installed build then answers for a version nobody can check out. So the order is: verify on a Debug build, merge to `main`, then build Release from `main` and tag it.
+
+1. Bump the version on the release branch and verify there, with Debug builds.
+2. Merge the release branch into `main` (`--no-ff`).
+3. Build Release from `main`, and verify the bundle.
+4. Tag that commit and push.
+5. Install, and — for a shared build — notarize.
+
+Verifying the Debug build before merging is the real gate; the Release verification before tagging is a second look at the artifact itself, not a re-run of the manual checklist.
+
 ### 1. Bump the version
 
 `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `Plume.xcodeproj/project.pbxproj`. Each appears once per build configuration, for **all three targets** — only the app target's own Debug and Release blocks matter (their bundle identifiers are `com.ryanmoelter.Plume.debug` and `com.ryanmoelter.Plume`). Leave the `PlumeTests` and `PlumeUITests` copies alone; they never reach the shipped bundle.
@@ -30,7 +40,10 @@ This is a Release-only property. In Debug the real code lives in `Plume.debug.dy
 
 ### 2. Build, test, install
 
+Merge to `main` first — see the note above the steps. The Release build and everything after it happen on `main`, so the tag names a commit that stays reachable.
+
 ```
+git checkout main && git merge --no-ff ryanm/release-<version>
 xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' clean build
 xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
 scripts/install-release.sh
@@ -90,7 +103,19 @@ git tag -a v0.1.0 -m "v0.1.0"
 git push origin main v0.1.0
 ```
 
-Tag the commit that carries the version bump, so the tag and `CFBundleShortVersionString` agree.
+Tag the commit that carries the version bump, so the tag and `CFBundleShortVersionString` agree. That commit is on `main` by now; confirm it rather than assuming, since a tag on a branch that later gets rewritten names nothing:
+
+```
+git branch --contains v0.1.0 | grep -qx '\* main\|  main' || echo "NOT on main"
+```
+
+Check every commit is signed before pushing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing afterwards means rewriting history the tag already points into:
+
+```
+git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'
+```
+
+That must print nothing.
 
 ## The command-line helper
 
