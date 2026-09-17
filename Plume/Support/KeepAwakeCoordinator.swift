@@ -153,8 +153,9 @@ final class KeepAwakeCoordinator {
 
     // MARK: - Deciding
 
-    /// A tab is a reason when it is working, or when it is remotely
-    /// controlled, or when it wants the user *and* is remotely controlled.
+    /// A tab is a reason when it is working, when it is remotely controlled,
+    /// when it wants the user *and* is remotely controlled, or when it has a
+    /// background task still running.
     ///
     /// A tab waiting for an answer with no Remote Control is not a reason: no
     /// work is happening, and nobody is coming to answer it.
@@ -214,8 +215,9 @@ final class KeepAwakeCoordinator {
         ))
     }
 
-    /// How many tabs are working, and whether any is remotely controlled, for
-    /// the sidebar row — where the whole reason list would not fit.
+    /// How many tabs are working, how many are running something in the
+    /// background, and whether any is remotely controlled — for the sidebar
+    /// row, where the whole reason list would not fit.
     var tally: (working: Int, backgroundTasks: Int, remotelyControlled: Bool) {
         (
             working: reasons.count { if case .working = $0.kind { true } else { false } },
