@@ -43,6 +43,13 @@ struct ArchiveView: View {
                                 .lineLimit(1)
                                 .truncationMode(.head)
                         }
+                        // Nil for a task archived before this field existed;
+                        // omitted rather than shown as a wrong or empty date.
+                        if let archivedAt = task.archivedAt {
+                            Text(archivedAt.formatted(.relative(presentation: .named)))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button {
