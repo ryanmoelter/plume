@@ -34,6 +34,14 @@ struct WorkspacePickerView: View, ThemedView {
     /// and `git` answering for it the old listing is still in hand, and
     /// reading it as the new one's names the wrong worktree.
     @State private var loadedRepoPath: String?
+    /// The directory `git` has answered "not a repository" for.
+    ///
+    /// Absence of a `repoPath` cannot say this on its own: it also describes
+    /// the wait before the probe returns. Naming the directory that failed
+    /// keeps the worktree clause up through that wait and through a move
+    /// between repositories, and drops it only once a folder is known to have
+    /// no repository behind it.
+    @State private var directoryWithoutRepository: String?
     @State private var recentFolders = RecentFolders.load()
     @State private var isTargetedForDrop = false
     @State private var worktreeSheetShown = false
@@ -71,6 +79,14 @@ struct WorkspacePickerView: View, ThemedView {
                 worktrees = []
                 repositoryBranch = nil
                 loadedRepoPath = nil
+                // A task restored with no repository never passed through
+                // `setDirectory`, so nothing has asked `git` about its folder
+                // yet. Ask, rather than leaving the clause up forever.
+                if let path = task.workingDirectoryPath, !path.isEmpty {
+                    let root = await GitService.shared.repositoryRoot(containing: path)
+                    task.repoPath = root
+                    directoryWithoutRepository = root == nil ? path : nil
+                }
                 return
             }
             let loaded = await GitService.shared.worktreeListing(in: repoPath)
@@ -117,6 +133,11 @@ struct WorkspacePickerView: View, ThemedView {
     /// The worktree clause is unconditional. A plain directory still names the
     /// checkout it is in, so the sentence keeps one shape and the folder
     /// dropdown never shifts as a repository is chosen.
+    ///
+    /// The sentence is set in the chat's own face, so the empty state reads in
+    /// the same voice as the conversation that replaces it. Only the sentence
+    /// and its dropdowns take it — the path, the branch and the resume line are
+    /// metadata about the choice rather than part of the sentence.
     private var inlineSentence: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Start a conversation in")
@@ -124,34 +145,37 @@ struct WorkspacePickerView: View, ThemedView {
             inlineFolderMenu
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, dimensions.inlineGlyphLeading)
-            if let path = folderPathNote {
-                Text(path)
-                    .font(typography.body.font)
-                    .emphasis(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.top, dimensions.inlineBranchNoteSpacing)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Text("in the worktree")
-                .padding(.top, dimensions.inlineClauseSpacing)
+            // Held in the layout even with nothing to say. These notes arrive a
+            // subprocess later than the names above them, and letting them come
+            // and go moves every line below on the way in.
+            Text(folderPathNote ?? " ")
+                .font(typography.body.font)
                 .emphasis(.secondary)
-            inlineWorktreeMenu
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.top, dimensions.inlineBranchNoteSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, dimensions.inlineGlyphLeading)
-            if let branch = worktreeBranchNote {
+            if hasRepository {
+                Text("in the worktree")
+                    .padding(.top, dimensions.inlineClauseSpacing)
+                    .emphasis(.secondary)
+                inlineWorktreeMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, dimensions.inlineGlyphLeading)
                 HStack(spacing: 4) {
                     Text("on")
                     // Distinct from the worktree's tree: this names the branch
                     // that worktree has out, not the worktree itself.
                     Image(systemName: "arrow.triangle.branch")
                         .imageScale(.small)
-                    Text(branch)
+                    Text(worktreeBranchNote ?? "")
                         .truncationMode(.tail)
                 }
                 .font(typography.body.font)
                 .emphasis(.secondary)
                 .lineLimit(1)
+                // The words go with the branch: "on" alone says nothing.
+                .opacity(worktreeBranchNote == nil ? 0 : 1)
                 .padding(.top, dimensions.inlineBranchNoteSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -168,6 +192,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .help("Continue a past Claude conversation in this folder")
             }
         }
+        .font(proseTypography.headline.font)
         .multilineTextAlignment(.leading)
     }
 
@@ -224,7 +249,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .layoutPriority(1)
             // The one compressible part: the marks around it stay whole and
             // the name loses its tail instead.
-            Text(title)
+            unsettledOrName(title)
                 .truncationMode(.tail)
                 .contentTransition(.numericText())
             if isControl {
@@ -299,13 +324,29 @@ struct WorkspacePickerView: View, ThemedView {
            let projectName = CheckoutFactsStore.shared.facts(for: repoPath)?.projectName {
             return projectName
         }
+        // A folder outside a repository has no project to be named after, and
+        // waiting on facts that are never coming would leave the placeholder up
+        // for good. Its own name is the whole answer.
+        guard hasRepository else { return (path as NSString).lastPathComponent }
         return Self.unsettledName
     }
 
     /// Stands in for a name that cannot be known yet. An ellipsis rather than
     /// a guess: the directory is in hand, but what it is *called* takes a
     /// subprocess to learn.
+    ///
+    /// The chip renders it as words, where a symbol would sit oddly among the
+    /// other labels; the inline sentence swaps in the symbol through
+    /// `unsettledOrName`.
     private static let unsettledName = "\u{2026}"
+
+    /// The ellipsis as a symbol rather than three periods, so the placeholder
+    /// keeps the weight and optical size of the glyphs beside it instead of
+    /// drifting to the text baseline.
+    private func unsettledOrName(_ title: String) -> Text {
+        guard title == Self.unsettledName else { return Text(title) }
+        return Text(Image(systemName: "ellipsis"))
+    }
 
     // MARK: - Worktree
 
@@ -379,13 +420,31 @@ struct WorkspacePickerView: View, ThemedView {
         return worktrees.first(where: { standardized($0.path) == path })
     }
 
+    /// Whether to say anything about worktrees at all.
+    ///
+    /// Assumed true until `git` says otherwise, because nearly every folder
+    /// chosen here is a repository. Guessing the other way would make the
+    /// common move between two repositories flicker the clause out and back,
+    /// to spare a rarer case a clause that was never going to appear.
+    private var hasRepository: Bool {
+        guard let path = task.workingDirectoryPath, !path.isEmpty else { return false }
+        return directoryWithoutRepository != path
+    }
+
     /// Whether `worktrees` describes the repository the task is in now.
     ///
     /// Only choosing a project moves `repoPath`, so only that leaves the
     /// listing stale. Choosing a worktree stays inside one repository and its
     /// listing is already right.
+    ///
+    /// `repoPath` is resolved by a subprocess and lands after the directory it
+    /// belongs to, so matching it alone still reads as settled in the window
+    /// where the new directory sits beside the old repository. Requiring the
+    /// directory to be one the listing knows closes that window.
     private var isSettled: Bool {
-        task.repoPath == loadedRepoPath
+        guard task.repoPath == loadedRepoPath else { return false }
+        guard let path = task.workingDirectoryPath.map(standardized), !worktrees.isEmpty else { return true }
+        return worktrees.contains { standardized($0.path) == path }
     }
 
     /// A worktree goes by its own name — "main" for the repository's own
@@ -555,7 +614,11 @@ struct WorkspacePickerView: View, ThemedView {
         // Resolved after the fact: finding the repository root is a
         // subprocess, and the picker should not wait on one to show the
         // folder the user just chose.
-        Task { task.repoPath = await GitService.shared.repositoryRoot(containing: path) }
+        Task {
+            let root = await GitService.shared.repositoryRoot(containing: path)
+            task.repoPath = root
+            directoryWithoutRepository = root == nil ? path : nil
+        }
     }
 }
 
