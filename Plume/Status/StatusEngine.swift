@@ -42,7 +42,11 @@ final class StatusEngine {
 
     private var tabsByTask: [UUID: Set<UUID>] = [:]
 
-    init() {}
+    @ObservationIgnored private let backgroundTasks: BackgroundTaskTracker
+
+    init(backgroundTasks: BackgroundTaskTracker = .shared) {
+        self.backgroundTasks = backgroundTasks
+    }
 
     // MARK: - Reading
 
@@ -110,6 +114,16 @@ final class StatusEngine {
                 guard status == .working || status.wantsAttention else { return nil }
                 return (taskID, tabID, status)
             }
+        }
+    }
+
+    /// Every tab with a background task still running, with the task it
+    /// belongs to. A tab whose task never registered is dropped, the way
+    /// `setSubagentActivity` drops one.
+    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] {
+        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind in
+            guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return nil }
+            return (taskID, tabID, kind)
         }
     }
 
@@ -216,6 +230,7 @@ final class StatusEngine {
     }
 
     func forget(tabID: UUID, taskID: UUID) {
+        backgroundTasks.forget(tabID: tabID)
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
         dormantTabs.remove(tabID)
@@ -227,6 +242,7 @@ final class StatusEngine {
     }
 
     func reset() {
+        backgroundTasks.reset()
         tabStatuses.removeAll()
         tabsWithWorkingSubagents.removeAll()
         dormantTabs.removeAll()

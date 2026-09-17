@@ -115,6 +115,7 @@ struct SidebarFooter: View, ThemedView {
         if isBatteryBlocked { return nil }
         let tally = coordinator.tally
         if tally.working > 0 { return "\(tally.working) working" }
+        if tally.backgroundTasks > 0 { return "\(tally.backgroundTasks) in background" }
         if tally.remotelyControlled { return nil }
         return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
     }

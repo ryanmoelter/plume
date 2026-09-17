@@ -105,6 +105,93 @@ struct KeepAwakeTests {
         #expect(reasons.map(\.kind) == [.remoteControl])
     }
 
+    // MARK: - Background tasks
+
+    /// A monitor or backgrounded command outlives the turn that started it,
+    /// so the tab it belongs to reads `awaitingReply` while it runs.
+    @Test func aBackgroundTaskAloneKeepsTheMacAwake() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [],
+            remoteControlledTabs: [],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor)]
+        )
+
+        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor)])
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: reasons, mode: .auto, powerSource: .ac, allowsBattery: false
+        ) == .hold(SleepAssertionRequest(
+            type: .preventIdleSystemSleep,
+            reason: KeepAwakeCoordinator.summary(reasons: reasons, mode: .auto)
+        )))
+    }
+
+    @Test func aWorkingTabWithABackgroundTaskIsTwoReasons() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
+            remoteControlledTabs: [],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .backgroundCommand)]
+        )
+
+        #expect(reasons.count == 2)
+        #expect(reasons.contains { $0.kind == .working(.working) })
+        #expect(reasons.contains { $0.kind == .backgroundTask(.backgroundCommand) })
+    }
+
+    @Test func theTallyCountsBackgroundTasksSeparately() {
+        let tracker = BackgroundTaskTracker()
+        let engine = StatusEngine(backgroundTasks: tracker)
+        let (coordinator, _, _) = makeCoordinator(engine: engine)
+        let taskID = UUID()
+        let working = UUID()
+        let monitoring = UUID()
+
+        engine.setStatus(.working, taskID: taskID, tabID: working)
+        engine.setStatus(.awaitingReply, taskID: taskID, tabID: monitoring)
+        tracker.replace(tabID: monitoring, entries: [BackgroundTaskTracker.Entry(
+            id: "b1",
+            kind: .monitor,
+            startedAt: Date(),
+            expiresAt: nil
+        )])
+        coordinator.refresh()
+
+        #expect(coordinator.tally == (working: 1, backgroundTasks: 1, remotelyControlled: false))
+    }
+
+    /// `pmset -g assertions` mangles anything but ASCII, and the em dash in a
+    /// monitor's own phrasing is exactly the kind of thing that could leak in.
+    @Test func theSummaryNamesBackgroundTasksInASCII() {
+        let taskID = UUID()
+        let one = KeepAwakeCoordinator.summary(
+            reasons: KeepAwakeCoordinator.deriveReasons(
+                activeTabs: [],
+                remoteControlledTabs: [],
+                backgroundTaskTabs: [(taskID: taskID, tabID: UUID(), kind: .monitor)]
+            ),
+            mode: .auto
+        )
+        #expect(one == "Plume: 1 background task")
+        #expect(one.allSatisfy { $0.isASCII })
+
+        let several = KeepAwakeCoordinator.summary(
+            reasons: KeepAwakeCoordinator.deriveReasons(
+                activeTabs: [(taskID: taskID, tabID: UUID(), status: .working)],
+                remoteControlledTabs: [],
+                backgroundTaskTabs: [
+                    (taskID: taskID, tabID: UUID(), kind: .monitor),
+                    (taskID: taskID, tabID: UUID(), kind: .backgroundCommand),
+                ]
+            ),
+            mode: .auto
+        )
+        #expect(several == "Plume: 1 tab working, 2 background tasks")
+        #expect(several.allSatisfy { $0.isASCII })
+    }
+
     // MARK: - Mode and power
 
     @Test func neverNeverHolds() {
@@ -262,16 +349,16 @@ struct KeepAwakeTests {
     @Test func theSidebarTallyCountsWhatIsHolding() {
         let engine = StatusEngine()
         let (coordinator, _, _) = makeCoordinator(engine: engine)
-        #expect(coordinator.tally == (working: 0, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 0, backgroundTasks: 0, remotelyControlled: false))
 
         let taskID = UUID()
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.tally == (working: 1, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 1, backgroundTasks: 0, remotelyControlled: false))
 
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.tally == (working: 2, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 2, backgroundTasks: 0, remotelyControlled: false))
     }
 
     // MARK: - The assertion itself
