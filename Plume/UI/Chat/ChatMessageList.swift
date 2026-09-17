@@ -96,8 +96,14 @@ struct ChatMessageList: View, ThemedView {
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
 
+    /// The viewport's own width, so the left balance can react to it. Read
+    /// from the `HStack` rather than the list, since the list's width is
+    /// already the thing being solved for.
+    @State private var viewportWidth: CGFloat = 0
+
     var body: some View {
         HStack(spacing: 0) {
+            Color.clear.frame(width: leftBalance)
             list
             if !outline.isEmpty {
                 ChatMinimap(
@@ -109,6 +115,19 @@ struct ChatMessageList: View, ThemedView {
                 )
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+    }
+
+    /// Space to the left of the list that balances the minimap's column on
+    /// the right. Solved against the minimap's collapsed rail width, not its
+    /// revealed width: the reveal is an overlay that never changes layout, so
+    /// balancing against it would make the text jump when the map opens.
+    private var leftBalance: CGFloat {
+        ChatContentBalance.leftInset(
+            viewportWidth: viewportWidth,
+            contentWidth: dimensions.contentWidth,
+            minimapWidth: ChatMinimap.collapsedWidth
+        )
     }
 
     private var list: some View {
