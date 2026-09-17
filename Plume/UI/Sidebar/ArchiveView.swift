@@ -29,7 +29,7 @@ struct ArchiveView: View {
         VStack(spacing: 0) {
             // `List` already virtualizes rows via NSTableView; rows here are
             // uniform and cheap, so there's no case for a LazyVStack, which
-            // carries its own scroll-hang risk (docs/chat-list-hang.md).
+            // carries its own scroll-hang risk (docs/chat-list.md).
             List(sortedTasks) { task in
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {

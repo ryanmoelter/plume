@@ -1,12 +1,12 @@
 import Foundation
 
-/// One lazy item of the chat list.
+/// One item of the chat list.
 ///
 /// A piece is the smallest unit the list can place on its own: one markdown
 /// block, one thinking row, one tool call, one notice, the streaming overlay,
-/// the working indicator. Splitting messages this way is what keeps every
-/// lazy item's height bounded — see `docs/chat-list-hang.md` for why that
-/// matters and `ChatPieceSplitter` for how it is done.
+/// the working indicator. Splitting messages this way is what keeps a single
+/// item from towering over its neighbors — see `docs/chat-list.md` for why
+/// that matters and `ChatPieceSplitter` for how it is done.
 struct ChatPiece: Identifiable, Equatable {
     /// Deterministic from the message id and the block's original index, so a
     /// re-parse or a tool result landing keeps a row's view state alive.

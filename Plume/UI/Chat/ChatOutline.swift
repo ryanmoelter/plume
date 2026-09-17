@@ -105,10 +105,8 @@ struct ChatOutline: Equatable {
 /// Builds the outline from the same pieces the list renders.
 ///
 /// Weight is a crude estimate — character count, plus a flat allowance for
-/// the things that take room without carrying much text. It follows
-/// `ChatPieceMetrics`' rule: nothing here may be fed by a measured layout
-/// height, which is the feedback loop `docs/chat-list-hang.md` exists to
-/// remove. The constants are meant to be tuned by eye.
+/// the things that take room without carrying much text. Nothing here is fed
+/// by a measured layout height; the constants are meant to be tuned by eye.
 enum ChatOutlineBuilder {
     /// Roughly the characters a line of the chat's reading measure holds,
     /// borrowed from `ChatPieceMetrics`' own estimate.

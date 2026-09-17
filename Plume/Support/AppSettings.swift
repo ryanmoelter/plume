@@ -34,7 +34,6 @@ final class AppSettings {
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
-        static let chatListEngineRaw = "chatListEngineRaw"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -122,22 +121,6 @@ final class AppSettings {
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
-
-        self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
-            .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
-    }
-
-    /// The container behind the chat list. The custom list by default so it
-    /// gets daily use before the lazy stack goes; the toggle is the way back.
-    /// `ChatListEngine.environmentOverride` wins over both for a harness run.
-    var chatListEngine: ChatListEngine {
-        didSet {
-            defaults.set(chatListEngine.rawValue, forKey: Key.chatListEngineRaw)
-        }
-    }
-
-    var effectiveChatListEngine: ChatListEngine {
-        ChatListEngine.environmentOverride ?? chatListEngine
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
