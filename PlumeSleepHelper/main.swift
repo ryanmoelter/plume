@@ -14,7 +14,7 @@ import os
 let log = Logger(subsystem: "com.ryanmoelter.Plume.SleepHelper", category: "helper")
 
 let onlyPlumeMayConnect =
-    "anchor apple generic and certificate leaf[subject.OU] = \"U6J478KTGV\""
+    "anchor apple generic and certificate leaf[subject.OU] = \"\(sleepHelperTeamID)\""
     + " and (identifier \"com.ryanmoelter.Plume\" or identifier \"com.ryanmoelter.Plume.debug\")"
 
 enum RootDomain {

@@ -30,6 +30,7 @@ final class AppSettings {
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
+        static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
         static let chatListEngineRaw = "chatListEngineRaw"
     }
 
@@ -101,6 +102,10 @@ final class AppSettings {
         // Unset reads as false: holding a Mac awake on battery drains it,
         // so it is the direction to ask for rather than inherit.
         self.keepsAwakeOnBattery = defaults.bool(forKey: Key.keepsAwakeOnBattery)
+
+        // Unset reads as false: turning this on installs a privileged helper
+        // and asks for admin approval, which has to be the user's move.
+        self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
 
         self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
             .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
@@ -258,6 +263,15 @@ final class AppSettings {
     var keepsAwakeOnBattery: Bool {
         didSet {
             defaults.set(keepsAwakeOnBattery, forKey: Key.keepsAwakeOnBattery)
+        }
+    }
+
+    /// Whether a hold also keeps the Mac awake through a lid close, via the
+    /// `PlumeSleepHelper` daemon. Rides on top of a hold, so on battery it
+    /// also needs `keepsAwakeOnBattery`.
+    var keepsAwakeWithLidClosed: Bool {
+        didSet {
+            defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
         }
     }
 

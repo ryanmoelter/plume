@@ -10,6 +10,9 @@ nonisolated let sleepHelperServiceName = "com.ryanmoelter.Plume.SleepHelper"
 /// The launchd plist inside `Contents/Library/LaunchDaemons`.
 nonisolated let sleepHelperPlistName = "com.ryanmoelter.Plume.SleepHelper.plist"
 
+/// Both sides check the other's code signature against this team.
+nonisolated let sleepHelperTeamID = "U6J478KTGV"
+
 /// How often the app renews its lease while the override is engaged. The
 /// helper clears the override after three missed renewals, so a wedged app
 /// cannot leave the Mac unable to sleep.

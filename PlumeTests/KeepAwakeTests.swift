@@ -27,6 +27,33 @@ struct KeepAwakeTests {
         func apply(_ request: SleepAssertionRequest?) {}
     }
 
+    /// Stands in for the daemon. `status` is settable so a test can play the
+    /// approval flow, and every `apply` is recorded like the assertion's.
+    private final class FakeLidSleepOverride: LidSleepOverride {
+        var status: LidSleepOverrideStatus = .notRegistered
+        private(set) var registerCalls = 0
+        private(set) var applications: [Bool] = []
+        private(set) var isEngaged = false
+
+        func ensureRegistered() {
+            registerCalls += 1
+            if status == .notRegistered { status = .needsApproval }
+        }
+
+        /// Like the daemon, an unapproved helper cannot engage, so the ask is
+        /// dropped and the next `apply` after approval is what takes.
+        func apply(_ engaged: Bool) {
+            let usable = status == .ready || status == .engaged
+            let becomes = engaged && usable
+            guard becomes != isEngaged else { return }
+            applications.append(becomes)
+            isEngaged = becomes
+            if usable { status = becomes ? .engaged : .ready }
+        }
+
+        func refreshStatus() {}
+    }
+
     private func makeSettings() -> AppSettings {
         AppSettings(defaults: UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!)
     }
@@ -36,6 +63,7 @@ struct KeepAwakeTests {
         sessions: HeadlessSessionManager? = nil,
         settings: AppSettings? = nil,
         assertion: FakeSleepAssertion? = nil,
+        lidOverride: FakeLidSleepOverride? = nil,
         powerSource: KeepAwakeCoordinator.PowerSource = .ac
     ) -> (KeepAwakeCoordinator, FakeSleepAssertion, AppSettings) {
         let settings = settings ?? makeSettings()
@@ -45,6 +73,7 @@ struct KeepAwakeTests {
             sessions: sessions ?? HeadlessSessionManager(),
             settings: settings,
             assertion: assertion,
+            lidOverride: lidOverride ?? FakeLidSleepOverride(),
             powerSource: { powerSource }
         )
         return (coordinator, assertion, settings)
@@ -249,6 +278,7 @@ struct KeepAwakeTests {
             sessions: HeadlessSessionManager(),
             settings: makeSettings(),
             assertion: RefusingSleepAssertion(),
+            lidOverride: FakeLidSleepOverride(),
             powerSource: { .ac }
         )
 
@@ -360,6 +390,152 @@ struct KeepAwakeTests {
         #expect(coordinator.reasons.isEmpty)
     }
 
+    // MARK: - The lid-closed override
+
+    private func hold() -> KeepAwakeCoordinator.Decision {
+        .hold(SleepAssertionRequest(type: .preventIdleSystemSleep, reason: "test"))
+    }
+
+    /// The override follows the hold and nothing else, so the coworker on
+    /// battery with both toggles on gets it, and the same person with
+    /// battery disallowed does not.
+    @Test func theLidOverrideFollowsTheHold() {
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: hold(), wantsLidClosed: true))
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: hold(), wantsLidClosed: false) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(nil), wantsLidClosed: true) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(.battery), wantsLidClosed: true) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(.refused), wantsLidClosed: true) == false)
+
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        let allowed = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: true
+        )
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: allowed, wantsLidClosed: true))
+        let blocked = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: false
+        )
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: blocked, wantsLidClosed: true) == false)
+    }
+
+    @Test func theSettingOffNeverTouchesTheHelper() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, _) = makeCoordinator(engine: engine, lidOverride: lid)
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(lid.registerCalls == 0)
+        #expect(lid.applications.isEmpty)
+        #expect(coordinator.lidOverrideStatus == .ready)
+    }
+
+    @Test func turningTheSettingOnRegistersAndEngagesWithTheHold() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        coordinator.refresh()
+        #expect(lid.registerCalls == 1)
+        #expect(lid.applications.isEmpty, "nothing is working yet")
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(assertion.held != nil)
+        #expect(lid.applications == [true])
+        #expect(coordinator.lidOverrideStatus == .engaged)
+    }
+
+    @Test func statusEventsDoNotChurnTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        let taskID = UUID()
+        let tabID = UUID()
+
+        for _ in 0..<10 {
+            engine.setStatus(.working, taskID: taskID, tabID: tabID)
+            coordinator.refresh()
+        }
+        #expect(lid.applications == [true])
+    }
+
+    @Test func theLidOverrideReleasesWhenWorkStops() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        let taskID = UUID()
+        let tabID = UUID()
+
+        engine.setStatus(.working, taskID: taskID, tabID: tabID)
+        coordinator.refresh()
+        engine.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
+        coordinator.refresh()
+
+        #expect(lid.applications == [true, false])
+        #expect(coordinator.lidOverrideStatus == .ready)
+    }
+
+    /// Turning the setting off releases the override but leaves the plain
+    /// assertion, which the user still wants.
+    @Test func turningTheSettingOffReleasesOnlyTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+
+        settings.keepsAwakeWithLidClosed = false
+        coordinator.refresh()
+        #expect(lid.isEngaged == false)
+        #expect(assertion.held != nil)
+        #expect(assertion.applications.count == 1)
+    }
+
+    @Test func terminationReleasesTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+
+        coordinator.releaseForTermination()
+        #expect(lid.isEngaged == false)
+    }
+
+    /// A helper still waiting on Login Items gets asked and stays unengaged,
+    /// and the panel sees that state through the coordinator.
+    @Test func anUnapprovedHelperIsReportedNotEngaged() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(assertion.held != nil)
+        #expect(coordinator.lidOverrideStatus == .needsApproval)
+
+        lid.status = .ready
+        coordinator.refreshLidOverride()
+        #expect(coordinator.lidOverrideStatus == .ready)
+        coordinator.refresh()
+        #expect(coordinator.lidOverrideStatus == .engaged)
+    }
+
     // MARK: - StatusEngine's enumeration
 
     @Test func activeTabsListsWorkingAndWaitingTabs() {
@@ -413,13 +589,16 @@ struct KeepAwakeTests {
         let settings = AppSettings(defaults: defaults)
         #expect(settings.keepAwakeMode == .auto)
         #expect(settings.keepsAwakeOnBattery == false)
+        #expect(settings.keepsAwakeWithLidClosed == false)
 
         settings.keepAwakeMode = .always
         settings.keepsAwakeOnBattery = true
+        settings.keepsAwakeWithLidClosed = true
 
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.keepAwakeMode == .always)
         #expect(reloaded.keepsAwakeOnBattery)
+        #expect(reloaded.keepsAwakeWithLidClosed)
     }
 
     @Test func anUnrecognizedModeFallsBackToAuto() {
@@ -431,61 +610,83 @@ struct KeepAwakeTests {
 
 /// Covers what the keep-awake UI tells the user about closing the lid.
 ///
-/// No assertion type survives a lid close, so this guidance is the whole of
-/// the lid-close feature — it must never read as a promise Plume can keep.
+/// No assertion type survives a lid close; only the helper's override does.
+/// So the guidance warns until the override is actually usable, and only then
+/// says the lid can close.
 @MainActor
 struct LidCloseGuidanceTests {
     @Test func aLidThatSleepsWarnsAndOffersSettings() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
         #expect(guidance == .sleepsOnLidClose)
         #expect(guidance.summary != nil)
         #expect(guidance.explanation != nil)
         #expect(guidance.offersSystemSettings)
+        #expect(guidance.offersLoginItems == false)
     }
 
-    /// Clamshell mode is the one case where the lid can close and work
-    /// continues, so it states that rather than warning.
-    @Test func clamshellModeSaysTheLidCanClose() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .staysAwake, mode: .auto)
-        #expect(guidance == .staysAwakeInClamshell)
+    /// An approved helper that is not engaged still sleeps the Mac on lid
+    /// close right now, so with the setting off it warns like any other.
+    @Test func aReadyHelperWithTheSettingOffStillWarns() {
+        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready) == .sleepsOnLidClose)
+    }
+
+    @Test func aReadyHelperWithTheSettingOnPromisesOnlyWhileHolding() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready)
+        #expect(guidance == .staysAwakeWhileHolding)
+        #expect(guidance.summary?.lowercased().contains("holding") == true)
+        #expect(guidance.offersSystemSettings == false)
+    }
+
+    @Test func anEngagedHelperSaysTheLidCanClose() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged)
+        #expect(guidance == .staysAwakeViaHelper)
         #expect(guidance.summary != nil)
         #expect(guidance.explanation == nil)
         #expect(guidance.offersSystemSettings == false)
     }
 
-    @Test func aMacWithNoLidSaysNothing() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .noClamshell, mode: .auto)
-        #expect(guidance == .notApplicable)
-        #expect(guidance.summary == nil)
+    @Test func anUnapprovedHelperPointsAtLoginItems() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .needsApproval)
+        #expect(guidance == .helperNeedsApproval)
+        #expect(guidance.offersLoginItems)
         #expect(guidance.offersSystemSettings == false)
     }
 
+    @Test func aFailedHelperShowsItsReason() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unavailable("nope"))
+        #expect(guidance == .helperUnavailable("nope"))
+        #expect(guidance.summary == "nope")
+    }
+
     /// Never mode means the user declined Plume's say over sleep, so lid
-    /// advice would be noise whatever the hardware reports.
+    /// advice would be noise whatever the helper reports.
     @Test func neverModeSuppressesLidAdvice() {
-        for clamshell in [ClamshellSleepBehavior.sleeps, .staysAwake, .noClamshell] {
-            let guidance = LidCloseGuidance.resolve(clamshell: clamshell, mode: .never)
-            #expect(guidance == .notApplicable, "\(clamshell)")
-            #expect(guidance.summary == nil, "\(clamshell)")
+        for override in [LidSleepOverrideStatus.notRegistered, .needsApproval, .ready, .engaged, .unavailable("x")] {
+            let guidance = LidCloseGuidance.resolve(mode: .never, wantsLidClosed: true, override: override)
+            #expect(guidance == .notApplicable, "\(override)")
+            #expect(guidance.summary == nil, "\(override)")
         }
     }
 
     @Test func alwaysModeStillWarnsAboutTheLid() {
-        #expect(LidCloseGuidance.resolve(clamshell: .sleeps, mode: .always) == .sleepsOnLidClose)
+        #expect(LidCloseGuidance.resolve(mode: .always, wantsLidClosed: false, override: .notRegistered) == .sleepsOnLidClose)
     }
 
-    /// The guidance must never claim the Mac will keep working through a lid
-    /// close, which is the promise macOS cannot deliver.
+    /// Until the override is in effect the text must not read as a promise
+    /// Plume cannot keep.
     @Test func theWarningNeverPromisesTheMacStaysAwake() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
-        let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
-        #expect(text.contains("sleeps"))
-        #expect(!text.contains("plume keeps"))
+        for override in [LidSleepOverrideStatus.notRegistered, .needsApproval] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
+            let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
+            #expect(!text.contains("can stay closed"), "\(override)")
+        }
+        let sleeps = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
+        #expect(sleeps.summary?.lowercased().contains("sleeps") == true)
     }
 
-    @Test func onlyASleepingLidWarns() {
-        #expect(ClamshellSleepBehavior.sleeps.warnsAboutLidClose)
-        #expect(ClamshellSleepBehavior.staysAwake.warnsAboutLidClose == false)
-        #expect(ClamshellSleepBehavior.noClamshell.warnsAboutLidClose == false)
+    /// And once it is in effect the text says so, in plain terms.
+    @Test func theHelperStateDoesPromiseTheLidCanClose() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged)
+        #expect(guidance.summary?.lowercased().contains("can stay closed") == true)
     }
 }

@@ -181,6 +181,8 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+                Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
             } header: {
                 Text("Keep Awake")
             } footer: {
@@ -189,8 +191,10 @@ struct SettingsView: View {
                     "session is under remote control, and while a remotely " +
                     "controlled agent waits for an answer. The system may ignore " +
                     "the request on battery or under thermal load. Closing the lid " +
-                    "sleeps the Mac unless it is in clamshell mode, and macOS gives " +
-                    "apps no way to override that."
+                    "normally sleeps the Mac regardless; keeping it awake with the " +
+                    "lid closed installs a privileged helper that needs a one-time " +
+                    "approval in Login Items, and only applies while Plume is " +
+                    "already holding the Mac awake."
                 )
                 .foregroundStyle(.secondary)
             }
