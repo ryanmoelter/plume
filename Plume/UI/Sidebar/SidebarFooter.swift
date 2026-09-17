@@ -54,10 +54,12 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(
                         icon: keepAwakeIcon,
                         title: keepAwakeTitle,
+                        subtitle: keepAwakeSubtitle,
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
                         detail: keepAwakeDetail,
-                        detailSymbol: keepAwakeDetailSymbol
+                        detailSymbol: keepAwakeDetailSymbol,
+                        detailSymbolTint: keepAwakeDetailSymbolTint
                     )
                 }
                 .help(keepAwakeHelp)
@@ -87,7 +89,10 @@ struct SidebarFooter: View, ThemedView {
     }
 
     private var isBatteryBlocked: Bool {
-        coordinator.offReason == .battery
+        switch coordinator.offReason {
+        case .battery, .batteryLow: true
+        case .refused, nil: false
+        }
     }
 
     /// An empty cup is not caffeinated; a steaming one is.
@@ -97,8 +102,19 @@ struct SidebarFooter: View, ThemedView {
 
     /// Tinted only while held. Warning rather than attention: the Mac staying
     /// up is a condition worth knowing about, not the agent wanting the user.
+    /// Danger once the lid override is engaged, since a shut Mac in a bag is
+    /// a step past "worth knowing about".
     private var keepAwakeTint: Color? {
-        coordinator.isHolding ? ChatRole.warning(for: colorScheme) : nil
+        guard coordinator.isHolding else { return nil }
+        return isLidOverrideEngaged ? ChatRole.danger(for: colorScheme) : ChatRole.warning(for: colorScheme)
+    }
+
+    private var isLidOverrideEngaged: Bool {
+        coordinator.isHolding && coordinator.lidOverrideStatus == .engaged
+    }
+
+    private var keepAwakeSubtitle: String? {
+        isLidOverrideEngaged ? "even if the lid is closed" : nil
     }
 
     /// The present participle says it is happening now, rather than naming
@@ -115,6 +131,7 @@ struct SidebarFooter: View, ThemedView {
         if isBatteryBlocked { return nil }
         let tally = coordinator.tally
         if tally.working > 0 { return "\(tally.working) working" }
+        if tally.backgroundTasks > 0 { return "\(tally.backgroundTasks) in background" }
         if tally.remotelyControlled { return nil }
         return settings.keepAwakeMode == .auto ? nil : settings.keepAwakeMode.label
     }
@@ -123,13 +140,40 @@ struct SidebarFooter: View, ThemedView {
     /// Battery blocking takes priority over remote control, the same way it
     /// takes priority over the working count in `keepAwakeDetail`.
     private var keepAwakeDetailSymbol: String? {
-        if isBatteryBlocked { return "battery.25percent" }
+        if isBatteryBlocked { return Self.batteryGlyph(percent: coordinator.powerSnapshot.percent) }
         return coordinator.tally.remotelyControlled ? StatusSymbol.remoteControl.name : nil
     }
 
+    /// Only shown while battery-blocked, since charging always skips the
+    /// cutoff and the glyph never appears while charging.
+    private var keepAwakeDetailSymbolTint: Color? {
+        switch coordinator.offReason {
+        case .batteryLow: ChatRole.danger(for: colorScheme)
+        case .battery, .refused, nil: nil
+        }
+    }
+
+    /// Buckets a live reading to the nearest SF Symbol glyph. A nil reading
+    /// (percent unknown) keeps the look `.battery` blocking already had.
+    static func batteryGlyph(percent: Int?) -> String {
+        guard let percent else { return "battery.25percent" }
+        switch percent {
+        case ..<13: return "battery.0percent"
+        case ..<38: return "battery.25percent"
+        case ..<63: return "battery.50percent"
+        case ..<88: return "battery.75percent"
+        default: return "battery.100percent"
+        }
+    }
+
     private var keepAwakeHelp: String {
-        if isBatteryBlocked { return "Keep Awake is off while on battery" }
-        return coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
+        switch coordinator.offReason {
+        case .battery: return "Your Mac can sleep while on battery"
+        case .batteryLow(let percent): return "Your Mac can sleep while below \(percent)% battery"
+        case .refused, nil: break
+        }
+        if isLidOverrideEngaged { return "Keeping your Mac awake, even with the lid closed" }
+        return coordinator.isHolding ? "Keeping your Mac awake" : "Your Mac can sleep"
     }
 
     /// The last row's wash sits inside the window's corner, so it curves
@@ -150,6 +194,9 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
+    /// A dim second line under the title, for state the title alone would
+    /// understate.
+    var subtitle: String?
     /// Set only when the row carries state of its own, which the footer's
     /// plain rows do not. Tints the title too, not just the icon.
     var iconTint: Color?
@@ -161,6 +208,8 @@ private struct SidebarFooterRow: View {
     /// A system symbol appended after `detail`, e.g. remote-control or
     /// battery-blocked.
     var detailSymbol: String?
+    /// Tint for `detailSymbol` alone, e.g. red for a low-battery cutoff.
+    var detailSymbolTint: Color?
 
     var body: some View {
         // Stacks only when the title and its detail cannot share a line,
@@ -168,7 +217,7 @@ private struct SidebarFooterRow: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
                 glyph
-                Text(title).contentTransition(.numericText())
+                titleBlock
                 Spacer(minLength: 4)
                 detailLabel
                 chevron
@@ -176,7 +225,7 @@ private struct SidebarFooterRow: View {
             HStack(spacing: 8) {
                 glyph
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).contentTransition(.numericText())
+                    titleBlock
                     detailLabel
                 }
                 Spacer(minLength: 0)
@@ -189,11 +238,26 @@ private struct SidebarFooterRow: View {
         .foregroundStyle(tintOrInherited)
         .animation(.default, value: icon)
         .animation(.default, value: title)
+        .animation(.default, value: subtitle)
         .animation(.default, value: detail)
         .animation(.default, value: detailSymbol)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private var titleBlock: some View {
+        if let subtitle {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title).contentTransition(.numericText())
+                Text(subtitle)
+                    .font(.caption)
+                    .emphasis(.secondary)
+            }
+        } else {
+            Text(title).contentTransition(.numericText())
+        }
     }
 
     /// One `Image` across both states, not a branch per state: an if/else
@@ -214,10 +278,16 @@ private struct SidebarFooterRow: View {
                         .emphasis(.secondary)
                 }
                 if let detailSymbol {
-                    // Full emphasis: it is a state, not a caption on one.
-                    Image(systemName: detailSymbol)
-                        .imageScale(.small)
-                        .emphasis(.primary)
+                    if let detailSymbolTint {
+                        Image(systemName: detailSymbol)
+                            .imageScale(.small)
+                            .foregroundStyle(detailSymbolTint)
+                    } else {
+                        // Full emphasis: it is a state, not a caption on one.
+                        Image(systemName: detailSymbol)
+                            .imageScale(.small)
+                            .emphasis(.primary)
+                    }
                 }
             }
             .fixedSize()

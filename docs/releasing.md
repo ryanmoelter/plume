@@ -1,17 +1,19 @@
 # Releasing
 
-Plume ships two ways. A **local install** on the machine that builds it — no archive, no notarization, no DMG — which is how Ryan installs it on his own Macs, and is what most of this document covers. And a **shared build** for other people, which needs a Developer ID signature and notarization; that path is at the end, and `scripts/package-release.sh` runs it.
+Plume ships two ways. A **local install** on the machine that builds it — no archive, no DMG — which is how Ryan installs it on his own Macs, and is what most of this document covers. And a **shared build** for other people, packaged as a DMG and attached to a GitHub release; that path is at the end, and `scripts/package-release.sh` runs it.
+
+Both are signed with Developer ID and notarized. That used to be the shared build's distinction, but the sleep helper changed it: Apple documents that `SMAppService` daemons need a notarized app, so the local install is notarized too. The **One-time setup** under *Sharing a build* is a prerequisite for the local install too.
 
 ## What a local release is
 
 | | |
 |---|---|
 | Artifact | `Plume.app`, copied into `/Applications` |
-| Signing | Automatic, with the Apple Development identity already on the machine |
-| Notarization | None |
+| Signing | Developer ID Application, applied by `scripts/install-release.sh` over the build's automatic signature |
+| Notarization | Yes, one round trip to Apple, stapled |
 | Audience | The build machine only |
 
-A Development-signed app runs freely on the Mac that signed it, so Gatekeeper never enters the picture. That is the whole reason this path is so short.
+The build itself still signs automatically with the Apple Development identity. The install script re-signs a staged copy, notarizes it, and only then quits the running app and replaces it — so a notarization failure leaves the old install running.
 
 **A release is per-machine.** Plume is developed on more than one Mac, and a build never leaves the one that made it. Tag the version once and push it, then build and install separately on each Mac that wants it. The two installs share nothing — separate bundles, separate stores, separate signatures — so `/Applications/Plume.app` can sit at different versions on each, and the tag says nothing about what is installed anywhere. Check the installed version on the machine in front of you rather than inferring it from the latest tag.
 
@@ -27,7 +29,7 @@ This is a Release-only property. In Debug the real code lives in `Plume.debug.dy
 2. Merge the release branch into `main` (`--no-ff`).
 3. Build Release from `main`, and verify the bundle.
 4. Tag that commit and push.
-5. Install, and — for a shared build — notarize.
+5. Install, which signs with Developer ID and notarizes on the way.
 
 Verifying the Debug build before merging is the real gate; the Release verification before tagging is a second look at the artifact itself, not a re-run of the manual checklist.
 
@@ -49,7 +51,9 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 scripts/install-release.sh
 ```
 
-`scripts/install-release.sh` does the install and step 3's verification together: it quits the installed Plume, replaces the bundle, prints the version, signature and dylibs, relaunches, walks the process tree, and checks the log for a store moved aside. It writes to `/tmp/plume-install.log` (override with `LOG`). Run the build and tests yourself first — the script only installs, and it refuses if no Release bundle exists.
+`scripts/install-release.sh` does the install and step 3's verification together: it stages a copy of the bundle, re-signs the sleep helper and then the app with Developer ID, notarizes and staples, checks `spctl` says `Notarized Developer ID`, quits the installed Plume, replaces the bundle, prints the version, signature, helper and dylibs, relaunches, walks the process tree, and checks the log for a store moved aside. It writes to `/tmp/plume-install.log` (override with `LOG`). Run the build and tests yourself first — the script only installs, and it refuses if no Release bundle exists.
+
+Notarization reads the `plume-notary` keychain profile, which can raise a Touch ID prompt. Stay at the keyboard for the run, detached or not.
 
 **Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process. The script waits for a real exit and aborts rather than replacing a bundle still in use.
 
@@ -82,10 +86,12 @@ When reading the test output, confirm test names actually scroll past. A `-only-
 ```
 /usr/libexec/PlistBuddy -c Print /Applications/Plume.app/Contents/Info.plist | grep -i version
 codesign --verify --deep --strict /Applications/Plume.app
+spctl -a -vvv --type execute /Applications/Plume.app
+codesign -d --verbose=2 /Applications/Plume.app/Contents/MacOS/PlumeSleepHelper 2>&1 | grep Authority
 otool -L /Applications/Plume.app/Contents/MacOS/Plume | grep -v '/usr/lib\|/System/Library'
 ```
 
-Expect the version you just set, a silent `codesign` (it only speaks up on failure), and no dylibs beyond the binary's own path.
+Expect the version you just set, a silent `codesign` (it only speaks up on failure), `source=Notarized Developer ID` from `spctl`, a `Developer ID Application` authority on the helper, and no dylibs beyond the binary's own path. An `Apple Development` authority anywhere means a re-sign did not take, and the lid-closed toggle will fail to register.
 
 Then launch it and open a terminal tab. Verify the processes rather than a screenshot — surfaces are real PTYs, so the process tree is the better evidence:
 
@@ -125,6 +131,38 @@ It reaches the user's PATH as a symlink at `~/.local/bin/plume-notify`, created 
 
 Replacing the bundle does not break the link. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but the link stores a *path*, so it re-resolves to the new bundle. The script prints the link's state after installing; a `BROKEN` line there means the helper stopped shipping, not that the symlink needs recreating.
 
+## The sleep helper
+
+"Keep awake with the lid closed" rides on `PlumeSleepHelper`, a root LaunchDaemon embedded in the bundle. No power assertion survives a lid close; the only thing that does is `SleepDisabled` on `IOPMrootDomain`, which is root-only, so the app cannot set it itself.
+
+Two files ship for it and the build puts both in place:
+
+| | |
+|---|---|
+| `Contents/MacOS/PlumeSleepHelper` | The daemon, its own target, signed with hardened runtime |
+| `Contents/Library/LaunchDaemons/com.ryanmoelter.Plume.SleepHelper.plist` | The launchd job: `BundleProgram`, `MachServices`, `AssociatedBundleIdentifiers` |
+
+**Registration happens in the app, not the installer.** The lid toggle stays disabled until the helper is approved; the "Install Sleep Helper…" button in the Keep Awake popover (or the Settings pane) calls `SMAppService.daemon(plistName:).register()` through `DaemonLidSleepOverride`. A never-registered daemon reads `.notFound` from `SMAppService`, not `.notRegistered` — the app treats both as "not installed".
+
+**Uninstalling** is the "Uninstall…" button beside the helper row in Settings → Keep Awake: it releases the override, calls `unregister()`, and turns the lid setting off. Note that macOS remembers the approval, so a reinstall goes straight to `enabled` with no prompt. To see the true first-run flow again, `sudo sfltool resetbtm` wipes the approval records for *every* app's background items, and each one re-prompts on its next registration. That lands in `requiresApproval`, and macOS shows a notification; the user allows Plume under System Settings → General → Login Items & Extensions → *Allow in the Background*. The panel offers an "Open Login Items…" link while it waits, and polls every two seconds until the status flips to `enabled`. Nothing needs re-registering after an upgrade: launchd keys the job by label and reads the plist out of whatever bundle is at the app's path.
+
+**Notarization is documented as required, but not enforced at registration.** Apple's `SMAppService.h` states that apps containing LaunchDaemons must be notarized. In testing, a Developer ID signed un-notarized bundle *and* the Apple Development Debug build out of DerivedData both registered, got approved, and drove the helper — so the whole flow is testable in Debug. Ship notarized anyway: the header is the contract, and a future macOS may start checking.
+
+**The override persists, so the helper sweeps it.** Writing `SleepDisabled` straight onto `IOPMrootDomain` returns `kIOReturnUnsupported` even as root; the only route that takes is `IOPMSetSystemPowerSetting`, the call behind `pmset disablesleep`, and powerd persists it to `/Library/Preferences/com.apple.PowerManagement.plist`. So a crash could leave the Mac unable to sleep, and the helper is built around not letting that stand: the daemon has `RunAtLoad` so it clears the setting at every boot, clears it on its own launch, when the app's XPC connection drops, and when 90 seconds pass without a heartbeat; the app clears it on termination and whenever the plain assertion is released. The worst case after any crash is "awake until the next boot". If it is ever stuck, `sudo pmset -a disablesleep 0` clears it by hand.
+
+Both sides check the other's code signature by team ID. Re-signing with a different team breaks the XPC handshake — see *Bundle ID and signing team migration*.
+
+### Manual checklist
+
+The tests cover the coordinator's decisions against a fake; the daemon itself needs a real install, and the lid needs a hand. After an install, with the helper installed and approved, the toggle on, and an agent working:
+
+1. System Settings → Login Items & Extensions → *Allow in the Background* lists Plume, enabled.
+2. `ioreg -r -n IOPMrootDomain -d 1 | grep SleepDisabled` reads `Yes` while the panel says the lid can stay closed, and `No` after the agent finishes.
+3. `/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume.SleepHelper"' --last 10m --info` shows the engage, heartbeat, and release.
+4. `kill -9` the running Plume with the override engaged; the same `ioreg` read flips back to `No` within a few seconds.
+5. On battery, with both battery and lid toggles on, close the lid for a minute with an agent working. The transcript keeps growing.
+6. With the lid still closed, let the agent finish (or turn the lid toggle off). powerd does not revisit a lid that closed while sleep was disabled, so the helper requests the sleep itself about a second after the release (`IOPMSleepSystem`, root only). The helper log shows `lid is closed on release: sleep=true` and then `sleep request … kr=0`, and `pmset -g log` gains a Sleep entry. The app passes `sleepIfLidClosed=false` when an external display is attached, and a release with no client (crash, watchdog) sleeps a shut lid only on battery.
+
 ## The store survives releases
 
 Plume's SwiftData store lives at `~/Library/Application Support/Plume/Plume.store`, beside the `hooks` and `events` directories. It is deliberately *not* at SwiftData's default path, so it belongs to Plume alone.
@@ -142,9 +180,9 @@ To test first-run behavior, quit the app and delete the store.
 
 ## Sharing a build with other people
 
-The local path above signs with an Apple Development identity, which Gatekeeper accepts only on the machine that signed it. Another Mac shows "Plume is damaged and can't be opened" — a misleading way of saying the signature is not valid there. Sharing a build means a **Developer ID Application** signature, notarization, and a stapled ticket.
+An app signed only with an Apple Development identity runs on the machine that signed it and nowhere else; another Mac shows "Plume is damaged and can't be opened" — a misleading way of saying the signature is not valid there. Sharing a build means a **Developer ID Application** signature, notarization, and a stapled ticket, which the local install now does as well. What the shared path adds is the DMG and the release.
 
-`scripts/package-release.sh` does all of it: builds Release, re-signs with Developer ID, notarizes, builds a drag-to-install DMG, notarizes that too, verifies both, and opens a **draft** GitHub release with the DMG attached. Nothing is public until you publish the draft.
+`scripts/package-release.sh` does all of it: builds Release, re-signs the helper and then the app with Developer ID, notarizes, builds a drag-to-install DMG, notarizes that too, verifies both, and opens a **draft** GitHub release with the DMG attached. Nothing is public until you publish the draft.
 
 **Hardened runtime is not new here.** `ENABLE_HARDENED_RUNTIME = YES` applies at signing, not at notarization, so every local Release install has already enforced it — `codesign -d` reports `flags=0x10000(runtime)`. Plume spawns PTYs, launches `claude`, and runs `git worktree` under it today. Hardened runtime restricts what is done *to* the process (code injection, unsigned library loads, JIT), not the processes it spawns, which is why there is no `.entitlements` file and none is needed. Notarization adds a malware scan and a Gatekeeper ticket, not new runtime restrictions.
 
@@ -159,7 +197,7 @@ The local path above signs with an Apple Development identity, which Gatekeeper 
      --apple-id <apple id> --team-id U6J478KTGV --password <app-specific password>
    ```
 
-The script checks all three before building and names the fix for whichever is missing.
+Both scripts check for the identity and the profile before building and name the fix for whichever is missing.
 
 ### Running it
 
@@ -223,7 +261,7 @@ First launch prompts for permissions this machine granted long ago, since Plume 
 
 Plume is expected to move to company ownership, with the bundle ID becoming `com.gingerlabs.plume` and the signing team changing to the work one. Neither blocks distribution, and they are independent knobs.
 
-**Signing team: free to change.** Nothing user-visible depends on it. A Mac cares that the signature is valid and notarized, not which team produced it. There is no auto-updater pinning a team ID.
+**Signing team: one constant to update.** A Mac cares that the signature is valid and notarized, not which team produced it, and there is no auto-updater pinning a team ID. The sleep helper is the exception: the app and the daemon each check the other's signature against `sleepHelperTeamID` in `SleepHelperProtocol.swift`, so a build signed by the work team needs that constant changed with it or the XPC handshake fails.
 
 **Bundle ID: preserves data, resets preferences.** `AppPaths.directoryName` keys only off the `.debug` suffix and otherwise returns a hardcoded `"Plume"`, so the store path is not derived from the bundle ID. Tasks, groups and tabs survive a rename. What resets is the state macOS keys by bundle ID:
 

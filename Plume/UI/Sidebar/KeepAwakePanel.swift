@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftData
 import SwiftUI
 
@@ -8,7 +9,6 @@ struct KeepAwakePanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
-    @State private var clamshell = IOKitClamshellState.shared
     @Query private var tasks: [WorkTask]
 
     var body: some View {
@@ -22,9 +22,9 @@ struct KeepAwakePanel: View {
             .labelsHidden()
             .accessibilityIdentifier(AccessibilityID.keepAwakeModePicker)
 
-            Text(summary)
+            summary
                 .font(.callout)
-                .emphasis(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if settings.keepAwakeMode != .never, !coordinator.reasons.isEmpty {
                 Divider()
@@ -49,59 +49,114 @@ struct KeepAwakePanel: View {
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
+            if settings.keepsAwakeOnBattery {
+                Stepper(
+                    batteryCutoffLabel,
+                    value: $settings.keepAwakeBatteryCutoffPercent,
+                    in: 0...100,
+                    step: 5
+                )
+                .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
+            }
+
+            Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
+                // Red because this is what turns the sidebar row red.
+                Text("Keep awake with the lid closed")
+                    .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
+            }
+                .disabled(!coordinator.lidOverrideStatus.canEngage)
+                .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
+                .help(
+                    "Only applies while Plume is holding the Mac awake, so on battery it "
+                        + "also needs “Keep awake on battery”."
+                )
+                .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+
+            if settings.keepsAwakeWithLidClosed {
+                LabeledContent("Allow sleep when temperature is") {
+                    ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
+                }
+            }
+
             lidClose
+
+            #if DEBUG
+            Divider()
+            Toggle("Show power debug info", isOn: $settings.showsKeepAwakeDebugReadout)
+                .font(.caption)
+            if settings.showsKeepAwakeDebugReadout {
+                KeepAwakeDebugReadout(coordinator: coordinator)
+            }
+            #endif
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 340)
         .accessibilityIdentifier(AccessibilityID.keepAwakePanel)
-        .onAppear { clamshell.refresh() }
+        .onAppear { coordinator.refreshLidOverride() }
     }
 
     private var guidance: LidCloseGuidance {
-        .resolve(clamshell: clamshell.behavior, mode: settings.keepAwakeMode)
+        .resolve(
+            mode: settings.keepAwakeMode,
+            wantsLidClosed: settings.keepsAwakeWithLidClosed,
+            override: coordinator.lidOverrideStatus,
+            pausedForHeat: coordinator.lidOverridePausedForHeat
+        )
     }
 
     @ViewBuilder
     private var lidClose: some View {
-        if let summary = guidance.summary {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(summary)
-                    .font(.caption)
-                    .emphasis(.secondary)
-
-                if let explanation = guidance.explanation {
-                    Text(explanation)
-                        .font(.caption)
-                        .emphasis(.subtle)
-                }
-
-                if guidance.offersSystemSettings {
-                    Button("Open Battery Settings…") {
-                        SystemSettingsLink.battery.open()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                }
+        if guidance.offersInstall {
+            Button("Install Sleep Helper…") {
+                coordinator.installLidHelper()
             }
-            .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+        } else if guidance.offersLoginItems {
+            Button("Open Login Items…") {
+                SMAppService.openSystemSettingsLoginItems()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+        } else if let note = guidance.note {
+            Text(note)
+                .font(.callout)
+                .emphasis(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
         }
     }
 
-    private var summary: String {
+    private var lidToggleIsOn: Bool {
+        settings.keepsAwakeWithLidClosed && coordinator.lidOverrideStatus.canEngage
+    }
+
+    private var summary: Text {
         switch settings.keepAwakeMode {
         case .never:
-            "Keep Awake is off."
+            Text("Keep Awake is off.").foregroundStyle(Emphasis.secondary.textHierarchy)
         case .always:
-            coordinator.isHolding ? "Holding the Mac awake." : notHoldingReason
+            coordinator.isHolding ? holding : canSleep(notHoldingReason)
         case .auto:
             if coordinator.isHolding {
-                "Holding the Mac awake."
+                holding
             } else if coordinator.reasons.isEmpty {
-                "Not holding — nothing needs it."
+                canSleep("No work happening.")
             } else {
-                notHoldingReason
+                canSleep(notHoldingReason)
             }
         }
+    }
+
+    /// Warning, like the sidebar row: the Mac staying up is worth knowing.
+    private var holding: Text {
+        Text("Keeping your Mac awake.").foregroundStyle(ChatRole.warning(for: colorScheme))
+    }
+
+    private func canSleep(_ reason: String) -> Text {
+        (Text("Your Mac can sleep").bold() + Text(" • \(reason)")).foregroundStyle(Emphasis.secondary.textHierarchy)
     }
 
     /// Something wanted the Mac awake and it is still not held. On battery
@@ -109,9 +164,16 @@ struct KeepAwakePanel: View {
     /// panel should not dress up as a choice.
     private var notHoldingReason: String {
         switch coordinator.offReason {
-        case .battery: "Not holding — the Mac is on battery."
-        case .refused, nil: "Not holding — the system refused."
+        case .battery: "Your Mac is on battery."
+        case .batteryLow(let percent): "Battery is at \(percent)%."
+        case .refused, nil: "macOS refused."
         }
+    }
+
+    private var batteryCutoffLabel: String {
+        settings.keepAwakeBatteryCutoffPercent == 0
+            ? "No battery cutoff"
+            : "Allow sleep below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     /// Falls back to the task's title, because a tab only has one once its
@@ -160,6 +222,9 @@ private struct KeepAwakeReasonRow: View {
         case .remoteControl:
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(ChatRole.attention(for: colorScheme))
+        case .backgroundTask:
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundStyle(ChatRole.attention(for: colorScheme))
         }
     }
 
@@ -172,6 +237,9 @@ private struct KeepAwakeReasonRow: View {
         case .working(.needsTerminalInput): "Waiting"
         case .working: "Active"
         case .remoteControl: "Remote"
+        case .backgroundTask(.monitor): "Monitor"
+        case .backgroundTask(.backgroundCommand): "Background"
+        case .backgroundTask(.workflow): "Workflow"
         }
     }
 }

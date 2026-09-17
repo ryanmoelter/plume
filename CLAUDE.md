@@ -19,9 +19,9 @@ Every change ends with a clean build and a manual run. `PlumeUITests` launches t
 
 ## Releasing locally
 
-Plume is installed by hand — no archive, no notarization, no DMG. **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
+Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build registers too in practice, so the flow is testable without a release). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
-Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. Nothing needs embedding or separate signing.
+Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. The one exception is `PlumeSleepHelper`, a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`; the install script signs it before the outer bundle, since `codesign` without `--deep` leaves nested code alone.
 
 ## Layout
 
@@ -118,6 +118,7 @@ The config reaches libghostty as **generated contents with every `theme` directi
 - Model names avoid colliding with Swift's `Task` and SwiftUI's `Group`: `WorkTask`, `TaskGroup`, `TaskTab`.
 - **All `ghostty_*` calls stay in `Plume/Ghostty/`.** The C API is unstable between versions; upgrading should touch one folder.
 - Status flows through `StatusEngine` in memory; SwiftData gets only a debounced snapshot in `lastStatusRaw`, never per-event writes.
+- **Work that outlives a turn is read from the transcript, never from hooks.** A `Monitor`, a backgrounded `Bash` and a `Workflow` all keep running after the tab drops to `awaitingReply`. `BackgroundTaskScanner` finds them in the same parse `TranscriptStore` already runs, and `BackgroundTaskTracker` holds them per tab so `KeepAwakeCoordinator` can keep the Mac awake. Entries are reconciled wholesale per read, and capped at 30 minutes — a transcript that stops being written is the one thing that can never clear them. A background `Agent` is deliberately not tracked here: `setSubagentActivity` already covers it.
 
 ## Gotchas
 

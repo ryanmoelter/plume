@@ -27,6 +27,47 @@ struct KeepAwakeTests {
         func apply(_ request: SleepAssertionRequest?) {}
     }
 
+    /// Stands in for the daemon. `status` is settable so a test can play the
+    /// approval flow, and every `apply` is recorded like the assertion's.
+    private final class FakeLidSleepOverride: LidSleepOverride {
+        var status: LidSleepOverrideStatus = .notRegistered
+        private(set) var registerCalls = 0
+        private(set) var unregisterCalls = 0
+        private(set) var applications: [Bool] = []
+        private(set) var isEngaged = false
+
+        func ensureRegistered() {
+            registerCalls += 1
+            if status == .notRegistered { status = .needsApproval }
+        }
+
+        /// Like the daemon, an unapproved helper cannot engage, so the ask is
+        /// dropped and the next `apply` after approval is what takes.
+        func apply(_ engaged: Bool) {
+            let usable = status == .ready || status == .engaged
+            let becomes = engaged && usable
+            guard becomes != isEngaged else { return }
+            applications.append(becomes)
+            isEngaged = becomes
+            if usable { status = becomes ? .engaged : .ready }
+        }
+
+        func refreshStatus() {}
+
+        func unregister() {
+            unregisterCalls += 1
+            if isEngaged { applications.append(false) }
+            isEngaged = false
+            status = .notRegistered
+        }
+    }
+
+    /// Stands in for `ThermalStateMonitor`, settable so a test can play a
+    /// heating-up and cooling-down sequence.
+    private final class FakeThermalStateSource: ThermalStateSource {
+        var state: ProcessInfo.ThermalState = .nominal
+    }
+
     private func makeSettings() -> AppSettings {
         AppSettings(defaults: UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!)
     }
@@ -36,7 +77,9 @@ struct KeepAwakeTests {
         sessions: HeadlessSessionManager? = nil,
         settings: AppSettings? = nil,
         assertion: FakeSleepAssertion? = nil,
-        powerSource: KeepAwakeCoordinator.PowerSource = .ac
+        power: KeepAwakeCoordinator.PowerSnapshot = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false),
+        lidOverride: FakeLidSleepOverride? = nil,
+        thermal: FakeThermalStateSource? = nil
     ) -> (KeepAwakeCoordinator, FakeSleepAssertion, AppSettings) {
         let settings = settings ?? makeSettings()
         let assertion = assertion ?? FakeSleepAssertion()
@@ -45,10 +88,19 @@ struct KeepAwakeTests {
             sessions: sessions ?? HeadlessSessionManager(),
             settings: settings,
             assertion: assertion,
-            powerSource: { powerSource }
+            powerSnapshot: { power },
+            lidOverride: lidOverride ?? FakeLidSleepOverride(),
+            thermal: thermal ?? FakeThermalStateSource()
         )
         return (coordinator, assertion, settings)
     }
+
+    private func battery(percent: Int? = nil, isCharging: Bool = false) -> KeepAwakeCoordinator.PowerSnapshot {
+        KeepAwakeCoordinator.PowerSnapshot(source: .battery, percent: percent, isCharging: isCharging)
+    }
+
+    private let ac = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false)
+    private let battery = KeepAwakeCoordinator.PowerSnapshot(source: .battery, percent: 80, isCharging: false)
 
     // MARK: - Which tabs are a reason
 
@@ -105,6 +157,93 @@ struct KeepAwakeTests {
         #expect(reasons.map(\.kind) == [.remoteControl])
     }
 
+    // MARK: - Background tasks
+
+    /// A monitor or backgrounded command outlives the turn that started it,
+    /// so the tab it belongs to reads `awaitingReply` while it runs.
+    @Test func aBackgroundTaskAloneKeepsTheMacAwake() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [],
+            remoteControlledTabs: [],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor)]
+        )
+
+        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor)])
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: reasons, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
+        ) == .hold(SleepAssertionRequest(
+            type: .preventIdleSystemSleep,
+            reason: KeepAwakeCoordinator.summary(reasons: reasons, mode: .auto)
+        )))
+    }
+
+    @Test func aWorkingTabWithABackgroundTaskIsTwoReasons() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
+            remoteControlledTabs: [],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .backgroundCommand)]
+        )
+
+        #expect(reasons.count == 2)
+        #expect(reasons.contains { $0.kind == .working(.working) })
+        #expect(reasons.contains { $0.kind == .backgroundTask(.backgroundCommand) })
+    }
+
+    @Test func theTallyCountsBackgroundTasksSeparately() {
+        let tracker = BackgroundTaskTracker()
+        let engine = StatusEngine(backgroundTasks: tracker)
+        let (coordinator, _, _) = makeCoordinator(engine: engine)
+        let taskID = UUID()
+        let working = UUID()
+        let monitoring = UUID()
+
+        engine.setStatus(.working, taskID: taskID, tabID: working)
+        engine.setStatus(.awaitingReply, taskID: taskID, tabID: monitoring)
+        tracker.replace(tabID: monitoring, entries: [BackgroundTaskTracker.Entry(
+            id: "b1",
+            kind: .monitor,
+            startedAt: Date(),
+            expiresAt: nil
+        )])
+        coordinator.refresh()
+
+        #expect(coordinator.tally == (working: 1, backgroundTasks: 1, remotelyControlled: false))
+    }
+
+    /// `pmset -g assertions` mangles anything but ASCII, and the em dash in a
+    /// monitor's own phrasing is exactly the kind of thing that could leak in.
+    @Test func theSummaryNamesBackgroundTasksInASCII() {
+        let taskID = UUID()
+        let one = KeepAwakeCoordinator.summary(
+            reasons: KeepAwakeCoordinator.deriveReasons(
+                activeTabs: [],
+                remoteControlledTabs: [],
+                backgroundTaskTabs: [(taskID: taskID, tabID: UUID(), kind: .monitor)]
+            ),
+            mode: .auto
+        )
+        #expect(one == "Plume: 1 background task")
+        #expect(one.allSatisfy { $0.isASCII })
+
+        let several = KeepAwakeCoordinator.summary(
+            reasons: KeepAwakeCoordinator.deriveReasons(
+                activeTabs: [(taskID: taskID, tabID: UUID(), status: .working)],
+                remoteControlledTabs: [],
+                backgroundTaskTabs: [
+                    (taskID: taskID, tabID: UUID(), kind: .monitor),
+                    (taskID: taskID, tabID: UUID(), kind: .backgroundCommand),
+                ]
+            ),
+            mode: .auto
+        )
+        #expect(several == "Plume: 1 tab working, 2 background tasks")
+        #expect(several.allSatisfy { $0.isASCII })
+    }
+
     // MARK: - Mode and power
 
     @Test func neverNeverHolds() {
@@ -113,13 +252,13 @@ struct KeepAwakeTests {
             remoteControlledTabs: []
         )
         #expect(KeepAwakeCoordinator.decide(
-            reasons: reasons, mode: .never, powerSource: .ac, allowsBattery: true
+            reasons: reasons, mode: .never, power: ac, allowsBattery: true, batteryCutoffPercent: 20
         ) == .off(nil))
     }
 
     @Test func alwaysHoldsWithNoReasons() {
         let decision = KeepAwakeCoordinator.decide(
-            reasons: [], mode: .always, powerSource: .ac, allowsBattery: false
+            reasons: [], mode: .always, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         )
         guard case .hold(let request) = decision else {
             Issue.record("expected a hold, got \(decision)")
@@ -130,12 +269,12 @@ struct KeepAwakeTests {
 
     @Test func autoHoldsOnlyWithAReason() {
         #expect(KeepAwakeCoordinator.decide(
-            reasons: [], mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: [], mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(nil))
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
         guard case .hold = KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: working, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
@@ -145,16 +284,16 @@ struct KeepAwakeTests {
     @Test func batteryHoldsOnlyWhenAllowed() {
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
         #expect(KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: false
+            reasons: working, mode: .auto, power: battery(), allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(.battery))
         guard case .hold = KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: true
+            reasons: working, mode: .auto, power: battery(), allowsBattery: true, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
         }
         #expect(KeepAwakeCoordinator.decide(
-            reasons: [], mode: .always, powerSource: .battery, allowsBattery: false
+            reasons: [], mode: .always, power: battery(), allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(.battery))
     }
 
@@ -162,21 +301,21 @@ struct KeepAwakeTests {
     /// clients, and it only applies on AC.
     @Test func remoteControlPicksTheNetworkAssertionOnlyOnAC() {
         let remote = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .remoteControl)]
-        #expect(type(for: remote, mode: .auto, powerSource: .ac, allowsBattery: true) == .networkClientActive)
-        #expect(type(for: remote, mode: .auto, powerSource: .battery, allowsBattery: true) == .preventIdleSystemSleep)
+        #expect(type(for: remote, mode: .auto, power: ac, allowsBattery: true) == .networkClientActive)
+        #expect(type(for: remote, mode: .auto, power: battery(), allowsBattery: true) == .preventIdleSystemSleep)
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
-        #expect(type(for: working, mode: .auto, powerSource: .ac, allowsBattery: true) == .preventIdleSystemSleep)
+        #expect(type(for: working, mode: .auto, power: ac, allowsBattery: true) == .preventIdleSystemSleep)
     }
 
     private func type(
         for reasons: [KeepAwakeReason],
         mode: KeepAwakeMode,
-        powerSource: KeepAwakeCoordinator.PowerSource,
+        power: KeepAwakeCoordinator.PowerSnapshot,
         allowsBattery: Bool
     ) -> SleepAssertionType? {
         guard case .hold(let request) = KeepAwakeCoordinator.decide(
-            reasons: reasons, mode: mode, powerSource: powerSource, allowsBattery: allowsBattery
+            reasons: reasons, mode: mode, power: power, allowsBattery: allowsBattery, batteryCutoffPercent: 20
         ) else { return nil }
         return request.type
     }
@@ -186,7 +325,7 @@ struct KeepAwakeTests {
             KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working($0.isMultiple(of: 2) ? .working : .permissionNeeded))
         }
         guard case .hold(let request) = KeepAwakeCoordinator.decide(
-            reasons: many, mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: many, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
@@ -194,11 +333,66 @@ struct KeepAwakeTests {
         #expect(request.reason.count <= SleepAssertionRequest.reasonLimit)
     }
 
+    // MARK: - Battery cutoff
+
+    @Test func cutoffOffsAtOrBelowTheThreshold() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 20), allowsBattery: true, batteryCutoffPercent: 20
+        ) == .off(.batteryLow(20)))
+
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 21), allowsBattery: true, batteryCutoffPercent: 20
+        ) else {
+            Issue.record("expected a hold at cutoff + 1")
+            return
+        }
+
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 19), allowsBattery: true, batteryCutoffPercent: 20
+        ) == .off(.batteryLow(19)))
+    }
+
+    @Test func chargingIgnoresTheCutoff() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working,
+            mode: .auto,
+            power: battery(percent: 5, isCharging: true),
+            allowsBattery: true,
+            batteryCutoffPercent: 20
+        ) else {
+            Issue.record("expected a hold while charging, even below cutoff")
+            return
+        }
+    }
+
+    @Test func cutoffOfZeroNeverFires() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 1), allowsBattery: true, batteryCutoffPercent: 0
+        ) else {
+            Issue.record("expected a hold when the cutoff is off")
+            return
+        }
+    }
+
+    @Test func acIgnoresPercentEntirely() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: ac, allowsBattery: true, batteryCutoffPercent: 100
+        ) else {
+            Issue.record("expected a hold on AC regardless of cutoff")
+            return
+        }
+    }
+
     // MARK: - Off reason
 
     @Test func offReasonIsBatteryWhenBatteryBlocksAWantedHold() {
         let engine = StatusEngine()
-        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery())
         settings.keepsAwakeOnBattery = false
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -210,7 +404,7 @@ struct KeepAwakeTests {
 
     @Test func offReasonIsNilOnBatteryWhenAllowed() {
         let engine = StatusEngine()
-        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery(percent: 80))
         settings.keepsAwakeOnBattery = true
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -220,9 +414,22 @@ struct KeepAwakeTests {
         #expect(coordinator.offReason == nil)
     }
 
+    @Test func offReasonIsBatteryLowWhenChargeDropsToTheCutoff() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery(percent: 20))
+        settings.keepsAwakeOnBattery = true
+        settings.keepAwakeBatteryCutoffPercent = 20
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == .batteryLow(20))
+    }
+
     @Test func offReasonIsNilWithNothingWantingAHold() {
         let engine = StatusEngine()
-        let (coordinator, _, _) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, _) = makeCoordinator(engine: engine, power: battery())
         coordinator.refresh()
 
         #expect(coordinator.offReason == nil)
@@ -249,7 +456,8 @@ struct KeepAwakeTests {
             sessions: HeadlessSessionManager(),
             settings: makeSettings(),
             assertion: RefusingSleepAssertion(),
-            powerSource: { .ac }
+            powerSnapshot: { KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false) },
+            lidOverride: FakeLidSleepOverride()
         )
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -262,16 +470,16 @@ struct KeepAwakeTests {
     @Test func theSidebarTallyCountsWhatIsHolding() {
         let engine = StatusEngine()
         let (coordinator, _, _) = makeCoordinator(engine: engine)
-        #expect(coordinator.tally == (working: 0, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 0, backgroundTasks: 0, remotelyControlled: false))
 
         let taskID = UUID()
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.tally == (working: 1, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 1, backgroundTasks: 0, remotelyControlled: false))
 
         engine.setStatus(.working, taskID: taskID, tabID: UUID())
         coordinator.refresh()
-        #expect(coordinator.tally == (working: 2, remotelyControlled: false))
+        #expect(coordinator.tally == (working: 2, backgroundTasks: 0, remotelyControlled: false))
     }
 
     // MARK: - The assertion itself
@@ -360,6 +568,273 @@ struct KeepAwakeTests {
         #expect(coordinator.reasons.isEmpty)
     }
 
+    // MARK: - The lid-closed override
+
+    private func hold() -> KeepAwakeCoordinator.Decision {
+        .hold(SleepAssertionRequest(type: .preventIdleSystemSleep, reason: "test"))
+    }
+
+    /// The override follows the hold and nothing else, so the coworker on
+    /// battery with both toggles on gets it, and the same person with
+    /// battery disallowed does not.
+    @Test func theLidOverrideFollowsTheHold() {
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: hold(), wantsLidClosed: true))
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: hold(), wantsLidClosed: false) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(nil), wantsLidClosed: true) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(.battery), wantsLidClosed: true) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: .off(.refused), wantsLidClosed: true) == false)
+
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        let allowed = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery, allowsBattery: true, batteryCutoffPercent: 0
+        )
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: allowed, wantsLidClosed: true))
+        let blocked = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery, allowsBattery: false, batteryCutoffPercent: 0
+        )
+        #expect(KeepAwakeCoordinator.decideLidOverride(decision: blocked, wantsLidClosed: true) == false)
+    }
+
+    @Test func theSettingOffNeverTouchesTheHelper() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, _) = makeCoordinator(engine: engine, lidOverride: lid)
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(lid.registerCalls == 0)
+        #expect(lid.applications.isEmpty)
+        #expect(coordinator.lidOverrideStatus == .ready)
+    }
+
+    /// Registration prompts for approval, so only the install button does it.
+    @Test func turningTheSettingOnNeverRegistersByItself() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.registerCalls == 0)
+        #expect(coordinator.lidOverrideStatus == .notRegistered)
+    }
+
+    @Test func uninstallingReleasesTheOverrideAndTurnsTheSettingOff() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.applications == [true])
+
+        coordinator.uninstallLidHelper()
+        #expect(lid.unregisterCalls == 1)
+        #expect(lid.applications == [true, false])
+        #expect(settings.keepsAwakeWithLidClosed == false)
+        #expect(coordinator.lidOverrideStatus == .notRegistered)
+        #expect(assertion.held != nil, "the plain hold is untouched")
+    }
+
+    @Test func installingRegistersAndMirrorsTheApprovalState() {
+        let lid = FakeLidSleepOverride()
+        let (coordinator, _, _) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
+
+        coordinator.installLidHelper()
+        #expect(lid.registerCalls == 1)
+        #expect(coordinator.lidOverrideStatus == .needsApproval)
+    }
+
+    @Test func theSettingOnAnApprovedHelperEngagesWithTheHold() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        coordinator.refresh()
+        #expect(lid.applications.isEmpty, "nothing is working yet")
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(assertion.held != nil)
+        #expect(lid.applications == [true])
+        #expect(coordinator.lidOverrideStatus == .engaged)
+    }
+
+    @Test func statusEventsDoNotChurnTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        let taskID = UUID()
+        let tabID = UUID()
+
+        for _ in 0..<10 {
+            engine.setStatus(.working, taskID: taskID, tabID: tabID)
+            coordinator.refresh()
+        }
+        #expect(lid.applications == [true])
+    }
+
+    @Test func theLidOverrideReleasesWhenWorkStops() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        let taskID = UUID()
+        let tabID = UUID()
+
+        engine.setStatus(.working, taskID: taskID, tabID: tabID)
+        coordinator.refresh()
+        engine.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
+        coordinator.refresh()
+
+        #expect(lid.applications == [true, false])
+        #expect(coordinator.lidOverrideStatus == .ready)
+    }
+
+    /// Turning the setting off releases the override but leaves the plain
+    /// assertion, which the user still wants.
+    @Test func turningTheSettingOffReleasesOnlyTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+
+        settings.keepsAwakeWithLidClosed = false
+        coordinator.refresh()
+        #expect(lid.isEngaged == false)
+        #expect(assertion.held != nil)
+        #expect(assertion.applications.count == 1)
+    }
+
+    @Test func terminationReleasesTheLidOverride() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+
+        coordinator.releaseForTermination()
+        #expect(lid.isEngaged == false)
+    }
+
+    /// A helper still waiting on Login Items gets asked and stays unengaged,
+    /// and the panel sees that state through the coordinator.
+    @Test func anUnapprovedHelperIsReportedNotEngaged() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        coordinator.installLidHelper()
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(assertion.held != nil)
+        #expect(coordinator.lidOverrideStatus == .needsApproval)
+
+        lid.status = .ready
+        coordinator.refreshLidOverride()
+        #expect(coordinator.lidOverrideStatus == .ready)
+        coordinator.refresh()
+        #expect(coordinator.lidOverrideStatus == .engaged)
+    }
+
+    // MARK: - Thermal cutoff
+
+    @Test func thermalCutoffLevelsOrderAgainstEveryThermalState() {
+        let allStates: [ProcessInfo.ThermalState] = [.nominal, .fair, .serious, .critical]
+
+        #expect(ThermalCutoffLevel.fair.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.fair.isReached(by: .fair))
+        #expect(ThermalCutoffLevel.fair.isReached(by: .serious))
+        #expect(ThermalCutoffLevel.fair.isReached(by: .critical))
+
+        #expect(ThermalCutoffLevel.serious.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.serious.isReached(by: .fair) == false)
+        #expect(ThermalCutoffLevel.serious.isReached(by: .serious))
+        #expect(ThermalCutoffLevel.serious.isReached(by: .critical))
+
+        #expect(ThermalCutoffLevel.critical.isReached(by: .nominal) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .fair) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .serious) == false)
+        #expect(ThermalCutoffLevel.critical.isReached(by: .critical))
+
+        // Every level is monotone: reached-by is only truer at a hotter state.
+        for level in ThermalCutoffLevel.allCases {
+            var wasReached = false
+            for state in allStates {
+                let reached = level.isReached(by: state)
+                if wasReached { #expect(reached, "\(level) regressed at \(state)") }
+                wasReached = reached
+            }
+        }
+    }
+
+    @Test func decideLidOverrideReleasesAtAndAboveTheCutoffOnly() {
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .fair, cutoff: .fair
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .fair
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .nominal, cutoff: .fair
+        ))
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .fair, cutoff: .serious
+        ))
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .serious
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .critical, cutoff: .critical
+        ) == false)
+        #expect(KeepAwakeCoordinator.decideLidOverride(
+            decision: hold(), wantsLidClosed: true, thermalState: .serious, cutoff: .critical
+        ))
+    }
+
+    @Test func aHotStateReleasesTheLidOverrideButKeepsThePlainHold() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let thermal = FakeThermalStateSource()
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid, thermal: thermal)
+        settings.keepsAwakeWithLidClosed = true
+        settings.lidClosedThermalCutoff = .serious
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+        #expect(assertion.held != nil)
+
+        thermal.state = .serious
+        coordinator.refresh()
+        #expect(lid.isEngaged == false)
+        #expect(assertion.held != nil)
+        #expect(coordinator.lidOverridePausedForHeat)
+
+        thermal.state = .nominal
+        coordinator.refresh()
+        #expect(lid.isEngaged)
+        #expect(coordinator.lidOverridePausedForHeat == false)
+    }
+
     // MARK: - StatusEngine's enumeration
 
     @Test func activeTabsListsWorkingAndWaitingTabs() {
@@ -413,13 +888,16 @@ struct KeepAwakeTests {
         let settings = AppSettings(defaults: defaults)
         #expect(settings.keepAwakeMode == .auto)
         #expect(settings.keepsAwakeOnBattery == false)
+        #expect(settings.keepsAwakeWithLidClosed == false)
 
         settings.keepAwakeMode = .always
         settings.keepsAwakeOnBattery = true
+        settings.keepsAwakeWithLidClosed = true
 
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.keepAwakeMode == .always)
         #expect(reloaded.keepsAwakeOnBattery)
+        #expect(reloaded.keepsAwakeWithLidClosed)
     }
 
     @Test func anUnrecognizedModeFallsBackToAuto() {
@@ -427,65 +905,143 @@ struct KeepAwakeTests {
         defaults.set("sometimes", forKey: "keepAwakeModeRaw")
         #expect(AppSettings(defaults: defaults).keepAwakeMode == .auto)
     }
+
+    @Test func batteryCutoffDefaultsTo20AndPersists() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.keepAwakeBatteryCutoffPercent == 20)
+
+        settings.keepAwakeBatteryCutoffPercent = 35
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.keepAwakeBatteryCutoffPercent == 35)
+    }
+
+    @Test func lidClosedThermalCutoffDefaultsToSeriousAndPersists() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.lidClosedThermalCutoff == .serious)
+
+        settings.lidClosedThermalCutoff = .critical
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.lidClosedThermalCutoff == .critical)
+    }
+
+    @Test func anUnrecognizedThermalCutoffFallsBackToSerious() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        defaults.set("scorching", forKey: "lidClosedThermalCutoffRaw")
+        #expect(AppSettings(defaults: defaults).lidClosedThermalCutoff == .serious)
+    }
+
+    @Test func batteryCutoffClampsTo0And100() {
+        let settings = makeSettings()
+        settings.keepAwakeBatteryCutoffPercent = -10
+        #expect(settings.keepAwakeBatteryCutoffPercent == 0)
+
+        settings.keepAwakeBatteryCutoffPercent = 150
+        #expect(settings.keepAwakeBatteryCutoffPercent == 100)
+    }
+
+    // MARK: - Battery glyph
+
+    @Test func batteryGlyphBucketsThePercentage() {
+        let cases: [(Int?, String)] = [
+            (nil, "battery.25percent"),
+            (0, "battery.0percent"),
+            (12, "battery.0percent"),
+            (13, "battery.25percent"),
+            (37, "battery.25percent"),
+            (38, "battery.50percent"),
+            (62, "battery.50percent"),
+            (63, "battery.75percent"),
+            (87, "battery.75percent"),
+            (88, "battery.100percent"),
+            (100, "battery.100percent"),
+        ]
+        for (percent, expected) in cases {
+            #expect(SidebarFooter.batteryGlyph(percent: percent) == expected, "\(String(describing: percent))")
+        }
+    }
 }
 
-/// Covers what the keep-awake UI tells the user about closing the lid.
-///
-/// No assertion type survives a lid close, so this guidance is the whole of
-/// the lid-close feature — it must never read as a promise Plume can keep.
+/// Covers what the keep-awake popover shows under the lid toggle. Only the
+/// helper's override survives a lid close, so the popover offers the install
+/// and approval steps until it is usable, and one reassurance once it is.
 @MainActor
 struct LidCloseGuidanceTests {
-    @Test func aLidThatSleepsWarnsAndOffersSettings() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
-        #expect(guidance == .sleepsOnLidClose)
-        #expect(guidance.summary != nil)
-        #expect(guidance.explanation != nil)
-        #expect(guidance.offersSystemSettings)
+    @Test func aMissingHelperOffersInstallInsteadOfText() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
+        #expect(guidance == .helperNotInstalled)
+        #expect(guidance.offersInstall)
+        #expect(guidance.offersLoginItems == false)
+        #expect(guidance.note == nil)
     }
 
-    /// Clamshell mode is the one case where the lid can close and work
-    /// continues, so it states that rather than warning.
-    @Test func clamshellModeSaysTheLidCanClose() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .staysAwake, mode: .auto)
-        #expect(guidance == .staysAwakeInClamshell)
-        #expect(guidance.summary != nil)
-        #expect(guidance.explanation == nil)
-        #expect(guidance.offersSystemSettings == false)
+    @Test func anUnapprovedHelperOffersLoginItemsInsteadOfText() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .needsApproval)
+        #expect(guidance == .helperNeedsApproval)
+        #expect(guidance.offersLoginItems)
+        #expect(guidance.offersInstall == false)
+        #expect(guidance.note == nil)
     }
 
-    @Test func aMacWithNoLidSaysNothing() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .noClamshell, mode: .auto)
-        #expect(guidance == .notApplicable)
-        #expect(guidance.summary == nil)
-        #expect(guidance.offersSystemSettings == false)
-    }
-
-    /// Never mode means the user declined Plume's say over sleep, so lid
-    /// advice would be noise whatever the hardware reports.
-    @Test func neverModeSuppressesLidAdvice() {
-        for clamshell in [ClamshellSleepBehavior.sleeps, .staysAwake, .noClamshell] {
-            let guidance = LidCloseGuidance.resolve(clamshell: clamshell, mode: .never)
-            #expect(guidance == .notApplicable, "\(clamshell)")
-            #expect(guidance.summary == nil, "\(clamshell)")
+    @Test func onlyAMissingHelperOffersInstall() {
+        for override in [LidSleepOverrideStatus.needsApproval, .ready, .engaged, .unavailable("x")] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
+            #expect(guidance.offersInstall == false, "\(override)")
         }
     }
 
-    @Test func alwaysModeStillWarnsAboutTheLid() {
-        #expect(LidCloseGuidance.resolve(clamshell: .sleeps, mode: .always) == .sleepsOnLidClose)
+    @Test func aReadyHelperWithTheSettingOffSaysNothing() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
+        #expect(guidance == .sleepsOnLidClose)
+        #expect(guidance.note == nil)
+        #expect(guidance.offersInstall == false)
     }
 
-    /// The guidance must never claim the Mac will keep working through a lid
-    /// close, which is the promise macOS cannot deliver.
-    @Test func theWarningNeverPromisesTheMacStaysAwake() {
-        let guidance = LidCloseGuidance.resolve(clamshell: .sleeps, mode: .auto)
-        let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
-        #expect(text.contains("sleeps"))
-        #expect(!text.contains("plume keeps"))
+    /// The checked states are the only ones that promise anything, and the
+    /// promise includes the thermal release.
+    @Test func theCheckedStatesPromiseTheHotCutoff() {
+        for override in [LidSleepOverrideStatus.ready, .engaged] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
+            #expect(guidance.note?.lowercased().contains("too hot") == true, "\(override)")
+        }
+        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready) == .staysAwakeWhileHolding)
+        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged) == .staysAwakeViaHelper)
     }
 
-    @Test func onlyASleepingLidWarns() {
-        #expect(ClamshellSleepBehavior.sleeps.warnsAboutLidClose)
-        #expect(ClamshellSleepBehavior.staysAwake.warnsAboutLidClose == false)
-        #expect(ClamshellSleepBehavior.noClamshell.warnsAboutLidClose == false)
+    @Test func aFailedHelperShowsItsReason() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unavailable("nope"))
+        #expect(guidance == .helperUnavailable("nope"))
+        #expect(guidance.note == "nope")
+    }
+
+    /// Never mode means the user declined Plume's say over sleep, so lid
+    /// advice would be noise whatever the helper reports.
+    @Test func neverModeSuppressesLidAdvice() {
+        for override in [LidSleepOverrideStatus.notRegistered, .needsApproval, .ready, .engaged, .unavailable("x")] {
+            let guidance = LidCloseGuidance.resolve(mode: .never, wantsLidClosed: true, override: override)
+            #expect(guidance == .notApplicable, "\(override)")
+            #expect(guidance.note == nil, "\(override)")
+            #expect(guidance.offersInstall == false, "\(override)")
+        }
+    }
+
+    @Test func alwaysModeStillOffersInstall() {
+        #expect(LidCloseGuidance.resolve(mode: .always, wantsLidClosed: false, override: .notRegistered) == .helperNotInstalled)
+    }
+
+    /// Heat wins over whatever the override's own status would otherwise say,
+    /// as long as the user actually wants the lid to stay closed.
+    @Test func aHotMacPausesTheLidOverrideRegardlessOfHelperStatus() {
+        for override in [LidSleepOverrideStatus.ready, .engaged, .needsApproval] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override, pausedForHeat: true)
+            #expect(guidance == .pausedForHeat, "\(override)")
+            #expect(guidance.note?.lowercased().contains("hot") == true, "\(override)")
+        }
+    }
+
+    @Test func pausedForHeatNeverFiresWithTheSettingOff() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready, pausedForHeat: true)
+        #expect(guidance == .sleepsOnLidClose)
     }
 }

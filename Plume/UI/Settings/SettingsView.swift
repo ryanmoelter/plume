@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// The app's `Settings` scene (⌘,). A stub in v1: a worktree base path
@@ -6,6 +7,7 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var keepAwake = KeepAwakeCoordinator.shared
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
@@ -181,18 +183,41 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+                if settings.keepsAwakeOnBattery {
+                    Stepper(
+                        batteryCutoffLabel,
+                        value: $settings.keepAwakeBatteryCutoffPercent,
+                        in: 0...100,
+                        step: 5
+                    )
+                }
+                Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .disabled(!keepAwake.lidOverrideStatus.canEngage)
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+                sleepHelperRow
+                if settings.keepsAwakeWithLidClosed {
+                    LabeledContent("Allow sleep when temperature is") {
+                        ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
+                    }
+                }
             } header: {
                 Text("Keep Awake")
             } footer: {
-                Text(
-                    "Auto holds the Mac awake while an agent is working, while a " +
-                    "session is under remote control, and while a remotely " +
-                    "controlled agent waits for an answer. The system may ignore " +
-                    "the request on battery or under thermal load. Closing the lid " +
-                    "sleeps the Mac unless it is in clamshell mode, and macOS gives " +
-                    "apps no way to override that."
-                )
-                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(
+                        "Auto holds the Mac awake while an agent is working or under " +
+                        "remote control. On battery the hold stops at the cutoff unless " +
+                        "charging. Closing the lid sleeps the Mac unless the sleep helper " +
+                        "is installed and approved in Login Items, and even then the " +
+                        "lid override releases at the chosen temperature."
+                    )
+                    .foregroundStyle(.secondary)
+                    Button("Open Battery Settings…") {
+                        SystemSettingsLink.battery.open()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
             }
 
             Section {
@@ -249,7 +274,44 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
-        .onAppear { helperState = CommandLineHelper.state() }
+        .onAppear {
+            helperState = CommandLineHelper.state()
+            keepAwake.refreshLidOverride()
+        }
+    }
+
+    @ViewBuilder
+    private var sleepHelperRow: some View {
+        switch keepAwake.lidOverrideStatus {
+        case .notRegistered:
+            LabeledContent("Sleep helper") {
+                Button("Install…") { keepAwake.installLidHelper() }
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+            }
+        case .needsApproval:
+            LabeledContent("Sleep helper") {
+                Button("Approve in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+            }
+        case .unavailable(let reason):
+            LabeledContent("Sleep helper") {
+                Text(reason).foregroundStyle(.red)
+            }
+        case .ready, .engaged:
+            LabeledContent("Sleep helper") {
+                HStack {
+                    Text("Installed").foregroundStyle(.secondary)
+                    Button("Uninstall") { keepAwake.uninstallLidHelper() }
+                        .accessibilityIdentifier(AccessibilityID.keepAwakeLidUninstallButton)
+                }
+            }
+        }
+    }
+
+    private var batteryCutoffLabel: String {
+        settings.keepAwakeBatteryCutoffPercent == 0
+            ? "No battery cutoff"
+            : "Allow sleep below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     private var helperStatusText: String {

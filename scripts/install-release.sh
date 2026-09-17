@@ -1,20 +1,35 @@
 #!/bin/bash
 # Installs the built Release bundle into /Applications and relaunches it,
-# then verifies what landed: version, signature, dylibs, process tree, and
-# whether the store had to be moved aside.
+# then verifies what landed: version, signature, notarization, the sleep
+# helper, dylibs, process tree, and whether the store had to be moved aside.
 #
 # Build and test first (docs/releasing.md step 2) — this only installs.
 #
 # Usage: scripts/install-release.sh
 #
+# The bundle is re-signed with Developer ID and notarized before it is
+# installed. The sleep helper is a LaunchDaemon, and SMAppService only
+# registers daemons out of a notarized app, so the local install has to go
+# through Apple like a shared build does. Everything that can fail — the
+# identity, the notary profile, the round trip — happens on a staged copy
+# before the running app is touched, so a failure leaves the old install
+# running.
+#
 # Releasing from a session hosted inside Plume is the case this exists for:
 # quitting Plume kills the agent doing the release, so with PLUME set the
 # script re-execs itself detached and returns immediately. Read the log for
-# the outcome; the terminal that launched it is gone by then.
+# the outcome; the terminal that launched it is gone by then. Notarization
+# reads the keychain, which can raise a Touch ID prompt — stay at the
+# keyboard.
 set -uo pipefail
 
 LOG="${LOG:-/tmp/plume-install.log}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
 DEST=/Applications/Plume.app
+STAGE_DIR=/tmp/plume-install-stage
+APP="$STAGE_DIR/Plume.app"
+HELPER_NAME=PlumeSleepHelper
+DAEMON_PLIST=com.ryanmoelter.Plume.SleepHelper.plist
 
 # Detached because killing Plume kills whatever Plume is hosting. nohup so the
 # PTY's SIGHUP doesn't take it too.
@@ -28,13 +43,68 @@ fi
 exec >>"$LOG" 2>&1
 echo "=== $(date) installing ==="
 
+fail() { echo "FAILED: $*"; exit 1; }
+
+# --- 1. preflight -----------------------------------------------------------
+
 SRC="$(xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' \
   -showBuildSettings 2>/dev/null | awk '$1 == "BUILT_PRODUCTS_DIR" {print $3; exit}')/Plume.app"
+[ -d "$SRC" ] || fail "no Release bundle at $SRC — build it first"
 
-if [ ! -d "$SRC" ]; then
-  echo "FAILED: no Release bundle at $SRC — build it first"
-  exit 1
+IDENTITY="$(security find-identity -v -p codesigning \
+  | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+[ -n "$IDENTITY" ] || fail "no Developer ID Application identity. Xcode → Settings →
+  Accounts → Manage Certificates → + → Developer ID Application."
+echo "identity: $IDENTITY"
+
+notary_check="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1)"
+if [ $? -ne 0 ]; then
+  echo "$notary_check"
+  fail "could not read notary profile '$NOTARY_PROFILE' — see docs/releasing.md"
 fi
+
+# --- 2. stage, sign, notarize -----------------------------------------------
+
+rm -rf "$STAGE_DIR"; mkdir -p "$STAGE_DIR"
+cp -R "$SRC" "$APP" || fail "could not stage the bundle"
+
+HELPER="$APP/Contents/MacOS/$HELPER_NAME"
+[ -x "$HELPER" ] || fail "sleep helper missing at $HELPER"
+[ -f "$APP/Contents/Library/LaunchDaemons/$DAEMON_PLIST" ] \
+  || fail "daemon plist missing from Contents/Library/LaunchDaemons"
+
+# Inside out: the outer signature seals the helper, so the helper goes first.
+# Without --deep codesign leaves nested code alone, and notarization rejects
+# a helper still carrying the build's Apple Development signature.
+echo "--- re-signing ---"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp "$HELPER" \
+  || fail "codesign of the helper failed"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP" \
+  || fail "codesign of the app failed"
+codesign -d --verbose=4 "$APP" 2>&1 | grep -iE 'Authority=|flags=|Timestamp='
+codesign --verify --deep --strict "$APP" || fail "signature does not verify"
+
+echo "--- notarizing (a few minutes) ---"
+ZIP="$STAGE_DIR/Plume-submit.zip"
+ditto -c -k --keepParent "$APP" "$ZIP" || fail "ditto failed"
+submit_output="$(xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1)"
+echo "$submit_output"
+if ! grep -q "status: Accepted" <<<"$submit_output"; then
+  id="$(sed -n 's/^ *id: \([0-9a-f-]*\).*/\1/p' <<<"$submit_output" | head -1)"
+  [ -n "$id" ] && xcrun notarytool log "$id" --keychain-profile "$NOTARY_PROFILE"
+  fail "notarization rejected"
+fi
+xcrun stapler staple "$APP" || fail "stapling failed"
+rm -f "$ZIP"
+
+# spctl's verdict is on stderr and its exit status is what matters.
+assess_output="$(spctl -a -vvv --type execute "$APP" 2>&1)"; assess_status=$?
+echo "$assess_output" | grep -iE 'accepted|rejected|source='
+[ $assess_status -eq 0 ] || fail "spctl rejected the staged app"
+grep -qi 'source=Notarized Developer ID' <<<"$assess_output" \
+  || fail "accepted but not notarized — expected source=Notarized Developer ID"
+
+# --- 3. replace the installed app -------------------------------------------
 
 # ps, not pgrep: `pgrep -x Plume` has come back empty while the installed app
 # was running, and matches unrelated test bundles instead.
@@ -54,23 +124,30 @@ done
 
 # Overwriting a live bundle corrupts the running process, so refuse instead.
 if [ -n "$(running_pids)" ]; then
-  echo "FAILED: Plume still running: $(running_pids) — bundle NOT replaced"
-  exit 1
+  fail "Plume still running: $(running_pids) — bundle NOT replaced"
 fi
 echo "installed Plume exited"
 
 # Replaced rather than merged, so a file dropped from the bundle doesn't survive.
-if ! (rm -rf "$DEST" && cp -R "$SRC" "$DEST"); then
-  echo "FAILED: copy failed"
-  exit 1
+if ! (rm -rf "$DEST" && cp -R "$APP" "$DEST"); then
+  fail "copy failed"
 fi
-echo "copied $SRC -> $DEST"
+echo "copied $APP -> $DEST"
+rm -rf "$STAGE_DIR"
+
+# --- 4. verify what landed --------------------------------------------------
 
 echo "--- version ---"
 /usr/libexec/PlistBuddy -c Print "$DEST/Contents/Info.plist" \
   | grep -i 'CFBundleShortVersionString\|CFBundleVersion'
 echo "--- codesign ---"
 codesign --verify --deep --strict "$DEST" && echo "ok"
+xcrun stapler validate "$DEST" | tail -1
+echo "--- sleep helper ---"
+codesign -d --verbose=2 "$DEST/Contents/MacOS/$HELPER_NAME" 2>&1 \
+  | grep -iE '^Identifier=|Authority=Developer ID|flags='
+/usr/libexec/PlistBuddy -c 'Print :BundleProgram' \
+  "$DEST/Contents/Library/LaunchDaemons/$DAEMON_PLIST"
 echo "--- non-system dylibs (expect none; Release links Ghostty statically) ---"
 otool -L "$DEST/Contents/MacOS/Plume" | grep -v '/usr/lib\|/System/Library'
 
