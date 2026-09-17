@@ -68,6 +68,15 @@ enum ThermalCutoffLevel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Apple describes these levels by effect, never by temperature.
+    var detail: String {
+        switch self {
+        case .fair: "Warm. Fans may spin up; nothing is throttled yet."
+        case .serious: "Hot. macOS is already throttling the CPU and GPU."
+        case .critical: "Very hot. macOS may shut the Mac down soon."
+        }
+    }
+
     /// Whether `state` has reached this level or gone past it. Ordering:
     /// nominal < fair < serious < critical.
     func isReached(by state: ProcessInfo.ThermalState) -> Bool {

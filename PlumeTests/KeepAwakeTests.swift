@@ -963,20 +963,25 @@ struct KeepAwakeTests {
     }
 }
 
-/// Covers what the keep-awake UI tells the user about closing the lid.
-///
-/// No assertion type survives a lid close; only the helper's override does.
-/// So the guidance warns until the override is actually usable, and only then
-/// says the lid can close.
+/// Covers what the keep-awake popover shows under the lid toggle. Only the
+/// helper's override survives a lid close, so the popover offers the install
+/// and approval steps until it is usable, and one reassurance once it is.
 @MainActor
 struct LidCloseGuidanceTests {
     @Test func aMissingHelperOffersInstallInsteadOfText() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
         #expect(guidance == .helperNotInstalled)
-        #expect(guidance.summary == nil, "the button stands in for any text")
-        #expect(guidance.explanation == nil)
         #expect(guidance.offersInstall)
         #expect(guidance.offersLoginItems == false)
+        #expect(guidance.note == nil)
+    }
+
+    @Test func anUnapprovedHelperOffersLoginItemsInsteadOfText() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .needsApproval)
+        #expect(guidance == .helperNeedsApproval)
+        #expect(guidance.offersLoginItems)
+        #expect(guidance.offersInstall == false)
+        #expect(guidance.note == nil)
     }
 
     @Test func onlyAMissingHelperOffersInstall() {
@@ -986,37 +991,28 @@ struct LidCloseGuidanceTests {
         }
     }
 
-    /// An approved helper that is not engaged still sleeps the Mac on lid
-    /// close right now, so with the setting off it warns like any other.
-    @Test func aReadyHelperWithTheSettingOffStillWarns() {
+    @Test func aReadyHelperWithTheSettingOffSaysNothing() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
         #expect(guidance == .sleepsOnLidClose)
+        #expect(guidance.note == nil)
         #expect(guidance.offersInstall == false)
     }
 
-    @Test func aReadyHelperWithTheSettingOnPromisesOnlyWhileHolding() {
-        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready)
-        #expect(guidance == .staysAwakeWhileHolding)
-        #expect(guidance.summary?.lowercased().contains("holding") == true)
-    }
-
-    @Test func anEngagedHelperSaysTheLidCanClose() {
-        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged)
-        #expect(guidance == .staysAwakeViaHelper)
-        #expect(guidance.summary != nil)
-        #expect(guidance.explanation == nil)
-    }
-
-    @Test func anUnapprovedHelperPointsAtLoginItems() {
-        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .needsApproval)
-        #expect(guidance == .helperNeedsApproval)
-        #expect(guidance.offersLoginItems)
+    /// The daemon clears the override when Plume's connection drops, so the
+    /// checked states reassure about a force quit rather than warn about it.
+    @Test func theCheckedStatesReassureAboutAForceQuit() {
+        for override in [LidSleepOverrideStatus.ready, .engaged] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
+            #expect(guidance.note?.lowercased().contains("quits") == true, "\(override)")
+        }
+        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready) == .staysAwakeWhileHolding)
+        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged) == .staysAwakeViaHelper)
     }
 
     @Test func aFailedHelperShowsItsReason() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unavailable("nope"))
         #expect(guidance == .helperUnavailable("nope"))
-        #expect(guidance.summary == "nope")
+        #expect(guidance.note == "nope")
     }
 
     /// Never mode means the user declined Plume's say over sleep, so lid
@@ -1025,54 +1021,27 @@ struct LidCloseGuidanceTests {
         for override in [LidSleepOverrideStatus.notRegistered, .needsApproval, .ready, .engaged, .unavailable("x")] {
             let guidance = LidCloseGuidance.resolve(mode: .never, wantsLidClosed: true, override: override)
             #expect(guidance == .notApplicable, "\(override)")
-            #expect(guidance.summary == nil, "\(override)")
+            #expect(guidance.note == nil, "\(override)")
+            #expect(guidance.offersInstall == false, "\(override)")
         }
     }
 
-    @Test func alwaysModeStillWarnsAboutTheLid() {
+    @Test func alwaysModeStillOffersInstall() {
         #expect(LidCloseGuidance.resolve(mode: .always, wantsLidClosed: false, override: .notRegistered) == .helperNotInstalled)
-    }
-
-    /// Until the override is in effect the text must not read as a promise
-    /// Plume cannot keep.
-    @Test func theWarningNeverPromisesTheMacStaysAwake() {
-        for override in [LidSleepOverrideStatus.notRegistered, .needsApproval] {
-            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
-            let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
-            #expect(!text.contains("can stay closed"), "\(override)")
-        }
-        let sleeps = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
-        #expect(sleeps.summary?.lowercased().contains("sleeps") == true)
-    }
-
-    /// And once it is in effect the text says so, in plain terms.
-    @Test func theHelperStateDoesPromiseTheLidCanClose() {
-        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged)
-        #expect(guidance.summary?.lowercased().contains("can stay closed") == true)
     }
 
     /// Heat wins over whatever the override's own status would otherwise say,
     /// as long as the user actually wants the lid to stay closed.
     @Test func aHotMacPausesTheLidOverrideRegardlessOfHelperStatus() {
-        for override: LidSleepOverrideStatus in [.ready, .engaged] {
-            let guidance = LidCloseGuidance.resolve(
-                mode: .auto, wantsLidClosed: true, override: override, pausedForHeat: true
-            )
+        for override in [LidSleepOverrideStatus.ready, .engaged, .needsApproval] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override, pausedForHeat: true)
             #expect(guidance == .pausedForHeat, "\(override)")
+            #expect(guidance.note?.lowercased().contains("hot") == true, "\(override)")
         }
-        #expect(guidance(pausedForHeat: true).summary?.lowercased().contains("hot") == true)
     }
 
-    /// Heat with the setting off is moot — the lid was already going to sleep
-    /// the Mac — so it must not surface as its own case.
     @Test func pausedForHeatNeverFiresWithTheSettingOff() {
-        let guidance = LidCloseGuidance.resolve(
-            mode: .auto, wantsLidClosed: false, override: .ready, pausedForHeat: true
-        )
-        #expect(guidance != .pausedForHeat)
-    }
-
-    private func guidance(pausedForHeat: Bool) -> LidCloseGuidance {
-        .resolve(mode: .auto, wantsLidClosed: true, override: .engaged, pausedForHeat: pausedForHeat)
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready, pausedForHeat: true)
+        #expect(guidance == .sleepsOnLidClose)
     }
 }

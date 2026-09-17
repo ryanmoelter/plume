@@ -202,6 +202,9 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
+                    Text(settings.lidClosedThermalCutoff.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Keep Awake")

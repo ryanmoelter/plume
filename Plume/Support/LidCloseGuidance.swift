@@ -56,34 +56,16 @@ enum LidCloseGuidance: Equatable, Sendable {
         }
     }
 
-    /// The panel's one-line statement of what the lid does right now.
-    var summary: String? {
+    /// The one line the panel shows, when there is anything worth saying.
+    var note: String? {
         switch self {
-        case .sleepsOnLidClose:
-            "Closing the lid sleeps the Mac and pauses every agent."
-        case .staysAwakeWhileHolding:
-            "The lid can stay closed whenever Plume is holding this Mac awake."
-        case .staysAwakeViaHelper:
-            "The lid can stay closed — Plume is holding this Mac awake."
-        case .helperNeedsApproval:
-            "Plume's sleep helper needs your approval in Login Items."
+        case .staysAwakeWhileHolding, .staysAwakeViaHelper:
+            "The helper releases this on its own if Plume quits or crashes."
+        case .pausedForHeat:
+            "Paused while the Mac is running hot."
         case .helperUnavailable(let reason):
             reason
-        case .pausedForHeat:
-            "The lid override is paused while the Mac is running hot."
-        case .helperNotInstalled, .notApplicable:
-            nil
-        }
-    }
-
-    /// What the user can do about it, when there is something.
-    var explanation: String? {
-        switch self {
-        case .sleepsOnLidClose:
-            "Turn on “Keep awake with the lid closed” to override this."
-        case .helperNeedsApproval:
-            "Allow Plume under “Allow in the Background”, then come back."
-        default:
+        case .sleepsOnLidClose, .helperNeedsApproval, .helperNotInstalled, .notApplicable:
             nil
         }
     }

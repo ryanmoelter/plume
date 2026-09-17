@@ -76,6 +76,9 @@ struct KeepAwakePanel: View {
                 }
                 .help("A shut lid can't shed heat as well as an open one, so the lid override releases and the Mac may sleep once it reaches this thermal level.")
                 .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
+                Text(settings.lidClosedThermalCutoff.detail)
+                    .font(.caption)
+                    .emphasis(.subtle)
             }
 
             lidClose
@@ -104,28 +107,18 @@ struct KeepAwakePanel: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
-        } else if let summary = guidance.summary {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(summary)
-                    .font(.caption)
-                    .emphasis(.secondary)
-
-                if let explanation = guidance.explanation {
-                    Text(explanation)
-                        .font(.caption)
-                        .emphasis(.subtle)
-                }
-
-                if guidance.offersLoginItems {
-                    Button("Open Login Items…") {
-                        SMAppService.openSystemSettingsLoginItems()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
-                }
+        } else if guidance.offersLoginItems {
+            Button("Open Login Items…") {
+                SMAppService.openSystemSettingsLoginItems()
             }
-            .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+        } else if let note = guidance.note {
+            Text(note)
+                .font(.caption)
+                .emphasis(.subtle)
+                .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
         }
     }
 
