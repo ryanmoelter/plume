@@ -97,7 +97,8 @@ final class KeepAwakeCoordinator {
     func refresh() {
         let derived = Self.deriveReasons(
             activeTabs: engine.activeTabs,
-            remoteControlledTabs: sessions.remoteControlledTabs
+            remoteControlledTabs: sessions.remoteControlledTabs,
+            backgroundTaskTabs: engine.backgroundTaskTabs
         )
         if derived != reasons {
             reasons = derived
@@ -137,6 +138,7 @@ final class KeepAwakeCoordinator {
         withObservationTracking {
             _ = engine.activeTabs
             _ = sessions.remoteControlledTabs
+            _ = engine.backgroundTaskTabs
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
         } onChange: { [weak self] in
@@ -151,14 +153,16 @@ final class KeepAwakeCoordinator {
 
     // MARK: - Deciding
 
-    /// A tab is a reason when it is working, or when it is remotely
-    /// controlled, or when it wants the user *and* is remotely controlled.
+    /// A tab is a reason when it is working, when it is remotely controlled,
+    /// when it wants the user *and* is remotely controlled, or when it has a
+    /// background task still running.
     ///
     /// A tab waiting for an answer with no Remote Control is not a reason: no
     /// work is happening, and nobody is coming to answer it.
     static func deriveReasons(
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
-        remoteControlledTabs: [(taskID: UUID, tabID: UUID)]
+        remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
+        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] = []
     ) -> [KeepAwakeReason] {
         let remoteTabIDs = Set(remoteControlledTabs.map(\.tabID))
 
@@ -169,9 +173,12 @@ final class KeepAwakeCoordinator {
         let remote = remoteControlledTabs
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .remoteControl) }
 
+        let background = backgroundTaskTabs
+            .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .backgroundTask($0.kind)) }
+
         // Dictionary order is arbitrary; sorting keeps the panel from
         // reshuffling every time an unrelated tab changes status.
-        return (working + remote).sorted { $0.id < $1.id }
+        return (working + remote + background).sorted { $0.id < $1.id }
     }
 
     /// Whether to hold the Mac awake, or why not.
@@ -208,11 +215,13 @@ final class KeepAwakeCoordinator {
         ))
     }
 
-    /// How many tabs are working, and whether any is remotely controlled, for
-    /// the sidebar row — where the whole reason list would not fit.
-    var tally: (working: Int, remotelyControlled: Bool) {
+    /// How many tabs are working, how many are running something in the
+    /// background, and whether any is remotely controlled — for the sidebar
+    /// row, where the whole reason list would not fit.
+    var tally: (working: Int, backgroundTasks: Int, remotelyControlled: Bool) {
         (
             working: reasons.count { if case .working = $0.kind { true } else { false } },
+            backgroundTasks: reasons.count { if case .backgroundTask = $0.kind { true } else { false } },
             remotelyControlled: reasons.contains { $0.kind == .remoteControl }
         )
     }
@@ -224,10 +233,14 @@ final class KeepAwakeCoordinator {
             return "Plume: Keep Awake is set to Always"
         }
         let working = reasons.count { if case .working = $0.kind { true } else { false } }
+        let background = reasons.count { if case .backgroundTask = $0.kind { true } else { false } }
         let remote = reasons.count { $0.kind == .remoteControl }
         var parts: [String] = []
         if working > 0 {
             parts.append("\(working) \(working == 1 ? "tab" : "tabs") working")
+        }
+        if background > 0 {
+            parts.append("\(background) background \(background == 1 ? "task" : "tasks")")
         }
         if remote > 0 {
             parts.append("\(remote) remotely controlled")

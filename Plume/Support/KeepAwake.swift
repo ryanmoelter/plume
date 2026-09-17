@@ -30,6 +30,10 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         /// is without looking it up again.
         case working(TaskStatus)
         case remoteControl
+        /// Something the agent started that outlives its turn — a monitor, a
+        /// backgrounded command, a workflow. One per tab however many are
+        /// running, since the panel lists reasons rather than counting tasks.
+        case backgroundTask(BackgroundTaskTracker.Kind)
     }
 
     let taskID: UUID
@@ -40,6 +44,7 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         let discriminator = switch kind {
         case .working: "working"
         case .remoteControl: "remote-control"
+        case .backgroundTask: "background-task"
         }
         return "\(tabID.uuidString)-\(discriminator)"
     }

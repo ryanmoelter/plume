@@ -50,6 +50,7 @@ final class TranscriptStore {
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
     private let debounce: Duration
     private let statusEngine: StatusEngine
+    private let backgroundTasks: BackgroundTaskTracker
     private let completionTracker: SubagentCompletionTracker
     private let statusOverrides: SubagentStatusOverrides
     /// Whether a live process backs a tab, checked across both transports. A
@@ -67,12 +68,14 @@ final class TranscriptStore {
     init(
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
+        backgroundTasks: BackgroundTaskTracker = .shared,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
+        self.backgroundTasks = backgroundTasks
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
         self.isTabLive = isTabLive
@@ -115,6 +118,7 @@ final class TranscriptStore {
         // Nothing watches this tab now, so a subagent that was working when
         // the watch stopped would otherwise pin the task at working forever.
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
+        backgroundTasks.forget(tabID: tabID)
     }
 
     func stopAll() {
@@ -133,6 +137,7 @@ final class TranscriptStore {
             statusEngine.setSubagentActivity(tabID: tabID, working: false)
         }
         subagentTranscripts.removeAll()
+        backgroundTasks.reset()
     }
 
     func transcript(forTab tabID: UUID) -> Transcript? {
@@ -244,7 +249,8 @@ final class TranscriptStore {
             let parsed = FileManager.default.contents(atPath: path).map {
                 (
                     TranscriptParser.parse($0),
-                    Self.readSubagents(transcriptPath: path, parentData: $0)
+                    Self.readSubagents(transcriptPath: path, parentData: $0),
+                    BackgroundTaskScanner.inFlight(parentData: $0)
                 )
             }
             await MainActor.run { [weak self] in
@@ -261,6 +267,12 @@ final class TranscriptStore {
                 self.transcripts[tabID] = parsed.0
                 self.subagentTranscripts[tabID] = self.settled(parsed.1, tabID: tabID)
                 self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
+                // A tab with nothing behind it has a transcript that is a
+                // record, not a running process, so its tasks stopped with it.
+                self.backgroundTasks.replace(
+                    tabID: tabID,
+                    entries: self.isTabLive(tabID) ? parsed.2 : []
+                )
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)
