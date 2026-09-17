@@ -23,9 +23,9 @@ struct ComposerControlsRow: View, ThemedView {
     @Bindable var tab: TaskTab
     let headlessSession: HeadlessSession?
     /// The plan a conversation has produced, when it's closed rather than
-    /// minimized or expanded — `ChatTabView` owns `PlanPresentation` and
-    /// decides when that's true. Minimized keeps its own dock bar above the
-    /// composer; expanded is a full overlay with nothing to open from here.
+    /// docked or expanded — `ChatTabView` owns `PlanPresentation` and decides
+    /// when that's true. A docked plan keeps its own bar above the composer;
+    /// expanded is a full overlay with nothing to open from here.
     var showsPlanButton = false
     var onOpenPlan: () -> Void = {}
 

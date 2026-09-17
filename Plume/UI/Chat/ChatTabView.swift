@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The chat rendering of an agent tab: the messages, with a floating panel
 /// over them carrying the composer above the statusline strip, and the plan
-/// dock tucked behind it when a plan is minimized. The conversation scrolls
-/// behind the glass rather than stopping at its top edge.
+/// dock tucked behind it when a plan is waiting on a decision. The
+/// conversation scrolls behind the glass rather than stopping at its top edge.
 struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -13,7 +13,7 @@ struct ChatTabView: View, ThemedView {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var settings = AppSettings.shared
-    @State private var planPresentation = PlanPresentation.closed
+    @State private var planPresentation = PlanPresentation.hidden(.closed)
     /// The last plan proposal the user answered here, so the footer can say
     /// where it landed once the live request is gone. Nil until they answer
     /// one in this tab — a plan approved before the app launched reads as
@@ -215,7 +215,7 @@ struct ChatTabView: View, ThemedView {
             tab.effort = effort
         }
         .onChange(of: planFilePath) { _, newPath in
-            if newPath == nil { planPresentation = .closed }
+            if newPath == nil { planPresentation = .hidden(.closed) }
         }
         // A proposal presents itself rather than waiting to be opened.
         // Interrupting a read is fine: the overlay minimizes to a dock bar,
@@ -223,13 +223,16 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: pendingPlan?.id) { _, id in
             guard id != nil else { return }
             settledPlan = nil
-            if planPresentation != .expanded { planPresentation = .expanded }
+            planPresentation = .expanded
+        }
+        .onChange(of: planApproval) { _, approval in
+            planPresentation = planPresentation.reconciled(with: approval)
         }
         .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
             persistHeadlessSessionID(sessionID)
         }
         .overlay {
-            if planPresentation == .expanded, let planFilePath {
+            if planPresentation.isExpanded, let planFilePath {
                 planPanel(path: planFilePath)
                     // The bar is the source whenever it exists, so the panel
                     // grows out of it; opened straight from the Plan button
@@ -300,13 +303,14 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
-    /// above it: the plan dock bar when a plan is minimized, then the
-    /// composer, then the session facts under it. One glass surface carries
-    /// all three. A closed plan's own button lives in the composer's controls
-    /// row instead of up here — see `ComposerControlsRow.showsPlanButton`.
+    /// above it: the plan dock bar when a plan is docked, then the composer,
+    /// then the session facts under it. One glass surface carries all three.
+    /// A closed plan's own button lives in the composer's controls row
+    /// instead of up here — see `ComposerControlsRow.showsPlanButton`.
     private func composerPanel(transcript: Transcript) -> some View {
-        VStack(spacing: 0) {
-            if let planFilePath, planPresentation == .minimized {
+        let isDocked = planPresentation.hiddenForm == .dockBar
+        return VStack(spacing: 0) {
+            if let planFilePath, isDocked {
                 planDockBar(path: planFilePath)
                     .transition(.opacity)
                 Divider()
@@ -315,9 +319,9 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
-                hasContentAbove: planPresentation == .minimized,
+                hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
-                showsPlanButton: planFilePath != nil && planPresentation == .closed,
+                showsPlanButton: planFilePath != nil && planPresentation.hiddenForm == .closed,
                 onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
@@ -426,29 +430,7 @@ struct ChatTabView: View, ThemedView {
                 Text((path as NSString).lastPathComponent)
                     .font(.headline)
                 Spacer()
-                Button {
-                    planPresentation = .minimized
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .emphasis(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Minimize")
-                .accessibilityLabel("Minimize")
-                .accessibilityIdentifier(AccessibilityID.planMinimizeButton)
-                if planApproval.isClosable {
-                    Button {
-                        planPresentation = .closed
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .emphasis(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.cancelAction)
-                    .help("Close")
-                    .accessibilityLabel("Close")
-                    .accessibilityIdentifier(AccessibilityID.planCloseButton)
-                }
+                hidePlanButton
             }
             .padding(12)
             Divider()
@@ -460,6 +442,27 @@ struct ChatTabView: View, ThemedView {
         .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .listItemPadding(bleed: true)
         .padding(.vertical, dimensions.panelInset)
+    }
+
+    /// One button for leaving the plan, whose form follows what leaving it
+    /// does: a live proposal can only be tucked into the dock bar, anything
+    /// else is dismissed outright.
+    @ViewBuilder
+    private var hidePlanButton: some View {
+        let isDockingOnly = planApproval == .awaitingDecision
+        Button {
+            planPresentation = .hidden(for: planApproval)
+        } label: {
+            Image(systemName: isDockingOnly ? "chevron.down" : "xmark.circle.fill")
+                .emphasis(.secondary)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
+        .help(isDockingOnly ? "Minimize" : "Close")
+        .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
+        .accessibilityIdentifier(
+            isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton
+        )
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -567,7 +570,7 @@ struct ChatTabView: View, ThemedView {
             settledPlan = .init(toolUseID: pendingPlan.id, decision: .approved)
         }
         planRejectionReason = ""
-        planPresentation = .minimized
+        planPresentation = .hidden(.closed)
     }
 
     private func planDockBar(path: String) -> some View {
@@ -604,19 +607,6 @@ struct ChatTabView: View, ThemedView {
             .help("Expand the plan")
             .accessibilityLabel("Expand the plan")
             .accessibilityIdentifier(AccessibilityID.planExpandButton)
-
-            if planApproval.isClosable {
-                Button {
-                    planPresentation = .closed
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .emphasis(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Close")
-                .accessibilityLabel("Close")
-                .accessibilityIdentifier(AccessibilityID.planCloseButton)
-            }
         }
         .font(.callout)
         // The one leading edge the composer's text and the statusline's

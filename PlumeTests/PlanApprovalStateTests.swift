@@ -72,7 +72,7 @@ struct PlanSummaryTests {
     }
 }
 
-/// The plan's own name, which the minimized dock bar shows beside the file
+/// The plan's own name, which the dock bar shows beside the file
 /// name.
 struct PlanTitleTests {
     @Test func takesTheTopLevelHeading() {
@@ -99,15 +99,37 @@ struct PlanTitleTests {
     }
 }
 
-/// While a proposal is live the overlay may only be minimized, so the
-/// approval options cannot leave the screen with the request still open.
-struct PlanClosabilityTests {
-    @Test func anUndecidedPlanCannotBeClosed() {
-        #expect(!PlanApprovalState.awaitingDecision.isClosable)
+/// Which form a not-shown plan takes, which is the whole of what the plan's
+/// state decides about its presentation.
+struct PlanPresentationTests {
+    /// The approval options live nowhere else, so hiding a live proposal must
+    /// leave the dock bar behind rather than dismissing it.
+    @Test func anUndecidedPlanHidesToTheDockBar() {
+        #expect(PlanPresentation.hidden(for: .awaitingDecision) == .hidden(.dockBar))
     }
 
-    @Test func anAnsweredPlanCanBeClosed() {
-        #expect(PlanApprovalState.approved.isClosable)
-        #expect(PlanApprovalState.notApprovedYet.isClosable)
+    @Test func anAnsweredPlanHidesToNothing() {
+        #expect(PlanPresentation.hidden(for: .approved) == .hidden(.closed))
+        #expect(PlanPresentation.hidden(for: .notApprovedYet) == .hidden(.closed))
+    }
+
+    @Test func reconcilingLeavesAnExpandedPlanAlone() {
+        #expect(PlanPresentation.expanded.reconciled(with: .approved) == .expanded)
+        #expect(PlanPresentation.expanded.reconciled(with: .awaitingDecision) == .expanded)
+    }
+
+    /// Answering a docked proposal drops its bar, and a fresh proposal while
+    /// the plan is closed brings one back.
+    @Test func reconcilingRefollowsTheApprovalState() {
+        #expect(PlanPresentation.hidden(.dockBar).reconciled(with: .approved) == .hidden(.closed))
+        #expect(PlanPresentation.hidden(.closed).reconciled(with: .awaitingDecision)
+            == .hidden(.dockBar))
+    }
+
+    @Test func onlyAnExpandedPlanReportsItself() {
+        #expect(PlanPresentation.expanded.isExpanded)
+        #expect(PlanPresentation.expanded.hiddenForm == nil)
+        #expect(!PlanPresentation.hidden(.dockBar).isExpanded)
+        #expect(PlanPresentation.hidden(.dockBar).hiddenForm == .dockBar)
     }
 }
