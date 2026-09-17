@@ -301,7 +301,13 @@ struct SettingsView: View {
                 Text(reason).foregroundStyle(.red)
             }
         case .ready, .engaged:
-            EmptyView()
+            LabeledContent("Sleep helper") {
+                HStack {
+                    Text("Installed").foregroundStyle(.secondary)
+                    Button("Uninstall…") { keepAwake.uninstallLidHelper() }
+                        .accessibilityIdentifier(AccessibilityID.keepAwakeLidUninstallButton)
+                }
+            }
         }
     }
 

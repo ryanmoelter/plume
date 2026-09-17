@@ -32,6 +32,7 @@ struct KeepAwakeTests {
     private final class FakeLidSleepOverride: LidSleepOverride {
         var status: LidSleepOverrideStatus = .notRegistered
         private(set) var registerCalls = 0
+        private(set) var unregisterCalls = 0
         private(set) var applications: [Bool] = []
         private(set) var isEngaged = false
 
@@ -52,6 +53,13 @@ struct KeepAwakeTests {
         }
 
         func refreshStatus() {}
+
+        func unregister() {
+            unregisterCalls += 1
+            if isEngaged { applications.append(false) }
+            isEngaged = false
+            status = .notRegistered
+        }
     }
 
     /// Stands in for `ThermalStateMonitor`, settable so a test can play a
@@ -612,6 +620,24 @@ struct KeepAwakeTests {
         coordinator.refresh()
         #expect(lid.registerCalls == 0)
         #expect(coordinator.lidOverrideStatus == .notRegistered)
+    }
+
+    @Test func uninstallingReleasesTheOverrideAndTurnsTheSettingOff() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.applications == [true])
+
+        coordinator.uninstallLidHelper()
+        #expect(lid.unregisterCalls == 1)
+        #expect(lid.applications == [true, false])
+        #expect(settings.keepsAwakeWithLidClosed == false)
+        #expect(coordinator.lidOverrideStatus == .notRegistered)
+        #expect(assertion.held != nil, "the plain hold is untouched")
     }
 
     @Test func installingRegistersAndMirrorsTheApprovalState() {

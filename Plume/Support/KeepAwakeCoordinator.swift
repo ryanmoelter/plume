@@ -136,6 +136,14 @@ final class KeepAwakeCoordinator {
         mirrorLidOverrideStatus()
     }
 
+    /// Removing the helper also turns the setting off, so a later reinstall
+    /// is an explicit choice rather than something the next hold does.
+    func uninstallLidHelper() {
+        settings.keepsAwakeWithLidClosed = false
+        lidOverride.unregister()
+        mirrorLidOverrideStatus()
+    }
+
     /// Recomputes the reason set and applies it. Idempotent, so redundant
     /// triggers cost nothing.
     func refresh() {

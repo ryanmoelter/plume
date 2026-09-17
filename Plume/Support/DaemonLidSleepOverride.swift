@@ -80,6 +80,22 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         }
     }
 
+    func unregister() {
+        guard status != .notRegistered else { return }
+        apply(false)
+        connection?.invalidate()
+        connection = nil
+        do {
+            try service.unregister()
+            Log.app.notice("Sleep helper unregistered")
+        } catch {
+            set(.unavailable("macOS refused to remove the sleep helper: \(error.localizedDescription)"))
+            Log.app.error("Sleep helper unregister failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        refreshStatus()
+    }
+
     func apply(_ engaged: Bool) {
         wantsEngaged = engaged
         if engaged {
