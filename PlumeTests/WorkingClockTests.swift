@@ -46,6 +46,28 @@ struct ElapsedScheduleTests {
         #expect(aged[1].timeIntervalSince(aged[0]) == 60)
     }
 
+    /// The working word changes on its own schedule, so its view needs a tick
+    /// even once the elapsed figure has gone quiet.
+    @Test func aCeilingKeepsAnAgedScheduleTicking() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let schedule = ElapsedSchedule(since: since, maximumInterval: WorkingVerb.slotDuration)
+
+        var later = schedule.entries(from: since.addingTimeInterval(600), mode: .normal)
+        let aged = (0..<3).compactMap { _ in later.next() }
+        #expect(aged[1].timeIntervalSince(aged[0]) == WorkingVerb.slotDuration)
+    }
+
+    /// The ceiling only ever shortens a gap: a young clock still counts
+    /// seconds rather than being slowed to the ceiling.
+    @Test func aCeilingNeverSlowsAYoungSchedule() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let schedule = ElapsedSchedule(since: since, maximumInterval: WorkingVerb.slotDuration)
+
+        var entries = schedule.entries(from: since, mode: .normal)
+        let early = (0..<3).compactMap { _ in entries.next() }
+        #expect(early[1].timeIntervalSince(early[0]) == 1)
+    }
+
     @Test func entriesAlwaysMoveForward() {
         let since = Date(timeIntervalSinceReferenceDate: 0)
         var entries = ElapsedSchedule(since: since).entries(from: since, mode: .normal)

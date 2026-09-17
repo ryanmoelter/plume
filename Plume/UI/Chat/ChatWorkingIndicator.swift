@@ -16,7 +16,12 @@ struct ChatWorkingIndicator: View, ThemedView {
                 // animation on purpose — animating a `Text` on every tick
                 // kept an interpolation running most of the time and cost a
                 // measurable share of the main thread.
-                TimelineView(ElapsedSchedule(since: workStartedAt)) { context in
+                TimelineView(
+                    ElapsedSchedule(
+                        since: workStartedAt,
+                        maximumInterval: WorkingVerb.slotDuration
+                    )
+                ) { context in
                     Text(caption(at: context.date, startedAt: workStartedAt))
                         .font(typography.caption.font)
                         .emphasis(.secondary)
