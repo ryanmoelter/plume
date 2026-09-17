@@ -23,13 +23,15 @@ enum MarkdownCache {
     private static var inlineCache: [String: AttributedString] = [:]
     private static var styledInlineCache: [StyledInlineKey: AttributedString] = [:]
 
-    /// Styling depends on the body size and the resolved tint as well as the
-    /// text, so all three key the cache — a font-size change or a light/dark
-    /// switch has to miss rather than return the previous appearance's chips.
+    /// Styling depends on the body size, the resolved tint, and the code
+    /// font's own size multiplier, as well as the text — all key the cache,
+    /// so a font-size change, a code-size change, or a light/dark switch has
+    /// to miss rather than return the previous appearance's chips.
     private struct StyledInlineKey: Hashable {
         let text: String
         let fontSize: CGFloat
         let tint: Color
+        let codeFontSizeMultiplier: Double
     }
 
     static func blocks(for markdown: String) -> [MarkdownBlock] {
@@ -65,11 +67,17 @@ enum MarkdownCache {
         fontSize: CGFloat,
         tint: Color
     ) -> AttributedString {
-        let key = StyledInlineKey(text: text, fontSize: fontSize, tint: tint)
+        let codeFontSizeMultiplier = AppSettings.shared.codeFontSizeMultiplier
+        let key = StyledInlineKey(
+            text: text,
+            fontSize: fontSize,
+            tint: tint,
+            codeFontSizeMultiplier: codeFontSizeMultiplier
+        )
         if let cached = styledInlineCache[key] { return cached }
 
         var attributed = inline(text)
-        let codeFont = Font.system(size: fontSize * 0.92, design: .monospaced)
+        let codeFont = Font.chatCode(size: fontSize * 0.92 * codeFontSizeMultiplier)
         for run in attributed.runs where run.inlinePresentationIntent == .code {
             attributed[run.range].font = codeFont
             attributed[run.range].backgroundColor = tint
