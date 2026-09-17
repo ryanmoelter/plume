@@ -196,15 +196,9 @@ struct SettingsView: View {
                     .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
                 sleepHelperRow
                 if settings.keepsAwakeWithLidClosed {
-                    Picker("Allow sleep when temperature is", selection: $settings.lidClosedThermalCutoff) {
-                        ForEach(ThermalCutoffLevel.allCases) { level in
-                            Text(level.label).tag(level)
-                        }
+                    LabeledContent("Allow sleep when temperature is") {
+                        ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                     }
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
-                    Text(settings.lidClosedThermalCutoff.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Keep Awake")

@@ -19,7 +19,7 @@ Every change ends with a clean build and a manual run. `PlumeUITests` launches t
 
 ## Releasing locally
 
-Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because the sleep helper daemon only registers out of a notarized app. **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
+Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build registers too in practice, so the flow is testable without a release). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
 Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. The one exception is `PlumeSleepHelper`, a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`; the install script signs it before the outer bundle, since `codesign` without `--deep` leaves nested code alone.
 

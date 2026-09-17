@@ -60,7 +60,8 @@ enum LidCloseGuidance: Equatable, Sendable {
     var note: String? {
         switch self {
         case .staysAwakeWhileHolding, .staysAwakeViaHelper:
-            "The helper releases this on its own if Plume quits or crashes."
+            "Connect to your phone hotspot, throw your laptop in your bag, "
+                + "and know that Plume will put it to sleep if it gets too hot."
         case .pausedForHeat:
             "Paused while the Mac is running hot."
         case .helperUnavailable(let reason):

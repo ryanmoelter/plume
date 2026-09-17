@@ -998,12 +998,12 @@ struct LidCloseGuidanceTests {
         #expect(guidance.offersInstall == false)
     }
 
-    /// The daemon clears the override when Plume's connection drops, so the
-    /// checked states reassure about a force quit rather than warn about it.
-    @Test func theCheckedStatesReassureAboutAForceQuit() {
+    /// The checked states are the only ones that promise anything, and the
+    /// promise includes the thermal release.
+    @Test func theCheckedStatesPromiseTheHotCutoff() {
         for override in [LidSleepOverrideStatus.ready, .engaged] {
             let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
-            #expect(guidance.note?.lowercased().contains("quits") == true, "\(override)")
+            #expect(guidance.note?.lowercased().contains("too hot") == true, "\(override)")
         }
         #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready) == .staysAwakeWhileHolding)
         #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .engaged) == .staysAwakeViaHelper)
