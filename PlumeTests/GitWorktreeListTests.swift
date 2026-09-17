@@ -62,63 +62,63 @@ struct GitWorktreeListTests {
 }
 
 struct RecentFoldersTests {
+    /// A suite of its own per test, so a list written here never meets the
+    /// shared defaults — which the app's own launch migration also writes.
+    private func withStoredList(_ paths: [String], _ body: (UserDefaults) -> Void) {
+        let name = "plume-recent-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: name) else { return }
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(paths, forKey: "recentRepositories")
+        body(defaults)
+    }
+
     @Test func mostRecentSkipsAFolderThatNoLongerExists() throws {
         let existing = FileManager.default.temporaryDirectory
             .appending(path: "plume-recent-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: existing, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: existing) }
 
-        let missing = "/nonexistent/plume-\(UUID().uuidString)"
-        let saved = RecentFolders.load()
-        defer { UserDefaults.standard.set(saved, forKey: "recentRepositories") }
-        UserDefaults.standard.set([missing, existing], forKey: "recentRepositories")
-
-        #expect(RecentFolders.mostRecent == existing)
-    }
-
-    private func withStoredList(_ paths: [String], _ body: () -> Void) {
-        let saved = RecentFolders.load()
-        defer { UserDefaults.standard.set(saved, forKey: "recentRepositories") }
-        UserDefaults.standard.set(paths, forKey: "recentRepositories")
-        body()
+        withStoredList(["/nonexistent/plume-\(UUID().uuidString)", existing]) { defaults in
+            #expect(RecentFolders.mostRecent(in: defaults) == existing)
+        }
     }
 
     @Test func migratingReplacesAWorktreeWithItsProject() {
-        withStoredList(["/repo/.worktrees/feature"]) {
-            RecentFolders.migrateWorktreesToProjects { _ in "/repo" }
-            #expect(RecentFolders.load() == ["/repo"])
+        withStoredList(["/repo/.worktrees/feature"]) { defaults in
+            RecentFolders.migrateWorktreesToProjects(in: defaults) { _ in "/repo" }
+            #expect(RecentFolders.load(from: defaults) == ["/repo"])
         }
     }
 
     @Test func migratingCollapsesTwoWorktreesOfOneProject() {
-        withStoredList(["/repo/.worktrees/a", "/repo/.worktrees/b"]) {
-            RecentFolders.migrateWorktreesToProjects { _ in "/repo" }
-            #expect(RecentFolders.load() == ["/repo"])
+        withStoredList(["/repo/.worktrees/a", "/repo/.worktrees/b"]) { defaults in
+            RecentFolders.migrateWorktreesToProjects(in: defaults) { _ in "/repo" }
+            #expect(RecentFolders.load(from: defaults) == ["/repo"])
         }
     }
 
     @Test func migratingKeepsTheOrderAProjectAlreadyHad() {
-        withStoredList(["/repo", "/other", "/repo/.worktrees/a"]) {
-            RecentFolders.migrateWorktreesToProjects { path in
+        withStoredList(["/repo", "/other", "/repo/.worktrees/a"]) { defaults in
+            RecentFolders.migrateWorktreesToProjects(in: defaults) { path in
                 path.hasPrefix("/repo") ? "/repo" : "/other"
             }
-            #expect(RecentFolders.load() == ["/repo", "/other"])
+            #expect(RecentFolders.load(from: defaults) == ["/repo", "/other"])
         }
     }
 
     @Test func migratingDropsADirectoryGitNoLongerKnows() {
-        withStoredList(["/gone", "/repo"]) {
-            RecentFolders.migrateWorktreesToProjects { path in
+        withStoredList(["/gone", "/repo"]) { defaults in
+            RecentFolders.migrateWorktreesToProjects(in: defaults) { path in
                 path == "/gone" ? nil : "/repo"
             }
-            #expect(RecentFolders.load() == ["/repo"])
+            #expect(RecentFolders.load(from: defaults) == ["/repo"])
         }
     }
 
     @Test func migratingLeavesASettledListAlone() {
-        withStoredList(["/repo", "/other"]) {
-            RecentFolders.migrateWorktreesToProjects { path in path }
-            #expect(RecentFolders.load() == ["/repo", "/other"])
+        withStoredList(["/repo", "/other"]) { defaults in
+            RecentFolders.migrateWorktreesToProjects(in: defaults) { path in path }
+            #expect(RecentFolders.load(from: defaults) == ["/repo", "/other"])
         }
     }
 }

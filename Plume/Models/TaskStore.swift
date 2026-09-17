@@ -33,7 +33,7 @@ enum TaskStore {
             task.repoPath = source.repoPath
             task.branchName = source.branchName
             task.workspaceKind = .directory
-        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent {
+        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent() {
             task.workingDirectoryPath = folder
             task.workspaceKind = .directory
             // Filled in once `git` answers: creating a task must not wait on
