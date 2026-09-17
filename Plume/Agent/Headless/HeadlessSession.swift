@@ -380,9 +380,14 @@ final class HeadlessSession {
             if let delta = event.textDelta { streamingText += delta }
             if let delta = event.thinkingDelta { streamingThinking += delta }
 
-        case .assistant, .user:
+        case .assistant:
             // History comes from the transcript file, which the parser already
-            // renders. Envelopes only mark that the turn is producing content.
+            // renders. The envelope only marks that the turn is producing
+            // content — but a task notification starts a turn with no host
+            // input, so this is the only thing that reports one at all.
+            if !isWorking, !hasExited { beginUnpromptedTurn() }
+
+        case .user:
             break
 
         case .result(let result):
@@ -493,9 +498,16 @@ final class HeadlessSession {
     }
 
     private func beginTurn() {
-        isWorking = true
         streamingText = ""
         streamingThinking = ""
+        beginUnpromptedTurn()
+    }
+
+    /// A turn nothing here asked for, so the streamed text stays put: a
+    /// `message_start` clears it, and clearing it now would drop the previous
+    /// turn's reply before the transcript has caught up with it.
+    private func beginUnpromptedTurn() {
+        isWorking = true
         lastError = nil
         wasInterrupted = false
         StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
