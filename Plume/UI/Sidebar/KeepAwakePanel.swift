@@ -134,14 +134,14 @@ struct KeepAwakePanel: View {
         case .never:
             Text("Keep Awake is off.").foregroundStyle(Emphasis.secondary.textHierarchy)
         case .always:
-            coordinator.isHolding ? holding : notKeepingAwake(notHoldingReason)
+            coordinator.isHolding ? holding : canSleep(notHoldingReason)
         case .auto:
             if coordinator.isHolding {
                 holding
             } else if coordinator.reasons.isEmpty {
-                notKeepingAwake("No work happening.")
+                canSleep("No work happening.")
             } else {
-                notKeepingAwake(notHoldingReason)
+                canSleep(notHoldingReason)
             }
         }
     }
@@ -151,8 +151,8 @@ struct KeepAwakePanel: View {
         Text("Keeping your Mac awake.").foregroundStyle(ChatRole.warning(for: colorScheme))
     }
 
-    private func notKeepingAwake(_ reason: String) -> Text {
-        (Text("Not keeping awake").bold() + Text(" • \(reason)")).foregroundStyle(Emphasis.secondary.textHierarchy)
+    private func canSleep(_ reason: String) -> Text {
+        (Text("Your Mac can sleep").bold() + Text(" • \(reason)")).foregroundStyle(Emphasis.secondary.textHierarchy)
     }
 
     /// Something wanted the Mac awake and it is still not held. On battery

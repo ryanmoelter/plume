@@ -1,5 +1,7 @@
 import Foundation
 import IOKit
+import IOKit.ps
+import IOKit.pwr_mgt
 import os
 
 // The privileged helper behind "Keep awake with the lid closed". launchd starts
@@ -40,6 +42,32 @@ enum RootDomain {
     }
 }
 
+enum Lid {
+    static var isClosed: Bool {
+        let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard root != IO_OBJECT_NULL else { return false }
+        defer { IOObjectRelease(root) }
+        return IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Bool ?? false
+    }
+
+    /// Clamshell mode (shut lid, external display, still in use) needs the
+    /// power adapter, so on battery a shut lid can only mean the Mac is put
+    /// away. This is the fallback when no client said which it is.
+    static var onBattery: Bool {
+        IOPSGetProvidingPowerSourceType(nil)?.takeRetainedValue() as String? == kIOPMBatteryPowerKey
+    }
+}
+
+enum SystemSleep {
+    static func request() -> kern_return_t {
+        let port = IOPMFindPowerManagement(kIOMainPortDefault)
+        guard port != IO_OBJECT_NULL else { return KERN_FAILURE }
+        defer { IOServiceClose(port) }
+        return IOPMSleepSystem(port)
+    }
+}
+
 /// One client at a time owns the override. All state lives on `queue`.
 final class Lease: @unchecked Sendable {
     static let shared = Lease()
@@ -60,7 +88,14 @@ final class Lease: @unchecked Sendable {
         }
     }
 
-    func release(for client: ObjectIdentifier?, reason: String, reply: ((Bool, String?) -> Void)? = nil) {
+    /// `sleepIfLidClosed` nil means the client did not say, so the helper
+    /// sleeps a shut lid only on battery.
+    func release(
+        for client: ObjectIdentifier?,
+        reason: String,
+        sleepIfLidClosed: Bool? = nil,
+        reply: ((Bool, String?) -> Void)? = nil
+    ) {
         queue.async {
             // A client may only release its own lease, but the helper itself
             // (nil client) may release anything.
@@ -75,6 +110,21 @@ final class Lease: @unchecked Sendable {
             self.watchdog?.cancel()
             self.watchdog = nil
             reply?(now, kr == KERN_SUCCESS ? nil : "IORegistryEntrySetCFProperty returned \(kr)")
+            self.sleepIfPutAway(clientSays: sleepIfLidClosed)
+        }
+    }
+
+    /// The lid closed while sleep was disabled, so powerd already made its
+    /// decision for this close; only a fresh sleep request puts the Mac down.
+    private func sleepIfPutAway(clientSays: Bool?) {
+        guard Lid.isClosed else { return }
+        let wants = clientSays ?? Lid.onBattery
+        log.notice("lid is closed on release: sleep=\(wants) (client=\(String(describing: clientSays)) battery=\(Lid.onBattery))")
+        guard wants else { return }
+        // Let the setting land in powerd before asking it to sleep.
+        queue.asyncAfter(deadline: .now() + 1) {
+            let kr = SystemSleep.request()
+            log.notice("sleep request after lid-closed release: kr=\(kr)")
         }
     }
 
@@ -116,6 +166,10 @@ final class ClientSession: NSObject, SleepHelperProtocol {
         } else {
             Lease.shared.release(for: id, reason: "client asked", reply: reply)
         }
+    }
+
+    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void) {
+        Lease.shared.release(for: id, reason: "client asked", sleepIfLidClosed: sleepIfLidClosed, reply: reply)
     }
 
     func currentState(reply: @escaping (Bool) -> Void) {

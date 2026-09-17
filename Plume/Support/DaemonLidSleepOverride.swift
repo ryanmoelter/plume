@@ -142,8 +142,9 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         guard isEngaged || engagePending else { return }
         isEngaged = false
         engagePending = false
-        proxy()?.setSleepDisabled(false) { _, _ in }
-        Log.app.notice("Lid-closed override released")
+        let sleepIfLidClosed = !ExternalDisplay.isConnected
+        proxy()?.releaseOverride(sleepIfLidClosed: sleepIfLidClosed) { _, _ in }
+        Log.app.notice("Lid-closed override released (sleepIfLidClosed=\(sleepIfLidClosed))")
         refreshStatus()
     }
 

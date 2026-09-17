@@ -161,7 +161,7 @@ The tests cover the coordinator's decisions against a fake; the daemon itself ne
 3. `/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume.SleepHelper"' --last 10m --info` shows the engage, heartbeat, and release.
 4. `kill -9` the running Plume with the override engaged; the same `ioreg` read flips back to `No` within a few seconds.
 5. On battery, with both battery and lid toggles on, close the lid for a minute with an agent working. The transcript keeps growing.
-6. With the lid still closed, let the agent finish (or turn the lid toggle off). The Mac should sleep within a minute of the override releasing, without reopening the lid; if it stays awake until the next lid event, that is a gap to fix.
+6. With the lid still closed, let the agent finish (or turn the lid toggle off). powerd does not revisit a lid that closed while sleep was disabled, so the helper requests the sleep itself about a second after the release (`IOPMSleepSystem`, root only). The helper log shows `lid is closed on release: sleep=true` and then `sleep request … kr=0`, and `pmset -g log` gains a Sleep entry. The app passes `sleepIfLidClosed=false` when an external display is attached, and a release with no client (crash, watchdog) sleeps a shut lid only on battery.
 
 ## The store survives releases
 

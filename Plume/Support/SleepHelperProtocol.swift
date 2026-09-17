@@ -26,6 +26,11 @@ nonisolated let sleepHelperLeaseTimeout: TimeInterval = 90
 /// app never has to trust its own bookkeeping about root-owned state.
 @objc protocol SleepHelperProtocol {
     func setSleepDisabled(_ disabled: Bool, reply: @escaping (Bool, String?) -> Void)
+    /// Clears the override and, when `sleepIfLidClosed` is set and the lid is
+    /// shut, sleeps the Mac: powerd does not revisit a lid that closed while
+    /// sleep was disabled. The app passes false when an external display is
+    /// attached, because a shut lid is then clamshell mode, not a bag.
+    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void)
     func currentState(reply: @escaping (Bool) -> Void)
     func heartbeat(reply: @escaping (Bool) -> Void)
 }

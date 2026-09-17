@@ -168,8 +168,8 @@ struct SidebarFooter: View, ThemedView {
 
     private var keepAwakeHelp: String {
         switch coordinator.offReason {
-        case .battery: return "Not keeping your Mac awake while on battery"
-        case .batteryLow(let percent): return "Not keeping your Mac awake while below \(percent)% battery"
+        case .battery: return "Your Mac can sleep while on battery"
+        case .batteryLow(let percent): return "Your Mac can sleep while below \(percent)% battery"
         case .refused, nil: break
         }
         if isLidOverrideEngaged { return "Keeping your Mac awake, even with the lid closed" }
