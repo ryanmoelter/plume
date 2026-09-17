@@ -311,7 +311,7 @@ struct SettingsView: View {
     private var batteryCutoffLabel: String {
         settings.keepAwakeBatteryCutoffPercent == 0
             ? "No battery cutoff"
-            : "Stop below \(settings.keepAwakeBatteryCutoffPercent)%"
+            : "Allow sleep below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     private var helperStatusText: String {

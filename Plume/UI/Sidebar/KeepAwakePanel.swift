@@ -22,9 +22,9 @@ struct KeepAwakePanel: View {
             .labelsHidden()
             .accessibilityIdentifier(AccessibilityID.keepAwakeModePicker)
 
-            Text(summary)
+            summary
                 .font(.callout)
-                .emphasis(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if settings.keepAwakeMode != .never, !coordinator.reasons.isEmpty {
                 Divider()
@@ -59,7 +59,11 @@ struct KeepAwakePanel: View {
                 .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
             }
 
-            Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+            Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
+                // Red because this is what turns the sidebar row red.
+                Text("Keep awake with the lid closed")
+                    .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
+            }
                 .disabled(!coordinator.lidOverrideStatus.canEngage)
                 .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
                 .help(
@@ -116,25 +120,39 @@ struct KeepAwakePanel: View {
             Text(note)
                 .font(.callout)
                 .emphasis(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
         }
     }
 
-    private var summary: String {
+    private var lidToggleIsOn: Bool {
+        settings.keepsAwakeWithLidClosed && coordinator.lidOverrideStatus.canEngage
+    }
+
+    private var summary: Text {
         switch settings.keepAwakeMode {
         case .never:
-            "Keep Awake is off."
+            Text("Keep Awake is off.").foregroundStyle(Emphasis.secondary.textHierarchy)
         case .always:
-            coordinator.isHolding ? "Holding the Mac awake." : notHoldingReason
+            coordinator.isHolding ? holding : notKeepingAwake(notHoldingReason)
         case .auto:
             if coordinator.isHolding {
-                "Holding the Mac awake."
+                holding
             } else if coordinator.reasons.isEmpty {
-                "Not holding — nothing needs it."
+                notKeepingAwake("No work happening.")
             } else {
-                notHoldingReason
+                notKeepingAwake(notHoldingReason)
             }
         }
+    }
+
+    /// Warning, like the sidebar row: the Mac staying up is worth knowing.
+    private var holding: Text {
+        Text("Keeping your Mac awake.").foregroundStyle(ChatRole.warning(for: colorScheme))
+    }
+
+    private func notKeepingAwake(_ reason: String) -> Text {
+        (Text("Not keeping awake").bold() + Text(" • \(reason)")).foregroundStyle(Emphasis.secondary.textHierarchy)
     }
 
     /// Something wanted the Mac awake and it is still not held. On battery
@@ -142,16 +160,16 @@ struct KeepAwakePanel: View {
     /// panel should not dress up as a choice.
     private var notHoldingReason: String {
         switch coordinator.offReason {
-        case .battery: "Not holding — the Mac is on battery."
-        case .batteryLow(let percent): "Not holding — battery is at \(percent)%."
-        case .refused, nil: "Not holding — the system refused."
+        case .battery: "Your Mac is on battery."
+        case .batteryLow(let percent): "Battery is at \(percent)%."
+        case .refused, nil: "macOS refused."
         }
     }
 
     private var batteryCutoffLabel: String {
         settings.keepAwakeBatteryCutoffPercent == 0
             ? "No battery cutoff"
-            : "Stop below \(settings.keepAwakeBatteryCutoffPercent)%"
+            : "Allow sleep below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     /// Falls back to the task's title, because a tab only has one once its

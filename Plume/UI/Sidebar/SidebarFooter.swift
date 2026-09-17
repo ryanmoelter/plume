@@ -54,6 +54,7 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(
                         icon: keepAwakeIcon,
                         title: keepAwakeTitle,
+                        subtitle: keepAwakeSubtitle,
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
                         detail: keepAwakeDetail,
@@ -101,8 +102,19 @@ struct SidebarFooter: View, ThemedView {
 
     /// Tinted only while held. Warning rather than attention: the Mac staying
     /// up is a condition worth knowing about, not the agent wanting the user.
+    /// Danger once the lid override is engaged, since a shut Mac in a bag is
+    /// a step past "worth knowing about".
     private var keepAwakeTint: Color? {
-        coordinator.isHolding ? ChatRole.warning(for: colorScheme) : nil
+        guard coordinator.isHolding else { return nil }
+        return isLidOverrideEngaged ? ChatRole.danger(for: colorScheme) : ChatRole.warning(for: colorScheme)
+    }
+
+    private var isLidOverrideEngaged: Bool {
+        coordinator.isHolding && coordinator.lidOverrideStatus == .engaged
+    }
+
+    private var keepAwakeSubtitle: String? {
+        isLidOverrideEngaged ? "even if the lid is closed" : nil
     }
 
     /// The present participle says it is happening now, rather than naming
@@ -156,11 +168,12 @@ struct SidebarFooter: View, ThemedView {
 
     private var keepAwakeHelp: String {
         switch coordinator.offReason {
-        case .battery: return "Keep Awake is off while on battery"
-        case .batteryLow(let percent): return "Keep Awake stopped — battery is at \(percent)%"
+        case .battery: return "Not keeping your Mac awake while on battery"
+        case .batteryLow(let percent): return "Not keeping your Mac awake while below \(percent)% battery"
         case .refused, nil: break
         }
-        return coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
+        if isLidOverrideEngaged { return "Keeping your Mac awake, even with the lid closed" }
+        return coordinator.isHolding ? "Keeping your Mac awake" : "Your Mac can sleep"
     }
 
     /// The last row's wash sits inside the window's corner, so it curves
@@ -181,6 +194,9 @@ enum SidebarFooterMetrics {
 private struct SidebarFooterRow: View {
     let icon: String
     let title: String
+    /// A dim second line under the title, for state the title alone would
+    /// understate.
+    var subtitle: String?
     /// Set only when the row carries state of its own, which the footer's
     /// plain rows do not. Tints the title too, not just the icon.
     var iconTint: Color?
@@ -201,7 +217,7 @@ private struct SidebarFooterRow: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
                 glyph
-                Text(title).contentTransition(.numericText())
+                titleBlock
                 Spacer(minLength: 4)
                 detailLabel
                 chevron
@@ -209,7 +225,7 @@ private struct SidebarFooterRow: View {
             HStack(spacing: 8) {
                 glyph
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).contentTransition(.numericText())
+                    titleBlock
                     detailLabel
                 }
                 Spacer(minLength: 0)
@@ -222,11 +238,26 @@ private struct SidebarFooterRow: View {
         .foregroundStyle(tintOrInherited)
         .animation(.default, value: icon)
         .animation(.default, value: title)
+        .animation(.default, value: subtitle)
         .animation(.default, value: detail)
         .animation(.default, value: detailSymbol)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private var titleBlock: some View {
+        if let subtitle {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title).contentTransition(.numericText())
+                Text(subtitle)
+                    .font(.caption)
+                    .emphasis(.secondary)
+            }
+        } else {
+            Text(title).contentTransition(.numericText())
+        }
     }
 
     /// One `Image` across both states, not a branch per state: an if/else
