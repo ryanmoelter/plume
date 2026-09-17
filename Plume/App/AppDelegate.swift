@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RecentFolders.migrateWorktreesToProjectsOnce()
         }
 
+        // App-lifetime, so it cannot leak or double-install the way a
+        // per-tab monitor would across tab and task switches.
+        TerminalShortcutMonitor.shared.install()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         #endif
