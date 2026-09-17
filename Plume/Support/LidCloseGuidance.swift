@@ -16,6 +16,8 @@ enum LidCloseGuidance: Equatable, Sendable {
     case staysAwakeViaHelper
     /// The helper is registered but waits on Login Items.
     case helperNeedsApproval
+    /// The helper has never been registered; the lid sleeps the Mac until it is.
+    case helperNotInstalled
     /// The helper failed, with the reason.
     case helperUnavailable(String)
     /// The override would otherwise be in effect, but the Mac is running hot
@@ -47,7 +49,9 @@ enum LidCloseGuidance: Equatable, Sendable {
             return .helperUnavailable(reason)
         case .ready where wantsLidClosed:
             return .staysAwakeWhileHolding
-        case .ready, .notRegistered:
+        case .notRegistered:
+            return .helperNotInstalled
+        case .ready:
             return .sleepsOnLidClose
         }
     }
@@ -55,7 +59,7 @@ enum LidCloseGuidance: Equatable, Sendable {
     /// The panel's one-line statement of what the lid does right now.
     var summary: String? {
         switch self {
-        case .sleepsOnLidClose:
+        case .sleepsOnLidClose, .helperNotInstalled:
             "Closing the lid sleeps the Mac and pauses every agent."
         case .staysAwakeWhileHolding:
             "The lid can stay closed whenever Plume is holding this Mac awake."
@@ -76,8 +80,10 @@ enum LidCloseGuidance: Equatable, Sendable {
     var explanation: String? {
         switch self {
         case .sleepsOnLidClose:
-            "Turn on “Keep awake with the lid closed” to override this. "
-                + "It installs a helper that needs a one-time admin approval."
+            "Turn on “Keep awake with the lid closed” to override this."
+        case .helperNotInstalled:
+            "Install Plume's sleep helper to override this. "
+                + "It needs a one-time approval in Login Items."
         case .helperNeedsApproval:
             "Allow Plume under “Allow in the Background”, then come back."
         default:
@@ -87,7 +93,10 @@ enum LidCloseGuidance: Equatable, Sendable {
 
     /// Whether to offer the System Settings shortcut, which only helps when
     /// the lid is what will stop the work.
-    var offersSystemSettings: Bool { self == .sleepsOnLidClose }
+    var offersSystemSettings: Bool { self == .sleepsOnLidClose || self == .helperNotInstalled }
+
+    /// Whether to offer the install button.
+    var offersInstall: Bool { self == .helperNotInstalled }
 
     /// Whether to offer the Login Items shortcut.
     var offersLoginItems: Bool { self == .helperNeedsApproval }

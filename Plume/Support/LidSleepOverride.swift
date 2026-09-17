@@ -12,6 +12,9 @@ enum LidSleepOverrideStatus: Equatable, Sendable {
     case engaged
     /// Registration or the helper itself failed, with the reason to show.
     case unavailable(String)
+
+    /// Whether an `apply(true)` can take effect right now.
+    var canEngage: Bool { self == .ready || self == .engaged }
 }
 
 /// The seam over the privileged helper, so the coordinator and the panel are

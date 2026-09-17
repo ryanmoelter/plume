@@ -129,6 +129,13 @@ final class KeepAwakeCoordinator {
         mirrorLidOverrideStatus()
     }
 
+    /// Registration prompts for approval, so it only ever runs from the
+    /// install button, never from a setting or at launch.
+    func installLidHelper() {
+        lidOverride.ensureRegistered()
+        mirrorLidOverrideStatus()
+    }
+
     /// Recomputes the reason set and applies it. Idempotent, so redundant
     /// triggers cost nothing.
     func refresh() {
@@ -171,11 +178,6 @@ final class KeepAwakeCoordinator {
             offReason = derivedOffReason
         }
 
-        // Registration prompts for approval, so it waits for the user to turn
-        // the setting on rather than happening at launch.
-        if settings.keepsAwakeWithLidClosed {
-            lidOverride.ensureRegistered()
-        }
         let cutoff = settings.lidClosedThermalCutoff
         let thermalState = thermal.state
         let wantsLidClosed = settings.keepsAwakeWithLidClosed

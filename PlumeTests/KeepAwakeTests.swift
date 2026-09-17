@@ -601,7 +601,29 @@ struct KeepAwakeTests {
         #expect(coordinator.lidOverrideStatus == .ready)
     }
 
-    @Test func turningTheSettingOnRegistersAndEngagesWithTheHold() {
+    /// Registration prompts for approval, so only the install button does it.
+    @Test func turningTheSettingOnNeverRegistersByItself() {
+        let engine = StatusEngine()
+        let lid = FakeLidSleepOverride()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+        #expect(lid.registerCalls == 0)
+        #expect(coordinator.lidOverrideStatus == .notRegistered)
+    }
+
+    @Test func installingRegistersAndMirrorsTheApprovalState() {
+        let lid = FakeLidSleepOverride()
+        let (coordinator, _, _) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
+
+        coordinator.installLidHelper()
+        #expect(lid.registerCalls == 1)
+        #expect(coordinator.lidOverrideStatus == .needsApproval)
+    }
+
+    @Test func theSettingOnAnApprovedHelperEngagesWithTheHold() {
         let engine = StatusEngine()
         let lid = FakeLidSleepOverride()
         lid.status = .ready
@@ -609,7 +631,6 @@ struct KeepAwakeTests {
         settings.keepsAwakeWithLidClosed = true
 
         coordinator.refresh()
-        #expect(lid.registerCalls == 1)
         #expect(lid.applications.isEmpty, "nothing is working yet")
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -693,6 +714,7 @@ struct KeepAwakeTests {
         let lid = FakeLidSleepOverride()
         let (coordinator, assertion, settings) = makeCoordinator(engine: engine, lidOverride: lid)
         settings.keepsAwakeWithLidClosed = true
+        coordinator.installLidHelper()
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
         coordinator.refresh()
 
@@ -922,19 +944,30 @@ struct KeepAwakeTests {
 /// says the lid can close.
 @MainActor
 struct LidCloseGuidanceTests {
-    @Test func aLidThatSleepsWarnsAndOffersSettings() {
+    @Test func aMissingHelperWarnsAndOffersInstallAndSettings() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
-        #expect(guidance == .sleepsOnLidClose)
+        #expect(guidance == .helperNotInstalled)
         #expect(guidance.summary != nil)
-        #expect(guidance.explanation != nil)
+        #expect(guidance.explanation?.lowercased().contains("install") == true)
+        #expect(guidance.offersInstall)
         #expect(guidance.offersSystemSettings)
         #expect(guidance.offersLoginItems == false)
+    }
+
+    @Test func onlyAMissingHelperOffersInstall() {
+        for override in [LidSleepOverrideStatus.needsApproval, .ready, .engaged, .unavailable("x")] {
+            let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: override)
+            #expect(guidance.offersInstall == false, "\(override)")
+        }
     }
 
     /// An approved helper that is not engaged still sleeps the Mac on lid
     /// close right now, so with the setting off it warns like any other.
     @Test func aReadyHelperWithTheSettingOffStillWarns() {
-        #expect(LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready) == .sleepsOnLidClose)
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
+        #expect(guidance == .sleepsOnLidClose)
+        #expect(guidance.offersInstall == false)
+        #expect(guidance.offersSystemSettings)
     }
 
     @Test func aReadyHelperWithTheSettingOnPromisesOnlyWhileHolding() {
@@ -976,7 +1009,7 @@ struct LidCloseGuidanceTests {
     }
 
     @Test func alwaysModeStillWarnsAboutTheLid() {
-        #expect(LidCloseGuidance.resolve(mode: .always, wantsLidClosed: false, override: .notRegistered) == .sleepsOnLidClose)
+        #expect(LidCloseGuidance.resolve(mode: .always, wantsLidClosed: false, override: .notRegistered) == .helperNotInstalled)
     }
 
     /// Until the override is in effect the text must not read as a promise

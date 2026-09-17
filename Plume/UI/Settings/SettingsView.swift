@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// The app's `Settings` scene (⌘,). A stub in v1: a worktree base path
@@ -6,6 +7,7 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var keepAwake = KeepAwakeCoordinator.shared
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
@@ -190,7 +192,9 @@ struct SettingsView: View {
                     )
                 }
                 Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .disabled(!keepAwake.lidOverrideStatus.canEngage)
                     .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+                sleepHelperRow
                 if settings.keepsAwakeWithLidClosed {
                     Picker("Allow sleep when temperature is", selection: $settings.lidClosedThermalCutoff) {
                         ForEach(ThermalCutoffLevel.allCases) { level in
@@ -209,8 +213,8 @@ struct SettingsView: View {
                     "the request on battery or under thermal load. The hold " +
                     "releases once the battery drops to or below the cutoff, " +
                     "unless it's charging. Closing the lid normally sleeps the Mac " +
-                    "regardless; keeping it awake with the " +
-                    "lid closed installs a privileged helper that needs a one-time " +
+                    "regardless; keeping it awake with the lid closed needs Plume's " +
+                    "sleep helper, a privileged daemon installed here with a one-time " +
                     "approval in Login Items, and only applies while Plume is " +
                     "already holding the Mac awake. The lid override releases on " +
                     "its own once the Mac reaches the chosen thermal level, since a " +
@@ -273,7 +277,32 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding(.vertical, 8)
-        .onAppear { helperState = CommandLineHelper.state() }
+        .onAppear {
+            helperState = CommandLineHelper.state()
+            keepAwake.refreshLidOverride()
+        }
+    }
+
+    @ViewBuilder
+    private var sleepHelperRow: some View {
+        switch keepAwake.lidOverrideStatus {
+        case .notRegistered:
+            LabeledContent("Sleep helper") {
+                Button("Install…") { keepAwake.installLidHelper() }
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+            }
+        case .needsApproval:
+            LabeledContent("Sleep helper") {
+                Button("Approve in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+            }
+        case .unavailable(let reason):
+            LabeledContent("Sleep helper") {
+                Text(reason).foregroundStyle(.red)
+            }
+        case .ready, .engaged:
+            EmptyView()
+        }
     }
 
     private var batteryCutoffLabel: String {

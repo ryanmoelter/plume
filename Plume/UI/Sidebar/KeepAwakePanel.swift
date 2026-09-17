@@ -60,9 +60,9 @@ struct KeepAwakePanel: View {
             }
 
             Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                .disabled(!coordinator.lidOverrideStatus.canEngage)
                 .help(
-                    "Installs a privileged helper that needs a one-time approval in Login Items. "
-                        + "Only applies while Plume is holding the Mac awake, so on battery it "
+                    "Only applies while Plume is holding the Mac awake, so on battery it "
                         + "also needs “Keep awake on battery”."
                 )
                 .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
@@ -114,6 +114,15 @@ struct KeepAwakePanel: View {
                     }
                     .buttonStyle(.link)
                     .font(.caption)
+                }
+
+                if guidance.offersInstall {
+                    Button("Install Sleep Helper…") {
+                        coordinator.installLidHelper()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
                 }
 
                 if guidance.offersLoginItems {

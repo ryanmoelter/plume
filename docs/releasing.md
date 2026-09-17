@@ -142,7 +142,7 @@ Two files ship for it and the build puts both in place:
 | `Contents/MacOS/PlumeSleepHelper` | The daemon, its own target, signed with hardened runtime |
 | `Contents/Library/LaunchDaemons/com.ryanmoelter.Plume.SleepHelper.plist` | The launchd job: `BundleProgram`, `MachServices`, `AssociatedBundleIdentifiers` |
 
-**Registration happens in the app, not the installer.** The first time the user turns the toggle on, `DaemonLidSleepOverride` calls `SMAppService.daemon(plistName:).register()`. That lands in `requiresApproval`, and macOS shows a notification; the user allows Plume under System Settings → General → Login Items & Extensions → *Allow in the Background*. The panel offers an "Open Login Items…" link while it waits, and polls every two seconds until the status flips to `enabled`. Nothing needs re-registering after an upgrade: launchd keys the job by label and reads the plist out of whatever bundle is at the app's path.
+**Registration happens in the app, not the installer.** The lid toggle stays disabled until the helper is approved; the "Install Sleep Helper…" button in the Keep Awake popover (or the Settings pane) calls `SMAppService.daemon(plistName:).register()` through `DaemonLidSleepOverride`. A never-registered daemon reads `.notFound` from `SMAppService`, not `.notRegistered` — the app treats both as "not installed". That lands in `requiresApproval`, and macOS shows a notification; the user allows Plume under System Settings → General → Login Items & Extensions → *Allow in the Background*. The panel offers an "Open Login Items…" link while it waits, and polls every two seconds until the status flips to `enabled`. Nothing needs re-registering after an upgrade: launchd keys the job by label and reads the plist out of whatever bundle is at the app's path.
 
 **Notarization is what makes registration possible.** Apple's `SMAppService.h` states that apps containing LaunchDaemons must be notarized. Registration itself does not check (a Developer ID signed, un-notarized bundle reaches `requiresApproval` in testing), so the failure would show up later and less clearly. Do not skip it.
 
@@ -152,7 +152,7 @@ Both sides check the other's code signature by team ID. Re-signing with a differ
 
 ### Manual checklist
 
-The tests cover the coordinator's decisions against a fake; the daemon itself needs a real install, and the lid needs a hand. After an install with the toggle on and an agent working:
+The tests cover the coordinator's decisions against a fake; the daemon itself needs a real install, and the lid needs a hand. After an install, with the helper installed and approved, the toggle on, and an agent working:
 
 1. System Settings → Login Items & Extensions → *Allow in the Background* lists Plume, enabled.
 2. `ioreg -r -n IOPMrootDomain -d 1 | grep SleepDisabled` reads `Yes` while the panel says the lid can stay closed, and `No` after the agent finishes.
