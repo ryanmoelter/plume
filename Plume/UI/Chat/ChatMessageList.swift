@@ -118,8 +118,8 @@ struct ChatMessageList: View, ThemedView {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
     }
 
-    /// Space to the left of the list that balances the minimap's column on
-    /// the right. Solved against the minimap's collapsed rail width, not its
+    /// Space to the left of the list that lines its text up with the composer
+    /// below. Solved against the minimap's collapsed rail width, not its
     /// revealed width: the reveal is an overlay that never changes layout, so
     /// balancing against it would make the text jump when the map opens.
     private var leftBalance: CGFloat {
