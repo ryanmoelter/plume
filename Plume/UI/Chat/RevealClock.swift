@@ -8,7 +8,7 @@ import SwiftUI
 /// starts waits that long before its own reveal begins.
 ///
 /// A class, and never read from a `body`, so holding it costs no
-/// invalidation — the same reason `ScrollFollowState` is one.
+/// invalidation.
 @MainActor
 final class RevealClock {
     private var busyUntil: Date = .distantPast

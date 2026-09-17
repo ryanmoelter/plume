@@ -1,15 +1,11 @@
 import Foundation
 
-/// Turns the transcript's messages into the list's lazy items.
+/// Turns the transcript's messages into the list's items.
 ///
-/// `LazyVStack` estimates the items it has not realized from the ones it has,
-/// and a realized set whose heights differ by a large factor never settles
-/// under momentum scrolling — the hang in `docs/chat-list-hang.md`. One item
-/// per message put a 2,000 pt reply beside a 23 pt notice, so the list places
-/// pieces instead: one markdown block, one tool call, one notice, each capped
-/// at `ChatPieceMetrics.maxPieceHeight` — by splitting a long list, and by
-/// bounding a long code block so it scrolls inside itself. Nothing the reader
-/// sees changes.
+/// One item per message would put a 2,000 pt reply beside a 23 pt notice, so
+/// the list places pieces instead: one markdown block, one tool call, one
+/// notice. Nothing the reader sees changes — `docs/chat-list-hang.md` records
+/// why the split exists.
 ///
 /// Pure, so the whole model can be tested without a view.
 enum ChatPieceSplitter {
@@ -324,9 +320,8 @@ enum ChatPieceSplitter {
         dimensions: Dimensions
     ) -> [Segmented] {
         switch block {
-        // A code block is never split. It stays one piece and `CodeSegmentView`
-        // bounds a long one at `ChatPieceMetrics.maxCodeHeight`, scrolling
-        // inside itself, so the reader keeps one continuous block to scroll.
+        // A code block is never split, so the reader keeps one continuous
+        // block to scroll.
         case .codeBlock(let language, let code):
             return [Segmented(
                 content: .codeSegment(CodeSegment(

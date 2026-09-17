@@ -25,17 +25,6 @@ struct ChatScrollAnchorTests {
 
 @Suite
 struct ChatScrollGrowthTests {
-    @Test func onlyANonGrowthChangeReflectsTheUserScroll() {
-        #expect(ChatScrollAnchor.reflectsUserScroll(
-            previousContentHeight: 900,
-            newContentHeight: 900
-        ))
-        #expect(!ChatScrollAnchor.reflectsUserScroll(
-            previousContentHeight: 900,
-            newContentHeight: 1200
-        ))
-    }
-
     /// The jump-back button must not appear at the follow threshold, or it
     /// flickers on and off while the chat is auto-following.
     @Test func detachmentSitsWellPastTheFollowThreshold() {

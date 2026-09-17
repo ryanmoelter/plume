@@ -203,7 +203,7 @@ struct ChatPieceSplitterTests {
     }
 
     /// A code block is one artifact: it stays one piece however long it is,
-    /// and the view bounds it instead.
+    /// and the view scrolls it instead.
     @Test func aLongCodeBlockStaysOnePiece() {
         let result = pieces([codeMessage(lines: 400)])
         #expect(result.map(\.id) == ["m/0/0"])
@@ -213,17 +213,6 @@ struct ChatPieceSplitterTests {
         }
         #expect(segment.language == "swift")
         #expect(segment.code.components(separatedBy: "\n").count == 400)
-        #expect(ChatPieceMetrics.scrollsCode(segment.code))
-    }
-
-    @Test func anOrdinaryCodeBlockDoesNotScrollInsideItself() {
-        let result = pieces([codeMessage(lines: 10)])
-        #expect(result.map(\.id) == ["m/0/0"])
-        guard case .codeSegment(let segment) = result[0].content else {
-            Issue.record("expected a code piece")
-            return
-        }
-        #expect(!ChatPieceMetrics.scrollsCode(segment.code))
     }
 
     @Test func aMermaidFenceIsOnePiece() {

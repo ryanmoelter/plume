@@ -15,20 +15,6 @@ enum ChatScrollAnchor {
         distanceFromBottom <= bottomTolerance
     }
 
-
-    /// Whether a geometry change reflects where the *user* put the view,
-    /// rather than content growing underneath it.
-    ///
-    /// Only the former may be recorded as the scroll position. Growth pushes
-    /// the bottom away from the viewport, so recording its distance reads as
-    /// "the user scrolled away" and stops the chat following new messages.
-    static func reflectsUserScroll(
-        previousContentHeight: CGFloat,
-        newContentHeight: CGFloat
-    ) -> Bool {
-        previousContentHeight == newContentHeight
-    }
-
     /// How far the user must be from the bottom before a jump-back button is
     /// worth offering. Well past `bottomTolerance`, so the button does not
     /// flicker in and out around the follow threshold, and past a screenful of
@@ -64,16 +50,4 @@ enum ChatScrollAnchor {
     static func isEligibleForLiveStatus(messageID: String, lastMessageID: String?) -> Bool {
         messageID == lastMessageID
     }
-}
-
-/// The two scroll-geometry numbers the chat reacts to, paired so a single
-/// `onScrollGeometryChange` reports both and can compare them against the
-/// previous pair.
-struct ChatScrollGeometry: Equatable {
-    var distanceFromBottom: CGFloat
-    var contentHeight: CGFloat
-    /// Zero while the list is offscreen, which is how a hidden tab is told
-    /// apart from a visible one scrolled to its top.
-    var viewportHeight: CGFloat = 0
-    var visibleMinY: CGFloat = 0
 }

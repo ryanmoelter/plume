@@ -107,23 +107,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Use the new chat layout", isOn: Binding(
-                    get: { settings.chatListEngine == .custom },
-                    set: { settings.chatListEngine = $0 ? .custom : .lazyStack }
-                ))
-            } header: {
-                Text("Chat Layout")
-            } footer: {
-                Text(
-                    "The new layout is Plume's own scrolling list: it pins a sent " +
-                    "prompt to the top of the view with room below for the reply, and " +
-                    "animates the conversation itself rather than each message. Off, the " +
-                    "list is the SwiftUI one it replaces. Takes effect on the next chat opened."
-                )
-                .foregroundStyle(.secondary)
-            }
-
-            Section {
                 Toggle("Animate chat message motion", isOn: $settings.animateChatMotion)
                 Toggle("Reveal streamed text a character at a time", isOn: $settings.animateCharacterReveal)
             } header: {

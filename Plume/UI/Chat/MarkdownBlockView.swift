@@ -305,13 +305,8 @@ struct ListSegmentView: View, ThemedView {
 }
 
 /// A fenced code block, always drawn whole.
-///
-/// Under a `ChatPieceLimits.maxCodeHeight`, a taller block is bounded at it
-/// and scrolls inside itself, which is what keeps it from towering over the
-/// lazy stack's other items (`ChatPieceSplitter`).
 struct CodeSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
-    @Environment(\.chatPieceLimits) private var limits
 
     let segment: CodeSegment
 
@@ -343,7 +338,7 @@ struct CodeSegmentView: View, ThemedView {
     private var code: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            scroller
+            lines
         }
         .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
     }
@@ -352,8 +347,6 @@ struct CodeSegmentView: View, ThemedView {
     ///
     /// An untagged fence says so rather than going blank, which keeps the
     /// copy button from sitting alone and every block in a reply lined up.
-    /// Its height is `ChatPieceMetrics.codeHeaderHeight`, which the scroll
-    /// ceiling counts.
     private var header: some View {
         HStack(spacing: 5) {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
@@ -372,19 +365,6 @@ struct CodeSegmentView: View, ThemedView {
         // The label is decoration; a drag over it should not start a
         // selection that competes with the code's own.
         .textSelection(.disabled)
-    }
-
-    /// A block over the ceiling gains a vertical scroll view and a fixed
-    /// height. A short one must not: a scroll view is greedy along its axis,
-    /// so wrapping every block would stretch each one to the full ceiling.
-    @ViewBuilder
-    private var scroller: some View {
-        if let ceiling = limits.maxCodeHeight, ChatPieceMetrics.scrollsCode(segment.code, ceiling: ceiling) {
-            ScrollView(.vertical) { lines }
-                .frame(height: ceiling - ChatPieceMetrics.codeHeaderHeight)
-        } else {
-            lines
-        }
     }
 
     private var lines: some View {

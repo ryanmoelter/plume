@@ -758,7 +758,6 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.revealClock, environment.revealClock)
             .environment(\.workStartedAt, environment.workStartedAt)
-            .environment(\.chatPieceLimits, .unbounded)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }
