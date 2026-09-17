@@ -32,6 +32,7 @@ final class AppSettings {
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
+        static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let chatListEngineRaw = "chatListEngineRaw"
     }
@@ -117,6 +118,7 @@ final class AppSettings {
         // Unset reads as false: turning this on installs a privileged helper
         // and asks for admin approval, which has to be the user's move.
         self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
+        self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
@@ -299,6 +301,14 @@ final class AppSettings {
     var keepsAwakeWithLidClosed: Bool {
         didSet {
             defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
+        }
+    }
+
+    /// Debug builds only: the live power readout at the bottom of the Keep
+    /// Awake popover, which polls while shown.
+    var showsKeepAwakeDebugReadout: Bool {
+        didSet {
+            defaults.set(showsKeepAwakeDebugReadout, forKey: Key.showsKeepAwakeDebugReadout)
         }
     }
 

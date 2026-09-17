@@ -3,9 +3,10 @@ import Foundation
 import IOKit
 import SwiftUI
 
-/// Temporary, debug-only readout for testing the lid override by hand:
-/// the live `SleepDisabled` value, the thermal level, and the last sleep and
-/// wake times. Polls every two seconds while the popover is open.
+/// Debug-only readout for testing the lid override by hand: the live
+/// `SleepDisabled` value, the thermal level, and the last sleep and wake
+/// times. Polls IOKit and sysctl every two seconds while shown, which is why
+/// it sits behind `AppSettings.showsKeepAwakeDebugReadout`.
 struct KeepAwakeDebugReadout: View {
     let coordinator: KeepAwakeCoordinator
 

@@ -82,7 +82,11 @@ struct KeepAwakePanel: View {
 
             #if DEBUG
             Divider()
-            KeepAwakeDebugReadout(coordinator: coordinator)
+            Toggle("Show power debug info", isOn: $settings.showsKeepAwakeDebugReadout)
+                .font(.caption)
+            if settings.showsKeepAwakeDebugReadout {
+                KeepAwakeDebugReadout(coordinator: coordinator)
+            }
             #endif
         }
         .padding(12)
