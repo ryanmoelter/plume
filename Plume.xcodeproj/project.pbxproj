@@ -134,6 +134,7 @@
 				C6A1E5F430464813003EAFC1 /* PlumeUITests */,
 				PL0000000000000000013 /* PlumeSleepHelper */,
 				PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */,
+				PL0000000000000000011 /* SleepHelperProtocol.swift */,
 				C6A1E5D930464812003EAFC1 /* Products */,
 			);
 			sourceTree = "<group>";
