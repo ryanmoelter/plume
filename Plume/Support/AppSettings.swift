@@ -31,6 +31,7 @@ final class AppSettings {
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
+        static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
         static let chatListEngineRaw = "chatListEngineRaw"
     }
 
@@ -111,6 +112,10 @@ final class AppSettings {
         self.keepAwakeBatteryCutoffPercent = defaults.object(forKey: Key.keepAwakeBatteryCutoffPercent) == nil
             ? Self.defaultKeepAwakeBatteryCutoffPercent
             : defaults.integer(forKey: Key.keepAwakeBatteryCutoffPercent)
+
+        // Unset reads as false: turning this on installs a privileged helper
+        // and asks for admin approval, which has to be the user's move.
+        self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
 
         self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
             .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
@@ -281,6 +286,15 @@ final class AppSettings {
                 return
             }
             defaults.set(keepAwakeBatteryCutoffPercent, forKey: Key.keepAwakeBatteryCutoffPercent)
+        }
+    }
+
+    /// Whether a hold also keeps the Mac awake through a lid close, via the
+    /// `PlumeSleepHelper` daemon. Rides on top of a hold, so on battery it
+    /// also needs `keepsAwakeOnBattery`.
+    var keepsAwakeWithLidClosed: Bool {
+        didSet {
+            defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
         }
     }
 

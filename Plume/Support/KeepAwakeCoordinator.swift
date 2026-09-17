@@ -36,11 +36,17 @@ final class KeepAwakeCoordinator {
     /// only the percentage moves, and nothing else in `refresh` changes.
     private(set) var powerSnapshot = PowerSnapshot(source: .ac, percent: nil, isCharging: false)
 
+    /// Where the lid-closed override stands. Mirrored for the same reason as
+    /// `isHolding`: the override's own status changes on XPC replies and
+    /// System Settings approvals, which never move `reasons`.
+    private(set) var lidOverrideStatus: LidSleepOverrideStatus = .notRegistered
+
     @ObservationIgnored private let engine: StatusEngine
     @ObservationIgnored private let sessions: HeadlessSessionManager
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let assertion: any SleepAssertion
     @ObservationIgnored private let powerSnapshotReader: () -> PowerSnapshot
+    @ObservationIgnored private let lidOverride: any LidSleepOverride
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var powerSourceObserver: CFRunLoopSource?
 
@@ -60,13 +66,15 @@ final class KeepAwakeCoordinator {
         sessions: HeadlessSessionManager = .shared,
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
-        powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot
+        powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot,
+        lidOverride: (any LidSleepOverride)? = nil
     ) {
         self.engine = engine
         self.sessions = sessions
         self.settings = settings
         self.assertion = assertion ?? IOKitSleepAssertion()
         self.powerSnapshotReader = powerSnapshot
+        self.lidOverride = lidOverride ?? DaemonLidSleepOverride()
     }
 
     // MARK: - Lifecycle
@@ -98,9 +106,17 @@ final class KeepAwakeCoordinator {
 
     func releaseForTermination() {
         assertion.apply(nil)
+        lidOverride.apply(false)
         reasons = []
         isHolding = false
         offReason = nil
+    }
+
+    /// For the panel opening: registration state lives in launchd and can
+    /// change while Plume is in the background.
+    func refreshLidOverride() {
+        lidOverride.refreshStatus()
+        mirrorLidOverrideStatus()
     }
 
     /// Recomputes the reason set and applies it. Idempotent, so redundant
@@ -144,6 +160,23 @@ final class KeepAwakeCoordinator {
         if offReason != derivedOffReason {
             offReason = derivedOffReason
         }
+
+        // Registration prompts for approval, so it waits for the user to turn
+        // the setting on rather than happening at launch.
+        if settings.keepsAwakeWithLidClosed {
+            lidOverride.ensureRegistered()
+        }
+        lidOverride.apply(Self.decideLidOverride(
+            decision: decision,
+            wantsLidClosed: settings.keepsAwakeWithLidClosed
+        ))
+        mirrorLidOverrideStatus()
+    }
+
+    private func mirrorLidOverrideStatus() {
+        if lidOverrideStatus != lidOverride.status {
+            lidOverrideStatus = lidOverride.status
+        }
     }
 
     /// Re-arms itself on every change, because `withObservationTracking` fires
@@ -158,6 +191,8 @@ final class KeepAwakeCoordinator {
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
+            _ = settings.keepsAwakeWithLidClosed
+            _ = lidOverride.status
         } onChange: { [weak self] in
             // The handler runs before the new value lands, so read it on the
             // next turn instead of the value being replaced.
@@ -237,6 +272,16 @@ final class KeepAwakeCoordinator {
             type: servesRemoteClients && power.source == .ac ? .networkClientActive : .preventIdleSystemSleep,
             reason: summary(reasons: reasons, mode: mode)
         ))
+    }
+
+    /// The lid override rides on a hold and never replaces one. So whatever
+    /// blocks the hold — Never mode, nothing working, battery not allowed or
+    /// too low — blocks the override too, and a Mac that is not being held
+    /// awake is never left unable to sleep.
+    static func decideLidOverride(decision: Decision, wantsLidClosed: Bool) -> Bool {
+        guard wantsLidClosed else { return false }
+        if case .hold = decision { return true }
+        return false
     }
 
     /// How many tabs are working, how many are running something in the

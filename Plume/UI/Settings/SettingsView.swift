@@ -189,6 +189,8 @@ struct SettingsView: View {
                         step: 5
                     )
                 }
+                Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
             } header: {
                 Text("Keep Awake")
             } footer: {
@@ -198,9 +200,11 @@ struct SettingsView: View {
                     "controlled agent waits for an answer. The system may ignore " +
                     "the request on battery or under thermal load. The hold " +
                     "releases once the battery drops to or below the cutoff, " +
-                    "unless it's charging. Closing the lid sleeps the Mac unless " +
-                    "it is in clamshell mode, and macOS gives apps no way to " +
-                    "override that."
+                    "unless it's charging. Closing the lid normally sleeps the Mac " +
+                    "regardless; keeping it awake with the " +
+                    "lid closed installs a privileged helper that needs a one-time " +
+                    "approval in Login Items, and only applies while Plume is " +
+                    "already holding the Mac awake."
                 )
                 .foregroundStyle(.secondary)
             }

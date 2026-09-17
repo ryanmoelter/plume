@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftData
 import SwiftUI
 
@@ -8,7 +9,6 @@ struct KeepAwakePanel: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
-    @State private var clamshell = IOKitClamshellState.shared
     @Query private var tasks: [WorkTask]
 
     var body: some View {
@@ -59,16 +59,28 @@ struct KeepAwakePanel: View {
                 .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
             }
 
+            Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                .help(
+                    "Installs a privileged helper that needs a one-time approval in Login Items. "
+                        + "Only applies while Plume is holding the Mac awake, so on battery it "
+                        + "also needs “Keep awake on battery”."
+                )
+                .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+
             lidClose
         }
         .padding(12)
         .frame(width: 280)
         .accessibilityIdentifier(AccessibilityID.keepAwakePanel)
-        .onAppear { clamshell.refresh() }
+        .onAppear { coordinator.refreshLidOverride() }
     }
 
     private var guidance: LidCloseGuidance {
-        .resolve(clamshell: clamshell.behavior, mode: settings.keepAwakeMode)
+        .resolve(
+            mode: settings.keepAwakeMode,
+            wantsLidClosed: settings.keepsAwakeWithLidClosed,
+            override: coordinator.lidOverrideStatus
+        )
     }
 
     @ViewBuilder
@@ -91,6 +103,15 @@ struct KeepAwakePanel: View {
                     }
                     .buttonStyle(.link)
                     .font(.caption)
+                }
+
+                if guidance.offersLoginItems {
+                    Button("Open Login Items…") {
+                        SMAppService.openSystemSettingsLoginItems()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
                 }
             }
             .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)

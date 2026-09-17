@@ -95,6 +95,10 @@ cp -R "$SRC" "$APP" || fail "could not stage the bundle"
 # lacks and notarization requires; --options runtime keeps the hardened runtime
 # the build already enables.
 echo "--- re-signing ---"
+# Inside out: without --deep codesign leaves nested code alone, and the outer
+# signature seals the helper, so the helper has to carry Developer ID first.
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  "$APP/Contents/MacOS/PlumeSleepHelper" || fail "codesign of the helper failed"
 codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP" \
   || fail "codesign failed"
 
