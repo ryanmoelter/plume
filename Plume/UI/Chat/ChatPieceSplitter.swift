@@ -4,8 +4,8 @@ import Foundation
 ///
 /// One item per message would put a 2,000 pt reply beside a 23 pt notice, so
 /// the list places pieces instead: one markdown block, one tool call, one
-/// notice. Nothing the reader sees changes — `docs/chat-list-hang.md` records
-/// why the split exists.
+/// notice. Nothing the reader sees changes — `docs/chat-list.md` records why
+/// the split exists.
 ///
 /// Pure, so the whole model can be tested without a view.
 enum ChatPieceSplitter {

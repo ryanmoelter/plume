@@ -111,7 +111,7 @@ struct ChatPieceView: View, ThemedView {
                         .emphasis(.subtle)
                         // A dated timestamp is long enough to wrap in a narrow
                         // column, and a two-line footer would change the
-                        // piece's height (`docs/chat-list-hang.md`).
+                        // piece's height (`docs/chat-list.md`).
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }

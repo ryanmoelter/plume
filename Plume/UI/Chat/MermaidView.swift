@@ -7,10 +7,9 @@ import WebKit
 /// text while mermaid loads and whenever it rejects the source.
 ///
 /// The web view reports its rendered height once and the row takes an explicit
-/// frame from it, so the chat's `LazyVStack` gets a row whose size stops
-/// changing — a view that kept resizing would reopen the placement loop in
-/// `docs/chat-list-hang.md`. Until that height lands the fallback occupies the
-/// row, so it is never blank.
+/// frame from it, so the chat list gets a row whose size stops changing.
+/// Until that height lands the fallback occupies the row, so it is never
+/// blank.
 ///
 /// Past `MermaidLayout.maximumInlineHeight` the row keeps that height and the
 /// diagram scales to fit inside it, so one tall diagram cannot own the whole

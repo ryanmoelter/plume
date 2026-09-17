@@ -100,9 +100,9 @@ struct ChatPieceSplitterTests {
         #expect(first[0].content == second[0].content)
     }
 
-    /// Ids must be unique across every kind of piece, because a duplicate id
-    /// in the `ForEach` thrashes the lazy stack's layout into the same freeze
-    /// `docs/chat-list-hang.md` records — a hang, with nothing visibly wrong.
+    /// Ids must be unique across every kind of piece: a duplicate id in a
+    /// `ForEach` was found to thrash SwiftUI's lazy layout into a hang, with
+    /// nothing visibly wrong (`docs/chat-list.md`).
     ///
     /// What keeps them unique is the depth of the `/`-separated path, not the
     /// kind: one component past the message id for a whole block, two for a

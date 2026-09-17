@@ -67,7 +67,7 @@ struct ChatScrollGrowthTests {
 /// The jump-back flag latches rather than tracking one threshold.
 ///
 /// The band is what keeps the flag from flipping on every scroll frame while
-/// the reader rests near it — see hypothesis 4 in `docs/chat-list-hang.md`.
+/// the reader rests near it — see `docs/chat-list.md`.
 @Suite
 struct ChatDetachHysteresisTests {
     @Test func detachingStillTakesTheFullThreshold() {

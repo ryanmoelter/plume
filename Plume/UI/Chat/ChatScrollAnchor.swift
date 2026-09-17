@@ -25,10 +25,11 @@ enum ChatScrollAnchor {
     ///
     /// Two thresholds rather than one, because a single one chatters: a
     /// distance resting near it flips the flag on every scroll frame, and
-    /// whatever renders from the flag then relayouts on every frame too.
-    /// `docs/chat-list-hang.md` records that as hypothesis 4. The band is
-    /// wider than any one momentum frame's travel, and still far enough out
-    /// that clearing the flag means the reader really is back at the bottom.
+    /// whatever renders from the flag then relayouts on every frame too —
+    /// `docs/chat-list.md` records why, in the history of the list this
+    /// replaced. The band is wider than any one momentum frame's travel, and
+    /// still far enough out that clearing the flag means the reader really
+    /// is back at the bottom.
     static let reattachThreshold: CGFloat = 200
 
     /// Whether the reader has scrolled far enough from the bottom to want a
