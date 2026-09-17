@@ -654,6 +654,15 @@ struct ChatTabView: View, ThemedView {
     /// removed: dropping it left a gap between sending the first message and
     /// the first line of transcript arriving.
     private func emptyState(isComposerEnabled: Bool) -> some View {
+        ScrollView {
+            GeometryReader { proxy in
+                emptyStateContent(isComposerEnabled: isComposerEnabled)
+                    .frame(minHeight: proxy.size.height)
+            }
+        }
+    }
+
+    private func emptyStateContent(isComposerEnabled: Bool) -> some View {
         VStack(spacing: 12) {
             Spacer()
             // The composer's own column, so the sentence is as wide as the
