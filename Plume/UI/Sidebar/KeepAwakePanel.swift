@@ -49,6 +49,16 @@ struct KeepAwakePanel: View {
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
+            if settings.keepsAwakeOnBattery {
+                Stepper(
+                    batteryCutoffLabel,
+                    value: $settings.keepAwakeBatteryCutoffPercent,
+                    in: 0...100,
+                    step: 5
+                )
+                .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
+            }
+
             lidClose
         }
         .padding(12)
@@ -110,8 +120,15 @@ struct KeepAwakePanel: View {
     private var notHoldingReason: String {
         switch coordinator.offReason {
         case .battery: "Not holding — the Mac is on battery."
+        case .batteryLow(let percent): "Not holding — battery is at \(percent)%."
         case .refused, nil: "Not holding — the system refused."
         }
+    }
+
+    private var batteryCutoffLabel: String {
+        settings.keepAwakeBatteryCutoffPercent == 0
+            ? "No battery cutoff"
+            : "Stop below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     /// Falls back to the task's title, because a tab only has one once its

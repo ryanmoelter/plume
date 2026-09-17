@@ -36,7 +36,7 @@ struct KeepAwakeTests {
         sessions: HeadlessSessionManager? = nil,
         settings: AppSettings? = nil,
         assertion: FakeSleepAssertion? = nil,
-        powerSource: KeepAwakeCoordinator.PowerSource = .ac
+        power: KeepAwakeCoordinator.PowerSnapshot = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false)
     ) -> (KeepAwakeCoordinator, FakeSleepAssertion, AppSettings) {
         let settings = settings ?? makeSettings()
         let assertion = assertion ?? FakeSleepAssertion()
@@ -45,10 +45,16 @@ struct KeepAwakeTests {
             sessions: sessions ?? HeadlessSessionManager(),
             settings: settings,
             assertion: assertion,
-            powerSource: { powerSource }
+            powerSnapshot: { power }
         )
         return (coordinator, assertion, settings)
     }
+
+    private func battery(percent: Int? = nil, isCharging: Bool = false) -> KeepAwakeCoordinator.PowerSnapshot {
+        KeepAwakeCoordinator.PowerSnapshot(source: .battery, percent: percent, isCharging: isCharging)
+    }
+
+    private let ac = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false)
 
     // MARK: - Which tabs are a reason
 
@@ -113,13 +119,13 @@ struct KeepAwakeTests {
             remoteControlledTabs: []
         )
         #expect(KeepAwakeCoordinator.decide(
-            reasons: reasons, mode: .never, powerSource: .ac, allowsBattery: true
+            reasons: reasons, mode: .never, power: ac, allowsBattery: true, batteryCutoffPercent: 20
         ) == .off(nil))
     }
 
     @Test func alwaysHoldsWithNoReasons() {
         let decision = KeepAwakeCoordinator.decide(
-            reasons: [], mode: .always, powerSource: .ac, allowsBattery: false
+            reasons: [], mode: .always, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         )
         guard case .hold(let request) = decision else {
             Issue.record("expected a hold, got \(decision)")
@@ -130,12 +136,12 @@ struct KeepAwakeTests {
 
     @Test func autoHoldsOnlyWithAReason() {
         #expect(KeepAwakeCoordinator.decide(
-            reasons: [], mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: [], mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(nil))
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
         guard case .hold = KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: working, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
@@ -145,16 +151,16 @@ struct KeepAwakeTests {
     @Test func batteryHoldsOnlyWhenAllowed() {
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
         #expect(KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: false
+            reasons: working, mode: .auto, power: battery(), allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(.battery))
         guard case .hold = KeepAwakeCoordinator.decide(
-            reasons: working, mode: .auto, powerSource: .battery, allowsBattery: true
+            reasons: working, mode: .auto, power: battery(), allowsBattery: true, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
         }
         #expect(KeepAwakeCoordinator.decide(
-            reasons: [], mode: .always, powerSource: .battery, allowsBattery: false
+            reasons: [], mode: .always, power: battery(), allowsBattery: false, batteryCutoffPercent: 20
         ) == .off(.battery))
     }
 
@@ -162,21 +168,21 @@ struct KeepAwakeTests {
     /// clients, and it only applies on AC.
     @Test func remoteControlPicksTheNetworkAssertionOnlyOnAC() {
         let remote = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .remoteControl)]
-        #expect(type(for: remote, mode: .auto, powerSource: .ac, allowsBattery: true) == .networkClientActive)
-        #expect(type(for: remote, mode: .auto, powerSource: .battery, allowsBattery: true) == .preventIdleSystemSleep)
+        #expect(type(for: remote, mode: .auto, power: ac, allowsBattery: true) == .networkClientActive)
+        #expect(type(for: remote, mode: .auto, power: battery(), allowsBattery: true) == .preventIdleSystemSleep)
 
         let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
-        #expect(type(for: working, mode: .auto, powerSource: .ac, allowsBattery: true) == .preventIdleSystemSleep)
+        #expect(type(for: working, mode: .auto, power: ac, allowsBattery: true) == .preventIdleSystemSleep)
     }
 
     private func type(
         for reasons: [KeepAwakeReason],
         mode: KeepAwakeMode,
-        powerSource: KeepAwakeCoordinator.PowerSource,
+        power: KeepAwakeCoordinator.PowerSnapshot,
         allowsBattery: Bool
     ) -> SleepAssertionType? {
         guard case .hold(let request) = KeepAwakeCoordinator.decide(
-            reasons: reasons, mode: mode, powerSource: powerSource, allowsBattery: allowsBattery
+            reasons: reasons, mode: mode, power: power, allowsBattery: allowsBattery, batteryCutoffPercent: 20
         ) else { return nil }
         return request.type
     }
@@ -186,7 +192,7 @@ struct KeepAwakeTests {
             KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working($0.isMultiple(of: 2) ? .working : .permissionNeeded))
         }
         guard case .hold(let request) = KeepAwakeCoordinator.decide(
-            reasons: many, mode: .auto, powerSource: .ac, allowsBattery: false
+            reasons: many, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) else {
             Issue.record("expected a hold")
             return
@@ -194,11 +200,66 @@ struct KeepAwakeTests {
         #expect(request.reason.count <= SleepAssertionRequest.reasonLimit)
     }
 
+    // MARK: - Battery cutoff
+
+    @Test func cutoffOffsAtOrBelowTheThreshold() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 20), allowsBattery: true, batteryCutoffPercent: 20
+        ) == .off(.batteryLow(20)))
+
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 21), allowsBattery: true, batteryCutoffPercent: 20
+        ) else {
+            Issue.record("expected a hold at cutoff + 1")
+            return
+        }
+
+        #expect(KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 19), allowsBattery: true, batteryCutoffPercent: 20
+        ) == .off(.batteryLow(19)))
+    }
+
+    @Test func chargingIgnoresTheCutoff() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working,
+            mode: .auto,
+            power: battery(percent: 5, isCharging: true),
+            allowsBattery: true,
+            batteryCutoffPercent: 20
+        ) else {
+            Issue.record("expected a hold while charging, even below cutoff")
+            return
+        }
+    }
+
+    @Test func cutoffOfZeroNeverFires() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: battery(percent: 1), allowsBattery: true, batteryCutoffPercent: 0
+        ) else {
+            Issue.record("expected a hold when the cutoff is off")
+            return
+        }
+    }
+
+    @Test func acIgnoresPercentEntirely() {
+        let working = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))]
+        guard case .hold = KeepAwakeCoordinator.decide(
+            reasons: working, mode: .auto, power: ac, allowsBattery: true, batteryCutoffPercent: 100
+        ) else {
+            Issue.record("expected a hold on AC regardless of cutoff")
+            return
+        }
+    }
+
     // MARK: - Off reason
 
     @Test func offReasonIsBatteryWhenBatteryBlocksAWantedHold() {
         let engine = StatusEngine()
-        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery())
         settings.keepsAwakeOnBattery = false
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -210,7 +271,7 @@ struct KeepAwakeTests {
 
     @Test func offReasonIsNilOnBatteryWhenAllowed() {
         let engine = StatusEngine()
-        let (coordinator, _, settings) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery(percent: 80))
         settings.keepsAwakeOnBattery = true
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -220,9 +281,22 @@ struct KeepAwakeTests {
         #expect(coordinator.offReason == nil)
     }
 
+    @Test func offReasonIsBatteryLowWhenChargeDropsToTheCutoff() {
+        let engine = StatusEngine()
+        let (coordinator, _, settings) = makeCoordinator(engine: engine, power: battery(percent: 20))
+        settings.keepsAwakeOnBattery = true
+        settings.keepAwakeBatteryCutoffPercent = 20
+
+        engine.setStatus(.working, taskID: UUID(), tabID: UUID())
+        coordinator.refresh()
+
+        #expect(coordinator.isHolding == false)
+        #expect(coordinator.offReason == .batteryLow(20))
+    }
+
     @Test func offReasonIsNilWithNothingWantingAHold() {
         let engine = StatusEngine()
-        let (coordinator, _, _) = makeCoordinator(engine: engine, powerSource: .battery)
+        let (coordinator, _, _) = makeCoordinator(engine: engine, power: battery())
         coordinator.refresh()
 
         #expect(coordinator.offReason == nil)
@@ -249,7 +323,7 @@ struct KeepAwakeTests {
             sessions: HeadlessSessionManager(),
             settings: makeSettings(),
             assertion: RefusingSleepAssertion(),
-            powerSource: { .ac }
+            powerSnapshot: { KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false) }
         )
 
         engine.setStatus(.working, taskID: UUID(), tabID: UUID())
@@ -426,6 +500,46 @@ struct KeepAwakeTests {
         let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
         defaults.set("sometimes", forKey: "keepAwakeModeRaw")
         #expect(AppSettings(defaults: defaults).keepAwakeMode == .auto)
+    }
+
+    @Test func batteryCutoffDefaultsTo20AndPersists() {
+        let defaults = UserDefaults(suiteName: "KeepAwakeTests-\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.keepAwakeBatteryCutoffPercent == 20)
+
+        settings.keepAwakeBatteryCutoffPercent = 35
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.keepAwakeBatteryCutoffPercent == 35)
+    }
+
+    @Test func batteryCutoffClampsTo0And100() {
+        let settings = makeSettings()
+        settings.keepAwakeBatteryCutoffPercent = -10
+        #expect(settings.keepAwakeBatteryCutoffPercent == 0)
+
+        settings.keepAwakeBatteryCutoffPercent = 150
+        #expect(settings.keepAwakeBatteryCutoffPercent == 100)
+    }
+
+    // MARK: - Battery glyph
+
+    @Test func batteryGlyphBucketsThePercentage() {
+        let cases: [(Int?, String)] = [
+            (nil, "battery.25percent"),
+            (0, "battery.0percent"),
+            (12, "battery.0percent"),
+            (13, "battery.25percent"),
+            (37, "battery.25percent"),
+            (38, "battery.50percent"),
+            (62, "battery.50percent"),
+            (63, "battery.75percent"),
+            (87, "battery.75percent"),
+            (88, "battery.100percent"),
+            (100, "battery.100percent"),
+        ]
+        for (percent, expected) in cases {
+            #expect(SidebarFooter.batteryGlyph(percent: percent) == expected, "\(String(describing: percent))")
+        }
     }
 }
 

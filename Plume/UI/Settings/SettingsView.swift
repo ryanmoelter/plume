@@ -181,6 +181,14 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+                if settings.keepsAwakeOnBattery {
+                    Stepper(
+                        batteryCutoffLabel,
+                        value: $settings.keepAwakeBatteryCutoffPercent,
+                        in: 0...100,
+                        step: 5
+                    )
+                }
             } header: {
                 Text("Keep Awake")
             } footer: {
@@ -188,9 +196,11 @@ struct SettingsView: View {
                     "Auto holds the Mac awake while an agent is working, while a " +
                     "session is under remote control, and while a remotely " +
                     "controlled agent waits for an answer. The system may ignore " +
-                    "the request on battery or under thermal load. Closing the lid " +
-                    "sleeps the Mac unless it is in clamshell mode, and macOS gives " +
-                    "apps no way to override that."
+                    "the request on battery or under thermal load. The hold " +
+                    "releases once the battery drops to or below the cutoff, " +
+                    "unless it's charging. Closing the lid sleeps the Mac unless " +
+                    "it is in clamshell mode, and macOS gives apps no way to " +
+                    "override that."
                 )
                 .foregroundStyle(.secondary)
             }
@@ -250,6 +260,12 @@ struct SettingsView: View {
         .frame(width: 460)
         .padding(.vertical, 8)
         .onAppear { helperState = CommandLineHelper.state() }
+    }
+
+    private var batteryCutoffLabel: String {
+        settings.keepAwakeBatteryCutoffPercent == 0
+            ? "No battery cutoff"
+            : "Stop below \(settings.keepAwakeBatteryCutoffPercent)%"
     }
 
     private var helperStatusText: String {
