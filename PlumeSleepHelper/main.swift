@@ -6,12 +6,18 @@ import os
 // it on demand when Plume connects to its Mach service, and it runs as root
 // because `SleepDisabled` on IOPMrootDomain is root-only.
 //
-// Crash safety is the whole design. The override is written to the live
-// registry, never to the persisted power-management preferences, so a reboot
-// always clears it. On top of that: the sweep on launch, clearing when the
-// client's connection dies, and a lease that expires without heartbeats.
+// Crash safety is the whole design. The setting persists across reboots (see
+// RootDomain), so the helper launches at boot and sweeps it clear, clears it
+// when the client's connection dies, and drops a lease that goes without
+// heartbeats. The worst case after any crash is "awake until the next boot".
 
 let log = Logger(subsystem: "com.ryanmoelter.Plume.SleepHelper", category: "helper")
+
+/// What `pmset disablesleep` calls. Exported from IOKit without a public
+/// header. It writes through powerd, which both applies the value and
+/// persists it to /Library/Preferences/com.apple.PowerManagement.plist.
+@_silgen_name("IOPMSetSystemPowerSetting")
+func IOPMSetSystemPowerSetting(_ key: CFString, _ value: CFTypeRef) -> IOReturn
 
 let onlyPlumeMayConnect =
     "anchor apple generic and certificate leaf[subject.OU] = \"\(sleepHelperTeamID)\""
@@ -26,13 +32,11 @@ enum RootDomain {
             .takeRetainedValue() as? Bool
     }
 
+    /// Writing the property straight onto IOPMrootDomain returns
+    /// kIOReturnUnsupported even as root; powerd owns it, so this goes through
+    /// powerd's setting the way pmset does.
     static func write(_ disabled: Bool) -> kern_return_t {
-        let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
-        guard root != IO_OBJECT_NULL else { return KERN_FAILURE }
-        defer { IOObjectRelease(root) }
-        return IORegistryEntrySetCFProperty(
-            root, "SleepDisabled" as CFString, disabled ? kCFBooleanTrue : kCFBooleanFalse
-        )
+        IOPMSetSystemPowerSetting("SleepDisabled" as CFString, disabled ? kCFBooleanTrue : kCFBooleanFalse)
     }
 }
 
@@ -141,7 +145,9 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     }
 }
 
-// A helper starting up means nobody holds a lease, whatever the registry says.
+// A helper starting up means nobody holds a lease, whatever the setting says.
+// launchd runs this at boot too (RunAtLoad), which is what un-sticks a setting
+// left behind by a crash or a power loss.
 Lease.shared.release(for: nil, reason: "launch sweep")
 
 let listener = NSXPCListener(machServiceName: sleepHelperServiceName)
