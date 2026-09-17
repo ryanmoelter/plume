@@ -182,13 +182,19 @@ final class ClientSession: NSObject, SleepHelperProtocol {
 }
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
+    private let lock = NSLock()
+    private var liveConnections = 0
+
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         let session = ClientSession(connection: connection)
         connection.exportedInterface = NSXPCInterface(with: SleepHelperProtocol.self)
         connection.exportedObject = session
         let clientID = session.id
-        connection.invalidationHandler = {
+        lock.withLock { liveConnections += 1 }
+        connection.invalidationHandler = { [self] in
             Lease.shared.release(for: clientID, reason: "connection invalidated")
+            let idle = lock.withLock { liveConnections -= 1; return liveConnections == 0 }
+            if idle { exitWhenStillIdle() }
         }
         connection.interruptionHandler = {
             Lease.shared.release(for: clientID, reason: "connection interrupted")
@@ -196,6 +202,17 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
         log.notice("accepted connection from pid \(connection.processIdentifier)")
         connection.resume()
         return true
+    }
+
+    /// launchd relaunches the helper on the next connection, so exiting once
+    /// idle is what lets an upgraded bundle's binary take over. The delay
+    /// leaves room for the release's deferred sleep request.
+    private func exitWhenStillIdle() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
+            guard lock.withLock({ liveConnections == 0 }) else { return }
+            log.notice("no clients; exiting")
+            exit(0)
+        }
     }
 }
 
