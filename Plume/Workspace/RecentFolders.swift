@@ -2,6 +2,11 @@ import Foundation
 
 /// The folders tasks have run in, most recent first, so a picker can offer
 /// them and a new task can default to the last one.
+///
+/// A worktree never belongs here. They are often made for one piece of work
+/// and removed after, so remembering one fills the list with directories that
+/// no longer exist. Callers pass the project it belongs to instead — see
+/// `CheckoutFacts.projectRoot`.
 enum RecentFolders {
     private static let key = "recentRepositories"
     private static let limit = 8
@@ -20,5 +25,22 @@ enum RecentFolders {
     /// entry never becomes a new task's working directory.
     static var mostRecent: String? {
         load().first { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    /// Replaces worktrees already in the list with the project they belong to,
+    /// for lists written before that was the rule. A worktree `git` no longer
+    /// knows is dropped rather than kept under its own name — it is exactly
+    /// the ephemeral entry this list should not hold.
+    static func migrateWorktreesToProjects(
+        projectRoot: (String) -> String? = { GitRunner.checkoutFacts(containing: $0)?.projectRoot }
+    ) {
+        let stored = load()
+        var migrated: [String] = []
+        for path in stored {
+            guard let root = projectRoot(path) else { continue }
+            if !migrated.contains(root) { migrated.append(root) }
+        }
+        guard migrated != stored else { return }
+        UserDefaults.standard.set(Array(migrated.prefix(limit)), forKey: key)
     }
 }

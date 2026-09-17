@@ -69,14 +69,20 @@ struct ChatImageView: View, ThemedView {
 
     /// A temporary file, because `NSImage` has no viewer of its own and the
     /// system one takes a URL.
+    ///
+    /// Encoding, writing and opening all block their caller, and the last of
+    /// them for as long as Launch Services takes to start the viewer — so a
+    /// full-size screenshot would otherwise stall the click it came from.
     private func open(_ decoded: NSImage) {
-        guard let representation = decoded.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: representation),
-              let png = bitmap.representation(using: .png, properties: [:])
-        else { return }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("plume-image-\(UUID().uuidString).png")
-        guard (try? png.write(to: url)) != nil else { return }
-        NSWorkspace.shared.open(url)
+        guard let representation = decoded.tiffRepresentation else { return }
+        Task.detached(priority: .userInitiated) {
+            guard let bitmap = NSBitmapImageRep(data: representation),
+                  let png = bitmap.representation(using: .png, properties: [:])
+            else { return }
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("plume-image-\(UUID().uuidString).png")
+            guard (try? png.write(to: url)) != nil else { return }
+            NSWorkspace.shared.open(url)
+        }
     }
 }

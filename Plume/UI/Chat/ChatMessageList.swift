@@ -119,6 +119,7 @@ struct ChatMessageList: View, ThemedView {
     @State private var commands = ChatListCommands()
     @State private var previousMessageIDs: [String] = []
     @Environment(\.chatFontSize) private var chatFontSize
+    @Environment(\.chatLinkDirectory) private var linkDirectory
 
     private static let contentSpace = "chatContent"
 
@@ -184,6 +185,7 @@ struct ChatMessageList: View, ThemedView {
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,
                 workStartedAt: tabID.flatMap { StatusEngine.shared.workStarted(forTab: $0) },
+                linkDirectory: linkDirectory,
                 arrivals: arrivals,
                 openings: openings
             ),

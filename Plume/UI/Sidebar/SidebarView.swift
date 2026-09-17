@@ -210,6 +210,7 @@ struct SidebarView: View {
             }
         }
         Button("Archive") { TaskStore.archive(task) }
+            .accessibilityIdentifier(AccessibilityID.taskArchiveButton)
         Divider()
         Button("Delete", role: .destructive) {
             // A worktree task owns a branch and a directory on disk, so

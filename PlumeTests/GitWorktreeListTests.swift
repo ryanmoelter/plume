@@ -75,6 +75,52 @@ struct RecentFoldersTests {
 
         #expect(RecentFolders.mostRecent == existing)
     }
+
+    private func withStoredList(_ paths: [String], _ body: () -> Void) {
+        let saved = RecentFolders.load()
+        defer { UserDefaults.standard.set(saved, forKey: "recentRepositories") }
+        UserDefaults.standard.set(paths, forKey: "recentRepositories")
+        body()
+    }
+
+    @Test func migratingReplacesAWorktreeWithItsProject() {
+        withStoredList(["/repo/.worktrees/feature"]) {
+            RecentFolders.migrateWorktreesToProjects { _ in "/repo" }
+            #expect(RecentFolders.load() == ["/repo"])
+        }
+    }
+
+    @Test func migratingCollapsesTwoWorktreesOfOneProject() {
+        withStoredList(["/repo/.worktrees/a", "/repo/.worktrees/b"]) {
+            RecentFolders.migrateWorktreesToProjects { _ in "/repo" }
+            #expect(RecentFolders.load() == ["/repo"])
+        }
+    }
+
+    @Test func migratingKeepsTheOrderAProjectAlreadyHad() {
+        withStoredList(["/repo", "/other", "/repo/.worktrees/a"]) {
+            RecentFolders.migrateWorktreesToProjects { path in
+                path.hasPrefix("/repo") ? "/repo" : "/other"
+            }
+            #expect(RecentFolders.load() == ["/repo", "/other"])
+        }
+    }
+
+    @Test func migratingDropsADirectoryGitNoLongerKnows() {
+        withStoredList(["/gone", "/repo"]) {
+            RecentFolders.migrateWorktreesToProjects { path in
+                path == "/gone" ? nil : "/repo"
+            }
+            #expect(RecentFolders.load() == ["/repo"])
+        }
+    }
+
+    @Test func migratingLeavesASettledListAlone() {
+        withStoredList(["/repo", "/other"]) {
+            RecentFolders.migrateWorktreesToProjects { path in path }
+            #expect(RecentFolders.load() == ["/repo", "/other"])
+        }
+    }
 }
 
 /// The last-used-folder default on new tasks.

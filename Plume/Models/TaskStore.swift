@@ -85,14 +85,33 @@ enum TaskStore {
 
     // MARK: - Archive
 
+    /// An archived task is out of sight, so leaving its agents running would
+    /// burn a process and a remote-control bridge the user can no longer see
+    /// or reach. Teardown matches `delete`.
     static func archive(_ task: WorkTask) {
         task.isArchived = true
         task.archivedAt = Date()
+        for tab in task.tabs {
+            forgetTab(tab)
+        }
     }
 
+    /// The processes are gone, so the tabs come back dormant and re-launch on
+    /// demand. Re-registering is what stops the sidebar reading the status the
+    /// task carried when it was archived.
     static func unarchive(_ task: WorkTask) {
         task.isArchived = false
         task.archivedAt = nil
+        for tab in task.tabs where tab.kind == .agent {
+            StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+            if tab.transport == .terminal {
+                AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
+            }
+            if let path = tab.sessionJSONLPath, !path.isEmpty {
+                AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+                TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
+            }
+        }
     }
 
     // MARK: - Delete
@@ -101,7 +120,7 @@ enum TaskStore {
     /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
         for tab in task.tabs {
-            forgetTab(tab.id)
+            forgetTab(tab)
         }
         // The row that took this watch is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown.
@@ -112,10 +131,16 @@ enum TaskStore {
     }
 
     /// Everything a tab leaves outside SwiftData: its live sessions and every
-    /// in-memory store keyed by tab id. Closing one tab and deleting its whole
-    /// task both go through here, so neither can drift into forgetting less
-    /// than the other.
-    static func forgetTab(_ tabID: UUID) {
+    /// in-memory store keyed by tab id. Closing one tab, archiving its task and
+    /// deleting its task all go through here, so none can drift into forgetting
+    /// less than the others.
+    static func forgetTab(_ tab: TaskTab) {
+        let tabID = tab.id
+        if let taskID = tab.task?.id {
+            StatusEngine.shared.forget(tabID: tabID, taskID: taskID)
+        }
+        AgentEventMonitor.shared.stopWatching(tabID: tabID)
+        AgentTitleMonitor.shared.stopWatching(tabID: tabID)
         SurfaceManager.shared.closeSession(for: tabID)
         HeadlessSessionManager.shared.closeSession(for: tabID)
         TitleStore.shared.forget(tabID: tabID)
@@ -140,7 +165,7 @@ enum TaskStore {
     }
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
-        forgetTab(tab.id)
+        forgetTab(tab)
         guard let task = tab.task else {
             context.delete(tab)
             return

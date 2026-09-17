@@ -14,6 +14,8 @@ struct ChatListInputs: Equatable {
     var trailingInset: CGFloat = 0
     var chatFontSize: CGFloat = AppSettings.defaultChatFontSize
     var workStartedAt: Date?
+    /// Resolves relative paths in a clicked link.
+    var linkDirectory: URL?
     var arrivals: Set<String> = []
     var openings: Set<String> = []
 }
@@ -222,7 +224,8 @@ final class ChatListController: NSObject {
                 for (id, host) in hosts { host.state.containerHeight = model.displayHeight(of: id) }
             }
         }
-        if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt {
+        if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt
+            || new.linkDirectory != old.linkDirectory {
             stale.formUnion(hosts.keys)
         }
         if new.subagents != old.subagents {
@@ -666,7 +669,8 @@ final class ChatListController: NSObject {
         let environment = ChatListItemEnvironment(
             chatFontSize: inputs.chatFontSize,
             revealClock: revealClock,
-            workStartedAt: inputs.workStartedAt
+            workStartedAt: inputs.workStartedAt,
+            linkDirectory: inputs.linkDirectory
         )
         switch item {
         case let .piece(piece):
@@ -736,6 +740,10 @@ struct ChatListItemEnvironment {
     var chatFontSize: CGFloat
     var revealClock: RevealClock?
     var workStartedAt: Date?
+    /// Resolves relative paths in a clicked link. A hosted root inherits no
+    /// environment, so the link handler has to be rebuilt here rather than
+    /// reaching the row from the chat's own.
+    var linkDirectory: URL?
 }
 
 struct ChatListItemRoot<Content: View>: View {
@@ -751,6 +759,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.revealClock, environment.revealClock)
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.chatPieceLimits, .unbounded)
+            .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }
 }

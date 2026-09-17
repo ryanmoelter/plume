@@ -72,6 +72,20 @@ enum AgentLauncher {
         }
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
 
+        // Spawning without the CLI present would die on the login shell's own
+        // "command not found", which reaches the user only as a dead session.
+        // Reporting it before the process exists says the same thing with the
+        // remedy attached.
+        guard ClaudeCLILocator.isAvailable() else {
+            let session = HeadlessSessionManager.shared.session(
+                for: tab.id,
+                taskID: task.id,
+                initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+            )
+            session.failToLaunch(reason: "claude: command not found")
+            return
+        }
+
         // Instrumentation is best-effort: if the settings file cannot be
         // written, `claude` still launches, just without status reporting.
         let settingsPath = try? HookSettingsWriter.write().path

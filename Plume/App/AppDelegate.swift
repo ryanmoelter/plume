@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // One `git` call per remembered folder, so it stays off the main
+        // thread; nothing on screen reads the list before it settles.
+        Task.detached(priority: .utility) {
+            RecentFolders.migrateWorktreesToProjects()
+        }
+
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
         guard let window = NSApp.windows.first else { return }

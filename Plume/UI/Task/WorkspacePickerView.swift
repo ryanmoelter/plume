@@ -18,22 +18,91 @@ struct WorkspacePickerView: View, ThemedView {
     /// How much room the branch name may take. The statusline row decides
     /// this, since it is the row's one compressible segment.
     var branchWidth: BranchWidth = .natural
+    var prominence: WorkspacePickerProminence = .statusline
     /// Ahead/behind and dirty for the directory the agent is actually in.
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
     var state: GitState?
 
+    /// The line the resume affordance sits on, supplied by the empty state.
+    /// Nil everywhere else, and the picker draws nothing for it.
+    var resumeAction: (() -> Void)?
+
     @State private var worktrees: [GitWorktree] = []
     @State private var repositoryBranch: String?
+    /// Which repository `worktrees` describes. Between choosing a workspace
+    /// and `git` answering for it the old listing is still in hand, and
+    /// reading it as the new one's names the wrong worktree.
+    @State private var loadedRepoPath: String?
+    /// The directory `git` has answered "not a repository" for.
+    ///
+    /// Absence of a `repoPath` cannot say this on its own: it also describes
+    /// the wait before the probe returns. Naming the directory that failed
+    /// keeps the worktree clause up through that wait and through a move
+    /// between repositories, and drops it only once a folder is known to have
+    /// no repository behind it.
+    @State private var directoryWithoutRepository: String?
     @State private var recentFolders = RecentFolders.load()
     @State private var isTargetedForDrop = false
     @State private var worktreeSheetShown = false
 
     var body: some View {
-        // The folder chip and the ahead/behind/dirty markers hold their own
-        // intrinsic size (`.fixedSize()`); the branch name is the one
-        // segment that gives way when the row runs out of room, since it's
-        // the only thing here with room to lose without going illegible.
+        Group {
+            if prominence == .inline {
+                inlineSentence
+            } else {
+                chipRow
+            }
+        }
+        .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
+        .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
+            handleDrop(providers)
+        }
+        .sheet(isPresented: $worktreeSheetShown) {
+            NewWorktreeSheet(task: task)
+        }
+        // `folderName` reads this cache, which only a lifecycle event may
+        // fill — see `CheckoutFactsStore.load`.
+        .onChange(of: task.workingDirectoryPath, initial: true) { _, path in
+            if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
+        }
+        // The repository answers for the project when the worktree's own
+        // facts have not arrived, so it needs loading too.
+        .onChange(of: task.repoPath, initial: true) { _, path in
+            if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
+        }
+        // `git` runs off the main actor and lands in state: a subprocess per
+        // render would be ruinous, and writing observable state from `body`
+        // invalidates the view being rendered.
+        .task(id: task.repoPath) {
+            guard let repoPath = task.repoPath else {
+                worktrees = []
+                repositoryBranch = nil
+                loadedRepoPath = nil
+                // A task restored with no repository never passed through
+                // `setDirectory`, so nothing has asked `git` about its folder
+                // yet. Ask, rather than leaving the clause up forever.
+                if let path = task.workingDirectoryPath, !path.isEmpty {
+                    let root = await GitService.shared.repositoryRoot(containing: path)
+                    task.repoPath = root
+                    directoryWithoutRepository = root == nil ? path : nil
+                }
+                return
+            }
+            let loaded = await GitService.shared.worktreeListing(in: repoPath)
+            worktrees = loaded.worktrees
+            repositoryBranch = loaded.branch
+            loadedRepoPath = repoPath
+        }
+    }
+
+    // MARK: - Chips
+
+    /// The folder chip and the ahead/behind/dirty markers hold their own
+    /// intrinsic size (`.fixedSize()`); the branch name is the one segment
+    /// that gives way when the row runs out of room, since it's the only
+    /// thing here with room to lose without going illegible.
+    private var chipRow: some View {
         HStack(spacing: 10) {
             folderChip
                 .fixedSize()
@@ -48,40 +117,179 @@ struct WorkspacePickerView: View, ThemedView {
                     .help("This directory no longer exists.")
             }
         }
-        .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
-        .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
-            handleDrop(providers)
-        }
-        .sheet(isPresented: $worktreeSheetShown) {
-            NewWorktreeSheet(task: task)
-        }
-        // `git` runs off the main actor and lands in state: a subprocess per
-        // render would be ruinous, and writing observable state from `body`
-        // invalidates the view being rendered.
-        .task(id: task.repoPath) {
-            guard let repoPath = task.repoPath else {
-                worktrees = []
-                repositoryBranch = nil
-                return
+    }
+
+    // MARK: - Inline sentence
+
+    /// The sentence broken across lines, each clause on its own, sharing one
+    /// leading edge. Stacking rather than wrapping keeps the two dropdowns at
+    /// a fixed place on the screen instead of moving with the text around
+    /// them.
+    ///
+    /// Each dropdown gets a line to itself, so a long folder or branch name
+    /// has the whole line's width to truncate against instead of splitting it
+    /// with static words.
+    ///
+    /// The worktree clause is unconditional. A plain directory still names the
+    /// checkout it is in, so the sentence keeps one shape and the folder
+    /// dropdown never shifts as a repository is chosen.
+    ///
+    /// The sentence is set in the chat's own face, so the empty state reads in
+    /// the same voice as the conversation that replaces it. Only the sentence
+    /// and its dropdowns take it — the path, the branch and the resume line are
+    /// metadata about the choice rather than part of the sentence.
+    private var inlineSentence: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Start a conversation in")
+                .emphasis(.secondary)
+            inlineFolderMenu
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, dimensions.inlineGlyphLeading)
+            // Held in the layout even with nothing to say. These notes arrive a
+            // subprocess later than the names above them, and letting them come
+            // and go moves every line below on the way in.
+            Text(folderPathNote ?? " ")
+                .font(typography.body.font)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.top, dimensions.inlineBranchNoteSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if hasRepository {
+                Text("in the worktree")
+                    .padding(.top, dimensions.inlineClauseSpacing)
+                    .emphasis(.secondary)
+                inlineWorktreeMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, dimensions.inlineGlyphLeading)
+                HStack(spacing: 4) {
+                    Text("on")
+                    // Distinct from the worktree's tree: this names the branch
+                    // that worktree has out, not the worktree itself.
+                    Image(systemName: "arrow.triangle.branch")
+                        .imageScale(.small)
+                    Text(worktreeBranchNote ?? "")
+                        .truncationMode(.tail)
+                }
+                .font(typography.body.font)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                // The words go with the branch: "on" alone says nothing.
+                .opacity(worktreeBranchNote == nil ? 0 : 1)
+                .padding(.top, dimensions.inlineBranchNoteSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            let loaded = await GitService.shared.worktreeListing(in: repoPath)
-            worktrees = loaded.worktrees
-            repositoryBranch = loaded.branch
+            if let resumeAction {
+                // An inline button, not a hyperlink: the accent color alone
+                // says it is clickable.
+                Button(action: resumeAction) {
+                    Text("or resume a conversation \u{2192}")
+                        .font(typography.body.font)
+                        .foregroundStyle(colors.selection)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, dimensions.inlineClauseSpacing)
+                .help("Continue a past Claude conversation in this folder")
+            }
+        }
+        .font(proseTypography.headline.font)
+        .multilineTextAlignment(.leading)
+    }
+
+    @ViewBuilder
+    private var inlineFolderMenu: some View {
+        if isEditable {
+            Menu {
+                folderMenuItems
+            } label: {
+                inlineLabel(folderName, systemImage: "folder")
+            }
+            .modifier(InlineMenuChrome(help: folderHelp))
+        } else {
+            inlineLabel(folderName, systemImage: "folder", isControl: false)
+                .help(folderHelp)
+        }
+    }
+
+    @ViewBuilder
+    private var inlineWorktreeMenu: some View {
+        if isEditable {
+            Menu {
+                worktreeMenuItems
+            } label: {
+                inlineLabel(worktreeName, systemImage: "tree")
+            }
+            .modifier(InlineMenuChrome(help: worktreeHelp))
+        } else {
+            inlineLabel(worktreeName, systemImage: "tree", isControl: false)
+                .help(worktreeHelp)
+        }
+    }
+
+    /// An underline and a trailing chevron are the only marks that this word
+    /// is a control — no well, no border, no size change.
+    ///
+    /// The rule is drawn rather than applied with `.underline()`, which reaches
+    /// only the `Text` and takes the text's own color. This one runs the width
+    /// of the icon, label and chevron together.
+    ///
+    /// The symbols take `.imageScale`, which sizes them against whatever font
+    /// the sentence is set in; giving them a font of their own would override
+    /// the ambient one and freeze them at a size the sentence has outgrown.
+    ///
+    /// A launched agent's workspace is fixed, so its label keeps the words and
+    /// drops both marks rather than advertising a menu that will not open.
+    ///
+    /// The label carries the sentence's full weight while the words around it
+    /// step back: what you can change is what the eye should land on.
+    private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .imageScale(.medium)
+                .layoutPriority(1)
+            // The one compressible part: the marks around it stay whole and
+            // the name loses its tail instead.
+            unsettledOrName(title)
+                .truncationMode(.tail)
+                .contentTransition(.numericText())
+            if isControl {
+                Image(systemName: "chevron.down")
+                    .imageScale(.small)
+                    .fontWeight(.semibold)
+                    .layoutPriority(1)
+            }
+        }
+        .lineLimit(1)
+        .emphasis(.primary)
+        .animation(.default, value: title)
+        .fixedSize(horizontal: false, vertical: true)
+        .overlay(alignment: .bottom) {
+            if isControl {
+                Rectangle()
+                    .fill(colors.divider)
+                    .frame(height: 1)
+                    .offset(y: 2)
+            }
         }
     }
 
     // MARK: - Folder
 
+    @ViewBuilder
+    private var folderMenuItems: some View {
+        ForEach(recentFolders, id: \.self) { path in
+            Button(abbreviate(path)) { setDirectory(path) }
+        }
+        if !recentFolders.isEmpty {
+            Divider()
+        }
+        Button("Choose Folder…", action: chooseFolder)
+    }
+
     private var folderChip: some View {
         chip(isEditable: isEditable, help: folderHelp) {
             Menu {
-                ForEach(recentFolders, id: \.self) { path in
-                    Button(abbreviate(path)) { setDirectory(path) }
-                }
-                if !recentFolders.isEmpty {
-                    Divider()
-                }
-                Button("Choose Folder…", action: chooseFolder)
+                folderMenuItems
             } label: {
                 folderLabel
             }
@@ -101,9 +309,43 @@ struct WorkspacePickerView: View, ThemedView {
         Label(folderName, systemImage: "folder")
     }
 
+    /// The project the checkout belongs to, not the checkout's own directory.
+    /// Switching to a linked worktree changes the working directory, and
+    /// naming that directory here would make the project appear to change with
+    /// it.
     private var folderName: String {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return "Choose Folder" }
-        return (path as NSString).lastPathComponent
+        if let projectName = CheckoutFactsStore.shared.facts(for: path)?.projectName {
+            return projectName
+        }
+        // Every worktree of a repository answers with the same project, so the
+        // repository's own path names it while a newly chosen directory waits.
+        if let repoPath = task.repoPath,
+           let projectName = CheckoutFactsStore.shared.facts(for: repoPath)?.projectName {
+            return projectName
+        }
+        // A folder outside a repository has no project to be named after, and
+        // waiting on facts that are never coming would leave the placeholder up
+        // for good. Its own name is the whole answer.
+        guard hasRepository else { return (path as NSString).lastPathComponent }
+        return Self.unsettledName
+    }
+
+    /// Stands in for a name that cannot be known yet. An ellipsis rather than
+    /// a guess: the directory is in hand, but what it is *called* takes a
+    /// subprocess to learn.
+    ///
+    /// The chip renders it as words, where a symbol would sit oddly among the
+    /// other labels; the inline sentence swaps in the symbol through
+    /// `unsettledOrName`.
+    private static let unsettledName = "\u{2026}"
+
+    /// The ellipsis as a symbol rather than three periods, so the placeholder
+    /// keeps the weight and optical size of the glyphs beside it instead of
+    /// drifting to the text baseline.
+    private func unsettledOrName(_ title: String) -> Text {
+        guard title == Self.unsettledName else { return Text(title) }
+        return Text(Image(systemName: "ellipsis"))
     }
 
     // MARK: - Worktree
@@ -138,14 +380,26 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
+    @ViewBuilder
+    private var worktreeMenuItems: some View {
+        ForEach(worktrees, id: \.self) { worktree in
+            Button {
+                select(worktree)
+            } label: {
+                Text(name(for: worktree))
+                if let branch = worktree.branch {
+                    Text(branch)
+                }
+            }
+        }
+        Divider()
+        Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+    }
+
     private var worktreeChip: some View {
         chip(isEditable: isEditable, help: worktreeHelp) {
             Menu {
-                ForEach(worktrees, id: \.self) { worktree in
-                    Button(label(for: worktree)) { select(worktree) }
-                }
-                Divider()
-                Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+                worktreeMenuItems
             } label: {
                 worktreeLabel
             }
@@ -159,8 +413,69 @@ struct WorkspacePickerView: View, ThemedView {
         Label(worktreeName, systemImage: "tree")
     }
 
+    /// The worktree the task is working in, matched on a standardized path —
+    /// `git` and the stored path can spell one directory differently.
+    private var selectedWorktree: GitWorktree? {
+        guard isSettled, let path = task.workingDirectoryPath.map(standardized) else { return nil }
+        return worktrees.first(where: { standardized($0.path) == path })
+    }
+
+    /// Whether to say anything about worktrees at all.
+    ///
+    /// Assumed true until `git` says otherwise, because nearly every folder
+    /// chosen here is a repository. Guessing the other way would make the
+    /// common move between two repositories flicker the clause out and back,
+    /// to spare a rarer case a clause that was never going to appear.
+    private var hasRepository: Bool {
+        guard let path = task.workingDirectoryPath, !path.isEmpty else { return false }
+        return directoryWithoutRepository != path
+    }
+
+    /// Whether `worktrees` describes the repository the task is in now.
+    ///
+    /// Only choosing a project moves `repoPath`, so only that leaves the
+    /// listing stale. Choosing a worktree stays inside one repository and its
+    /// listing is already right.
+    ///
+    /// `repoPath` is resolved by a subprocess and lands after the directory it
+    /// belongs to, so matching it alone still reads as settled in the window
+    /// where the new directory sits beside the old repository. Requiring the
+    /// directory to be one the listing knows closes that window.
+    private var isSettled: Bool {
+        guard task.repoPath == loadedRepoPath else { return false }
+        guard let path = task.workingDirectoryPath.map(standardized), !worktrees.isEmpty else { return true }
+        return worktrees.contains { standardized($0.path) == path }
+    }
+
+    /// A worktree goes by its own name — "main" for the repository's own
+    /// checkout, the directory name for a linked one. The branch it has out is
+    /// a separate fact, said below it rather than in place of it.
     private var worktreeName: String {
-        state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+        if let worktree = selectedWorktree {
+            return name(for: worktree)
+        }
+        guard isSettled else { return Self.unsettledName }
+        return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+    }
+
+    /// The folder the name above it stands for — the project's own root, the
+    /// same value from any of its worktrees, so the path and the name always
+    /// name one thing.
+    private var folderPathNote: String? {
+        guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
+        let root = CheckoutFactsStore.shared.facts(for: path)?.projectRoot
+            ?? task.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
+        return root.map(abbreviate)
+    }
+
+    private func name(for worktree: GitWorktree) -> String {
+        worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
+    }
+
+    /// The branch under the worktree's name. A detached HEAD has none, and
+    /// nothing is said rather than inventing a placeholder.
+    private var worktreeBranchNote: String? {
+        selectedWorktree?.branch ?? state?.branch
     }
 
     /// The path, since two worktrees of one repository differ only there.
@@ -206,17 +521,11 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
-    private func label(for worktree: GitWorktree) -> String {
-        let branch = worktree.branch ?? (worktree.path as NSString).lastPathComponent
-        return worktree.isMain ? "\(branch) (repository)" : branch
-    }
-
     private func select(_ worktree: GitWorktree) {
         task.workingDirectoryPath = worktree.path
         task.branchName = worktree.branch
         task.workspaceKind = worktree.isMain ? .directory : .worktree
-        RecentFolders.remember(worktree.path)
-        recentFolders = RecentFolders.load()
+        rememberProject(containing: worktree.path)
     }
 
     // MARK: - Chrome
@@ -242,6 +551,29 @@ struct WorkspacePickerView: View, ThemedView {
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
         .emphasis(.secondary)
+    }
+
+    /// `git` and the stored path can spell one directory differently — a
+    /// trailing slash, or `..` left in.
+    private func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// Records the project a chosen directory belongs to, never the directory
+    /// itself when that is a worktree. The facts are usually cached by now;
+    /// when they are not, the lookup lands after the fact rather than making
+    /// the picker wait on `git`.
+    private func rememberProject(containing path: String) {
+        if let facts = CheckoutFactsStore.shared.facts(for: path) {
+            RecentFolders.remember(facts.projectRoot)
+            recentFolders = RecentFolders.load()
+            return
+        }
+        Task {
+            let root = await GitService.shared.checkoutFacts(containing: path)?.projectRoot
+            RecentFolders.remember(root ?? path)
+            recentFolders = RecentFolders.load()
+        }
     }
 
     private func abbreviate(_ path: String) -> String {
@@ -278,12 +610,50 @@ struct WorkspacePickerView: View, ThemedView {
         task.workingDirectoryPath = path
         task.workspaceKind = .directory
         task.branchName = nil
-        RecentFolders.remember(path)
-        recentFolders = RecentFolders.load()
+        rememberProject(containing: path)
         // Resolved after the fact: finding the repository root is a
         // subprocess, and the picker should not wait on one to show the
         // folder the user just chose.
-        Task { task.repoPath = await GitService.shared.repositoryRoot(containing: path) }
+        Task {
+            let root = await GitService.shared.repositoryRoot(containing: path)
+            task.repoPath = root
+            directoryWithoutRepository = root == nil ? path : nil
+        }
+    }
+}
+
+/// How loudly the picker should present itself.
+enum WorkspacePickerProminence {
+    /// Metadata beside the meters: small, secondary, no chrome of its own.
+    case statusline
+    /// Words in a sentence. The dropdowns take the surrounding text's size and
+    /// are marked only by an underline and a chevron, so the sentence reads as
+    /// prose the user can edit rather than as a row of controls.
+    case inline
+}
+
+/// Strips a `Menu` back to its label so it can sit in a run of text: no bezel,
+/// no system disclosure arrow (the label draws its own chevron), and no claim
+/// on the row's slack — an unfixed menu stretches and pushes the words after
+/// it to the far edge.
+///
+/// `.button` is what preserves a custom label. `.borderlessButton` hands the
+/// menu to an AppKit popup button, which re-renders the label as its own title
+/// and discards everything else — the icon, the chevron and the rule all
+/// vanish, whatever they were built from.
+private struct InlineMenuChrome: ViewModifier {
+    let help: String
+
+    /// Vertical-only `fixedSize`: the label still hugs its own height, but
+    /// leaving the width free is what lets a long name truncate instead of
+    /// running past the container.
+    func body(content: Content) -> some View {
+        content
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(help)
     }
 }
 
