@@ -192,7 +192,7 @@ struct SettingsView: View {
                 Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
                     .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
                 if settings.keepsAwakeWithLidClosed {
-                    Picker("Release the lid override at", selection: $settings.lidClosedThermalCutoff) {
+                    Picker("Allow sleep when temperature is", selection: $settings.lidClosedThermalCutoff) {
                         ForEach(ThermalCutoffLevel.allCases) { level in
                             Text(level.label).tag(level)
                         }

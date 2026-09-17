@@ -68,12 +68,12 @@ struct KeepAwakePanel: View {
                 .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
 
             if settings.keepsAwakeWithLidClosed {
-                Picker("Release the lid override at", selection: $settings.lidClosedThermalCutoff) {
+                Picker("Allow sleep when temperature is", selection: $settings.lidClosedThermalCutoff) {
                     ForEach(ThermalCutoffLevel.allCases) { level in
                         Text(level.label).tag(level)
                     }
                 }
-                .help("A shut lid can't shed heat as well as an open one, so the override releases once the Mac reaches this thermal level.")
+                .help("A shut lid can't shed heat as well as an open one, so the lid override releases and the Mac may sleep once it reaches this thermal level.")
                 .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
             }
 
