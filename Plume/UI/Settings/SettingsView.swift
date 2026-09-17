@@ -191,6 +191,14 @@ struct SettingsView: View {
                 }
                 Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
                     .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+                if settings.keepsAwakeWithLidClosed {
+                    Picker("Release the lid override at", selection: $settings.lidClosedThermalCutoff) {
+                        ForEach(ThermalCutoffLevel.allCases) { level in
+                            Text(level.label).tag(level)
+                        }
+                    }
+                    .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
+                }
             } header: {
                 Text("Keep Awake")
             } footer: {
@@ -204,7 +212,9 @@ struct SettingsView: View {
                     "regardless; keeping it awake with the " +
                     "lid closed installs a privileged helper that needs a one-time " +
                     "approval in Login Items, and only applies while Plume is " +
-                    "already holding the Mac awake."
+                    "already holding the Mac awake. The lid override releases on " +
+                    "its own once the Mac reaches the chosen thermal level, since a " +
+                    "shut lid can't shed heat as well as an open one."
                 )
                 .foregroundStyle(.secondary)
             }

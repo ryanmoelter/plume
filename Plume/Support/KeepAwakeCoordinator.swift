@@ -41,12 +41,19 @@ final class KeepAwakeCoordinator {
     /// System Settings approvals, which never move `reasons`.
     private(set) var lidOverrideStatus: LidSleepOverrideStatus = .notRegistered
 
+    /// Whether the lid override is being held back purely by thermal load,
+    /// with the plain hold otherwise in effect. Mirrored for the same reason
+    /// as `lidOverrideStatus`: a thermal state change moves this without
+    /// moving `reasons`.
+    private(set) var lidOverridePausedForHeat = false
+
     @ObservationIgnored private let engine: StatusEngine
     @ObservationIgnored private let sessions: HeadlessSessionManager
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let assertion: any SleepAssertion
     @ObservationIgnored private let powerSnapshotReader: () -> PowerSnapshot
     @ObservationIgnored private let lidOverride: any LidSleepOverride
+    @ObservationIgnored private let thermal: any ThermalStateSource
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var powerSourceObserver: CFRunLoopSource?
 
@@ -67,7 +74,8 @@ final class KeepAwakeCoordinator {
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
         powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot,
-        lidOverride: (any LidSleepOverride)? = nil
+        lidOverride: (any LidSleepOverride)? = nil,
+        thermal: (any ThermalStateSource)? = nil
     ) {
         self.engine = engine
         self.sessions = sessions
@@ -75,6 +83,7 @@ final class KeepAwakeCoordinator {
         self.assertion = assertion ?? IOKitSleepAssertion()
         self.powerSnapshotReader = powerSnapshot
         self.lidOverride = lidOverride ?? DaemonLidSleepOverride()
+        self.thermal = thermal ?? ThermalStateMonitor()
     }
 
     // MARK: - Lifecycle
@@ -110,6 +119,7 @@ final class KeepAwakeCoordinator {
         reasons = []
         isHolding = false
         offReason = nil
+        lidOverridePausedForHeat = false
     }
 
     /// For the panel opening: registration state lives in launchd and can
@@ -166,11 +176,24 @@ final class KeepAwakeCoordinator {
         if settings.keepsAwakeWithLidClosed {
             lidOverride.ensureRegistered()
         }
+        let cutoff = settings.lidClosedThermalCutoff
+        let thermalState = thermal.state
+        let wantsLidClosed = settings.keepsAwakeWithLidClosed
         lidOverride.apply(Self.decideLidOverride(
             decision: decision,
-            wantsLidClosed: settings.keepsAwakeWithLidClosed
+            wantsLidClosed: wantsLidClosed,
+            thermalState: thermalState,
+            cutoff: cutoff
         ))
         mirrorLidOverrideStatus()
+
+        // Paused for heat means the hold would otherwise carry the lid
+        // override, and only the thermal cutoff is what's stopping it.
+        let wouldOverrideIfCool = Self.decideLidOverride(decision: decision, wantsLidClosed: wantsLidClosed)
+        let pausedForHeat = wouldOverrideIfCool && cutoff.isReached(by: thermalState)
+        if lidOverridePausedForHeat != pausedForHeat {
+            lidOverridePausedForHeat = pausedForHeat
+        }
     }
 
     private func mirrorLidOverrideStatus() {
@@ -192,7 +215,9 @@ final class KeepAwakeCoordinator {
             _ = settings.keepsAwakeOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
             _ = settings.keepsAwakeWithLidClosed
+            _ = settings.lidClosedThermalCutoff
             _ = lidOverride.status
+            _ = thermal.state
         } onChange: { [weak self] in
             // The handler runs before the new value lands, so read it on the
             // next turn instead of the value being replaced.
@@ -279,7 +304,20 @@ final class KeepAwakeCoordinator {
     /// too low — blocks the override too, and a Mac that is not being held
     /// awake is never left unable to sleep.
     static func decideLidOverride(decision: Decision, wantsLidClosed: Bool) -> Bool {
+        decideLidOverride(decision: decision, wantsLidClosed: wantsLidClosed, thermalState: .nominal, cutoff: .serious)
+    }
+
+    /// A shut lid can't shed heat as well as an open one, so the override
+    /// also releases once `thermalState` reaches `cutoff` — the plain hold
+    /// keeps going regardless.
+    static func decideLidOverride(
+        decision: Decision,
+        wantsLidClosed: Bool,
+        thermalState: ProcessInfo.ThermalState,
+        cutoff: ThermalCutoffLevel
+    ) -> Bool {
         guard wantsLidClosed else { return false }
+        guard !cutoff.isReached(by: thermalState) else { return false }
         if case .hold = decision { return true }
         return false
     }

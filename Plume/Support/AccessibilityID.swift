@@ -23,6 +23,7 @@ enum AccessibilityID {
     static let keepAwakeLidNote = "keep-awake-lid-note"
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
     static let keepAwakeLidApprovalButton = "keep-awake-lid-approval-button"
+    static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
 
     // MARK: Tab strip
 

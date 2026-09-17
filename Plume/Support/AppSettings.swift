@@ -32,6 +32,7 @@ final class AppSettings {
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
+        static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let chatListEngineRaw = "chatListEngineRaw"
     }
 
@@ -116,6 +117,9 @@ final class AppSettings {
         // Unset reads as false: turning this on installs a privileged helper
         // and asks for admin approval, which has to be the user's move.
         self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
+
+        self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
+            .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
 
         self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
             .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
@@ -295,6 +299,14 @@ final class AppSettings {
     var keepsAwakeWithLidClosed: Bool {
         didSet {
             defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
+        }
+    }
+
+    /// The thermal level at or above which the lid-closed override releases,
+    /// leaving the plain sleep assertion in place.
+    var lidClosedThermalCutoff: ThermalCutoffLevel {
+        didSet {
+            defaults.set(lidClosedThermalCutoff.rawValue, forKey: Key.lidClosedThermalCutoffRaw)
         }
     }
 
