@@ -7,23 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		PL0000000000000000020 /* SleepHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL0000000000000000011 /* SleepHelperProtocol.swift */; };
-		PL0000000000000000021 /* PlumeSleepHelper in Embed Sleep Helper */ = {isa = PBXBuildFile; fileRef = PL0000000000000000010 /* PlumeSleepHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		PL0000000000000000022 /* com.ryanmoelter.Plume.SleepHelper.plist in Embed Sleep Helper Daemon */ = {isa = PBXBuildFile; fileRef = PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */; };
 		PL0000000000000000002 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000001 /* GhosttyTerminal */; };
 		PL0000000000000000005 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000004 /* GhosttyTheme */; };
 		PL0000000000000000006 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000007 /* GhosttyTerminal */; };
 		PL0000000000000000008 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000009 /* GhosttyTheme */; };
+		PL0000000000000000020 /* SleepHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL0000000000000000011 /* SleepHelperProtocol.swift */; };
+		PL0000000000000000021 /* PlumeSleepHelper in Embed Sleep Helper */ = {isa = PBXBuildFile; fileRef = PL0000000000000000010 /* PlumeSleepHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		PL0000000000000000022 /* com.ryanmoelter.Plume.SleepHelper.plist in Embed Sleep Helper Daemon */ = {isa = PBXBuildFile; fileRef = PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		PL0000000000000000023 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = C6A1E5D030464812003EAFC1 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = PL0000000000000000015;
-			remoteInfo = PlumeSleepHelper;
-		};
 		C6A1E5E830464813003EAFC1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C6A1E5D030464812003EAFC1 /* Project object */;
@@ -37,6 +30,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = C6A1E5D730464812003EAFC1;
 			remoteInfo = Plume;
+		};
+		PL0000000000000000023 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C6A1E5D030464812003EAFC1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = PL0000000000000000015;
+			remoteInfo = PlumeSleepHelper;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -66,20 +66,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		PL0000000000000000010 /* PlumeSleepHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PlumeSleepHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		PL0000000000000000011 /* SleepHelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SleepHelperProtocol.swift; path = Plume/Support/SleepHelperProtocol.swift; sourceTree = SOURCE_ROOT; };
-		PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = com.ryanmoelter.Plume.SleepHelper.plist; path = LaunchDaemons/com.ryanmoelter.Plume.SleepHelper.plist; sourceTree = SOURCE_ROOT; };
 		C6A1E5D830464812003EAFC1 /* Plume.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Plume.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6A1E5E730464813003EAFC1 /* PlumeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlumeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6A1E5F130464813003EAFC1 /* PlumeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlumeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		PL0000000000000000010 /* PlumeSleepHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PlumeSleepHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		PL0000000000000000011 /* SleepHelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SleepHelperProtocol.swift; path = Plume/Support/SleepHelperProtocol.swift; sourceTree = SOURCE_ROOT; };
+		PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = com.ryanmoelter.Plume.SleepHelper.plist; path = LaunchDaemons/com.ryanmoelter.Plume.SleepHelper.plist; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		PL0000000000000000013 /* PlumeSleepHelper */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PlumeSleepHelper;
-			sourceTree = "<group>";
-		};
 		C6A1E5DA30464812003EAFC1 /* Plume */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Plume;
@@ -93,6 +88,11 @@
 		C6A1E5F430464813003EAFC1 /* PlumeUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = PlumeUITests;
+			sourceTree = "<group>";
+		};
+		PL0000000000000000013 /* PlumeSleepHelper */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PlumeSleepHelper;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -153,26 +153,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		PL0000000000000000015 /* PlumeSleepHelper */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = PL0000000000000000027 /* Build configuration list for PBXNativeTarget "PlumeSleepHelper" */;
-			buildPhases = (
-				PL0000000000000000014 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				PL0000000000000000013 /* PlumeSleepHelper */,
-			);
-			name = PlumeSleepHelper;
-			packageProductDependencies = (
-			);
-			productName = PlumeSleepHelper;
-			productReference = PL0000000000000000010 /* PlumeSleepHelper */;
-			productType = "com.apple.product-type.tool";
-		};
 		C6A1E5D730464812003EAFC1 /* Plume */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C6A1E5FB30464813003EAFC1 /* Build configuration list for PBXNativeTarget "Plume" */;
@@ -247,6 +227,26 @@
 			productName = PlumeUITests;
 			productReference = C6A1E5F130464813003EAFC1 /* PlumeUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		PL0000000000000000015 /* PlumeSleepHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = PL0000000000000000027 /* Build configuration list for PBXNativeTarget "PlumeSleepHelper" */;
+			buildPhases = (
+				PL0000000000000000014 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				PL0000000000000000013 /* PlumeSleepHelper */,
+			);
+			name = PlumeSleepHelper;
+			packageProductDependencies = (
+			);
+			productName = PlumeSleepHelper;
+			productReference = PL0000000000000000010 /* PlumeSleepHelper */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -324,14 +324,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		PL0000000000000000014 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				PL0000000000000000020 /* SleepHelperProtocol.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		C6A1E5D430464812003EAFC1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -353,14 +345,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		PL0000000000000000014 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				PL0000000000000000020 /* SleepHelperProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		PL0000000000000000024 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = PL0000000000000000015 /* PlumeSleepHelper */;
-			targetProxy = PL0000000000000000023 /* PBXContainerItemProxy */;
-		};
 		C6A1E5E930464813003EAFC1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = C6A1E5D730464812003EAFC1 /* Plume */;
@@ -371,47 +366,14 @@
 			target = C6A1E5D730464812003EAFC1 /* Plume */;
 			targetProxy = C6A1E5F230464813003EAFC1 /* PBXContainerItemProxy */;
 		};
+		PL0000000000000000024 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = PL0000000000000000015 /* PlumeSleepHelper */;
+			targetProxy = PL0000000000000000023 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		PL0000000000000000025 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = U6J478KTGV;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume.SleepHelper;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		PL0000000000000000026 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = U6J478KTGV;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume.SleepHelper;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		C6A1E5F930464813003EAFC1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -682,18 +644,47 @@
 			};
 			name = Release;
 		};
+		PL0000000000000000025 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U6J478KTGV;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume.SleepHelper;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		PL0000000000000000026 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = U6J478KTGV;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume.SleepHelper;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		PL0000000000000000027 /* Build configuration list for PBXNativeTarget "PlumeSleepHelper" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				PL0000000000000000025 /* Debug */,
-				PL0000000000000000026 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		C6A1E5D330464812003EAFC1 /* Build configuration list for PBXProject "Plume" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -726,6 +717,15 @@
 			buildConfigurations = (
 				C6A1E60230464813003EAFC1 /* Debug */,
 				C6A1E60330464813003EAFC1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		PL0000000000000000027 /* Build configuration list for PBXNativeTarget "PlumeSleepHelper" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				PL0000000000000000025 /* Debug */,
+				PL0000000000000000026 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
