@@ -1,7 +1,8 @@
-import json, uuid, datetime, os
+import json, uuid, datetime, os, sys
 SESSION = "beefcafe-0002-4000-8000-000000000002"
 CWD = "/Users/ryanmoelter/Development/Plume"
-OUT = os.path.expanduser("~/.claude/projects/-Users-ryanmoelter-Development-Plume/%s.jsonl" % SESSION)
+# An explicit path suits PLUME_SEED_TRANSCRIPT_PATH; the default lands where Plume finds resumable sessions.
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.claude/projects/-Users-ryanmoelter-Development-Plume/%s.jsonl" % SESSION)
 t0 = datetime.datetime(2026, 9, 16, 13, 0, 0, tzinfo=datetime.timezone.utc)
 lines, prev, n = [], None, [0]
 def stamp():
@@ -27,10 +28,14 @@ def assistant(text):
     lines.append(d); prev = u
 
 user("Short page with a couple of links, no scrolling needed.")
-assistant("""Two links and nothing else.
+# Each link is a paragraph of its own so a synthetic click at the field's text
+# midpoint lands on it, and the scheme is one ChatLinkOpener refuses, so a repro
+# never launches a browser. The hang happens before opening either way.
+assistant("""Two links, each on its own line.
 
-The [Swift website](https://www.swift.org) is one, and
-[Apple's SwiftUI docs](https://developer.apple.com/documentation/swiftui) is the other.
+[Swift website](plume-test://swift)
+
+[Apple SwiftUI docs](plume-test://swiftui)
 
 Some plain prose after them, with no link in it at all.""")
 

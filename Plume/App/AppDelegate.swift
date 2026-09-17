@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         #if DEBUG
-        FieldEditorProbe.install()
+        LinkClickHarness.runIfRequested()
         #endif
 
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
