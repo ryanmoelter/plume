@@ -80,7 +80,7 @@ struct KeepAwakePanel: View {
             lidClose
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: 340)
         .accessibilityIdentifier(AccessibilityID.keepAwakePanel)
         .onAppear { coordinator.refreshLidOverride() }
     }
