@@ -55,6 +55,9 @@ enum KeepAwakeOffReason: Equatable, Sendable {
     /// The system is on battery and "Keep awake on battery" is off, so the
     /// coordinator never asked for an assertion.
     case battery
+    /// On battery, allowed, but the charge has dropped to or below the
+    /// configured cutoff.
+    case batteryLow(Int)
     /// An assertion was requested, but the OS declined it anyway.
     case refused
 }

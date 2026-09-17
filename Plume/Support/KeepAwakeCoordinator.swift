@@ -31,11 +31,16 @@ final class KeepAwakeCoordinator {
     /// nothing wants it or it's already held.
     private(set) var offReason: KeepAwakeOffReason?
 
+    /// The latest power reading. Mirrored into observable storage the same
+    /// way `isHolding` is: the footer's battery glyph needs to redraw when
+    /// only the percentage moves, and nothing else in `refresh` changes.
+    private(set) var powerSnapshot = PowerSnapshot(source: .ac, percent: nil, isCharging: false)
+
     @ObservationIgnored private let engine: StatusEngine
     @ObservationIgnored private let sessions: HeadlessSessionManager
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let assertion: any SleepAssertion
-    @ObservationIgnored private let powerSource: () -> PowerSource
+    @ObservationIgnored private let powerSnapshotReader: () -> PowerSnapshot
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var powerSourceObserver: CFRunLoopSource?
 
@@ -44,18 +49,24 @@ final class KeepAwakeCoordinator {
         case battery
     }
 
+    struct PowerSnapshot: Equatable, Sendable {
+        var source: PowerSource
+        var percent: Int?
+        var isCharging: Bool
+    }
+
     init(
         engine: StatusEngine = .shared,
         sessions: HeadlessSessionManager = .shared,
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
-        powerSource: @escaping () -> PowerSource = KeepAwakeCoordinator.systemPowerSource
+        powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot
     ) {
         self.engine = engine
         self.sessions = sessions
         self.settings = settings
         self.assertion = assertion ?? IOKitSleepAssertion()
-        self.powerSource = powerSource
+        self.powerSnapshotReader = powerSnapshot
     }
 
     // MARK: - Lifecycle
@@ -103,11 +114,16 @@ final class KeepAwakeCoordinator {
         if derived != reasons {
             reasons = derived
         }
+        let power = powerSnapshotReader()
+        if power != powerSnapshot {
+            powerSnapshot = power
+        }
         let decision = Self.decide(
             reasons: derived,
             mode: settings.keepAwakeMode,
-            powerSource: powerSource(),
-            allowsBattery: settings.keepsAwakeOnBattery
+            power: power,
+            allowsBattery: settings.keepsAwakeOnBattery,
+            batteryCutoffPercent: settings.keepAwakeBatteryCutoffPercent
         )
         switch decision {
         case .hold(let request):
@@ -141,6 +157,7 @@ final class KeepAwakeCoordinator {
             _ = engine.backgroundTaskTabs
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
+            _ = settings.keepAwakeBatteryCutoffPercent
         } onChange: { [weak self] in
             // The handler runs before the new value lands, so read it on the
             // next turn instead of the value being replaced.
@@ -192,8 +209,9 @@ final class KeepAwakeCoordinator {
     static func decide(
         reasons: [KeepAwakeReason],
         mode: KeepAwakeMode,
-        powerSource: PowerSource,
-        allowsBattery: Bool
+        power: PowerSnapshot,
+        allowsBattery: Bool,
+        batteryCutoffPercent: Int
     ) -> Decision {
         switch mode {
         case .never:
@@ -203,14 +221,20 @@ final class KeepAwakeCoordinator {
         case .auto, .always:
             break
         }
-        guard powerSource == .ac || allowsBattery else { return .off(.battery) }
+        guard power.source == .ac || allowsBattery else { return .off(.battery) }
+
+        // Charging ignores the cutoff: the percentage is climbing, not draining.
+        if power.source == .battery, !power.isCharging, batteryCutoffPercent > 0,
+           let percent = power.percent, percent <= batteryCutoffPercent {
+            return .off(.batteryLow(percent))
+        }
 
         let servesRemoteClients = reasons.contains { $0.kind == .remoteControl }
         return .hold(SleepAssertionRequest(
             // Apple documents the network type for a host serving remote
             // clients, and it holds through dark wake. It is AC-only, so idle
             // sleep prevention covers everything else.
-            type: servesRemoteClients && powerSource == .ac ? .networkClientActive : .preventIdleSystemSleep,
+            type: servesRemoteClients && power.source == .ac ? .networkClientActive : .preventIdleSystemSleep,
             reason: summary(reasons: reasons, mode: mode)
         ))
     }
@@ -248,19 +272,28 @@ final class KeepAwakeCoordinator {
         return "Plume: " + parts.joined(separator: ", ")
     }
 
-    nonisolated static func systemPowerSource() -> PowerSource {
+    nonisolated static func systemPowerSnapshot() -> PowerSnapshot {
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
-        else { return .ac }
+        else { return PowerSnapshot(source: .ac, percent: nil, isCharging: false) }
 
         for source in sources {
             guard let description = IOPSGetPowerSourceDescription(blob, source)?
                 .takeUnretainedValue() as? [String: Any],
                 let state = description[kIOPSPowerSourceStateKey] as? String
             else { continue }
-            if state == kIOPSBatteryPowerValue { return .battery }
+            if state == kIOPSBatteryPowerValue {
+                let percent: Int? = {
+                    guard let capacity = description[kIOPSCurrentCapacityKey] as? Int,
+                          let max = description[kIOPSMaxCapacityKey] as? Int, max > 0
+                    else { return nil }
+                    return Int((Double(capacity) / Double(max) * 100).rounded())
+                }()
+                let isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
+                return PowerSnapshot(source: .battery, percent: percent, isCharging: isCharging)
+            }
         }
         // A desktop reports no battery source at all, which is AC.
-        return .ac
+        return PowerSnapshot(source: .ac, percent: nil, isCharging: false)
     }
 }

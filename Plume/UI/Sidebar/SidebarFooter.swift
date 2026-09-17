@@ -57,7 +57,8 @@ struct SidebarFooter: View, ThemedView {
                         iconTint: keepAwakeTint,
                         hasMoreOptions: true,
                         detail: keepAwakeDetail,
-                        detailSymbol: keepAwakeDetailSymbol
+                        detailSymbol: keepAwakeDetailSymbol,
+                        detailSymbolTint: keepAwakeDetailSymbolTint
                     )
                 }
                 .help(keepAwakeHelp)
@@ -87,7 +88,10 @@ struct SidebarFooter: View, ThemedView {
     }
 
     private var isBatteryBlocked: Bool {
-        coordinator.offReason == .battery
+        switch coordinator.offReason {
+        case .battery, .batteryLow: true
+        case .refused, nil: false
+        }
     }
 
     /// An empty cup is not caffeinated; a steaming one is.
@@ -124,12 +128,38 @@ struct SidebarFooter: View, ThemedView {
     /// Battery blocking takes priority over remote control, the same way it
     /// takes priority over the working count in `keepAwakeDetail`.
     private var keepAwakeDetailSymbol: String? {
-        if isBatteryBlocked { return "battery.25percent" }
+        if isBatteryBlocked { return Self.batteryGlyph(percent: coordinator.powerSnapshot.percent) }
         return coordinator.tally.remotelyControlled ? StatusSymbol.remoteControl.name : nil
     }
 
+    /// Only shown while battery-blocked, since charging always skips the
+    /// cutoff and the glyph never appears while charging.
+    private var keepAwakeDetailSymbolTint: Color? {
+        switch coordinator.offReason {
+        case .batteryLow: ChatRole.danger(for: colorScheme)
+        case .battery, .refused, nil: nil
+        }
+    }
+
+    /// Buckets a live reading to the nearest SF Symbol glyph. A nil reading
+    /// (percent unknown) keeps the look `.battery` blocking already had.
+    static func batteryGlyph(percent: Int?) -> String {
+        guard let percent else { return "battery.25percent" }
+        switch percent {
+        case ..<13: return "battery.0percent"
+        case ..<38: return "battery.25percent"
+        case ..<63: return "battery.50percent"
+        case ..<88: return "battery.75percent"
+        default: return "battery.100percent"
+        }
+    }
+
     private var keepAwakeHelp: String {
-        if isBatteryBlocked { return "Keep Awake is off while on battery" }
+        switch coordinator.offReason {
+        case .battery: return "Keep Awake is off while on battery"
+        case .batteryLow(let percent): return "Keep Awake stopped — battery is at \(percent)%"
+        case .refused, nil: break
+        }
         return coordinator.isHolding ? "Holding the Mac awake" : "The Mac can sleep"
     }
 
@@ -162,6 +192,8 @@ private struct SidebarFooterRow: View {
     /// A system symbol appended after `detail`, e.g. remote-control or
     /// battery-blocked.
     var detailSymbol: String?
+    /// Tint for `detailSymbol` alone, e.g. red for a low-battery cutoff.
+    var detailSymbolTint: Color?
 
     var body: some View {
         // Stacks only when the title and its detail cannot share a line,
@@ -215,10 +247,16 @@ private struct SidebarFooterRow: View {
                         .emphasis(.secondary)
                 }
                 if let detailSymbol {
-                    // Full emphasis: it is a state, not a caption on one.
-                    Image(systemName: detailSymbol)
-                        .imageScale(.small)
-                        .emphasis(.primary)
+                    if let detailSymbolTint {
+                        Image(systemName: detailSymbol)
+                            .imageScale(.small)
+                            .foregroundStyle(detailSymbolTint)
+                    } else {
+                        // Full emphasis: it is a state, not a caption on one.
+                        Image(systemName: detailSymbol)
+                            .imageScale(.small)
+                            .emphasis(.primary)
+                    }
                 }
             }
             .fixedSize()

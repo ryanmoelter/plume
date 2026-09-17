@@ -30,6 +30,7 @@ final class AppSettings {
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
+        static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let chatListEngineRaw = "chatListEngineRaw"
     }
 
@@ -41,6 +42,9 @@ final class AppSettings {
     /// 125% of the system `.body` size (13pt on macOS).
     nonisolated static let defaultChatFontSize: Double = 16
     nonisolated static let chatFontSizeRange: ClosedRange<Double> = 11...28
+
+    /// Battery percentage below which keep-awake stops holding on battery.
+    nonisolated static let defaultKeepAwakeBatteryCutoffPercent = 20
 
     private let defaults: UserDefaults
 
@@ -101,6 +105,12 @@ final class AppSettings {
         // Unset reads as false: holding a Mac awake on battery drains it,
         // so it is the direction to ask for rather than inherit.
         self.keepsAwakeOnBattery = defaults.bool(forKey: Key.keepsAwakeOnBattery)
+
+        // `integer(forKey:)` returns 0 for an unset key, which collides with
+        // 0 meaning "no cutoff" — an unset key must read as the default.
+        self.keepAwakeBatteryCutoffPercent = defaults.object(forKey: Key.keepAwakeBatteryCutoffPercent) == nil
+            ? Self.defaultKeepAwakeBatteryCutoffPercent
+            : defaults.integer(forKey: Key.keepAwakeBatteryCutoffPercent)
 
         self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
             .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
@@ -258,6 +268,19 @@ final class AppSettings {
     var keepsAwakeOnBattery: Bool {
         didSet {
             defaults.set(keepsAwakeOnBattery, forKey: Key.keepsAwakeOnBattery)
+        }
+    }
+
+    /// Battery percentage at or below which keep-awake stops holding, even
+    /// when `keepsAwakeOnBattery` is on. 0 means no cutoff.
+    var keepAwakeBatteryCutoffPercent: Int {
+        didSet {
+            let clamped = min(max(keepAwakeBatteryCutoffPercent, 0), 100)
+            if clamped != keepAwakeBatteryCutoffPercent {
+                keepAwakeBatteryCutoffPercent = clamped
+                return
+            }
+            defaults.set(keepAwakeBatteryCutoffPercent, forKey: Key.keepAwakeBatteryCutoffPercent)
         }
     }
 
