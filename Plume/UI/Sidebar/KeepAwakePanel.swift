@@ -61,6 +61,7 @@ struct KeepAwakePanel: View {
 
             Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
                 .disabled(!coordinator.lidOverrideStatus.canEngage)
+                .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
                 .help(
                     "Only applies while Plume is holding the Mac awake, so on battery it "
                         + "also needs “Keep awake on battery”."
@@ -96,7 +97,14 @@ struct KeepAwakePanel: View {
 
     @ViewBuilder
     private var lidClose: some View {
-        if let summary = guidance.summary {
+        if guidance.offersInstall {
+            Button("Install Sleep Helper…") {
+                coordinator.installLidHelper()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+        } else if let summary = guidance.summary {
             VStack(alignment: .leading, spacing: 4) {
                 Text(summary)
                     .font(.caption)
@@ -106,23 +114,6 @@ struct KeepAwakePanel: View {
                     Text(explanation)
                         .font(.caption)
                         .emphasis(.subtle)
-                }
-
-                if guidance.offersSystemSettings {
-                    Button("Open Battery Settings…") {
-                        SystemSettingsLink.battery.open()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                }
-
-                if guidance.offersInstall {
-                    Button("Install Sleep Helper…") {
-                        coordinator.installLidHelper()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
                 }
 
                 if guidance.offersLoginItems {

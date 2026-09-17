@@ -970,13 +970,12 @@ struct KeepAwakeTests {
 /// says the lid can close.
 @MainActor
 struct LidCloseGuidanceTests {
-    @Test func aMissingHelperWarnsAndOffersInstallAndSettings() {
+    @Test func aMissingHelperOffersInstallInsteadOfText() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
         #expect(guidance == .helperNotInstalled)
-        #expect(guidance.summary != nil)
-        #expect(guidance.explanation?.lowercased().contains("install") == true)
+        #expect(guidance.summary == nil, "the button stands in for any text")
+        #expect(guidance.explanation == nil)
         #expect(guidance.offersInstall)
-        #expect(guidance.offersSystemSettings)
         #expect(guidance.offersLoginItems == false)
     }
 
@@ -993,14 +992,12 @@ struct LidCloseGuidanceTests {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
         #expect(guidance == .sleepsOnLidClose)
         #expect(guidance.offersInstall == false)
-        #expect(guidance.offersSystemSettings)
     }
 
     @Test func aReadyHelperWithTheSettingOnPromisesOnlyWhileHolding() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .ready)
         #expect(guidance == .staysAwakeWhileHolding)
         #expect(guidance.summary?.lowercased().contains("holding") == true)
-        #expect(guidance.offersSystemSettings == false)
     }
 
     @Test func anEngagedHelperSaysTheLidCanClose() {
@@ -1008,14 +1005,12 @@ struct LidCloseGuidanceTests {
         #expect(guidance == .staysAwakeViaHelper)
         #expect(guidance.summary != nil)
         #expect(guidance.explanation == nil)
-        #expect(guidance.offersSystemSettings == false)
     }
 
     @Test func anUnapprovedHelperPointsAtLoginItems() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .needsApproval)
         #expect(guidance == .helperNeedsApproval)
         #expect(guidance.offersLoginItems)
-        #expect(guidance.offersSystemSettings == false)
     }
 
     @Test func aFailedHelperShowsItsReason() {
@@ -1046,7 +1041,7 @@ struct LidCloseGuidanceTests {
             let text = ((guidance.summary ?? "") + " " + (guidance.explanation ?? "")).lowercased()
             #expect(!text.contains("can stay closed"), "\(override)")
         }
-        let sleeps = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .notRegistered)
+        let sleeps = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: false, override: .ready)
         #expect(sleeps.summary?.lowercased().contains("sleeps") == true)
     }
 

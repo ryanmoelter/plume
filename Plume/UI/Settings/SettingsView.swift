@@ -206,21 +206,21 @@ struct SettingsView: View {
             } header: {
                 Text("Keep Awake")
             } footer: {
-                Text(
-                    "Auto holds the Mac awake while an agent is working, while a " +
-                    "session is under remote control, and while a remotely " +
-                    "controlled agent waits for an answer. The system may ignore " +
-                    "the request on battery or under thermal load. The hold " +
-                    "releases once the battery drops to or below the cutoff, " +
-                    "unless it's charging. Closing the lid normally sleeps the Mac " +
-                    "regardless; keeping it awake with the lid closed needs Plume's " +
-                    "sleep helper, a privileged daemon installed here with a one-time " +
-                    "approval in Login Items, and only applies while Plume is " +
-                    "already holding the Mac awake. The lid override releases on " +
-                    "its own once the Mac reaches the chosen thermal level, since a " +
-                    "shut lid can't shed heat as well as an open one."
-                )
-                .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(
+                        "Auto holds the Mac awake while an agent is working or under " +
+                        "remote control. On battery the hold stops at the cutoff unless " +
+                        "charging. Closing the lid sleeps the Mac unless the sleep helper " +
+                        "is installed and approved in Login Items, and even then the " +
+                        "lid override releases at the chosen temperature."
+                    )
+                    .foregroundStyle(.secondary)
+                    Button("Open Battery Settings…") {
+                        SystemSettingsLink.battery.open()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
             }
 
             Section {
@@ -304,7 +304,7 @@ struct SettingsView: View {
             LabeledContent("Sleep helper") {
                 HStack {
                     Text("Installed").foregroundStyle(.secondary)
-                    Button("Uninstall…") { keepAwake.uninstallLidHelper() }
+                    Button("Uninstall") { keepAwake.uninstallLidHelper() }
                         .accessibilityIdentifier(AccessibilityID.keepAwakeLidUninstallButton)
                 }
             }
