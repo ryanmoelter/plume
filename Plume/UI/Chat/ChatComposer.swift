@@ -28,7 +28,7 @@ struct ChatComposer: View, ThemedView {
     /// on the launch path, which is a tab's first message.
     var onLaunch: (String) -> Void = { _ in }
 
-    @FocusState private var inputFocused: Bool
+    @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
     @Environment(\.theme) var theme
     @State private var settings = AppSettings.shared
@@ -157,7 +157,6 @@ struct ChatComposer: View, ThemedView {
                 // comes from its own `textContainerInset`, not from here.
                 .padding(.horizontal, -Self.lineFragmentPadding)
                 .accessibilityIdentifier(AccessibilityID.composerField)
-                .focused($inputFocused)
 
                 HStack(spacing: dimensions.panelContentInset) {
                     ComposerControlsRow(

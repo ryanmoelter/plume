@@ -24,7 +24,7 @@ struct ChatTabView: View, ThemedView {
     /// dock bar that names it. Followed whenever a plan exists, not only while
     /// the overlay is up: the dock bar is what shows when it is not.
     @State private var planFile = MarkdownFileStore()
-    @FocusState private var planFeedbackFocused: Bool
+    @State private var planFeedbackFocused = false
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
     /// id rather than the value so the overlay follows the subagent's live
@@ -530,7 +530,6 @@ struct ChatTabView: View, ThemedView {
         .padding(.horizontal, dimensions.panelContentInset - Self.composerLineFragmentPadding)
         .background(.quaternary.opacity(0.4), in: feedbackFieldShape)
         .overlay { feedbackFieldShape.strokeBorder(.separator) }
-        .focused($planFeedbackFocused)
         .accessibilityIdentifier(AccessibilityID.planFeedbackField)
     }
 

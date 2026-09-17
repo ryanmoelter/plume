@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RecentFolders.migrateWorktreesToProjectsOnce()
         }
 
+        #if DEBUG
+        LinkClickHarness.runIfRequested()
+        #endif
+
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
         guard let window = NSApp.windows.first else { return }

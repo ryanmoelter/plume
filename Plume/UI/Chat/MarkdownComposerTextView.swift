@@ -14,7 +14,14 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var fontSize: CGFloat
-    var isFocused: FocusState<Bool>.Binding
+    /// Mirrors first-responder status, and claims it when set true.
+    ///
+    /// A plain binding rather than `FocusState`, on purpose. SwiftUI answers a
+    /// programmatic `false` on a `.focused` binding by resigning whatever is
+    /// first responder at that moment. During a click on selectable text that
+    /// is the field editor whose mouse-tracking loop is still running, and
+    /// detaching it mid-loop spins the main thread forever (PLUME-106).
+    var isFocused: Binding<Bool>
     var sendKey: ComposerSendKey
     var onSend: () -> Void
     /// Called on ⌥↩, when the caller has a third action for it. Nil (the
@@ -114,7 +121,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let textBinding: Binding<String>
-        private let focusBinding: FocusState<Bool>.Binding
+        private let focusBinding: Binding<Bool>
         var onSend: () -> Void
         var placeholder: String
         var onTextChange: (String) -> Void
@@ -126,7 +133,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
         init(
             text: Binding<String>,
-            isFocused: FocusState<Bool>.Binding,
+            isFocused: Binding<Bool>,
             onSend: @escaping () -> Void,
             placeholder: String,
             onTextChange: @escaping (String) -> Void,
@@ -189,12 +196,13 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             onCaretChange(textView.selectedRange().location)
         }
 
-        func textDidBeginEditing(_ notification: Notification) {
-            focusBinding.wrappedValue = true
-        }
-
-        func textDidEndEditing(_ notification: Notification) {
-            focusBinding.wrappedValue = false
+        /// Driven from the text view's responder overrides rather than
+        /// `textDidEndEditing`, which `NSTextView` posts only after the text
+        /// changed, so a focus loss without typing would leave the binding
+        /// stale and `updateNSView` would steal focus back.
+        func focusDidChange(_ focused: Bool) {
+            guard focusBinding.wrappedValue != focused else { return }
+            focusBinding.wrappedValue = focused
         }
 
         func handleSendShortcut() {
@@ -275,6 +283,18 @@ final class ComposerNSTextView: NSTextView {
     /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { composerCoordinator?.focusDidChange(true) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { composerCoordinator?.focusDidChange(false) }
+        return resigned
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
