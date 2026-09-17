@@ -91,6 +91,19 @@ struct SettingsView: View {
                         .frame(width: 44, alignment: .trailing)
                 }
 
+                HStack {
+                    Text("Code size")
+                    Slider(
+                        value: $settings.codeFontSizeMultiplier,
+                        in: AppSettings.codeFontSizeMultiplierRange,
+                        step: 0.05
+                    )
+                    Text("\(Int(settings.codeFontSizeMultiplier * 100))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+
                 Picker("Send message with", selection: $settings.composerSendKey) {
                     Text("⌘Return").tag(ComposerSendKey.commandReturn)
                     Text("Return").tag(ComposerSendKey.returnKey)
@@ -100,8 +113,10 @@ struct SettingsView: View {
             } footer: {
                 Text(
                     "Text size sets the prose size in the chat view — messages, tool calls, " +
-                    "and thinking blocks scale together. The other key inserts a newline " +
-                    "instead of sending, so a half-typed multi-line message stays editable."
+                    "and thinking blocks scale together. Code size adjusts the code font on " +
+                    "top of that, to match x-heights between the two faces. The other key " +
+                    "inserts a newline instead of sending, so a half-typed multi-line message " +
+                    "stays editable."
                 )
                 .foregroundStyle(.secondary)
             }

@@ -15,6 +15,7 @@ final class AppSettings {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
         static let chatFontSize = "chatFontSize"
+        static let codeFontSizeMultiplier = "codeFontSizeMultiplier"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
@@ -45,6 +46,12 @@ final class AppSettings {
     nonisolated static let defaultChatFontSize: Double = 16
     nonisolated static let chatFontSizeRange: ClosedRange<Double> = 11...28
 
+    /// Applied on top of `chatFontSize` for code spans and blocks, to match
+    /// x-heights between the code face and the prose face at the same
+    /// nominal size. 1.0 means no adjustment.
+    nonisolated static let defaultCodeFontSizeMultiplier: Double = 1.0
+    nonisolated static let codeFontSizeMultiplierRange: ClosedRange<Double> = 0.7...1.3
+
     /// Battery percentage below which keep-awake stops holding on battery.
     nonisolated static let defaultKeepAwakeBatteryCutoffPercent = 20
 
@@ -61,6 +68,13 @@ final class AppSettings {
         self.chatFontSize = Self.chatFontSizeRange.contains(storedFontSize)
             ? storedFontSize
             : Self.defaultChatFontSize
+
+        // `double(forKey:)` returns 0 for an unset key, which is outside the
+        // clamped range, so an unset key correctly falls back to the default.
+        let storedCodeFontSizeMultiplier = defaults.double(forKey: Key.codeFontSizeMultiplier)
+        self.codeFontSizeMultiplier = Self.codeFontSizeMultiplierRange.contains(storedCodeFontSizeMultiplier)
+            ? storedCodeFontSizeMultiplier
+            : Self.defaultCodeFontSizeMultiplier
 
         // `bool(forKey:)` returns false for an unset key, which would silently
         // flip the default to off — an unset key must read as true.
@@ -150,6 +164,22 @@ final class AppSettings {
                 return
             }
             defaults.set(chatFontSize, forKey: Key.chatFontSize)
+        }
+    }
+
+    /// Multiplier on `chatFontSize` for code spans and blocks. Clamped to
+    /// `codeFontSizeMultiplierRange`.
+    var codeFontSizeMultiplier: Double {
+        didSet {
+            let clamped = min(
+                max(codeFontSizeMultiplier, Self.codeFontSizeMultiplierRange.lowerBound),
+                Self.codeFontSizeMultiplierRange.upperBound
+            )
+            if clamped != codeFontSizeMultiplier {
+                codeFontSizeMultiplier = clamped
+                return
+            }
+            defaults.set(codeFontSizeMultiplier, forKey: Key.codeFontSizeMultiplier)
         }
     }
 

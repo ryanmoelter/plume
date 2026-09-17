@@ -25,6 +25,42 @@ struct BundledFontsTests {
         BundledFonts.registerIfNeeded()
         #expect(BundledFonts.isProseAvailable)
     }
+
+    /// A wrong family name fails silently into a substitute face, so this is
+    /// the real safety net for the bundled code font.
+    @Test func theCodeFaceRegistersFromTheBundleUnderItsExactFamilyName() {
+        #expect(BundledFonts.isCodeAvailable, "\(BundledFonts.code) did not register from the bundle")
+        #expect(BundledFonts.code == "Cascadia Code NF")
+    }
+
+    @Test func aRealCodeItalicFaceIsAvailable() {
+        BundledFonts.registerIfNeeded()
+        let members = NSFontManager.shared.availableMembers(ofFontFamily: BundledFonts.code) ?? []
+        let names = members.compactMap { $0.first as? String }
+        #expect(names.contains { $0.localizedCaseInsensitiveContains("italic") }, "no italic member in \(names)")
+    }
+}
+
+/// The chat's code font resolves to the real family, not a substitute.
+@MainActor
+struct ChatCodeFontTests {
+    @Test func codeResolvesToTheBundledFamilyWhenGhosttyDeclaresNone() {
+        BundledFonts.registerIfNeeded()
+        let font = NSFont(name: BundledFonts.code, size: 13)
+        #expect(font != nil, "\(BundledFonts.code) did not resolve as an NSFont")
+        #expect(font?.familyName == BundledFonts.code)
+    }
+
+    /// Cascadia Code NF is variable on weight alone — 200 to 700 — the same
+    /// shape as Libre Baskerville.
+    @Test func theWeightAxisIsPresent() {
+        BundledFonts.registerIfNeeded()
+        let font = NSFont(name: BundledFonts.code, size: 12)
+        let axes = (CTFontCopyVariationAxes(font! as CTFont) as? [[String: Any]]) ?? []
+        let tags = axes.compactMap { $0[kCTFontVariationAxisIdentifierKey as String] as? Int }
+        let wght = 0x77676874
+        #expect(tags.contains(wght), "no wght axis in \(tags)")
+    }
 }
 
 /// The chat's prose font resolves to the real family, not a substitute.

@@ -99,6 +99,18 @@ enum GhosttyConfigLoader {
         expanded.lines.last { directiveValue(in: $0.content, key: "theme") != nil }?.sourcePath
     }
 
+    /// The `font-family` ghostty would end up using: the last directive in
+    /// expansion order, matching ghostty's last-wins semantics for a repeated
+    /// key. An include applies after the file that named it, so a value set
+    /// there beats one set earlier in the including file — the same ordering
+    /// `winningThemeSourcePath` relies on.
+    static func resolvedFontFamily(in expanded: ExpandedConfig) -> String? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-family") }
+            .last
+            .map(unquoted)
+    }
+
     /// The expanded config with `theme` and `config-file` removed, ready to
     /// hand to libghostty as generated contents.
     ///

@@ -27,6 +27,11 @@ final class GhosttyRuntime {
     /// accessors to get them back out.
     private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions?
 
+    /// The `font-family` the user's ghostty config resolves to, if any. Chat
+    /// code prefers this over the bundled Cascadia Code NF, so the terminal
+    /// and the chat's code spans read in the same face.
+    private(set) var resolvedCodeFontFamily: String?
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
@@ -47,6 +52,7 @@ final class GhosttyRuntime {
                     dark: definitions.dark?.toTerminalConfiguration() ?? .init()
                 )
             }
+            resolvedCodeFontFamily = GhosttyConfigLoader.resolvedFontFamily(in: expanded)
 
             // The config reaches libghostty as generated contents, not as a
             // file path, so the `theme` directive can be stripped first — see

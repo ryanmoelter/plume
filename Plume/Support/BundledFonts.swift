@@ -15,6 +15,9 @@ enum BundledFonts {
     /// The family name `Font.custom` resolves.
     static let prose = "Libre Baskerville"
 
+    /// The family name `Font.custom` resolves for chat code.
+    static let code = "Cascadia Code NF"
+
     private static var registered = false
 
     /// Registers every bundled font once. Safe to call repeatedly.
@@ -23,7 +26,8 @@ enum BundledFonts {
         registered = true
 
         let urls = Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
-        for url in urls where url.lastPathComponent.hasPrefix("LibreBaskerville") {
+        for url in urls where url.lastPathComponent.hasPrefix("LibreBaskerville")
+            || url.lastPathComponent.hasPrefix("CascadiaCode") {
             var error: Unmanaged<CFError>?
             if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
                 // A font that fails to register is a styling problem, not a
@@ -48,6 +52,12 @@ enum BundledFonts {
         registerIfNeeded()
         return NSFontManager.shared.availableFontFamilies.contains(prose)
     }()
+
+    /// Same reasoning as `isProseAvailable`, for the bundled code face.
+    static let isCodeAvailable: Bool = {
+        registerIfNeeded()
+        return NSFontManager.shared.availableFontFamilies.contains(code)
+    }()
 }
 
 import SwiftUI
@@ -71,6 +81,26 @@ extension Font {
             return .system(size: size, weight: weight)
         }
         return .custom(BundledFonts.prose, size: size, relativeTo: textStyle).weight(weight)
+    }
+
+    /// Chat code — inline spans and fenced blocks — in the resolved code
+    /// family, falling back to the system monospace face if nothing is
+    /// available.
+    ///
+    /// Resolution order: the user's own ghostty `font-family`, if set, beats
+    /// the bundled Cascadia Code NF, which beats the system mono face.
+    /// `GhosttyRuntime.shared.resolvedCodeFontFamily` is read here (rather
+    /// than taken as a parameter) since it is resolved once, at startup, and
+    /// every call site wants the same answer.
+    @MainActor
+    static func chatCode(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        if let family = GhosttyRuntime.shared.resolvedCodeFontFamily {
+            return .custom(family, size: size).weight(weight)
+        }
+        guard BundledFonts.isCodeAvailable else {
+            return .system(size: size, weight: weight, design: .monospaced)
+        }
+        return .custom(BundledFonts.code, size: size).weight(weight)
     }
 }
 

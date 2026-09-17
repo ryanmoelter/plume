@@ -370,7 +370,7 @@ struct CodeSegmentView: View, ThemedView {
     private var lines: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             Text(highlighted)
-                .font(typography.body.mono)
+                .font(.chatCode(size: typography.bodySize * AppSettings.shared.codeFontSizeMultiplier))
                 .padding(.horizontal, padding)
                 .padding(.bottom, padding)
                 // The header already pays the gap above the first line.
