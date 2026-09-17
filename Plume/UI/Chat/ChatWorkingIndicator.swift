@@ -32,8 +32,9 @@ struct ChatWorkingIndicator: View, ThemedView {
     }
 
     private func caption(at now: Date, startedAt: Date) -> String {
-        let verb = WorkingVerb.forTurn(startedAt: startedAt)
-        return "\(verb)… \(ElapsedTime.formatted(now.timeIntervalSince(startedAt)))"
+        let elapsed = now.timeIntervalSince(startedAt)
+        let verb = WorkingVerb.forTurn(startedAt: startedAt, elapsed: elapsed)
+        return "\(verb)… \(ElapsedTime.formatted(elapsed))"
     }
 }
 
