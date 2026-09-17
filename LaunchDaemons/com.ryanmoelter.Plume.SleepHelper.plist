@@ -17,7 +17,7 @@
 		<string>com.ryanmoelter.Plume.debug</string>
 	</array>
 	<key>RunAtLoad</key>
-	<false/>
+	<true/>
 	<key>KeepAlive</key>
 	<false/>
 </dict>
