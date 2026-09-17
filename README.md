@@ -44,10 +44,6 @@ Yes! It uses `claude -p` under the hood, so any way you authenticate the `claude
 
 Anthropic's support page [confirms this is a supported use of your plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan), and it draws from the same usage pool as the terminal app.
 
-### What does Plume have access to?
-
-Everything runs on your Mac. Plume launches `claude` and `git` as local processes, reads the transcripts Claude Code writes under `~/.claude`, and stores its own task list in `~/Library/Application Support/Plume`. It makes no network requests of its own and collects no telemetry. It is not sandboxed, because it needs to spawn terminals and manage worktrees.
-
 ### Is this vibe-coded slop?
 
 This is artisanal slop, thank you very much. It's fully AI-coded, but I've had a heavy hand in the design, architecture, implementation, and testing.
