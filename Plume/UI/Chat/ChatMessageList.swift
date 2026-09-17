@@ -89,8 +89,8 @@ struct ChatMessageList: View, ThemedView {
     /// realized item.
     @State private var visiblePieceIDs: Set<String> = []
 
-    /// The custom list's handle, and the message ids of the last rebuild so
-    /// a prompt the user just sent can be told from a transcript loading.
+    /// The list's handle, and the message ids of the last rebuild so a
+    /// prompt the user just sent can be told from a transcript loading.
     @State private var commands = ChatListCommands()
     @State private var previousMessageIDs: [String] = []
     @Environment(\.chatFontSize) private var chatFontSize
