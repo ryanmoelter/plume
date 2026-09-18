@@ -225,7 +225,12 @@ struct ChatTabView: View, ThemedView {
             settledPlan = nil
             planPresentation = .expanded
         }
-        .onChange(of: planApproval) { _, approval in
+        // `initial` so a tab returned to mid-proposal finds its way back to a
+        // dock bar. The state is per-view and starts closed, and without this
+        // an approval that was already pending when the view went away never
+        // changes again — the plan would be reachable only from the
+        // composer's plan button, with no sign one was waiting.
+        .onChange(of: planApproval, initial: true) { _, approval in
             planPresentation = planPresentation.reconciled(with: approval)
         }
         .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
