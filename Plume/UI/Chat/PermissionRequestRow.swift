@@ -99,6 +99,7 @@ struct PermissionRequestRow: View, ThemedView {
                     .font(typography.caption.mono)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .chatTextColumn()
             } else {
                 Text(field.value)
                     .font(typography.caption.font)
