@@ -95,19 +95,30 @@ extension Font {
     ///
     /// The face and weight come from the config's `font-style` and
     /// `font-weight` for the same reason the family does — code in chat should
-    /// read as it does in the terminal. Passing a weight overrides both, for a
-    /// caller that needs a particular weight whatever the user configured.
+    /// read as it does in the terminal. A config that names a family but no
+    /// style therefore gets that family's regular face, exactly as the
+    /// terminal would, rather than inheriting a style it never asked for.
+    ///
+    /// Passing a weight overrides both, for a caller that needs a particular
+    /// weight whatever the user configured.
     @MainActor
     static func chatCode(size: CGFloat, weight: Font.Weight? = nil) -> Font {
         let runtime = GhosttyRuntime.shared
-        let family = runtime.resolvedCodeFontFamily
-            ?? (BundledFonts.isCodeAvailable ? BundledFonts.code : nil)
-        guard let family else {
-            return .system(size: size, weight: weight ?? .regular, design: .monospaced)
-        }
         // An explicit weight is a caller's override and beats the config.
         if let weight {
+            guard let family = configuredFamily else {
+                return .system(size: size, weight: weight, design: .monospaced)
+            }
             return resolved(family: family, style: nil, weight: weight, size: size)
+        }
+        guard let family = runtime.resolvedCodeFontFamily else {
+            guard BundledFonts.isCodeAvailable else {
+                return .system(size: size, weight: .regular, design: .monospaced)
+            }
+            // The bundled face's own default, not a fallback for a config that
+            // asked for something else: Cascadia's regular weight reads heavy
+            // beside the prose around it.
+            return resolved(family: BundledFonts.code, style: bundledStyle, weight: nil, size: size)
         }
         return resolved(
             family: family,
@@ -115,6 +126,15 @@ extension Font {
             weight: runtime.resolvedCodeFontWeight,
             size: size
         )
+    }
+
+    /// The face the bundled family is drawn at when nothing else is chosen.
+    private static let bundledStyle = "SemiLight"
+
+    @MainActor
+    private static var configuredFamily: String? {
+        GhosttyRuntime.shared.resolvedCodeFontFamily
+            ?? (BundledFonts.isCodeAvailable ? BundledFonts.code : nil)
     }
 
     /// A face within `family`, chosen by style name and weight.

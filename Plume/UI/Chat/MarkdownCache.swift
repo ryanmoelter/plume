@@ -77,7 +77,7 @@ enum MarkdownCache {
         if let cached = styledInlineCache[key] { return cached }
 
         var attributed = inline(text)
-        let codeFont = Font.chatCode(size: fontSize * 0.92 * codeFontSizeMultiplier)
+        let codeFont = Font.chatCode(size: fontSize * codeFontSizeMultiplier)
         for run in attributed.runs where run.inlinePresentationIntent == .code {
             attributed[run.range].font = codeFont
             attributed[run.range].backgroundColor = tint
