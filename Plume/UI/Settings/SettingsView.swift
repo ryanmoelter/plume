@@ -54,14 +54,15 @@ struct SettingsView: View {
 
             Section {
                 Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
-                    ForEach(PermissionModeDefault.allCases) { mode in
+                    ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
+                Toggle("Show Bypass Permissions", isOn: $settings.showsBypassPermissions)
             } header: {
                 Text("Default Permission Mode")
             } footer: {
-                Text("Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json. A task's own permission mode, set from its chat, always overrides this.")
+                Text("Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json. A task's own permission mode, set from its chat, always overrides this. Bypass Permissions skips every prompt, so it stays out of the pickers unless shown here.")
                     .foregroundStyle(.secondary)
             }
 
