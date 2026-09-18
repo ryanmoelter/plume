@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "createdAt": 1758000000.123,
+  "futureFeature": { "flag": true },
+  "windows": [
+    {
+      "windowId": "99999999-9999-9999-9999-999999999999",
+      "tabManager": {
+        "selectedWorkspaceIndex": 0,
+        "workspaceGroups": [],
+        "workspaces": [
+          {
+            "workspaceId": "workspace-1111-1111-1111-111111111111",
+            "stableId": "11111111-1111-1111-1111-111111111111",
+            "currentDirectory": "/Users/example/Code/widget",
+            "processTitle": "✳ Build the widget",
+            "gitBranch": { "branch": "main", "isDirty": true },
+            "focusedPanelId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "layout": {
+              "type": "pane",
+              "pane": {
+                "panelIds": ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+                "selectedPanelId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+              }
+            },
+            "panels": [
+              {
+                "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "stableSurfaceId": "surface-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "type": "terminal",
+                "title": "✳ Build the widget",
+                "directory": "/Users/example/Code/widget",
+                "ttyName": "/dev/ttys001",
+                "terminal": {
+                  "workingDirectory": "/Users/example/Code/widget",
+                  "isRemoteTerminal": false
+                }
+              },
+              {
+                "stableSurfaceId": "surface-no-id",
+                "type": "terminal",
+                "title": "no id panel",
+                "directory": "/Users/example/Code/widget"
+              }
+            ]
+          },
+          {
+            "workspaceId": "workspace-no-stable-id",
+            "currentDirectory": "/Users/example/Code/widget/other",
+            "processTitle": "No stable id",
+            "panels": []
+          }
+        ]
+      }
+    },
+    {
+      "windowId": "88888888-8888-8888-8888-888888888888",
+      "tabManager": "broken"
+    }
+  ]
+}
