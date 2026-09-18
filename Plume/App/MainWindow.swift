@@ -10,6 +10,7 @@ struct MainWindow: View {
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
+    @State private var importShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     /// Starts generous so the sidebar's max width is unclamped until the
@@ -51,7 +52,11 @@ struct MainWindow: View {
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }
+        .sheet(isPresented: $importShown) {
+            ImportSheet()
+        }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
+        .focusedSceneValue(\.showImportAction) { importShown = true }
         .focusedSceneValue(\.selectAdjacentTask) { offset in
             let destination = SidebarKeyboardNavigation.destination(
                 from: selection,
