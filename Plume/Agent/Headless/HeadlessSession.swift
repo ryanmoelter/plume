@@ -97,7 +97,7 @@ final class HeadlessSession {
     private(set) var hasReportedModeAndModel = false
 
     /// Messages typed while a turn is in flight, sent when it finishes.
-    private(set) var queuedMessages: [String] = []
+    private(set) var queuedMessages: [[UserContentBlock]] = []
 
     private var process: HeadlessProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
@@ -199,18 +199,22 @@ final class HeadlessSession {
     // MARK: - Sending
 
     func submit(text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        submit(blocks: [.text(text)])
+    }
+
+    func submit(blocks: [UserContentBlock]) {
+        let normalized = blocks.normalized
+        guard normalized.hasContent else { return }
         guard !isWorking else {
-            queuedMessages.append(trimmed)
+            queuedMessages.append(normalized)
             return
         }
         beginTurn()
-        guard send(StreamJSONEncoder.userTurn(text: trimmed)) else {
+        guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
             // message queued means a restart can still deliver it, instead of
             // losing what the user typed to a silent drop.
-            queuedMessages.append(trimmed)
+            queuedMessages.append(normalized)
             isWorking = false
             if lastError == nil { lastError = "claude is not running; the message was not sent" }
             return
@@ -218,10 +222,10 @@ final class HeadlessSession {
     }
 
     /// Removes and returns the queued message at `index`, so a caller can
-    /// both dequeue it and recover its text (e.g. to edit it in the
+    /// both dequeue it and recover its content (e.g. to edit it in the
     /// composer). Nil when the index is out of range.
     @discardableResult
-    func removeQueuedMessage(at index: Int) -> String? {
+    func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
         return queuedMessages.remove(at: index)
     }
@@ -538,7 +542,7 @@ final class HeadlessSession {
         guard !queuedMessages.isEmpty else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
-        guard send(StreamJSONEncoder.userTurn(text: next)) else {
+        guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
             queuedMessages.insert(next, at: 0)
             isWorking = false
             return

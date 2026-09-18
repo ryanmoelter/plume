@@ -49,6 +49,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
+    /// Called with images dropped on or pasted into the composer. Nil leaves
+    /// both gestures to `NSTextView`.
+    var onAttachImages: (([ChatImage]) -> Void)?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -75,6 +78,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onOptionReturn = onOptionReturn
+        textView.onAttachImages = onAttachImages
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
@@ -284,6 +288,52 @@ final class ComposerNSTextView: NSTextView {
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
 
+    /// Called with images dropped on or pasted into the composer. Nil leaves
+    /// both gestures to `NSTextView`'s own handling.
+    var onAttachImages: (([ChatImage]) -> Void)?
+
+    // MARK: - Image attachment
+
+    /// Claims a drag only when it actually carries images, so a text drag
+    /// still lands as an insertion.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        attachableImages(on: sender.draggingPasteboard).isEmpty
+            ? super.draggingEntered(sender)
+            : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        attachableImages(on: sender.draggingPasteboard).isEmpty
+            ? super.draggingUpdated(sender)
+            : .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let images = attachableImages(on: sender.draggingPasteboard)
+        guard !images.isEmpty else { return super.performDragOperation(sender) }
+        onAttachImages?(images)
+        return true
+    }
+
+    /// ⌘V routes here for every flavor, so images are intercepted before
+    /// `NSTextView` turns them into an attachment inside the text storage —
+    /// the composer's `String` binding has no way to carry one.
+    override func readSelection(from pasteboard: NSPasteboard) -> Bool {
+        let images = attachableImages(on: pasteboard)
+        guard !images.isEmpty else { return super.readSelection(from: pasteboard) }
+        onAttachImages?(images)
+        return true
+    }
+
+    private func attachableImages(on pasteboard: NSPasteboard) -> [ChatImage] {
+        guard onAttachImages != nil else { return [] }
+        // Text wins: dragging a snippet of text out of a rich document can
+        // also offer an image rendering of it, and pasting that as a picture
+        // is never what was meant.
+        if pasteboard.canReadObject(forClasses: [NSString.self]) { return [] }
+        return ComposerImageAttachment.images(from: pasteboard)
+    }
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { composerCoordinator?.focusDidChange(true) }
@@ -416,6 +466,9 @@ final class ScrollableComposerTextView: NSView {
         composerTextView.isVerticallyResizable = true
         composerTextView.isHorizontallyResizable = false
         composerTextView.autoresizingMask = [.width]
+        // A plain-text view accepts only string drags, so image types have to
+        // be asked for by name before a dropped file reaches the overrides.
+        composerTextView.registerForDraggedTypes([.fileURL, .png, .tiff, .string])
 
         scrollView.documentView = composerTextView
         scrollView.hasVerticalScroller = true

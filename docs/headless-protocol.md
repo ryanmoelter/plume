@@ -83,6 +83,23 @@ Three things follow.
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}
 ```
 
+`content` is always an array of blocks, even for one line of text.
+
+### Images in a turn
+
+An image rides as a base64 block beside the text, in the same `source` shape the transcript records it in:
+
+```json
+{"type":"user","message":{"role":"user","content":[
+  {"type":"text","text":"what's wrong with this?"},
+  {"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0…"}}]}}
+```
+
+- **Only `type: "base64"` sources are modeled.** A URL source would need a fetch, which neither the composer nor the transcript parser may do.
+- `media_type` is one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`. `ComposerImageAttachment` re-encodes anything else (a screenshot's TIFF, a HEIC) as PNG rather than refusing it.
+- The wire form and the transcript form are the same form, so an image Plume sends parses back through `TranscriptBlock` as the block that rendered it. `UserContentBlockTests` locks that round trip.
+- A block over `ChatImage.maxBase64Length` is dropped rather than sent — it would exhaust the turn's token budget, and it renders as a placeholder anyway.
+
 **One process serves the whole conversation.** Verified: three turns down one stdin kept a single `session_id`, and turn 2 recalled a number given in turn 1. There is no need to re-spawn or `--resume` between turns — `--resume` is for picking a conversation back up in a *new* process.
 
 Each turn ends with exactly one `result` event. Treat `result` as the turn boundary, not the process boundary.

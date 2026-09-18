@@ -11,14 +11,15 @@ enum PermissionDecision: Equatable {
 /// Builds the NDJSON lines Plume writes to `claude -p`'s stdin.
 enum StreamJSONEncoder {
     static func userTurn(text: String) -> String? {
+        userTurn(blocks: [.text(text)])
+    }
+
+    static func userTurn(blocks: [UserContentBlock]) -> String? {
         line([
             "type": .string("user"),
             "message": .object([
                 "role": .string("user"),
-                "content": .array([.object([
-                    "type": .string("text"),
-                    "text": .string(text)
-                ])])
+                "content": .array(blocks.map(\.json))
             ])
         ])
     }

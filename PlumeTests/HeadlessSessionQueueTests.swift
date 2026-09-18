@@ -16,12 +16,32 @@ struct HeadlessSessionQueueTests {
         let session = makeSession()
         session.submit(text: "first")
         session.submit(text: "second")
-        #expect(session.queuedMessages == ["first", "second"])
+        #expect(session.queuedMessages.map(\.plainText) == ["first", "second"])
 
         let removed = session.removeQueuedMessage(at: 1)
 
-        #expect(removed == "second")
-        #expect(session.queuedMessages == ["first"])
+        #expect(removed?.plainText == "second")
+        #expect(session.queuedMessages.map(\.plainText) == ["first"])
+    }
+
+    /// An image alone is a turn worth keeping, and recalling it has to hand
+    /// the image back or the attachment is lost on an edit.
+    @Test func anImageOnlyTurnQueuesAndComesBackWhole() {
+        let session = makeSession()
+        let image = ChatImage(mediaType: "image/png", base64: "abc")
+
+        session.submit(blocks: [.image(image)])
+
+        #expect(session.queuedMessages.count == 1)
+        #expect(session.removeQueuedMessage(at: 0) == [.image(image)])
+    }
+
+    @Test func anEmptyTurnIsNotQueued() {
+        let session = makeSession()
+
+        session.submit(blocks: [.text("   ")])
+
+        #expect(session.queuedMessages.isEmpty)
     }
 
     @Test func removeQueuedMessageReturnsNilForOutOfRangeIndex() {
@@ -32,7 +52,7 @@ struct HeadlessSessionQueueTests {
         let removed = session.removeQueuedMessage(at: 5)
 
         #expect(removed == nil)
-        #expect(session.queuedMessages == ["first", "second"])
+        #expect(session.queuedMessages.map(\.plainText) == ["first", "second"])
     }
 }
 
@@ -60,7 +80,7 @@ struct ApprovePlanWithFeedbackTests {
 
         session.approvePlan(planPermission(), feedback: "Keep the scope to the parser")
 
-        #expect(session.queuedMessages == ["Keep the scope to the parser"])
+        #expect(session.queuedMessages.map(\.plainText) == ["Keep the scope to the parser"])
         #expect(session.pendingPermissions.isEmpty)
     }
 
@@ -93,7 +113,7 @@ struct HeadlessSessionDeadProcessTests {
 
         session.submit(text: "hello")
 
-        #expect(session.queuedMessages == ["hello"])
+        #expect(session.queuedMessages.map(\.plainText) == ["hello"])
         #expect(session.isWorking == false)
         #expect(session.lastError != nil)
     }

@@ -62,6 +62,33 @@ struct ChatComposer: View, ThemedView {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var attachedImages: [ChatImage] {
+        drafts.attachments(forTab: tab.id)
+    }
+
+    /// An image alone is a message worth sending, so the send button tracks
+    /// both halves of the draft.
+    private var canSend: Bool {
+        hasSendableText || !attachedImages.isEmpty
+    }
+
+    /// Images ride only on the headless transport. A terminal tab's input is
+    /// a paste into a real TUI, which has no way to carry one.
+    private var acceptsImages: Bool {
+        tab.transport == .headless
+    }
+
+    private func attach(_ images: [ChatImage]) {
+        drafts.attach(images, toTab: tab.id)
+    }
+
+    private var attachHandler: (([ChatImage]) -> Void)? {
+        guard acceptsImages else { return nil }
+        let drafts = drafts
+        let tabID = tab.id
+        return { drafts.attach($0, toTab: tabID) }
+    }
+
     /// The CLI's commands, from this session when it has reported and from
     /// the last one to report in this tab's directory until then, so a cold
     /// tab still completes them.
@@ -110,8 +137,10 @@ struct ChatComposer: View, ThemedView {
     /// recall from an empty composer. Takes an index rather than always the
     /// last message so recall can later walk further back through the queue.
     private func editQueuedMessage(at index: Int) {
-        guard let headlessSession, let text = headlessSession.removeQueuedMessage(at: index) else { return }
+        guard let headlessSession, let blocks = headlessSession.removeQueuedMessage(at: index) else { return }
+        let text = blocks.plainText
         drafts.setDraft(text, forTab: tab.id)
+        attach(blocks.compactMap { if case .image(let image) = $0 { image } else { nil } })
         hasSendableText = sendableText(text)
     }
 
@@ -128,6 +157,13 @@ struct ChatComposer: View, ThemedView {
             }
 
             VStack(spacing: 0) {
+                if !attachedImages.isEmpty {
+                    ComposerAttachmentStrip(
+                        images: attachedImages,
+                        onRemove: { drafts.removeAttachment(at: $0, fromTab: tab.id) }
+                    )
+                    .padding(.bottom, dimensions.panelContentInset)
+                }
                 MarkdownComposerTextView(
                     text: message,
                     placeholder: composerPlaceholder,
@@ -149,7 +185,8 @@ struct ChatComposer: View, ThemedView {
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
-                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
+                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
+                    onAttachImages: attachHandler
                 )
                 // Its own line-fragment padding already covers part of the
                 // composer's inset, so the first glyph lands over the control
@@ -236,9 +273,12 @@ struct ChatComposer: View, ThemedView {
     }
 
     private func send() {
-        guard hasSendableText else { return }
+        guard canSend else { return }
         let text = drafts.draft(forTab: tab.id)
+        let images = attachedImages
         drafts.setDraft("", forTab: tab.id)
+        drafts.clearAttachments(forTab: tab.id)
+        hasSendableText = false
         // Only on the headless transport: a terminal tab's composer feeds the
         // real TUI, where `/rc` already works. And only with a session live —
         // the launch path below is a tab's first message, which has no bridge
@@ -254,13 +294,14 @@ struct ChatComposer: View, ThemedView {
             }
             return
         }
+        let blocks: [UserContentBlock] = [.text(text)] + images.map { .image($0) }
         if let headlessSession {
-            headlessSession.submit(text: text)
+            headlessSession.submit(blocks: blocks)
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {
             onLaunch(text)
-            AgentLauncher.launch(message: text, task: task, tab: tab)
+            AgentLauncher.launch(blocks: blocks, task: task, tab: tab)
         }
     }
 }

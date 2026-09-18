@@ -26,11 +26,34 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String? = nil
     ) {
+        launch(
+            blocks: message.map { [.text($0)] } ?? [],
+            task: task,
+            tab: tab,
+            resumeSessionID: resumeSessionID
+        )
+    }
+
+    /// The first turn of a tab, which may carry images. A terminal tab takes
+    /// only the text of it — its input is a paste into a real TUI.
+    static func launch(
+        blocks: [UserContentBlock],
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String? = nil
+    ) {
+        let normalized = blocks.normalized
         switch tab.transport {
         case .headless:
-            launchHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case .terminal:
-            launchTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            let text = normalized.plainText
+            launchTerminal(
+                message: text.isEmpty ? nil : text,
+                task: task,
+                tab: tab,
+                resumeSessionID: resumeSessionID
+            )
         }
     }
 
@@ -54,7 +77,7 @@ enum AgentLauncher {
     }
 
     private static func launchHeadless(
-        message: String?,
+        blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?
@@ -113,8 +136,8 @@ enum AgentLauncher {
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: LoginShellCommand.plumeEnvironment
         )
-        if let message {
-            session.submit(text: message)
+        if blocks.hasContent {
+            session.submit(blocks: blocks)
         }
     }
 

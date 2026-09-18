@@ -298,7 +298,8 @@ struct ChatTabView: View, ThemedView {
         VStack(spacing: 6) {
             ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
                 QueuedMessageChip(
-                    text: message,
+                    text: message.plainText,
+                    imageCount: message.count { if case .image = $0 { true } else { false } },
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
@@ -836,6 +837,7 @@ private struct QueuedMessageChip: View, ThemedView {
     @Environment(\.theme) var theme
 
     let text: String
+    var imageCount = 0
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -850,11 +852,21 @@ private struct QueuedMessageChip: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
                 .help("Queued — not sent yet")
-            Text(text)
-                .font(typography.body.font)
-                .lineSpacing(typography.body.lineSpacing)
-                .lineLimit(1 ... 4)
-                .fixedSize(horizontal: false, vertical: true)
+            if !text.isEmpty {
+                Text(text)
+                    .font(typography.body.font)
+                    .lineSpacing(typography.body.lineSpacing)
+                    .lineLimit(1 ... 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if imageCount > 0 {
+                Label(
+                    imageCount == 1 ? "1 image" : "\(imageCount) images",
+                    systemImage: "photo"
+                )
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+            }
             controls
         }
         .padding(10)
