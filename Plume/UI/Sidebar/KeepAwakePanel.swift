@@ -46,6 +46,9 @@ struct KeepAwakePanel: View {
 
             Divider()
 
+            Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
+                .help("Off, a session being driven remotely stops holding the Mac awake on its own.")
+
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
