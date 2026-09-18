@@ -52,6 +52,10 @@ Anthropic's support page [confirms this is a supported use of your plan](https:/
 
 This is artisanal slop, thank you very much. It's fully AI-coded, but I've had a heavy hand in the design, architecture, implementation, and testing.
 
+All art (e.g. the icon) was made by me without AI assistance.
+
+Read my [AI Policy here](https://gist.github.com/ryanmoelter/d12c933bd1619224149faac356261a84).
+
 ## License
 
 ```
