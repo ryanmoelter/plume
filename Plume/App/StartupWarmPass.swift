@@ -14,8 +14,27 @@ final class StartupWarmPass {
     static let shared = StartupWarmPass()
 
     private var warmedDirectories: Set<String> = []
+    /// Injectable so a test can assert what got warmed without touching the
+    /// shared stores' own state.
+    private let watchGit: @MainActor (String) -> Void
+    private let watchPullRequests: @MainActor (String) -> Void
+    /// Milliseconds between one directory's watch and the next. Injectable so
+    /// a test isn't stretched out over the production stagger.
+    private let staggerMilliseconds: Int
 
-    init() {}
+    init(
+        watchGit: @escaping @MainActor (String) -> Void = { GitStateStore.shared.watch($0) },
+        watchPullRequests: @escaping @MainActor (String) -> Void = { PullRequestStore.shared.watch($0) },
+        // Long enough to spread a large task list's launches across several
+        // seconds rather than one burst, short enough that even a 50-task
+        // list finishes warming well inside the time a user spends looking
+        // at the sidebar before scrolling.
+        staggerMilliseconds: Int = 50
+    ) {
+        self.watchGit = watchGit
+        self.watchPullRequests = watchPullRequests
+        self.staggerMilliseconds = staggerMilliseconds
+    }
 
     /// The distinct directories worth warming: each task's own agent-tab
     /// directories, falling back to its working directory — the same rule
@@ -51,20 +70,14 @@ final class StartupWarmPass {
         warmedDirectories.formUnion(toWarm)
 
         for (index, directory) in toWarm.sorted().enumerated() {
-            let delay = Duration.milliseconds(index * Self.staggerMilliseconds)
+            let delay = Duration.milliseconds(index * staggerMilliseconds)
             Task {
                 try? await Task.sleep(for: delay)
-                GitStateStore.shared.watch(directory)
-                PullRequestStore.shared.watch(directory)
+                watchGit(directory)
+                watchPullRequests(directory)
             }
         }
     }
-
-    /// Long enough to spread a large task list's launches across several
-    /// seconds rather than one burst, short enough that even a 50-task list
-    /// finishes warming well inside the time a user spends looking at the
-    /// sidebar before scrolling.
-    private static let staggerMilliseconds = 50
 
     /// For tests: drops every warmed directory without releasing the watches
     /// it took, since only the shared stores' own `reset()` can do that.
