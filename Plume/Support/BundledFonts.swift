@@ -93,20 +93,82 @@ extension Font {
     /// parameter) since it is resolved once, at startup, and every call site
     /// wants the same answer.
     ///
-    /// The weight comes from the config's `font-weight` for the same reason
-    /// the face does — code in chat should read as it does in the terminal.
-    /// Passing one overrides that, for a caller that needs a particular
-    /// weight whatever the user configured.
+    /// The face and weight come from the config's `font-style` and
+    /// `font-weight` for the same reason the family does — code in chat should
+    /// read as it does in the terminal. Passing a weight overrides both, for a
+    /// caller that needs a particular weight whatever the user configured.
     @MainActor
     static func chatCode(size: CGFloat, weight: Font.Weight? = nil) -> Font {
-        let weight = weight ?? GhosttyRuntime.shared.resolvedCodeFontWeight ?? .regular
-        if let family = GhosttyRuntime.shared.resolvedCodeFontFamily {
-            return .custom(family, size: size).weight(weight)
+        let runtime = GhosttyRuntime.shared
+        let family = runtime.resolvedCodeFontFamily
+            ?? (BundledFonts.isCodeAvailable ? BundledFonts.code : nil)
+        guard let family else {
+            return .system(size: size, weight: weight ?? .regular, design: .monospaced)
         }
-        guard BundledFonts.isCodeAvailable else {
-            return .system(size: size, weight: weight, design: .monospaced)
+        // An explicit weight is a caller's override and beats the config.
+        if let weight {
+            return resolved(family: family, style: nil, weight: weight, size: size)
         }
-        return .custom(BundledFonts.code, size: size).weight(weight)
+        return resolved(
+            family: family,
+            style: runtime.resolvedCodeFontStyle,
+            weight: runtime.resolvedCodeFontWeight,
+            size: size
+        )
+    }
+
+    /// A face within `family`, chosen by style name and weight.
+    ///
+    /// Neither goes through SwiftUI's `.weight()`, which asks for a weight
+    /// *trait*: on a variable font that trait resolves every weight back to
+    /// the regular face, so the request is silently ignored. A named instance
+    /// is reached by its face name, and an unnamed weight by setting the
+    /// `wght` variation axis. A style the family does not have falls back to
+    /// its regular face rather than failing.
+    ///
+    /// A named style wins over a weight, since it names the face outright
+    /// while the axis only asks for one — setting both leaves the axis to
+    /// override the very face that was asked for.
+    @MainActor
+    private static func resolved(
+        family: String,
+        style: String?,
+        weight: Font.Weight?,
+        size: CGFloat
+    ) -> Font {
+        guard style != nil || weight != nil else {
+            return .custom(family, size: size)
+        }
+        var attributes: [NSFontDescriptor.AttributeName: Any] = [.family: family]
+        if let style {
+            attributes[.face] = style
+        } else if let weight {
+            attributes[.variation] = [weightAxis: variationValue(for: weight)]
+        }
+        let descriptor = NSFontDescriptor(fontAttributes: attributes)
+        guard let match = NSFont(descriptor: descriptor, size: size) else {
+            return .custom(family, size: size)
+        }
+        return .custom(match.fontName, size: size)
+    }
+
+    /// The OpenType `wght` axis tag, as the four-character code CoreText wants.
+    private static let weightAxis = 0x77676874
+
+    /// `Font.Weight` carries no numeric value, so the CSS scale the axis uses
+    /// is restated here.
+    private static func variationValue(for weight: Font.Weight) -> Double {
+        switch weight {
+        case .ultraLight: 200
+        case .thin: 100
+        case .light: 300
+        case .medium: 500
+        case .semibold: 600
+        case .bold: 700
+        case .heavy: 800
+        case .black: 900
+        default: 400
+        }
     }
 }
 

@@ -273,6 +273,48 @@ struct GhosttyConfigLoaderTests {
         #expect(flattened.contains("font-family = Cascadia Code NF"))
     }
 
+    @Test func resolvedFontStyleNamesAFace() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style = \"SemiLight\""
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == "SemiLight")
+    }
+
+    /// ghostty spells "no styled face" as `false`, which is not a face name.
+    @Test func resolvedFontStyleTreatsFalseAsUnset() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style = false"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontStylePrefersTheLastDirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            path == "/a/config" ? "font-style = Light\nconfig-file = other" : "font-style = SemiBold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == "SemiBold")
+    }
+
+    @Test func resolvedFontStyleIsNilWithoutADirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = Menlo"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
+    /// `font-style-bold` and friends name other faces, not this one.
+    @Test func resolvedFontStyleIgnoresTheBoldVariant() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style-bold = SemiBold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
     @Test func resolvedFontWeightReadsAName() throws {
         let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
             "font-weight = bold"

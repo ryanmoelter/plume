@@ -112,6 +112,20 @@ enum GhosttyConfigLoader {
             .map(unquoted)
     }
 
+    /// The `font-style` ghostty would end up using, last-wins like
+    /// `resolvedFontFamily`.
+    ///
+    /// This names a face within the family ("SemiLight", "SemiBold"), which is
+    /// how a variable font's named instances are asked for. `false` is
+    /// ghostty's way of saying "no styled face", and reads here as unset.
+    static func resolvedFontStyle(in expanded: ExpandedConfig) -> String? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-style") }
+            .last
+            .map(unquoted)
+            .flatMap { $0.lowercased() == "false" ? nil : $0 }
+    }
+
     /// The `font-weight` ghostty would end up using, last-wins like
     /// `resolvedFontFamily`.
     ///

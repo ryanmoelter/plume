@@ -38,6 +38,10 @@ final class GhosttyRuntime {
     /// unreadable, which leaves the face's regular weight.
     private(set) var resolvedCodeFontWeight: Font.Weight?
 
+    /// The `font-style` from the same config: the name of a face within the
+    /// family, which is how a variable font's named instances are reached.
+    private(set) var resolvedCodeFontStyle: String?
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
@@ -60,6 +64,7 @@ final class GhosttyRuntime {
             }
             resolvedCodeFontFamily = GhosttyConfigLoader.resolvedFontFamily(in: expanded)
             resolvedCodeFontWeight = GhosttyConfigLoader.resolvedFontWeight(in: expanded)
+            resolvedCodeFontStyle = GhosttyConfigLoader.resolvedFontStyle(in: expanded)
 
             // The config reaches libghostty as generated contents, not as a
             // file path, so the `theme` directive can be stripped first — see
