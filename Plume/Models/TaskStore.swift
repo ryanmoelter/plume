@@ -125,6 +125,7 @@ enum TaskStore {
         // The row that took this watch is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown.
         if let directory = task.workingDirectoryPath {
+            GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
         context.delete(task)

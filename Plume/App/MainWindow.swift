@@ -139,6 +139,7 @@ struct MainWindow: View {
             KeepAwakeCoordinator.shared.start()
             restoreStatusMonitoring()
             restoreLastOpenTask()
+            StartupWarmPass.shared.warm(directories: StartupWarmPass.directories(for: tasks))
             #if DEBUG
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif

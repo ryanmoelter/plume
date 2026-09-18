@@ -173,6 +173,19 @@ final class GitStateStore {
     }
 #endif
 
+    /// Drops a directory's watch whatever its refcount, and its last-known
+    /// state, for a task being deleted out from under the row (and the
+    /// startup warm pass) that took it.
+    func forget(directory: String) {
+        watches.removeValue(forKey: directory)?.watcher?.stop()
+        pending.removeValue(forKey: directory)?.cancel()
+        lastKnown.removeValue(forKey: directory)
+        if watches.isEmpty {
+            pollTimer?.invalidate()
+            pollTimer = nil
+        }
+    }
+
     /// Drops every watch. For tests.
     func reset() {
         for watch in watches.values { watch.watcher?.stop() }
