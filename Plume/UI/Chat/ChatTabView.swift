@@ -397,7 +397,6 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    rateLimit: headlessSession?.rateLimit,
                     sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
                 )
                 if let headlessSession {

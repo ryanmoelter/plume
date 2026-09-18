@@ -70,7 +70,17 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(icon: "gearshape", title: "Settings")
                 }
                 .accessibilityIdentifier(AccessibilityID.sidebarSettingsButton)
-                .buttonStyle(SidebarFooterButtonStyle(bottomCornerRadius: bottomCornerRadius))
+                .buttonStyle(SidebarFooterButtonStyle())
+
+                // Last, and not a button: the quota is a reading, not an
+                // action, so it takes the footer's bottom corners.
+                SidebarQuotaRow()
+                    .clipShape(
+                        .rect(
+                            bottomLeadingRadius: bottomCornerRadius,
+                            bottomTrailingRadius: bottomCornerRadius
+                        )
+                    )
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
         }

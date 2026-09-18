@@ -25,7 +25,8 @@ enum StreamJSONMessage {
 struct RateLimitInfo: Equatable {
     struct Window: Equatable {
         /// 0–1, not a percentage. The statusline payload this replaces
-        /// reported 0–100, and the display thresholds expect that.
+        /// reported 0–100, so every display scales it here rather than
+        /// assuming the old range.
         let utilization: Double
         let resetsAt: Date?
     }

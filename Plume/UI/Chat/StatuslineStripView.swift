@@ -4,11 +4,12 @@ import Foundation
 /// The statusline strip's meters: context-window use, 5h/7d quota and session
 /// cost — a native equivalent of `~/.scripts/.claude/statusline.sh`.
 ///
-/// Everything is a plain parameter so it previews and renders without a
-/// store. `contextMaxTokens` may be a measured value or the model's assumed
-/// window — the label makes no distinction, by design. Quota and cost only
-/// reach a headless session, so those segments render only when the stream
-/// has pushed them.
+/// Context and cost are plain parameters, per session. Quota is not: it
+/// belongs to the account, so it comes from `QuotaStore.shared` and reads the
+/// same in every chat. `contextMaxTokens` may be a measured value or the
+/// model's assumed window — the label makes no distinction, by design. Cost
+/// only reaches a headless session, so that segment renders only when the
+/// stream has pushed it.
 ///
 /// Each meter stacks its reading over its bar. Side by side the two ran the
 /// full width of the panel for what is a percentage; stacked, the bar can be
@@ -40,20 +41,22 @@ struct StatuslineStripView: View, ThemedView {
     let contextMaxTokens: Int?
 
     // Stream-derived, headless only — nil segments are simply omitted.
-    let rateLimit: RateLimitInfo?
     let sessionCostUSD: Double?
+
+    /// Account-wide, so it comes from the shared store rather than from the
+    /// session this strip belongs to: a chat that has not taken a turn in an
+    /// hour still shows what the account heard a moment ago.
+    @State private var quota = QuotaStore.shared
 
     init(
         layout: StatuslineStripLayout = .wide,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
-        rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
     ) {
         self.layout = layout
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
-        self.rateLimit = rateLimit
         self.sessionCostUSD = sessionCostUSD
     }
 
@@ -65,6 +68,14 @@ struct StatuslineStripView: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .onAppear { quota.startTicking() }
+    }
+
+    private var rateLimit: RateLimitInfo? { quota.snapshot?.rateLimit }
+
+    private var isStale: Bool {
+        guard let snapshot = quota.snapshot else { return false }
+        return QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
     }
 
     // MARK: - Layouts
@@ -79,6 +90,8 @@ struct StatuslineStripView: View, ThemedView {
                     label: "5h",
                     utilization: fiveHour.utilization,
                     resetsAt: fiveHour.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.shortQuota
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
@@ -88,6 +101,8 @@ struct StatuslineStripView: View, ThemedView {
                     label: "7d",
                     utilization: sevenDay.utilization,
                     resetsAt: sevenDay.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.quota
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
@@ -112,6 +127,8 @@ struct StatuslineStripView: View, ThemedView {
                     label: "5h",
                     utilization: fiveHour.utilization,
                     resetsAt: fiveHour.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.shortQuota,
                     showsReading: false
                 )
@@ -122,6 +139,8 @@ struct StatuslineStripView: View, ThemedView {
                     label: "7d",
                     utilization: sevenDay.utilization,
                     resetsAt: sevenDay.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.quota,
                     showsReading: false
                 )
@@ -252,6 +271,13 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// once, here, rather than by each caller.
     let utilization: Double
     let resetsAt: Date?
+    /// Supplied by `QuotaStore`'s tick rather than read as `Date()`, so the
+    /// countdown re-renders every minute instead of at whatever else happens
+    /// to invalidate the view.
+    var now: Date = Date()
+    /// Dims the whole meter once the reading is old enough that presenting it
+    /// at full strength would overstate what is known.
+    var isStale: Bool = false
     /// Bar length carries how finely the number is worth reading. Context
     /// deserves the most precision, then the seven-day window; the five-hour
     /// quota moves fast enough that its exact percent matters least.
@@ -267,25 +293,21 @@ struct StatuslineMeterSegment: View, ThemedView {
             attention: StatuslineAttention.attention(percent: percent),
             showsReading: showsReading
         )
+        .opacity(isStale ? QuotaFreshness.staleOpacity : 1)
         .help(helpText)
     }
 
     private var helpText: String {
-        guard resetLabel != label else { return "\(label) quota used" }
-        return "\(label) quota used, resetting in \(resetLabel)"
+        var text = "\(label) quota used"
+        if let resetsAt {
+            text += ", resetting at \(QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now))"
+        }
+        if isStale { text += " (last heard over 30 minutes ago)" }
+        return text
     }
 
     private var resetLabel: String {
-        guard let resetsAt else { return label }
-        let seconds = resetsAt.timeIntervalSinceNow
-        guard seconds > 0 else { return label }
-        if seconds >= 86400 {
-            return "\(Int((seconds + 43200) / 86400))d"
-        }
-        if seconds >= 3600 {
-            return "\(Int((seconds + 1800) / 3600))h"
-        }
-        return "\(Int((seconds + 30) / 60))m"
+        QuotaFreshness.resetLabel(resetsAt: resetsAt, now: now, fallback: label)
     }
 }
 
@@ -457,11 +479,6 @@ struct MeterView: View, ThemedView {
     StatuslineStripView(
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
-        rateLimit: RateLimitInfo(
-            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
-            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
-            isUsingOverage: false
-        ),
         sessionCostUSD: 4.32
     )
     .frame(width: 640)
@@ -472,11 +489,6 @@ struct MeterView: View, ThemedView {
         layout: .stacked,
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
-        rateLimit: RateLimitInfo(
-            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
-            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
-            isUsingOverage: false
-        ),
         sessionCostUSD: 4.32
     )
     .frame(width: 100)
