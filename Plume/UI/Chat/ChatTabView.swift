@@ -641,11 +641,34 @@ struct ChatTabView: View, ThemedView {
     /// removed: dropping it left a gap between sending the first message and
     /// the first line of transcript arriving.
     private func emptyState(isComposerEnabled: Bool) -> some View {
-        ScrollView {
-            GeometryReader { proxy in
-                emptyStateContent(isComposerEnabled: isComposerEnabled)
-                    .frame(minHeight: proxy.size.height)
-            }
+        CenteredScrollView {
+            emptyStateContent(isComposerEnabled: isComposerEnabled)
+        }
+        // The composer sits outside the scroll, as it does over a
+        // conversation. Taken as a safe area rather than an overlay so the
+        // scroll view shortens by the same amount it insets — an overlay plus
+        // padding makes the content taller than the viewport by the
+        // composer's height, and the screen then scrolls with room to spare.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            emptyStateComposer(isComposerEnabled: isComposerEnabled)
+        }
+    }
+
+    private func emptyStateComposer(isComposerEnabled: Bool) -> some View {
+        GlassEffectContainer {
+            // The composer alone: the session facts don't exist yet, and
+            // where this runs has been hoisted above as the decision the
+            // empty state is actually about.
+            ChatComposer(
+                task: task,
+                tab: tab,
+                isVisible: isVisible,
+                onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+            )
+            .disabled(!isComposerEnabled)
+            .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+            .listItemPadding(vertical: false)
+            .padding(.bottom, dimensions.panelInset)
         }
     }
 
@@ -674,23 +697,8 @@ struct ChatTabView: View, ThemedView {
             .padding(.horizontal, dimensions.composerFieldInset)
             .listItemPadding(vertical: false)
             Spacer()
-            GlassEffectContainer {
-                // The composer alone: the session facts don't exist yet, and
-                // where this runs has been hoisted above as the decision the
-                // empty state is actually about.
-                ChatComposer(
-                    task: task,
-                    tab: tab,
-                    isVisible: isVisible,
-                    onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
-                )
-                .disabled(!isComposerEnabled)
-                .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
-                .listItemPadding(vertical: false)
-                .padding(.bottom, dimensions.panelInset)
-            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
     /// Where the agent will run, written as the empty state's own sentence

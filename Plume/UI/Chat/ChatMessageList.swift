@@ -93,41 +93,33 @@ struct ChatMessageList: View, ThemedView {
     /// prompt the user just sent can be told from a transcript loading.
     @State private var commands = ChatListCommands()
     @State private var previousMessageIDs: [String] = []
+    /// The pane's width, which decides how much room the rail gives itself.
+    @State private var viewportWidth: CGFloat = 0
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
 
-    /// The viewport's own width, so the left balance can react to it. Read
-    /// from the `HStack` rather than the list, since the list's width is
-    /// already the thing being solved for.
-    @State private var viewportWidth: CGFloat = 0
-
+    /// The minimap overlays the list rather than taking a column beside it, so
+    /// the list gets the whole viewport and centers its columns in the same
+    /// span the composer centers in. Anything the minimap covers is the
+    /// padding outside a bleed item's column, which it is narrow enough to sit
+    /// within.
     var body: some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: leftBalance)
-            list
-            if !outline.isEmpty {
-                ChatMinimap(
-                    outline: outline,
-                    visiblePieceIDs: visiblePieceIDs,
-                    onSelect: { jump(to: $0) },
-                    onSelectEnd: { jumpToBottom(animated: true) },
-                    bottomInset: floatingPanelHeight
-                )
+        list
+            .overlay(alignment: .trailing) {
+                if !outline.isEmpty {
+                    ChatMinimap(
+                        outline: outline,
+                        visiblePieceIDs: visiblePieceIDs,
+                        onSelect: { jump(to: $0) },
+                        onSelectEnd: { jumpToBottom(animated: true) },
+                        bottomInset: floatingPanelHeight,
+                        // The rail cannot measure this itself — its own
+                        // geometry is the rail's, not the pane's.
+                        viewportWidth: viewportWidth
+                    )
+                }
             }
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
-    }
-
-    /// Space to the left of the list that lines its text up with the composer
-    /// below. Solved against the minimap's collapsed rail width, not its
-    /// revealed width: the reveal is an overlay that never changes layout, so
-    /// balancing against it would make the text jump when the map opens.
-    private var leftBalance: CGFloat {
-        ChatContentBalance.leftInset(
-            viewportWidth: viewportWidth,
-            contentWidth: dimensions.contentWidth,
-            minimapWidth: ChatMinimap.collapsedWidth
-        )
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
     }
 
     private var list: some View {

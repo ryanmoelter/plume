@@ -327,7 +327,7 @@ private struct SegmentBorder: Shape {
     return VStack(alignment: .leading, spacing: 0) {
         ForEach(pieces) { piece in
             ChatPieceView(piece: piece)
-                .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                .listItemPadding(bleed: true, vertical: false)
                 .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                 .padding(.bottom, piece.bottomInset)
         }
