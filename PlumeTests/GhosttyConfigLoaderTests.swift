@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 @testable import Plume
 
 /// Ordering mirrors `preferredDefaultFilePath()` in ghostty's
@@ -270,5 +271,141 @@ struct GhosttyConfigLoaderTests {
         #expect(!flattened.contains("config-file"))
         #expect(flattened.contains("font-size = 15"))
         #expect(flattened.contains("font-family = Cascadia Code NF"))
+    }
+
+    @Test func resolvedFontStyleNamesAFace() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style = \"SemiLight\""
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == "SemiLight")
+    }
+
+    /// ghostty spells "no styled face" as `false`, which is not a face name.
+    @Test func resolvedFontStyleTreatsFalseAsUnset() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style = false"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontStylePrefersTheLastDirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            path == "/a/config" ? "font-style = Light\nconfig-file = other" : "font-style = SemiBold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == "SemiBold")
+    }
+
+    @Test func resolvedFontStyleIsNilWithoutADirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = Menlo"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
+    /// `font-style-bold` and friends name other faces, not this one.
+    @Test func resolvedFontStyleIgnoresTheBoldVariant() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-style-bold = SemiBold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontStyle(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontWeightReadsAName() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = bold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .bold)
+    }
+
+    /// ghostty takes a number here as readily as a name.
+    @Test func resolvedFontWeightReadsANumber() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = 600"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .semibold)
+    }
+
+    @Test func resolvedFontWeightPrefersTheLastDirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            path == "/a/config" ? "font-weight = light\nconfig-file = other" : "font-weight = bold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .bold)
+    }
+
+    /// Left to the face's own regular weight rather than guessed at.
+    @Test func resolvedFontWeightIgnoresAValueGhosttyWouldReject() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = ultrablack"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontWeightIsNilWithoutADirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = Menlo"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontFamilyReadsTheRootConfig() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = Menlo"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontFamily(in: expanded) == "Menlo")
+    }
+
+    /// A config that only redirects via `config-file` is a supported setup —
+    /// `font-family` has to resolve from the included file, not just the root.
+    @Test func resolvedFontFamilyReadsAnIncludedFile() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "config-file = /b/child"
+            case "/b/child": "font-family = Cascadia Code NF"
+            default: nil
+            }
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontFamily(in: expanded) == "Cascadia Code NF")
+    }
+
+    /// An include applies after the file that named it, so its `font-family`
+    /// beats one set earlier in the including file.
+    @Test func resolvedFontFamilyPrefersTheIncludedFileWhenDeclaredAfterTheRoot() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") {
+            switch $0 {
+            case "/a/config": "font-family = Menlo\nconfig-file = /b/child"
+            case "/b/child": "font-family = Cascadia Code NF"
+            default: nil
+            }
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontFamily(in: expanded) == "Cascadia Code NF")
+    }
+
+    @Test func resolvedFontFamilyUnquotesTheValue() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = \"Cascadia Code NF\""
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontFamily(in: expanded) == "Cascadia Code NF")
+    }
+
+    @Test func resolvedFontFamilyIsNilWithoutADirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-size = 15"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontFamily(in: expanded) == nil)
     }
 }

@@ -3,9 +3,7 @@ import Foundation
 /// Which pieces the chat list grows into place rather than drawing at size.
 ///
 /// A piece that has just arrived starts at zero height, and that growth is
-/// what pushes the conversation up — `AnimatedHeight` runs it, so the list
-/// never wraps its `ForEach` in an animated transaction. `docs/chat-list-hang.md`
-/// is why that distinction is worth keeping.
+/// what pushes the conversation up.
 enum ChatListMotion {
     /// The ids in `current` that `previous` did not have.
     ///

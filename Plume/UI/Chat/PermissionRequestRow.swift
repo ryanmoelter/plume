@@ -5,7 +5,8 @@ import SwiftUI
 ///
 /// The agent stalls until this is answered, so the row states what will run
 /// and offers Allow, or Deny with a reason the model receives as the tool
-/// result.
+/// result. Drawn as a `DecisionCard` like the question card beside it — the
+/// accent hue is the only thing that says which of the two this is.
 struct PermissionRequestRow: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -16,7 +17,7 @@ struct PermissionRequestRow: View, ThemedView {
     @State private var denialReason = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DecisionCard.sectionSpacing) {
             header
             if let description = permission.description, !description.isEmpty {
                 Text(description)
@@ -32,37 +33,38 @@ struct PermissionRequestRow: View, ThemedView {
                     .chatTextColumn()
             }
             inputFields
-            TextField("Reason (optional, sent on deny)", text: $denialReason)
-                .textFieldStyle(.roundedBorder)
-                .font(typography.caption.font)
-            HStack(spacing: 8) {
-                Button("Allow", action: allow)
-                    .keyboardShortcut(.defaultAction)
-                Button("Deny") { deny(denialReason) }
+            denialReasonField
+            HStack(spacing: DecisionCard.nestedPadding) {
                 Spacer()
+                Button("Deny") { deny(denialReason) }
+                Button("Allow", action: allow)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             }
             .font(typography.caption.font)
+            .chatTextColumn()
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(washColor, in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(colors.warning.emphasized(.disabled, in: colors), lineWidth: 1)
-        }
+        .decisionCard(subject: .consequential, colors: colors)
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
-            Label(permission.displayName, systemImage: StatusSymbol.permission.name)
-                .font(typography.caption.semibold)
-                .foregroundStyle(colors.warning)
-            if permission.agentID != nil {
-                Label("subagent", systemImage: StatusSymbol.subagents.name)
-                    .font(typography.caption.font)
-                    .emphasis(.subtle)
-            }
-        }
+        DecisionCardHeader(
+            title: permission.displayName,
+            symbol: StatusSymbol.permission.name,
+            subject: .consequential,
+            trailing: permission.agentID == nil
+                ? nil
+                : (text: "subagent", symbol: StatusSymbol.subagents.name)
+        )
+    }
+
+    private var denialReasonField: some View {
+        TextField("Reason (optional, sent on deny)", text: $denialReason, axis: .vertical)
+            .textFieldStyle(.plain)
+            .font(typography.body.medium)
+            .decisionField(isFilled: !denialReason.isEmpty, colors: colors)
+            .chatTextColumn()
+            .accessibilityIdentifier(AccessibilityID.permissionDenialReasonField)
     }
 
     @ViewBuilder
@@ -72,16 +74,16 @@ struct PermissionRequestRow: View, ThemedView {
             // Bounded, so a whole file body scrolls in place instead of
             // pushing the buttons off screen.
             ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
                     ForEach(fields) { field in
                         fieldRow(field)
                     }
                 }
-                .padding(8)
+                .padding(DecisionCard.nestedPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
-            .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
+            .background(colors.surfaceTint, in: .rect(cornerRadius: DecisionCard.nestedRadius))
         }
     }
 
@@ -97,6 +99,7 @@ struct PermissionRequestRow: View, ThemedView {
                     .font(typography.caption.mono)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .chatTextColumn()
             } else {
                 Text(field.value)
                     .font(typography.caption.font)
@@ -105,9 +108,5 @@ struct PermissionRequestRow: View, ThemedView {
                     .chatTextColumn()
             }
         }
-    }
-
-    private var washColor: Color {
-        colors.surfaceTint
     }
 }

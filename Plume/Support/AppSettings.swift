@@ -15,6 +15,7 @@ final class AppSettings {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
         static let chatFontSize = "chatFontSize"
+        static let codeFontSizeMultiplier = "codeFontSizeMultiplier"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
@@ -32,9 +33,9 @@ final class AppSettings {
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
+        static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
-        static let chatListEngineRaw = "chatListEngineRaw"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -45,6 +46,12 @@ final class AppSettings {
     /// 125% of the system `.body` size (13pt on macOS).
     nonisolated static let defaultChatFontSize: Double = 16
     nonisolated static let chatFontSizeRange: ClosedRange<Double> = 11...28
+
+    /// Applied on top of `chatFontSize` for code spans and blocks, to match
+    /// x-heights between the code face and the prose face at the same
+    /// nominal size. 1.0 means no adjustment.
+    nonisolated static let defaultCodeFontSizeMultiplier: Double = 1.0
+    nonisolated static let codeFontSizeMultiplierRange: ClosedRange<Double> = 0.7...1.3
 
     /// Battery percentage below which keep-awake stops holding on battery.
     nonisolated static let defaultKeepAwakeBatteryCutoffPercent = 20
@@ -62,6 +69,13 @@ final class AppSettings {
         self.chatFontSize = Self.chatFontSizeRange.contains(storedFontSize)
             ? storedFontSize
             : Self.defaultChatFontSize
+
+        // `double(forKey:)` returns 0 for an unset key, which is outside the
+        // clamped range, so an unset key correctly falls back to the default.
+        let storedCodeFontSizeMultiplier = defaults.double(forKey: Key.codeFontSizeMultiplier)
+        self.codeFontSizeMultiplier = Self.codeFontSizeMultiplierRange.contains(storedCodeFontSizeMultiplier)
+            ? storedCodeFontSizeMultiplier
+            : Self.defaultCodeFontSizeMultiplier
 
         // `bool(forKey:)` returns false for an unset key, which would silently
         // flip the default to off — an unset key must read as true.
@@ -118,26 +132,16 @@ final class AppSettings {
         // Unset reads as false: turning this on installs a privileged helper
         // and asks for admin approval, which has to be the user's move.
         self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
+
+        // Unset reads as on: a remotely driven session that sleeps mid-turn
+        // strands whoever is driving it, with no way to wake it from away.
+        self.keepsAwakeForRemoteControl = defaults.object(forKey: Key.keepsAwakeForRemoteControl) == nil
+            ? true
+            : defaults.bool(forKey: Key.keepsAwakeForRemoteControl)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
-
-        self.chatListEngine = defaults.string(forKey: Key.chatListEngineRaw)
-            .flatMap(ChatListEngine.init(rawValue:)) ?? .custom
-    }
-
-    /// The container behind the chat list. The custom list by default so it
-    /// gets daily use before the lazy stack goes; the toggle is the way back.
-    /// `ChatListEngine.environmentOverride` wins over both for a harness run.
-    var chatListEngine: ChatListEngine {
-        didSet {
-            defaults.set(chatListEngine.rawValue, forKey: Key.chatListEngineRaw)
-        }
-    }
-
-    var effectiveChatListEngine: ChatListEngine {
-        ChatListEngine.environmentOverride ?? chatListEngine
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -167,6 +171,22 @@ final class AppSettings {
                 return
             }
             defaults.set(chatFontSize, forKey: Key.chatFontSize)
+        }
+    }
+
+    /// Multiplier on `chatFontSize` for code spans and blocks. Clamped to
+    /// `codeFontSizeMultiplierRange`.
+    var codeFontSizeMultiplier: Double {
+        didSet {
+            let clamped = min(
+                max(codeFontSizeMultiplier, Self.codeFontSizeMultiplierRange.lowerBound),
+                Self.codeFontSizeMultiplierRange.upperBound
+            )
+            if clamped != codeFontSizeMultiplier {
+                codeFontSizeMultiplier = clamped
+                return
+            }
+            defaults.set(codeFontSizeMultiplier, forKey: Key.codeFontSizeMultiplier)
         }
     }
 
@@ -301,6 +321,15 @@ final class AppSettings {
     var keepsAwakeWithLidClosed: Bool {
         didSet {
             defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
+        }
+    }
+
+    /// Whether Remote Control on its own holds the Mac awake. Off, a tab is
+    /// a reason only for work it is doing itself — being driven remotely
+    /// stops counting, and stops promoting a waiting tab to a reason.
+    var keepsAwakeForRemoteControl: Bool {
+        didSet {
+            defaults.set(keepsAwakeForRemoteControl, forKey: Key.keepsAwakeForRemoteControl)
         }
     }
 

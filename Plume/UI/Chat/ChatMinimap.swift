@@ -26,19 +26,19 @@ struct ChatMinimap: View, ThemedView {
     /// What the composer and anything floating above it cover, matching the
     /// chat's own bottom margin.
     var bottomInset: CGFloat = 0
+    /// The pane's width, which decides whether the rail has room to spread.
+    var viewportWidth: CGFloat = 0
 
-    /// Wide enough for a few words of a prompt. Only the rail holds layout
-    /// space, so this is what the revealed map draws over the chat rather
-    /// than a contribution to the pane's minimum width.
-    /// Wide enough for a few words of a prompt. Only the rail holds layout
-    /// space, so this is what the revealed map draws over the chat rather
-    /// than a contribution to the pane's minimum width.
+    /// Wide enough for a few words of a prompt. The minimap holds no layout
+    /// space at all, so this is what the revealed map draws over the chat
+    /// rather than a contribution to the pane's minimum width.
     static let width: CGFloat = 260
 
-    /// The rail's width, which is what the minimap costs the chat. A tenth
-    /// of the revealed map: enough for a prompt's bar to read as wider than
-    /// a response's, and little enough to sit beside the text unnoticed.
-    static let collapsedWidth: CGFloat = 17
+    /// The rail's width, and so a prompt bar's. The rail overlays the chat
+    /// rather than taking a column, so this plus `edgeInset` on either side
+    /// has to fit within `Dimensions.horizontalBleedPadding` — otherwise the
+    /// rail crosses a bleed item's column and sits over the text.
+    static let collapsedWidth: CGFloat = 8
 
     /// Follows the conversation rather than being scrolled by hand.
     @State private var position = ScrollPosition(edge: .top)
@@ -61,6 +61,7 @@ struct ChatMinimap: View, ThemedView {
                             height: max(Self.minimumEntryHeight, entry.weight * Self.pointsPerWeight),
                             isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
                             isRevealed: isRevealed,
+                            railWidth: railWidth,
                             // The end of the map means the end of the
                             // conversation, not the top of its last entry:
                             // that is where the list picks up following new
@@ -127,9 +128,9 @@ struct ChatMinimap: View, ThemedView {
             // Drawn wider than the rail it sits in, toward the chat. Only
             // the rail holds layout space, so revealing the map never
             // reflows the conversation under the cursor.
-            .frame(width: isRevealed ? Self.width : Self.collapsedWidth, alignment: .trailing)
+            .frame(width: isRevealed ? Self.width : railWidth, alignment: .trailing)
             .background(mapBackground)
-            .frame(width: Self.collapsedWidth, alignment: .trailing)
+            .frame(width: railWidth, alignment: .trailing)
             // Answered by a region that does not move when the map opens.
             // Hanging it off the map's own body would mean revealing the map
             // moved the region the pointer is being tracked in, which
@@ -137,7 +138,10 @@ struct ChatMinimap: View, ThemedView {
             // lose the pointer, close, and find it again.
             .overlay(alignment: .trailing) {
                 Color.clear
-                    .frame(width: isRevealed ? Self.width : Self.collapsedWidth)
+                    .frame(width: isRevealed ? Self.width : hoverWidth)
+                    // Out over the trailing inset as well, so the target runs
+                    // to the window edge rather than stopping short of it.
+                    .padding(.trailing, -railInset)
                     .contentShape(.rect)
                     // Watches the pointer without standing in its way: this
                     // sits over the entries and the resize handle, and a
@@ -160,8 +164,8 @@ struct ChatMinimap: View, ThemedView {
             }
             .coordinateSpace(.named(Self.railSpace))
         }
-        .frame(width: Self.collapsedWidth)
-        .padding(.trailing, Self.edgeInset)
+        .frame(width: railWidth)
+        .padding(.trailing, railInset)
         .accessibilityIdentifier(AccessibilityID.chatMinimap)
         .onChange(of: hoverFraction == nil) { _, away in
             withAnimation(.easeOut(duration: 0.15)) { isRevealed = !away }
@@ -183,7 +187,7 @@ struct ChatMinimap: View, ThemedView {
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            .padding(.trailing, -Self.edgeInset)
+            .padding(.trailing, -railInset)
         }
     }
 
@@ -245,7 +249,80 @@ struct ChatMinimap: View, ThemedView {
     /// long the conversation grows around it.
     private static let minimumEntryHeight: CGFloat = 3
 
-    private static let edgeInset: CGFloat = 8
+    private static let edgeInset: CGFloat = 2
+
+    /// The narrowest target the rail ever offers the pointer. The bars alone
+    /// are too thin to aim at, and unlike them the target reaches the window
+    /// edge — so throwing the pointer at the edge always finds it. Once the
+    /// rail is wider than this the footprint takes over.
+    private static let hoverWidth: CGFloat = 16
+
+    /// The bars at their widest, and how far they sit from the window edge
+    /// there. Between the two ends the rail interpolates, so it grows with
+    /// the pane rather than snapping at a threshold.
+    private static let spreadWidth: CGFloat = collapsedWidth * 2
+    private static let spreadInset: CGFloat = 8
+
+    /// Room left between the bars and the bleed column at full size. Nothing
+    /// draws it — it is what stops the rail from crowding the conversation
+    /// once both are at their full width. It matches the trailing inset, so
+    /// the bars sit in equal air on both sides.
+    private static let spreadLeading: CGFloat = spreadInset
+
+    /// What the rail asks of the pane at full size: the bars, the inset
+    /// holding them off the window edge, and the gap keeping them off the
+    /// bleed column.
+    private static let spreadCost: CGFloat = spreadWidth + spreadInset + spreadLeading
+
+    /// How much of its full size the rail can afford, 0 while the bars are
+    /// still within the bleed column's padding and 1 once they clear it with
+    /// room to spare.
+    ///
+    /// The rail takes whatever the conversation is not using, up to the size
+    /// it wants. Growth starts where the bars would otherwise reach into the
+    /// padding beside a full-width bleed item, so widening the pane never
+    /// costs the conversation anything.
+    static func railSpread(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
+        let slack = (width - dimensions.bleedWidth) / 2
+        let floor = dimensions.horizontalBleedPadding
+        guard slack > floor else { return 0 }
+        return min((slack - floor) / (spreadCost - floor), 1)
+    }
+
+    static func railWidth(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
+        let spread = railSpread(forViewport: width, dimensions: dimensions)
+        return collapsedWidth + (spreadWidth - collapsedWidth) * spread
+    }
+
+    static func railInset(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
+        let spread = railSpread(forViewport: width, dimensions: dimensions)
+        return edgeInset + (spreadInset - edgeInset) * spread
+    }
+
+    /// What the rail draws: the bars and the inset holding them off the
+    /// window edge. The pointer is offered this much, so the target grows
+    /// with the rail rather than staying the size it needed when the bars
+    /// were thinnest. The leading gap is deliberately left out — it is empty
+    /// space over the conversation, and reaching into it made the map open
+    /// while the pointer was still on the text.
+    static func railFootprint(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
+        railWidth(forViewport: width, dimensions: dimensions)
+            + railInset(forViewport: width, dimensions: dimensions)
+    }
+
+    private var railWidth: CGFloat {
+        Self.railWidth(forViewport: viewportWidth, dimensions: dimensions)
+    }
+
+    /// What the pointer is given to aim at, never less than a comfortable
+    /// target however narrow the bars are drawn.
+    private var hoverWidth: CGFloat {
+        max(Self.hoverWidth, Self.railFootprint(forViewport: viewportWidth, dimensions: dimensions))
+    }
+
+    private var railInset: CGFloat {
+        Self.railInset(forViewport: viewportWidth, dimensions: dimensions)
+    }
 
     /// The rail's own space, which stays put while the map grows out of it,
     /// so the pointer's height means the same thing open or closed.
@@ -284,6 +361,8 @@ private struct ChatMinimapEntryView: View, ThemedView {
     let isVisible: Bool
     /// Whether the map is showing its full width.
     let isRevealed: Bool
+    /// The rail's current width, which a collapsed bar is drawn against.
+    let railWidth: CGFloat
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -322,6 +401,11 @@ private struct ChatMinimapEntryView: View, ThemedView {
         }
         .font(typography.caption.font)
         .opacity(isRevealed ? 1 : 0)
+        // Collapsed, the text is only faded out — it still lays out at its
+        // full length, and inside the scroll view that length is what the
+        // rail's width resolves against. Without this a chat of long prompts
+        // gets a wider rail than a chat of short ones.
+        .frame(width: isRevealed ? nil : railWidth, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: isRevealed ? nil : Self.promptBarHeight)
         .background {
@@ -342,7 +426,7 @@ private struct ChatMinimapEntryView: View, ThemedView {
                 maxWidth: .infinity,
                 alignment: isRevealed ? .leading : .trailing
             )
-            .padding(.leading, isRevealed ? 0 : Self.responseInset)
+            .padding(.leading, isRevealed ? 0 : responseInset)
             .contentShape(.rect)
     }
 
@@ -350,8 +434,9 @@ private struct ChatMinimapEntryView: View, ThemedView {
 
     /// How much narrower a response draws than a prompt in the rail. The two
     /// are told apart by width as well as by weight, since at this size a
-    /// difference in opacity alone is easy to miss.
-    private static let responseInset: CGFloat = 5
+    /// difference in opacity alone is easy to miss. A response keeps half the
+    /// rail whatever the rail's width, so the pair reads the same either way.
+    private var responseInset: CGFloat { railWidth / 2 }
 }
 
 /// Fades an entry between its resting and on-screen emphasis.

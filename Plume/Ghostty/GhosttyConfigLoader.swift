@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import os
 
 /// Finds the user's own ghostty config so embedded terminals inherit their
@@ -97,6 +98,63 @@ enum GhosttyConfigLoader {
     /// last one in expansion order, matching ghostty's last-wins semantics.
     static func winningThemeSourcePath(in expanded: ExpandedConfig) -> String? {
         expanded.lines.last { directiveValue(in: $0.content, key: "theme") != nil }?.sourcePath
+    }
+
+    /// The `font-family` ghostty would end up using: the last directive in
+    /// expansion order, matching ghostty's last-wins semantics for a repeated
+    /// key. An include applies after the file that named it, so a value set
+    /// there beats one set earlier in the including file — the same ordering
+    /// `winningThemeSourcePath` relies on.
+    static func resolvedFontFamily(in expanded: ExpandedConfig) -> String? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-family") }
+            .last
+            .map(unquoted)
+    }
+
+    /// The `font-style` ghostty would end up using, last-wins like
+    /// `resolvedFontFamily`.
+    ///
+    /// This names a face within the family ("SemiLight", "SemiBold"), which is
+    /// how a variable font's named instances are asked for. `false` is
+    /// ghostty's way of saying "no styled face", and reads here as unset.
+    static func resolvedFontStyle(in expanded: ExpandedConfig) -> String? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-style") }
+            .last
+            .map(unquoted)
+            .flatMap { $0.lowercased() == "false" ? nil : $0 }
+    }
+
+    /// The `font-weight` ghostty would end up using, last-wins like
+    /// `resolvedFontFamily`.
+    ///
+    /// ghostty takes either a name or a number, so both are read. A value it
+    /// would reject is ignored rather than guessed at, leaving the face's own
+    /// regular weight.
+    static func resolvedFontWeight(in expanded: ExpandedConfig) -> Font.Weight? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-weight") }
+            .last
+            .map(unquoted)
+            .flatMap(fontWeight)
+    }
+
+    /// ghostty's weight names, plus the numeric form it also accepts. The
+    /// numbers are the CSS scale, which is what `Font.Weight`'s cases name.
+    private static func fontWeight(_ value: String) -> Font.Weight? {
+        switch value.lowercased() {
+        case "thin", "100": .thin
+        case "extralight", "extra-light", "200": .ultraLight
+        case "light", "300": .light
+        case "regular", "normal", "400": .regular
+        case "medium", "500": .medium
+        case "semibold", "semi-bold", "600": .semibold
+        case "bold", "700": .bold
+        case "extrabold", "extra-bold", "800": .heavy
+        case "black", "900": .black
+        default: nil
+        }
     }
 
     /// The expanded config with `theme` and `config-file` removed, ready to

@@ -29,6 +29,15 @@ final class WorkTask {
     /// Reserved for PR/Linear integration payloads.
     var integrationsData: Data?
 
+    /// The record this task was imported from, namespaced by source app
+    /// (`cmux:<uuid>`), so a second import skips it. Nil for a task Plume
+    /// created itself.
+    ///
+    /// An imported task shares its directory with the app it came from, which
+    /// still believes it owns it — so anything that deletes a worktree has to
+    /// account for that.
+    var importedStableID: String?
+
     @Relationship(deleteRule: .cascade, inverse: \TaskTab.task)
     var tabs: [TaskTab] = []
     var selectedTabID: UUID?
@@ -61,5 +70,15 @@ final class WorkTask {
 
     var orderedTabs: [TaskTab] {
         tabs.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    /// Never had an agent session — not merely idle right now.
+    /// `TaskStatus.notStarted` also covers a task that ran and lost its
+    /// process to relaunch, so it can't tell "never started" from "was
+    /// running, now nothing to show." An `agentSessionID` is the durable
+    /// record of a session ever having run; its absence on every agent tab is
+    /// what "never started" actually means.
+    var hasNeverStarted: Bool {
+        !tabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
     }
 }

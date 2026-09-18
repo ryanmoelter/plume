@@ -91,6 +91,19 @@ struct SettingsView: View {
                         .frame(width: 44, alignment: .trailing)
                 }
 
+                HStack {
+                    Text("Code size")
+                    Slider(
+                        value: $settings.codeFontSizeMultiplier,
+                        in: AppSettings.codeFontSizeMultiplierRange,
+                        step: 0.05
+                    )
+                    Text("\(Int(settings.codeFontSizeMultiplier * 100))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+
                 Picker("Send message with", selection: $settings.composerSendKey) {
                     Text("⌘Return").tag(ComposerSendKey.commandReturn)
                     Text("Return").tag(ComposerSendKey.returnKey)
@@ -100,25 +113,10 @@ struct SettingsView: View {
             } footer: {
                 Text(
                     "Text size sets the prose size in the chat view — messages, tool calls, " +
-                    "and thinking blocks scale together. The other key inserts a newline " +
-                    "instead of sending, so a half-typed multi-line message stays editable."
-                )
-                .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Use the new chat layout", isOn: Binding(
-                    get: { settings.chatListEngine == .custom },
-                    set: { settings.chatListEngine = $0 ? .custom : .lazyStack }
-                ))
-            } header: {
-                Text("Chat Layout")
-            } footer: {
-                Text(
-                    "The new layout is Plume's own scrolling list: it pins a sent " +
-                    "prompt to the top of the view with room below for the reply, and " +
-                    "animates the conversation itself rather than each message. Off, the " +
-                    "list is the SwiftUI one it replaces. Takes effect on the next chat opened."
+                    "and thinking blocks scale together. Code size adjusts the code font on " +
+                    "top of that, to match x-heights between the two faces. The other key " +
+                    "inserts a newline instead of sending, so a half-typed multi-line message " +
+                    "stays editable."
                 )
                 .foregroundStyle(.secondary)
             }
@@ -182,6 +180,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 if settings.keepsAwakeOnBattery {
                     Stepper(
@@ -205,11 +204,12 @@ struct SettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(
-                        "Auto holds the Mac awake while an agent is working or under " +
-                        "remote control. On battery the hold stops at the cutoff unless " +
-                        "charging. Closing the lid sleeps the Mac unless the sleep helper " +
-                        "is installed and approved in Login Items, and even then the " +
-                        "lid override releases at the chosen temperature."
+                        "Auto holds the Mac awake while an agent is working, and while a " +
+                        "session is under remote control unless that is turned off. On " +
+                        "battery the hold stops at the cutoff unless charging. Closing " +
+                        "the lid sleeps the Mac unless the sleep helper is installed and " +
+                        "approved in Login Items, and even then the lid override releases " +
+                        "at the chosen temperature."
                     )
                     .foregroundStyle(.secondary)
                     Button("Open Battery Settings…") {

@@ -3,8 +3,7 @@ import SwiftUI
 
 /// Memoizes highlighted code, for the same reason `MarkdownCache` memoizes
 /// parsing: `body` re-runs constantly while scrolling, and tokenizing a long
-/// block on each pass is exactly the per-render cost that scales with code
-/// length that `docs/chat-list-hang.md` warns against.
+/// block on each pass would scale render cost with code length.
 ///
 /// Bounded and evicted crudely — a miss only costs what the work cost before.
 @MainActor

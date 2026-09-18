@@ -150,7 +150,8 @@ final class KeepAwakeCoordinator {
         let derived = Self.deriveReasons(
             activeTabs: engine.activeTabs,
             remoteControlledTabs: sessions.remoteControlledTabs,
-            backgroundTaskTabs: engine.backgroundTaskTabs
+            backgroundTaskTabs: engine.backgroundTaskTabs,
+            allowsRemoteControl: settings.keepsAwakeForRemoteControl
         )
         if derived != reasons {
             reasons = derived
@@ -225,6 +226,7 @@ final class KeepAwakeCoordinator {
             _ = settings.keepsAwakeOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
             _ = settings.keepsAwakeWithLidClosed
+            _ = settings.keepsAwakeForRemoteControl
             _ = settings.lidClosedThermalCutoff
             _ = lidOverride.status
             _ = thermal.state
@@ -246,18 +248,24 @@ final class KeepAwakeCoordinator {
     ///
     /// A tab waiting for an answer with no Remote Control is not a reason: no
     /// work is happening, and nobody is coming to answer it.
+    ///
+    /// `allowsRemoteControl` off drops Remote Control from the reason set
+    /// entirely, so a remotely driven tab holds the Mac awake only for work it
+    /// is doing itself.
     static func deriveReasons(
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
         remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
-        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] = []
+        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] = [],
+        allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
-        let remoteTabIDs = Set(remoteControlledTabs.map(\.tabID))
+        let counted = allowsRemoteControl ? remoteControlledTabs : []
+        let remoteTabIDs = Set(counted.map(\.tabID))
 
         let working = activeTabs
             .filter { $0.status == .working || remoteTabIDs.contains($0.tabID) }
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .working($0.status)) }
 
-        let remote = remoteControlledTabs
+        let remote = counted
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .remoteControl) }
 
         let background = backgroundTaskTabs

@@ -14,39 +14,25 @@ extension EnvironmentValues {
     }
 }
 
-/// How an item takes its column.
-enum ChatColumn {
-    /// A visible container: clamps to the column and paints a gutter around
-    /// it. What prose and anything with a background wants.
-    case padded
-
-    /// An invisible container: clamps to the column but paints no gutter, so
-    /// the visible items nested inside it pay for their own. A message row is
-    /// this — it establishes the width its children measure against without
-    /// adding an inset of its own.
-    case unpadded
-
-    /// No column at all; the item fills its container.
-    case none
-}
-
 /// Sizes a chat item's own column.
 ///
 /// Items own their width rather than inheriting one from the list, so a code
 /// block can take the wider bleed column while the prose around it steps back
 /// in to reading measure.
 ///
-/// The nesting runs outside-in: a message row establishes `.bleed` as an
-/// invisible container, and the prose inside it steps in to `.content` as a
-/// visible one. A code block adds nothing and simply fills the bleed row it
-/// already sits in. Only the innermost visible item pays a gutter, so nested
-/// items never stack one inset on another.
+/// The nesting runs outside-in: a message row takes the bleed column, and the
+/// prose inside it steps back in to content measure. A code block adds nothing
+/// and simply fills the bleed row it already sits in.
+///
+/// The edge padding sits outside the clamp, so a column's width is the item's
+/// real visual bound wherever the window can seat it. Every item keeps that
+/// band, since it is what the collapsed minimap overlays — an item that
+/// skipped it would draw under the rail.
 private struct ListItemPadding: ViewModifier, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.chatHugsContent) private var hugsContent
 
     let bleed: Bool
-    let column: ChatColumn
     let vertical: Bool
 
     func body(content: Content) -> some View {
@@ -57,12 +43,12 @@ private struct ListItemPadding: ViewModifier, ThemedView {
             // container sizes to its text instead, so a short message does
             // not stretch to reading measure.
             .frame(maxWidth: hugsContent ? nil : .infinity, alignment: .leading)
-            // Padding goes inside the clamp: the column measures the content
-            // itself, so a padded item occupies `maxWidth + gutter * 2` and
-            // the text inside it still measures a full `maxWidth`.
-            .padding(.horizontal, gutter)
             .padding(.vertical, vertical ? dimensions.verticalPadding : 0)
             .frame(maxWidth: clampedWidth)
+            // Outside the clamp, so the column width is the item's real
+            // visual bound wherever the window can seat it. The padding only
+            // takes space once the window is narrower than the column.
+            .padding(.horizontal, edgePadding)
             // The column itself centers in whatever contains it.
             .frame(maxWidth: fillsContainer ? .infinity : nil, alignment: .center)
     }
@@ -70,40 +56,29 @@ private struct ListItemPadding: ViewModifier, ThemedView {
     /// A hugging item takes no column — its container is already sized to it,
     /// so clamping here would only center the text in a box it doesn't fill.
     private var clampedWidth: CGFloat? {
-        guard !hugsContent else { return nil }
-        switch column {
-        case .padded: return maxWidth + gutter * 2
-        case .unpadded: return maxWidth
-        case .none: return nil
-        }
+        hugsContent ? nil : maxWidth
     }
 
     /// A hugging item has no column to center in — it is as wide as it is.
-    private var fillsContainer: Bool {
-        !hugsContent && column != .none
-    }
+    private var fillsContainer: Bool { !hugsContent }
 
     private var maxWidth: CGFloat {
         bleed ? dimensions.bleedWidth : dimensions.contentWidth
     }
 
-    /// Content steps in by less than bleed, so that in a window too narrow for
-    /// either column to reach its maximum, content still reads narrower than
-    /// the bleed around it rather than collapsing flush against it.
-    private var gutter: CGFloat {
-        guard column == .padded else { return 0 }
-        return bleed ? dimensions.horizontalGutter : dimensions.contentInset
+    /// A hugging item pays the bleed band too — its own container never
+    /// clamps, so this is the only thing holding it off the edge.
+    private var edgePadding: CGFloat {
+        bleed || hugsContent
+            ? dimensions.horizontalBleedPadding
+            : dimensions.horizontalEdgePadding
     }
 }
 
 extension View {
     /// Gives this item its own column in a chat list. See `ListItemPadding`.
-    func listItemPadding(
-        bleed: Bool = false,
-        column: ChatColumn = .padded,
-        vertical: Bool = true
-    ) -> some View {
-        modifier(ListItemPadding(bleed: bleed, column: column, vertical: vertical))
+    func listItemPadding(bleed: Bool = false, vertical: Bool = true) -> some View {
+        modifier(ListItemPadding(bleed: bleed, vertical: vertical))
     }
 
     /// Clamps text to reading measure inside a container that is itself

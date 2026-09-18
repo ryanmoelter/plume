@@ -138,7 +138,7 @@ private struct TerminalTabHost: View {
                         TitleStore.shared.setTitle(title, forTab: tab.id)
                     }
                     .onChange(of: session.workingDirectory, initial: true) { _, directory in
-                        TabDirectoryStore.shared.setDirectory(directory, forTab: tab.id)
+                        TabDirectoryStore.shared.setDirectory(directory, forTab: tab)
                     }
             } else {
                 Color.clear

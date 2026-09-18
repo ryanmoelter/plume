@@ -19,13 +19,16 @@ struct Dimensions {
     /// against the composer.
     let listBottomPadding: CGFloat
 
-    /// The gutter between a bleed item's column and the window edge.
-    let horizontalGutter: CGFloat = 16
+    /// Breathing room outside a content item's column. It sits outside the
+    /// column's clamp, so it costs nothing once the window can seat the full
+    /// width and only bites when the window is narrower than that.
+    let horizontalEdgePadding: CGFloat = 16
 
-    /// How far content steps in from the bleed column around it. Keeps the
-    /// two distinguishable when the window is too narrow for either to reach
-    /// its maximum width.
-    let contentInset: CGFloat = 12
+    /// The same, for a bleed item. Smaller, so a bleed row reaches closer to
+    /// the window edge than the prose inside it. The collapsed minimap has to
+    /// fit within this band, since it overlays the list rather than taking a
+    /// column of its own.
+    let horizontalBleedPadding: CGFloat = 12
 
     /// Vertical breathing room around a list item.
     let verticalPadding: CGFloat = 16

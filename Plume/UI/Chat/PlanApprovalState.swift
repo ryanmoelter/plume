@@ -56,12 +56,6 @@ enum PlanApprovalState: Equatable {
     }
 
     var showsApprovalOptions: Bool { self == .awaitingDecision }
-
-    /// Whether the overlay may be dismissed outright rather than only
-    /// minimized. A live proposal's approval options are shown nowhere else,
-    /// so closing would leave the request open on the wire with no way back
-    /// to it; once answered, the overlay is just a viewer again.
-    var isClosable: Bool { self != .awaitingDecision }
 }
 
 /// The one-line gist of a plan, for the inline row that stands in for it.

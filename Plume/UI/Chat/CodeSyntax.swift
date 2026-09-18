@@ -16,7 +16,7 @@ import Foundation
 ///
 /// The tokenizer is a single forward pass with no backtracking, so its cost
 /// is linear in the code's length and it runs once per block through
-/// `CodeSyntaxCache` — never per `body` pass. `docs/chat-list-hang.md` is why
+/// `CodeSyntaxCache` — never per `body` pass. `docs/chat-list.md` is why
 /// nothing here may scale with render count or consult a measured height.
 nonisolated enum CodeSyntax {
     /// What a token means. Deliberately coarse: more roles than a theme's

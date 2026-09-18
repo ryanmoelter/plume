@@ -47,7 +47,6 @@ struct ToolCallRow: View, ThemedView {
                 .truncationMode(.tail)
         }
         .listItemPadding(vertical: false)
-        .chatItemExpansionProbe(expanded)
     }
 
     /// The one-liner: the tool's name in prose, then the detail it carries in

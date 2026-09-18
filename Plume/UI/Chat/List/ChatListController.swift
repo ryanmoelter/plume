@@ -681,7 +681,7 @@ final class ChatListController: NSObject {
                     containerState: state,
                     onNaturalHeight: onMeasure
                 )
-                .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                .listItemPadding(bleed: true, vertical: false)
             }.id(id))
         case let .subagents(part):
             let subagents = inputs.subagents
@@ -689,14 +689,14 @@ final class ChatListController: NSObject {
             let onOpen = onOpenSubagent
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
                 SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
-                    .listItemPadding(bleed: false, column: .unpadded, vertical: false)
+                    .listItemPadding(vertical: false)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
                 PendingPermissionDock(tabID: tabID)
-                    .listItemPadding(bleed: true, column: .unpadded)
+                    .listItemPadding(bleed: true)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         }
@@ -758,7 +758,6 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.revealClock, environment.revealClock)
             .environment(\.workStartedAt, environment.workStartedAt)
-            .environment(\.chatPieceLimits, .unbounded)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }

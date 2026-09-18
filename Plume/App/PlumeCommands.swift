@@ -9,6 +9,10 @@ struct ShowArchiveActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowImportActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 /// Moves the sidebar selection by `offset` tasks, following sidebar order.
 /// Unlike `TaskCommands`, this stays available with nothing selected, so it
 /// can select the first task the same way an arrow key does.
@@ -45,6 +49,11 @@ extension FocusedValues {
         set { self[ShowArchiveActionKey.self] = newValue }
     }
 
+    var showImportAction: (() -> Void)? {
+        get { self[ShowImportActionKey.self] }
+        set { self[ShowImportActionKey.self] = newValue }
+    }
+
     var selectAdjacentTask: ((Int) -> Void)? {
         get { self[SelectAdjacentTaskKey.self] }
         set { self[SelectAdjacentTaskKey.self] = newValue }
@@ -56,30 +65,63 @@ extension FocusedValues {
     }
 }
 
+/// Every keyboard shortcut `PlumeCommands` binds, in one place.
+///
+/// The menu items below take their chords from here, and
+/// `TerminalShortcutMonitor` claims these same chords back when a terminal
+/// surface holds focus. Adding a shortcut means adding it here and using it in
+/// the button — there is no second list to update.
+enum PlumeShortcuts {
+    static let newTask = MenuShortcut("n")
+    static let newTerminalTab = MenuShortcut("t")
+    static let newAgentTab = MenuShortcut("t", modifiers: [.command, .option])
+    static let showArchive = MenuShortcut("a", modifiers: [.command, .shift])
+    static let closeTab = MenuShortcut("w")
+    static let archiveTask = MenuShortcut("a", modifiers: [.command, .control])
+    static let nextTab = MenuShortcut("]", modifiers: [.command, .shift])
+    static let previousTab = MenuShortcut("[", modifiers: [.command, .shift])
+    static let nextTask = MenuShortcut("]")
+    static let previousTask = MenuShortcut("[")
+
+    /// ⌘1 through ⌘9, selecting a tab by position.
+    static let selectTab: [MenuShortcut] = (1...9).map { MenuShortcut(Character("\($0)")) }
+
+    static let all: [MenuShortcut] = [
+        newTask, newTerminalTab, newAgentTab, showArchive, closeTab, archiveTask,
+        nextTab, previousTab, nextTask, previousTask,
+    ] + selectTab
+}
+
 struct PlumeCommands: Commands {
     @FocusedValue(\.newTaskAction) private var newTask
     @FocusedValue(\.showArchiveAction) private var showArchive
+    @FocusedValue(\.showImportAction) private var showImport
     @FocusedValue(\.taskCommands) private var task
     @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Task") { newTask?() }
-                .keyboardShortcut("n")
+                .keyboardShortcut(PlumeShortcuts.newTask)
                 .disabled(newTask == nil)
 
             Button("New Terminal Tab") { task?.addTab(.terminal) }
-                .keyboardShortcut("t")
+                .keyboardShortcut(PlumeShortcuts.newTerminalTab)
                 .disabled(task == nil)
 
             Button("New Agent Tab") { task?.addTab(.agent) }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .keyboardShortcut(PlumeShortcuts.newAgentTab)
                 .disabled(task == nil)
+        }
+
+        CommandGroup(after: .importExport) {
+            Button("Import from cmux…") { showImport?() }
+                .disabled(showImport == nil)
         }
 
         CommandGroup(after: .toolbar) {
             Button("Show Archive…") { showArchive?() }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .keyboardShortcut(PlumeShortcuts.showArchive)
                 .disabled(showArchive == nil)
         }
 
@@ -94,35 +136,35 @@ struct PlumeCommands: Commands {
                     NSApp.keyWindow?.performClose(nil)
                 }
             }
-            .keyboardShortcut("w")
+            .keyboardShortcut(PlumeShortcuts.closeTab)
 
             Button("Archive Task") { task?.archiveSelectedTask() }
-                .keyboardShortcut("a", modifiers: [.command, .control])
+                .keyboardShortcut(PlumeShortcuts.archiveTask)
                 .disabled(task == nil)
         }
 
         CommandMenu("Tab") {
             Button("Next Tab") { task?.cycleTab(1) }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .keyboardShortcut(PlumeShortcuts.nextTab)
                 .disabled(task == nil)
             Button("Previous Tab") { task?.cycleTab(-1) }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .keyboardShortcut(PlumeShortcuts.previousTab)
                 .disabled(task == nil)
 
             Divider()
 
             Button("Next Task") { selectAdjacentTask?(1) }
-                .keyboardShortcut("]", modifiers: [.command])
+                .keyboardShortcut(PlumeShortcuts.nextTask)
                 .disabled(selectAdjacentTask == nil)
             Button("Previous Task") { selectAdjacentTask?(-1) }
-                .keyboardShortcut("[", modifiers: [.command])
+                .keyboardShortcut(PlumeShortcuts.previousTask)
                 .disabled(selectAdjacentTask == nil)
 
             Divider()
 
-            ForEach(1...9, id: \.self) { number in
-                Button("Tab \(number)") { task?.selectTab(number - 1) }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")))
+            ForEach(Array(PlumeShortcuts.selectTab.enumerated()), id: \.offset) { index, shortcut in
+                Button("Tab \(index + 1)") { task?.selectTab(index) }
+                    .keyboardShortcut(shortcut)
                     .disabled(task == nil)
             }
 

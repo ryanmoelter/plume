@@ -3,10 +3,9 @@ import SwiftUI
 /// A subagent's whole conversation, over the chat, rendered by the same
 /// `ChatPieceView` the main transcript uses.
 ///
-/// A plain `VStack` rather than the main list's `LazyVStack`: a subagent
-/// transcript is tens of rows, not thousands, and nothing scrolls it
-/// programmatically — which is the pairing that hangs a lazy stack
-/// (`docs/chat-list-hang.md`).
+/// A plain `VStack` rather than the main list's own container: a subagent
+/// transcript is tens of rows, not thousands, so it needs none of that
+/// list's realized-window machinery.
 struct SubagentTranscriptOverlay: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -40,7 +39,7 @@ struct SubagentTranscriptOverlay: View, ThemedView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(pieces) { piece in
                             ChatPieceView(piece: piece)
-                                .listItemPadding(bleed: true, column: .unpadded, vertical: false)
+                                .listItemPadding(bleed: true, vertical: false)
                                 .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                                 .padding(.bottom, piece.bottomInset)
                         }

@@ -36,7 +36,7 @@ struct InteractiveToolRow: View, ThemedView {
     private var isAnswerable: Bool { answer != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: DecisionCard.sectionSpacing) {
             switch payload {
             case .plan(let markdown, let filePath):
                 planBody(markdown: markdown, filePath: filePath)
@@ -44,13 +44,7 @@ struct InteractiveToolRow: View, ThemedView {
                 questionsBody(questions)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(washColor, in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(borderColor, lineWidth: 1)
-        }
+        .decisionCard(subject: isPending ? subject : nil, colors: colors)
     }
 
     // MARK: - Plan
@@ -124,7 +118,7 @@ struct InteractiveToolRow: View, ThemedView {
             if questions.count > 1 {
                 pagingControls(current: index, count: questions.count)
             }
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
                 if !question.header.isEmpty {
                     Text(question.header.uppercased())
                         .font(typography.caption.semibold)
@@ -155,6 +149,7 @@ struct InteractiveToolRow: View, ThemedView {
                     case .send: answer(.questions(answerState.answers(for: questions)))
                     }
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!answerState.isComplete(for: [question]))
             }
@@ -171,7 +166,7 @@ struct InteractiveToolRow: View, ThemedView {
     @ViewBuilder
     private func answeredBody(_ questions: [InteractiveToolPayload.AskedQuestion]) -> some View {
         let recordedAnswers = resultText.map { InteractiveToolPayload.answers(from: $0, for: questions) } ?? [:]
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
             ForEach(questions) { question in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(question.question)
@@ -197,7 +192,7 @@ struct InteractiveToolRow: View, ThemedView {
     }
 
     private func pagingControls(current: Int, count: Int) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DecisionCard.nestedPadding) {
             Button {
                 questionIndex = QuestionPaging.previous(current)
             } label: {
@@ -240,13 +235,7 @@ struct InteractiveToolRow: View, ThemedView {
                 }
             }
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(optionBorderColor(isSelected: isSelected), lineWidth: isSelected && isAnswerable ? 1.5 : 1)
-        }
+        .decisionField(isFilled: isSelected && isAnswerable, colors: colors)
         .contentShape(.rect)
         .chatTextColumn()
 
@@ -275,16 +264,10 @@ struct InteractiveToolRow: View, ThemedView {
             ), axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(typography.body.medium)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(colors.surfaceTint, in: .rect(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            !answerState.freeText(for: question).isEmpty ? colors.selection : colors.divider,
-                            lineWidth: !answerState.freeText(for: question).isEmpty ? 1.5 : 1
-                        )
-                }
+                .decisionField(
+                    isFilled: !answerState.freeText(for: question).isEmpty,
+                    colors: colors
+                )
                 .chatTextColumn()
                 .accessibilityIdentifier(AccessibilityID.questionFreeTextField)
         }
@@ -302,38 +285,21 @@ struct InteractiveToolRow: View, ThemedView {
         return isSelected ? "largecircle.fill.circle" : "circle"
     }
 
-    private func optionBorderColor(isSelected: Bool) -> Color {
-        isSelected && isAnswerable
-            ? colors.selection
-            : colors.divider
-    }
-
     // MARK: - Chrome
 
     private func header(symbol: String, title: String) -> some View {
-        Label(title, systemImage: symbol)
-            .font(typography.caption.semibold)
-            .foregroundStyle(AnyShapeStyle.role(pendingRole, when: isPending, otherwise: .secondary))
-            .chatTextColumn()
+        DecisionCardHeader(
+            title: title,
+            symbol: symbol,
+            subject: isPending ? subject : nil
+        )
     }
 
     /// A question only waits on the user; approving a plan sets work going.
-    private var pendingRole: Color {
+    private var subject: DecisionSubject {
         switch payload {
-        case .questions: colors.attention
-        case .plan: colors.warning
+        case .questions: .inquiry
+        case .plan: .consequential
         }
-    }
-
-    private var washColor: Color {
-        colors.surfaceTint
-    }
-
-    /// A pending row carries its hue on the border only. Washing the card as
-    /// well would double-signal one that already has a tinted header.
-    private var borderColor: Color {
-        isPending
-            ? pendingRole.emphasized(.disabled, in: colors)
-            : colors.divider
     }
 }

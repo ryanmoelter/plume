@@ -209,8 +209,10 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
-        Button("Archive") { TaskStore.archive(task) }
-            .accessibilityIdentifier(AccessibilityID.taskArchiveButton)
+        if !task.hasNeverStarted {
+            Button("Archive") { TaskStore.archive(task) }
+                .accessibilityIdentifier(AccessibilityID.taskArchiveButton)
+        }
         Divider()
         Button("Delete", role: .destructive) {
             // A worktree task owns a branch and a directory on disk, so

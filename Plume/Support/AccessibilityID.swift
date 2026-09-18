@@ -70,6 +70,10 @@ enum AccessibilityID {
     static let questionOption = "question-option"
     static let questionFreeTextField = "question-free-text-field"
 
+    // MARK: Permission request
+
+    static let permissionDenialReasonField = "permission-denial-reason-field"
+
     // MARK: Markdown
 
     static let mermaidExpandButton = "mermaid-expand-button"

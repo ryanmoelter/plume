@@ -46,6 +46,28 @@ struct ElapsedScheduleTests {
         #expect(aged[1].timeIntervalSince(aged[0]) == 60)
     }
 
+    /// The working word changes on its own schedule, so its view needs a tick
+    /// even once the elapsed figure has gone quiet.
+    @Test func aCeilingKeepsAnAgedScheduleTicking() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let schedule = ElapsedSchedule(since: since, maximumInterval: WorkingVerb.slotDuration)
+
+        var later = schedule.entries(from: since.addingTimeInterval(600), mode: .normal)
+        let aged = (0..<3).compactMap { _ in later.next() }
+        #expect(aged[1].timeIntervalSince(aged[0]) == WorkingVerb.slotDuration)
+    }
+
+    /// The ceiling only ever shortens a gap: a young clock still counts
+    /// seconds rather than being slowed to the ceiling.
+    @Test func aCeilingNeverSlowsAYoungSchedule() {
+        let since = Date(timeIntervalSinceReferenceDate: 0)
+        let schedule = ElapsedSchedule(since: since, maximumInterval: WorkingVerb.slotDuration)
+
+        var entries = schedule.entries(from: since, mode: .normal)
+        let early = (0..<3).compactMap { _ in entries.next() }
+        #expect(early[1].timeIntervalSince(early[0]) == 1)
+    }
+
     @Test func entriesAlwaysMoveForward() {
         let since = Date(timeIntervalSinceReferenceDate: 0)
         var entries = ElapsedSchedule(since: since).entries(from: since, mode: .normal)
@@ -64,22 +86,71 @@ struct WorkingVerbTests {
         }
     }
 
-    @Test func aTurnKeepsTheSameVerbThroughout() {
+    @Test func aFixedInstantAlwaysPicksTheSameVerb() {
         let started = Date()
-        #expect(WorkingVerb.forTurn(startedAt: started) == WorkingVerb.forTurn(startedAt: started))
+        #expect(
+            WorkingVerb.forTurn(startedAt: started, elapsed: 12) ==
+                WorkingVerb.forTurn(startedAt: started, elapsed: 12)
+        )
     }
 
     /// The verb comes from the start time, so turns starting at different
     /// moments do not all say the same thing.
     @Test func differentTurnsGetDifferentVerbs() {
         let base = Date(timeIntervalSinceReferenceDate: 0)
-        let verbs = (0..<40).map { WorkingVerb.forTurn(startedAt: base.addingTimeInterval(Double($0))) }
+        let verbs = (0..<40).map {
+            WorkingVerb.forTurn(startedAt: base.addingTimeInterval(Double($0)), elapsed: 0)
+        }
         #expect(Set(verbs).count > 1)
     }
 
     @Test func aDateBeforeTheReferenceEpochStillPicksAVerb() {
         let ancient = Date(timeIntervalSinceReferenceDate: -1_000_000)
-        #expect(WorkingVerb.all.contains(WorkingVerb.forTurn(startedAt: ancient)))
+        #expect(WorkingVerb.all.contains(WorkingVerb.forTurn(startedAt: ancient, elapsed: 0)))
+    }
+
+    /// Within one 30s slot the word must hold, so the caption doesn't flicker
+    /// between renders that land moments apart.
+    @Test func theVerbHoldsWithinASlot() {
+        let started = Date(timeIntervalSinceReferenceDate: 0)
+        let first = WorkingVerb.forTurn(startedAt: started, elapsed: 5)
+        let later = WorkingVerb.forTurn(startedAt: started, elapsed: 29.9)
+        #expect(first == later)
+    }
+
+    /// The word changes once elapsed time crosses into the next ~30s slot.
+    @Test func theVerbChangesAfterASlot() {
+        let started = Date(timeIntervalSinceReferenceDate: 0)
+        let changed = (1..<40).contains { seconds in
+            WorkingVerb.forTurn(startedAt: started, elapsed: TimeInterval(seconds) * WorkingVerb.slotDuration) !=
+                WorkingVerb.forTurn(startedAt: started, elapsed: 0)
+        }
+        #expect(changed)
+    }
+
+    /// Successive slots must never repeat the same word back-to-back, even
+    /// when the underlying hash would otherwise collide.
+    @Test func consecutiveSlotsNeverRepeat() {
+        for seed in stride(from: 0, to: 2000, by: 37) {
+            let started = Date(timeIntervalSinceReferenceDate: TimeInterval(seed))
+            var previous: String?
+            for slot in 0..<20 {
+                let word = WorkingVerb.forTurn(startedAt: started, elapsed: TimeInterval(slot) * WorkingVerb.slotDuration)
+                if let previous {
+                    #expect(word != previous, "slot \(slot) repeated \(word) for seed \(seed)")
+                }
+                previous = word
+            }
+        }
+    }
+
+    /// Same (startedAt, now) pair must always resolve to the same word,
+    /// independent of how many times it is queried.
+    @Test func stableForAFixedStartAndNow() {
+        let started = Date(timeIntervalSinceReferenceDate: 12345)
+        let elapsed: TimeInterval = 187
+        let results = (0..<5).map { _ in WorkingVerb.forTurn(startedAt: started, elapsed: elapsed) }
+        #expect(Set(results).count == 1)
     }
 }
 

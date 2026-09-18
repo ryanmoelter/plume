@@ -100,9 +100,9 @@ struct ChatPieceSplitterTests {
         #expect(first[0].content == second[0].content)
     }
 
-    /// Ids must be unique across every kind of piece, because a duplicate id
-    /// in the `ForEach` thrashes the lazy stack's layout into the same freeze
-    /// `docs/chat-list-hang.md` records — a hang, with nothing visibly wrong.
+    /// Ids must be unique across every kind of piece: a duplicate id in a
+    /// `ForEach` was found to thrash SwiftUI's lazy layout into a hang, with
+    /// nothing visibly wrong (`docs/chat-list.md`).
     ///
     /// What keeps them unique is the depth of the `/`-separated path, not the
     /// kind: one component past the message id for a whole block, two for a
@@ -203,7 +203,7 @@ struct ChatPieceSplitterTests {
     }
 
     /// A code block is one artifact: it stays one piece however long it is,
-    /// and the view bounds it instead.
+    /// and the view scrolls it instead.
     @Test func aLongCodeBlockStaysOnePiece() {
         let result = pieces([codeMessage(lines: 400)])
         #expect(result.map(\.id) == ["m/0/0"])
@@ -213,17 +213,6 @@ struct ChatPieceSplitterTests {
         }
         #expect(segment.language == "swift")
         #expect(segment.code.components(separatedBy: "\n").count == 400)
-        #expect(ChatPieceMetrics.scrollsCode(segment.code))
-    }
-
-    @Test func anOrdinaryCodeBlockDoesNotScrollInsideItself() {
-        let result = pieces([codeMessage(lines: 10)])
-        #expect(result.map(\.id) == ["m/0/0"])
-        guard case .codeSegment(let segment) = result[0].content else {
-            Issue.record("expected a code piece")
-            return
-        }
-        #expect(!ChatPieceMetrics.scrollsCode(segment.code))
     }
 
     @Test func aMermaidFenceIsOnePiece() {
