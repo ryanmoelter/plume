@@ -179,21 +179,56 @@ struct ImporterTests {
         #expect(task.lastFocusedAgentTabID == nil)
     }
 
-    // MARK: - Duplicates
+    // MARK: - Duplicates and replacement
 
-    @Test func reimportingTheSameCandidateCreatesNothing() throws {
+    /// The sheet leaves a duplicate unchecked; `importing` replaces whatever it
+    /// is handed, so passing one twice must not leave two tasks behind.
+    @Test func reimportingTheSameCandidateReplacesRatherThanDuplicates() throws {
         let context = try makeContext()
         let candidates = [candidate(stableID: "cmux:one")]
 
         _ = Importer.importing(candidates, into: .ungrouped, in: context)
         let second = Importer.importing(candidates, into: .ungrouped, in: context)
 
-        #expect(second.isEmpty)
+        #expect(second.count == 1)
         let tasks = try context.fetch(FetchDescriptor<WorkTask>())
         #expect(tasks.count == 1)
+        #expect(tasks.first?.id == second.first?.id)
     }
 
-    /// Archiving an imported task must not make the next import bring it back.
+    /// A replacement keeps its sidebar slot, so re-importing one row does not
+    /// shuffle everything below it.
+    @Test func aReplacementKeepsItsPlaceInTheSidebar() throws {
+        let context = try makeContext()
+        let first = Importer.importing(
+            [candidate(stableID: "cmux:one"), candidate(stableID: "cmux:two")],
+            into: .ungrouped,
+            in: context
+        )
+        try #require(first.count == 2)
+        let originalIndex = first[0].orderIndex
+
+        let replaced = Importer.importing([candidate(stableID: "cmux:one")], into: .ungrouped, in: context)
+
+        #expect(replaced.first?.orderIndex == originalIndex)
+    }
+
+    /// Replacing frees the old task's session ids, so the new tab reclaims the
+    /// conversation instead of being downgraded to a terminal.
+    @Test func aReplacementReclaimsItsOwnSession() throws {
+        let context = try makeContext()
+        let candidates = [candidate(stableID: "cmux:one", tabs: [.agentPlan(sessionID: "session-a")])]
+        _ = Importer.importing(candidates, into: .ungrouped, in: context)
+
+        let second = Importer.importing(candidates, into: .ungrouped, in: context)
+
+        let tab = try #require(second.first?.orderedTabs.first)
+        #expect(tab.kind == .agent)
+        #expect(tab.agentSessionID == "session-a")
+    }
+
+    /// Archiving must not hide a task from the next import: the row still says
+    /// so, and replacing it is what brings the workspace back.
     @Test func anArchivedImportStillCountsAsImported() throws {
         let context = try makeContext()
         let candidates = [candidate(stableID: "cmux:one")]
@@ -201,9 +236,9 @@ struct ImporterTests {
         try #require(first.count == 1)
         TaskStore.archive(first[0])
 
-        let second = Importer.importing(candidates, into: .ungrouped, in: context)
+        let marked = Importer.marking(candidates, alreadyImported: Importer.alreadyImported(in: context))
 
-        #expect(second.isEmpty)
+        #expect(marked[0].isAlreadyImported)
     }
 
     @Test func alreadyImportedCandidatesAreMarkedForTheSheet() throws {
@@ -217,7 +252,18 @@ struct ImporterTests {
 
         #expect(marked[0].isAlreadyImported)
         #expect(!marked[1].isAlreadyImported)
-        #expect(!marked[0].isImportable)
+        // Selectable, but only by hand: importing it destroys the existing task.
+        #expect(marked[0].isImportable)
+        #expect(marked[0].replacesExistingTask)
+        #expect(!marked[1].replacesExistingTask)
+    }
+
+    /// Nothing is running in a test host, so the sheet never prompts.
+    @Test func aTaskWithNoLiveSessionNeedsNoConfirmation() throws {
+        let context = try makeContext()
+        _ = Importer.importing([candidate(stableID: "cmux:one")], into: .ungrouped, in: context)
+
+        #expect(!Importer.hasLiveSession(stableID: "cmux:one", in: context))
     }
 
     // MARK: - The resume invariant

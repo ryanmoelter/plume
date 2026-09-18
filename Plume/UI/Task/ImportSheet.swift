@@ -13,9 +13,24 @@ struct ImportSheet: View {
     @State private var selected: Set<String> = []
     @State private var target: ImportTarget = .mirrorSourceGroups
     @State private var isValidating = true
+    @State private var confirmingReplacementOf: [ImportCandidate] = []
 
     private var importable: [ImportCandidate] {
         (candidates ?? []).filter(\.isImportable)
+    }
+
+    /// What Import selects on its own: never a replacement, which destroys a
+    /// task the user may still want.
+    private var selectableByDefault: [ImportCandidate] {
+        importable.filter { !$0.replacesExistingTask }
+    }
+
+    private var chosen: [ImportCandidate] {
+        (candidates ?? []).filter { selected.contains($0.id) }
+    }
+
+    private var replacements: [ImportCandidate] {
+        chosen.filter(\.replacesExistingTask)
     }
 
     private var canImport: Bool { !selected.isEmpty && !isValidating }
@@ -43,7 +58,7 @@ struct ImportSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(importTitle) { runImport() }
+                Button(importTitle) { confirmOrImport() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canImport)
             }
@@ -51,10 +66,37 @@ struct ImportSheet: View {
         .padding(20)
         .frame(width: 580, height: 520)
         .task { await load() }
+        .alert(
+            "Replace running \(confirmingReplacementOf.count == 1 ? "task" : "tasks")?",
+            isPresented: Binding(
+                get: { !confirmingReplacementOf.isEmpty },
+                set: { if !$0 { confirmingReplacementOf = [] } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { confirmingReplacementOf = [] }
+            Button("Replace", role: .destructive) {
+                confirmingReplacementOf = []
+                runImport()
+            }
+        } message: {
+            Text(replacementWarning)
+        }
+    }
+
+    private var replacementWarning: String {
+        let names = confirmingReplacementOf.map(\.title).joined(separator: ", ")
+        let subject = confirmingReplacementOf.count == 1
+            ? "\(names) has a running agent or terminal"
+            : "\(names) have running agents or terminals"
+        return "\(subject). Replacing stops them and discards the existing \(confirmingReplacementOf.count == 1 ? "task" : "tasks")."
     }
 
     private var importTitle: String {
-        selected.count == 1 ? "Import 1 Workspace" : "Import \(selected.count) Workspaces"
+        let noun = selected.count == 1 ? "Workspace" : "Workspaces"
+        guard replacements.isEmpty else {
+            return "Import \(selected.count) \(noun) (\(replacements.count) replacing)"
+        }
+        return "Import \(selected.count) \(noun)"
     }
 
     private var emptyState: some View {
@@ -82,8 +124,8 @@ struct ImportSheet: View {
 
             Spacer()
 
-            Button("Select All") { selected = Set(importable.map(\.id)) }
-                .disabled(selected.count == importable.count)
+            Button("Select All") { selected = Set(selectableByDefault.map(\.id)) }
+                .disabled(selected == Set(selectableByDefault.map(\.id)))
             Button("Select None") { selected = [] }
                 .disabled(selected.isEmpty)
         }
@@ -132,7 +174,7 @@ struct ImportSheet: View {
     }
 
     private func subtitle(for candidate: ImportCandidate) -> String {
-        if candidate.isAlreadyImported { return "Already imported" }
+        if candidate.isAlreadyImported { return "Already imported — check to replace" }
         if let rejection = candidate.rejection { return rejection.reason }
         var parts: [String] = []
         if candidate.agentTabCount > 0 {
@@ -186,11 +228,21 @@ struct ImportSheet: View {
             candidates?[index] = marked
         }
         isValidating = false
-        selected = Set(importable.map(\.id))
+        selected = Set(selectableByDefault.map(\.id))
+    }
+
+    /// Replacing a task whose agent or terminal is still running kills it
+    /// mid-turn, which the checkbox alone does not convey.
+    private func confirmOrImport() {
+        let live = replacements.filter { Importer.hasLiveSession(stableID: $0.stableID, in: context) }
+        if live.isEmpty {
+            runImport()
+        } else {
+            confirmingReplacementOf = live
+        }
     }
 
     private func runImport() {
-        let chosen = (candidates ?? []).filter { selected.contains($0.id) }
         let created = Importer.importing(chosen, into: target, in: context)
         Importer.startWatches(for: created)
         dismiss()

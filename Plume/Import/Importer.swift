@@ -18,6 +18,21 @@ enum Importer {
         return Set(tasks.compactMap(\.importedStableID))
     }
 
+    /// Whether the task this candidate would replace still has a live agent or
+    /// terminal, which replacing it would stop mid-turn.
+    static func hasLiveSession(stableID: String, in context: ModelContext) -> Bool {
+        let descriptor = FetchDescriptor<WorkTask>(
+            predicate: #Predicate { $0.importedStableID == stableID }
+        )
+        let tasks = (try? context.fetch(descriptor)) ?? []
+        return tasks.contains { task in
+            task.tabs.contains { tab in
+                SurfaceManager.shared.existingSession(for: tab.id) != nil
+                    || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+            }
+        }
+    }
+
     /// Every session id a tab already holds. `--resume` is not a fork, so a
     /// candidate may not claim one of these.
     static func heldSessionIDs(in context: ModelContext) -> Set<String> {
@@ -54,13 +69,30 @@ enum Importer {
 
         var created: [WorkTask] = []
         for candidate in candidates {
-            guard candidate.isImportable, !imported.contains(candidate.stableID) else { continue }
+            guard candidate.isImportable else { continue }
 
-            let group = resolveGroup(for: candidate, target: target, groups: &groups, in: context)
+            // A replacement keeps the sidebar slot the old task held, so a
+            // re-import does not shuffle the sidebar.
+            let replaced = imported.contains(candidate.stableID)
+                ? tasks.first { $0.importedStableID == candidate.stableID }
+                : nil
+            let inheritedIndex = replaced?.orderIndex
+            let inheritedGroup = replaced?.group
+            if let replaced {
+                for tab in replaced.tabs {
+                    heldSessions.subtract([tab.agentSessionID].compactMap { $0 })
+                }
+                TaskStore.delete(replaced, in: context)
+                tasks.removeAll { $0.id == replaced.id }
+                imported.remove(candidate.stableID)
+            }
+
+            let group = inheritedGroup
+                ?? resolveGroup(for: candidate, target: target, groups: &groups, in: context)
             let siblings = tasks.filter { $0.group?.id == group?.id }
             let task = WorkTask(
                 title: candidate.title,
-                orderIndex: (siblings.map(\.orderIndex).max() ?? -1) + 1,
+                orderIndex: inheritedIndex ?? (siblings.map(\.orderIndex).max() ?? -1) + 1,
                 group: group
             )
             task.workingDirectoryPath = candidate.workingDirectoryPath

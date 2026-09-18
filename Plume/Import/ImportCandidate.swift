@@ -17,10 +17,15 @@ nonisolated struct ImportCandidate: Identifiable, Sendable, Hashable {
     var workspace: ImportWorkspacePlan
     /// Why this cannot be imported. Non-nil rows are shown but not selectable.
     var rejection: ImportRejection?
-    /// Set when the store already holds this `stableID`.
+    /// Set when the store already holds this `stableID`. Such a row stays
+    /// selectable, but importing it replaces the task rather than adding one.
     var isAlreadyImported: Bool = false
 
-    var isImportable: Bool { rejection == nil && !isAlreadyImported }
+    var isImportable: Bool { rejection == nil }
+
+    /// Importing this destroys the task already in the store, so it is never
+    /// selected for the user — only by hand.
+    var replacesExistingTask: Bool { isImportable && isAlreadyImported }
 
     var agentTabCount: Int { tabs.count { $0.kind == .agent } }
     var terminalTabCount: Int { tabs.count { $0.kind == .terminal } }
