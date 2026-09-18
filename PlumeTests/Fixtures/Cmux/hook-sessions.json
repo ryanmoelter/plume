@@ -1,0 +1,59 @@
+{
+  "activeSessionsBySurface": {
+    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": {
+      "sessionId": "55555555-5555-5555-5555-aaaaaaaaaaaa",
+      "updatedAt": 1758000100.0
+    },
+    "cccccccc-cccc-cccc-cccc-cccccccccccc": {
+      "sessionId": "66666666-6666-6666-6666-cccccccccccc",
+      "updatedAt": 1758000200.0
+    }
+  },
+  "sessions": {
+    "55555555-5555-5555-5555-aaaaaaaaaaaa": {
+      "sessionId": "55555555-5555-5555-5555-aaaaaaaaaaaa",
+      "workspaceId": "workspace-1111-1111-1111-111111111111",
+      "surfaceId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "cwd": "/Users/example/Code/widget",
+      "startedAt": 1758000000.0,
+      "updatedAt": 1758000100.0,
+      "isRestorable": true,
+      "lastPermissionMode": "auto",
+      "transcriptPath": "/Users/example/.claude/projects/-Users-example-Code-widget/55555555-5555-5555-5555-aaaaaaaaaaaa.jsonl",
+      "launchCommand": {
+        "launcher": "claude",
+        "executablePath": "/Users/example/.local/bin/claude",
+        "arguments": ["--permission-mode", "auto"],
+        "workingDirectory": "/Users/example/Code/widget"
+      }
+    },
+    "66666666-6666-6666-6666-cccccccccccc": {
+      "sessionId": "66666666-6666-6666-6666-cccccccccccc",
+      "workspaceId": "workspace-2222-2222-2222-222222222222",
+      "surfaceId": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      "cwd": "/Users/example/Code/widget/.worktrees/fix-crash",
+      "startedAt": 1758000050.0,
+      "updatedAt": 1758000200.0,
+      "isRestorable": false,
+      "lastPermissionMode": "dontAsk",
+      "transcriptPath": "/Users/example/.claude/projects/-Users-example-Code-widget-worktrees-fix-crash/does-not-exist.jsonl",
+      "launchCommand": {
+        "launcher": "claude",
+        "executablePath": "/Users/example/.local/bin/claude",
+        "arguments": ["--permission-mode", "dontAsk"],
+        "workingDirectory": "/Users/example/Code/widget/.worktrees/fix-crash"
+      }
+    },
+    "77777777-7777-7777-7777-dead00000000": {
+      "sessionId": "77777777-7777-7777-7777-dead00000000",
+      "workspaceId": "workspace-9999-9999-9999-999999999999",
+      "surfaceId": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+      "cwd": "/Users/example/Code/orphan",
+      "startedAt": 1757999000.0,
+      "updatedAt": 1757999500.0,
+      "isRestorable": false,
+      "lastPermissionMode": null,
+      "transcriptPath": "/Users/example/.claude/projects/-Users-example-Code-orphan/77777777-7777-7777-7777-dead00000000.jsonl"
+    }
+  }
+}

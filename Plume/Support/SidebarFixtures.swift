@@ -96,7 +96,7 @@ enum SidebarFixtures {
 
         for (tab, name) in zip(tabs, directories) {
             let path = "/tmp/plume-fixtures/\(name)"
-            TabDirectoryStore.shared.setDirectory(path, forTab: tab.id)
+            TabDirectoryStore.shared.setDirectory(path, forTab: tab)
             PullRequestStore.shared.seedFixture(directory: path, state: .pullRequest(
                 PullRequest(
                     number: 900 + (directories.firstIndex(of: name) ?? 0),

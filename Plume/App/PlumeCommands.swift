@@ -9,6 +9,10 @@ struct ShowArchiveActionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowImportActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 /// Moves the sidebar selection by `offset` tasks, following sidebar order.
 /// Unlike `TaskCommands`, this stays available with nothing selected, so it
 /// can select the first task the same way an arrow key does.
@@ -43,6 +47,11 @@ extension FocusedValues {
     var showArchiveAction: (() -> Void)? {
         get { self[ShowArchiveActionKey.self] }
         set { self[ShowArchiveActionKey.self] = newValue }
+    }
+
+    var showImportAction: (() -> Void)? {
+        get { self[ShowImportActionKey.self] }
+        set { self[ShowImportActionKey.self] = newValue }
     }
 
     var selectAdjacentTask: ((Int) -> Void)? {
@@ -86,6 +95,7 @@ enum PlumeShortcuts {
 struct PlumeCommands: Commands {
     @FocusedValue(\.newTaskAction) private var newTask
     @FocusedValue(\.showArchiveAction) private var showArchive
+    @FocusedValue(\.showImportAction) private var showImport
     @FocusedValue(\.taskCommands) private var task
     @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
 
@@ -102,6 +112,11 @@ struct PlumeCommands: Commands {
             Button("New Agent Tab") { task?.addTab(.agent) }
                 .keyboardShortcut(PlumeShortcuts.newAgentTab)
                 .disabled(task == nil)
+        }
+
+        CommandGroup(after: .importExport) {
+            Button("Import from cmux…") { showImport?() }
+                .disabled(showImport == nil)
         }
 
         CommandGroup(after: .toolbar) {

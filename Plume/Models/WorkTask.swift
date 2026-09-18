@@ -29,6 +29,15 @@ final class WorkTask {
     /// Reserved for PR/Linear integration payloads.
     var integrationsData: Data?
 
+    /// The record this task was imported from, namespaced by source app
+    /// (`cmux:<uuid>`), so a second import skips it. Nil for a task Plume
+    /// created itself.
+    ///
+    /// An imported task shares its directory with the app it came from, which
+    /// still believes it owns it — so anything that deletes a worktree has to
+    /// account for that.
+    var importedStableID: String?
+
     @Relationship(deleteRule: .cascade, inverse: \TaskTab.task)
     var tabs: [TaskTab] = []
     var selectedTabID: UUID?
