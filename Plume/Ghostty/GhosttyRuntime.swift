@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyTerminal
+import SwiftUI
 import GhosttyTheme
 import Observation
 import os // Logger string interpolation
@@ -32,6 +33,11 @@ final class GhosttyRuntime {
     /// and the chat's code spans read in the same face.
     private(set) var resolvedCodeFontFamily: String?
 
+    /// The `font-weight` from the same config, applied to chat code so it
+    /// matches the terminal's weight as well as its face. Nil when unset or
+    /// unreadable, which leaves the face's regular weight.
+    private(set) var resolvedCodeFontWeight: Font.Weight?
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
@@ -53,6 +59,7 @@ final class GhosttyRuntime {
                 )
             }
             resolvedCodeFontFamily = GhosttyConfigLoader.resolvedFontFamily(in: expanded)
+            resolvedCodeFontWeight = GhosttyConfigLoader.resolvedFontWeight(in: expanded)
 
             // The config reaches libghostty as generated contents, not as a
             // file path, so the `theme` directive can be stripped first — see

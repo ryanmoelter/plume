@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import os
 
 /// Finds the user's own ghostty config so embedded terminals inherit their
@@ -109,6 +110,37 @@ enum GhosttyConfigLoader {
             .compactMap { directiveValue(in: $0.content, key: "font-family") }
             .last
             .map(unquoted)
+    }
+
+    /// The `font-weight` ghostty would end up using, last-wins like
+    /// `resolvedFontFamily`.
+    ///
+    /// ghostty takes either a name or a number, so both are read. A value it
+    /// would reject is ignored rather than guessed at, leaving the face's own
+    /// regular weight.
+    static func resolvedFontWeight(in expanded: ExpandedConfig) -> Font.Weight? {
+        expanded.lines
+            .compactMap { directiveValue(in: $0.content, key: "font-weight") }
+            .last
+            .map(unquoted)
+            .flatMap(fontWeight)
+    }
+
+    /// ghostty's weight names, plus the numeric form it also accepts. The
+    /// numbers are the CSS scale, which is what `Font.Weight`'s cases name.
+    private static func fontWeight(_ value: String) -> Font.Weight? {
+        switch value.lowercased() {
+        case "thin", "100": .thin
+        case "extralight", "extra-light", "200": .ultraLight
+        case "light", "300": .light
+        case "regular", "normal", "400": .regular
+        case "medium", "500": .medium
+        case "semibold", "semi-bold", "600": .semibold
+        case "bold", "700": .bold
+        case "extrabold", "extra-bold", "800": .heavy
+        case "black", "900": .black
+        default: nil
+        }
     }
 
     /// The expanded config with `theme` and `config-file` removed, ready to

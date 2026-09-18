@@ -89,11 +89,17 @@ extension Font {
     ///
     /// Resolution order: the user's own ghostty `font-family`, if set, beats
     /// the bundled Cascadia Code NF, which beats the system mono face.
-    /// `GhosttyRuntime.shared.resolvedCodeFontFamily` is read here (rather
-    /// than taken as a parameter) since it is resolved once, at startup, and
-    /// every call site wants the same answer.
+    /// `GhosttyRuntime.shared` is read here (rather than taken as a
+    /// parameter) since it is resolved once, at startup, and every call site
+    /// wants the same answer.
+    ///
+    /// The weight comes from the config's `font-weight` for the same reason
+    /// the face does — code in chat should read as it does in the terminal.
+    /// Passing one overrides that, for a caller that needs a particular
+    /// weight whatever the user configured.
     @MainActor
-    static func chatCode(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    static func chatCode(size: CGFloat, weight: Font.Weight? = nil) -> Font {
+        let weight = weight ?? GhosttyRuntime.shared.resolvedCodeFontWeight ?? .regular
         if let family = GhosttyRuntime.shared.resolvedCodeFontFamily {
             return .custom(family, size: size).weight(weight)
         }

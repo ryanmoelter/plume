@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 @testable import Plume
 
 /// Ordering mirrors `preferredDefaultFilePath()` in ghostty's
@@ -270,6 +271,48 @@ struct GhosttyConfigLoaderTests {
         #expect(!flattened.contains("config-file"))
         #expect(flattened.contains("font-size = 15"))
         #expect(flattened.contains("font-family = Cascadia Code NF"))
+    }
+
+    @Test func resolvedFontWeightReadsAName() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = bold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .bold)
+    }
+
+    /// ghostty takes a number here as readily as a name.
+    @Test func resolvedFontWeightReadsANumber() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = 600"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .semibold)
+    }
+
+    @Test func resolvedFontWeightPrefersTheLastDirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { path in
+            path == "/a/config" ? "font-weight = light\nconfig-file = other" : "font-weight = bold"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == .bold)
+    }
+
+    /// Left to the face's own regular weight rather than guessed at.
+    @Test func resolvedFontWeightIgnoresAValueGhosttyWouldReject() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-weight = ultrablack"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == nil)
+    }
+
+    @Test func resolvedFontWeightIsNilWithoutADirective() throws {
+        let expanded = try #require(GhosttyConfigLoader.expandConfig(rootPath: "/a/config") { _ in
+            "font-family = Menlo"
+        })
+
+        #expect(GhosttyConfigLoader.resolvedFontWeight(in: expanded) == nil)
     }
 
     @Test func resolvedFontFamilyReadsTheRootConfig() throws {
