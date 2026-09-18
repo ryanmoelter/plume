@@ -249,7 +249,7 @@ struct ChatComposer: View, ThemedView {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
-        .disabled(!hasSendableText)
+        .disabled(!canSend)
         .help("Send")
         .accessibilityLabel("Send")
         .accessibilityIdentifier(AccessibilityID.composerSendButton)
