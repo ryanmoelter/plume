@@ -180,6 +180,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 if settings.keepsAwakeOnBattery {
                     Stepper(
@@ -203,11 +204,12 @@ struct SettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(
-                        "Auto holds the Mac awake while an agent is working or under " +
-                        "remote control. On battery the hold stops at the cutoff unless " +
-                        "charging. Closing the lid sleeps the Mac unless the sleep helper " +
-                        "is installed and approved in Login Items, and even then the " +
-                        "lid override releases at the chosen temperature."
+                        "Auto holds the Mac awake while an agent is working, and while a " +
+                        "session is under remote control unless that is turned off. On " +
+                        "battery the hold stops at the cutoff unless charging. Closing " +
+                        "the lid sleeps the Mac unless the sleep helper is installed and " +
+                        "approved in Login Items, and even then the lid override releases " +
+                        "at the chosen temperature."
                     )
                     .foregroundStyle(.secondary)
                     Button("Open Battery Settings…") {

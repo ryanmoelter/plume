@@ -33,6 +33,7 @@ final class AppSettings {
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
+        static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
     }
@@ -131,6 +132,12 @@ final class AppSettings {
         // Unset reads as false: turning this on installs a privileged helper
         // and asks for admin approval, which has to be the user's move.
         self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
+
+        // Unset reads as on: a remotely driven session that sleeps mid-turn
+        // strands whoever is driving it, with no way to wake it from away.
+        self.keepsAwakeForRemoteControl = defaults.object(forKey: Key.keepsAwakeForRemoteControl) == nil
+            ? true
+            : defaults.bool(forKey: Key.keepsAwakeForRemoteControl)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
@@ -314,6 +321,15 @@ final class AppSettings {
     var keepsAwakeWithLidClosed: Bool {
         didSet {
             defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
+        }
+    }
+
+    /// Whether Remote Control on its own holds the Mac awake. Off, a tab is
+    /// a reason only for work it is doing itself — being driven remotely
+    /// stops counting, and stops promoting a waiting tab to a reason.
+    var keepsAwakeForRemoteControl: Bool {
+        didSet {
+            defaults.set(keepsAwakeForRemoteControl, forKey: Key.keepsAwakeForRemoteControl)
         }
     }
 

@@ -157,6 +157,77 @@ struct KeepAwakeTests {
         #expect(reasons.map(\.kind) == [.remoteControl])
     }
 
+    // MARK: - Remote Control as a reason
+
+    @Test func remoteControlStopsCountingWhenTurnedOff() {
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [],
+            remoteControlledTabs: [(taskID: UUID(), tabID: UUID())],
+            allowsRemoteControl: false
+        )
+        #expect(reasons.isEmpty)
+    }
+
+    /// Turning it off must not cost a tab the hold it earned by working.
+    @Test func workContinuesToCountWithRemoteControlOff() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
+            remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
+            allowsRemoteControl: false
+        )
+        #expect(reasons.map(\.kind) == [.working(.working)])
+    }
+
+    /// Remote Control is what promotes a waiting tab to a reason, so off it
+    /// stops doing that too.
+    @Test func waitingStopsCountingWithRemoteControlOff() {
+        let taskID = UUID()
+        let tabID = UUID()
+        for status in TaskStatus.allCases where status.wantsAttention {
+            let reasons = KeepAwakeCoordinator.deriveReasons(
+                activeTabs: [(taskID: taskID, tabID: tabID, status: status)],
+                remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
+                allowsRemoteControl: false
+            )
+            #expect(reasons.isEmpty, "\(status)")
+        }
+    }
+
+    /// A background task outlives the turn that started it, so it holds the
+    /// Mac awake whatever Remote Control is set to.
+    @Test func backgroundTasksStillCountWithRemoteControlOff() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [],
+            remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor)],
+            allowsRemoteControl: false
+        )
+        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor)])
+    }
+
+    /// The assertion type escalates for remote clients, so dropping the
+    /// reason must drop the escalation with it.
+    @Test func theAssertionStopsEscalatingWithRemoteControlOff() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let reasons = KeepAwakeCoordinator.deriveReasons(
+            activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
+            remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
+            allowsRemoteControl: false
+        )
+        let decision = KeepAwakeCoordinator.decide(
+            reasons: reasons, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
+        )
+        #expect(decision == .hold(SleepAssertionRequest(
+            type: .preventIdleSystemSleep,
+            reason: KeepAwakeCoordinator.summary(reasons: reasons, mode: .auto)
+        )))
+    }
+
     // MARK: - Background tasks
 
     /// A monitor or backgrounded command outlives the turn that started it,
