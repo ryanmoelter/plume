@@ -4,7 +4,8 @@ import SwiftData
 @testable import Plume
 
 /// The fallback chain a tab's directory resolves through: what the tab last
-/// reported, else the task's own folder.
+/// reported, else what it reported before a relaunch, else the task's own
+/// folder.
 @MainActor
 struct TabDirectoryStoreTests {
     private func makeContext() throws -> ModelContext {
@@ -111,5 +112,66 @@ struct TabDirectoryStoreTests {
         store.setDirectory("/somewhere/else", forTab: terminalTab.id)
 
         #expect(store.startingDirectory(for: task) == "/somewhere/else")
+    }
+
+    // MARK: - Persistence
+
+    @Test func reportingThroughTheTabPersistsTheDirectory() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+
+        TabDirectoryStore().setDirectory("/worktrees/feature", forTab: tab)
+
+        #expect(tab.workingDirectoryPath == "/worktrees/feature")
+    }
+
+    /// What a relaunch sees: the store is empty, but the tab remembers.
+    @Test func aPersistedDirectorySurvivesAnEmptyStore() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let tab = task.tabs[0]
+        tab.workingDirectoryPath = "/worktrees/feature"
+
+        #expect(TabDirectoryStore().directory(for: tab) == "/worktrees/feature")
+    }
+
+    @Test func aFreshReportWinsOverThePersistedOne() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+        tab.workingDirectoryPath = "/worktrees/stale"
+
+        let store = TabDirectoryStore()
+        store.setDirectory("/worktrees/current", forTab: tab)
+
+        #expect(store.directory(for: tab) == "/worktrees/current")
+    }
+
+    /// The relaunch case for a new tab: nothing has reported yet this run, so
+    /// the agent tab's persisted worktree is where a new terminal opens.
+    @Test func aNewTabStartsInThePersistedWorktreeAfterARelaunch() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let agentTab = task.tabs[0]
+        task.lastFocusedAgentTabID = agentTab.id
+        agentTab.workingDirectoryPath = "/worktrees/feature"
+
+        #expect(TabDirectoryStore().startingDirectory(for: task) == "/worktrees/feature")
+    }
+
+    @Test func anEmptyReportDoesNotClearThePersistedDirectory() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+        let store = TabDirectoryStore()
+
+        store.setDirectory("/worktrees/feature", forTab: tab)
+        store.setDirectory(nil, forTab: tab)
+        store.setDirectory("   ", forTab: tab)
+
+        #expect(tab.workingDirectoryPath == "/worktrees/feature")
     }
 }

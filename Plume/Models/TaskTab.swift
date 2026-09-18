@@ -19,6 +19,11 @@ final class TaskTab {
     var transportRaw: String?
 
     var providerID: String?
+    /// Where this tab last reported being, which is not always its task's
+    /// folder: an agent that moves into a worktree stays there across a
+    /// relaunch. Nil until the tab reports, so a new tab starts at its task's
+    /// folder. `TabDirectoryStore` owns the live value and writes through here.
+    var workingDirectoryPath: String?
     /// Passed to `claude --resume` when the user resumes this tab.
     var agentSessionID: String?
     var sessionJSONLPath: String?
