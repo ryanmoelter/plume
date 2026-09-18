@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/plume-icon.png" alt="Plume app icon" width="160">
+</p>
+
 # Plume
 
 A delightful Mac-native AI coding interface.
