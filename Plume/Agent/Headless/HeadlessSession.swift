@@ -54,7 +54,6 @@ final class HeadlessSession {
     private(set) var streamingText = ""
     private(set) var streamingThinking = ""
 
-    private(set) var rateLimit: RateLimitInfo?
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
     /// that also keeps the figure correct across a `--resume`.
@@ -353,8 +352,8 @@ final class HeadlessSession {
     /// message directly, without a real process.
     func handle(_ message: StreamJSONMessage) {
         switch message {
-        case .rateLimit(let info):
-            rateLimit = info
+        case .rateLimit:
+            break  // QuotaStore records it; the quota is account-wide, not per session.
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
