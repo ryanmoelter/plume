@@ -50,6 +50,7 @@ struct SidebarQuotaRow: View, ThemedView {
         .font(typography.caption.font)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
+        .padding(.horizontal, SidebarFooterMetrics.inset)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Account quota")
         .accessibilityIdentifier(AccessibilityID.sidebarQuotaRow)
