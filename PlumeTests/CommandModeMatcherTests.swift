@@ -16,15 +16,17 @@ struct CommandModeMatcherTests {
         #expect(CommandModeMatcher.markerRange(text: "!git status") == NSRange(location: 0, length: 1))
     }
 
-    @Test func aBareBangIsNotACommand() {
+    @Test func aBareBangHasNothingToRun() {
         #expect(CommandModeMatcher.parse("!") == nil)
-        #expect(CommandModeMatcher.commandRange(text: "!") == nil)
-        #expect(CommandModeMatcher.markerRange(text: "!") == nil)
+        #expect(CommandModeMatcher.parse("!   ") == nil)
     }
 
-    @Test func aBangFollowedByOnlyWhitespaceIsNotACommand() {
-        #expect(CommandModeMatcher.parse("!   ") == nil)
-        #expect(CommandModeMatcher.commandRange(text: "!   ") == nil)
+    /// The `!` styles the moment it is typed, before any command follows it,
+    /// so the keystroke that enters the mode is acknowledged.
+    @Test func aBareBangStylesAsCommandMode() {
+        #expect(CommandModeMatcher.commandRange(text: "!") == NSRange(location: 0, length: 1))
+        #expect(CommandModeMatcher.markerRange(text: "!") == NSRange(location: 0, length: 1))
+        #expect(CommandModeMatcher.commandRange(text: "!   ") != nil)
     }
 
     @Test func aBangLaterInTheMessageIsNotACommand() {
@@ -47,7 +49,7 @@ struct CommandModeMatcherTests {
     /// The styler paints the two ranges together, so a disagreement would
     /// leave a red marker on a message that is not in command mode.
     @Test func bothRangesAgreeOnWhetherTextIsACommand() {
-        for text in ["!ls", "!", "!  ", "hello", "", "\\!escaped", "a!b"] {
+        for text in ["!ls", "!", "!  ", "hello", "", "\\!escaped", "a!b", "!\nx"] {
             #expect(
                 (CommandModeMatcher.commandRange(text: text) == nil)
                     == (CommandModeMatcher.markerRange(text: text) == nil),
