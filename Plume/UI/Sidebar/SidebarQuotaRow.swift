@@ -22,7 +22,7 @@ struct SidebarQuotaRow: View, ThemedView {
     private func content(_ snapshot: QuotaSnapshot) -> some View {
         let isStale = QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
 
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "gauge.with.dots.needle.33percent")
                 .frame(width: 16)
             if let fiveHour = snapshot.rateLimit.fiveHour {

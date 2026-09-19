@@ -35,6 +35,16 @@ struct PermissionModeTests {
         #expect(offered.contains(.auto))
     }
 
+    /// The picker's order is a product decision, not `allCases` incidental
+    /// order: least autonomy first, so the riskier modes are further down.
+    @Test func offeredRunsFromLeastToMostAutonomy() {
+        #expect(PermissionMode.offered(showsBypassPermissions: false) == [.plan, .auto, .acceptEdits, .manual])
+        #expect(
+            PermissionModeDefault.offered(showsBypassPermissions: false)
+                == [.followClaudeCode, .plan, .auto, .acceptEdits, .manual]
+        )
+    }
+
     @Test func offeredIncludesBypassWhenShown() {
         let offered = PermissionMode.offered(showsBypassPermissions: true)
         #expect(offered.contains(.bypassPermissions))

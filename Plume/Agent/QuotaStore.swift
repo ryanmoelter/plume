@@ -83,12 +83,20 @@ enum QuotaFreshness {
     }
 
     /// The absolute time the window resets, which is what a tooltip says — the
-    /// relative countdown is already the visible reading.
+    /// relative countdown is already the visible reading. A reset on a later
+    /// day is named by weekday: only the 7d window ever spans days, and it
+    /// never reaches a week out, so the day name is unambiguous and reads
+    /// faster than a date.
     static func absoluteResetLabel(resetsAt: Date, now: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = .current
-        formatter.dateStyle = Calendar.current.isDate(resetsAt, inSameDayAs: now) ? .none : .short
         formatter.timeStyle = .short
-        return formatter.string(from: resetsAt)
+        guard !Calendar.current.isDate(resetsAt, inSameDayAs: now) else {
+            return formatter.string(from: resetsAt)
+        }
+        let weekday = DateFormatter()
+        weekday.locale = .current
+        weekday.setLocalizedDateFormatFromTemplate("EEEE")
+        return "\(weekday.string(from: resetsAt)) at \(formatter.string(from: resetsAt))"
     }
 }

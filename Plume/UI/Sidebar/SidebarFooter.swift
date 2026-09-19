@@ -5,7 +5,7 @@ import SwiftData
 
 /// Pinned to the bottom of the sidebar, below the task list rather than
 /// after its last row — it stays put whether the list is empty or
-/// overflowing. Archive above, Settings below.
+/// overflowing. The quota reading sits at the top, then the actions.
 struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -26,6 +26,8 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
+                SidebarQuotaRow()
+
 #if DEBUG
                 Button {
                     SidebarFixtures.seed(in: context, existingGroups: groups)
@@ -70,17 +72,7 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(icon: "gearshape", title: "Settings")
                 }
                 .accessibilityIdentifier(AccessibilityID.sidebarSettingsButton)
-                .buttonStyle(SidebarFooterButtonStyle())
-
-                // Last, and not a button: the quota is a reading, not an
-                // action, so it takes the footer's bottom corners.
-                SidebarQuotaRow()
-                    .clipShape(
-                        .rect(
-                            bottomLeadingRadius: bottomCornerRadius,
-                            bottomTrailingRadius: bottomCornerRadius
-                        )
-                    )
+                .buttonStyle(SidebarFooterButtonStyle(bottomCornerRadius: bottomCornerRadius))
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
         }

@@ -12,9 +12,9 @@ import Foundation
 /// to decode and display correctly.
 nonisolated enum PermissionMode: String, CaseIterable, Identifiable {
     case plan
-    case manual
-    case acceptEdits
     case auto
+    case acceptEdits
+    case manual
     case bypassPermissions
 
     var id: String { rawValue }
@@ -52,9 +52,9 @@ nonisolated enum PermissionMode: String, CaseIterable, Identifiable {
 nonisolated enum PermissionModeDefault: String, CaseIterable, Identifiable {
     case followClaudeCode
     case plan
-    case manual
-    case acceptEdits
     case auto
+    case acceptEdits
+    case manual
     case bypassPermissions
 
     var id: String { rawValue }

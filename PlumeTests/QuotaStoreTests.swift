@@ -57,9 +57,9 @@ struct QuotaStoreTests {
         #expect(QuotaFreshness.resetLabel(resetsAt: nil, now: now, fallback: "7d") == "7d")
     }
 
-    /// The tooltip says when the window resets, so a same-day reset needs no
-    /// date and a later one does.
-    @Test func absoluteLabelAddsADateOnlyWhenItIsNotToday() {
+    /// The tooltip says when the window resets, so a same-day reset is a bare
+    /// time and a later one names its weekday.
+    @Test func absoluteLabelNamesTheWeekdayOnlyWhenItIsNotToday() {
         var components = DateComponents()
         components.year = 2026
         components.month = 3
@@ -73,8 +73,15 @@ struct QuotaStoreTests {
         let sameDayLabel = QuotaFreshness.absoluteResetLabel(resetsAt: sameDay, now: now)
         let nextDayLabel = QuotaFreshness.absoluteResetLabel(resetsAt: nextDay, now: now)
 
-        #expect(!sameDayLabel.contains("/"))
-        #expect(nextDayLabel.count > sameDayLabel.count)
+        // 4 March 2026 is a Wednesday, so a reset 30h later lands on Thursday.
+        let thursday = DateFormatter()
+        thursday.locale = .current
+        thursday.setLocalizedDateFormatFromTemplate("EEEE")
+        let expected = thursday.string(from: nextDay)
+
+        #expect(!sameDayLabel.contains(expected))
+        #expect(nextDayLabel.contains(expected))
+        #expect(!nextDayLabel.contains("/"))
     }
 
     /// The decoder's own quota path is what feeds the store, so a wire line
