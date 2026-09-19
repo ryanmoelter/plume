@@ -51,7 +51,11 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 scripts/install-release.sh
 ```
 
-`scripts/install-release.sh` does the install and step 3's verification together: it stages a copy of the bundle, re-signs the sleep helper and then the app with Developer ID, notarizes and staples, checks `spctl` says `Notarized Developer ID`, quits the installed Plume, replaces the bundle, prints the version, signature, helper and dylibs, relaunches, walks the process tree, and checks the log for a store moved aside. It writes to `/tmp/plume-install.log` (override with `LOG`). Run the build and tests yourself first — the script only installs, and it refuses if no Release bundle exists.
+`scripts/install-release.sh` does the install and step 3's verification together: it stages a copy of the bundle, re-signs the sleep helper and then the app with Developer ID, notarizes and staples, checks `spctl` says `Notarized Developer ID`, quits the installed Plume, replaces the bundle, prints the version, signature, helper and dylibs, and checks the log for a store moved aside. It writes to `/tmp/plume-install.log` (override with `LOG`). Run the build and tests yourself first — the script only installs, and it refuses if no Release bundle exists.
+
+**The script does not reopen the app**, except when the release was run from inside Plume — there, quitting the app killed the session driving it, and reopening is what brings the conversation back. Open it yourself otherwise.
+
+That exception scrubs `CLAUDE_CODE_CHILD_SESSION` and `CLAUDECODE` from the environment it opens with. An app inherits the shell that launched it and hands that on to every terminal tab it spawns, so a release driven by an agent would otherwise leave each tab's `claude` reading itself as a nested session and skipping its transcript. Launching Plume by hand from an agent's shell has the same effect — use Finder, or `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE open -a Plume`.
 
 Notarization reads the `plume-notary` keychain profile, which can raise a Touch ID prompt. Stay at the keyboard for the run, detached or not.
 
