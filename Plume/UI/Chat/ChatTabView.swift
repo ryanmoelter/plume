@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// The chat rendering of an agent tab: the messages, with a floating panel
