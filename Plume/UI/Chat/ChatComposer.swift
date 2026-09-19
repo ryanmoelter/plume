@@ -27,6 +27,10 @@ struct ChatComposer: View, ThemedView {
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
     var onLaunch: (String) -> Void = { _ in }
+    /// The user turn a command-mode command produced, once it has run. The
+    /// caller shows it while the transcript catches up, the same way
+    /// `onLaunch` does for a tab's first message.
+    var onCommandFinish: (String) -> Void = { _ in }
 
     @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
@@ -254,6 +258,37 @@ struct ChatComposer: View, ThemedView {
             }
             return
         }
+        // Command mode, headless only: a terminal tab's composer feeds the
+        // real TUI, whose own bash mode already handles a leading `!`.
+        if tab.transport == .headless, let command = CommandModeMatcher.parse(text) {
+            runCommand(command)
+            return
+        }
+        dispatch(CommandModeMatcher.unescaped(text))
+    }
+
+    /// Runs a command-mode command and hands the agent what it printed, so
+    /// the result lands in the transcript rather than only on screen.
+    ///
+    /// Detached from `send` so the composer clears at once: the command owns
+    /// however long it takes to run.
+    ///
+    /// The turn is announced after the command finishes rather than before,
+    /// because what stands in for it has to be the text actually sent — the
+    /// transcript retires the placeholder by matching its prose exactly, and
+    /// the output is not known until then.
+    private func runCommand(_ command: String) {
+        let directory = TabDirectoryStore.shared.directory(for: tab)
+        Task {
+            let result = await CommandModeRunner.run(command, in: directory)
+            onCommandFinish(result.transcriptText)
+            dispatch(result.transcriptText)
+        }
+    }
+
+    /// Sends `text` to whichever backend the tab has, launching one when it
+    /// has none.
+    private func dispatch(_ text: String) {
         if let headlessSession {
             headlessSession.submit(text: text)
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
