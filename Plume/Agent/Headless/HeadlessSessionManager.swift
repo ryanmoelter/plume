@@ -11,6 +11,11 @@ final class HeadlessSessionManager {
 
     private var sessions: [UUID: HeadlessSession] = [:]
 
+    /// Handed to every session so the title policy can read its tab, without
+    /// this layer or the session itself depending on SwiftData.
+    @ObservationIgnored
+    var titleContextProvider: ((UUID) -> (transport: AgentTransport, userTaskName: String?)?)?
+
     func existingSession(for tabID: UUID) -> HeadlessSession? {
         sessions[tabID]
     }
@@ -18,6 +23,7 @@ final class HeadlessSessionManager {
     func session(for tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) -> HeadlessSession {
         if let existing = sessions[tabID] { return existing }
         let session = HeadlessSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
+        session.titleContextProvider = titleContextProvider
         sessions[tabID] = session
         return session
     }

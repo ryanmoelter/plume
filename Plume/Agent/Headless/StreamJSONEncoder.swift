@@ -48,6 +48,21 @@ enum StreamJSONEncoder {
         ])
     }
 
+    /// Asks the CLI to name the conversation.
+    ///
+    /// `description` is required and must be a string; the CLI rejects the
+    /// request outright without one. It is the text the title is drawn from,
+    /// not the conversation — an empty one is answered with a null title.
+    ///
+    /// The reply carries the title. The CLI also appends an `ai-title` line
+    /// to the transcript, but only for a session's first title.
+    static func generateSessionTitle(description: String, requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("generate_session_title"),
+            "description": .string(description)
+        ])
+    }
+
     /// Asks the CLI to publish this conversation to claude.ai/code, or to
     /// tear that bridge down.
     ///
