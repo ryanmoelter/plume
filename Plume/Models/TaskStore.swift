@@ -146,6 +146,7 @@ enum TaskStore {
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
+        CommandModeRuns.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)

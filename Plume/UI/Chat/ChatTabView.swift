@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// The chat rendering of an agent tab: the messages, with a floating panel
@@ -281,6 +282,9 @@ struct ChatTabView: View, ThemedView {
         VStack(spacing: dimensions.panelContentInset) {
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
+            if !commandRuns.isEmpty {
+                commandRunsView
+            }
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -302,6 +306,21 @@ struct ChatTabView: View, ThemedView {
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
+            }
+        }
+        .listItemPadding(vertical: false)
+    }
+
+    private var commandRuns: [CommandModeRuns.Run] {
+        CommandModeRuns.shared.runs(forTab: tab.id)
+    }
+
+    private var commandRunsView: some View {
+        VStack(spacing: 6) {
+            ForEach(commandRuns) { run in
+                CommandRunChip(command: run.command) {
+                    CommandModeRuns.shared.cancel(run.id, tabID: tab.id)
+                }
             }
         }
         .listItemPadding(vertical: false)
@@ -886,5 +905,40 @@ private struct QueuedMessageChip: View, ThemedView {
     /// on its near-opaque source.
     private var washColor: Color {
         colors.surfaceTint
+    }
+}
+
+/// A command-mode command still running, sitting where a queued message
+/// would: its output becomes the next message once it finishes. Cancelling
+/// kills it and sends nothing.
+private struct CommandRunChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let command: String
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "terminal")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+                .help("Running — its output is sent when it finishes")
+            Text("!" + command)
+                .font(typography.body.font.monospaced())
+                .lineSpacing(typography.body.lineSpacing)
+                .lineLimit(1 ... 4)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Stop this command")
+            .accessibilityLabel("Stop command")
+        }
+        .padding(10)
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }

@@ -34,6 +34,53 @@ struct CommandModeRunnerTests {
         #expect(result.stdout.hasSuffix(directory.lastPathComponent))
     }
 
+    @Test func givesTheCommandNoStdin() async {
+        let result = await CommandModeRunner.run("cat", in: nil, timeout: .seconds(10))
+        #expect(result.ending == .exited)
+        #expect(result.exitCode == 0)
+    }
+
+    /// Each stream alone is past a pipe's 64 KB buffer, so reading one to its
+    /// end before the other would deadlock.
+    @Test func drainsBothStreamsAtOnce() async {
+        let result = await CommandModeRunner.run(
+            "head -c 200000 /dev/zero | tr '\\0' e >&2; head -c 200000 /dev/zero | tr '\\0' o",
+            in: nil,
+            timeout: .seconds(20)
+        )
+        #expect(result.ending == .exited)
+        #expect(result.stdout.hasPrefix("ooo"))
+        #expect(result.stderr.hasPrefix("eee"))
+    }
+
+    @Test func timesOutAndKeepsWhatItPrinted() async {
+        let start = ContinuousClock.now
+        let result = await CommandModeRunner.run("echo started; sleep 60", in: nil, timeout: .seconds(1))
+        #expect(ContinuousClock.now - start < .seconds(10))
+        #expect(result.ending == .timedOut)
+        #expect(result.stdout == "started")
+        #expect(result.stderr.contains("Timed out"))
+    }
+
+    /// The pipeline's `sleep` is a grandchild of the shell, so killing only
+    /// the shell would leave it holding the pipe open.
+    @Test func timeoutKillsTheWholeProcessGroup() async {
+        let start = ContinuousClock.now
+        let result = await CommandModeRunner.run("sleep 60 | cat", in: nil, timeout: .seconds(1))
+        #expect(ContinuousClock.now - start < .seconds(10))
+        #expect(result.ending == .timedOut)
+    }
+
+    @Test func cancellingTheTaskKillsTheCommand() async {
+        let start = ContinuousClock.now
+        let run = Task { await CommandModeRunner.run("sleep 60", in: nil) }
+        try? await Task.sleep(for: .milliseconds(300))
+        run.cancel()
+        let result = await run.value
+        #expect(ContinuousClock.now - start < .seconds(10))
+        #expect(result.ending == .cancelled)
+    }
+
     @Test func truncatesOutputPastTheLineCap() {
         let output = (1...(CommandModeRunner.maximumOutputLines + 50))
             .map(String.init)

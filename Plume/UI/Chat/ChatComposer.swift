@@ -267,15 +267,17 @@ struct ChatComposer: View, ThemedView {
     /// the result lands in the transcript rather than only on screen.
     ///
     /// Detached from `send` so the composer clears at once: the command owns
-    /// however long it takes to run.
+    /// however long it takes to run, and `ChatTabView` shows it meanwhile.
     ///
     /// The command and its output go as one turn, tagged the way the CLI's
     /// own bash mode writes them, so the agent reads them as a shell command
     /// rather than as prose quoting one.
     private func runCommand(_ command: String) {
-        let directory = TabDirectoryStore.shared.directory(for: tab)
-        Task {
-            let result = await CommandModeRunner.run(command, in: directory)
+        CommandModeRuns.shared.start(
+            command,
+            in: TabDirectoryStore.shared.directory(for: tab),
+            tabID: tab.id
+        ) { result in
             dispatch(result.transcriptText)
         }
     }
