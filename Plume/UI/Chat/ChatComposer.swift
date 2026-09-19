@@ -27,10 +27,6 @@ struct ChatComposer: View, ThemedView {
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
     var onLaunch: (String) -> Void = { _ in }
-    /// The user turn a command-mode command produced, once it has run. The
-    /// caller shows it while the transcript catches up, the same way
-    /// `onLaunch` does for a tab's first message.
-    var onCommandFinish: (String) -> Void = { _ in }
 
     @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
@@ -273,15 +269,13 @@ struct ChatComposer: View, ThemedView {
     /// Detached from `send` so the composer clears at once: the command owns
     /// however long it takes to run.
     ///
-    /// The turn is announced after the command finishes rather than before,
-    /// because what stands in for it has to be the text actually sent — the
-    /// transcript retires the placeholder by matching its prose exactly, and
-    /// the output is not known until then.
+    /// The command and its output go as one turn, tagged the way the CLI's
+    /// own bash mode writes them, so the agent reads them as a shell command
+    /// rather than as prose quoting one.
     private func runCommand(_ command: String) {
         let directory = TabDirectoryStore.shared.directory(for: tab)
         Task {
             let result = await CommandModeRunner.run(command, in: directory)
-            onCommandFinish(result.transcriptText)
             dispatch(result.transcriptText)
         }
     }

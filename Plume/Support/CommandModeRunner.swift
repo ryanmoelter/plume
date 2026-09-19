@@ -1,23 +1,33 @@
 import Foundation
 
-/// What a command-mode command did: its output and how it ended.
+/// What a command-mode command did: what it printed on each stream, and how
+/// it ended.
 nonisolated struct CommandModeResult: Equatable, Sendable {
     let command: String
-    let output: String
+    let stdout: String
+    let stderr: String
     let exitCode: Int32
 
-    /// The user turn sent to the agent — the command, then what it printed,
-    /// so the agent sees both rather than output with no cause.
+    /// The user turn sent to the agent, tagged as the CLI's own bash mode
+    /// writes it rather than as prose.
     ///
-    /// Fenced because output is rarely valid markdown; a bare paste of
-    /// `ls -l` reflows into a paragraph.
+    /// Claude Code records the command and its output as two transcript
+    /// lines, but both carry one `promptId` and the reply comes only after
+    /// the second — so they are one prompt, and go as one message here.
+    /// Sending them as two would start a turn on the command alone and let
+    /// the agent answer before its output existed.
+    ///
+    /// Matching the tags is what makes the agent read this the way it reads
+    /// its own bash mode, and `InjectedContent` classifies the same tags, so
+    /// the chat renders it as a shell marker rather than words the user
+    /// typed. Both output tags are always written, empty or not, as the CLI
+    /// does. The exit code has no tag of its own and is left out: a failing
+    /// command explains itself through stderr.
     var transcriptText: String {
-        var lines = ["!\(command)", "", "```", output.isEmpty ? "(no output)" : output, "```"]
-        if exitCode != 0 {
-            lines.append("")
-            lines.append("exit \(exitCode)")
-        }
-        return lines.joined(separator: "\n")
+        """
+        <bash-input>\(command)</bash-input>
+        <bash-stdout>\(stdout)</bash-stdout><bash-stderr>\(stderr)</bash-stderr>
+        """
     }
 }
 
@@ -64,7 +74,8 @@ nonisolated enum CommandModeRunner {
         } catch let launchError {
             return CommandModeResult(
                 command: command,
-                output: launchError.localizedDescription,
+                stdout: "",
+                stderr: launchError.localizedDescription,
                 exitCode: -1
             )
         }
@@ -74,16 +85,16 @@ nonisolated enum CommandModeRunner {
         let errorData = error.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
-        let combined = [outputData, errorData]
-            .map { String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-
         return CommandModeResult(
             command: command,
-            output: truncated(combined),
+            stdout: truncated(text(outputData)),
+            stderr: truncated(text(errorData)),
             exitCode: process.terminationStatus
         )
+    }
+
+    private static func text(_ data: Data) -> String {
+        String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Caps output by lines and by bytes, since either alone lets the other

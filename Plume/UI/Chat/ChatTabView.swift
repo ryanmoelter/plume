@@ -327,8 +327,7 @@ struct ChatTabView: View, ThemedView {
                 hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 showsPlanButton: planFilePath != nil && planPresentation.hiddenForm == .closed,
-                onOpenPlan: { planPresentation = .expanded },
-                onCommandFinish: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+                onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -669,8 +668,7 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
-                onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) },
-                onCommandFinish: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+                onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
             )
             .disabled(!isComposerEnabled)
             .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
