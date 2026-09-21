@@ -309,6 +309,13 @@ struct CodeSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let segment: CodeSegment
+    /// Shown in the header instead of the language name, for a block whose
+    /// role says more than its syntax does — a shell command's `input` and
+    /// `output`.
+    var title: String?
+    /// False for a block nested inside another row, which owns its own
+    /// padding.
+    var bleeds = true
 
     @State private var isHovered = false
 
@@ -332,7 +339,7 @@ struct CodeSegmentView: View, ThemedView {
         }
         .textSelection(.enabled)
         .onHover { isHovered = $0 }
-        .listItemPadding(bleed: true, vertical: false)
+        .listItemPadding(bleed: bleeds, vertical: false)
     }
 
     private var code: some View {
@@ -352,7 +359,7 @@ struct CodeSegmentView: View, ThemedView {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
                 .font(typography.caption.font)
                 .emphasis(.secondary)
-            Text(CodeSyntax.displayName(for: segment.language) ?? "no language")
+            Text(title ?? CodeSyntax.displayName(for: segment.language) ?? "no language")
                 .font(typography.caption.font)
                 .emphasis(.secondary)
             Spacer(minLength: 0)
