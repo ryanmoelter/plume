@@ -42,13 +42,12 @@ struct SessionTitleRequesterTests {
     }
 
     @Test
-    func titlesAgainAfterTheDriftInterval() {
+    func neverTitlesAgainFromTheOpeningMessage() {
         var requester = SessionTitleRequester()
         _ = requester.descriptionForTitleRequest(context())
-        for _ in 1..<SessionTitleRequester.turnsBetweenRetitles {
+        for _ in 0..<20 {
             #expect(requester.descriptionForTitleRequest(context()) == nil)
         }
-        #expect(requester.descriptionForTitleRequest(context()) != nil)
     }
 
     @Test

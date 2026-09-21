@@ -6,18 +6,12 @@ import Foundation
 /// Claude Code auto-titles only the interactive TUI, so a headless tab never
 /// gets an `ai-title` line unless Plume asks for one. Asking costs a model
 /// call, so this is deliberately stingy: once when the conversation has
-/// something to describe, again when a plan names the work better than the
-/// opening message did, and rarely after that.
+/// something to describe, and again when a plan names the work better than the
+/// opening message did.
 ///
 /// Pure state, no I/O — the caller supplies the world and sends the request.
 struct SessionTitleRequester {
-    /// Turns between drift re-titles. A conversation wanders away from its
-    /// opening message slowly, and the title is a sidebar label rather than a
-    /// summary, so this is long on purpose.
-    static let turnsBetweenRetitles = 10
-
     private var hasRequestedInitialTitle = false
-    private var turnsSinceLastTitle = 0
     private var lastTitledPlanPath: String?
 
     /// What the caller knows at the end of a turn.
@@ -49,8 +43,6 @@ struct SessionTitleRequester {
         let taskName = context.userTaskName?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard taskName?.isEmpty ?? true else { return nil }
 
-        turnsSinceLastTitle += 1
-
         if let reason = trigger(context) {
             guard let description = description(for: reason, in: context) else { return nil }
             record(reason)
@@ -62,7 +54,6 @@ struct SessionTitleRequester {
     private enum Trigger {
         case initial
         case plan(path: String)
-        case drift
     }
 
     private func trigger(_ context: Context) -> Trigger? {
@@ -71,18 +62,16 @@ struct SessionTitleRequester {
         if let path = context.planFilePath, path != lastTitledPlanPath, context.planTitle != nil {
             return .plan(path: path)
         }
-        if !hasRequestedInitialTitle {
-            // A conversation picked back up is already named; only a later
-            // trigger should rename it.
-            return context.hasExistingTitle ? nil : .initial
-        }
-        return turnsSinceLastTitle >= Self.turnsBetweenRetitles ? .drift : nil
+        guard !hasRequestedInitialTitle else { return nil }
+        // A conversation picked back up is already named; only a later
+        // trigger should rename it.
+        return context.hasExistingTitle ? nil : .initial
     }
 
     private func description(for trigger: Trigger, in context: Context) -> String? {
         let text: String? = switch trigger {
         case .plan: context.planTitle
-        case .initial, .drift: context.openingMessage
+        case .initial: context.openingMessage
         }
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         // An empty description is answered with a null title, so it is not
@@ -93,7 +82,6 @@ struct SessionTitleRequester {
 
     private mutating func record(_ trigger: Trigger) {
         hasRequestedInitialTitle = true
-        turnsSinceLastTitle = 0
         if case .plan(let path) = trigger { lastTitledPlanPath = path }
     }
 }
