@@ -13,15 +13,25 @@ nonisolated struct ShellTranscript: Equatable {
     /// in the order the shell printed it.
     var output: String?
 
+    /// Whether the command wrote anything to stderr.
+    ///
+    /// The transcript records no exit code — `CommandModeResult` leaves it
+    /// out — so this is the only failure signal a parsed line carries. It
+    /// over-reports: plenty of commands write progress to stderr and exit
+    /// zero. A tool call knows better and passes its own `is_error`.
+    var didFail = false
+
     var isEmpty: Bool { command == nil && output == nil }
 
     static func parse(_ text: String) -> ShellTranscript {
         let streams = [tagged(text, "bash-stdout"), tagged(text, "bash-stderr")]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
+        let stderr = tagged(text, "bash-stderr")
         return ShellTranscript(
             command: tagged(text, "bash-input"),
-            output: streams.isEmpty ? nil : streams.joined(separator: "\n")
+            output: streams.isEmpty ? nil : streams.joined(separator: "\n"),
+            didFail: !(stderr ?? "").isEmpty
         )
     }
 

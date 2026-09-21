@@ -359,7 +359,7 @@ nonisolated enum TranscriptBlock: Decodable {
     case text(String)
     case thinking(String)
     case toolUse(id: String, name: String, input: [String: JSONValue])
-    case toolResult(toolUseId: String, content: String?, images: [ChatImage])
+    case toolResult(toolUseId: String, content: String?, images: [ChatImage], isError: Bool)
     case image(ChatImage)
     case ignored
 
@@ -367,6 +367,7 @@ nonisolated enum TranscriptBlock: Decodable {
         case type, text, thinking, id, name, input
         case toolUseId = "tool_use_id"
         case content
+        case isError = "is_error"
         case source
     }
 
@@ -392,7 +393,8 @@ nonisolated enum TranscriptBlock: Decodable {
         case "tool_result":
             let toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId) ?? ""
             let (text, images) = try TranscriptBlock.decodeResultContent(container)
-            self = .toolResult(toolUseId: toolUseId, content: text, images: images)
+            let isError = try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+            self = .toolResult(toolUseId: toolUseId, content: text, images: images, isError: isError)
         case "image":
             guard let image = try TranscriptBlock.decodeImage(container) else {
                 self = .ignored

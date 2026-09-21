@@ -119,7 +119,7 @@ nonisolated enum BackgroundTaskScanner {
                               input["run_in_background"]?.boolValue == true {
                         kindByToolUseID[id] = kind
                     }
-                case .toolResult(let toolUseID, let content, _):
+                case .toolResult(let toolUseID, let content, _, _):
                     guard let kind = kindByToolUseID[toolUseID],
                           let content,
                           let started = BackgroundTaskResult.parse(content)

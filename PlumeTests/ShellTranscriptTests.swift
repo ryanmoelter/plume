@@ -21,6 +21,14 @@ struct ShellTranscriptTests {
         )
     }
 
+    @Test func anythingOnStderrReadsAsAFailure() {
+        // The transcript records no exit code, so stderr is the only signal
+        // a parsed line carries.
+        #expect(ShellTranscript.parse("<bash-stdout>out</bash-stdout><bash-stderr>boom</bash-stderr>").didFail)
+        #expect(!ShellTranscript.parse("<bash-stdout>out</bash-stdout><bash-stderr></bash-stderr>").didFail)
+        #expect(!ShellTranscript.parse("<bash-input>ls</bash-input>").didFail)
+    }
+
     @Test func joinsStderrBelowStdout() {
         let shell = ShellTranscript.parse("<bash-stdout>out</bash-stdout><bash-stderr>err</bash-stderr>")
         #expect(shell.output == "out\nerr")
