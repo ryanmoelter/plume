@@ -69,7 +69,26 @@ struct TranscriptParserTests {
             return
         }
         #expect(call.result == "hi")
+        #expect(!call.didFail)
         #expect(call.summary.plainText == "Bash: echo hi…")
+    }
+
+    @Test func aFailedResultMarksItsCall() {
+        let transcript = TranscriptParser.parse(data([
+            #"""
+            {"type":"assistant","uuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{"command":"false"}}]}}
+            """#,
+            #"""
+            {"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"boom","is_error":true}]}}
+            """#,
+        ]))
+
+        guard case .toolCall(let call) = transcript.messages[0].blocks.first else {
+            Issue.record("expected a tool call block")
+            return
+        }
+        #expect(call.didFail)
+        #expect(call.result == "boom")
     }
 
     @Test func toolResultContentAsAnArrayOfTextBlocksIsJoined() {

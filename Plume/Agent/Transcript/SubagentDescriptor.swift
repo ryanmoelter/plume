@@ -100,7 +100,7 @@ nonisolated enum SubagentSpawnScanner {
                         agentType: input["subagent_type"]?.stringValue?.nonEmpty,
                         toolUseID: id
                     )
-                case .toolResult(let toolUseId, let content, _):
+                case .toolResult(let toolUseId, let content, _, _):
                     guard let content, let agentID = agentID(in: content) else { continue }
                     agentIDByToolUseID[toolUseId] = agentID
                 default:

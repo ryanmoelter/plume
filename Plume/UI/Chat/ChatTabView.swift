@@ -282,6 +282,9 @@ struct ChatTabView: View, ThemedView {
         VStack(spacing: dimensions.panelContentInset) {
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
+            if !commandRuns.isEmpty {
+                commandRunsView
+            }
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -297,7 +300,7 @@ struct ChatTabView: View, ThemedView {
     /// of what says "not sent yet".
     private func queuedMessagesView(_ session: HeadlessSession) -> some View {
         VStack(spacing: 6) {
-            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+            ForEach(queuedProse(session), id: \.offset) { index, message in
                 QueuedMessageChip(
                     text: message.plainText,
                     imageCount: message.count { if case .image = $0 { true } else { false } },
@@ -307,6 +310,44 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .listItemPadding(vertical: false)
+    }
+
+    /// The queued messages the user actually wrote. A `!` command's output
+    /// is queued as the tagged wire format, which reads as markup rather
+    /// than as the command that produced it — its own chip says it better.
+    private func queuedProse(
+        _ session: HeadlessSession
+    ) -> [(offset: Int, element: [UserContentBlock])] {
+        let spokenFor = CommandModeRuns.shared.queuedText(forTab: tab.id)
+        return Array(session.queuedMessages.enumerated())
+            .filter { !spokenFor.contains($0.element.plainText) }
+    }
+
+    private var commandRuns: [CommandModeRuns.Run] {
+        CommandModeRuns.shared.runs(forTab: tab.id)
+    }
+
+    private var commandRunsView: some View {
+        VStack(spacing: 6) {
+            ForEach(commandRuns) { run in
+                CommandRunChip(run: run) {
+                    CommandModeRuns.shared.cancel(run.id, tabID: tab.id)
+                }
+            }
+        }
+        .listItemPadding(vertical: false)
+        // A queued run is retired by the session taking its text off the
+        // queue, which the session does without knowing runs exist.
+        .onChange(of: headlessSession?.queuedMessages.map(\.plainText) ?? []) { _, queued in
+            retireSentRuns(queued: Set(queued))
+        }
+    }
+
+    private func retireSentRuns(queued: Set<String>) {
+        for run in commandRuns where run.isQueued {
+            guard let text = run.queuedText, !queued.contains(text) else { continue }
+            CommandModeRuns.shared.finish(run.id, tabID: tab.id)
+        }
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
@@ -898,5 +939,95 @@ private struct QueuedMessageChip: View, ThemedView {
     /// on its near-opaque source.
     private var washColor: Color {
         colors.surfaceTint
+    }
+}
+
+/// A command-mode command still running, sitting where a queued message
+/// would: its output becomes the next message once it finishes. Cancelling
+/// kills it and sends nothing.
+/// A `!` command while it runs.
+///
+/// Mirrors the chat's own `ShellCommandRow` — the command over what it
+/// printed, joined as one shape — so the same command reads the same before
+/// and after it lands in the transcript. In glass rather than a flat surface,
+/// like the queued messages beside it, because this has not been sent yet.
+///
+/// Only the newest line of output shows. The point is to watch something long
+/// make progress, not to read its output here; the whole of it goes to the
+/// agent when the run finishes, and the chip gives way to the transcript.
+private struct CommandRunChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let run: CommandModeRuns.Run
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            commandLine
+            if !run.latestOutput.isEmpty {
+                outputPreview
+            }
+        }
+        .padding(10)
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var commandLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            status
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(run.command)
+                    .font(typography.body.font.monospaced())
+                    .lineSpacing(typography.body.lineSpacing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: commandMaxHeight)
+            Spacer(minLength: 0)
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(run.isQueued ? "Discard this command's output" : "Stop this command")
+            .accessibilityLabel(run.isQueued ? "Discard command output" : "Stop command")
+        }
+    }
+
+    /// Working while it runs, then a clock: the command is done and what it
+    /// printed is waiting for the agent to be free to take it.
+    @ViewBuilder
+    private var status: some View {
+        if run.isQueued {
+            Image(systemName: "clock")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+                .help("Finished — waiting to send its output to the agent")
+        } else {
+            WorkingEllipsis(color: colors.activity)
+                .font(typography.caption.font)
+        }
+    }
+
+    /// Three lines of the command, scrolling past that. A heredoc or a long
+    /// pipeline would otherwise push the composer down the window, and the
+    /// chip is a progress indicator rather than somewhere to read a script.
+    private var commandMaxHeight: CGFloat {
+        let line = typography.bodySize + typography.body.lineSpacing
+        return line * 3
+    }
+
+    /// One line, monospaced and dimmed, so a command that prints steadily
+    /// shows movement without the chip growing.
+    private var outputPreview: some View {
+        Text(run.latestOutput)
+            .font(typography.caption.font.monospaced())
+            .emphasis(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
     }
 }

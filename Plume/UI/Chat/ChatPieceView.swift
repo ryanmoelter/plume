@@ -150,7 +150,13 @@ struct ChatPieceView: View, ThemedView {
         case let .toolCall(call, isPending):
             ToolCallRow(call: call, isPending: isPending)
         case let .injected(kind, text):
-            InjectedContentRow(kind: kind, text: text)
+            // A `!` command is shown in full rather than behind a marker's
+            // disclosure — see `ShellCommandRow`.
+            if kind.isShell, case let shell = ShellTranscript.parse(text), !shell.isEmpty {
+                ShellCommandRow(shell: shell)
+            } else {
+                InjectedContentRow(kind: kind, text: text)
+            }
         case let .notice(notice):
             ChatNoticeRow(notice: notice)
         case let .image(image):

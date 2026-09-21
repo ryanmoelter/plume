@@ -1,7 +1,9 @@
 #!/bin/bash
-# Installs the built Release bundle into /Applications and relaunches it,
-# then verifies what landed: version, signature, notarization, the sleep
-# helper, dylibs, process tree, and whether the store had to be moved aside.
+# Installs the built Release bundle into /Applications, then verifies what
+# landed: version, signature, notarization, the sleep helper, dylibs, and
+# whether the store had to be moved aside. Reopening the app is left to you,
+# except when the release was run from inside Plume and the session driving
+# it needs the app back.
 #
 # Build and test first (docs/releasing.md step 2) — this only installs.
 #
@@ -164,18 +166,31 @@ else
   echo "not installed (Settings → Command Line)"
 fi
 
-open "$DEST"
-sleep 20
+# Only relaunched when the release was run from inside Plume, where quitting
+# the app killed the session driving it and reopening is what brings the
+# conversation back. Otherwise the app is left for you to open yourself.
+#
+# `env -u` because whatever ran this script is inherited by the app and then
+# by every terminal tab it spawns. A release driven by an agent would
+# otherwise hand `CLAUDE_CODE_CHILD_SESSION` to each tab's `claude`, which
+# reads it as a nested session and stops writing its transcript — the chat UI
+# then has no source at all.
+if [ -n "${PLUME:-}" ]; then
+  env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE open "$DEST"
+  sleep 20
 
-PID="$(running_pids | head -1)"
-echo "--- relaunched as PID ${PID:-NONE} ---"
-if [ -n "${PID:-}" ]; then
-  for child in $(pgrep -P "$PID"); do
-    echo "child $child: $(ps -o comm= -p "$child")"
-    for grandchild in $(pgrep -P "$child"); do
-      echo "  grandchild $grandchild: $(ps -o comm= -p "$grandchild")"
+  PID="$(running_pids | head -1)"
+  echo "--- relaunched as PID ${PID:-NONE} ---"
+  if [ -n "${PID:-}" ]; then
+    for child in $(pgrep -P "$PID"); do
+      echo "child $child: $(ps -o comm= -p "$child")"
+      for grandchild in $(pgrep -P "$child"); do
+        echo "  grandchild $grandchild: $(ps -o comm= -p "$grandchild")"
+      done
     done
-  done
+  fi
+else
+  echo "--- not relaunched; open $DEST yourself ---"
 fi
 
 # A schema change meets the installed store for the first time here.

@@ -36,6 +36,15 @@ nonisolated enum InjectedContent: Equatable {
     /// Whether this should render as the user's own prose.
     var isUserProse: Bool { self == .userMessage }
 
+    /// Whether this is a `!` command or its output, which render together as
+    /// one block rather than as a marker.
+    var isShell: Bool {
+        switch self {
+        case .shellCommand, .shellOutput: return true
+        default: return false
+        }
+    }
+
     /// A short label for the marker row. Nil for a real message, which has no
     /// marker.
     var markerLabel: String? {
