@@ -285,7 +285,7 @@ struct ChatTabView: View, ThemedView {
             if !commandRuns.isEmpty {
                 commandRunsView
             }
-            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
+            if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
             }
             composerPanel(transcript: transcript)
@@ -318,8 +318,20 @@ struct ChatTabView: View, ThemedView {
     private func queuedProse(
         _ session: HeadlessSession
     ) -> [(offset: Int, element: [UserContentBlock])] {
-        let spokenFor = CommandModeRuns.shared.queuedText(forTab: tab.id)
-        return Array(session.queuedMessages.enumerated())
+        Self.prose(
+            in: session.queuedMessages,
+            spokenFor: CommandModeRuns.shared.queuedText(forTab: tab.id)
+        )
+    }
+
+    /// Pure so the filter the view draws and the guard that shows it cannot
+    /// drift apart: gating on the unfiltered queue leaves an empty row up
+    /// whenever every queued entry belongs to a command chip.
+    static func prose(
+        in queued: [[UserContentBlock]],
+        spokenFor: Set<String>
+    ) -> [(offset: Int, element: [UserContentBlock])] {
+        Array(queued.enumerated())
             .filter { !spokenFor.contains($0.element.plainText) }
     }
 

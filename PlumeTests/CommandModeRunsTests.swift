@@ -50,3 +50,38 @@ struct CommandModeRunsTests {
         #expect(!delivered)
     }
 }
+
+/// A command's output is queued like any other turn, but its own chip already
+/// tells that story — so the queued list hides it. The list's visibility has
+/// to follow the filtered result, not the raw queue.
+@MainActor
+struct QueuedProseTests {
+    private let command = "<bash-input>ls</bash-input>\n<bash-stdout>foo</bash-stdout><bash-stderr></bash-stderr>"
+
+    @Test func aCommandsOutputIsLeftToItsChip() {
+        let prose = ChatTabView.prose(
+            in: [[.text(command)]],
+            spokenFor: [command]
+        )
+        #expect(prose.isEmpty)
+    }
+
+    @Test func aTypedMessageStillShows() {
+        let prose = ChatTabView.prose(
+            in: [[.text("hello")]],
+            spokenFor: [command]
+        )
+        #expect(prose.map(\.element.plainText) == ["hello"])
+    }
+
+    /// The offset indexes the real queue, since removing a row calls through
+    /// to `removeQueuedMessage(at:)` — a filtered index would drop the wrong
+    /// message.
+    @Test func offsetsIndexTheUnfilteredQueue() {
+        let prose = ChatTabView.prose(
+            in: [[.text(command)], [.text("hello")]],
+            spokenFor: [command]
+        )
+        #expect(prose.map(\.offset) == [1])
+    }
+}
