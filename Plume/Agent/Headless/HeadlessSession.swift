@@ -102,6 +102,20 @@ final class HeadlessSession {
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var nextRequestNumber = 0
 
+    /// Decides when to ask the CLI to name this conversation.
+    private var titleRequester = SessionTitleRequester()
+
+    /// Supplies the tab facts the title policy needs — the transport and the
+    /// task's user-given name. Set by whoever owns the session, so this type
+    /// keeps its distance from SwiftData, the same way `TitleStore` does.
+    @ObservationIgnored
+    var titleContextProvider: ((UUID) -> (transport: AgentTransport, userTaskName: String?)?)?
+
+    /// The first thing the user said, kept as the text a title is drawn from.
+    /// Captured here rather than read back from the transcript, which the
+    /// opening turn has not been written to yet.
+    private var openingMessage: String?
+
     /// `initialEffort` seeds the displayed value from the tab's last-known
     /// effort, so a resumed session's control shows it immediately instead of
     /// the "Effort" placeholder. It only sets the property directly — never
@@ -208,6 +222,7 @@ final class HeadlessSession {
             queuedMessages.append(normalized)
             return
         }
+        if openingMessage == nil { openingMessage = trimmed }
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
@@ -244,6 +259,23 @@ final class HeadlessSession {
     func setModel(_ newModel: AgentModel) {
         model = newModel
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
+    }
+
+    /// Asks the CLI to name the conversation.
+    ///
+    /// The reply is what delivers the title. The CLI also writes an
+    /// `ai-title` line, but only for a session's first title, so a re-title
+    /// reaches the UI from here or not at all.
+    func requestSessionTitle(description: String) {
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .generateSessionTitle
+        guard send(StreamJSONEncoder.generateSessionTitle(
+            description: description,
+            requestID: requestID
+        )) else {
+            pendingControlRequests[requestID] = nil
+            return
+        }
     }
 
     /// Publishes this conversation to claude.ai/code, or tears that down.
@@ -478,7 +510,23 @@ final class HeadlessSession {
                 enabled: enabled,
                 current: remoteControl
             ))
+        case .generateSessionTitle:
+            applyGeneratedTitle(in: response)
         }
+    }
+
+    /// Titling is best-effort. A description the CLI will not title is
+    /// answered with a null title rather than an error, so both outcomes
+    /// mean the same thing here: keep whatever the tab is already called.
+    private func applyGeneratedTitle(in response: ControlResponse) {
+        if response.isError {
+            Log.agent.error("Session title request failed: \(response.errorMessage ?? "unknown", privacy: .public)")
+            return
+        }
+        guard let title = response.payload["title"]?.stringValue,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        TitleStore.shared.setTitle(title, forTab: tabID)
     }
 
     private func applyReportedCommands(in response: ControlResponse) {
@@ -534,7 +582,47 @@ final class HeadlessSession {
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
         wasInterrupted = false
+        requestTitleIfDue()
         sendNextQueuedMessage()
+    }
+
+    /// Asked at the end of a turn, when the conversation has just gained
+    /// whatever the title would describe.
+    private func requestTitleIfDue() {
+        guard let tab = titleContextProvider?(tabID) else { return }
+        let plan = TranscriptStore.shared.transcript(forTab: tabID)?.planFilePath
+        let context = SessionTitleRequester.Context(
+            transport: tab.transport,
+            userTaskName: tab.userTaskName,
+            isWorking: isWorking,
+            openingMessage: openingMessage,
+            planFilePath: plan,
+            planTitle: plan.flatMap(Self.planHeading(atPath:)),
+            hasExistingTitle: hasGeneratedTitle
+        )
+        guard let description = titleRequester.descriptionForTitleRequest(context) else { return }
+        requestSessionTitle(description: description)
+    }
+
+    /// Whether this conversation has already been named by a model, as
+    /// opposed to labelled with the first user message.
+    ///
+    /// Read from the transcript rather than from `TitleStore`, which cannot
+    /// tell the two apart: `AgentTitleMonitor` publishes
+    /// `bestAvailableTitle`, so a tab showing its opening message reads as
+    /// titled and would never be given a real one.
+    private var hasGeneratedTitle: Bool {
+        guard let path = TranscriptStore.shared.watchedPath(forTab: tabID)
+        else { return false }
+        return SessionJSONLReader.latestAITitle(atPath: path) != nil
+    }
+
+    /// What a plan calls itself, for titling from the plan rather than the
+    /// opening message. Nil while the file is empty or has no heading yet,
+    /// which is the ordinary state early in a plan the agent is still writing.
+    private static func planHeading(atPath path: String) -> String? {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return PlanSummary.title(of: contents)
     }
 
     private func sendNextQueuedMessage() {
@@ -591,5 +679,6 @@ final class HeadlessSession {
     private enum PendingControlRequest {
         case initialize
         case remoteControl(enabled: Bool)
+        case generateSessionTitle
     }
 }

@@ -4,6 +4,11 @@ import Observation
 /// The live title of every tab: Claude's own session title for agent tabs,
 /// the terminal's title for terminal tabs.
 ///
+/// An agent tab's title is whatever the transcript's latest `ai-title` line
+/// says, falling back to the opening user message. The interactive TUI writes
+/// that line itself; a headless conversation only gets one because
+/// `SessionTitleRequester` asks the CLI for it.
+///
 /// In memory, like every other live-process fact; `TaskTab.title` holds a
 /// debounced snapshot so a relaunch has something to show before any agent
 /// reconnects.
