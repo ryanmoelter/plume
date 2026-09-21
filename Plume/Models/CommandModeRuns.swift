@@ -14,6 +14,9 @@ final class CommandModeRuns {
     struct Run: Identifiable {
         let id = UUID()
         let command: String
+        /// The newest line the command has printed, for a live preview while
+        /// it works. Empty until it prints anything.
+        var latestOutput = ""
         fileprivate var task: Task<Void, Never>?
     }
 
@@ -25,8 +28,10 @@ final class CommandModeRuns {
         runsByTab[id] ?? []
     }
 
-    /// `onFinish` gets the result unless the run was cancelled, in which case
-    /// the command's output goes nowhere.
+    /// `onFinish` gets the result unless the run was cancelled, in which
+    /// case the command's output goes nowhere. The run is dropped either
+    /// way: once its output is on the wire the transcript tells the story,
+    /// and a session mid-turn queues the text as an ordinary message.
     func start(
         _ command: String,
         in directory: String?,
@@ -36,11 +41,19 @@ final class CommandModeRuns {
         var run = Run(command: command)
         let runID = run.id
         run.task = Task {
-            let result = await CommandModeRunner.run(command, in: directory)
+            let result = await CommandModeRunner.run(command, in: directory) { line in
+                Task { @MainActor in self.setLatestOutput(line, runID: runID, tabID: tabID) }
+            }
             remove(runID, tabID: tabID)
-            if result.ending != .cancelled { onFinish(result) }
+            guard result.ending != .cancelled else { return }
+            onFinish(result)
         }
         runsByTab[tabID, default: []].append(run)
+    }
+
+    private func setLatestOutput(_ line: String, runID: UUID, tabID: UUID) {
+        guard let index = runsByTab[tabID]?.firstIndex(where: { $0.id == runID }) else { return }
+        runsByTab[tabID]?[index].latestOutput = line
     }
 
     func cancel(_ runID: UUID, tabID: UUID) {

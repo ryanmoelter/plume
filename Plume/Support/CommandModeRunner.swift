@@ -62,17 +62,26 @@ nonisolated enum CommandModeRunner {
 
     /// Cancelling the calling task kills the command and returns a
     /// `.cancelled` result.
+    /// `onProgress` reports the newest line of output as it arrives, on an
+    /// arbitrary thread, for a caller showing a live preview.
     static func run(
         _ command: String,
         in directory: String?,
-        timeout: Duration = timeout
+        timeout: Duration = timeout,
+        onProgress: (@Sendable (String) -> Void)? = nil
     ) async -> CommandModeResult {
         let handle = ProcessGroupHandle()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     continuation.resume(
-                        returning: runSynchronously(command, in: directory, timeout: timeout, handle: handle)
+                        returning: runSynchronously(
+                            command,
+                            in: directory,
+                            timeout: timeout,
+                            handle: handle,
+                            onProgress: onProgress
+                        )
                     )
                 }
             }
@@ -85,10 +94,13 @@ nonisolated enum CommandModeRunner {
         _ command: String,
         in directory: String?,
         timeout: Duration,
-        handle: ProcessGroupHandle
+        handle: ProcessGroupHandle,
+        onProgress: (@Sendable (String) -> Void)?
     ) -> CommandModeResult {
         let stdout = OutputBuffer()
         let stderr = OutputBuffer()
+        stdout.onProgress = onProgress
+        stderr.onProgress = onProgress
         let pid: pid_t
         do {
             pid = try spawn(command, in: directory, stdout: stdout, stderr: stderr)
@@ -273,6 +285,10 @@ nonisolated enum CommandModeRunner {
 
         var text: String { CommandModeRunner.text(data.withLock { $0 }) }
 
+        /// Called with the buffer's last non-empty line whenever it grows,
+        /// so a caller can show progress without waiting for the exit.
+        var onProgress: (@Sendable (String) -> Void)?
+
         func drain(in group: DispatchGroup) {
             group.enter()
             let descriptor = descriptor
@@ -281,9 +297,13 @@ nonisolated enum CommandModeRunner {
                 while true {
                     let count = read(descriptor, &chunk, chunk.count)
                     if count > 0 {
-                        data.withLock { data in
-                            guard data.count < Self.retainedBytes else { return }
+                        let grew = data.withLock { data -> Bool in
+                            guard data.count < Self.retainedBytes else { return false }
                             data.append(contentsOf: chunk.prefix(count))
+                            return true
+                        }
+                        if grew, let onProgress, let line = lastLine {
+                            onProgress(line)
                         }
                     } else if count == 0 || errno != EINTR {
                         break
@@ -292,6 +312,14 @@ nonisolated enum CommandModeRunner {
                 close(descriptor)
                 group.leave()
             }
+        }
+
+        /// The newest line with anything on it. A command that ends its
+        /// output with a newline would otherwise report an empty last line.
+        private var lastLine: String? {
+            text.split(separator: "\n", omittingEmptySubsequences: false)
+                .last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                .map(String.init)
         }
     }
 }

@@ -318,7 +318,7 @@ struct ChatTabView: View, ThemedView {
     private var commandRunsView: some View {
         VStack(spacing: 6) {
             ForEach(commandRuns) { run in
-                CommandRunChip(command: run.command) {
+                CommandRunChip(run: run) {
                     CommandModeRuns.shared.cancel(run.id, tabID: tab.id)
                 }
             }
@@ -911,23 +911,48 @@ private struct QueuedMessageChip: View, ThemedView {
 /// A command-mode command still running, sitting where a queued message
 /// would: its output becomes the next message once it finishes. Cancelling
 /// kills it and sends nothing.
+/// A `!` command while it runs.
+///
+/// Mirrors the chat's own `ShellCommandRow` — the command over what it
+/// printed, joined as one shape — so the same command reads the same before
+/// and after it lands in the transcript. In glass rather than a flat surface,
+/// like the queued messages beside it, because this has not been sent yet.
+///
+/// Only the newest line of output shows. The point is to watch something long
+/// make progress, not to read its output here; the whole of it goes to the
+/// agent when the run finishes, and the chip gives way to the transcript.
 private struct CommandRunChip: View, ThemedView {
     @Environment(\.theme) var theme
 
-    let command: String
+    let run: CommandModeRuns.Run
     let onCancel: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            commandLine
+            if !run.latestOutput.isEmpty {
+                outputPreview
+            }
+        }
+        .padding(10)
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var commandLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "terminal")
+            WorkingEllipsis(color: colors.activity)
                 .font(typography.caption.font)
-                .emphasis(.secondary)
-                .help("Running — its output is sent when it finishes")
-            Text("!" + command)
-                .font(typography.body.font.monospaced())
-                .lineSpacing(typography.body.lineSpacing)
-                .lineLimit(1 ... 4)
-                .fixedSize(horizontal: false, vertical: true)
+            ScrollView(.vertical, showsIndicators: false) {
+                Text(run.command)
+                    .font(typography.body.font.monospaced())
+                    .lineSpacing(typography.body.lineSpacing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: commandMaxHeight)
+            Spacer(minLength: 0)
             Button(action: onCancel) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
@@ -936,9 +961,25 @@ private struct CommandRunChip: View, ThemedView {
             .help("Stop this command")
             .accessibilityLabel("Stop command")
         }
-        .padding(10)
-        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
-        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
-        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    /// Three lines of the command, scrolling past that. A heredoc or a long
+    /// pipeline would otherwise push the composer down the window, and the
+    /// chip is a progress indicator rather than somewhere to read a script.
+    private var commandMaxHeight: CGFloat {
+        let line = typography.bodySize + typography.body.lineSpacing
+        return line * 3
+    }
+
+    /// One line, monospaced and dimmed, so a command that prints steadily
+    /// shows movement without the chip growing.
+    private var outputPreview: some View {
+        Text(run.latestOutput)
+            .font(typography.caption.font.monospaced())
+            .emphasis(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
     }
 }

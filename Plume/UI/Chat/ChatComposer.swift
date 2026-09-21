@@ -331,10 +331,11 @@ struct ChatComposer: View, ThemedView {
     /// own bash mode writes them, so the agent reads them as a shell command
     /// rather than as prose quoting one.
     private func runCommand(_ command: String) {
+        let tabID = tab.id
         CommandModeRuns.shared.start(
             command,
             in: TabDirectoryStore.shared.directory(for: tab),
-            tabID: tab.id
+            tabID: tabID
         ) { result in
             dispatch(result.transcriptText)
         }
