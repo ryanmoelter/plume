@@ -49,6 +49,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
+    /// Whether the draft is a shell command rather than a message: the whole
+    /// field turns monospaced and no markdown is styled.
+    var isCommandMode = false
+    /// Called on Delete in an empty composer, so command mode can be left the
+    /// way it was entered.
+    var onDeleteBackwardWhenEmpty: (() -> Void)?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -61,6 +67,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.composerCoordinator = context.coordinator
         context.coordinator.textView = textView
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
+        context.coordinator.isCommandMode = isCommandMode
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         return view
     }
@@ -75,14 +82,17 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onOptionReturn = onOptionReturn
+        textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
+        let modeChanged = context.coordinator.isCommandMode != isCommandMode
+        context.coordinator.isCommandMode = isCommandMode
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
@@ -130,6 +140,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         weak var textView: ComposerNSTextView?
         private(set) var fontSize: CGFloat = 0
         var recognizedSlashCommandNames: Set<String> = []
+        var isCommandMode = false
 
         init(
             text: Binding<String>,
@@ -156,14 +167,17 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             if textView.string != text {
                 textView.string = text
             }
-            let bodyFont = NSFont.composerBody(ofSize: fontSize)
+            let bodyFont = isCommandMode
+                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                : NSFont.composerBody(ofSize: fontSize)
             textView.font = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             MarkdownComposerStyler.style(
                 textView.textStorage!,
                 text: text,
                 fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames
+                recognizedSlashCommandNames: recognizedSlashCommandNames,
+                isCommandMode: isCommandMode
             )
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
@@ -184,7 +198,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 textView.textStorage!,
                 text: newText,
                 fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames
+                recognizedSlashCommandNames: recognizedSlashCommandNames,
+                isCommandMode: isCommandMode
             )
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()
@@ -284,6 +299,10 @@ final class ComposerNSTextView: NSTextView {
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
 
+    /// Called on Delete with nothing left to delete, so command mode can be
+    /// backspaced out of the way the `!` that started it was typed.
+    var onDeleteBackwardWhenEmpty: (() -> Void)?
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { composerCoordinator?.focusDidChange(true) }
@@ -328,6 +347,11 @@ final class ComposerNSTextView: NSTextView {
             default:
                 break
             }
+        }
+
+        if event.keyCode == 51 /* Delete */, string.isEmpty, let onDeleteBackwardWhenEmpty {
+            onDeleteBackwardWhenEmpty()
+            return
         }
 
         if event.keyCode == 126 /* Up */, string.isEmpty, let onEditQueuedMessage {

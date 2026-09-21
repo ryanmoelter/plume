@@ -14,9 +14,12 @@ enum MarkdownComposerStyler {
         _ storage: NSTextStorage,
         text: String,
         fontSize: CGFloat,
-        recognizedSlashCommandNames: Set<String> = []
+        recognizedSlashCommandNames: Set<String> = [],
+        isCommandMode: Bool = false
     ) {
-        let bodyFont = NSFont.composerBody(ofSize: fontSize)
+        let bodyFont = isCommandMode
+            ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            : NSFont.composerBody(ofSize: fontSize)
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
 
         storage.beginEditing()
@@ -24,6 +27,13 @@ enum MarkdownComposerStyler {
             .font: bodyFont,
             .foregroundColor: NSColor.labelColor,
         ], range: fullRange)
+
+        // A command is shell, not markdown: highlighting its quotes and
+        // backticks as markup would style the parts that matter most.
+        guard !isCommandMode else {
+            storage.endEditing()
+            return
+        }
 
         let spans = MarkdownHighlighter.spans(in: text)
         for span in spans {
@@ -39,28 +49,7 @@ enum MarkdownComposerStyler {
             storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: commandRange)
         }
 
-        applyCommandMode(to: storage, text: text, bodyFontSize: fontSize)
-
         storage.endEditing()
-    }
-
-    /// Command mode: a message starting with `!` runs rather than being said.
-    ///
-    /// Monospaced without the inline-code chip, so it reads as a different
-    /// mode rather than as a code span — the background is the whole
-    /// distinction between the two. The markdown pass runs first, so any chip
-    /// it painted over a backtick inside the command is cleared here.
-    ///
-    /// The `!` itself is red rather than dimmed like other markers: it warns
-    /// that sending runs something.
-    private static func applyCommandMode(to storage: NSTextStorage, text: String, bodyFontSize: CGFloat) {
-        guard let range = CommandModeMatcher.commandRange(text: text) else { return }
-        storage.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: bodyFontSize, weight: .regular), range: range)
-        storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
-        storage.removeAttribute(.backgroundColor, range: range)
-        if let markerRange = CommandModeMatcher.markerRange(text: text) {
-            storage.addAttribute(.foregroundColor, value: commandMarkerColor, range: markerRange)
-        }
     }
 
     private static func apply(_ span: MarkdownHighlighter.Span, to storage: NSTextStorage, bodyFontSize: CGFloat) {
@@ -183,18 +172,6 @@ enum MarkdownComposerStyler {
             return NSColor.secondaryLabelColor.withAlphaComponent(0.1)
         }
         return NSColor(themeColor).withAlphaComponent(0.08)
-    }
-
-    /// The theme's destructive color, resolved per draw like
-    /// `codeBackgroundColor` so it survives a light/dark switch without a
-    /// restyle. Falls back to system red, as `Palette.danger` does.
-    private static let commandMarkerColor = NSColor(name: nil) { appearance in
-        let scheme: ColorScheme =
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
-        guard let themeColor = ThemeChrome.dangerAccent(for: scheme) else {
-            return NSColor.systemRed
-        }
-        return NSColor(themeColor)
     }
 }
 

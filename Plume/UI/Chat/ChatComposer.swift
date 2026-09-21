@@ -87,7 +87,24 @@ struct ChatComposer: View, ThemedView {
         headlessSession?.slashCommands.isEmpty ?? true
     }
 
+    private var isCommandMode: Bool {
+        drafts.isCommandMode(forTab: tab.id)
+    }
+
+    /// Enters command mode when a draft starts with `!`, taking the `!` out
+    /// of the text: the chip and the monospaced field say what mode this is,
+    /// so the marker has nothing left to add.
+    private func updateCommandMode(for text: String) {
+        guard !isCommandMode, tab.transport == .headless else { return }
+        guard let stripped = CommandModeMatcher.enteringCommandMode(text) else { return }
+        drafts.setCommandMode(true, forTab: tab.id)
+        drafts.setDraft(stripped, forTab: tab.id)
+        hasSendableText = sendableText(stripped)
+        pendingCaretLocation = max(0, caretLocation - 1)
+    }
+
     private var composerPlaceholder: String {
+        if isCommandMode { return "Run a shell command…" }
         guard let headlessSession, !headlessSession.queuedMessages.isEmpty else {
             return "Message Claude…"
         }
@@ -128,6 +145,9 @@ struct ChatComposer: View, ThemedView {
             }
 
             VStack(spacing: 0) {
+                if isCommandMode {
+                    commandModeChip
+                }
                 MarkdownComposerTextView(
                     text: message,
                     placeholder: composerPlaceholder,
@@ -138,6 +158,7 @@ struct ChatComposer: View, ThemedView {
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
+                        updateCommandMode(for: text)
                         autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
                     },
                     onCaretChange: { location in
@@ -149,7 +170,11 @@ struct ChatComposer: View, ThemedView {
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
-                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name))
+                    recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
+                    isCommandMode: isCommandMode,
+                    onDeleteBackwardWhenEmpty: isCommandMode
+                        ? { drafts.setCommandMode(false, forTab: tab.id) }
+                        : nil
                 )
                 // Its own line-fragment padding already covers part of the
                 // composer's inset, so the first glyph lands over the control
@@ -235,6 +260,29 @@ struct ChatComposer: View, ThemedView {
         .accessibilityIdentifier(AccessibilityID.composerStopButton)
     }
 
+    /// Says what the composer will do with what is being typed. Its button
+    /// leaves the mode, as Delete in an empty field does.
+    private var commandModeChip: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "terminal")
+                .font(typography.caption.font)
+            Text("bash command")
+                .font(typography.caption.font)
+            Button {
+                drafts.setCommandMode(false, forTab: tab.id)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(typography.caption.font)
+            }
+            .buttonStyle(.plain)
+            .help("Leave command mode")
+            .accessibilityLabel("Leave command mode")
+        }
+        .emphasis(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, dimensions.panelContentInset)
+    }
+
     private func send() {
         guard hasSendableText else { return }
         let text = drafts.draft(forTab: tab.id)
@@ -256,9 +304,12 @@ struct ChatComposer: View, ThemedView {
         }
         // Command mode, headless only: a terminal tab's composer feeds the
         // real TUI, whose own bash mode already handles a leading `!`.
-        if tab.transport == .headless, let command = CommandModeMatcher.parse(text) {
-            runCommand(command)
-            return
+        if isCommandMode {
+            drafts.setCommandMode(false, forTab: tab.id)
+            if let command = CommandModeMatcher.parse(text) {
+                runCommand(command)
+                return
+            }
         }
         dispatch(CommandModeMatcher.unescaped(text))
     }

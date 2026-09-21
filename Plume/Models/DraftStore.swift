@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-/// The unsent composer text of every tab.
+/// The unsent composer text of every tab, and whether that text is a shell
+/// command rather than a message.
 ///
 /// A chat tab's view is unmounted whenever it stops being the selected tab,
 /// so a draft held as view state disappears the moment the user looks at
@@ -16,6 +17,10 @@ final class DraftStore {
     static let shared = DraftStore()
 
     private var drafts: [UUID: String] = [:]
+    /// Tabs whose composer is in command mode. Kept beside the draft because
+    /// it is part of the same unsent state: the `!` that starts the mode is
+    /// taken out of the text, so nothing in the draft records it.
+    private var commandModeTabs: Set<UUID> = []
 
     init() {}
 
@@ -31,11 +36,25 @@ final class DraftStore {
         }
     }
 
+    func isCommandMode(forTab id: UUID) -> Bool {
+        commandModeTabs.contains(id)
+    }
+
+    func setCommandMode(_ isCommandMode: Bool, forTab id: UUID) {
+        if isCommandMode {
+            commandModeTabs.insert(id)
+        } else {
+            commandModeTabs.remove(id)
+        }
+    }
+
     func forget(tabID: UUID) {
         drafts.removeValue(forKey: tabID)
+        commandModeTabs.remove(tabID)
     }
 
     func reset() {
         drafts.removeAll()
+        commandModeTabs.removeAll()
     }
 }
