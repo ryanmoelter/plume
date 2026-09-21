@@ -222,7 +222,7 @@ final class HeadlessSession {
             queuedMessages.append(normalized)
             return
         }
-        if openingMessage == nil { openingMessage = trimmed }
+        if openingMessage == nil { openingMessage = normalized.plainText }
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
