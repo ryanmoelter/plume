@@ -147,6 +147,7 @@ struct ChatComposer: View, ThemedView {
             VStack(spacing: 0) {
                 if isCommandMode {
                     commandModeChip
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 MarkdownComposerTextView(
                     text: message,
@@ -198,6 +199,12 @@ struct ChatComposer: View, ThemedView {
                 }
                 .padding(.top, dimensions.panelContentInset)
             }
+            .animation(.snappy(duration: 0.2), value: isCommandMode)
+            // Anchored to the bottom: the panel is pinned to the bottom of
+            // the chat, so the chip has to grow the panel upwards. Easing the
+            // height from the centre splits the change across both edges and
+            // drags the controls row with it.
+            .animatedHeight(.snappy(duration: 0.2), alignment: .bottom)
         }
         // The composer's whole content sits at one inset from the glass
         // edge, on every side — the text view's own correction above is what
