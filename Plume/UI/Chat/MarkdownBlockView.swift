@@ -304,18 +304,46 @@ struct ListSegmentView: View, ThemedView {
     private static let bullets = ["\u{2022}", "\u{25E6}", "\u{25AA}"]
 }
 
+/// Which edges a code block shares with a neighbour, so the pair draws as
+/// one shape.
+struct CodeSegmentJoin: OptionSet {
+    let rawValue: Int
+
+    static let above = CodeSegmentJoin(rawValue: 1 << 0)
+    static let below = CodeSegmentJoin(rawValue: 1 << 1)
+    static let alone: CodeSegmentJoin = []
+}
+
 /// A fenced code block, always drawn whole.
 struct CodeSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let segment: CodeSegment
     /// Shown in the header instead of the language name, for a block whose
-    /// role says more than its syntax does — a shell command's `input` and
-    /// `output`.
+    /// role says more than its syntax does — a shell command's `bash input`
+    /// and `bash output`.
     var title: String?
     /// False for a block nested inside another row, which owns its own
-    /// padding.
+    /// column — the block then takes the width it is given rather than
+    /// claiming one, so it lines up with the row around it instead of
+    /// stepping in by another column's padding.
     var bleeds = true
+    /// Squares the corners this block shares with a neighbour, so a stack of
+    /// them reads as one shape rather than a column of separate blocks.
+    var joins: CodeSegmentJoin = .alone
+    /// A stroked outline in the surface color instead of a filled one, to
+    /// set a block apart from the one it is joined to while keeping the two
+    /// in the same family.
+    var isOutlined = false
+    /// Tints the header — its title and icon — as a failure. Only the
+    /// header: the text below is what the command printed, and coloring it
+    /// would claim every line of it is an error message.
+    var isFailure = false
+    /// Caps the block's height, scrolling the code in place past it. Nil
+    /// lets it grow to fit, which is what a block in the flow of a reply
+    /// does; a disclosed tool result sets it so a long one cannot run away
+    /// with the page.
+    var maxHeight: CGFloat?
 
     @State private var isHovered = false
 
@@ -339,7 +367,7 @@ struct CodeSegmentView: View, ThemedView {
         }
         .textSelection(.enabled)
         .onHover { isHovered = $0 }
-        .listItemPadding(bleed: bleeds, vertical: false)
+        .listItemPadding(bleed: true, vertical: false, enabled: bleeds)
     }
 
     private var code: some View {
@@ -347,7 +375,32 @@ struct CodeSegmentView: View, ThemedView {
             header
             lines
         }
-        .background(colors.surfaceTint, in: .rect(cornerRadius: radius))
+        // `strokeBorder` draws inside the frame, so content filling it shows
+        // through the translucent band. Insetting the clip by the stroke
+        // matches the band's inner edge, corner radii included.
+        .clipShape(shape.inset(by: isOutlined ? outlineWidth : 0))
+        .background {
+            if isOutlined {
+                // The same color the filled block above uses, so the edge
+                // they share disappears into it and the stroke reads only
+                // around the outside. Several times a hairline's width,
+                // since the color is far lighter than a divider's and has to
+                // carry the edge on its own.
+                shape.strokeBorder(colors.surfaceTint, lineWidth: outlineWidth)
+            } else {
+                shape.fill(colors.surfaceTint)
+            }
+        }
+    }
+
+    /// Rounded only on the edges this block does not share with a neighbour.
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: joins.contains(.above) ? 0 : radius,
+            bottomLeadingRadius: joins.contains(.below) ? 0 : radius,
+            bottomTrailingRadius: joins.contains(.below) ? 0 : radius,
+            topTrailingRadius: joins.contains(.above) ? 0 : radius
+        )
     }
 
     /// Names the language, with a code icon, and carries the copy button.
@@ -356,12 +409,12 @@ struct CodeSegmentView: View, ThemedView {
     /// copy button from sitting alone and every block in a reply lined up.
     private var header: some View {
         HStack(spacing: 5) {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(typography.caption.font)
-                .emphasis(.secondary)
-            Text(title ?? CodeSyntax.displayName(for: segment.language) ?? "no language")
-                .font(typography.caption.font)
-                .emphasis(.secondary)
+            Group {
+                Image(systemName: isFailure ? "exclamationmark.triangle" : "chevron.left.forwardslash.chevron.right")
+                Text(title ?? CodeSyntax.displayName(for: segment.language) ?? "no language")
+            }
+            .font(typography.caption.font)
+            .foregroundStyle(isFailure ? AnyShapeStyle(colors.danger) : AnyShapeStyle(.secondary))
             Spacer(minLength: 0)
             CodeBlockCopyButton(code: segment.code)
         }
@@ -369,13 +422,16 @@ struct CodeSegmentView: View, ThemedView {
         .padding(.leading, padding)
         .padding(.trailing, 6)
         .frame(height: ChatPieceMetrics.codeHeaderHeight)
+        // The clip empties the band but reserves no room, so without this
+        // the outline crops the top of a header of fixed height.
+        .padding(.top, isOutlined ? outlineWidth : 0)
         // The label is decoration; a drag over it should not start a
         // selection that competes with the code's own.
         .textSelection(.disabled)
     }
 
     private var lines: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(maxHeight == nil ? .horizontal : [.horizontal, .vertical], showsIndicators: false) {
             Text(highlighted)
                 .font(.chatCode(size: typography.bodySize * AppSettings.shared.codeFontSizeMultiplier))
                 .padding(.horizontal, padding)
@@ -383,6 +439,11 @@ struct CodeSegmentView: View, ThemedView {
                 // The header already pays the gap above the first line.
                 .padding(.top, 2)
         }
+        // A scroll view that scrolls both axes centers content smaller than
+        // itself, where one that scrolls a single axis pins it to the
+        // leading edge. Only alignment: the initial offset stays put.
+        .defaultScrollAnchor(.topLeading, for: .alignment)
+        .frame(maxHeight: maxHeight)
     }
 
     /// An untagged or unrecognized fence yields plain text in the block's own
@@ -397,6 +458,7 @@ struct CodeSegmentView: View, ThemedView {
 
     private var padding: CGFloat { 14 }
     private var radius: CGFloat { 6 }
+    private var outlineWidth: CGFloat { 3 }
 }
 
 /// Copies a code block's raw text to the pasteboard, from the block's header

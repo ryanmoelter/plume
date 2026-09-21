@@ -24,11 +24,19 @@ struct ToolCallRow: View, ThemedView {
     private var collapsibleBody: some View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 8) {
-                if !call.input.isEmpty {
-                    inputBody
-                }
-                if let result = call.result, !result.isEmpty {
-                    resultBody(result)
+                if let shell = shellTranscript {
+                    ShellCommandRow(
+                        shell: shell,
+                        bleeds: false,
+                        maxHeight: ChatPieceMetrics.maxDisclosedHeight
+                    )
+                } else {
+                    if !call.input.isEmpty {
+                        inputBody
+                    }
+                    if let result = call.result, !result.isEmpty {
+                        resultBody(result)
+                    }
                 }
                 ForEach(call.resultImages.indices, id: \.self) { index in
                     ChatImageView(image: call.resultImages[index])
@@ -36,32 +44,60 @@ struct ToolCallRow: View, ThemedView {
             }
             .padding(.top, 4)
         } label: {
-            Label {
-                Text(summaryText)
-            } icon: {
-                Image(systemName: glyph)
+            HStack(spacing: 4) {
+                Label {
+                    Text(summaryText)
+                } icon: {
+                    Image(systemName: glyph)
+                }
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if isAwaitingResult {
+                    WorkingEllipsis(color: colors.activity)
+                }
             }
-                .font(typography.caption.font)
-                .emphasis(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            .font(typography.caption.font)
+            .emphasis(.secondary)
         }
         .listItemPadding(vertical: false)
     }
 
     /// The one-liner: the tool's name in prose, then the detail it carries in
-    /// whichever face suits it. The trailing marker is unconditional — it
-    /// stands for the input this row hides, not for elided text.
+    /// whichever face suits it.
     private var summaryText: AttributedString {
         var text = AttributedString(call.summary.name)
         guard let detail = call.summary.detail else { return text }
         text.append(AttributedString(": "))
-        var tail = AttributedString("\(detail)…")
+        var tail = AttributedString(detail)
         if call.summary.detailStyle == .code {
             tail.font = typography.caption.mono
         }
         text.append(tail)
         return text
+    }
+
+    /// Whether the call has been sent and nothing has come back, which the
+    /// collapsed line says with a working indicator so a slow command reads
+    /// as running rather than as finished with no output.
+    private var isAwaitingResult: Bool {
+        call.result == nil && call.resultImages.isEmpty
+    }
+
+    /// A `Bash` call as the command and output pair the chat already draws
+    /// for a `!` command, so the same shell run reads the same whether the
+    /// user or the agent started it. Nil for every other tool, and for a
+    /// `Bash` call carrying neither half.
+    private var shellTranscript: ShellTranscript? {
+        guard call.name == "Bash", case .code(_, let command) = call.input else { return nil }
+        let output = call.result.flatMap { $0.isEmpty ? nil : $0 }
+        let shell = ShellTranscript(
+            command: command.isEmpty ? nil : command,
+            output: output,
+            // The call reports its own failure, which beats guessing from
+            // stderr the way a parsed `!` line has to.
+            didFail: call.didFail
+        )
+        return shell.isEmpty ? nil : shell
     }
 
     @ViewBuilder
@@ -91,22 +127,19 @@ struct ToolCallRow: View, ThemedView {
         }
     }
 
-    /// What the agent sent. A shell command is named as one, since the row
-    /// then shows it as the code it is.
     private var inputTitle: String {
         switch call.input {
         case .diff: "Change"
-        case .code where call.name == "Bash": "Command"
         case .code, .json: "Input"
         }
     }
 
     /// What came back, drawn unlike the input above it: outlined and secondary
-    /// rather than filled, so a command and its output never read as one pair
+    /// rather than filled, so an input and its result never read as one pair
     /// of matching blocks.
     private func resultBody(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            fieldLabel(call.name == "Bash" ? "Output" : "Result")
+            fieldLabel("Result")
             ScrollView {
                 Text(text)
                     .font(typography.caption.mono)

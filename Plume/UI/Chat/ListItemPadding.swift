@@ -77,8 +77,17 @@ private struct ListItemPadding: ViewModifier, ThemedView {
 
 extension View {
     /// Gives this item its own column in a chat list. See `ListItemPadding`.
-    func listItemPadding(bleed: Bool = false, vertical: Bool = true) -> some View {
-        modifier(ListItemPadding(bleed: bleed, vertical: vertical))
+    ///
+    /// `enabled: false` leaves the item alone, for one nested inside a row
+    /// that already took a column — applying a second one only insets it
+    /// from the first.
+    @ViewBuilder
+    func listItemPadding(bleed: Bool = false, vertical: Bool = true, enabled: Bool = true) -> some View {
+        if enabled {
+            modifier(ListItemPadding(bleed: bleed, vertical: vertical))
+        } else {
+            self
+        }
     }
 
     /// Clamps text to reading measure inside a container that is itself
