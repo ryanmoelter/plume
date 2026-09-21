@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct CommandModeRunsTests {
-    @Test func aFinishedRunDeliversItsResultAndLeaves() async {
+    @Test func aFinishedRunWaitsToBeRetired() async throws {
         let runs = CommandModeRuns()
         let tabID = UUID()
         let result = await withCheckedContinuation { continuation in
@@ -12,7 +12,16 @@ struct CommandModeRunsTests {
             #expect(runs.runs(forTab: tabID).map(\.command) == ["echo hi"])
         }
         #expect(result.stdout == "hi")
+
+        // The chip stays up until its output is actually on the wire: the
+        // text it carries is tagged markup, not the command the user ran.
+        let run = try #require(runs.runs(forTab: tabID).first)
+        #expect(run.isQueued)
+        #expect(runs.queuedText(forTab: tabID) == [result.transcriptText])
+
+        runs.finish(run.id, tabID: tabID)
         #expect(runs.runs(forTab: tabID).isEmpty)
+        #expect(runs.queuedText(forTab: tabID).isEmpty)
     }
 
     @Test func aCancelledRunSendsNothing() async throws {

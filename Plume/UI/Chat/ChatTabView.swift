@@ -300,7 +300,7 @@ struct ChatTabView: View, ThemedView {
     /// of what says "not sent yet".
     private func queuedMessagesView(_ session: HeadlessSession) -> some View {
         VStack(spacing: 6) {
-            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+            ForEach(queuedProse(session), id: \.offset) { index, message in
                 QueuedMessageChip(
                     text: message,
                     onEdit: { editQueuedMessageIndex = index },
@@ -309,6 +309,15 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .listItemPadding(vertical: false)
+    }
+
+    /// The queued messages the user actually wrote. A `!` command's output
+    /// is queued as the tagged wire format, which reads as markup rather
+    /// than as the command that produced it — its own chip says it better.
+    private func queuedProse(_ session: HeadlessSession) -> [(offset: Int, element: String)] {
+        let spokenFor = CommandModeRuns.shared.queuedText(forTab: tab.id)
+        return Array(session.queuedMessages.enumerated())
+            .filter { !spokenFor.contains($0.element) }
     }
 
     private var commandRuns: [CommandModeRuns.Run] {
@@ -324,6 +333,18 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .listItemPadding(vertical: false)
+        // A queued run is retired by the session taking its text off the
+        // queue, which the session does without knowing runs exist.
+        .onChange(of: headlessSession?.queuedMessages ?? []) { _, queued in
+            retireSentRuns(queued: Set(queued))
+        }
+    }
+
+    private func retireSentRuns(queued: Set<String>) {
+        for run in commandRuns where run.isQueued {
+            guard let text = run.queuedText, !queued.contains(text) else { continue }
+            CommandModeRuns.shared.finish(run.id, tabID: tab.id)
+        }
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
@@ -942,8 +963,7 @@ private struct CommandRunChip: View, ThemedView {
 
     private var commandLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            WorkingEllipsis(color: colors.activity)
-                .font(typography.caption.font)
+            status
             ScrollView(.vertical, showsIndicators: false) {
                 Text(run.command)
                     .font(typography.body.font.monospaced())
@@ -958,8 +978,23 @@ private struct CommandRunChip: View, ThemedView {
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Stop this command")
-            .accessibilityLabel("Stop command")
+            .help(run.isQueued ? "Discard this command's output" : "Stop this command")
+            .accessibilityLabel(run.isQueued ? "Discard command output" : "Stop command")
+        }
+    }
+
+    /// Working while it runs, then a clock: the command is done and what it
+    /// printed is waiting for the agent to be free to take it.
+    @ViewBuilder
+    private var status: some View {
+        if run.isQueued {
+            Image(systemName: "clock")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+                .help("Finished — waiting to send its output to the agent")
+        } else {
+            WorkingEllipsis(color: colors.activity)
+                .font(typography.caption.font)
         }
     }
 

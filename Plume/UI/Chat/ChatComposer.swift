@@ -332,12 +332,17 @@ struct ChatComposer: View, ThemedView {
     /// rather than as prose quoting one.
     private func runCommand(_ command: String) {
         let tabID = tab.id
-        CommandModeRuns.shared.start(
+        let runID = CommandModeRuns.shared.start(
             command,
             in: TabDirectoryStore.shared.directory(for: tab),
             tabID: tabID
         ) { result in
             dispatch(result.transcriptText)
+            // Sent outright rather than queued, so the transcript takes over
+            // telling the story and the chip has nothing left to say.
+            if headlessSession?.isWorking != true {
+                CommandModeRuns.shared.finish(runID, tabID: tabID)
+            }
         }
     }
 
