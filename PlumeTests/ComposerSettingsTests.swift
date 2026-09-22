@@ -175,7 +175,7 @@ struct ComposerSettingsTests {
         let tab = makeTab()
         tab.modelRaw = "opus"
 
-        #expect(try #require(tab.model).id == "claude-opus-5")
+        #expect(try #require(tab.model).id == "claude-opus-5-5")
     }
 
     /// Round-tripping a pick through the store must not change which model it
@@ -184,7 +184,7 @@ struct ComposerSettingsTests {
         let tab = makeTab()
         tab.model = .opus
 
-        #expect(tab.modelRaw == "claude-opus-5[1m]")
+        #expect(tab.modelRaw == "claude-opus-5-5[1m]")
         #expect(tab.model == .opus)
     }
 
