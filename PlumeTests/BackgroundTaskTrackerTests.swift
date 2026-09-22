@@ -313,6 +313,18 @@ struct BackgroundTaskTrackerTests {
         #expect(entries.isEmpty)
     }
 
+    /// Only a persistent monitor declares no end, so an announcement naming
+    /// none outranks an argument that said otherwise.
+    @Test func aPersistentAnnouncementOutranksTheArgument() {
+        let entries = BackgroundTaskScanner.inFlight(parentData: transcript([
+            toolUse(id: "toolu_1", name: "Monitor", description: "the build", persistent: false),
+            toolResult(id: "toolu_1", text: "Monitor started (task b5vvlcw8f, persistent — runs until TaskStop)."),
+            event("b5vvlcw8f"),
+        ]))
+
+        #expect(entries.count == 1)
+    }
+
     /// A sixth of real Monitor calls omit the argument, and reading that as
     /// one-shot would retire a monitor still watching — letting the Mac sleep
     /// mid-work. Only the hard cap retires this one.

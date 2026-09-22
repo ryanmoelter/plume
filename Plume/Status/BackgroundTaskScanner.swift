@@ -184,9 +184,8 @@ nonisolated enum BackgroundTaskScanner {
                         startedAt: startedAt,
                         expiresAt: started.expiry.map { startedAt.addingTimeInterval($0.seconds) }
                     )
-                    // A persistent monitor declares no expiry, so the
-                    // announcement settles this even when the call did not
-                    // spell the flag out.
+                    // Only a persistent monitor declares no end, so an
+                    // announcement naming none overrides the call's argument.
                     if launch.stopsAtFirstEvent, started.expiry != nil {
                         stopsAtFirstEvent.insert(started.id)
                     }
