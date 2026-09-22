@@ -30,6 +30,13 @@ struct MainWindow: View {
                 archiveShown: $archiveShown,
                 windowWidth: windowWidth
             )
+            // Chrome, not chat: the fixed default rather than the user's chat
+            // font size, so enlarging the conversation's type leaves the
+            // sidebar's own scale where it is.
+            .plumeTheme(
+                bodySize: CGFloat(AppSettings.defaultChatFontSize),
+                setsAmbientFont: false
+            )
         } detail: {
             if let task = selectedTask {
                 TaskDetailView(task: task)
