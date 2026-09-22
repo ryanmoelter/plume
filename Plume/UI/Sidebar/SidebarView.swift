@@ -16,8 +16,7 @@ struct SidebarView: View {
     let windowWidth: CGFloat
 
     @State private var renamingGroupID: UUID?
-    @State private var taskPendingDeletion: WorkTask?
-    @State private var pendingDirtyRemoval: DirtyRemoval?
+    @State private var pendingRemoval: PendingRemoval?
     @State private var deletionError: String?
 
     var body: some View {
@@ -104,40 +103,25 @@ struct SidebarView: View {
             max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth)
         )
         .confirmationDialog(
-            "Delete “\(taskPendingDeletion?.title ?? "")”?",
+            "Delete “\(pendingRemoval?.task.title ?? "")”?",
             isPresented: Binding(
-                get: { taskPendingDeletion != nil },
-                set: { if !$0 { taskPendingDeletion = nil } }
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
             ),
-            presenting: taskPendingDeletion
-        ) { task in
+            presenting: pendingRemoval
+        ) { removal in
             Button("Delete Task and Remove Worktree", role: .destructive) {
-                confirmRemoval(of: task, deleteBranch: false)
+                deleteTask(removal.task, removeWorktree: true, deleteBranch: false)
             }
             Button("Delete Task, Remove Worktree and Branch", role: .destructive) {
-                confirmRemoval(of: task, deleteBranch: true)
+                deleteTask(removal.task, removeWorktree: true, deleteBranch: true)
             }
             Button("Delete Task Only") {
-                deleteTask(task)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { task in
-            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").")
-        }
-        .confirmationDialog(
-            "Discard uncommitted changes?",
-            isPresented: Binding(
-                get: { pendingDirtyRemoval != nil },
-                set: { if !$0 { pendingDirtyRemoval = nil } }
-            ),
-            presenting: pendingDirtyRemoval
-        ) { removal in
-            Button("Discard and Remove Worktree", role: .destructive) {
-                deleteTask(removal.task, removeWorktree: true, deleteBranch: removal.deleteBranch)
+                deleteTask(removal.task)
             }
             Button("Cancel", role: .cancel) {}
         } message: { removal in
-            Text("\(removal.summary)\n\nRemoving the worktree discards this work, and it cannot be recovered.")
+            Text(removal.message)
         }
         .alert("Could Not Remove Worktree", isPresented: Binding(
             get: { deletionError != nil },
@@ -149,35 +133,36 @@ struct SidebarView: View {
         }
     }
 
-    /// A removal held back because the worktree has work in it.
-    private struct DirtyRemoval: Identifiable {
+    /// A worktree removal awaiting confirmation. `dirtySummary` is filled in
+    /// only once the async uncommitted-changes check resolves, so the dialog
+    /// never presents until its copy is final — its text must not change
+    /// while the user is looking at it.
+    private struct PendingRemoval: Identifiable {
         let task: WorkTask
-        let deleteBranch: Bool
-        /// What the second dialog shows in place of raw porcelain lines.
-        let summary: String
+        let dirtySummary: String?
 
         var id: UUID { task.id }
+
+        var message: String {
+            let base = "This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "")."
+            guard let dirtySummary else { return base }
+            return "\(base)\n\n\(dirtySummary)\n\nRemoving the worktree discards this work, and it cannot be recovered."
+        }
     }
 
-    /// Removal goes through `--force`, which git only needs because it refuses
-    /// a dirty tree on its own. Asking again restores the question git would
-    /// have asked, for the one case where the answer is not obvious.
-    private func confirmRemoval(of task: WorkTask, deleteBranch: Bool) {
+    /// Checks for uncommitted work before presenting the confirmation, so the
+    /// one dialog's copy is settled before it ever appears rather than
+    /// mutating under the user once the check resolves.
+    private func confirmRemoval(of task: WorkTask) {
         guard let path = task.workingDirectoryPath else {
-            deleteTask(task, removeWorktree: true, deleteBranch: deleteBranch)
+            pendingRemoval = PendingRemoval(task: task, dirtySummary: nil)
             return
         }
         Task {
             let changes = await GitService.shared.uncommittedChanges(in: path)
-            guard !changes.isEmpty else {
-                deleteTask(task, removeWorktree: true, deleteBranch: deleteBranch)
-                return
-            }
-            taskPendingDeletion = nil
-            pendingDirtyRemoval = DirtyRemoval(
+            pendingRemoval = PendingRemoval(
                 task: task,
-                deleteBranch: deleteBranch,
-                summary: Self.describe(changes)
+                dirtySummary: changes.isEmpty ? nil : Self.describe(changes)
             )
         }
     }
@@ -222,8 +207,7 @@ struct SidebarView: View {
                 )
             } catch {
                 deletionError = error.localizedDescription
-                taskPendingDeletion = nil
-                pendingDirtyRemoval = nil
+                pendingRemoval = nil
                 return
             }
             finishDeleting(task)
@@ -233,8 +217,7 @@ struct SidebarView: View {
     private func finishDeleting(_ task: WorkTask) {
         if selection == task.id { selection = nil }
         TaskStore.delete(task, in: context)
-        taskPendingDeletion = nil
-        pendingDirtyRemoval = nil
+        pendingRemoval = nil
     }
 
     @ViewBuilder
@@ -311,7 +294,7 @@ struct SidebarView: View {
             // A worktree task owns a branch and a directory on disk, so
             // deleting it asks before touching either.
             if task.workspaceKind == .worktree {
-                taskPendingDeletion = task
+                confirmRemoval(of: task)
             } else {
                 deleteTask(task)
             }
