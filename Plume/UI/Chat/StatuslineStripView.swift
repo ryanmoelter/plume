@@ -514,10 +514,8 @@ struct MeterView: View, ThemedView {
             // bar's midline rather than its top edge.
             ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
                 let fillWidth = geometry.size.width * fraction
-                let mark = pacing.flatMap { pacing in
-                    PacingMark.isWorthDrawing(pacing)
-                        ? PacingMark.offset(pacing: pacing, barWidth: geometry.size.width)
-                        : nil
+                let mark = pacing.map {
+                    PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
                 }
 
                 Capsule()
@@ -547,13 +545,17 @@ struct MeterView: View, ThemedView {
         .frame(height: PacingMark.barHeight)
     }
 
-    /// One copy of the dot. `isOverFill` picks the contrast for the ground
-    /// it lands on: full strength against the faint track, stepped back
-    /// against the fill's solid color, which needs less to read against.
+    /// One copy of the dot, colored for the ground it lands on. Over the
+    /// fill it is a hole punched in the bar; over the bare track, which is
+    /// itself a wash on that same ground, a hole would vanish, so it draws
+    /// as content instead. Both sit at secondary emphasis, which is what
+    /// keeps the mark from outweighing the fill it annotates.
     private func dot(at offset: CGFloat, isOverFill: Bool) -> some View {
-        let ground = colors.background ?? Color(nsColor: .windowBackgroundColor)
+        let ground = isOverFill
+            ? colors.background ?? Color(nsColor: .windowBackgroundColor)
+            : colors.foreground
         return Circle()
-            .fill(ground.opacity(isOverFill ? colors.emphasis[.secondary] : 1))
+            .fill(ground.opacity(colors.emphasis[isOverFill ? .secondary : .subtle]))
             .frame(width: PacingMark.width, height: PacingMark.width)
             .offset(x: offset)
     }
@@ -574,22 +576,14 @@ enum PacingMark {
     /// would read as a fat line with rounded ends instead.
     static let width: CGFloat = 3.5
 
-    /// Below this the mark sits on the bar's own rounded end, where it reads
-    /// as a nick in the capsule rather than as a position — and a window
-    /// that just opened has nothing to say anyway.
-    static let minimumPacing = 0.02
-
-    static func isWorthDrawing(_ pacing: Double) -> Bool {
-        pacing >= minimumPacing
-    }
-
-    /// Where the dot sits, which is its true position and nothing else: the
-    /// two-layer draw means it no longer has to dodge the fill's edge.
+    /// The leading edge of a dot whose *center* sits at the pacing fraction,
+    /// which is the position being compared against the fill's own edge.
     ///
-    /// Inset by the dot's own width so it stays whole at either end instead
-    /// of half-hanging off the bar.
+    /// The travel is not inset by the dot's width: insetting would buy a
+    /// whole dot at either end at the cost of reading early everywhere in
+    /// between. The ends clip instead.
     static func offset(pacing: Double, barWidth: CGFloat) -> CGFloat {
-        max(barWidth - width, 0) * pacing
+        barWidth * pacing - width / 2
     }
 }
 

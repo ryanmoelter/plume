@@ -171,21 +171,6 @@ struct QuotaPacingTests {
     }
 }
 
-/// When the pacing mark is worth drawing at all.
-@MainActor
-struct PacingMarkTests {
-    @Test func aWindowThatJustOpenedDrawsNoMark() {
-        #expect(!PacingMark.isWorthDrawing(0))
-        #expect(!PacingMark.isWorthDrawing(0.01))
-    }
-
-    @Test func pastTheThresholdItDraws() {
-        #expect(PacingMark.isWorthDrawing(PacingMark.minimumPacing))
-        #expect(PacingMark.isWorthDrawing(0.5))
-        #expect(PacingMark.isWorthDrawing(1))
-    }
-}
-
 /// A focus change re-reads the clock, but only once it has gone unread long
 /// enough to be worth a redraw.
 @MainActor
@@ -239,16 +224,16 @@ struct PacingMarkLayoutTests {
         #expect(behind == ahead)
     }
 
-    @Test func theDotStaysWithinTheBar() {
+    @Test func theDotIsCenteredOnThePacingFraction() {
         for pacing in [0.02, 0.5, 0.99, 1.0] {
-            let offset = PacingMark.offset(pacing: pacing, barWidth: barWidth)
-            #expect(offset >= 0)
-            #expect(offset + PacingMark.width <= barWidth + 0.0001)
+            let center = PacingMark.offset(pacing: pacing, barWidth: barWidth) + PacingMark.width / 2
+            #expect(abs(center - barWidth * pacing) < 0.0001)
         }
     }
 
-    /// A bar narrower than the dot must not offset it negatively.
-    @Test func aBarNarrowerThanTheDotPinsItAtZero() {
-        #expect(PacingMark.offset(pacing: 1, barWidth: 2) == 0)
+    /// Centering is kept at the ends rather than traded for a whole dot, so
+    /// a full window clips the trailing half instead of pulling it inward.
+    @Test func aFullWindowOverhangsTheTrailingEnd() {
+        #expect(PacingMark.offset(pacing: 1, barWidth: barWidth) == barWidth - PacingMark.width / 2)
     }
 }
