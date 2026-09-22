@@ -1,8 +1,8 @@
 import Foundation
 
-/// Identifiers for driving the app through the accessibility tree —
-/// `PlumeUITests` and any external driver query controls by these strings
-/// rather than by their visible label, which can change or localize.
+/// Identifiers passed to `plumeID(_:)`, which sets the accessibility
+/// identifier and registers the control with the debug control server.
+/// `PlumeUITests` and other drivers query by these, not by the visible label.
 enum AccessibilityID {
     // MARK: Sidebar
 

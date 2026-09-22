@@ -79,7 +79,7 @@ struct CopyGlyph: View, ThemedView {
         .frame(width: Self.diameter, height: Self.diameter)
         .background(showsCircle ? colors.surface(.backgroundTint) : .clear, in: .circle)
         .contentShape(.circle)
-        .onHover { isHovered = $0 }
+        .plumeHover { isHovered = $0 }
     }
 
     private var showsCircle: Bool {

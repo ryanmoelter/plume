@@ -19,7 +19,7 @@ struct GroupSectionHeader: View {
                     .font(.caption.weight(.semibold))
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier(AccessibilityID.groupHeaderDisclosureButton)
+            .plumeID(AccessibilityID.groupHeaderDisclosureButton)
 
             Group {
                 if isRenaming {
@@ -46,7 +46,7 @@ struct GroupSectionHeader: View {
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier(AccessibilityID.groupHeaderNewTaskButton)
+                .plumeID(AccessibilityID.groupHeaderNewTaskButton)
                 // A sidebar section header gets less trailing inset than its
                 // rows, so the button pays the difference to line up with the
                 // status icons below it.
@@ -54,6 +54,6 @@ struct GroupSectionHeader: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
+        .plumeHover { isHovering = $0 }
     }
 }

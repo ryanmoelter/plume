@@ -124,7 +124,7 @@ struct SubagentListView: View, ThemedView {
                 .contentShape(.rect(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier(AccessibilityID.completedSubagentsToggle)
+            .plumeID(AccessibilityID.completedSubagentsToggle)
 
             if showsCompleted {
                 ForEach(completed) { subagent in
@@ -188,9 +188,9 @@ private struct SubagentRow: View, ThemedView {
             )
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .plumeHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
-        .accessibilityIdentifier(AccessibilityID.subagentRow)
+        .plumeID(AccessibilityID.subagentRow, label: subagent.title)
         .contextMenu { menu }
     }
 
@@ -201,12 +201,12 @@ private struct SubagentRow: View, ThemedView {
     private var menu: some View {
         if currentOverride != nil {
             Button("Clear Status Override") { onOverride(nil) }
-                .accessibilityIdentifier(AccessibilityID.subagentClearOverride)
+                .plumeID(AccessibilityID.subagentClearOverride)
         } else if subagent.status == .working {
             Button("Mark as Done") { onOverride(.done) }
-                .accessibilityIdentifier(AccessibilityID.subagentMarkDone)
+                .plumeID(AccessibilityID.subagentMarkDone)
             Button("Mark as Interrupted") { onOverride(.interrupted) }
-                .accessibilityIdentifier(AccessibilityID.subagentMarkInterrupted)
+                .plumeID(AccessibilityID.subagentMarkInterrupted)
         }
     }
 }

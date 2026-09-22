@@ -34,7 +34,7 @@ struct SidebarView: View {
                             onDoneRenaming: { renamingGroupID = nil },
                             onCreateTask: { createTask(in: group) }
                         )
-                        .accessibilityIdentifier(AccessibilityID.groupHeader)
+                        .plumeID(AccessibilityID.groupHeader, label: group.name)
                         .contextMenu {
                             Button("Rename Group") { renamingGroupID = group.id }
                             Button("New Task in Group") { createTask(in: group) }
@@ -67,12 +67,12 @@ struct SidebarView: View {
                 ToolbarItem {
                     Menu {
                         Button("New Task") { createTask(in: nil) }
-                            .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                            .plumeID(AccessibilityID.newTaskButton)
                         Button("New Group") {
                             let group = TaskStore.createGroup(in: context, existing: groups)
                             renamingGroupID = group.id
                         }
-                        .accessibilityIdentifier(AccessibilityID.newGroupButton)
+                        .plumeID(AccessibilityID.newGroupButton)
                     } label: {
                         Label("Add", systemImage: "plus")
                             .labelStyle(.iconOnly)
@@ -80,7 +80,7 @@ struct SidebarView: View {
                         createTask(in: nil)
                     }
                     .menuStyle(.borderlessButton)
-                    .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                    .plumeID(AccessibilityID.newTaskButton)
                 }
             }
             .overlay {
@@ -169,7 +169,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
-            TaskRowView(task: task, renamingTaskID: $renamingTaskID)
+            TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
                 .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
                 // The list's own selection is turned off because
@@ -179,10 +179,7 @@ struct SidebarView: View {
                 .selectionDisabled()
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
-                .onTapGesture {
-                    guard renamingTaskID != task.id else { return }
-                    selection = task.id
-                }
+                .onTapGesture { select(task) }
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
@@ -191,6 +188,11 @@ struct SidebarView: View {
         .onMove { offsets, destination in
             TaskStore.move(sectionTasks, from: offsets, to: destination)
         }
+    }
+
+    private func select(_ task: WorkTask) {
+        guard renamingTaskID != task.id else { return }
+        selection = task.id
     }
 
     @ViewBuilder
@@ -211,7 +213,7 @@ struct SidebarView: View {
         }
         if !task.hasNeverStarted {
             Button("Archive") { TaskStore.archive(task) }
-                .accessibilityIdentifier(AccessibilityID.taskArchiveButton)
+                .plumeID(AccessibilityID.taskArchiveButton)
         }
         Divider()
         Button("Delete", role: .destructive) {

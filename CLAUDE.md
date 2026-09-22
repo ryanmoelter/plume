@@ -37,6 +37,7 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
+  Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
   UI/         Sidebar/, Task/, Settings/
 ```
@@ -77,6 +78,10 @@ Both transports launch through `AgentLauncher` and report through `StatusEngine`
 - `--settings` *merges*, and hook lists *union*, so the user's own hooks keep firing. Don't expect replacement semantics.
 - Instrumentation is best-effort: a missing settings file degrades to a plain `claude`, never a failed launch.
 - A hook only fires when Claude Code actually reaches that point. Testing in an **untrusted directory** (like `/tmp`) stalls on the folder-trust prompt and produces no events — use a directory already trusted.
+
+## Verifying the app from an agent
+
+**Use the `drive-plume` skill.** A debug build serves a control socket that reads the window as text, drives controls, hovers, and screenshots without an Accessibility grant and without activating the app; `docs/control-server.md` is the reference and `scripts/debug/plume-control.py` the client. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. The whole layer is `#if DEBUG` and compiles to nothing in Release.
 
 ## Verifying terminal behavior
 
@@ -122,6 +127,8 @@ The config reaches libghostty as **generated contents with every `theme` directi
 
 ## Gotchas
 
+- **Name controls with `plumeID(_:)`, never a bare `.accessibilityIdentifier`, and hover with `plumeHover`, never a bare `.onHover`.** SwiftUI puts identifiers on no NSView and builds its accessibility tree only for a trusted external client, so the debug control server finds controls through the registry `plumeID` feeds — a bare identifier is invisible to it. Apply it inside `.disabled(_:)` so the registered enabled state is real, and pass `label:` on repeated rows so a driver can tell them apart. SwiftUI's hover tracking likewise answers only the real pointer, so `plumeHover` registers the region and the server calls its closure itself.
+- **SwiftUI's `.global` frames hang from the top of the window frame, title bar included.** They equal content-view coordinates only when the content view fills the frame. `WindowGeometry.contentRect(fromGlobal:in:)` subtracts the difference; a hosted view in a plain titled window is off by the title bar height without it.
 - `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` means transitive imports don't count. Using `Array.move(fromOffsets:toOffset:)` needs an explicit `import SwiftUI`; `IndexSet` needs `import Foundation`. The error names the missing module.
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: everything is MainActor-isolated unless marked otherwise. Test suites touching models need `@MainActor`.
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.

@@ -95,7 +95,7 @@ struct StatuslineStripView: View, ThemedView {
                     barWidth: StatuslineMeterWidth.shortQuota,
                     windowLength: QuotaWindowLength.fiveHour
                 )
-                .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
+                .plumeID(AccessibilityID.statuslineFiveHourMeter)
             }
             if let sevenDay = rateLimit?.sevenDay {
                 StatuslineMeterSegment(
@@ -107,11 +107,11 @@ struct StatuslineStripView: View, ThemedView {
                     barWidth: StatuslineMeterWidth.quota,
                     windowLength: QuotaWindowLength.sevenDay
                 )
-                .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
+                .plumeID(AccessibilityID.statuslineSevenDayMeter)
             }
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
-                    .accessibilityIdentifier(AccessibilityID.statuslineCost)
+                    .plumeID(AccessibilityID.statuslineCost)
             }
         }
         .fixedSize()
@@ -135,7 +135,7 @@ struct StatuslineStripView: View, ThemedView {
                     showsReading: false,
                     windowLength: QuotaWindowLength.fiveHour
                 )
-                .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
+                .plumeID(AccessibilityID.statuslineFiveHourMeter)
             }
             if let sevenDay = rateLimit?.sevenDay {
                 StatuslineMeterSegment(
@@ -148,7 +148,7 @@ struct StatuslineStripView: View, ThemedView {
                     showsReading: false,
                     windowLength: QuotaWindowLength.sevenDay
                 )
-                .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
+                .plumeID(AccessibilityID.statuslineSevenDayMeter)
             }
         }
     }
@@ -170,7 +170,7 @@ struct StatuslineStripView: View, ThemedView {
             )
             .help("Context window used")
             .accessibilityLabel("Context window")
-            .accessibilityIdentifier(AccessibilityID.statuslineContextMeter)
+            .plumeID(AccessibilityID.statuslineContextMeter)
         }
     }
 
@@ -402,7 +402,7 @@ struct RemoteControlControl: View, ThemedView {
         .help(helpText)
         .accessibilityLabel("Remote Control")
         .accessibilityValue(accessibilityValue)
-        .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
+        .plumeID(AccessibilityID.composerRemoteControlControl)
     }
 
     private var symbol: String {

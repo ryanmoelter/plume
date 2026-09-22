@@ -475,7 +475,7 @@ struct ChatTabView: View, ThemedView {
             state: GitStateStore.shared.state(for: gitDirectory)
         )
         .font(typography.caption.font)
-        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+        .plumeID(AccessibilityID.composerWorkspacePicker)
     }
 
     /// A wash of the chat's own surface, so the glass reads as the chat holding
@@ -521,9 +521,7 @@ struct ChatTabView: View, ThemedView {
         .keyboardShortcut(.cancelAction)
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
-        .accessibilityIdentifier(
-            isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton
-        )
+        .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -569,10 +567,10 @@ struct ChatTabView: View, ThemedView {
                 ) {
                     answerPlan(.reject)
                 }
-                .accessibilityIdentifier(AccessibilityID.planRejectButton)
+                .plumeID(AccessibilityID.planRejectButton)
                 Button("Approve") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(AccessibilityID.planApproveButton)
+                    .plumeID(AccessibilityID.planApproveButton)
             }
             Text("⌥↩ approves with this feedback")
                 .font(typography.caption.font)
@@ -595,7 +593,11 @@ struct ChatTabView: View, ThemedView {
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
         .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
-        .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+        .plumeID(
+            AccessibilityID.planFeedbackField,
+            value: planRejectionReason,
+            setValue: { planRejectionReason = $0 }
+        )
     }
 
     /// `NSTextView` draws its first glyph one line-fragment padding in from
@@ -664,7 +666,7 @@ struct ChatTabView: View, ThemedView {
             .buttonStyle(.plain)
             .help("Expand the plan")
             .accessibilityLabel("Expand the plan")
-            .accessibilityIdentifier(AccessibilityID.planExpandButton)
+            .plumeID(AccessibilityID.planExpandButton)
         }
         .font(.callout)
         // The one leading edge the composer's text and the statusline's
@@ -779,7 +781,7 @@ struct ChatTabView: View, ThemedView {
         )
         .font(typography.headline.font)
         .emphasis(.primary)
-        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+        .plumeID(AccessibilityID.composerWorkspacePicker)
     }
 
     /// Shown instead of the composer when `AgentLauncher` refused to spawn

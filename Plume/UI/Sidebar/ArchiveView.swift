@@ -59,7 +59,7 @@ struct ArchiveView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Unarchive")
-                    .accessibilityIdentifier(AccessibilityID.archivedTaskUnarchiveButton)
+                    .plumeID(AccessibilityID.archivedTaskUnarchiveButton)
                     Button(role: .destructive) {
                         TaskStore.delete(task, in: context)
                     } label: {

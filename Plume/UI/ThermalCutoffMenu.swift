@@ -21,6 +21,10 @@ struct ThermalCutoffMenu: View {
             Text(selection.label)
         }
         .fixedSize()
-        .accessibilityIdentifier(AccessibilityID.keepAwakeThermalPicker)
+        .plumeID(
+            AccessibilityID.keepAwakeThermalPicker,
+            value: selection.rawValue,
+            setValue: { if let level = ThermalCutoffLevel(rawValue: $0) { selection = level } }
+        )
     }
 }

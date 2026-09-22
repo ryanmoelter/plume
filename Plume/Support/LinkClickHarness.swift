@@ -26,7 +26,7 @@ enum LinkClickHarness {
             log.error("no visible window")
             return
         }
-        if focusComposer, let composer = firstView(root, ofType: ComposerNSTextView.self) {
+        if focusComposer, let composer = ViewFinder.first(ComposerNSTextView.self, in: root) {
             window.makeFirstResponder(composer)
         } else {
             window.makeFirstResponder(nil)
@@ -40,46 +40,15 @@ enum LinkClickHarness {
         let point = NSPoint(x: inWindow.minX + min(textWidth, inWindow.width) / 2, y: inWindow.midY)
         log.info("firstResponder=\(responderName(window), privacy: .public) clicking \(field.attributedStringValue.string.prefix(30), privacy: .public) at window \(NSStringFromPoint(point), privacy: .public)")
 
-        func event(_ type: NSEvent.EventType) -> NSEvent? {
-            NSEvent.mouseEvent(
-                with: type, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: 4242, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
-            )
-        }
-        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return }
-        // Key without activating, so SwiftUI's focus system treats the window
-        // as a real one. The up lands late enough for the tracking loop to
-        // pump the run loop the way it does under a human click; queued
-        // together, the loop exits before anything else can run.
-        window.makeKey()
-        NSApp.postEvent(down, atStart: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { NSApp.postEvent(up, atStart: false) }
         Task {
+            await SyntheticClick.perform(at: point, in: window)
             try? await Task.sleep(for: .seconds(1))
             log.info("one second later, still responsive; firstResponder=\(responderName(window), privacy: .public)")
         }
     }
 
     private static func firstLinkField(in root: NSView) -> NSControl? {
-        var fields: [NSControl] = []
-        collectSelectionFields(root, into: &fields)
-        return fields.first { hasLink($0.attributedStringValue) }
-    }
-
-    private static func collectSelectionFields(_ view: NSView, into out: inout [NSControl]) {
-        if let control = view as? NSControl, String(describing: type(of: view)).contains("SelectionTextField") {
-            out.append(control)
-        }
-        for sub in view.subviews { collectSelectionFields(sub, into: &out) }
-    }
-
-    private static func firstView<T: NSView>(_ view: NSView, ofType: T.Type) -> T? {
-        if let match = view as? T { return match }
-        for sub in view.subviews {
-            if let found = firstView(sub, ofType: T.self) { return found }
-        }
-        return nil
+        ViewFinder.selectionTextFields(in: root).first { hasLink($0.attributedStringValue) }
     }
 
     private static func hasLink(_ attributed: NSAttributedString) -> Bool {

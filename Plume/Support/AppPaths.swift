@@ -44,6 +44,30 @@ enum AppPaths {
             .appending(path: "\(tabID.uuidString).jsonl")
     }
 
+    /// The debug control server's sockets, one per running instance.
+    static var controlDirectory: URL {
+        applicationSupport.appending(path: "control")
+    }
+
+    static func controlSocket(pid: Int32) -> URL {
+        controlDirectory.appending(path: "\(pid).sock")
+    }
+
+    /// `sun_path` holds 104 bytes including the terminator, and a scratch
+    /// instance launched with a long `HOME` override can push the preferred
+    /// path past it, so such an instance binds under `/tmp` instead.
+    static let maxSocketPathLength = 103
+
+    static func controlSocketPath(
+        pid: Int32,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        if let override = environment["PLUME_CONTROL_SOCKET"], !override.isEmpty { return override }
+        let preferred = controlSocket(pid: pid).path(percentEncoded: false)
+        if preferred.utf8.count <= maxSocketPathLength { return preferred }
+        return "/tmp/plume-control-\(pid).sock"
+    }
+
     static func createDirectories() throws {
         for directory in [applicationSupport, hooksDirectory, eventsDirectory] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

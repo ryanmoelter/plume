@@ -48,7 +48,7 @@ struct SidebarQuotaRow: View, ThemedView {
         .padding(.horizontal, SidebarFooterMetrics.inset)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Account quota")
-        .accessibilityIdentifier(AccessibilityID.sidebarQuotaRow)
+        .plumeID(AccessibilityID.sidebarQuotaRow)
     }
 
     /// The ring fills with the five-hour window, the one that moves fast

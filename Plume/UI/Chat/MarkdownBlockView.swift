@@ -366,7 +366,7 @@ struct CodeSegmentView: View, ThemedView {
             }
         }
         .textSelection(.enabled)
-        .onHover { isHovered = $0 }
+        .plumeHover { isHovered = $0 }
         .listItemPadding(bleed: true, vertical: false, enabled: bleeds)
     }
 
