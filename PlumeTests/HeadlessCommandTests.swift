@@ -80,7 +80,7 @@ struct HeadlessCommandModelTests {
     /// The bare aliases resolve to the 200K models, so the top-level menu's
     /// picks have to reach `--model` as explicit `[1m]` IDs.
     @Test(arguments: [
-        (AgentModel.opus, "claude-opus-5[1m]"),
+        (AgentModel.opus, "claude-opus-5-5[1m]"),
         (AgentModel.sonnet, "claude-sonnet-5[1m]"),
         (AgentModel.fable, "claude-fable-5-1"),
     ])

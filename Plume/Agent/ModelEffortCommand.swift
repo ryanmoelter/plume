@@ -1,5 +1,40 @@
 import Foundation
 
+/// Parses a model ID into a display label, so an ID this build has never
+/// hardcoded — one only the CLI reports, in a stream event or `system/init`
+/// — still gets a readable name instead of falling back to the raw string
+/// everywhere it's shown.
+nonisolated enum ModelDisplayName {
+    /// `claude-opus-5-5[1m]` → `"Opus 5.5"`, `claude-haiku-4-5-20251001` →
+    /// `"Haiku 4.5"`. Returns `id` unchanged when it doesn't fit the pattern:
+    /// a family word followed by digit-only version components, optionally
+    /// a trailing date stamp, optionally a bracketed suffix.
+    static func parse(_ id: String) -> String {
+        var body = id
+        if let bracketStart = body.firstIndex(of: "[") {
+            body = String(body[..<bracketStart])
+        }
+
+        var parts = body.split(separator: "-").map(String.init)
+        guard !parts.isEmpty else { return id }
+
+        if parts.first == "claude" { parts.removeFirst() }
+        guard let family = parts.first, family.allSatisfy(\.isLetter) else { return id }
+        parts.removeFirst()
+
+        // A trailing run of 8+ digits is a date stamp (YYYYMMDD), not a version.
+        if let last = parts.last, last.count >= 8, last.allSatisfy(\.isNumber) {
+            parts.removeLast()
+        }
+
+        guard parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else { return id }
+
+        let familyLabel = family.prefix(1).uppercased() + family.dropFirst().lowercased()
+        let versionLabel = parts.joined(separator: ".")
+        return versionLabel.isEmpty ? familyLabel : "\(familyLabel) \(versionLabel)"
+    }
+}
+
 /// A model this UI can switch a running session to.
 ///
 /// A struct rather than an enum because the set of models is open: the CLI
@@ -16,8 +51,17 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     }
 
     /// A model named only by its CLI ID, for one that isn't in `selectable`.
+    /// The label is parsed from the ID rather than hardcoded, so an ID this
+    /// build has never seen still gets a readable name.
     init(unrecognizedID id: String) {
-        self.init(id: id, label: AgentModel.shortenedLabel(for: id))
+        self.init(id: id, label: ModelDisplayName.parse(id))
+    }
+
+    /// A preset whose label is derived from its own ID, with an optional
+    /// context-window suffix appended.
+    private init(id: String, contextSuffix: String? = nil) {
+        let parsed = ModelDisplayName.parse(id)
+        self.init(id: id, label: contextSuffix.map { "\(parsed) \($0)" } ?? parsed)
     }
 
     var token: String { id }
@@ -41,10 +85,19 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// `claude-fable-5-1` back — so it sends the plain ID. An unspecified
     /// context window means 1M, so only the 200K variants carry a suffix; see
     /// "Model aliases" in docs/headless-protocol.md.
-    static let fable = AgentModel(id: "claude-fable-5-1", label: "Fable")
-    static let opus = AgentModel(id: "claude-opus-5[1m]", label: "Opus")
-    static let sonnet = AgentModel(id: "claude-sonnet-5[1m]", label: "Sonnet")
-    static let haiku = AgentModel(id: "claude-haiku-4-5-20251001[1m]", label: "Haiku 4.5")
+    static let fable = AgentModel(id: "claude-fable-5-1")
+    static let opus = AgentModel(id: "claude-opus-5-5[1m]")
+    static let sonnet = AgentModel(id: "claude-sonnet-5[1m]")
+    static let haiku = AgentModel(id: "claude-haiku-4-5-20251001[1m]")
+
+    /// The 200K sibling of each model the "More" submenu offers, named so the
+    /// alias map can reference them individually. `opus5At200K` is the prior
+    /// generation's Opus, kept reachable after Opus 5.5 took the top-level
+    /// slot.
+    static let opus5dot5At200K = AgentModel(id: "claude-opus-5-5", contextSuffix: "200K")
+    static let opus5At200K = AgentModel(id: "claude-opus-5", contextSuffix: "200K")
+    static let sonnetAt200K = AgentModel(id: "claude-sonnet-5", contextSuffix: "200K")
+    static let haikuAt200K = AgentModel(id: "claude-haiku-4-5-20251001", contextSuffix: "200K")
 
     /// The models the "More" submenu offers.
     ///
@@ -52,11 +105,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// the model in use, and its `capabilities` array names protocol features,
     /// not models. So it is maintained by hand from `claude --help`'s aliases
     /// and the IDs the CLI accepted when probed.
-    static let more: [AgentModel] = [
-        AgentModel(id: "claude-opus-5", label: "Opus 200K"),
-        AgentModel(id: "claude-sonnet-5", label: "Sonnet 200K"),
-        AgentModel(id: "claude-haiku-4-5-20251001", label: "Haiku 4.5 200K")
-    ]
+    static let more: [AgentModel] = [opus5dot5At200K, opus5At200K, sonnetAt200K, haikuAt200K]
 
     /// Everything the menu can offer, top-level items first.
     static let selectable: [AgentModel] = [fable, opus, sonnet, haiku] + more
@@ -88,9 +137,10 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// the reported string promotes the result to the 1M variant.
     private static let aliases: [String: AgentModel] = [
         "fable": .fable, "fable 5": .fable, "fable 5.1": .fable, "claude-fable-5": .fable,
-        "opus": more[0], "opus 5": more[0],
-        "sonnet": more[1], "sonnet 5": more[1],
-        "haiku": more[2], "haiku 4.5": more[2]
+        "opus": .opus5dot5At200K, "opus 5.5": .opus5dot5At200K, "claude-opus-5-5": .opus5dot5At200K,
+        "opus 5": .opus5At200K,
+        "sonnet": .sonnetAt200K, "sonnet 5": .sonnetAt200K,
+        "haiku": .haikuAt200K, "haiku 4.5": .haikuAt200K
     ]
 
     private static let contextSuffix = "[1m]"
@@ -100,13 +150,6 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     private var oneMillionVariant: AgentModel {
         let suffixed = id + AgentModel.contextSuffix
         return AgentModel.selectable.first { $0.id == suffixed } ?? self
-    }
-
-    /// Trims the `claude-` prefix so an unknown ID reads as a name rather
-    /// than a slug. The rest is kept verbatim — a wrong-but-pretty label
-    /// would be worse than an ugly true one.
-    private static func shortenedLabel(for id: String) -> String {
-        id.hasPrefix("claude-") ? String(id.dropFirst("claude-".count)) : id
     }
 }
 
