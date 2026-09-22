@@ -1,13 +1,13 @@
 #if DEBUG
 import AppKit
 
-/// Screenshots come from the window server, not from drawing the view tree:
-/// SwiftUI's layers hold nothing a `cacheDisplay` or `CALayer.render(in:)`
-/// can draw, and both give back an empty window. `CGWindowListCreateImage`
-/// captures a process's own windows with no Screen Recording grant. The SDK
-/// hides it from Swift as "use ScreenCaptureKit", which does need one, so it
-/// is bound by symbol name. The array variant returns nil here; one window
-/// per call works.
+/// Screenshots come from the window server rather than from drawing the
+/// view tree, because `CGWindowListCreateImage` returns real pixels even
+/// while the session reports itself locked, where a `cacheDisplay` capture
+/// has come back blank. It captures a process's own windows with no Screen
+/// Recording grant. The SDK hides it from Swift as "use ScreenCaptureKit",
+/// which does need one, so it is bound by symbol name. The array variant
+/// returns nil here; one window per call works.
 @MainActor
 enum WindowCapture {
     private static let includingWindow: UInt32 = 1 << 3
