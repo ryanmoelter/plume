@@ -16,6 +16,8 @@ struct SidebarView: View {
     let windowWidth: CGFloat
 
     @State private var renamingGroupID: UUID?
+    /// The task a dragged tab is currently over, so its row can ring itself.
+    @State private var tabDropTargetID: UUID?
     @State private var pendingRemoval: PendingRemoval?
     @State private var deletionError: String?
 
@@ -231,15 +233,28 @@ struct SidebarView: View {
                 // rectangle would show on top of the wash as a second
                 // selection state. Selection therefore comes from the tap.
                 .selectionDisabled()
+                // Simultaneous, not exclusive: a plain `.onTapGesture` claims
+                // the mouse-down, and the list's reorder drag never starts.
+                //
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
-                .onTapGesture { select(task) }
+                .simultaneousGesture(TapGesture().onEnded { select(task) })
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
                 }
                 .dropDestination(for: String.self) { draggedIDs, _ in
                     dropTab(draggedIDs, onto: task)
+                } isTargeted: { targeted in
+                    tabDropTargetID = targeted ? task.id : (tabDropTargetID == task.id ? nil : tabDropTargetID)
+                }
+                .overlay {
+                    if tabDropTargetID == task.id {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(.tint, lineWidth: 2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                    }
                 }
         }
         .onMove { offsets, destination in

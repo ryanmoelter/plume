@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import UniformTypeIdentifiers
 
 /// Answers control commands from inside the process: registered controls
 /// through `ControlRegistry`, text through the AppKit views that already
@@ -166,7 +167,13 @@ final class InProcessControlBackend: ControlBackend {
             types.append(.fileURL)
         }
         if let text = params.text {
-            pasteboard.setString(text, forType: .string)
+            // SwiftUI reads a `Transferable` payload off the item's data, so
+            // the item carries both `public.utf8-plain-text` and the legacy
+            // string type an `NSString` write would produce on its own.
+            let item = NSPasteboardItem()
+            item.setData(Data(text.utf8), forType: .init(UTType.utf8PlainText.identifier))
+            item.setString(text, forType: .string)
+            pasteboard.writeObjects([item])
             types.append(.string)
         }
         guard !types.isEmpty else { throw ControlError.badParams("drag needs files or text") }

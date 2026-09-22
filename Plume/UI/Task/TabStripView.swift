@@ -8,6 +8,11 @@ struct TabStripView: View {
 
     @Query(sort: \WorkTask.orderIndex) private var allTasks: [WorkTask]
 
+    /// The chip a dragged tab would land in front of, and whether it would
+    /// land past the last one.
+    @State private var insertionTargetID: UUID?
+    @State private var isTargetingEnd = false
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(task.orderedTabs) { tab in
@@ -22,9 +27,21 @@ struct TabStripView: View {
                 )
                 .draggable(tab.id.uuidString)
                 .dropDestination(for: String.self) { draggedIDs, _ in
-                    reorder(draggedIDs, before: tab)
+                    insertionTargetID = nil
+                    return reorder(draggedIDs, before: tab)
+                } isTargeted: { targeted in
+                    if targeted {
+                        insertionTargetID = tab.id
+                    } else if insertionTargetID == tab.id {
+                        insertionTargetID = nil
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if insertionTargetID == tab.id { insertionMark(inGap: true) }
                 }
             }
+
+            if isTargetingEnd { insertionMark() }
 
             Menu {
                 Button("Agent Tab") { TaskStore.addTab(to: task, kind: .agent, in: context) }
@@ -41,13 +58,35 @@ struct TabStripView: View {
             .plumeID(AccessibilityID.newTabButton)
 
             Spacer()
-                .dropDestination(for: String.self) { draggedIDs, _ in
-                    reorder(draggedIDs, before: nil)
-                }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        // Behind the strip, not in it: a drop region sized inside the `HStack`
+        // either lays out zero-height (a bare `Spacer`) or claims the pane's
+        // whole height and pushes the chips down. As a background it takes
+        // the strip's own frame and influences no layout. A chip's own
+        // destination sits in front, so this only catches a drop past the
+        // last one.
+        .background {
+            Color.clear
+                .contentShape(.rect)
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    isTargetingEnd = false
+                    return reorder(draggedIDs, before: nil)
+                } isTargeted: { isTargetingEnd = $0 }
+        }
         .themeTint(colorScheme: colorScheme)
+    }
+
+    /// Where the dragged chip will land. Drawn over a chip's leading edge it
+    /// is nudged into the gap before it; standing alone after the last chip
+    /// the `HStack`'s own spacing already puts it there.
+    private func insertionMark(inGap: Bool = false) -> some View {
+        Capsule()
+            .fill(.tint)
+            .frame(width: 2)
+            .padding(.vertical, 2)
+            .offset(x: inGap ? -4 : 0)
     }
 
     /// Moves the dragged tab immediately before `target`, or to the end when
@@ -142,7 +181,9 @@ private struct TabChip: View {
         .padding(.vertical, 4)
         .background(chipBackground, in: .rect(cornerRadius: 6))
         .contentShape(.rect)
-        .onTapGesture(perform: select)
+        // Simultaneous, not exclusive: a plain `.onTapGesture` claims the
+        // mouse-down, and the chip's `.draggable` never starts.
+        .simultaneousGesture(TapGesture().onEnded(select))
         .plumeHover { isHovering = $0 }
         .plumeID(AccessibilityID.tabChip, label: chipTitle, value: isSelected ? "selected" : nil, invoke: select)
         .contextMenu {

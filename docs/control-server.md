@@ -60,6 +60,7 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 | `clear` | `windowNumber?` | `{}`; un-hovers everything and removes the overlay, in one window or all |
 | `screenshot` | `path?`, `target?`, `windowNumber?` | `{path, width, height, scale}`; PNG, cropped to the target when given |
 | `hierarchy` | `windowNumber?`, `target?`, `format = "text" \| "json"`, `textLimit = 200` | `{text}` or `{root}` |
+| `drag` | `files?`, `text?`; `target?` or `x`, `y`; `windowNumber?` | `{dropped, refusedAt?, view?, entered?, updated?, prepared?, performed?}`, or `{destinations}` when no point is given |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -79,6 +80,10 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 
 **Screenshots come from the window server.** `WindowCapture` calls `CGWindowListCreateImage` for the app's own window, which needs no Screen Recording grant and returns real pixels even while the session reports itself locked, where drawing the view tree with `cacheDisplay(in:to:)` has come back blank. The SDK hides that function from Swift as "use ScreenCaptureKit", which does need a grant; it is bound by symbol name. The capture is cropped to the content view, the overlay's window is captured the same way and composited on top, and `scale` is pixels per point. A capture that is one flat color is refused with an error naming the display state (asleep, locked) instead of being written as a blank PNG.
 
+**A drop is replayed, not dragged.** The window server owns the real drag session and answers only the physical pointer, so `drag` calls the destination protocol itself (`SyntheticDrag`): `draggingEntered`, `draggingUpdated`, `prepareForDragOperation`, `performDragOperation`, `concludeDragOperation`, reporting each step and the one that refused. This is what tells a drop that highlights and then does nothing apart from one that was never offered the drag. The payload goes on the real drag pasteboard, because `DropInfo` reads that by name rather than through `draggingPasteboard`.
+
+Called with no point, `drag` instead surveys the window: every registered destination, its frame and its types. **Registration is not hit-testing** — SwiftUI puts its `_PlatformDraggingDestinationView` *behind* the content it belongs to, so walking up from `hitTest` finds none of them. Matching is by UTI conformance, since SwiftUI registers `public.data`/`public.item` rather than the type a drag actually carries.
+
 **`hierarchy` walks the NSView tree** (`HierarchyDumper`), drops hidden views, collapses plain containers with nothing to say into their children, and attaches each registered control to the smallest visible view whose frame contains it, so a hosted SwiftUI button appears inside the hosting view that draws it.
 
 ## Limits
@@ -89,4 +94,5 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 - A synthetic click never fires a `.onTapGesture` on a SwiftUI `List` row, visible or hidden; the row's `Button`s still work. Task rows pass `invoke:` for this reason, and report `value: "selected"` so a driver can confirm the selection.
 - Synthetic clicks do not reorder windows and never activate the app. Launching is what puts a window on the user's Space; `open -j` avoids it.
 - `hover` reaches only `plumeHover` regions. A bare `.onHover`, `.onContinuousHover`, or a button style's hover highlight never sees the synthetic pointer. The real pointer still wins: if it crosses a region, SwiftUI's own callback overrides the synthetic state.
+- `drag` proves the destination side only. A SwiftUI `.dropDestination(for:)` accepts the session and reports `performed: true` without the closure's payload decoding, because `Transferable` does not read a hand-built pasteboard item the way it reads a real drag's. `.onDrop` with `fileURL` does run end to end. There is no way to drive a drag *source* at all — `.draggable` installs nothing at the AppKit layer, and synthesizing pointer input is off limits.
 - The server runs on the main thread. A command that blocks the UI blocks the response.
