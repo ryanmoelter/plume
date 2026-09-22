@@ -64,6 +64,8 @@ struct MessageRedoButtons: View, ThemedView {
                 invoke: { redo(session: session, context: context) }
             )
 
+            // Debug-only until forking is ready to ship.
+            #if DEBUG
             Button { fork(context: context) } label: {
                 Image(systemName: "arrow.triangle.branch")
             }
@@ -78,6 +80,7 @@ struct MessageRedoButtons: View, ThemedView {
                 label: messageID,
                 invoke: { fork(context: context) }
             )
+            #endif
         }
         .buttonStyle(.plain)
         .font(.system(size: 11, weight: .medium))
