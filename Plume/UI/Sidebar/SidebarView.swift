@@ -17,6 +17,7 @@ struct SidebarView: View {
 
     @State private var renamingGroupID: UUID?
     @State private var taskPendingDeletion: WorkTask?
+    @State private var pendingDirtyRemoval: DirtyRemoval?
     @State private var deletionError: String?
 
     var body: some View {
@@ -110,18 +111,33 @@ struct SidebarView: View {
             ),
             presenting: taskPendingDeletion
         ) { task in
-            Button(BetaBadge.menuTitle("Delete Task and Remove Worktree"), role: .destructive) {
-                deleteTask(task, removeWorktree: true, deleteBranch: false)
+            Button("Delete Task and Remove Worktree", role: .destructive) {
+                confirmRemoval(of: task, deleteBranch: false)
             }
-            Button(BetaBadge.menuTitle("Delete Task, Remove Worktree and Branch"), role: .destructive) {
-                deleteTask(task, removeWorktree: true, deleteBranch: true)
+            Button("Delete Task, Remove Worktree and Branch", role: .destructive) {
+                confirmRemoval(of: task, deleteBranch: true)
             }
             Button("Delete Task Only") {
                 deleteTask(task)
             }
             Button("Cancel", role: .cancel) {}
         } message: { task in
-            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").\n\nBeta: worktree removal forces past a dirty tree, so uncommitted changes can be lost silently. This path hasn't been driven since it moved onto GitService.")
+            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").")
+        }
+        .confirmationDialog(
+            "Discard uncommitted changes?",
+            isPresented: Binding(
+                get: { pendingDirtyRemoval != nil },
+                set: { if !$0 { pendingDirtyRemoval = nil } }
+            ),
+            presenting: pendingDirtyRemoval
+        ) { removal in
+            Button("Discard and Remove Worktree", role: .destructive) {
+                deleteTask(removal.task, removeWorktree: true, deleteBranch: removal.deleteBranch)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { removal in
+            Text("\(removal.summary)\n\nRemoving the worktree discards this work, and it cannot be recovered.")
         }
         .alert("Could Not Remove Worktree", isPresented: Binding(
             get: { deletionError != nil },
@@ -133,8 +149,54 @@ struct SidebarView: View {
         }
     }
 
+    /// A removal held back because the worktree has work in it.
+    private struct DirtyRemoval: Identifiable {
+        let task: WorkTask
+        let deleteBranch: Bool
+        /// What the second dialog shows in place of raw porcelain lines.
+        let summary: String
+
+        var id: UUID { task.id }
+    }
+
+    /// Removal goes through `--force`, which git only needs because it refuses
+    /// a dirty tree on its own. Asking again restores the question git would
+    /// have asked, for the one case where the answer is not obvious.
+    private func confirmRemoval(of task: WorkTask, deleteBranch: Bool) {
+        guard let path = task.workingDirectoryPath else {
+            deleteTask(task, removeWorktree: true, deleteBranch: deleteBranch)
+            return
+        }
+        Task {
+            let changes = await GitService.shared.uncommittedChanges(in: path)
+            guard !changes.isEmpty else {
+                deleteTask(task, removeWorktree: true, deleteBranch: deleteBranch)
+                return
+            }
+            taskPendingDeletion = nil
+            pendingDirtyRemoval = DirtyRemoval(
+                task: task,
+                deleteBranch: deleteBranch,
+                summary: Self.describe(changes)
+            )
+        }
+    }
+
+    /// Porcelain status as a sentence and a short list. The codes mean nothing
+    /// to a reader deciding whether to lose the work, so only the paths show.
+    private static func describe(_ changes: [String]) -> String {
+        let paths = changes.map { $0.dropFirst(3) }.map(String.init)
+        let count = paths.count
+        let noun = count == 1 ? "file has" : "files have"
+        let shown = paths.prefix(5).map { "• \($0)" }.joined(separator: "\n")
+        let more = count > 5 ? "\n• and \(count - 5) more" : ""
+        return "\(count) \(noun) uncommitted changes:\n\(shown)\(more)"
+    }
+
     /// Removing the worktree is best-effort: if git refuses, the task stays so
-    /// the user can resolve it rather than losing track of the directory.
+    /// the user can resolve it rather than losing track of the directory. Its
+    /// tabs are closed by then either way — they have to go before git touches
+    /// the directory, and there is no reopening them if it declines.
     private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
         guard removeWorktree,
               let repository = task.repoPath,
@@ -142,6 +204,13 @@ struct SidebarView: View {
         else {
             finishDeleting(task)
             return
+        }
+        // Every tab's shell and agent has its working directory inside the
+        // tree git is about to delete, so they go first. Removal awaits, and a
+        // process left running across that wait holds a cwd that no longer
+        // exists — and can still write into the directory as it is removed.
+        for tab in task.tabs {
+            TaskStore.forgetTab(tab)
         }
         Task {
             do {
@@ -154,6 +223,7 @@ struct SidebarView: View {
             } catch {
                 deletionError = error.localizedDescription
                 taskPendingDeletion = nil
+                pendingDirtyRemoval = nil
                 return
             }
             finishDeleting(task)
@@ -164,6 +234,7 @@ struct SidebarView: View {
         if selection == task.id { selection = nil }
         TaskStore.delete(task, in: context)
         taskPendingDeletion = nil
+        pendingDirtyRemoval = nil
     }
 
     @ViewBuilder

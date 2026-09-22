@@ -87,8 +87,24 @@ nonisolated enum WorkspaceProvisioner {
         return path
     }
 
+    /// Uncommitted work in a worktree, as `git status --porcelain` lines.
+    ///
+    /// Empty for a clean tree, and for one dirtied only by ignored files —
+    /// build output is not work worth warning about, and plain porcelain
+    /// leaves it out for the same reason `git worktree remove` does not count
+    /// it as dirty.
+    static func uncommittedChanges(in path: String) -> [String] {
+        guard let output = try? GitRunner.run(["status", "--porcelain"], in: path) else { return [] }
+        return output.split(separator: "\n").map(String.init)
+    }
+
     /// Removes a worktree, and optionally its branch. Used by the delete flow,
     /// which always asks first.
+    ///
+    /// `--force` is what lets this proceed at all once the tree is dirty:
+    /// without it git refuses. The caller is expected to have asked about
+    /// anything `uncommittedChanges(in:)` reports, since nothing here can be
+    /// recovered afterwards.
     static func removeWorktree(repository: String, path: String, branch: String?, deleteBranch: Bool) throws {
         try GitRunner.run(["worktree", "remove", "--force", path], in: repository)
         if deleteBranch, let branch {
