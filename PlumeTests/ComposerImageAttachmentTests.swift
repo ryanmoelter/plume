@@ -51,6 +51,61 @@ struct ComposerImageAttachmentTests {
         pasteboard.clearContents()
 
         #expect(ComposerImageAttachment.images(from: pasteboard).isEmpty)
+        #expect(!ComposerImageAttachment.hasImages(on: pasteboard))
+    }
+
+    /// The shape of a Finder drag: the file's URL with its name as text.
+    @Test func imageFileWinsOverTextBesideIt() throws {
+        let fileURL = try writeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(fileURL.absoluteString, forType: .fileURL)
+        item.setString(fileURL.lastPathComponent, forType: .string)
+        pasteboard.writeObjects([item])
+
+        #expect(ComposerImageAttachment.hasImages(on: pasteboard))
+        #expect(ComposerImageAttachment.images(from: pasteboard).count == 1)
+    }
+
+    @Test func textWinsOverBareImageData() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setData(try makePNGData(), forType: .png)
+        item.setString("a snippet", forType: .string)
+        pasteboard.writeObjects([item])
+
+        #expect(!ComposerImageAttachment.hasImages(on: pasteboard))
+        #expect(ComposerImageAttachment.images(from: pasteboard).isEmpty)
+    }
+
+    @Test func nonImageFileProducesNoImages() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try Data("hello".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileURL as NSURL])
+
+        #expect(!ComposerImageAttachment.hasImages(on: pasteboard))
+        #expect(ComposerImageAttachment.images(from: pasteboard).isEmpty)
+    }
+
+    private func writeTemporaryPNG() throws -> URL {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        try makePNGData().write(to: fileURL)
+        return fileURL
     }
 
     private func makePNGData() throws -> Data {
@@ -101,6 +156,27 @@ struct ComposerNSTextViewDragTests {
         #expect(handled)
         #expect(attached.count == 1)
         #expect(attached.first?.mediaType == "image/png")
+    }
+
+    @Test func draggingEnteredClaimsAnImageFileCarryingItsName() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        try makePNGData().write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(fileURL.absoluteString, forType: .fileURL)
+        item.setString(fileURL.lastPathComponent, forType: .string)
+        pasteboard.writeObjects([item])
+
+        let textView = ComposerNSTextView()
+        textView.onAttachImages = { _ in }
+
+        #expect(textView.draggingEntered(FakeDraggingInfo(pasteboard: pasteboard)) == .copy)
     }
 
     @Test func performDragOperationWithNoOnAttachImagesFallsThrough() {
