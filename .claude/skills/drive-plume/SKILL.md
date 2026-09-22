@@ -49,15 +49,21 @@ c setValue target='{"kind":"composer"}' value="hello"
 c clickSpan matching=hello
 c click x=120 y=80
 c hover target='{"id":"group-header","index":0}'
+c key key=j modifiers='["option"]'
+c menu
 c clear
 ```
 
 `invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. A click on a `List` row never fires its tap gesture, which is why task rows carry an `invoke` closure. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
+
+`key` posts a real `NSEvent` down the whole dispatch path, so it is how a keyboard shortcut gets tested. Its `handledBy` names the menu item that owns the chord, and `menu` dumps every item with the chord AppKit actually holds — which is the thing to check when a shortcut does nothing, not what the source asked for.
 
 ## When a control is missing
 
 The server sees only what registers with it. A SwiftUI control with no `plumeID(_:)` is invisible to `list` and `invoke`, and a bare `.onHover` never sees the synthetic pointer. Add `plumeID` (with `label:` on repeated rows) or `plumeHover` at the site and rebuild; never fall back to `.accessibilityIdentifier` or a coordinate click at a guessed position.
 
 ## What this cannot tell you
+
+Whether a menu command *ran*. SwiftUI fills a `focusedSceneValue` only while the app's scene is active, and a hidden instance's never is, so the whole Tab menu and most of the File menu read disabled and their chords do nothing — including chords that work fine for the user. `key` still proves which item owns a chord; `handledByEnabled` tells you the item was disabled, so read a no-op there as the harness, not a bug.
 
 Terminal liveness. A tab's PTY is a real process, so whether it survived a switch is answered by the process tree, not by the window. The "Verifying terminal behavior" section of `CLAUDE.md` has that recipe; use both together when a change touches terminals.

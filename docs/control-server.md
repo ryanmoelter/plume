@@ -60,6 +60,8 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 | `clear` | `windowNumber?` | `{}`; un-hovers everything and removes the overlay, in one window or all |
 | `screenshot` | `path?`, `target?`, `windowNumber?` | `{path, width, height, scale}`; PNG, cropped to the target when given |
 | `hierarchy` | `windowNumber?`, `target?`, `format = "text" \| "json"`, `textLimit = 200` | `{text}` or `{root}` |
+| `key` | `key`, `modifiers? = ["command"\|"shift"\|"option"\|"control"]`, `windowNumber?` | `{chord, keyCode, windowNumber, handledBy?, handledByEnabled?}` |
+| `menu` | — | `{items: [{path, keyEquivalent?, modifiers, isEnabled}]}` for the whole main menu |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -70,6 +72,10 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 **Invoke is a click unless told otherwise.** SwiftUI `Button` actions are not introspectable, so `invoke` on a bare `plumeID` posts a synthetic click at the control's center. A site that passes `invoke:` runs that closure instead and reports `via: "closure"`.
 
 **Clicks go through `SyntheticClick`.** It builds `NSEvent`s for the window, calls `window.makeKey()` (never `NSApp.activate`, which would steal focus), posts the mouse-down, waits 150 ms, then posts the mouse-up. The gap is load-bearing: queued together, AppKit's tracking loop exits before it pumps the run loop, and the click behaves differently from a human one. `docs/selectable-text-link-hang.md` found this.
+
+**Key presses go through `SyntheticKey`.** `key` builds a real `NSEvent` and posts it the way `SyntheticClick` posts a mouse event, so it travels the whole dispatch path — local `.keyDown` monitors first (`TerminalShortcutMonitor`), then the key window's `performKeyEquivalent`, then the menu. The key code is found by translating every code on the active layout with `UCKeyTranslate`, so a chord resolves to whatever key is labelled that character. `handledBy` names the menu item carrying the chord, which is how to tell "the chord reached the wrong command" from "the command did nothing".
+
+**`menu` is the authority on what chord a command carries.** It reads `NSMenuItem.keyEquivalent` after `update()`, not what `PlumeCommands` asked for — the difference is exactly where a rebind goes wrong. `docs/keyboard-shortcuts.md` covers why the two can disagree.
 
 **Hover goes through `plumeHover`, not through events.** SwiftUI's hover tracking answers only the real pointer: a `mouseMoved` posted to the window, sent straight to it, or delivered to the tracking area's owner does nothing, and faking `mouseLocationOutsideOfEventStream` does nothing either. So `.plumeHover { … }` stands in for `.onHover` everywhere. In a debug build it also registers the region's frame with `HoverRegistry`, and `hover` calls the closures itself: regions the pointer left hear `false`, regions it entered hear `true`, nested regions hover together. Every click hovers its point first, the way a real pointer arrives before it presses. A button style's own hover highlight is SwiftUI-internal and stays off.
 
@@ -89,4 +95,5 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 - A synthetic click never fires a `.onTapGesture` on a SwiftUI `List` row, visible or hidden; the row's `Button`s still work. Task rows pass `invoke:` for this reason, and report `value: "selected"` so a driver can confirm the selection.
 - Synthetic clicks do not reorder windows and never activate the app. Launching is what puts a window on the user's Space; `open -j` avoids it.
 - `hover` reaches only `plumeHover` regions. A bare `.onHover`, `.onContinuousHover`, or a button style's hover highlight never sees the synthetic pointer. The real pointer still wins: if it crosses a region, SwiftUI's own callback overrides the synthetic state.
+- **A command gated on a `focusedSceneValue` reads disabled in a scratch instance, and its chord does nothing.** SwiftUI populates those values only while the app's scene is active, which a hidden, never-activated instance never is. Every item in the Tab menu and most of the File menu is affected, including chords that work fine for a real user. `key` still proves which item owns a chord; it cannot prove the item's action ran. Check `handledByEnabled` before reading a no-op as a bug.
 - The server runs on the main thread. A command that blocks the UI blocks the response.
