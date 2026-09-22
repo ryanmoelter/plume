@@ -28,6 +28,14 @@ enum AccessibilityID {
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
 
+    // MARK: Settings
+
+    static let shortcutRecorder = "shortcut-recorder"
+    static let shortcutResetButton = "shortcut-reset-button"
+    static let shortcutResetAllButton = "shortcut-reset-all-button"
+    static let fullDiskAccessOpenButton = "full-disk-access-open-button"
+    static let fullDiskAccessDismissButton = "full-disk-access-dismiss-button"
+
     // MARK: Tab strip
 
     static let tabChip = "tab-chip"

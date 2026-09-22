@@ -64,6 +64,15 @@ struct MenuShortcut: Equatable, Codable {
         flags.intersection([.command, .shift, .option, .control])
     }
 
+    static func eventModifiers(_ flags: NSEvent.ModifierFlags) -> EventModifiers {
+        var modifiers: EventModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return modifiers
+    }
+
     static func appKitFlags(_ modifiers: EventModifiers) -> NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         if modifiers.contains(.command) { flags.insert(.command) }
