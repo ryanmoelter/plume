@@ -116,6 +116,11 @@ final class HeadlessProcess: @unchecked Sendable {
                 let line = String(decoding: lineData, as: UTF8.self)
                 guard let message = StreamJSONDecoder.decode(line: line) else { continue }
                 self.didReceiveMessage = true
+                // Quota is an account-wide fact, so it is recorded once here
+                // rather than per session. Everything else is the session's.
+                if case .rateLimit(let info) = message {
+                    Task { @MainActor in QuotaStore.shared.record(info) }
+                }
                 self.onMessage(message)
             }
         }

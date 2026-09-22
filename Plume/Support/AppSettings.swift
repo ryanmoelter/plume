@@ -36,6 +36,7 @@ final class AppSettings {
         static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
+        static let showsBypassPermissions = "showsBypassPermissions"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -142,6 +143,10 @@ final class AppSettings {
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
+
+        // Unset reads as false: bypassing every permission check is worth
+        // opting into, not stumbling onto.
+        self.showsBypassPermissions = defaults.bool(forKey: Key.showsBypassPermissions)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -373,6 +378,15 @@ final class AppSettings {
             return ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode()
         default:
             return defaultPermissionMode.permissionMode
+        }
+    }
+
+    /// Whether the permission-mode pickers offer `bypassPermissions`. Off by
+    /// default; a mode or default already stored as bypass still decodes and
+    /// displays correctly regardless of this setting.
+    var showsBypassPermissions: Bool {
+        didSet {
+            defaults.set(showsBypassPermissions, forKey: Key.showsBypassPermissions)
         }
     }
 }

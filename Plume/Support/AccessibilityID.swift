@@ -17,6 +17,7 @@ enum AccessibilityID {
     static let archivedTaskUnarchiveButton = "archived-task-unarchive-button"
     static let sidebarSettingsButton = "sidebar-settings-button"
     static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
+    static let sidebarQuotaRow = "sidebar-quota-row"
     static let keepAwakePanel = "keep-awake-panel"
     static let keepAwakeModePicker = "keep-awake-mode-picker"
     static let keepAwakeReasonRow = "keep-awake-reason-row"

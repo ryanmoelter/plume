@@ -66,7 +66,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-Move every shipped issue to Done through the `roadmap` skill. Then rewrite the `Queue position` line on the issues still in Todo so the numbering is dense again.
+Move every shipped issue to Done through the `roadmap` skill.
 
 ## 4. Debug build for manual evaluation
 
@@ -74,6 +74,7 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 
 - Debug build, then `PlumeTests`. Report failures verbatim.
 - Launch the built `Plume.app` from DerivedData (`-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`). Debug writes to `Plume.debug/`, so it runs beside the installed app.
+- **Launch it with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE`.** The app inherits the shell that started it and passes that to every terminal tab it spawns, so launching from an agent's shell leaves each tab's `claude` reading itself as a nested session and skipping its transcript — the chat UI then shows nothing.
 - Walk the process tree from Plume's own PID and read the unified log for errors. Never `pgrep -x Plume` or global-grep `claude`.
 
 Tell the user the app is running and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier.
@@ -87,7 +88,7 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
 - **Check whether you are running inside the installed Plume before installing anything.** `echo $PLUME` says you are in *a* Plume; walking your own ancestry (`ps -o ppid=` up the chain) says *which*. If it is `/Applications/Plume.app`, that bundle is the one about to be replaced — the next bullet covers what that means. Tell the user what you found before running the install, so a surprise restart is not a surprise.
 - **The install may be blocked by the permission classifier**, since it quits an app and writes into `/Applications`. Do not work around that. Say what you were trying to run and hand the user the command; they can approve it or run it themselves.
-- Install with `scripts/install-release.sh`. It quits the installed app, replaces the bundle, verifies it, relaunches, and logs everything to `/tmp/plume-install.log`. With `PLUME` set it re-execs detached so it survives the app it is replacing.
+- Install with `scripts/install-release.sh`. It quits the installed app, replaces the bundle, verifies it, and logs everything to `/tmp/plume-install.log`. With `PLUME` set it re-execs detached so it survives the app it is replacing, and reopens the app afterwards so the session comes back; run from anywhere else it leaves the app closed for you to open.
 - **A session hosted inside Plume survives the install.** The app reopens, restores the session, and you resume with your context intact — so carry on afterwards rather than treating the install as the end of the run. The install itself returns no output, so read `/tmp/plume-install.log` once you are back, then confirm the version in `/Applications/Plume.app/Contents/Info.plist` and that your own ancestry points at the relaunched PID.
 - Do the tag and push **before** the install anyway. The resume is reliable but the install is the one step that replaces the app underneath you, so land anything you would hate to redo first.
 - **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders first (`git rebase --force-rebase --rebase-merges <base>` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit).

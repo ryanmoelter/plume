@@ -139,6 +139,7 @@ struct MainWindow: View {
             KeepAwakeCoordinator.shared.start()
             restoreStatusMonitoring()
             restoreLastOpenTask()
+            StartupWarmPass.shared.warm(directories: StartupWarmPass.directories(for: tasks))
             #if DEBUG
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif
@@ -236,6 +237,11 @@ struct MainWindow: View {
         }
         AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title in
             TitleStore.shared.setTitle(title, forTab: tabID)
+        }
+        HeadlessSessionManager.shared.titleContextProvider = { tabID in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
+            else { return nil }
+            return (tab.transport, tab.task?.title)
         }
         TitleStore.shared.onTitleChanged = { tabID, title in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),

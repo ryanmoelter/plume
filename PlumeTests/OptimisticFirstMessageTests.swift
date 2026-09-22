@@ -115,4 +115,27 @@ struct OptimisticFirstMessageTests {
 
         #expect(message.prose == "typed")
     }
+
+    /// A `!` command's first message is the CLI's bash-mode tags, which read
+    /// as XML if they render as prose.
+    @Test func aCommandRendersAsAShellLineRatherThanProse() {
+        let text = """
+        <bash-input>echo hi</bash-input>
+        <bash-stdout>hi</bash-stdout><bash-stderr></bash-stderr>
+        """
+        let pending = OptimisticFirstMessage(text: text)
+        #expect(pending.message.blocks == [.injected(.shellCommand(command: "echo hi"), text: text)])
+    }
+
+    @Test func aCommandSettlesOnceTheTranscriptCarriesIt() {
+        let text = "<bash-input>echo hi</bash-input>"
+        let pending = OptimisticFirstMessage(text: text)
+        let arrived = ChatMessage(
+            id: "1",
+            role: .user,
+            blocks: [.injected(.shellCommand(command: "echo hi"), text: text)],
+            timestamp: nil
+        )
+        #expect(pending.isSettled(by: [arrived]))
+    }
 }

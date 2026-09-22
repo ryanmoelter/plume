@@ -39,7 +39,7 @@ struct ClaudeCodeSettingsResolverTests {
 
     @Test func unrecognizedModeResolvesToNil() {
         let path = writeFixture("""
-        { "permissions": { "defaultMode": "manual" } }
+        { "permissions": { "defaultMode": "dontAsk" } }
         """)
         #expect(ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode(settingsPath: path) == nil)
     }

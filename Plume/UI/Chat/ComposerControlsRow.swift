@@ -227,7 +227,7 @@ private struct PermissionModeControl: View, ThemedView {
     var body: some View {
         if let mode = state.permissionMode {
             Menu {
-                ForEach(PermissionMode.allCases) { option in
+                ForEach(PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)) { option in
                     Button(option.label, systemImage: option.symbol) { state.setPermissionMode(option) }
                 }
             } label: {
@@ -391,6 +391,7 @@ extension PermissionMode {
     var symbol: String {
         switch self {
         case .plan: return StatusSymbol.plan.name
+        case .manual: return "hand.raised"
         case .acceptEdits: return "pencil.line"
         case .auto: return "bolt.fill"
         case .bypassPermissions: return "exclamationmark.triangle.fill"

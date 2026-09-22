@@ -38,4 +38,27 @@ struct DraftStoreTests {
         #expect(store.draft(forTab: closed) == "")
         #expect(store.draft(forTab: kept) == "kept")
     }
+
+    /// Command mode outlives an empty draft: clearing the text to retype a
+    /// command must not drop the user back into prose.
+    @Test func commandModeSurvivesAnEmptiedDraft() {
+        let store = DraftStore()
+        let tab = UUID()
+        store.setCommandMode(true, forTab: tab)
+        store.setDraft("ls", forTab: tab)
+
+        store.setDraft("", forTab: tab)
+
+        #expect(store.isCommandMode(forTab: tab))
+    }
+
+    @Test func forgettingATabLeavesCommandMode() {
+        let store = DraftStore()
+        let tab = UUID()
+        store.setCommandMode(true, forTab: tab)
+
+        store.forget(tabID: tab)
+
+        #expect(!store.isCommandMode(forTab: tab))
+    }
 }

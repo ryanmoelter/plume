@@ -39,6 +39,9 @@ nonisolated struct ToolCall: Identifiable, Equatable {
     /// themselves instead of as JSON.
     var interactive: InteractiveToolPayload?
     var result: String?
+    /// Whether the tool reported failure, from the result's `is_error`. A
+    /// rejected permission prompt counts, so this is not only a nonzero exit.
+    var didFail = false
     /// Images the tool returned — a screenshot tool returns exactly this.
     var resultImages: [ChatImage] = []
 }

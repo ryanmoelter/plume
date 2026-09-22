@@ -18,8 +18,8 @@ nonisolated struct ToolCallSummary: Equatable {
     private static let maxDetailLength = 60
 
     let name: String
-    /// Already elided. The row draws a trailing `…` whether or not this was
-    /// cut, so the marker means "there is more inside", not "text removed".
+    /// Already elided to `maxDetailLength`, without a marker: the row draws
+    /// it on one line and truncates what does not fit.
     let detail: String?
     let detailStyle: DetailStyle
 

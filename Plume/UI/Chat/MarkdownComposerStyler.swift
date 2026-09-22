@@ -14,9 +14,12 @@ enum MarkdownComposerStyler {
         _ storage: NSTextStorage,
         text: String,
         fontSize: CGFloat,
-        recognizedSlashCommandNames: Set<String> = []
+        recognizedSlashCommandNames: Set<String> = [],
+        isCommandMode: Bool = false
     ) {
-        let bodyFont = NSFont.composerBody(ofSize: fontSize)
+        let bodyFont = isCommandMode
+            ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            : NSFont.composerBody(ofSize: fontSize)
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
 
         storage.beginEditing()
@@ -24,6 +27,13 @@ enum MarkdownComposerStyler {
             .font: bodyFont,
             .foregroundColor: NSColor.labelColor,
         ], range: fullRange)
+
+        // A command is shell, not markdown: highlighting its quotes and
+        // backticks as markup would style the parts that matter most.
+        guard !isCommandMode else {
+            storage.endEditing()
+            return
+        }
 
         let spans = MarkdownHighlighter.spans(in: text)
         for span in spans {

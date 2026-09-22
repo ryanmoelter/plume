@@ -54,7 +54,6 @@ final class HeadlessSession {
     private(set) var streamingText = ""
     private(set) var streamingThinking = ""
 
-    private(set) var rateLimit: RateLimitInfo?
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
     /// that also keeps the figure correct across a `--resume`.
@@ -97,11 +96,25 @@ final class HeadlessSession {
     private(set) var hasReportedModeAndModel = false
 
     /// Messages typed while a turn is in flight, sent when it finishes.
-    private(set) var queuedMessages: [String] = []
+    private(set) var queuedMessages: [[UserContentBlock]] = []
 
     private var process: HeadlessProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var nextRequestNumber = 0
+
+    /// Decides when to ask the CLI to name this conversation.
+    private var titleRequester = SessionTitleRequester()
+
+    /// Supplies the tab facts the title policy needs — the transport and the
+    /// task's user-given name. Set by whoever owns the session, so this type
+    /// keeps its distance from SwiftData, the same way `TitleStore` does.
+    @ObservationIgnored
+    var titleContextProvider: ((UUID) -> (transport: AgentTransport, userTaskName: String?)?)?
+
+    /// The first thing the user said, kept as the text a title is drawn from.
+    /// Captured here rather than read back from the transcript, which the
+    /// opening turn has not been written to yet.
+    private var openingMessage: String?
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
     /// effort, so a resumed session's control shows it immediately instead of
@@ -199,29 +212,44 @@ final class HeadlessSession {
     // MARK: - Sending
 
     func submit(text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        submit(blocks: [.text(text)])
+    }
+
+    /// Whether the text went to the agent now or is waiting its turn. A
+    /// caller cannot tell by reading `isWorking` afterwards, because sending
+    /// starts a turn and so always leaves it true.
+    enum Delivery {
+        case sent
+        case queued
+    }
+
+    @discardableResult
+    func submit(blocks: [UserContentBlock]) -> Delivery {
+        let normalized = blocks.normalized
+        guard normalized.hasContent else { return .queued }
         guard !isWorking else {
-            queuedMessages.append(trimmed)
-            return
+            queuedMessages.append(normalized)
+            return .queued
         }
+        if openingMessage == nil { openingMessage = normalized.plainText }
         beginTurn()
-        guard send(StreamJSONEncoder.userTurn(text: trimmed)) else {
+        guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
             // message queued means a restart can still deliver it, instead of
             // losing what the user typed to a silent drop.
-            queuedMessages.append(trimmed)
+            queuedMessages.append(normalized)
             isWorking = false
             if lastError == nil { lastError = "claude is not running; the message was not sent" }
-            return
+            return .queued
         }
+        return .sent
     }
 
     /// Removes and returns the queued message at `index`, so a caller can
-    /// both dequeue it and recover its text (e.g. to edit it in the
+    /// both dequeue it and recover its content (e.g. to edit it in the
     /// composer). Nil when the index is out of range.
     @discardableResult
-    func removeQueuedMessage(at index: Int) -> String? {
+    func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
         return queuedMessages.remove(at: index)
     }
@@ -241,6 +269,23 @@ final class HeadlessSession {
     func setModel(_ newModel: AgentModel) {
         model = newModel
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
+    }
+
+    /// Asks the CLI to name the conversation.
+    ///
+    /// The reply is what delivers the title. The CLI also writes an
+    /// `ai-title` line, but only for a session's first title, so a re-title
+    /// reaches the UI from here or not at all.
+    func requestSessionTitle(description: String) {
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .generateSessionTitle
+        guard send(StreamJSONEncoder.generateSessionTitle(
+            description: description,
+            requestID: requestID
+        )) else {
+            pendingControlRequests[requestID] = nil
+            return
+        }
     }
 
     /// Publishes this conversation to claude.ai/code, or tears that down.
@@ -349,8 +394,8 @@ final class HeadlessSession {
     /// message directly, without a real process.
     func handle(_ message: StreamJSONMessage) {
         switch message {
-        case .rateLimit(let info):
-            rateLimit = info
+        case .rateLimit:
+            break  // QuotaStore records it; the quota is account-wide, not per session.
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
@@ -475,7 +520,23 @@ final class HeadlessSession {
                 enabled: enabled,
                 current: remoteControl
             ))
+        case .generateSessionTitle:
+            applyGeneratedTitle(in: response)
         }
+    }
+
+    /// Titling is best-effort. A description the CLI will not title is
+    /// answered with a null title rather than an error, so both outcomes
+    /// mean the same thing here: keep whatever the tab is already called.
+    private func applyGeneratedTitle(in response: ControlResponse) {
+        if response.isError {
+            Log.agent.error("Session title request failed: \(response.errorMessage ?? "unknown", privacy: .public)")
+            return
+        }
+        guard let title = response.payload["title"]?.stringValue,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        TitleStore.shared.setTitle(title, forTab: tabID)
     }
 
     private func applyReportedCommands(in response: ControlResponse) {
@@ -531,14 +592,54 @@ final class HeadlessSession {
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
         wasInterrupted = false
+        requestTitleIfDue()
         sendNextQueuedMessage()
+    }
+
+    /// Asked at the end of a turn, when the conversation has just gained
+    /// whatever the title would describe.
+    private func requestTitleIfDue() {
+        guard let tab = titleContextProvider?(tabID) else { return }
+        let plan = TranscriptStore.shared.transcript(forTab: tabID)?.planFilePath
+        let context = SessionTitleRequester.Context(
+            transport: tab.transport,
+            userTaskName: tab.userTaskName,
+            isWorking: isWorking,
+            openingMessage: openingMessage,
+            planFilePath: plan,
+            planTitle: plan.flatMap(Self.planHeading(atPath:)),
+            hasExistingTitle: hasGeneratedTitle
+        )
+        guard let description = titleRequester.descriptionForTitleRequest(context) else { return }
+        requestSessionTitle(description: description)
+    }
+
+    /// Whether this conversation has already been named by a model, as
+    /// opposed to labelled with the first user message.
+    ///
+    /// Read from the transcript rather than from `TitleStore`, which cannot
+    /// tell the two apart: `AgentTitleMonitor` publishes
+    /// `bestAvailableTitle`, so a tab showing its opening message reads as
+    /// titled and would never be given a real one.
+    private var hasGeneratedTitle: Bool {
+        guard let path = TranscriptStore.shared.watchedPath(forTab: tabID)
+        else { return false }
+        return SessionJSONLReader.latestAITitle(atPath: path) != nil
+    }
+
+    /// What a plan calls itself, for titling from the plan rather than the
+    /// opening message. Nil while the file is empty or has no heading yet,
+    /// which is the ordinary state early in a plan the agent is still writing.
+    private static func planHeading(atPath path: String) -> String? {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        return PlanSummary.title(of: contents)
     }
 
     private func sendNextQueuedMessage() {
         guard !queuedMessages.isEmpty else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
-        guard send(StreamJSONEncoder.userTurn(text: next)) else {
+        guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
             queuedMessages.insert(next, at: 0)
             isWorking = false
             return
@@ -588,5 +689,6 @@ final class HeadlessSession {
     private enum PendingControlRequest {
         case initialize
         case remoteControl(enabled: Bool)
+        case generateSessionTitle
     }
 }

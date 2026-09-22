@@ -4,11 +4,12 @@ import Foundation
 /// The statusline strip's meters: context-window use, 5h/7d quota and session
 /// cost — a native equivalent of `~/.scripts/.claude/statusline.sh`.
 ///
-/// Everything is a plain parameter so it previews and renders without a
-/// store. `contextMaxTokens` may be a measured value or the model's assumed
-/// window — the label makes no distinction, by design. Quota and cost only
-/// reach a headless session, so those segments render only when the stream
-/// has pushed them.
+/// Context and cost are plain parameters, per session. Quota is not: it
+/// belongs to the account, so it comes from `QuotaStore.shared` and reads the
+/// same in every chat. `contextMaxTokens` may be a measured value or the
+/// model's assumed window — the label makes no distinction, by design. Cost
+/// only reaches a headless session, so that segment renders only when the
+/// stream has pushed it.
 ///
 /// Each meter stacks its reading over its bar. Side by side the two ran the
 /// full width of the panel for what is a percentage; stacked, the bar can be
@@ -40,20 +41,22 @@ struct StatuslineStripView: View, ThemedView {
     let contextMaxTokens: Int?
 
     // Stream-derived, headless only — nil segments are simply omitted.
-    let rateLimit: RateLimitInfo?
     let sessionCostUSD: Double?
+
+    /// Account-wide, so it comes from the shared store rather than from the
+    /// session this strip belongs to: a chat that has not taken a turn in an
+    /// hour still shows what the account heard a moment ago.
+    @State private var quota = QuotaStore.shared
 
     init(
         layout: StatuslineStripLayout = .wide,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
-        rateLimit: RateLimitInfo? = nil,
         sessionCostUSD: Double? = nil
     ) {
         self.layout = layout
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
-        self.rateLimit = rateLimit
         self.sessionCostUSD = sessionCostUSD
     }
 
@@ -65,6 +68,14 @@ struct StatuslineStripView: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .onAppear { quota.startTicking() }
+    }
+
+    private var rateLimit: RateLimitInfo? { quota.snapshot?.rateLimit }
+
+    private var isStale: Bool {
+        guard let snapshot = quota.snapshot else { return false }
+        return QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
     }
 
     // MARK: - Layouts
@@ -79,7 +90,10 @@ struct StatuslineStripView: View, ThemedView {
                     label: "5h",
                     utilization: fiveHour.utilization,
                     resetsAt: fiveHour.resetsAt,
-                    barWidth: StatuslineMeterWidth.shortQuota
+                    now: quota.now,
+                    isStale: isStale,
+                    barWidth: StatuslineMeterWidth.shortQuota,
+                    windowLength: QuotaWindowLength.fiveHour
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
@@ -88,7 +102,10 @@ struct StatuslineStripView: View, ThemedView {
                     label: "7d",
                     utilization: sevenDay.utilization,
                     resetsAt: sevenDay.resetsAt,
-                    barWidth: StatuslineMeterWidth.quota
+                    now: quota.now,
+                    isStale: isStale,
+                    barWidth: StatuslineMeterWidth.quota,
+                    windowLength: QuotaWindowLength.sevenDay
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
             }
@@ -112,8 +129,11 @@ struct StatuslineStripView: View, ThemedView {
                     label: "5h",
                     utilization: fiveHour.utilization,
                     resetsAt: fiveHour.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.shortQuota,
-                    showsReading: false
+                    showsReading: false,
+                    windowLength: QuotaWindowLength.fiveHour
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
@@ -122,8 +142,11 @@ struct StatuslineStripView: View, ThemedView {
                     label: "7d",
                     utilization: sevenDay.utilization,
                     resetsAt: sevenDay.resetsAt,
+                    now: quota.now,
+                    isStale: isStale,
                     barWidth: StatuslineMeterWidth.quota,
-                    showsReading: false
+                    showsReading: false,
+                    windowLength: QuotaWindowLength.sevenDay
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
             }
@@ -207,6 +230,20 @@ enum StatuslineMeterWidth {
     static let context: CGFloat = 50
     static let quota: CGFloat = 36
     static let shortQuota: CGFloat = 28
+
+    /// The sidebar footer has width the statusline does not — it is not
+    /// competing with a branch chip — so its quota bars run half again as
+    /// long. Kept apart from the strip's own widths rather than raising
+    /// those, which would widen the chat meters too.
+    static let sidebarQuota: CGFloat = 54
+    static let sidebarShortQuota: CGFloat = 42
+}
+
+/// How long each quota window runs, for deriving how far through it the clock
+/// is: the stream reports only when a window resets, never when it opened.
+enum QuotaWindowLength {
+    static let fiveHour: TimeInterval = 5 * 3600
+    static let sevenDay: TimeInterval = 7 * 86400
 }
 
 /// A reading over its bar — the shape every meter in the strip takes.
@@ -221,18 +258,33 @@ struct StackedMeter: View, ThemedView {
     /// bar; the reading still reaches VoiceOver, as the bar's
     /// `accessibilityValue`, rather than disappearing with the label.
     var showsReading: Bool = true
+    var pacing: Double?
+    /// Leading rather than centered, for a row whose bars have to line up
+    /// with content below them.
+    var readingAlignment: HorizontalAlignment = .center
+    /// Steps the fill and the reading back one emphasis level. Deliberately
+    /// not an opacity over the whole meter: the track and the pacing mark are
+    /// already faint by design, and dimming them too would fade the frame the
+    /// reading is measured against rather than the reading itself.
+    var isStale: Bool = false
 
     var body: some View {
-        let bar = MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
-            .frame(width: barWidth)
+        let bar = MeterView(
+            fraction: fraction,
+            color: StatuslineColors.meter(for: attention, colors: colors),
+            pacing: pacing,
+            isStale: isStale
+        )
+        .frame(width: barWidth)
         if showsReading {
             // Centered rather than leading: the reading and the bar rarely
             // share a width (a short reading over a long bar, or the
             // reverse), and centering is what keeps whichever is narrower
             // looking placed rather than merely left-aligned with the other.
-            VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
+            VStack(alignment: readingAlignment, spacing: dimensions.statuslineMeterSpacing) {
                 Text(reading)
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
+                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
                 bar
             }
@@ -252,11 +304,22 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// once, here, rather than by each caller.
     let utilization: Double
     let resetsAt: Date?
+    /// Supplied by `QuotaStore`'s tick rather than read as `Date()`, so the
+    /// countdown re-renders every minute instead of at whatever else happens
+    /// to invalidate the view.
+    var now: Date = Date()
+    /// Dims the whole meter once the reading is old enough that presenting it
+    /// at full strength would overstate what is known.
+    var isStale: Bool = false
     /// Bar length carries how finely the number is worth reading. Context
     /// deserves the most precision, then the seven-day window; the five-hour
     /// quota moves fast enough that its exact percent matters least.
     var barWidth: CGFloat = StatuslineMeterWidth.quota
     var showsReading: Bool = true
+    /// The window's own length, which turns `resetsAt` into how far through
+    /// it the clock is. Nil draws no pacing band.
+    var windowLength: TimeInterval?
+    var readingAlignment: HorizontalAlignment = .center
 
     var body: some View {
         let percent = utilization * 100
@@ -265,27 +328,34 @@ struct StatuslineMeterSegment: View, ThemedView {
             fraction: StatuslineMeterMath.fraction(percent: percent),
             barWidth: barWidth,
             attention: StatuslineAttention.attention(percent: percent),
-            showsReading: showsReading
+            showsReading: showsReading,
+            pacing: windowLength.flatMap {
+                QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0)
+            },
+            readingAlignment: readingAlignment,
+            isStale: isStale
         )
         .help(helpText)
     }
 
+    /// Two lines: what has been spent against how much of the window has
+    /// gone, then when it refills. The elapsed share is what the pacing mark
+    /// draws, said in words — the mark shows the comparison but not the
+    /// number behind it.
     private var helpText: String {
-        guard resetLabel != label else { return "\(label) quota used" }
-        return "\(label) quota used, resetting in \(resetLabel)"
+        var first = "\(Int((utilization * 100).rounded()))% of \(label) quota used"
+        if let windowLength,
+           let elapsed = QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: windowLength) {
+            first += ", \(Int((elapsed * 100).rounded()))% of time elapsed"
+        }
+        if isStale { first += " (last heard over 30 minutes ago)" }
+        guard let resetsAt else { return first }
+        let reset = QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now)
+        return "\(first)\nResetting at \(reset)"
     }
 
     private var resetLabel: String {
-        guard let resetsAt else { return label }
-        let seconds = resetsAt.timeIntervalSinceNow
-        guard seconds > 0 else { return label }
-        if seconds >= 86400 {
-            return "\(Int((seconds + 43200) / 86400))d"
-        }
-        if seconds >= 3600 {
-            return "\(Int((seconds + 1800) / 3600))h"
-        }
-        return "\(Int((seconds + 30) / 60))m"
+        QuotaFreshness.resetLabel(resetsAt: resetsAt, now: now, fallback: label)
     }
 }
 
@@ -426,6 +496,13 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
+    /// How far through the window the clock is, 0–1. Drawn as a dot on the
+    /// bar, so the fill's position against it reads the same whether the fill
+    /// is short of it or past it. Nil draws nothing, which is what every
+    /// non-quota meter wants — a context window does not refill on a clock.
+    var pacing: Double?
+    /// Dims the fill alone. The track stays put — see `StackedMeter.isStale`.
+    var isStale: Bool = false
 
     private var trackOpacity: Double {
         colors.emphasis[.divider]
@@ -433,15 +510,86 @@ struct MeterView: View, ThemedView {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .leading) {
+            // Centred vertically as well as leading, so the dot sits on the
+            // bar's midline rather than its top edge.
+            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
+                let fillWidth = geometry.size.width * fraction
+                let mark = pacing.flatMap { pacing in
+                    PacingMark.isWorthDrawing(pacing)
+                        ? PacingMark.offset(pacing: pacing, barWidth: geometry.size.width)
+                        : nil
+                }
+
                 Capsule()
                     .fill(color.opacity(trackOpacity))
+
+                // The dot is drawn twice at the one position: once here, over
+                // the track, and once clipped to the fill. Each copy carries
+                // the contrast its own ground needs, so a dot straddling the
+                // fill's edge reads whole instead of changing shape there —
+                // which is exactly where the comparison matters most.
+                if let mark {
+                    dot(at: mark, isOverFill: false)
+                }
+
                 Capsule()
                     .fill(color)
-                    .frame(width: geometry.size.width * fraction)
+                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
+                    .frame(width: fillWidth)
+
+                if let mark {
+                    dot(at: mark, isOverFill: true)
+                        .frame(width: fillWidth, alignment: .leading)
+                        .clipped()
+                }
             }
         }
-        .frame(height: 5)
+        .frame(height: PacingMark.barHeight)
+    }
+
+    /// One copy of the dot. `isOverFill` picks the contrast for the ground
+    /// it lands on: full strength against the faint track, stepped back
+    /// against the fill's solid color, which needs less to read against.
+    private func dot(at offset: CGFloat, isOverFill: Bool) -> some View {
+        let ground = colors.background ?? Color(nsColor: .windowBackgroundColor)
+        return Circle()
+            .fill(ground.opacity(isOverFill ? colors.emphasis[.secondary] : 1))
+            .frame(width: PacingMark.width, height: PacingMark.width)
+            .offset(x: offset)
+    }
+}
+
+/// The pacing mark's look, shared so the sidebar and the statusline draw the
+/// same thing at different bar lengths.
+enum PacingMark {
+    /// The meter's own height, which the dot is sized against.
+    static let barHeight: CGFloat = 5
+
+    /// A dot rather than a full-height line, so the track shows above and
+    /// below it. That margin is what keeps the mark reading as a position
+    /// once the pacing nears the end of the bar, where a full-height mark
+    /// merges into the bar's own rounded cap.
+    ///
+    /// Sized to leave a ring of track either side; a dot as tall as the bar
+    /// would read as a fat line with rounded ends instead.
+    static let width: CGFloat = 3.5
+
+    /// Below this the mark sits on the bar's own rounded end, where it reads
+    /// as a nick in the capsule rather than as a position — and a window
+    /// that just opened has nothing to say anyway.
+    static let minimumPacing = 0.02
+
+    static func isWorthDrawing(_ pacing: Double) -> Bool {
+        pacing >= minimumPacing
+    }
+
+    /// Where the dot sits, which is its true position and nothing else: the
+    /// two-layer draw means it no longer has to dodge the fill's edge.
+    ///
+    /// Inset by the dot's own width so it stays whole at either end instead
+    /// of half-hanging off the bar.
+    static func offset(pacing: Double, barWidth: CGFloat) -> CGFloat {
+        max(barWidth - width, 0) * pacing
     }
 }
 
@@ -457,11 +605,6 @@ struct MeterView: View, ThemedView {
     StatuslineStripView(
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
-        rateLimit: RateLimitInfo(
-            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
-            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
-            isUsingOverage: false
-        ),
         sessionCostUSD: 4.32
     )
     .frame(width: 640)
@@ -472,11 +615,6 @@ struct MeterView: View, ThemedView {
         layout: .stacked,
         contextUsedTokens: 620_000,
         contextMaxTokens: 1_000_000,
-        rateLimit: RateLimitInfo(
-            fiveHour: .init(utilization: 0.45, resetsAt: Date().addingTimeInterval(3600 * 2)),
-            sevenDay: .init(utilization: 0.91, resetsAt: Date().addingTimeInterval(86400 * 3)),
-            isUsingOverage: false
-        ),
         sessionCostUSD: 4.32
     )
     .frame(width: 100)

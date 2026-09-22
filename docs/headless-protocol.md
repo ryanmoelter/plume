@@ -83,6 +83,23 @@ Three things follow.
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}
 ```
 
+`content` is always an array of blocks, even for one line of text.
+
+### Images in a turn
+
+An image rides as a base64 block beside the text, in the same `source` shape the transcript records it in:
+
+```json
+{"type":"user","message":{"role":"user","content":[
+  {"type":"text","text":"what's wrong with this?"},
+  {"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0…"}}]}}
+```
+
+- **Only `type: "base64"` sources are modeled.** A URL source would need a fetch, which neither the composer nor the transcript parser may do.
+- `media_type` is one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`. `ComposerImageAttachment` re-encodes anything else (a screenshot's TIFF, a HEIC) as PNG rather than refusing it.
+- The wire form and the transcript form are the same form, so an image Plume sends parses back through `TranscriptBlock` as the block that rendered it. `UserContentBlockTests` locks that round trip.
+- A block over `ChatImage.maxBase64Length` is dropped rather than sent — it would exhaust the turn's token budget, and it renders as a placeholder anyway.
+
 **One process serves the whole conversation.** Verified: three turns down one stdin kept a single `session_id`, and turn 2 recalled a number given in turn 1. There is no need to re-spawn or `--resume` between turns — `--resume` is for picking a conversation back up in a *new* process.
 
 Each turn ends with exactly one `result` event. Treat `result` as the turn boundary, not the process boundary.
@@ -178,11 +195,49 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 | `set_cwd` | | Moves the working directory |
 | `get_settings` / `update_settings` | | Read and write session settings |
 | `rewind_files` | `dry_run` | Undo file changes |
-| `generate_session_title` | | Ask the CLI to title the session |
+| `generate_session_title` | `description` | Ask the CLI to title the session — see below |
 | `mcp_message` | `server_name`, `message` | Host-provided MCP servers |
 | `hook_callback` | `callback_id`, `input` | In-process hooks, no shell scripts |
 
 `set_permission_mode` and `set_model` replace what Plume does today by pasting `/model` or sending Shift+Tab.
+
+## Session titles — `generate_session_title`
+
+Verified first-hand against 2.1.276.
+
+**Claude Code auto-titles only the interactive TUI.** A headless conversation never writes an `ai-title` line on its own, however long it runs, which is why `SessionJSONLReader` falls back to the first user message. This request is how a headless host gets a real title.
+
+```json
+{"type":"control_request","request_id":"plume-7","request":{
+  "subtype":"generate_session_title",
+  "description":"Help me add OAuth2 login with Google to my Flask app."}}
+```
+
+**`description` is required and must be a string.** Omitting it is refused outright:
+
+```json
+{"subtype":"error","request_id":"plume-7","error":"generate_session_title: description must be a string"}
+```
+
+The title is generated from `description`, *not* from the conversation — the CLI does not read the transcript to write it. So the caller chooses what the title describes. A success:
+
+```json
+{"subtype":"success","request_id":"plume-7","response":{"title":"OAuth2 login with Google in Flask"}}
+```
+
+**The CLI also appends the title to the transcript**, as the same line the TUI writes:
+
+```json
+{"type":"ai-title","aiTitle":"OAuth2 login with Google","sessionId":"dcf361e4-…"}
+```
+
+That side effect is what makes this cheap to adopt: `AgentTitleMonitor` already watches for `ai-title`, and `SessionJSONLReader.latestAITitle` already reads it, so a first title reaches `TitleStore` and the sidebar with no new delivery path.
+
+**Only the first title of a session is written to the transcript, though.** Asking again returns a new title in the control response, and the transcript keeps the original — measured by titling one session twice and finding two identical `ai-title` lines against two different replies. So the control response is the authoritative delivery path, not a shortcut past the watcher's debounce: a re-title reaches the UI only because `HeadlessSession` applies the reply itself. It also means `latestAITitle` answers "has this session ever been titled", which is what `SessionTitleRequester` uses it for.
+
+**An empty `description` is answered with `{"title": null}`**, not an error. So a decline and a failure are distinct — null means the CLI had nothing to work with, an `error` subtype means the request was malformed — and neither ever yields a bad title string. Plume treats both the same way: keep whatever the tab is already called.
+
+`SessionTitleRequester` decides when to ask, since every request is a model call: once when the conversation has something to describe, again when a plan file names the work better than the opening message did, and every tenth turn after that. Never on the terminal transport, whose TUI titles itself.
 
 ## Remote Control — `remote_control`
 
