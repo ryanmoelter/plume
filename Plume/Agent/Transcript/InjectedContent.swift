@@ -10,6 +10,12 @@ import Foundation
 nonisolated enum InjectedContent: Equatable {
     /// Genuinely typed by the user.
     case userMessage
+    /// Text the user pasted, which Claude Code wraps before sending. Unlike
+    /// every other wrapper here it holds the user's own words, so it reads as
+    /// prose rather than a marker.
+    case pastedContent
+    /// A message another Claude session sent this one.
+    case agentMessage(name: String?)
     /// A skill's body, injected when the skill is invoked.
     case skill(name: String)
     /// A slash command the user ran, from its `<command-name>` block.
@@ -34,7 +40,18 @@ nonisolated enum InjectedContent: Equatable {
     case compactSummary
 
     /// Whether this should render as the user's own prose.
-    var isUserProse: Bool { self == .userMessage }
+    var isUserProse: Bool {
+        switch self {
+        case .userMessage, .pastedContent: return true
+        default: return false
+        }
+    }
+
+    /// Whether this renders as a bubble in another agent's voice.
+    var isAgentMessage: Bool {
+        if case .agentMessage = self { return true }
+        return false
+    }
 
     /// Whether this is a `!` command or its output, which render together as
     /// one block rather than as a marker.
@@ -49,7 +66,8 @@ nonisolated enum InjectedContent: Equatable {
     /// marker.
     var markerLabel: String? {
         switch self {
-        case .userMessage: return nil
+        case .userMessage, .pastedContent: return nil
+        case .agentMessage(let name): return "Message from \(name ?? "another agent")"
         case .skill(let name): return "Skill: \(name)"
         case .slashCommand(let name, let arguments):
             guard let arguments else { return name }
@@ -70,7 +88,8 @@ nonisolated enum InjectedContent: Equatable {
     /// An SF Symbol for the marker row.
     var markerSymbol: String {
         switch self {
-        case .userMessage: return "person"
+        case .userMessage, .pastedContent: return "person"
+        case .agentMessage: return "bubble.left.and.bubble.right"
         case .skill: return "wand.and.stars"
         case .slashCommand, .commandOutput: return "chevron.forward.square"
         case .commandCaveat: return "info.circle"
@@ -93,7 +112,8 @@ nonisolated enum InjectedContent: Equatable {
     /// wrapper blocks and command output that monospace serves better.
     var bodyStyle: BodyStyle {
         switch self {
-        case .commandOutput, .commandCaveat, .compactSummary: return .markdown
+        case .commandOutput, .commandCaveat, .compactSummary, .pastedContent, .agentMessage:
+            return .markdown
         default: return .monospaced
         }
     }
@@ -102,7 +122,12 @@ nonisolated enum InjectedContent: Equatable {
     /// wrapper tag, so the row renders the content rather than the
     /// transcript's XML.
     func bodyText(_ raw: String) -> String {
-        bodyStyle == .markdown ? Self.unwrapped(raw) : raw
+        switch self {
+        case .agentMessage:
+            return Self.element(named: Self.agentMessageTag, in: raw)?.body ?? raw
+        default:
+            return bodyStyle == .markdown ? Self.unwrapped(raw) : raw
+        }
     }
 
     /// The contents of a string that is entirely one `<tag>…</tag>` element,
@@ -112,13 +137,62 @@ nonisolated enum InjectedContent: Equatable {
         guard trimmed.hasPrefix("<"), !trimmed.hasPrefix("</"),
               let openEnd = trimmed.firstIndex(of: ">")
         else { return text }
-        let name = trimmed[trimmed.index(after: trimmed.startIndex)..<openEnd].prefix { !$0.isWhitespace }
-        let close = "</\(name)>"
-        guard !name.isEmpty, trimmed.hasSuffix(close) else { return text }
-        let bodyEnd = trimmed.index(trimmed.endIndex, offsetBy: -close.count)
+        let name = String(
+            trimmed[trimmed.index(after: trimmed.startIndex)..<openEnd].prefix { !$0.isWhitespace }
+        )
+        guard !name.isEmpty,
+              let closeStart = closeTagStart(of: name, endingAt: trimmed.endIndex, in: trimmed)
+        else { return text }
         let openAfter = trimmed.index(after: openEnd)
-        guard openAfter <= bodyEnd else { return text }
-        return trimmed[openAfter..<bodyEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard openAfter <= closeStart else { return text }
+        return String(trimmed[openAfter..<closeStart]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Where the close tag for `name` begins, when the string ends with one.
+    ///
+    /// Claude Code's paste wrapper repeats the open tag's attributes in the
+    /// close tag — `</pasted_content id="fc7b">` — so a plain `</name>`
+    /// suffix test never matches. Anything between the name and the final
+    /// `>` is accepted as long as the tag closes the string.
+    private static func closeTagStart(
+        of name: String,
+        endingAt end: String.Index,
+        in text: String
+    ) -> String.Index? {
+        guard text[..<end].hasSuffix(">") else { return nil }
+        let open = "</\(name)"
+        guard let range = text.range(of: open, options: .backwards, range: text.startIndex..<end)
+        else { return nil }
+        let afterName = text[range.upperBound..<text.index(before: end)]
+        // A longer name that merely starts with this one closes a different
+        // element.
+        guard afterName.first.map({ $0.isWhitespace }) ?? true else { return nil }
+        return range.lowerBound
+    }
+
+    /// The open tag's attribute text and body of the first `<name …>…</name>`
+    /// element in the string, wherever it sits.
+    private static func element(named name: String, in text: String) -> (attributes: String, body: String)? {
+        guard let openStart = text.range(of: "<\(name)"),
+              let openEnd = text[openStart.upperBound...].firstIndex(of: ">")
+        else { return nil }
+        let attributes = String(text[openStart.upperBound..<openEnd])
+        guard attributes.isEmpty || attributes.first!.isWhitespace else { return nil }
+        let bodyStart = text.index(after: openEnd)
+        guard let close = text.range(of: "</\(name)>", range: bodyStart..<text.endIndex) else { return nil }
+        let body = String(text[bodyStart..<close.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (attributes, body)
+    }
+
+    private static let agentMessageTag = "cross-session-message"
+
+    /// The sending session's name, from the open tag's `from-name`.
+    private static func attribute(_ name: String, in attributes: String) -> String? {
+        guard let key = attributes.range(of: "\(name)=\"") else { return nil }
+        guard let close = attributes[key.upperBound...].firstIndex(of: "\"") else { return nil }
+        let value = String(attributes[key.upperBound..<close])
+        return value.isEmpty ? nil : value
     }
 
     /// Classifies one user line from its text and `isMeta` flag.
@@ -160,7 +234,17 @@ nonisolated enum InjectedContent: Equatable {
         if trimmed.hasPrefix("<task-notification") {
             return .taskNotification
         }
-        if trimmed.hasPrefix("<system-reminder") || trimmed.hasPrefix("<cross-session-message") {
+        if trimmed.hasPrefix("<pasted_content") {
+            return .pastedContent
+        }
+        // Claude Code wraps the peer's message in boilerplate on both sides,
+        // so the tag opens a line rather than the text. Requiring a line of
+        // its own keeps prose that mentions the tag mid-sentence the user's.
+        if trimmed.range(of: "\n<\(agentMessageTag)") != nil || trimmed.hasPrefix("<\(agentMessageTag)"),
+           let element = element(named: agentMessageTag, in: trimmed) {
+            return .agentMessage(name: attribute("from-name", in: element.attributes))
+        }
+        if trimmed.hasPrefix("<system-reminder") {
             return .systemNote
         }
         if trimmed.hasPrefix("[Request interrupted") {

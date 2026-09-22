@@ -246,6 +246,9 @@ enum ChatOutlineBuilder {
             }
         }
         guard piece.role == .user else { return nil }
+        // Another agent's message arrives under the user's role but is not
+        // the user speaking, so it anchors nothing.
+        guard piece.wash != .agentBubble else { return nil }
         switch piece.content {
         case .injected(let content, let text):
             // An interruption is the user reaching for the conversation
@@ -298,6 +301,8 @@ enum ChatOutlineBuilder {
             toolCallWeight
         case .injected(_, let text):
             proseWeight(of: text, block: nil)
+        case .agentMessageTitle:
+            toolCallWeight
         case .notice(let notice):
             proseWeight(of: notice.title, block: nil)
         case .image:
