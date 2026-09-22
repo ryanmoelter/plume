@@ -203,10 +203,10 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [],
             remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor)],
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)],
             allowsRemoteControl: false
         )
-        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor)])
+        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor, description: nil)])
     }
 
     /// The assertion type escalates for remote clients, so dropping the
@@ -238,10 +238,10 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [],
             remoteControlledTabs: [],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor)]
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)]
         )
 
-        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor)])
+        #expect(reasons.map(\.kind) == [.backgroundTask(.monitor, description: nil)])
         #expect(KeepAwakeCoordinator.decide(
             reasons: reasons, mode: .auto, power: ac, allowsBattery: false, batteryCutoffPercent: 20
         ) == .hold(SleepAssertionRequest(
@@ -256,12 +256,12 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
             remoteControlledTabs: [],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .backgroundCommand)]
+            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .backgroundCommand, description: nil)]
         )
 
         #expect(reasons.count == 2)
         #expect(reasons.contains { $0.kind == .working(.working) })
-        #expect(reasons.contains { $0.kind == .backgroundTask(.backgroundCommand) })
+        #expect(reasons.contains { $0.kind == .backgroundTask(.backgroundCommand, description: nil) })
     }
 
     @Test func theTallyCountsBackgroundTasksSeparately() {
@@ -293,7 +293,7 @@ struct KeepAwakeTests {
             reasons: KeepAwakeCoordinator.deriveReasons(
                 activeTabs: [],
                 remoteControlledTabs: [],
-                backgroundTaskTabs: [(taskID: taskID, tabID: UUID(), kind: .monitor)]
+                backgroundTaskTabs: [(taskID: taskID, tabID: UUID(), kind: .monitor, description: nil)]
             ),
             mode: .auto
         )
@@ -305,8 +305,8 @@ struct KeepAwakeTests {
                 activeTabs: [(taskID: taskID, tabID: UUID(), status: .working)],
                 remoteControlledTabs: [],
                 backgroundTaskTabs: [
-                    (taskID: taskID, tabID: UUID(), kind: .monitor),
-                    (taskID: taskID, tabID: UUID(), kind: .backgroundCommand),
+                    (taskID: taskID, tabID: UUID(), kind: .monitor, description: nil),
+                    (taskID: taskID, tabID: UUID(), kind: .backgroundCommand, description: nil),
                 ]
             ),
             mode: .auto

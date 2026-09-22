@@ -63,6 +63,31 @@ struct BackgroundTaskParsingTests {
         ))
 
         #expect(started.id == "a9f6aae3ce9a5e485")
+        #expect(started.description == "Write poem stanza 1 of 4")
+    }
+
+    /// A build that explains the id in that parenthesis rather than naming
+    /// the agent's task puts a sentence where a title goes.
+    @Test func anIDExplanationIsNotATitle() throws {
+        let started = try #require(BackgroundTaskResult.parse("""
+        agentId: a9f6aae3ce9a5e485 (internal ID - do not mention to user. Use SendMessage to continue this agent.)
+        """))
+
+        #expect(started.description == nil)
+    }
+
+    /// Neither the Monitor nor the Bash acknowledgement names what the task
+    /// is for, so the scanner has to take it from the call instead.
+    @Test func theMonitorAndBashAcknowledgementsNameNoDescription() throws {
+        let monitor = try #require(BackgroundTaskResult.parse(
+            "Monitor started (task b7hk5cik9, timeout 1800000ms). You will be notified on each event."
+        ))
+        let command = try #require(BackgroundTaskResult.parse(
+            "Command running in background with ID: b000iiw3u. Output is being written to: /tmp/b000iiw3u.output."
+        ))
+
+        #expect(monitor.description == nil)
+        #expect(command.description == nil)
     }
 
     @Test func ordinaryToolOutputStartsNothing() {

@@ -152,7 +152,11 @@ nonisolated enum BackgroundTaskScanner {
                 switch block {
                 case .toolUse(let id, let name, let input):
                     let description = describedPurpose(in: input)
-                    let oneShot = name == "Monitor" && input["persistent"]?.boolValue != true
+                    // Only an explicit `false` settles this. The argument is
+                    // absent from a sixth of real Monitor calls, and reading
+                    // that as one-shot would retire a monitor still watching
+                    // — letting the Mac sleep mid-work, the costlier mistake.
+                    let oneShot = name == "Monitor" && input["persistent"]?.boolValue == false
                     if let kind = alwaysBackground[name] {
                         launchByToolUseID[id] = Launch(
                             kind: kind,
