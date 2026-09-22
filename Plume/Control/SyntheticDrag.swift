@@ -15,44 +15,45 @@ import UniformTypeIdentifiers
 /// to catch.
 @MainActor
 enum SyntheticDrag {
-    /// The deepest view under `point` that accepts a drag carrying `types`,
-    /// which is the view AppKit would negotiate with.
+    /// The view AppKit would negotiate with: the one accepting `types` whose
+    /// frame contains `point`. Frontmost wins, which for siblings is the last
+    /// one added — the order AppKit's own search uses.
+    ///
+    /// Registration is not hit-testing. SwiftUI puts its drop destinations
+    /// *behind* the content they belong to, so `hitTest` lands on the drawing
+    /// view and never reaches them.
     static func destination(at point: NSPoint, in window: NSWindow, types: [NSPasteboard.PasteboardType]) -> NSView? {
-        guard let content = window.contentView else { return nil }
-        var view = content.hitTest(point)
-        while let candidate = view {
-            if candidate.registeredDraggedTypes.contains(where: types.contains) { return candidate }
-            view = candidate.superview
-        }
-        return nil
+        allDestinations(in: window)
+            .last { view, _ in
+                accepts(view, types) && view.convert(view.bounds, to: nil).contains(point)
+            }?
+            .view
     }
 
-    /// Every type any ancestor of the hit view accepts. Reported when nothing
-    /// takes the offered types, so a caller can see whether the point is
-    /// registered for something else or for nothing at all.
-    static func registeredTypes(at point: NSPoint, in window: NSWindow) -> [String] {
-        var seen: [String] = []
-        for view in hitChain(at: point, in: window) {
-            seen.append(contentsOf: view.registeredDraggedTypes.map(\.rawValue))
+    /// Registration is by conformance, not string equality: SwiftUI registers
+    /// `public.data`/`public.item`, which a `public.utf8-plain-text` drag
+    /// satisfies. Matching literally finds none of SwiftUI's destinations.
+    private static func accepts(_ view: NSView, _ offered: [NSPasteboard.PasteboardType]) -> Bool {
+        let registered = view.registeredDraggedTypes.compactMap { UTType($0.rawValue) }
+        return offered.contains { type in
+            guard let offeredType = UTType(type.rawValue) else { return false }
+            return registered.contains { offeredType.conforms(to: $0) }
         }
-        var unique: [String] = []
-        for type in seen where !unique.contains(type) { unique.append(type) }
-        return unique
     }
 
-    /// The hit view and its ancestors, innermost first. Reported alongside
-    /// the types so a point that lands on an unexpected view — a terminal
-    /// surface covering the pane, say — reads as that rather than as a
-    /// missing registration.
-    static func hitChain(at point: NSPoint, in window: NSWindow) -> [NSView] {
+    /// Every view in the window that accepts a drag, innermost first, with
+    /// its frame. A drop that silently does nothing is usually a destination
+    /// that was never created, and this is how that shows up.
+    static func allDestinations(in window: NSWindow) -> [(view: NSView, types: [String])] {
         guard let content = window.contentView else { return [] }
-        var chain: [NSView] = []
-        var view = content.hitTest(point)
-        while let candidate = view {
-            chain.append(candidate)
-            view = candidate.superview
+        var out: [(NSView, [String])] = []
+        func visit(_ view: NSView) {
+            let types = view.registeredDraggedTypes.map(\.rawValue)
+            if !types.isEmpty { out.append((view, types)) }
+            view.subviews.forEach(visit)
         }
-        return chain
+        visit(content)
+        return out
     }
 
     /// Runs the handshake and returns the step that ended it. Every step is
@@ -139,10 +140,11 @@ final class SyntheticDraggingInfo: NSObject, NSDraggingInfo {
     ) {}
     func resetSpringLoading() {}
 
-    /// A named pasteboard of its own, so a synthetic drag never disturbs the
-    /// user's clipboard or the real drag pasteboard.
-    static func makePasteboard(name: String = "com.ryanmoelter.Plume.syntheticDrag") -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name(name))
+    /// The real drag pasteboard, because a destination may read it by name
+    /// rather than through `draggingPasteboard` — `DropInfo` does. It is not
+    /// the user's clipboard, so a synthetic drag leaves that alone.
+    static func makePasteboard() -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .drag)
         pasteboard.clearContents()
         return pasteboard
     }

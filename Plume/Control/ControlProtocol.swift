@@ -154,12 +154,15 @@ nonisolated struct DragResult: Encodable {
     var updated: [String]?
     var prepared: Bool?
     var performed: Bool?
-    /// Every type an ancestor of the hit view accepts, when none of them
-    /// accepts the offered ones.
-    var availableTypes: [String]?
-    /// The hit view and its ancestors, innermost first, when nothing accepted
-    /// the drag.
-    var hitChain: [String]?
+    /// Every drag destination in the window. Reported when the request named
+    /// no point, which is how to ask what the window will accept and where.
+    var destinations: [DragDestination]?
+}
+
+nonisolated struct DragDestination: Encodable {
+    var view: String
+    var frame: Rect
+    var types: [String]
 }
 
 nonisolated struct ClearParams: Decodable {

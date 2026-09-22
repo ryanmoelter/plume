@@ -61,9 +61,14 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
-        .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
-            handleDrop(providers)
-        }
+        .onDrop(
+            of: [.fileURL],
+            delegate: FolderDropDelegate(
+                isEnabled: isEditable,
+                isTargeted: $isTargetedForDrop,
+                setDirectory: setDirectory
+            )
+        )
         .sheet(isPresented: $worktreeSheetShown) {
             NewWorktreeSheet(task: task)
         }
@@ -606,15 +611,6 @@ struct WorkspacePickerView: View, ThemedView {
         setDirectory(url.path)
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard isEditable, let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url, url.hasDirectoryPath else { return }
-            Task { @MainActor in setDirectory(url.path) }
-        }
-        return true
-    }
-
     private func setDirectory(_ path: String) {
         task.workingDirectoryPath = path
         task.workspaceKind = .directory
@@ -628,6 +624,44 @@ struct WorkspacePickerView: View, ThemedView {
             task.repoPath = root
             directoryWithoutRepository = root == nil ? path : nil
         }
+    }
+}
+
+/// Takes a dragged folder as the task's working directory, and declines
+/// anything else.
+///
+/// A plain `.onDrop(of: [.fileURL])` accepts every file URL and can only
+/// inspect it after the drop, so dragging an image across the picker
+/// highlights it, consumes the drop and silently discards it — the image
+/// never reaches the composer's attachment target underneath. `validateDrop`
+/// is the only hook that runs before the drop is claimed.
+private struct FolderDropDelegate: DropDelegate {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let setDirectory: (String) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        isEnabled && !folders(in: info).isEmpty
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = true }
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        guard let folder = folders(in: info).first else { return false }
+        setDirectory(folder.path)
+        return true
+    }
+
+    /// `NSItemProvider` only loads asynchronously, so the URLs come off the
+    /// drag pasteboard instead — `validateDrop` has to answer now.
+    private func folders(in info: DropInfo) -> [URL] {
+        guard info.hasItemsConforming(to: [.fileURL]) else { return [] }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let urls = NSPasteboard(name: .drag)
+            .readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return urls.filter(\.hasDirectoryPath)
     }
 }
 

@@ -149,7 +149,14 @@ final class InProcessControlBackend: ControlBackend {
             guard let frame = try frame(of: target) else { throw ControlError.badParams("drag needs a control, or x and y") }
             topLeft = CGPoint(x: frame.midX, y: frame.midY)
         } else {
-            throw ControlError.badParams("drag needs a target, or x and y")
+            let destinations = SyntheticDrag.allDestinations(in: window).map { view, types in
+                DragDestination(
+                    view: String(describing: type(of: view)),
+                    frame: Rect(WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)),
+                    types: types
+                )
+            }
+            return DragResult(dropped: false, refusedAt: "noPoint", view: nil, destinations: destinations)
         }
 
         let pasteboard = SyntheticDraggingInfo.makePasteboard()
@@ -167,13 +174,7 @@ final class InProcessControlBackend: ControlBackend {
         let point = WindowGeometry.appKitPoint(fromTopLeft: topLeft, contentHeight: height)
         SyntheticHover.move(to: point, in: window)
         guard let destination = SyntheticDrag.destination(at: point, in: window, types: types) else {
-            return DragResult(
-                dropped: false,
-                refusedAt: "noDestination",
-                view: nil,
-                availableTypes: SyntheticDrag.registeredTypes(at: point, in: window),
-                hitChain: SyntheticDrag.hitChain(at: point, in: window).map { String(describing: type(of: $0)) }
-            )
+            return DragResult(dropped: false, refusedAt: "noDestination", view: nil)
         }
         let info = SyntheticDraggingInfo(pasteboard: pasteboard, location: point, window: window)
         let outcome = SyntheticDrag.perform(info, on: destination)
