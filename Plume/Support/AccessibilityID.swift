@@ -35,6 +35,7 @@ enum AccessibilityID {
     static let shortcutResetAllButton = "shortcut-reset-all-button"
     static let fullDiskAccessOpenButton = "full-disk-access-open-button"
     static let fullDiskAccessDismissButton = "full-disk-access-dismiss-button"
+    static let sidebarBackgroundStylePicker = "sidebar-background-style-picker"
 
     // MARK: Tab strip
 
