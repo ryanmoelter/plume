@@ -233,8 +233,6 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 
 **Every message id sent to the CLI comes from the transcript.** The chat's optimistic first message carries Plume's own id, `plume.optimistic.first-message`, which the CLI has never seen. Sent as `last_seen_user_message_uuid`, it gets `rewind_conversation` refused as `stale_target`. Gate any id-taking action on `Transcript.messages` containing the id, and log the CLI's own refusal reason.
 
-**A fork writes nothing until its first turn.** `claude --fork-session --session-id <new>` creates no `.jsonl` until the first turn produces content, so a missing transcript right after a fork is expected. It also refuses to start when a file already sits at the new session's path (`Error: Session ID <uuid> is already in use`). Never create a file at a path the CLI owns.
-
 Two more were measured against 2.1.280 and are used by Plume: `side_question` and `rewind_conversation`.
 
 ## Side questions — `side_question`
@@ -294,6 +292,12 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **`--resume-session-at` is undocumented**: the CLI parses it but `claude --help` does not list it, so an upgrade can withdraw it without warning. That is why forking is the secondary path and `rewind_conversation` is the default. Companion hidden flags: `--resume-drops-turn`, `--rewind-files`, `--reply-on-resume`.
 
 `--resume` accepts only a session id; passing a message uuid fails with `No conversation found with session ID`. `fork_conversation` on the control plane is a *cloud* mechanism — it needs a Remote Control sdkUrl and answers `{"forked":false,"reason":"unsupported"}` locally.
+
+**The fork owns its transcript path, and reads a file already there as proof the id is taken.** Starting with a file at `<new-id>.jsonl` — even an empty one — exits immediately with `Error: Session ID <uuid> is already in use`. Plume's own `FileWatcher` created the file it watched and killed every fork this way, which is why a transcript watch passes `createsFile: false` and polls for the file instead.
+
+**A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
+
+**Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
 
 ## Session titles — `generate_session_title`
 
