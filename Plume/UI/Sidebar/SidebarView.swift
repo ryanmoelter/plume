@@ -20,7 +20,6 @@ struct SidebarView: View {
     let requestArchive: (WorkTask) -> Void
     let requestDelete: (WorkTask) -> Void
 
-    @State private var settings = AppSettings.shared
     @State private var renamingGroupID: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
     /// Each row and header's height, so a drop can tell which half it is over.
@@ -109,7 +108,6 @@ struct SidebarView: View {
 
             SidebarFooter(archiveShown: $archiveShown)
         }
-        .sidebarBackground(colorScheme: colorScheme, style: settings.sidebarBackgroundStyle)
         .navigationSplitViewColumnWidth(
             min: WindowMetrics.sidebarMinimumWidth,
             ideal: WindowMetrics.sidebarIdealWidth,
