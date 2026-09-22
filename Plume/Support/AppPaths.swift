@@ -17,8 +17,18 @@ enum AppPaths {
     }
 
     static var applicationSupport: URL {
+        applicationSupport(environment: ProcessInfo.processInfo.environment)
+    }
+
+    /// `PLUME_APP_SUPPORT` (`#if DEBUG` only) replaces the whole directory
+    /// rather than nesting under it, so a scratch instance's data lands
+    /// exactly where the agent pointed it — no `Plume.debug` subfolder to
+    /// also account for. Takes `environment` as a parameter, not read
+    /// directly, so a test can exercise both branches without mutating
+    /// process-global state that other tests read concurrently.
+    static func applicationSupport(environment: [String: String]) -> URL {
         #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["PLUME_APP_SUPPORT"], !override.isEmpty {
+        if let override = environment["PLUME_APP_SUPPORT"], !override.isEmpty {
             return applicationSupportOverride(path: override)
         }
         #endif
@@ -26,11 +36,9 @@ enum AppPaths {
     }
 
     #if DEBUG
-    /// `PLUME_APP_SUPPORT` replaces the whole directory rather than nesting
-    /// under it, so a scratch instance's data lands exactly where the agent
-    /// pointed it — no `Plume.debug` subfolder to also account for. A path
-    /// that can't be created or written fails loudly: silently falling back
-    /// to the real store is the bug this override exists to prevent.
+    /// A path that can't be created or written fails loudly: silently
+    /// falling back to the real store is the bug this override exists to
+    /// prevent.
     private static func applicationSupportOverride(path: String) -> URL {
         let url = URL(filePath: path, directoryHint: .isDirectory)
         do {
