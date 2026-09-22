@@ -244,9 +244,14 @@ struct SidebarView: View {
                     taskContextMenu(for: task)
                 }
                 .dropDestination(for: String.self) { draggedIDs, _ in
-                    dropTab(draggedIDs, onto: task)
+                    tabDropTargetID = nil
+                    return dropTab(draggedIDs, onto: task)
                 } isTargeted: { targeted in
-                    tabDropTargetID = targeted ? task.id : (tabDropTargetID == task.id ? nil : tabDropTargetID)
+                    if targeted {
+                        tabDropTargetID = task.id
+                    } else if tabDropTargetID == task.id {
+                        tabDropTargetID = nil
+                    }
                 }
                 .overlay {
                     if tabDropTargetID == task.id {
