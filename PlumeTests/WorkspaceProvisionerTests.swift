@@ -128,6 +128,17 @@ struct BranchNamingTests {
         ))
     }
 
+    /// The combination the sheet offers: a base path override, a stripped
+    /// prefix, and no explicit location.
+    @Test func aBasePathAndAStrippedPrefixCompose() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/parent/repo",
+            branch: "ryanm/plume-183",
+            basePath: "/trees",
+            strippingPrefix: true
+        ) == "/trees/repo/plume-183")
+    }
+
     // MARK: - The branch prefix
 
     @Test func aCustomPrefixReplacesPlume() {

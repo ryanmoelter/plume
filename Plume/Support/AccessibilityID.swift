@@ -69,6 +69,8 @@ enum AccessibilityID {
     static let chatStartFailureRetry = "chat-start-failure-retry"
     static let chatTrustOpenTerminal = "chat-trust-open-terminal"
 
+    static let workspaceWorktreeMenu = "workspace-worktree-menu"
+
     // MARK: New worktree sheet
 
     static let worktreeBranchField = "worktree-branch-field"

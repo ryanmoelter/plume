@@ -229,6 +229,7 @@ struct WorkspacePickerView: View, ThemedView {
                 inlineLabel(worktreeName, systemImage: "tree")
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
+            .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } else {
             inlineLabel(worktreeName, systemImage: "tree", isControl: false)
                 .help(worktreeHelp)
@@ -416,6 +417,7 @@ struct WorkspacePickerView: View, ThemedView {
                 worktreeLabel
             }
             .menuStyle(.borderlessButton)
+            .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } readOnly: {
             worktreeLabel
         }
