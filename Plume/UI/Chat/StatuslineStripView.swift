@@ -272,6 +272,7 @@ struct StackedMeter: View, ThemedView {
         let bar = MeterView(
             fraction: fraction,
             color: StatuslineColors.meter(for: attention, colors: colors),
+            attention: attention,
             pacing: pacing,
             isStale: isStale
         )
@@ -496,6 +497,11 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
+    /// Drives the pacing dot's own tint via `StatuslineColors.foreground`,
+    /// kept apart from `color` because that one carries a baked-in opacity
+    /// for the neutral case that the dot's own emphasis levels already
+    /// apply.
+    let attention: StatuslineAttention
     /// How far through the window the clock is, 0–1. Drawn as a dot on the
     /// bar, so the fill's position against it reads the same whether the fill
     /// is short of it or past it. Nil draws nothing, which is what every
@@ -548,12 +554,14 @@ struct MeterView: View, ThemedView {
     /// One copy of the dot, colored for the ground it lands on. Over the
     /// fill it is a hole punched in the bar; over the bare track, which is
     /// itself a wash on that same ground, a hole would vanish, so it draws
-    /// as content instead. Both sit at secondary emphasis, which is what
-    /// keeps the mark from outweighing the fill it annotates.
+    /// as content instead, in the same warning/danger tint the fill wears
+    /// once utilization crosses into those bands. Both sit at secondary
+    /// emphasis, which is what keeps the mark from outweighing the fill it
+    /// annotates.
     private func dot(at offset: CGFloat, isOverFill: Bool) -> some View {
         let ground = isOverFill
             ? colors.background ?? Color(nsColor: .windowBackgroundColor)
-            : colors.foreground
+            : StatuslineColors.foreground(for: attention, colors: colors)
         return Circle()
             .fill(ground.opacity(colors.emphasis[isOverFill ? .secondary : .subtle]))
             .frame(width: PacingMark.width, height: PacingMark.width)
