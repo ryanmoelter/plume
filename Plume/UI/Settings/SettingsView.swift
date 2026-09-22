@@ -226,6 +226,43 @@ struct SettingsView: View {
             }
 
             Section {
+                ForEach(ShortcutAction.allCases) { action in
+                    LabeledContent(action.label) {
+                        HStack(spacing: 6) {
+                            ShortcutRecorder(shortcut: settings.shortcutBindings[action]) { shortcut in
+                                settings.shortcutBindings.assign(shortcut, to: action)
+                            }
+                            .frame(width: 120, height: 22)
+                            .plumeID(AccessibilityID.shortcutRecorder, label: action.label)
+
+                            Button {
+                                settings.shortcutBindings.reset(action)
+                            } label: {
+                                Image(systemName: "arrow.uturn.backward")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!settings.shortcutBindings.isCustomized(action))
+                            .plumeID(AccessibilityID.shortcutResetButton, label: action.label)
+                        }
+                    }
+                }
+
+                Button("Reset All") { settings.shortcutBindings.resetAll() }
+                    .plumeID(AccessibilityID.shortcutResetAllButton)
+            } header: {
+                Text("Keyboard Shortcuts")
+            } footer: {
+                Text(
+                    "Click a shortcut, then press the chord you want. Assigning a chord that " +
+                    "another command here already uses leaves that command unassigned, since two " +
+                    "menu items sharing a chord leaves macOS to pick one. Command and Option " +
+                    "chords are taken back from a focused terminal; an Option chord you bind " +
+                    "stops reaching the shell inside that terminal."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {

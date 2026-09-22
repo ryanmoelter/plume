@@ -78,18 +78,22 @@ enum PlumeShortcuts {
     static let showArchive = MenuShortcut("a", modifiers: [.command, .shift])
     static let closeTab = MenuShortcut("w")
     static let archiveTask = MenuShortcut("a", modifiers: [.command, .control])
-    static let nextTab = MenuShortcut("]", modifiers: [.command, .shift])
-    static let previousTab = MenuShortcut("[", modifiers: [.command, .shift])
-    static let nextTask = MenuShortcut("]")
-    static let previousTask = MenuShortcut("[")
-
     /// ⌘1 through ⌘9, selecting a tab by position.
     static let selectTab: [MenuShortcut] = (1...9).map { MenuShortcut(Character("\($0)")) }
 
-    static let all: [MenuShortcut] = [
+    private static let fixed: [MenuShortcut] = [
         newTask, newTerminalTab, newAgentTab, showArchive, closeTab, archiveTask,
-        nextTab, previousTab, nextTask, previousTask,
     ] + selectTab
+
+    /// The four cycling commands, read live from `AppSettings` so a rebind
+    /// reaches the menu item and the terminal monitor together.
+    static func shortcut(for action: ShortcutAction) -> MenuShortcut? {
+        AppSettings.shared.shortcutBindings[action]
+    }
+
+    static var all: [MenuShortcut] {
+        fixed + AppSettings.shared.shortcutBindings.all
+    }
 }
 
 struct PlumeCommands: Commands {
@@ -145,19 +149,19 @@ struct PlumeCommands: Commands {
 
         CommandMenu("Tab") {
             Button("Next Tab") { task?.cycleTab(1) }
-                .keyboardShortcut(PlumeShortcuts.nextTab)
+                .keyboardShortcut(PlumeShortcuts.shortcut(for: .nextTab))
                 .disabled(task == nil)
             Button("Previous Tab") { task?.cycleTab(-1) }
-                .keyboardShortcut(PlumeShortcuts.previousTab)
+                .keyboardShortcut(PlumeShortcuts.shortcut(for: .previousTab))
                 .disabled(task == nil)
 
             Divider()
 
             Button("Next Task") { selectAdjacentTask?(1) }
-                .keyboardShortcut(PlumeShortcuts.nextTask)
+                .keyboardShortcut(PlumeShortcuts.shortcut(for: .nextTask))
                 .disabled(selectAdjacentTask == nil)
             Button("Previous Task") { selectAdjacentTask?(-1) }
-                .keyboardShortcut(PlumeShortcuts.previousTask)
+                .keyboardShortcut(PlumeShortcuts.shortcut(for: .previousTask))
                 .disabled(selectAdjacentTask == nil)
 
             Divider()

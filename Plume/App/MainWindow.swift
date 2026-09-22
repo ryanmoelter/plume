@@ -11,6 +11,7 @@ struct MainWindow: View {
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
     @State private var importShown = false
+    @State private var fullDiskAccessShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     /// Starts generous so the sidebar's max width is unclamped until the
@@ -61,6 +62,18 @@ struct MainWindow: View {
         }
         .sheet(isPresented: $importShown) {
             ImportSheet()
+        }
+        .sheet(isPresented: $fullDiskAccessShown) {
+            FullDiskAccessSheet {
+                fullDiskAccessShown = false
+            }
+        }
+        .task {
+            // The flag is set even when the sheet is skipped, so a user who
+            // already has access is never shown it later either.
+            guard !AppSettings.shared.hasPromptedForFullDiskAccess else { return }
+            AppSettings.shared.hasPromptedForFullDiskAccess = true
+            fullDiskAccessShown = !FullDiskAccess.isGranted
         }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
         .focusedSceneValue(\.showImportAction) { importShown = true }
