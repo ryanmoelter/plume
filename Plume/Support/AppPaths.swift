@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum AppPaths {
     /// `Plume.debug` for the debug build, whose bundle ID carries that
@@ -16,8 +17,35 @@ enum AppPaths {
     }
 
     static var applicationSupport: URL {
-        URL.applicationSupportDirectory.appending(path: directoryName)
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["PLUME_APP_SUPPORT"], !override.isEmpty {
+            return applicationSupportOverride(path: override)
+        }
+        #endif
+        return URL.applicationSupportDirectory.appending(path: directoryName)
     }
+
+    #if DEBUG
+    /// `PLUME_APP_SUPPORT` replaces the whole directory rather than nesting
+    /// under it, so a scratch instance's data lands exactly where the agent
+    /// pointed it — no `Plume.debug` subfolder to also account for. A path
+    /// that can't be created or written fails loudly: silently falling back
+    /// to the real store is the bug this override exists to prevent.
+    private static func applicationSupportOverride(path: String) -> URL {
+        let url = URL(filePath: path, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            guard FileManager.default.isWritableFile(atPath: url.path) else {
+                Log.app.fault("PLUME_APP_SUPPORT=\(path, privacy: .public) is not writable")
+                fatalError("PLUME_APP_SUPPORT=\(path) is not writable")
+            }
+        } catch {
+            Log.app.fault("PLUME_APP_SUPPORT=\(path, privacy: .public) could not be created: \(error, privacy: .public)")
+            fatalError("PLUME_APP_SUPPORT=\(path) could not be created: \(error)")
+        }
+        return url
+    }
+    #endif
 
     /// SwiftData's persistent store.
     static var storeFile: URL {
