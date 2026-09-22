@@ -26,6 +26,7 @@ struct TabContentView: View {
                 tabContent(for: tab, isVisible: isVisible)
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isVisible)
+                    .plumeControlsHidden(!isVisible)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

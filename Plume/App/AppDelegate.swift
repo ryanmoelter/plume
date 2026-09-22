@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         LinkClickHarness.runIfRequested()
+        ControlServer.shared.startIfEnabled()
         #endif
 
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
@@ -98,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         HeadlessSessionManager.shared.closeAll()
         KeepAwakeCoordinator.shared.releaseForTermination()
+        #if DEBUG
+        ControlServer.shared.stop()
+        #endif
     }
 
     /// True when the current terminate request originated from the OS

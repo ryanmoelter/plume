@@ -219,7 +219,7 @@ struct ChatComposer: View, ThemedView {
                 // strip's left edge rather than beside it. Its vertical inset
                 // comes from its own `textContainerInset`, not from here.
                 .padding(.horizontal, -Self.lineFragmentPadding)
-                .accessibilityIdentifier(AccessibilityID.composerField)
+                .plumeID(AccessibilityID.composerField)
 
                 HStack(spacing: dimensions.panelContentInset) {
                     ComposerControlsRow(
@@ -281,10 +281,10 @@ struct ChatComposer: View, ThemedView {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
+        .plumeID(AccessibilityID.composerSendButton, invoke: send)
         .disabled(!canSend)
         .help("Send")
         .accessibilityLabel("Send")
-        .accessibilityIdentifier(AccessibilityID.composerSendButton)
     }
 
     /// Matches `sendButton`'s size and shape but not its accent-colored fill,

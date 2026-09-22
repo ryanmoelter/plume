@@ -1,4 +1,5 @@
 #if DEBUG
+import CoreGraphics
 import Foundation
 
 /// The control server speaks top-left content-view coordinates, the space
