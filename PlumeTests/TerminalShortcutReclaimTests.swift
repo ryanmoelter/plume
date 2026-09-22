@@ -86,29 +86,33 @@ import Testing
     /// chord the user bound has to pass it. This is the gate that decides
     /// whether an Option binding can work at all.
     @Test func anOptionChordBoundByTheUserIsClaimed() {
-        let bindings = ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
-        let previous = AppSettings.shared.shortcutBindings
-        AppSettings.shared.shortcutBindings = bindings
-        defer { AppSettings.shared.shortcutBindings = previous }
+        let shortcuts = PlumeShortcuts.all(
+            with: ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
+        )
 
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "j", flags: [.option]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: shortcuts, characters: "j", flags: [.option]))
         // An unbound neighbour chord must still reach the terminal.
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "j", flags: [.control]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "h", flags: [.option]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: shortcuts, characters: "j", flags: [.control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: shortcuts, characters: "h", flags: [.option]))
     }
 
     /// The menu item and the terminal monitor must read the same store, or
     /// rebinding a chord moves one and not the other.
     @Test func theMenuAndTheMonitorReadTheSameRebind() {
         let chord = MenuShortcut("j", modifiers: [.option])
-        let previous = AppSettings.shared.shortcutBindings
-        AppSettings.shared.shortcutBindings = ShortcutBindings(overrides: [.nextTab: chord])
-        defer { AppSettings.shared.shortcutBindings = previous }
+        let bindings = ShortcutBindings(overrides: [.nextTab: chord])
+        let shortcuts = PlumeShortcuts.all(with: bindings)
 
-        #expect(PlumeShortcuts.shortcut(for: .nextTab) == chord)
-        #expect(PlumeShortcuts.all.contains(chord))
-        #expect(!PlumeShortcuts.all.contains(ShortcutAction.nextTab.defaultShortcut))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "j", flags: [.option]))
+        #expect(bindings[.nextTab] == chord)
+        #expect(shortcuts.contains(chord))
+        #expect(!shortcuts.contains(ShortcutAction.nextTab.defaultShortcut))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: shortcuts, characters: "j", flags: [.option]))
+
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: ShortcutAction.nextTab.label, action: nil, keyEquivalent: ""))
+        ShortcutMenuApplier.apply(bindings, to: menu)
+        #expect(menu.items[0].keyEquivalent == "j")
+        #expect(menu.items[0].keyEquivalentModifierMask == [.option])
     }
 
     /// The monitor sees the event before the surface does, so an Option chord
@@ -121,14 +125,14 @@ import Testing
         try await Task.sleep(for: .seconds(3))
         _ = terminal.focusTerminalView()
 
-        let bindings = ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
-        let previous = AppSettings.shared.shortcutBindings
-        AppSettings.shared.shortcutBindings = bindings
-        defer { AppSettings.shared.shortcutBindings = previous }
+        let shortcuts = PlumeShortcuts.all(
+            with: ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
+        )
 
         let event = keyDown("j", flags: [.option], in: terminal.window)
         #expect(
             TerminalShortcutMonitor.isClaimed(
+                shortcuts: shortcuts,
                 characters: event.charactersIgnoringModifiers,
                 flags: event.modifierFlags
             ),
