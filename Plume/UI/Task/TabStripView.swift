@@ -30,7 +30,7 @@ struct TabStripView: View {
                     close: { TaskStore.closeTab(tab, in: context) },
                     moveToNewTask: { moveToNewTask(tab) }
                 )
-                .draggable(tab.id.uuidString)
+                .onDrag { SidebarDragItem.tab(tab.id).itemProvider() }
                 .onGeometryChange(for: CGRect.self) {
                     $0.frame(in: .named(Self.coordinateSpace))
                 } action: { chipFrames[tab.id] = $0 }
@@ -89,8 +89,7 @@ struct TabStripView: View {
     /// Moves the dragged tab into `gap`. Reordering only rewrites
     /// `orderIndex` through `TaskStore.moveTabs` — surfaces are keyed by tab
     /// id and untouched by it.
-    private func reorder(_ draggedIDString: String, into gap: Int) {
-        guard let draggedID = UUID(uuidString: draggedIDString) else { return }
+    private func reorder(_ draggedID: UUID, into gap: Int) {
         let ordered = task.orderedTabs
         guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return }
         TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: min(gap, ordered.count))
@@ -163,7 +162,7 @@ private struct TabChip: View {
         .background(chipBackground, in: .rect(cornerRadius: 6))
         .contentShape(.rect)
         // Simultaneous, not exclusive: a plain `.onTapGesture` claims the
-        // mouse-down, and the chip's `.draggable` never starts.
+        // mouse-down, and the chip's drag never starts.
         .simultaneousGesture(TapGesture().onEnded(select))
         .plumeHover { isHovering = $0 }
         .plumeID(AccessibilityID.tabChip, label: chipTitle, value: isSelected ? "selected" : nil, invoke: select)
@@ -216,13 +215,20 @@ private struct TabChip: View {
 private struct TabStripDropDelegate: DropDelegate {
     let chips: () -> [ClosedRange<CGFloat>]
     @Binding var gap: Int?
-    let perform: @MainActor (String, Int) -> Void
+    let perform: @MainActor (UUID, Int) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [.utf8PlainText])
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        switch InAppDrag.current {
+        case .task, .group:
+            gap = nil
+            return DropProposal(operation: .forbidden)
+        case .tab, nil:
+            break
+        }
         gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
         return DropProposal(operation: .move)
     }
@@ -232,10 +238,8 @@ private struct TabStripDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         let target = TabStripInsertion.gap(forX: info.location.x, chips: chips())
         gap = nil
-        guard let provider = info.itemProviders(for: [.utf8PlainText]).first else { return false }
-        _ = provider.loadTransferable(type: String.self) { result in
-            guard case .success(let idString) = result else { return }
-            Task { @MainActor in perform(idString, target) }
+        SidebarDragItem.load(from: info) { [perform] item in
+            if case .tab(let id) = item { perform(id, target) }
         }
         return true
     }
