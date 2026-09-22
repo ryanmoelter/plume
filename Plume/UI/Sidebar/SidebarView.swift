@@ -34,7 +34,7 @@ struct SidebarView: View {
                             onDoneRenaming: { renamingGroupID = nil },
                             onCreateTask: { createTask(in: group) }
                         )
-                        .accessibilityIdentifier(AccessibilityID.groupHeader)
+                        .plumeID(AccessibilityID.groupHeader, label: group.name)
                         .contextMenu {
                             Button("Rename Group") { renamingGroupID = group.id }
                             Button("New Task in Group") { createTask(in: group) }
@@ -67,12 +67,12 @@ struct SidebarView: View {
                 ToolbarItem {
                     Menu {
                         Button("New Task") { createTask(in: nil) }
-                            .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                            .plumeID(AccessibilityID.newTaskButton)
                         Button("New Group") {
                             let group = TaskStore.createGroup(in: context, existing: groups)
                             renamingGroupID = group.id
                         }
-                        .accessibilityIdentifier(AccessibilityID.newGroupButton)
+                        .plumeID(AccessibilityID.newGroupButton)
                     } label: {
                         Label("Add", systemImage: "plus")
                             .labelStyle(.iconOnly)
@@ -80,7 +80,7 @@ struct SidebarView: View {
                         createTask(in: nil)
                     }
                     .menuStyle(.borderlessButton)
-                    .accessibilityIdentifier(AccessibilityID.newTaskButton)
+                    .plumeID(AccessibilityID.newTaskButton)
                 }
             }
             .overlay {
@@ -211,7 +211,7 @@ struct SidebarView: View {
         }
         if !task.hasNeverStarted {
             Button("Archive") { TaskStore.archive(task) }
-                .accessibilityIdentifier(AccessibilityID.taskArchiveButton)
+                .plumeID(AccessibilityID.taskArchiveButton)
         }
         Divider()
         Button("Delete", role: .destructive) {

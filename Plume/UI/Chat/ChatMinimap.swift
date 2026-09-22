@@ -166,7 +166,7 @@ struct ChatMinimap: View, ThemedView {
         }
         .frame(width: railWidth)
         .padding(.trailing, railInset)
-        .accessibilityIdentifier(AccessibilityID.chatMinimap)
+        .plumeID(AccessibilityID.chatMinimap)
         .onChange(of: hoverFraction == nil) { _, away in
             withAnimation(.easeOut(duration: 0.15)) { isRevealed = !away }
         }
@@ -374,7 +374,10 @@ private struct ChatMinimapEntryView: View, ThemedView {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(AccessibilityID.chatMinimapEntry)
+        .plumeID(
+            AccessibilityID.chatMinimapEntry,
+            label: entry.kind.isUserInput ? entry.kind.text : nil
+        )
         .modifier(MinimapEmphasis(progress: isVisible ? 1 : 0, ceiling: entry.kind.minimapOpacityCeiling))
         .animation(.easeOut(duration: 0.2), value: isVisible)
     }

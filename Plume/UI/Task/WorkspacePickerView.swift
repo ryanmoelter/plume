@@ -108,7 +108,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .fixedSize()
             if task.repoPath != nil {
                 branchGroup
-                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
+                    .plumeID(AccessibilityID.statuslineBranch)
             }
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")

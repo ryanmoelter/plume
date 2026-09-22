@@ -53,7 +53,7 @@ struct SidebarFooter: View, ThemedView {
                     )
                 }
                 .help(keepAwakeHelp)
-                .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
+                .plumeID(AccessibilityID.sidebarKeepAwakeButton)
                 .buttonStyle(SidebarFooterButtonStyle())
                 .popover(isPresented: $keepAwakeShown, arrowEdge: .trailing) {
                     KeepAwakePanel()
@@ -65,13 +65,13 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(icon: "archivebox", title: "Archive")
                 }
                 .help("Show archived tasks")
-                .accessibilityIdentifier(AccessibilityID.sidebarArchiveButton)
+                .plumeID(AccessibilityID.sidebarArchiveButton)
                 .buttonStyle(SidebarFooterButtonStyle())
 
                 SettingsLink {
                     SidebarFooterRow(icon: "gearshape", title: "Settings")
                 }
-                .accessibilityIdentifier(AccessibilityID.sidebarSettingsButton)
+                .plumeID(AccessibilityID.sidebarSettingsButton)
                 .buttonStyle(SidebarFooterButtonStyle(bottomCornerRadius: bottomCornerRadius))
             }
             .padding(.vertical, SidebarFooterMetrics.inset)

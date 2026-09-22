@@ -28,8 +28,8 @@ enum HierarchyDumper {
     // MARK: Build
 
     /// Each control goes to the smallest visible view whose frame contains
-    /// it. Depth alone would hand a composer control to a full-height
-    /// terminal view that happens to sit behind it.
+    /// it, or to the root when none does. Depth alone would hand a composer
+    /// control to a full-height terminal view that happens to sit behind it.
     private static func assignOwners(
         of controls: [(index: Int, entry: ControlEntry)],
         under root: NSView,
@@ -49,7 +49,7 @@ enum HierarchyDumper {
                 let area = frame.width * frame.height
                 if best == nil || area < best!.area { best = (view, area) }
             }
-            if let best { owners[entry.token] = ObjectIdentifier(best.view) }
+            owners[entry.token] = ObjectIdentifier(best?.view ?? root)
         }
         return owners
     }

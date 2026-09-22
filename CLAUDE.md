@@ -37,6 +37,7 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
+  Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
   UI/         Sidebar/, Task/, Settings/
 ```
@@ -77,6 +78,10 @@ Both transports launch through `AgentLauncher` and report through `StatusEngine`
 - `--settings` *merges*, and hook lists *union*, so the user's own hooks keep firing. Don't expect replacement semantics.
 - Instrumentation is best-effort: a missing settings file degrades to a plain `claude`, never a failed launch.
 - A hook only fires when Claude Code actually reaches that point. Testing in an **untrusted directory** (like `/tmp`) stalls on the folder-trust prompt and produces no events — use a directory already trusted.
+
+## Verifying the app from an agent
+
+A debug build serves a control socket. **`docs/control-server.md` is the reference**; `scripts/debug/plume-control.py` is the client. Launch a scratch instance with `open -g -n --env HOME=/tmp/plume-scratch …`, then `hierarchy` dumps the window as text, `readText` reads the composer or the chat list, `invoke`/`setValue`/`clickSpan` drive it, and `screenshot` is the expensive last resort. It needs no Accessibility grant and never activates the app; run every call with `--assert-frontmost`. Controls reach it through `plumeID(_:)`, so a control without one is invisible to it.
 
 ## Verifying terminal behavior
 
@@ -122,6 +127,7 @@ The config reaches libghostty as **generated contents with every `theme` directi
 
 ## Gotchas
 
+- **Name controls with `plumeID(_:)`, never a bare `.accessibilityIdentifier`.** SwiftUI puts identifiers on no NSView and builds its accessibility tree only for a trusted external client, so the debug control server finds controls through the registry `plumeID` feeds — a bare identifier is invisible to it. Apply it inside `.disabled(_:)` so the registered enabled state is real, and pass `label:` on repeated rows so a driver can tell them apart.
 - `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` means transitive imports don't count. Using `Array.move(fromOffsets:toOffset:)` needs an explicit `import SwiftUI`; `IndexSet` needs `import Foundation`. The error names the missing module.
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: everything is MainActor-isolated unless marked otherwise. Test suites touching models need `@MainActor`.
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.

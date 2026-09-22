@@ -301,7 +301,7 @@ struct ChatComposer: View, ThemedView {
         .buttonBorderShape(.circle)
         .help("Stop the current turn")
         .accessibilityLabel("Stop")
-        .accessibilityIdentifier(AccessibilityID.composerStopButton)
+        .plumeID(AccessibilityID.composerStopButton)
     }
 
     /// Says what the composer will do with what is being typed. Its button

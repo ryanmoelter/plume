@@ -213,7 +213,7 @@ private struct PlanButton: View, ThemedView {
         .buttonStyle(.plain)
         .help("Open the plan this conversation produced")
         .accessibilityLabel("Plan")
-        .accessibilityIdentifier(AccessibilityID.planLinkButton)
+        .plumeID(AccessibilityID.planLinkButton)
     }
 }
 
@@ -244,7 +244,7 @@ private struct PermissionModeControl: View, ThemedView {
             .help(state.modeAndModelHelp("Permission mode: \(mode.label)"))
             .accessibilityLabel("Permission mode")
             .accessibilityValue(mode.label)
-            .accessibilityIdentifier(AccessibilityID.composerPermissionModeControl)
+            .plumeID(AccessibilityID.composerPermissionModeControl)
         }
     }
 
@@ -297,7 +297,7 @@ private struct ModelControl: View, ThemedView {
         .help(state.modeAndModelHelp("Model: \(label)"))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
-        .accessibilityIdentifier(AccessibilityID.composerModelControl)
+        .plumeID(AccessibilityID.composerModelControl)
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
                 state.setModel(AgentModel(unrecognizedID: $0))
@@ -368,7 +368,7 @@ private struct EffortControl: View, ThemedView {
         .help("Effort: \(state.effort.label) (changing it sends a message)")
         .accessibilityLabel("Effort")
         .accessibilityValue(state.effort.label)
-        .accessibilityIdentifier(AccessibilityID.composerEffortControl)
+        .plumeID(AccessibilityID.composerEffortControl)
     }
 
     /// Matches `statusline.sh`'s `effort_seg`: `xhigh`/`max` need attention.

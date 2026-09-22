@@ -246,7 +246,7 @@ struct InteractiveToolRow: View, ThemedView {
                 content
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier(AccessibilityID.questionOption)
+            .plumeID(AccessibilityID.questionOption, label: option.label)
             .accessibilityLabel(option.label)
         } else {
             content
@@ -269,7 +269,11 @@ struct InteractiveToolRow: View, ThemedView {
                     colors: colors
                 )
                 .chatTextColumn()
-                .accessibilityIdentifier(AccessibilityID.questionFreeTextField)
+                .plumeID(
+                    AccessibilityID.questionFreeTextField,
+                    value: answerState.freeText(for: question),
+                    setValue: { answerState.setFreeText($0, for: question) }
+                )
         }
     }
 

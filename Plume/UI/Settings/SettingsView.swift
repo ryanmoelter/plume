@@ -192,8 +192,12 @@ struct SettingsView: View {
                     )
                 }
                 Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .plumeID(
+                        AccessibilityID.keepAwakeLidToggle,
+                        value: String(settings.keepsAwakeWithLidClosed),
+                        setValue: { settings.keepsAwakeWithLidClosed = ($0 == "true" || $0 == "1") }
+                    )
                     .disabled(!keepAwake.lidOverrideStatus.canEngage)
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
                 sleepHelperRow
                 if settings.keepsAwakeWithLidClosed {
                     LabeledContent("Allow sleep when temperature is") {
@@ -287,12 +291,12 @@ struct SettingsView: View {
         case .notRegistered:
             LabeledContent("Sleep helper") {
                 Button("Install…") { keepAwake.installLidHelper() }
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+                    .plumeID(AccessibilityID.keepAwakeLidInstallButton)
             }
         case .needsApproval:
             LabeledContent("Sleep helper") {
                 Button("Approve in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+                    .plumeID(AccessibilityID.keepAwakeLidApprovalButton)
             }
         case .unavailable(let reason):
             LabeledContent("Sleep helper") {
@@ -303,7 +307,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Installed").foregroundStyle(.secondary)
                     Button("Uninstall") { keepAwake.uninstallLidHelper() }
-                        .accessibilityIdentifier(AccessibilityID.keepAwakeLidUninstallButton)
+                        .plumeID(AccessibilityID.keepAwakeLidUninstallButton)
                 }
             }
         }

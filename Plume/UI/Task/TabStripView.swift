@@ -35,7 +35,7 @@ struct TabStripView: View {
             .fixedSize()
             .help("New tab")
             .accessibilityLabel("New tab")
-            .accessibilityIdentifier(AccessibilityID.newTabButton)
+            .plumeID(AccessibilityID.newTabButton)
 
             Spacer()
                 .dropDestination(for: String.self) { draggedIDs, _ in
@@ -124,7 +124,7 @@ private struct TabChip: View {
             .allowsHitTesting(isHovering)
             .help("Close tab")
             .accessibilityLabel("Close tab")
-            .accessibilityIdentifier(AccessibilityID.tabChipClose)
+            .plumeID(AccessibilityID.tabChipClose)
         }
         .foregroundStyle(themeForeground ?? .primary)
         .padding(.horizontal, 8)
@@ -133,7 +133,7 @@ private struct TabChip: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
-        .accessibilityIdentifier(AccessibilityID.tabChip)
+        .plumeID(AccessibilityID.tabChip, label: chipTitle)
         .contextMenu {
             if tab.kind == .agent {
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {

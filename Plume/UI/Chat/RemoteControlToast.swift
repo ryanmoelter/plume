@@ -28,7 +28,7 @@ struct RemoteControlToast: View, ThemedView {
             .disabled(notice.link?.shareableURL == nil)
             .help(helpText(for: notice))
             .transition(.opacity)
-            .accessibilityIdentifier(AccessibilityID.remoteControlToast)
+            .plumeID(AccessibilityID.remoteControlToast)
         }
     }
 
