@@ -116,14 +116,31 @@ final class HeadlessSession {
     /// opening turn has not been written to yet.
     private var openingMessage: String?
 
+    /// Whether the user has sent anything to this process yet.
+    ///
+    /// A tab is resumed the moment it becomes visible, with no message behind
+    /// it, so a resume that fails fails a turn the user never started. The
+    /// chat shows that as a `ChatStartFailure` in place of the conversation;
+    /// a notification saying the agent stopped would blame the user's own
+    /// launch for stopping something that never ran.
+    private var hasUserSubmitted = false
+
+    @ObservationIgnored private let statusEngine: StatusEngine
+
     /// `initialEffort` seeds the displayed value from the tab's last-known
     /// effort, so a resumed session's control shows it immediately instead of
     /// the "Effort" placeholder. It only sets the property directly — never
     /// through `setEffort(_:)`, which submits a real turn to the CLI.
-    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil) {
+    init(
+        tabID: UUID,
+        taskID: UUID,
+        initialEffort: AgentEffort? = nil,
+        statusEngine: StatusEngine = .shared
+    ) {
         self.tabID = tabID
         self.taskID = taskID
         self.effort = initialEffort
+        self.statusEngine = statusEngine
     }
 
     #if DEBUG
@@ -201,7 +218,9 @@ final class HeadlessSession {
         lastError = reason
         hasExited = true
         exitStatus = nil
-        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+        statusEngine.setStatus(
+            .error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted
+        )
     }
 
     /// Why this conversation never started, or nil while it is healthy. Only
@@ -235,6 +254,7 @@ final class HeadlessSession {
             return .queued
         }
         if openingMessage == nil { openingMessage = normalized.plainText }
+        hasUserSubmitted = true
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
@@ -492,7 +512,7 @@ final class HeadlessSession {
         guard !hasExited else { return }
         let resting: TaskStatus = isWorking ? .working : .awaitingReply
         let status = Self.attentionStatus(for: pendingPermissions) ?? resting
-        StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID)
+        statusEngine.setStatus(status, taskID: taskID, tabID: tabID)
     }
 
     /// What the tab is waiting on, or nil when it is waiting on nothing.
@@ -574,7 +594,7 @@ final class HeadlessSession {
         isWorking = true
         lastError = nil
         wasInterrupted = false
-        StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
+        statusEngine.setStatus(.working, taskID: taskID, tabID: tabID)
     }
 
     private func endTurn(_ result: TurnResult) {
@@ -587,12 +607,14 @@ final class HeadlessSession {
             // The turn ends as an error because it was cut short, but the user
             // is who cut it — blaming the agent would send them looking for a
             // failure that never happened.
-            StatusEngine.shared.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+            statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
         } else if result.isError {
             lastError = result.text ?? "The turn failed."
-            StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+            statusEngine.setStatus(
+                .error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted
+            )
         } else {
-            StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
+            statusEngine.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
         }
         wasInterrupted = false
         requestTitleIfDue()
@@ -673,7 +695,12 @@ final class HeadlessSession {
         } else {
             .error
         }
-        StatusEngine.shared.setStatus(reported, taskID: taskID, tabID: tabID)
+        statusEngine.setStatus(
+            reported,
+            taskID: taskID,
+            tabID: tabID,
+            notifiable: reported != .error || hasUserSubmitted
+        )
     }
 
     @discardableResult

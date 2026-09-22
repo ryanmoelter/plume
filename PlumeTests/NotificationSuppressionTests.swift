@@ -131,7 +131,7 @@ struct StatusEngineTabCallbackTests {
         let engine = StatusEngine()
         let (task, tab) = (UUID(), UUID())
         var seen: [(UUID, UUID, TaskStatus)] = []
-        engine.onTabStatusChanged = { seen.append(($0, $1, $2)) }
+        engine.onTabStatusChanged = { task, tab, status, _ in seen.append((task, tab, status)) }
 
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
@@ -149,9 +149,35 @@ struct StatusEngineTabCallbackTests {
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
         var seen = 0
-        engine.onTabStatusChanged = { _, _, _ in seen += 1 }
+        engine.onTabStatusChanged = { _, _, _, _ in seen += 1 }
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
         #expect(seen == 0)
+    }
+
+    /// A hook event is the agent reporting on a turn the user started, so it
+    /// keeps the right to interrupt them.
+    @Test func aHookEventIsNotifiable() {
+        let engine = StatusEngine()
+        var notifiable: [Bool] = []
+        engine.onTabStatusChanged = { _, _, _, flag in notifiable.append(flag) }
+
+        engine.apply(HookEvent(hookEventName: "Notification"), taskID: UUID(), tabID: UUID())
+
+        #expect(notifiable == [true])
+    }
+
+    /// Restoring a tab is the app rediscovering a state, not the agent
+    /// reaching one.
+    @Test func restoringATabIsNotNotifiable() {
+        let engine = StatusEngine()
+        let (task, tab) = (UUID(), UUID())
+        engine.setStatus(.working, taskID: task, tabID: tab)
+
+        var notifiable: [Bool] = []
+        engine.onTabStatusChanged = { _, _, _, flag in notifiable.append(flag) }
+        engine.restore(tabID: tab, taskID: task)
+
+        #expect(notifiable == [false])
     }
 }
