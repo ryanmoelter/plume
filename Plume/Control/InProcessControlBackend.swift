@@ -137,6 +137,67 @@ final class InProcessControlBackend: ControlBackend {
         }
     }
 
+    // MARK: Drag
+
+    func drag(_ params: DragParams) async throws -> DragResult {
+        let window = try window(for: params.windowNumber, target: params.target)
+        let height = contentHeight(of: window)
+        let topLeft: CGPoint
+        if let x = params.x, let y = params.y {
+            topLeft = CGPoint(x: x, y: y)
+        } else if let target = params.target {
+            guard let frame = try frame(of: target) else { throw ControlError.badParams("drag needs a control, or x and y") }
+            topLeft = CGPoint(x: frame.midX, y: frame.midY)
+        } else {
+            throw ControlError.badParams("drag needs a target, or x and y")
+        }
+
+        let pasteboard = SyntheticDraggingInfo.makePasteboard()
+        var types: [NSPasteboard.PasteboardType] = []
+        if let files = params.files, !files.isEmpty {
+            pasteboard.writeObjects(files.map { URL(fileURLWithPath: $0) as NSURL })
+            types.append(.fileURL)
+        }
+        if let text = params.text {
+            pasteboard.setString(text, forType: .string)
+            types.append(.string)
+        }
+        guard !types.isEmpty else { throw ControlError.badParams("drag needs files or text") }
+
+        let point = WindowGeometry.appKitPoint(fromTopLeft: topLeft, contentHeight: height)
+        SyntheticHover.move(to: point, in: window)
+        guard let destination = SyntheticDrag.destination(at: point, in: window, types: types) else {
+            return DragResult(
+                dropped: false,
+                refusedAt: "noDestination",
+                view: nil,
+                availableTypes: SyntheticDrag.registeredTypes(at: point, in: window),
+                hitChain: SyntheticDrag.hitChain(at: point, in: window).map { String(describing: type(of: $0)) }
+            )
+        }
+        let info = SyntheticDraggingInfo(pasteboard: pasteboard, location: point, window: window)
+        let outcome = SyntheticDrag.perform(info, on: destination)
+        return DragResult(
+            dropped: outcome.succeeded,
+            refusedAt: outcome.refusedAt,
+            view: String(describing: type(of: destination)),
+            entered: Self.names(outcome.entered),
+            updated: outcome.updated.map(Self.names),
+            prepared: outcome.prepared,
+            performed: outcome.performed
+        )
+    }
+
+    private static func names(_ operation: NSDragOperation) -> [String] {
+        var out: [String] = []
+        if operation.contains(.copy) { out.append("copy") }
+        if operation.contains(.move) { out.append("move") }
+        if operation.contains(.link) { out.append("link") }
+        if operation.contains(.generic) { out.append("generic") }
+        if operation.contains(.delete) { out.append("delete") }
+        return out
+    }
+
     // MARK: Screenshot
 
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {

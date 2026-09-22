@@ -32,6 +32,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "hierarchy": command = .hierarchy(try HierarchyParams(from: decoder))
         case "hover": command = .hover(try HoverParams(from: decoder))
         case "clear": command = .clear(try ClearParams(from: decoder))
+        case "drag": command = .drag(try DragParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -52,6 +53,7 @@ nonisolated enum ControlCommand {
     case hierarchy(HierarchyParams)
     case hover(HoverParams)
     case clear(ClearParams)
+    case drag(DragParams)
 }
 
 /// `plumeID`, not `id`: the request envelope's `id` is the correlation id.
@@ -121,6 +123,43 @@ nonisolated struct HoverParams: Decodable {
     var x: Double?
     var y: Double?
     var windowNumber: Int?
+}
+
+/// What to put on the drag pasteboard, and where to drop it. Either a
+/// `target` or an `x`/`y` point names the destination; the point wins when
+/// both are given.
+nonisolated struct DragParams: Decodable {
+    /// Absolute paths, offered as `public.file-url` — a Finder drag.
+    var files: [String]?
+    /// Offered as `public.utf8-plain-text`, which is what SwiftUI's
+    /// `.draggable(String)` puts on the pasteboard.
+    var text: String?
+    var target: ControlTarget?
+    var x: Double?
+    var y: Double?
+    var windowNumber: Int?
+}
+
+/// Every step of the `NSDraggingDestination` handshake, so a drop that
+/// highlights and then does nothing is distinguishable from one that was
+/// never offered.
+nonisolated struct DragResult: Encodable {
+    var dropped: Bool
+    /// The step that refused, or nil when the drop landed.
+    var refusedAt: String?
+    /// The class name of the view that answered, or nil when no view under
+    /// the point accepts the offered types.
+    var view: String?
+    var entered: [String]?
+    var updated: [String]?
+    var prepared: Bool?
+    var performed: Bool?
+    /// Every type an ancestor of the hit view accepts, when none of them
+    /// accepts the offered ones.
+    var availableTypes: [String]?
+    /// The hit view and its ancestors, innermost first, when nothing accepted
+    /// the drag.
+    var hitChain: [String]?
 }
 
 nonisolated struct ClearParams: Decodable {
@@ -308,6 +347,7 @@ nonisolated enum ControlResult: Encodable {
     case screenshot(ScreenshotResult)
     case hierarchy(HierarchyResult)
     case hover(HoverResult)
+    case drag(DragResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -320,6 +360,7 @@ nonisolated enum ControlResult: Encodable {
         case .screenshot(let v): try v.encode(to: encoder)
         case .hierarchy(let v): try v.encode(to: encoder)
         case .hover(let v): try v.encode(to: encoder)
+        case .drag(let v): try v.encode(to: encoder)
         }
     }
 }

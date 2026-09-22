@@ -17,6 +17,7 @@ protocol ControlBackend {
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult
     func hover(_ params: HoverParams) async throws -> HoverResult
     func clear(_ params: ClearParams) async throws
+    func drag(_ params: DragParams) async throws -> DragResult
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -54,6 +55,7 @@ enum ControlDispatcher {
             case .clear(let params):
                 try await backend.clear(params)
                 result = .empty
+            case .drag(let params): result = .drag(try await backend.drag(params))
             }
             return .success(id: request.id, result)
         } catch {
