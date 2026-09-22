@@ -452,6 +452,16 @@ enum StatuslineMeterMath {
         guard let percent else { return 0 }
         return Swift.min(Swift.max(percent / 100, 0), 1)
     }
+
+    /// The fill's width in points, clamped to the track's own width so a
+    /// fraction at or past 1 can never draw the fill past the track —
+    /// `MeterView` clips to the track's shape too, as a second line of
+    /// defense against rendering quirks at narrow track widths.
+    static func fillWidth(trackWidth: CGFloat, fraction: Double) -> CGFloat {
+        guard trackWidth > 0 else { return 0 }
+        let width = trackWidth * fraction
+        return Swift.min(Swift.max(width, 0), trackWidth)
+    }
 }
 
 /// Attention-to-color mapping shared by the strip and the composer's
@@ -516,14 +526,17 @@ struct MeterView: View, ThemedView {
 
     var body: some View {
         GeometryReader { geometry in
-            // Centred vertically as well as leading, so the dot sits on the
-            // bar's midline rather than its top edge.
-            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
-                let fillWidth = geometry.size.width * fraction
-                let mark = pacing.map {
-                    PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
-                }
+            let fillWidth = StatuslineMeterMath.fillWidth(trackWidth: geometry.size.width, fraction: fraction)
+            let mark = pacing.map {
+                PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
+            }
 
+            // Centred vertically as well as leading, so the dot sits on the
+            // bar's midline rather than its top edge. Clipped to the track's
+            // own shape: at narrow track widths a capsule's rounded caps can
+            // otherwise render past the nominal frame, spilling the fill past
+            // the track it sits over.
+            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
                 Capsule()
                     .fill(color.opacity(trackOpacity))
 
@@ -547,6 +560,7 @@ struct MeterView: View, ThemedView {
                         .clipped()
                 }
             }
+            .clipShape(Capsule())
         }
         .frame(height: PacingMark.barHeight)
     }
