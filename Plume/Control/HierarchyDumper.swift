@@ -13,6 +13,10 @@ enum HierarchyDumper {
         contentHeight: CGFloat,
         textLimit: Int
     ) -> HierarchyNode {
+        // A dump scoped below the content view must not sweep in the rest of
+        // the window's controls as children of its root.
+        let scope = viewFrame(root, contentHeight).insetBy(dx: -2, dy: -2)
+        let controls = controls.filter { scope.intersects($0.entry.frame) }
         let owners = assignOwners(of: controls, under: root, contentHeight: contentHeight)
         var node = build(root, controls: controls, owners: owners, contentHeight: contentHeight, textLimit: textLimit)
         node = prune(node) ?? HierarchyNode(kind: node.kind, frame: node.frame)

@@ -77,6 +77,24 @@ struct ControlHierarchyTests {
         #expect(node.children.allSatisfy { $0.kind != "NSView" }, "a plain container view collapses into its children")
     }
 
+    @Test func aScopedDumpLeavesOutControlsOutsideItsRoot() throws {
+        let root = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
+        let panel = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 50))
+        root.addSubview(panel)
+        let window = makeWindow(content: root, size: CGSize(width: 300, height: 200))
+        defer { window.close() }
+        func entry(_ id: String, y: CGFloat) -> (index: Int, entry: ControlEntry) {
+            (0, ControlEntry(token: UUID(), id: id, label: nil, value: nil, isEnabled: true, frame: CGRect(x: 10, y: y, width: 20, height: 10), window: window, invoke: nil, setValue: nil))
+        }
+        let controls = [entry("inside", y: 170), entry("outside", y: 20)]
+
+        let scoped = HierarchyDumper.render(HierarchyDumper.dump(root: panel, controls: controls, contentHeight: 200, textLimit: 200))
+        #expect(scoped.contains("inside"))
+        #expect(!scoped.contains("outside"))
+        let whole = HierarchyDumper.render(HierarchyDumper.dump(root: root, controls: controls, contentHeight: 200, textLimit: 200))
+        #expect(whole.contains("inside") && whole.contains("outside"))
+    }
+
     @Test func aSubstringResolvesToARectInsideItsTextView() async throws {
         let before = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let textView = NSTextView(frame: CGRect(x: 0, y: 0, width: 300, height: 60))
