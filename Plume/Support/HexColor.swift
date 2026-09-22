@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// A parsed hex color, kept as components so a caller can build a `Color`
@@ -29,6 +30,16 @@ struct HexRGB: Equatable {
         default:
             return nil
         }
+    }
+
+    /// Relative luminance (WCAG's linearized, gamma-corrected formula), for
+    /// comparing two colors' perceived lightness rather than their raw
+    /// component values.
+    var relativeLuminance: Double {
+        func linearize(_ component: Double) -> Double {
+            component <= 0.03928 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linearize(red) + 0.7152 * linearize(green) + 0.0722 * linearize(blue)
     }
 }
 

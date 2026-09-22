@@ -39,7 +39,6 @@ final class AppSettings {
         static let showsBypassPermissions = "showsBypassPermissions"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
-        static let sidebarBackgroundStyleRaw = "sidebarBackgroundStyleRaw"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -158,9 +157,6 @@ final class AppSettings {
             ?? ShortcutBindings()
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
-
-        self.sidebarBackgroundStyle = defaults.string(forKey: Key.sidebarBackgroundStyleRaw)
-            .flatMap(SidebarBackgroundStyle.init(rawValue:)) ?? .tintedGlass
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -435,14 +431,6 @@ final class AppSettings {
     var showsBypassPermissions: Bool {
         didSet {
             defaults.set(showsBypassPermissions, forKey: Key.showsBypassPermissions)
-        }
-    }
-
-    /// How the sidebar's background is drawn. Defaults to `tintedGlass`, the
-    /// closest match to the composer's own glass.
-    var sidebarBackgroundStyle: SidebarBackgroundStyle {
-        didSet {
-            defaults.set(sidebarBackgroundStyle.rawValue, forKey: Key.sidebarBackgroundStyleRaw)
         }
     }
 }

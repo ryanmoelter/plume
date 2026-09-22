@@ -48,4 +48,26 @@ struct HexRGBTests {
         #expect(HexRGB(hex: "") == nil)
     }
 
+    @Test func whiteIsBrighterThanBlack() throws {
+        let white = try #require(HexRGB(hex: "ffffff"))
+        let black = try #require(HexRGB(hex: "000000"))
+        #expect(white.relativeLuminance > black.relativeLuminance)
+    }
+
+    @Test func blackHasZeroLuminance() throws {
+        let black = try #require(HexRGB(hex: "000000"))
+        #expect(black.relativeLuminance == 0)
+    }
+
+    @Test func whiteHasFullLuminance() throws {
+        let white = try #require(HexRGB(hex: "ffffff"))
+        #expect(abs(white.relativeLuminance - 1) < 0.001)
+    }
+
+    @Test func midGrayLuminanceIsNotHalfway() throws {
+        // The gamma-corrected formula is nonlinear, so #808080 lands well
+        // under 0.5 rather than at it.
+        let midGray = try #require(HexRGB(hex: "808080"))
+        #expect(abs(midGray.relativeLuminance - 0.216) < 0.01)
+    }
 }
