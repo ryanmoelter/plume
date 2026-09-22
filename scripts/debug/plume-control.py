@@ -111,7 +111,10 @@ def build_params(pairs, extra_json):
 def send(path, request):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(30)
-        sock.connect(path)
+        try:
+            sock.connect(path)
+        except OSError as error:
+            sys.exit(f"cannot connect to {path}: {error.strerror or error}; is that Plume still running?")
         sock.sendall((json.dumps(request) + "\n").encode())
         buffer = b""
         while b"\n" not in buffer:
