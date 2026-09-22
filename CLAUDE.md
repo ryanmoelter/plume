@@ -81,7 +81,7 @@ Both transports launch through `AgentLauncher` and report through `StatusEngine`
 
 ## Verifying the app from an agent
 
-**Use the `drive-app` skill.** A debug build serves a control socket that reads the window as text, drives controls, hovers, and screenshots without an Accessibility grant and without activating the app; `docs/control-server.md` is the reference and `scripts/debug/plume-control.py` the client. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. The whole layer is `#if DEBUG` and compiles to nothing in Release.
+**Use the `drive-plume` skill.** A debug build serves a control socket that reads the window as text, drives controls, hovers, and screenshots without an Accessibility grant and without activating the app; `docs/control-server.md` is the reference and `scripts/debug/plume-control.py` the client. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. The whole layer is `#if DEBUG` and compiles to nothing in Release.
 
 ## Verifying terminal behavior
 

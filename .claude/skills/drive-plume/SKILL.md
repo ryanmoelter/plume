@@ -1,5 +1,5 @@
 ---
-name: drive-app
+name: drive-plume
 description: Drive and inspect a running debug build of Plume from an agent — read what is on screen as text, click, type, hover, and screenshot — without stealing focus or needing an Accessibility grant. Use whenever verifying a UI change, reproducing a UI bug, or checking what the app shows, before reaching for a screenshot or a process tree.
 ---
 
