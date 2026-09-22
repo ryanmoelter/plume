@@ -402,7 +402,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         Divider()
-        Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+        Button("New Worktree…") { worktreeSheetShown = true }
     }
 
     private var worktreeChip: some View {

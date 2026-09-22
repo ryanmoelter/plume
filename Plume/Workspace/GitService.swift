@@ -68,6 +68,10 @@ actor GitService {
         )
     }
 
+    func uncommittedChanges(in path: String) -> [String] {
+        WorkspaceProvisioner.uncommittedChanges(in: path)
+    }
+
     func removeWorktree(
         repository: String,
         path: String,
