@@ -379,27 +379,31 @@ struct ChatComposer: View, ThemedView {
             in: TabDirectoryStore.shared.directory(for: tab),
             tabID: tabID
         ) { result in
-            dispatch([.text(result.transcriptText)])
             // Sent outright rather than queued, so the transcript takes over
-            // telling the story and the chip has nothing left to say.
-            if headlessSession?.isWorking != true {
+            // telling the story and the chip has nothing left to say. Read
+            // from the delivery, not from `isWorking` afterwards: sending
+            // starts a turn, which would make every send look like a queue.
+            if dispatch([.text(result.transcriptText)]) == .sent {
                 CommandModeRuns.shared.finish(runID, tabID: tabID)
             }
         }
     }
 
     /// Sends `blocks` to whichever backend the tab has, launching one when
-    /// it has none.
-    private func dispatch(_ blocks: [UserContentBlock]) {
+    /// it has none. Only a headless session can queue; the other two paths
+    /// deliver outright.
+    @discardableResult
+    private func dispatch(_ blocks: [UserContentBlock]) -> HeadlessSession.Delivery {
         let text = blocks.plainText
         if let headlessSession {
-            headlessSession.submit(blocks: blocks)
+            return headlessSession.submit(blocks: blocks)
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {
             onLaunch(text)
             AgentLauncher.launch(blocks: blocks, task: task, tab: tab)
         }
+        return .sent
     }
 }
 

@@ -215,12 +215,21 @@ final class HeadlessSession {
         submit(blocks: [.text(text)])
     }
 
-    func submit(blocks: [UserContentBlock]) {
+    /// Whether the text went to the agent now or is waiting its turn. A
+    /// caller cannot tell by reading `isWorking` afterwards, because sending
+    /// starts a turn and so always leaves it true.
+    enum Delivery {
+        case sent
+        case queued
+    }
+
+    @discardableResult
+    func submit(blocks: [UserContentBlock]) -> Delivery {
         let normalized = blocks.normalized
-        guard normalized.hasContent else { return }
+        guard normalized.hasContent else { return .queued }
         guard !isWorking else {
             queuedMessages.append(normalized)
-            return
+            return .queued
         }
         if openingMessage == nil { openingMessage = normalized.plainText }
         beginTurn()
@@ -231,8 +240,9 @@ final class HeadlessSession {
             queuedMessages.append(normalized)
             isWorking = false
             if lastError == nil { lastError = "claude is not running; the message was not sent" }
-            return
+            return .queued
         }
+        return .sent
     }
 
     /// Removes and returns the queued message at `index`, so a caller can

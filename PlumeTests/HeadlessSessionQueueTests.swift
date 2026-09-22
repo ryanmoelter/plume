@@ -118,3 +118,41 @@ struct HeadlessSessionDeadProcessTests {
         #expect(session.lastError != nil)
     }
 }
+
+/// What `submit` reports about where the text went.
+///
+/// A caller cannot learn this by reading `isWorking` after the call: sending
+/// begins a turn, so a successful send and an already-busy session both leave
+/// it true. Command mode retires its chip on `.sent`, so a wrong answer here
+/// either strands the chip forever or drops it while its output still waits.
+@MainActor
+struct SubmitDeliveryTests {
+    private func makeSession() -> HeadlessSession {
+        HeadlessSession(tabID: UUID(), taskID: UUID())
+    }
+
+    /// No process to write to, so the send fails and the text stays queued
+    /// for a restart to deliver — the chip has to stay up.
+    @Test func aFailedSendReportsQueued() {
+        let session = makeSession()
+
+        #expect(session.submit(blocks: [.text("hi")]) == .queued)
+        #expect(session.queuedMessages.map(\.plainText) == ["hi"])
+    }
+
+    @Test func anEmptyTurnReportsQueuedAndAddsNothing() {
+        let session = makeSession()
+
+        #expect(session.submit(blocks: [.text("   ")]) == .queued)
+        #expect(session.queuedMessages.isEmpty)
+    }
+
+    /// The busy path appends without touching the process at all.
+    @Test func aBusySessionReportsQueued() {
+        let session = makeSession()
+        session.submit(text: "first")
+
+        #expect(session.submit(blocks: [.text("second")]) == .queued)
+        #expect(session.queuedMessages.map(\.plainText) == ["first", "second"])
+    }
+}
