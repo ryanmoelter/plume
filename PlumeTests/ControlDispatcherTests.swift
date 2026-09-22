@@ -103,6 +103,11 @@ final class FakeControlBackend: ControlBackend {
         return ClickResult(rect: Rect(.zero), windowNumber: 0)
     }
 
+    func drag(_ params: DragParams) async throws -> DragResult {
+        try record("drag")
+        return DragResult(dropped: true)
+    }
+
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         try record("screenshot")
         return ScreenshotResult(path: "/dev/null", width: 0, height: 0, scale: 1)

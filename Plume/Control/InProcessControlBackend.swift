@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import UniformTypeIdentifiers
 
 /// Answers control commands from inside the process: registered controls
 /// through `ControlRegistry`, text through the AppKit views that already
@@ -135,6 +136,74 @@ final class InProcessControlBackend: ControlBackend {
             SyntheticHover.leave(window)
             ControlOverlay.existing(for: window)?.remove()
         }
+    }
+
+    // MARK: Drag
+
+    func drag(_ params: DragParams) async throws -> DragResult {
+        let window = try window(for: params.windowNumber, target: params.target)
+        let height = contentHeight(of: window)
+        let topLeft: CGPoint
+        if let x = params.x, let y = params.y {
+            topLeft = CGPoint(x: x, y: y)
+        } else if let target = params.target {
+            guard let frame = try frame(of: target) else { throw ControlError.badParams("drag needs a control, or x and y") }
+            topLeft = CGPoint(x: frame.midX, y: frame.midY)
+        } else {
+            let destinations = SyntheticDrag.allDestinations(in: window).map { view, types in
+                DragDestination(
+                    view: String(describing: type(of: view)),
+                    frame: Rect(WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)),
+                    types: types
+                )
+            }
+            return DragResult(dropped: false, refusedAt: "noPoint", view: nil, destinations: destinations)
+        }
+
+        let pasteboard = SyntheticDraggingInfo.makePasteboard()
+        var types: [NSPasteboard.PasteboardType] = []
+        if let files = params.files, !files.isEmpty {
+            pasteboard.writeObjects(files.map { URL(fileURLWithPath: $0) as NSURL })
+            types.append(.fileURL)
+        }
+        if let text = params.text {
+            // SwiftUI reads a `Transferable` payload off the item's data, so
+            // the item carries both `public.utf8-plain-text` and the legacy
+            // string type an `NSString` write would produce on its own.
+            let item = NSPasteboardItem()
+            item.setData(Data(text.utf8), forType: .init(UTType.utf8PlainText.identifier))
+            item.setString(text, forType: .string)
+            pasteboard.writeObjects([item])
+            types.append(.string)
+        }
+        guard !types.isEmpty else { throw ControlError.badParams("drag needs files or text") }
+
+        let point = WindowGeometry.appKitPoint(fromTopLeft: topLeft, contentHeight: height)
+        SyntheticHover.move(to: point, in: window)
+        guard let destination = SyntheticDrag.destination(at: point, in: window, types: types) else {
+            return DragResult(dropped: false, refusedAt: "noDestination", view: nil)
+        }
+        let info = SyntheticDraggingInfo(pasteboard: pasteboard, location: point, window: window)
+        let outcome = SyntheticDrag.perform(info, on: destination)
+        return DragResult(
+            dropped: outcome.succeeded,
+            refusedAt: outcome.refusedAt,
+            view: String(describing: type(of: destination)),
+            entered: Self.names(outcome.entered),
+            updated: outcome.updated.map(Self.names),
+            prepared: outcome.prepared,
+            performed: outcome.performed
+        )
+    }
+
+    private static func names(_ operation: NSDragOperation) -> [String] {
+        var out: [String] = []
+        if operation.contains(.copy) { out.append("copy") }
+        if operation.contains(.move) { out.append("move") }
+        if operation.contains(.link) { out.append("link") }
+        if operation.contains(.generic) { out.append("generic") }
+        if operation.contains(.delete) { out.append("delete") }
+        return out
     }
 
     // MARK: Screenshot
