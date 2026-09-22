@@ -50,7 +50,7 @@ final class AgentTitleMonitor {
         paths[tabID] = transcriptPath
         read(tabID: tabID)
 
-        let watcher = FileWatcher(url: URL(fileURLWithPath: transcriptPath)) { [weak self] in
+        let watcher = FileWatcher(url: URL(fileURLWithPath: transcriptPath), createsFile: false) { [weak self] in
             self?.scheduleRead(tabID: tabID)
         }
         watcher.start()

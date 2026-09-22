@@ -101,7 +101,7 @@ final class TranscriptStore {
         paths[tabID] = transcriptPath
         read(tabID: tabID)
 
-        let watcher = FileWatcher(url: URL(fileURLWithPath: transcriptPath)) { [weak self] in
+        let watcher = FileWatcher(url: URL(fileURLWithPath: transcriptPath), createsFile: false) { [weak self] in
             self?.scheduleRead(tabID: tabID)
         }
         watcher.start()
@@ -153,10 +153,9 @@ final class TranscriptStore {
     }
 
     /// `EnterWorktree` moves a live transcript into a project directory keyed
-    /// by the worktree, keeping the session id. The move fires the watcher and
-    /// `FileWatcher` recreates the vanished file, so what a tab reads
-    /// afterwards is an empty stub — which makes an empty read the signal to
-    /// go find where the session went.
+    /// by the worktree, keeping the session id. A read that finds nothing —
+    /// whether the file is gone or sitting there empty — is the signal to go
+    /// find where the session went.
     ///
     /// A session that has genuinely written nothing yet finds nothing and
     /// keeps its current path, so it still reads as waiting rather than lost.
@@ -362,7 +361,7 @@ final class TranscriptStore {
             watchers.removeValue(forKey: path)
         }
         for path in paths where watchers[path] == nil {
-            let watcher = FileWatcher(url: URL(fileURLWithPath: path)) { [weak self] in
+            let watcher = FileWatcher(url: URL(fileURLWithPath: path), createsFile: false) { [weak self] in
                 self?.scheduleRead(tabID: tabID)
             }
             watcher.start()
