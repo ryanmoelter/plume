@@ -39,7 +39,7 @@ nonisolated struct OptimisticFirstMessage: Equatable {
         ChatMessage(
             id: Self.messageID,
             role: .user,
-            blocks: [kind.isUserProse ? .markdown(text) : .injected(kind, text: text)],
+            blocks: [kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)],
             timestamp: sentAt
         )
     }

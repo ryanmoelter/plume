@@ -229,7 +229,7 @@ nonisolated enum TranscriptParser {
                     default: lastSlashCommand = nil
                     }
                     otherBlocks.insert(
-                        kind.isUserProse ? .markdown(text) : .injected(kind, text: text),
+                        kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
                         at: 0
                     )
                 }

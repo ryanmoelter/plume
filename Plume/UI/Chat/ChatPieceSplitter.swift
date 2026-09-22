@@ -98,10 +98,12 @@ enum ChatPieceSplitter {
         }
 
         /// An injected line is not the user speaking, so it skips the bubble
-        /// and sits full-width like the transcript's own asides.
+        /// and sits full-width like the transcript's own asides. Another
+        /// agent's message is the exception: it is somebody speaking, and
+        /// takes a bubble of its own.
         var isInjectedOnly: Bool {
             !message.blocks.isEmpty && message.blocks.allSatisfy { block in
-                if case .injected = block { return true }
+                if case .injected(let kind, _) = block { return !kind.isAgentMessage }
                 return false
             }
         }
@@ -255,7 +257,27 @@ enum ChatPieceSplitter {
             let isPending = context.needsInput && blockIndex == message.blocks.count - 1
             return single(.toolCall(call, isPending: isPending))
         case .injected(let kind, let text):
-            return single(.injected(kind, text: text))
+            guard case .agentMessage(let name) = kind else {
+                return single(.injected(kind, text: text))
+            }
+            var result = [ChatPiece(
+                id: base,
+                messageID: message.id,
+                role: message.role,
+                content: .agentMessageTitle(name: name),
+                wash: .agentBubble,
+                topInset: leading
+            )]
+            result += markdownPieces(
+                parse(kind.bodyText(text)),
+                idPrefix: base,
+                messageID: message.id,
+                role: message.role,
+                wash: .agentBubble,
+                leading: context.dimensions.messageBlockSpacing,
+                dimensions: context.dimensions
+            )
+            return result
         case .notice(let notice):
             return single(.notice(notice))
         case .image(let image):
