@@ -91,6 +91,16 @@ enum AgentLauncher {
         guard let workingDirectory = task.workingDirectoryPath else { return }
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
+            // Also reported through the session, so a refusal that follows a
+            // sent message lands in the conversation beside it. The full-pane
+            // state only shows while the conversation is empty, which a
+            // just-sent message it never spawned for is not.
+            HeadlessSessionManager.shared.session(
+                for: tab.id,
+                taskID: task.id,
+                initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+            )
+            .failToLaunch(failure: .untrustedDirectory(path: workingDirectory))
             return
         }
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)

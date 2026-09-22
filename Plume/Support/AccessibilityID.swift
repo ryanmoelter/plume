@@ -64,6 +64,21 @@ enum AccessibilityID {
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 
+    // MARK: Chat start failure
+
+    static let chatStartFailureRetry = "chat-start-failure-retry"
+    static let chatTrustOpenTerminal = "chat-trust-open-terminal"
+
+    // MARK: New worktree sheet
+
+    static let worktreeBranchField = "worktree-branch-field"
+    static let worktreeStripPrefixToggle = "worktree-strip-prefix-toggle"
+    static let worktreeEditLocationButton = "worktree-edit-location-button"
+    static let worktreeLocationField = "worktree-location-field"
+    static let worktreeChooseLocationButton = "worktree-choose-location-button"
+    static let worktreeCreateButton = "worktree-create-button"
+    static let worktreeCancelButton = "worktree-cancel-button"
+
     // MARK: Plan overlay
 
     static let planApproveButton = "plan-approve-button"

@@ -835,10 +835,24 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 360)
             }
             HStack(spacing: 12) {
-                Button("Try Again", action: retryAfterStartFailure)
+                // Answering the folder-trust prompt is what unblocks this, so
+                // the terminal tab leads and the retry follows it.
+                if failure.remedy == .trustDirectory {
+                    Button("Open Terminal Tab") {
+                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    }
                     .buttonStyle(.borderedProminent)
-                Button("Open Terminal Tab") {
-                    TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    .plumeID(AccessibilityID.chatTrustOpenTerminal)
+                    Button("Try Again", action: retryAfterStartFailure)
+                        .plumeID(AccessibilityID.chatStartFailureRetry)
+                } else {
+                    Button("Try Again", action: retryAfterStartFailure)
+                        .buttonStyle(.borderedProminent)
+                        .plumeID(AccessibilityID.chatStartFailureRetry)
+                    Button("Open Terminal Tab") {
+                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    }
+                    .plumeID(AccessibilityID.chatTrustOpenTerminal)
                 }
             }
             Spacer()
@@ -852,6 +866,9 @@ struct ChatTabView: View, ThemedView {
     private func retryAfterStartFailure() {
         ClaudeCLILocator.invalidate()
         HeadlessSessionManager.shared.closeSession(for: tab.id)
+        // Trust is re-read on the next launch, and answering the prompt in a
+        // terminal tab is what this retry is offered after.
+        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
     }
 
