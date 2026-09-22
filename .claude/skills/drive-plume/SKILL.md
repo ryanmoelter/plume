@@ -13,13 +13,13 @@ Never drive the instance the user is working in. Give the scratch one its own `H
 
 ```
 APP=$(xcodebuild -scheme Plume -destination 'platform=macOS' -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Plume.app
-open -g -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
+open -g -j -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
   --env PLUME_CONTROL_SOCKET=/tmp/plume-scratch.sock "$APP"
 c() { scripts/debug/plume-control.py --socket /tmp/plume-scratch.sock --assert-frontmost "$@"; }
 c --wait 30 hierarchy
 ```
 
-`open -g` keeps it in the background. `--assert-frontmost` fails any call that changes the frontmost app; run every call with it, because never disturbing the user's focus is the point of this system. When done, kill the instance by walking down from its own PID, never with a global match on `Plume`:
+`open -j` launches the app **hidden**, so its window never appears on the user's screen at all; that is the default, because a new window lands on the user's current Space and in front of every other inactive app. Everything works hidden except `screenshot`, which needs the window server to hold an image of the window. Drop `-j` when a screenshot is the only way to answer the question, or when the user wants to watch the overlay pointer, and say so. `-g` keeps the app from activating either way. `--assert-frontmost` fails any call that changes the frontmost app; run every call with it, because never disturbing the user's focus is the point of this system. Synthetic clicks never reorder windows; the frontmost check plus a hidden launch is the whole focus story. When done, kill the instance by walking down from its own PID, never with a global match on `Plume`:
 
 ```
 pkill -f "$APP/Contents/MacOS/Plume"
@@ -45,7 +45,7 @@ c hover target='{"id":"group-header","index":0}'
 c clear
 ```
 
-`invoke` runs the control's registered closure or clicks its center. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
+`invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. A click on a `List` row never fires its tap gesture, which is why task rows carry an `invoke` closure. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
 
 ## When a control is missing
 

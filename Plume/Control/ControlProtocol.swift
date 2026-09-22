@@ -361,7 +361,7 @@ nonisolated enum ControlError: Error, LocalizedError {
         switch self {
         case .notFound(let what): "not found: \(what)"
         case .ambiguous(let id, let count): "\(count) controls match \(id); pass index or label"
-        case .noWindow: "no visible window"
+        case .noWindow: "no window"
         case .noComposer: "no composer in the window"
         case .unsupported(let what): "unsupported: \(what)"
         case .badParams(let what): "bad params: \(what)"

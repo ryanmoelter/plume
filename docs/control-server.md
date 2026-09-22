@@ -19,7 +19,7 @@ The client discovers the socket in this order: `--socket`, `$PLUME_CONTROL_SOCKE
 ## Driving a scratch instance
 
 ```
-open -g -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
+open -g -j -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
   --env PLUME_CONTROL_SOCKET=/tmp/plume-scratch.sock \
   <DerivedData>/Build/Products/Debug/Plume.app
 
@@ -33,7 +33,7 @@ c clickSpan matching=world
 c screenshot
 ```
 
-`--assert-frontmost` reads `lsappinfo front` before and after the call and fails if it changed. Keep some other app frontmost while driving and run every call with it; that assertion is the load-bearing test of this whole feature.
+`-j` launches the app hidden, so the scratch window never appears on the user's Space; the window lookup falls back to the largest window when none is visible. The window server holds no image of a hidden window, and drawing it in-process gives a white page, so `screenshot` fails with an error naming the cause; relaunch without `-j` for one. `--assert-frontmost` reads `lsappinfo front` before and after the call and fails if it changed. Keep some other app frontmost while driving and run every call with it; that assertion is the load-bearing test of this whole feature.
 
 ## Wire format
 
@@ -82,5 +82,7 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 - A SwiftUI control without `plumeID` is invisible to `list` and `invoke`. Add the modifier; never a bare `.accessibilityIdentifier`.
 - Views hidden by SwiftUI opacity outside a tab (not via `plumeControlsHidden`) still appear in `hierarchy`; their NSViews are not hidden.
 - `invoke` of a bare `Button` is a click, so it needs the control to be on screen and unobscured. Pass `invoke:` at sites where that matters.
+- A synthetic click never fires a `.onTapGesture` on a SwiftUI `List` row, visible or hidden; the row's `Button`s still work. Task rows pass `invoke:` for this reason, and report `value: "selected"` so a driver can confirm the selection.
+- Synthetic clicks do not reorder windows and never activate the app. Launching is what puts a window on the user's Space; `open -j` avoids it.
 - `hover` reaches only `plumeHover` regions. A bare `.onHover`, `.onContinuousHover`, or a button style's hover highlight never sees the synthetic pointer. The real pointer still wins: if it crosses a region, SwiftUI's own callback overrides the synthetic state.
 - The server runs on the main thread. A command that blocks the UI blocks the response.

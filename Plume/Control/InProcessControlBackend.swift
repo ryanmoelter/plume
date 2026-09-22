@@ -142,7 +142,9 @@ final class InProcessControlBackend: ControlBackend {
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         let window = try window(for: params.windowNumber, target: params.target)
         guard let content = window.contentView else { throw ControlError.noWindow }
-        guard let captured = WindowCapture.image(of: window) else { throw ControlError.io("could not capture the window") }
+        guard let captured = WindowCapture.image(of: window) else {
+            throw ControlError.io("the window server has no image of this window; a hidden app (open -j) cannot be captured, relaunch without -j (\(WindowCapture.displayState))")
+        }
         let scale = Double(captured.width) / Double(window.frame.width)
         let contentInWindow = content.convert(content.bounds, to: nil)
         let contentRect = CGRect(
@@ -211,9 +213,13 @@ final class InProcessControlBackend: ControlBackend {
         if case .control? = target, let entry = try? registry.resolve(target!), let window = entry.window {
             return window
         }
-        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) else {
-            throw ControlError.noWindow
-        }
+        // A scratch instance launched hidden (`open -j`) has no visible
+        // window, and driving it is the point, so fall back to the largest.
+        let candidates = NSApp.windows.filter { $0.contentView != nil && $0.frame.width > 300 }
+        guard let window = NSApp.keyWindow
+            ?? candidates.first(where: \.isVisible)
+            ?? candidates.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+        else { throw ControlError.noWindow }
         return window
     }
 
