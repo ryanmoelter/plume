@@ -235,6 +235,66 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 
 **A fork writes nothing until its first turn.** `claude --fork-session --session-id <new>` creates no `.jsonl` until the first turn produces content, so a missing transcript right after a fork is expected. It also refuses to start when a file already sits at the new session's path (`Error: Session ID <uuid> is already in use`). Never create a file at a path the CLI owns.
 
+Two more were measured against 2.1.280 and are used by Plume: `side_question` and `rewind_conversation`.
+
+## Side questions — `side_question`
+
+Serves `/btw`. The CLI has no `btw` command in its `initialize` list — sending the literal text is a visible no-op, the same situation as `/rc` — so Plume supplies the command and intercepts it.
+
+```json
+{"type":"control_request","request_id":"sq-1",
+ "request":{"subtype":"side_question","question":"what model are you?"}}
+```
+
+A `control_request_progress` line always arrives first, then the answer:
+
+```json
+{"type":"system","subtype":"control_request_progress","request_id":"sq-1","status":"started", ...}
+{"type":"control_response","response":{"subtype":"success","request_id":"sq-1",
+ "response":{"response":"…","synthetic":false}}}
+```
+
+Measured behaviour:
+
+- It **reads** main context — it recalled a codeword set in an earlier main turn.
+- It **writes nothing**. Transcript line count was unchanged across two side questions, so there is no branch to read one back from. This is why Plume holds them in memory on `HeadlessSession` and does not persist them.
+- It **does not chain**: a second side question could not see the first.
+- It works **mid-turn**. Fired during a live 3-tool-call turn, it answered in 1.3s and the main turn then completed normally and correctly.
+
+## Rewinding — `rewind_conversation`
+
+Cuts the conversation back to just before a message so it can be asked again. This is what Plume's "Redo this message" uses.
+
+```json
+{"type":"control_request","request_id":"rw-1",
+ "request":{"subtype":"rewind_conversation",
+            "target_message_uuid":"…","last_seen_user_message_uuid":"…"}}
+```
+
+`last_seen_user_message_uuid` is required in practice: omit it and the CLI refuses with `stale_target`, since a target chosen against a conversation that has moved on would cut in the wrong place.
+
+A success carries `prefillText` — the target's own text, for putting back in the composer — and `precedingAssistantUuid`. A refusal is **not** an error response: it is `{"rewound": false, "reason": "…"}`. Known reasons: `commands_queued`, `prompt_pending`, `turn_running`, `target_not_found`, `stale_target`, `unseen_later_turn`, `poll_tool_result_target`, `target_splits_tool_call`, `delivered_poll_events_in_range`, `persist_failed`, `state_changed`.
+
+**It deletes nothing.** Measured twice, including once with a scrubbed environment: the file stayed the same length through the rewind, the prefix was byte-identical, no uuids were removed, and the abandoned prompt stayed on disk. Later turns append.
+
+**It cannot switch branches.** Rewinding onto a message on an already-abandoned branch answers `target_not_found` *even though that uuid is still in the file*: the file is append-only but the CLI's in-memory chain is not. Rewind is a one-way ratchet backward along the current path, not navigation.
+
+## Forking — `--fork-session` and `--resume-session-at`
+
+The second way to branch, and what Plume's "Fork to a new tab" uses. Unlike a rewind it leaves both conversations live.
+
+```
+claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-session-at <message-uuid>
+```
+
+- `--fork-session` writes a **new `.jsonl` under a new session id**, copying history verbatim with uuids preserved. The original file is untouched.
+- `--session-id` lets the host choose the fork's id up front, so a tab can record it before the process exists.
+- `--resume-session-at` resumes only up to a given entry. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+
+**`--resume-session-at` is undocumented**: the CLI parses it but `claude --help` does not list it, so an upgrade can withdraw it without warning. That is why forking is the secondary path and `rewind_conversation` is the default. Companion hidden flags: `--resume-drops-turn`, `--rewind-files`, `--reply-on-resume`.
+
+`--resume` accepts only a session id; passing a message uuid fails with `No conversation found with session ID`. `fork_conversation` on the control plane is a *cloud* mechanism — it needs a Remote Control sdkUrl and answers `{"forked":false,"reason":"unsupported"}` locally.
+
 ## Session titles — `generate_session_title`
 
 Verified first-hand against 2.1.276 and 2.1.280.

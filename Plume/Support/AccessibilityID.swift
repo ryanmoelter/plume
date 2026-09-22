@@ -155,6 +155,15 @@ enum AccessibilityID {
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
 
+    // MARK: Side questions (/btw)
+
+    static let sideQuestionsOpenButton = "side-questions-open-button"
+    static let sideQuestionsClose = "side-questions-close"
+    static let messageRedoButton = "message-redo-button"
+    static let messageForkButton = "message-fork-button"
+    static let rewindFailureToast = "rewind-failure-toast"
+    static let messageForkMarker = "message-fork-marker"
+
     // MARK: Minimap
 
     static let chatMinimap = "chat-minimap"

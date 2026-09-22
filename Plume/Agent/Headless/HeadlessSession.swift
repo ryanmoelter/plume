@@ -28,6 +28,24 @@ struct PermissionDecisionOption: Identifiable, Equatable {
     let allowsAction: Bool
 }
 
+/// A `/btw` side question answered from main context, without disturbing the
+/// main conversation. It writes nothing to the transcript, so this is the
+/// only record of it, and it dies with the session — side questions don't
+/// chain, so there is no history to reconstruct on relaunch.
+struct SideQuestion: Identifiable, Equatable {
+    enum State: Equatable {
+        case pending
+        case running
+        case answered(String)
+        case failed(String)
+    }
+
+    let id: String
+    let question: String
+    let askedAt: Date
+    var state: State = .pending
+}
+
 /// One headless `claude` conversation, driving a tab.
 ///
 /// Holds the process, the control-request bookkeeping, and the live turn
@@ -92,6 +110,17 @@ final class HeadlessSession: AgentSession {
     /// line still in flight land after that, and a status written then would
     /// re-register a tab that `StatusEngine.forget` already cleared.
     private var isClosed = false
+
+    /// `/btw` exchanges, in-memory only — see `SideQuestion`.
+    private(set) var sideQuestions: [SideQuestion] = []
+
+    /// The rewound message's own text, for the composer to pick up and clear.
+    /// Set only once the CLI confirms the cut, so the editable copy never
+    /// appears for a rewind that was refused.
+    private(set) var rewindPrefill: String?
+
+    /// Why the last rewind did not happen, until the user dismisses it.
+    private(set) var rewindFailure: String?
 
     private(set) var remoteControl: RemoteControlState = .disconnected
 
@@ -192,7 +221,8 @@ final class HeadlessSession: AgentSession {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        fork: HeadlessCommand.Fork? = nil
     ) {
         guard process == nil else { return }
         launchDirectory = workingDirectory
@@ -204,7 +234,8 @@ final class HeadlessSession: AgentSession {
             permissionMode: permissionMode,
             settingsPath: settingsPath,
             model: model,
-            isModelExplicitlyChosen: isModelExplicitlyChosen
+            isModelExplicitlyChosen: isModelExplicitlyChosen,
+            fork: fork
         )
         let handler = AgentProcess(
             label: "claude",
@@ -392,6 +423,80 @@ final class HeadlessSession: AgentSession {
         }
     }
 
+    /// Asks a side question, answered from main context without disturbing
+    /// the main conversation. Follows the run entered here so its state can
+    /// be corrected by the reply, the same way `setRemoteControl` does.
+    func askSideQuestion(_ question: String) {
+        let requestID = nextRequestID()
+        sideQuestions.append(SideQuestion(id: requestID, question: question, askedAt: Date()))
+        pendingControlRequests[requestID] = .sideQuestion(id: requestID)
+        guard send(StreamJSONEncoder.sideQuestion(
+            question: question,
+            requestID: requestID
+        )) else {
+            pendingControlRequests[requestID] = nil
+            updateSideQuestion(id: requestID) { $0.state = .failed("claude is not running.") }
+            return
+        }
+    }
+
+    /// Cuts the conversation back to just before `messageID` so it can be
+    /// asked again, and puts the old text back in the composer to edit.
+    ///
+    /// `lastSeenMessageID` is the newest user message on screen; the CLI
+    /// refuses the cut without it. A refusal is reported rather than
+    /// swallowed: `turn_running` and `prompt_pending` mean "not right now",
+    /// which the user can act on, not that anything went wrong.
+    func rewindConversation(to messageID: String, lastSeenMessageID: String) {
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .rewind
+        guard send(StreamJSONEncoder.rewindConversation(
+            targetMessageUUID: messageID,
+            lastSeenMessageUUID: lastSeenMessageID,
+            requestID: requestID
+        )) else {
+            pendingControlRequests[requestID] = nil
+            rewindFailure = "claude is not running."
+            return
+        }
+    }
+
+    func dismissRewindFailure() {
+        rewindFailure = nil
+    }
+
+    private func applyRewind(in response: ControlResponse) {
+        if response.isError {
+            rewindFailure = response.errorMessage ?? "The conversation could not be rewound."
+            return
+        }
+        guard response.payload["rewound"]?.boolValue == true else {
+            rewindFailure = Self.rewindRefusal(response.payload["reason"]?.stringValue)
+            return
+        }
+        let prefill = response.payload["prefillText"]?.stringValue ?? ""
+        rewindPrefill = prefill
+        // Straight into the draft rather than left for the view to consume:
+        // the composer reads `DraftStore` for its text already, and a tab the
+        // user has switched away from still gets its message back.
+        if !prefill.isEmpty {
+            DraftStore.shared.setDraft(prefill, forTab: tabID)
+        }
+    }
+
+    /// The CLI names the refusal rather than explaining it, and the ones a
+    /// user can actually do something about are worth saying plainly.
+    private static func rewindRefusal(_ reason: String?) -> String {
+        switch reason {
+        case "turn_running": "Wait for the current turn to finish."
+        case "prompt_pending", "commands_queued": "Wait for the queued message to be sent."
+        case "target_not_found": "That message is no longer part of this conversation."
+        case "stale_target": "The conversation moved on. Try again."
+        case "target_splits_tool_call": "That message can't be split from its tool call."
+        default: "The conversation could not be rewound."
+        }
+    }
+
     func dismissRemoteControlNotice() {
         remoteControlNoticeDismissal?.cancel()
         remoteControlNotice = nil
@@ -402,6 +507,11 @@ final class HeadlessSession: AgentSession {
     /// `notify` is false only when the process dies: the tab already reports
     /// that, and a toast saying Remote Control turned off would blame the
     /// wrong thing.
+    private func updateSideQuestion(id: String, mutate: (inout SideQuestion) -> Void) {
+        guard let index = sideQuestions.firstIndex(where: { $0.id == id }) else { return }
+        mutate(&sideQuestions[index])
+    }
+
     private func updateRemoteControl(_ new: RemoteControlState, notify: Bool = true) {
         guard new != remoteControl else { return }
         remoteControl = new
@@ -499,6 +609,9 @@ final class HeadlessSession: AgentSession {
 
         case .bridgeState(let bridge):
             updateRemoteControl(remoteControl.applying(bridge))
+
+        case .controlRequestProgress(let requestID):
+            updateSideQuestion(id: requestID) { $0.state = .running }
 
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
@@ -616,6 +729,10 @@ final class HeadlessSession: AgentSession {
             applyGeneratedTitle(in: response)
         case .setPermissionMode(let mode):
             applyPermissionModeReply(response, requested: mode)
+        case .sideQuestion(let id):
+            applySideQuestionAnswer(in: response, id: id)
+        case .rewind:
+            applyRewind(in: response)
         }
     }
 
@@ -629,6 +746,20 @@ final class HeadlessSession: AgentSession {
             isError: response.isError
         )
         if case .revert(let confirmed) = outcome { permissionMode = confirmed }
+    }
+
+    private func applySideQuestionAnswer(in response: ControlResponse, id: String) {
+        if response.isError {
+            updateSideQuestion(id: id) {
+                $0.state = .failed(response.errorMessage ?? "The side question failed.")
+            }
+            return
+        }
+        guard let answer = response.payload["response"]?.stringValue else {
+            updateSideQuestion(id: id) { $0.state = .failed("No answer was returned.") }
+            return
+        }
+        updateSideQuestion(id: id) { $0.state = .answered(answer) }
     }
 
     /// Titling is best-effort. A description the CLI will not title is
@@ -813,5 +944,7 @@ final class HeadlessSession: AgentSession {
         case remoteControl(enabled: Bool)
         case generateSessionTitle
         case setPermissionMode(PermissionMode)
+        case sideQuestion(id: String)
+        case rewind
     }
 }

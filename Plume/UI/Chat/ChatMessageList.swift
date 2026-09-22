@@ -24,6 +24,9 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// Set on the headless transport, so pending permissions can be docked
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
+    /// What a user message's redo and fork buttons act on. Nil on a tab with
+    /// no live session, which leaves the buttons off.
+    var redoContext: MessageRedoContext?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
@@ -156,6 +159,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             ),
             revealModel: revealModel,
             commands: commands,
+            redoContext: redoContext,
             onOpenSubagent: onOpenSubagent,
             onOpenPlan: onOpenPlan,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },

@@ -33,6 +33,24 @@ nonisolated struct Transcript: Equatable {
     /// A nested subagent's completion is recorded only in its parent
     /// subagent's file, so this is the one signal its own transcript carries.
     var handedBack = false
+    /// The uuids of transcript rows with more than one real child — a
+    /// deliberate edit or retry rather than the single, linear continuation
+    /// most rows have. Keyed by the parent row's own uuid.
+    var forkPoints: Set<String> = []
+    /// Every rendered message on every branch a fork point left behind, in
+    /// file order, keyed by the fork's parent uuid. The branch that reaches
+    /// the file's last row is the live one and is not included here — it
+    /// stays in `messages` as normal.
+    var abandonedBranches: [String: [ChatMessage]] = [:]
+    /// Each row's `parentUuid`, for every row the file names — including the
+    /// ones no rendered message came from. A fork cuts at the target's parent
+    /// rather than the target, so the redo action reads it from here.
+    var parentByMessageID: [String: String] = [:]
+
+    /// Whether `messageID` is a row where the conversation forked.
+    func isForkPoint(messageID: String) -> Bool {
+        forkPoints.contains(messageID)
+    }
 }
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
@@ -43,6 +61,15 @@ nonisolated enum TranscriptParser {
     private enum ToolCallLocation {
         case pendingAssistant(blockIndex: Int)
         case flushedMessage(messageIndex: Int, blockIndex: Int)
+    }
+
+    /// One line's contribution to the branch tree: the entries needed to
+    /// tell a genuine fork (a deliberate edit or retry) from the ordinary
+    /// case of a row having exactly one child.
+    private struct BranchChild {
+        let uuid: String
+        let type: String
+        let isApiErrorMessage: Bool
     }
 
     /// A subagent's own transcript file marks every line `isSidechain`, so
@@ -60,6 +87,19 @@ nonisolated enum TranscriptParser {
         var pendingToolCalls: [String: ToolCallLocation] = [:]
         var assistantIDs: Set<String> = []
 
+        // The tree: every row keyed by uuid, deduped (first occurrence
+        // wins), plus which rows became which rendered message. Built
+        // alongside the render pass rather than in a second pass over the
+        // file — resolving forks afterward only walks this in-memory data.
+        var seenUUIDs = Set<String>()
+        var childrenByParent: [String: [BranchChild]] = [:]
+        var messageIndexByUUID: [String: Int] = [:]
+        var parentByUUID: [String: String] = [:]
+        // The file's last row with a uuid, whatever its type — Claude Code
+        // only ever appends to the branch it is currently on, so this row is
+        // the tip of the surviving path.
+        var tipUUID: String?
+
         func flushPendingAssistant() {
             guard !pendingAssistantBlocks.isEmpty else { return }
             let messageIndex = transcript.messages.count
@@ -69,6 +109,7 @@ nonisolated enum TranscriptParser {
                 blocks: pendingAssistantBlocks,
                 timestamp: pendingAssistantTimestamp
             ))
+            if let id = pendingAssistantID { messageIndexByUUID[id] = messageIndex }
             for (id, location) in pendingToolCalls {
                 if case .pendingAssistant(let blockIndex) = location {
                     pendingToolCalls[id] = .flushedMessage(messageIndex: messageIndex, blockIndex: blockIndex)
@@ -104,12 +145,14 @@ nonisolated enum TranscriptParser {
 
         func appendNotice(_ notice: ChatNotice, id: String?, timestamp: Date?) {
             flushPendingAssistant()
+            let messageIndex = transcript.messages.count
             transcript.messages.append(ChatMessage(
                 id: id ?? UUID().uuidString,
                 role: .notice,
                 blocks: [.notice(notice)],
                 timestamp: timestamp
             ))
+            if let id { messageIndexByUUID[id] = messageIndex }
         }
 
         // A `<local-command-stdout>` line names no command, so the row takes
@@ -122,6 +165,19 @@ nonisolated enum TranscriptParser {
                 continue
             }
             if entry.isSidechain, !includeSidechain { continue }
+
+            // One real transcript carries 1,339 byte-identical duplicate
+            // lines; without this a duplicated parent reads as forking.
+            if let uuid = entry.uuid {
+                guard seenUUIDs.insert(uuid).inserted else { continue }
+                tipUUID = uuid
+                if let parentUuid = entry.parentUuid { parentByUUID[uuid] = parentUuid }
+            }
+            if let parentUuid = entry.parentUuid, let uuid = entry.uuid, entry.type != "attachment" {
+                childrenByParent[parentUuid, default: []].append(
+                    BranchChild(uuid: uuid, type: entry.type, isApiErrorMessage: entry.isApiErrorMessage)
+                )
+            }
 
             if let timestamp = entry.timestamp {
                 if transcript.startedAt == nil { transcript.startedAt = timestamp }
@@ -277,12 +333,14 @@ nonisolated enum TranscriptParser {
                 // A user message made up only of tool_results carries no
                 // message of its own — the results attach to the tool calls.
                 guard !otherBlocks.isEmpty else { continue }
+                let messageIndex = transcript.messages.count
                 transcript.messages.append(ChatMessage(
                     id: entry.uuid ?? UUID().uuidString,
                     role: .user,
                     blocks: otherBlocks,
                     timestamp: entry.timestamp
                 ))
+                if let uuid = entry.uuid { messageIndexByUUID[uuid] = messageIndex }
 
             default:
                 continue
@@ -290,7 +348,87 @@ nonisolated enum TranscriptParser {
         }
 
         flushPendingAssistant()
+        transcript.parentByMessageID = parentByUUID
+        resolveForks(
+            in: &transcript,
+            childrenByParent: childrenByParent,
+            messageIndexByUUID: messageIndexByUUID,
+            parentByUUID: parentByUUID,
+            tipUUID: tipUUID
+        )
         return transcript
+    }
+
+    /// The uuids on the path from the root down to `tip` — the branch
+    /// Claude Code kept appending to, since it only ever continues from
+    /// wherever the file last left off. Iterative: a transcript can be many
+    /// thousands of rows deep, deep enough to blow the stack if this walked
+    /// `parentUuid` by recursion.
+    private static func liveUUIDs(upTo tip: String?, parentByUUID: [String: String]) -> Set<String> {
+        var live = Set<String>()
+        var current = tip
+        while let uuid = current, live.insert(uuid).inserted {
+            current = parentByUUID[uuid]
+        }
+        return live
+    }
+
+    /// A parent with >=2 real children (attachments never count, and a
+    /// matched `api_error` retry pair doesn't either) forked. Exactly one
+    /// child sits on the live path traced from the file's last row back to
+    /// the root; every other child, and everything descending from it, is
+    /// an abandoned branch.
+    private static func resolveForks(
+        in transcript: inout Transcript,
+        childrenByParent: [String: [BranchChild]],
+        messageIndexByUUID: [String: Int],
+        parentByUUID: [String: String],
+        tipUUID: String?
+    ) {
+        let live = liveUUIDs(upTo: tipUUID, parentByUUID: parentByUUID)
+
+        for (parentUuid, children) in childrenByParent {
+            guard children.count >= 2, !isApiErrorRetryPair(children) else { continue }
+            transcript.forkPoints.insert(parentUuid)
+
+            let abandonedRoots = children.filter { !live.contains($0.uuid) }
+            let indices = abandonedRoots.flatMap {
+                subtreeMessageIndices(rootUUID: $0.uuid, childrenByParent: childrenByParent, messageIndexByUUID: messageIndexByUUID)
+            }.sorted()
+            let abandoned = indices.map { transcript.messages[$0] }
+            if !abandoned.isEmpty {
+                transcript.abandonedBranches[parentUuid] = abandoned
+            }
+        }
+    }
+
+    /// The rendered-message indices descending from `rootUUID`, sorted back
+    /// into file order. Iterative for the same reason `liveUUIDs` is — an
+    /// abandoned branch can itself be many rows deep.
+    private static func subtreeMessageIndices(
+        rootUUID: String,
+        childrenByParent: [String: [BranchChild]],
+        messageIndexByUUID: [String: Int]
+    ) -> [Int] {
+        var indices: [Int] = []
+        var stack = [rootUUID]
+        var visited = Set<String>()
+        while let uuid = stack.popLast() {
+            guard visited.insert(uuid).inserted else { continue }
+            if let index = messageIndexByUUID[uuid] { indices.append(index) }
+            stack.append(contentsOf: (childrenByParent[uuid] ?? []).map(\.uuid))
+        }
+        return indices
+    }
+
+    /// The mechanical retry Claude Code performs on an API error: the
+    /// assistant line it flags itself, paired with the `system`/`api_error`
+    /// line reporting it. Not a user-facing branch.
+    private static func isApiErrorRetryPair(_ children: [BranchChild]) -> Bool {
+        guard children.count == 2 else { return false }
+        let types = Set(children.map(\.type))
+        guard types == ["assistant", "system"] else { return false }
+        return children.contains { $0.type == "assistant" && $0.isApiErrorMessage }
     }
 
     private static func prettyPrint(_ input: [String: JSONValue]) -> String {

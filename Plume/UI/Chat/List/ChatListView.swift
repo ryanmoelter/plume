@@ -9,6 +9,10 @@ struct ChatListView: NSViewRepresentable {
     var inputs: ChatListInputs
     var revealModel: ChatRevealModel?
     var commands: ChatListCommands
+    /// Passed beside `inputs` rather than within it: it carries a closure, so
+    /// it cannot be compared, and the values a row actually draws from it
+    /// only change when the messages do — which already restages every row.
+    var redoContext: MessageRedoContext?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenPlan: (() -> Void)?
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
@@ -41,6 +45,7 @@ struct ChatListView: NSViewRepresentable {
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
         controller.revealModel = revealModel
+        controller.redoContext = redoContext
         if controller.inputs != inputs {
             controller.update(inputs)
         }

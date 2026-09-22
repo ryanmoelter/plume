@@ -31,6 +31,10 @@ struct ChatTabView: View, ThemedView {
     /// id rather than the value so the overlay follows the subagent's live
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
+    /// Whether the `/btw` side-questions panel is open. Independent of
+    /// `openSubagentID`: unlike a subagent, there's no per-question row in the
+    /// chat to open one from, so this is a single on/off toggle for the tab.
+    @State private var isSideQuestionsPanelShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
     /// The first message, from the moment it is sent until the transcript
     /// contains it. Held here rather than on the session because it has to
@@ -217,6 +221,11 @@ struct ChatTabView: View, ThemedView {
         return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
+    /// Side questions, redo and fork are Claude Code control requests.
+    private var claudeSession: HeadlessSession? {
+        headlessSession as? HeadlessSession
+    }
+
     /// Which of the tab's states is on screen. An optimistic first message is
     /// enough to reach the conversation, so the transcript is not what decides
     /// it — `conversationMessages` is.
@@ -352,6 +361,16 @@ struct ChatTabView: View, ThemedView {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .overlay {
+            if isSideQuestionsPanelShown, let claudeSession {
+                SideQuestionsOverlay(sideQuestions: claudeSession.sideQuestions, glass: planGlass) {
+                    isSideQuestionsPanelShown = false
+                }
+                .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+                .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+        }
         .animation(.snappy(duration: 0.22), value: planPresentation)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
         .onChange(of: planPresentation) { _, presentation in
@@ -365,6 +384,7 @@ struct ChatTabView: View, ThemedView {
             // native mouse-down focus handoff for that wrapper.
             DispatchQueue.main.async { planFeedbackFocused = true }
         }
+        .animation(.snappy(duration: 0.22), value: isSideQuestionsPanelShown)
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
@@ -407,6 +427,8 @@ struct ChatTabView: View, ThemedView {
                     .listItemPadding(vertical: false)
             }
             RemoteControlToast(tabID: tab.id)
+                .listItemPadding(vertical: false)
+            RewindFailureToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
             if !commandRuns.isEmpty {
                 commandRunsView
@@ -588,6 +610,9 @@ struct ChatTabView: View, ThemedView {
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
+                if let claudeSession, !claudeSession.sideQuestions.isEmpty {
+                    sideQuestionsButton(session: claudeSession)
+                }
             }
             .fixedSize(horizontal: true, vertical: false)
             .animation(
@@ -595,6 +620,25 @@ struct ChatTabView: View, ThemedView {
                 value: tab.provider == .codex && CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 })
             )
         }
+    }
+
+    /// Only shown once a `/btw` has been asked — most tabs never use the
+    /// feature, so the statusline stays uncluttered until one is.
+    private func sideQuestionsButton(session: HeadlessSession) -> some View {
+        Button {
+            isSideQuestionsPanelShown.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "questionmark.bubble")
+                Text("\(session.sideQuestions.count)")
+            }
+        }
+        .buttonStyle(.plain)
+        .font(typography.caption.font)
+        .emphasis(.secondary)
+        .help("Side questions")
+        .accessibilityLabel("Side questions")
+        .plumeID(AccessibilityID.sideQuestionsOpenButton)
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
@@ -889,6 +933,7 @@ struct ChatTabView: View, ThemedView {
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
+            redoContext: redoContext(transcript: transcript, messages: messages),
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: isSide ? geometry.chatTopInset : 0,
@@ -938,6 +983,51 @@ struct ChatTabView: View, ThemedView {
                 onOpenPlan: openPlan
             )
         }
+    }
+
+    /// What the redo and fork buttons in a user message's footer act on.
+    ///
+    /// Nil unless a Claude Code headless session is live: the rewind rides
+    /// that session's control plane, and a fork resumes the session id it has
+    /// recorded.
+    private func redoContext(transcript: Transcript, messages: [ChatMessage]) -> MessageRedoContext? {
+        guard claudeSession != nil,
+              let lastSeenUserMessageID = messages.last(where: { $0.role == .user })?.id
+        else { return nil }
+        return MessageRedoContext(
+            tabID: tab.id,
+            lastSeenUserMessageID: lastSeenUserMessageID,
+            parentByMessageID: transcript.parentByMessageID,
+            onFork: { cutAfter in forkToNewTab(cutAfter: cutAfter) },
+            abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
+        )
+    }
+
+    /// Opens the conversation again in a new tab, cut after `cutAfter`, as a
+    /// separate Claude Code session. Both conversations stay live: the CLI
+    /// writes the fork to its own transcript and leaves the resumed one alone.
+    ///
+    /// The new session's id is minted here rather than read back afterwards,
+    /// so the tab records it before the process exists.
+    private func forkToNewTab(cutAfter: String) {
+        guard let resumeSessionID = tab.agentSessionID, !resumeSessionID.isEmpty else { return }
+        let forkSessionID = UUID().uuidString.lowercased()
+        let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
+        newTab.transport = .headless
+        newTab.agentSessionID = forkSessionID
+        newTab.model = tab.model
+        newTab.isModelUserChosen = tab.isModelUserChosen
+        newTab.permissionMode = tab.permissionMode
+        AgentLauncher.launch(
+            blocks: [],
+            task: task,
+            tab: newTab,
+            resumeSessionID: resumeSessionID,
+            fork: HeadlessCommand.Fork(
+                newSessionID: forkSessionID,
+                cutAfterMessageUUID: cutAfter
+            )
+        )
     }
 
     /// The composer stays mounted once a session exists, disabled rather than

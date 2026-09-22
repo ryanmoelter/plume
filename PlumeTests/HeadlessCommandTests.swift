@@ -208,4 +208,52 @@ struct HeadlessLoginShellCommandTests {
             .map(String.init)
         #expect(words == arguments)
     }
+
+    private func value(after flag: String, in arguments: [String]) -> String? {
+        guard let flagIndex = arguments.firstIndex(of: flag) else { return nil }
+        let valueIndex = arguments.index(after: flagIndex)
+        return arguments.indices.contains(valueIndex) ? arguments[valueIndex] : nil
+    }
+
+    @Test func omitsForkFlagsWhenNotForking() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: "session-1",
+            permissionMode: .acceptEdits,
+            settingsPath: nil
+        )
+        #expect(!arguments.contains("--fork-session"))
+        #expect(!arguments.contains("--resume-session-at"))
+    }
+
+    @Test func forkingResumeCarriesTheCutAndTheNewSessionID() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: "session-1",
+            permissionMode: .acceptEdits,
+            settingsPath: nil,
+            fork: HeadlessCommand.Fork(
+                newSessionID: "session-2",
+                cutAfterMessageUUID: "keep-through-here"
+            )
+        )
+        #expect(value(after: "--resume", in: arguments) == "session-1")
+        #expect(arguments.contains("--fork-session"))
+        #expect(value(after: "--session-id", in: arguments) == "session-2")
+        #expect(value(after: "--resume-session-at", in: arguments) == "keep-through-here")
+    }
+
+    /// The CLI rejects the fork flags without something to resume from, so a
+    /// fork without a session id is dropped rather than sent and refused.
+    @Test func forkWithoutAResumeIsIgnored() {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: .acceptEdits,
+            settingsPath: nil,
+            fork: HeadlessCommand.Fork(
+                newSessionID: "session-2",
+                cutAfterMessageUUID: "keep-through-here"
+            )
+        )
+        #expect(!arguments.contains("--fork-session"))
+        #expect(!arguments.contains("--resume-session-at"))
+    }
 }

@@ -429,13 +429,10 @@ struct ChatComposer: View, ThemedView {
         // the launch path below is a tab's first message, which has no bridge
         // to attach to, so the command is dropped rather than sent as prose.
         if !isCommandMode, images.isEmpty, tab.provider == .codex, tab.transport == .headless,
-           let command = PlumeSlashCommand.parse(text) {
+           case .remoteControl? = PlumeSlashCommand.parse(text) {
             guard let codex = headlessSession as? CodexSession else { return }
-            switch command {
-            case .remoteControl:
-                let remote = codex.effectiveRemoteControl
-                Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
-            }
+            let remote = codex.effectiveRemoteControl
+            Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
             return
         }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
@@ -446,6 +443,8 @@ struct ChatComposer: View, ThemedView {
                     enabled: !headlessSession.remoteControl.isConnected,
                     name: name
                 )
+            case .sideQuestion(let question):
+                headlessSession.askSideQuestion(question)
             }
             return
         }

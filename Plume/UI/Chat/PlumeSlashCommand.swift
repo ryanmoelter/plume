@@ -16,11 +16,18 @@ enum PlumeSlashCommand {
             description: "Control this session from your phone or claude.ai/code",
             argumentHint: "[name]",
             isPlumeProvided: true
+        ),
+        SlashCommand(
+            name: "btw",
+            description: "Ask a side question, answered without disturbing this conversation",
+            argumentHint: "<question>",
+            isPlumeProvided: true
         )
     ]
 
     enum Parsed: Equatable {
         case remoteControl(name: String?)
+        case sideQuestion(question: String)
     }
 
     /// Recognizes a message that is *entirely* one of Plume's commands.
@@ -28,10 +35,21 @@ enum PlumeSlashCommand {
     /// Deliberately stricter than `SlashCommandMatcher`, which matches a
     /// leading token with prose after it. Anything longer than a command and
     /// one argument is an ordinary message, so it falls through and is sent
-    /// rather than silently swallowed.
+    /// rather than silently swallowed. `/btw` is the one exception: its
+    /// argument is a whole question, not a single token, so everything after
+    /// the command name is taken as free prose.
     static func parse(_ text: String) -> Parsed? {
-        let tokens = text.split(whereSeparator: \.isWhitespace)
-        guard (1...2).contains(tokens.count), tokens[0] == "/rc" else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+        guard let first = tokens.first else { return nil }
+        if first == "/btw" {
+            let question = trimmed
+                .dropFirst(first.count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !question.isEmpty else { return nil }
+            return .sideQuestion(question: question)
+        }
+        guard (1...2).contains(tokens.count), first == "/rc" else { return nil }
         return .remoteControl(name: tokens.count == 2 ? String(tokens[1]) : nil)
     }
 }

@@ -400,3 +400,157 @@ struct TranscriptParserTests {
         #expect(transcript.permissionMode == nil)
     }
 }
+
+/// Covers the branch tree PLUME-140 built out of `parentUuid`, which the
+/// parser previously decoded and never read. Fixtures mirror the shapes
+/// measured across a 319-transcript corpus scan.
+struct TranscriptParserForkTests {
+    private func data(_ lines: [String]) -> Data {
+        Data(lines.joined(separator: "\n").utf8)
+    }
+
+    @Test func anAttachmentSharingAParentDoesNotRegisterAsAFork() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}"#,
+            #"{"type":"assistant","uuid":"c1","parentUuid":"p1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+            #"{"type":"attachment","uuid":"c2","parentUuid":"p1","isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/a.md"}}"#,
+        ]))
+
+        #expect(transcript.forkPoints.isEmpty)
+        #expect(transcript.abandonedBranches.isEmpty)
+    }
+
+    @Test func chainedAttachmentsDoNotRegisterAsAFork() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}"#,
+            #"{"type":"attachment","uuid":"a1","parentUuid":"p1","isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/a.md"}}"#,
+            #"{"type":"attachment","uuid":"a2","parentUuid":"a1","isSidechain":false,"attachment":{"type":"plan_mode_exit","planFilePath":"/plans/a.md"}}"#,
+            #"{"type":"assistant","uuid":"c1","parentUuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+        ]))
+
+        #expect(transcript.forkPoints.isEmpty)
+    }
+
+    @Test func duplicateUuidRowsDedupeRatherThanForking() {
+        let duplicated = #"""
+        {"type":"user","uuid":"u1","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}
+        """#
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"start"}}"#,
+            duplicated,
+            duplicated,
+        ]))
+
+        #expect(transcript.forkPoints.isEmpty)
+        #expect(transcript.messages.count == 2)
+    }
+
+    /// The fork action cuts at the target's parent, so the parse has to name
+    /// one for every row — including an attachment, which never becomes a
+    /// rendered message but can still sit between two that do.
+    @Test func everyRowsParentIsRecordedIncludingAttachments() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}"#,
+            #"{"type":"attachment","uuid":"a1","parentUuid":"p1","isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/a.md"}}"#,
+            #"{"type":"assistant","uuid":"c1","parentUuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+        ]))
+
+        #expect(transcript.parentByMessageID["a1"] == "p1")
+        #expect(transcript.parentByMessageID["c1"] == "a1")
+        // The root names no parent rather than naming itself.
+        #expect(transcript.parentByMessageID["p1"] == nil)
+    }
+
+    @Test func anApiErrorRetryPairIsExcluded() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}"#,
+            #"""
+            {"type":"assistant","uuid":"a1","parentUuid":"p1","isSidechain":false,"isApiErrorMessage":true,"message":{"role":"assistant","content":[{"type":"text","text":"error"}]}}
+            """#,
+            #"""
+            {"type":"system","uuid":"s1","parentUuid":"p1","isSidechain":false,"subtype":"api_error","level":"error","content":"boom","error":{"status":500,"error":{"message":"boom"}}}
+            """#,
+        ]))
+
+        #expect(transcript.forkPoints.isEmpty)
+        #expect(transcript.abandonedBranches.isEmpty)
+    }
+
+    @Test func aGenuineUserUserForkIsDetectedAndBothBranchesAreWalkable() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"original question"}}"#,
+            #"{"type":"user","uuid":"c1","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited question"}}"#,
+            #"{"type":"user","uuid":"c2","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited again"}}"#,
+        ]))
+
+        #expect(transcript.forkPoints == ["p1"])
+
+        // The surviving branch (last in file order) stays in the main list.
+        #expect(transcript.messages.contains { $0.id == "c2" })
+
+        // The abandoned branch's message is still reachable for a later UI
+        // step to render.
+        let abandoned = transcript.abandonedBranches["p1"]
+        #expect(abandoned?.count == 1)
+        #expect(abandoned?.first?.id == "c1")
+    }
+
+    @Test func aSingleChildIsNotAFork() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"hello"}}"#,
+            #"{"type":"assistant","uuid":"c1","parentUuid":"p1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#,
+        ]))
+
+        #expect(transcript.forkPoints.isEmpty)
+    }
+
+    /// The surviving branch is whichever child's line reaches the file's
+    /// last row, not whichever child's own row appears last. Here `earlier`
+    /// forks off `p1` and is followed by its own reply (`a1`) — so `earlier`
+    /// is not the last *row* in the file — but nothing follows `later`, so
+    /// `earlier`/`a1` is the branch that is actually live and `later` is the
+    /// one left behind. A rule that just dropped the last *child of the
+    /// fork* would get this backwards, since `later` is that last child.
+    @Test func theSurvivingBranchIsDeterminedByTheFinalRowNotByFileOrder() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"original question"}}"#,
+            // The first child of the fork, but the file keeps going from it.
+            #"{"type":"user","uuid":"earlier","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"kept branch"}}"#,
+            // The second (later) child of the fork — abandoned even though
+            // it is the fork's last child, because the file's last row
+            // descends from `earlier` instead.
+            #"{"type":"user","uuid":"later","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited later"}}"#,
+            #"""
+            {"type":"assistant","uuid":"a1","parentUuid":"earlier","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"reply"}]}}
+            """#,
+        ]))
+
+        #expect(transcript.forkPoints == ["p1"])
+        #expect(transcript.messages.contains { $0.id == "earlier" })
+        #expect(transcript.messages.contains { $0.id == "a1" })
+
+        // `later` was the fork's last child, but the file's last row
+        // descends from `earlier` — so `later` is the abandoned one, not
+        // `earlier`, despite `dropLast()` picking the opposite.
+        let abandoned = transcript.abandonedBranches["p1"]
+        #expect(abandoned?.count == 1)
+        #expect(abandoned?.first?.id == "later")
+    }
+
+    /// An abandoned branch can itself be several rows deep — the whole
+    /// subtree needs to come back, not just the forked row itself.
+    @Test func anAbandonedBranchSeveralRowsDeepIsCollectedInFull() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"original question"}}"#,
+            #"{"type":"user","uuid":"abandoned1","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited question"}}"#,
+            #"""
+            {"type":"assistant","uuid":"abandoned2","parentUuid":"abandoned1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"reply on the dead branch"}]}}
+            """#,
+            #"{"type":"user","uuid":"survivor","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited again"}}"#,
+        ]))
+
+        #expect(transcript.forkPoints == ["p1"])
+        let abandoned = transcript.abandonedBranches["p1"]
+        #expect(abandoned?.map(\.id) == ["abandoned1", "abandoned2"])
+    }
+}

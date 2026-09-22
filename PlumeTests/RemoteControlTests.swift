@@ -37,10 +37,74 @@ struct RemoteControlTests {
 
     @Test func advertisesItselfAsPlumeProvided() {
         #expect(PlumeSlashCommand.all.allSatisfy { $0.isPlumeProvided })
-        #expect(PlumeSlashCommand.all.map(\.name) == ["rc"])
+        #expect(PlumeSlashCommand.all.map(\.name) == ["rc", "btw"])
+    }
+
+    // MARK: - /btw parsing
+
+    /// Unlike `/rc`, `/btw` takes free prose as its argument, so a multi-word
+    /// question must parse whole rather than being rejected past one token.
+    @Test func btwTakesTheEntireRemainderAsTheQuestion() {
+        #expect(PlumeSlashCommand.parse("/btw what is X") == .sideQuestion(question: "what is X"))
+    }
+
+    @Test func btwTrimsSurroundingWhitespace() {
+        #expect(PlumeSlashCommand.parse("  /btw   what is X  ") == .sideQuestion(question: "what is X"))
+    }
+
+    @Test func btwWithNoQuestionIsNotRecognized() {
+        #expect(PlumeSlashCommand.parse("/btw") == nil)
+        #expect(PlumeSlashCommand.parse("/btw   ") == nil)
+    }
+
+    @Test func btwIgnoresNearMisses() {
+        #expect(PlumeSlashCommand.parse("/btwx what is X") == nil)
+        #expect(PlumeSlashCommand.parse("tell me /btw what is X") == nil)
+    }
+
+    /// `/rc`'s one-token-argument rule must stay exactly as strict as before —
+    /// relaxing it for `/btw` must not loosen it for `/rc`.
+    @Test func rcStaysStrictAfterAddingBtw() {
+        #expect(PlumeSlashCommand.parse("/rc one two") == nil)
+        #expect(PlumeSlashCommand.parse("/rc laptop") == .remoteControl(name: "laptop"))
     }
 
     // MARK: - Decoding
+
+    /// The progress line that always precedes a `side_question` reply.
+    /// Undocumented in `initialize`'s command list, so this is decoded only
+    /// from `docs/headless-protocol.md`'s reference, not a fixture capture.
+    @Test func decodesControlRequestProgress() throws {
+        let line = """
+        {"type":"system","subtype":"control_request_progress","request_id":"sq-1",\
+        "status":"started","uuid":"u","session_id":"s"}
+        """
+        guard case .controlRequestProgress(let requestID) = try #require(StreamJSONDecoder.decode(line: line))
+        else {
+            Issue.record("expected a controlRequestProgress message")
+            return
+        }
+        #expect(requestID == "sq-1")
+    }
+
+    /// The reply's answer is doubly nested — `response.response.response` on
+    /// the wire — but `StreamJSONDecoder` already unwraps the outer layer
+    /// into `ControlResponse.payload`, so the answer text sits one level in
+    /// from there, not two.
+    @Test func decodesSideQuestionControlResponse() throws {
+        let line = """
+        {"type":"control_response","response":{"subtype":"success","request_id":"sq-1",\
+        "response":{"response":"PELICAN","synthetic":false}}}
+        """
+        guard case .controlResponse(let response) = try #require(StreamJSONDecoder.decode(line: line))
+        else {
+            Issue.record("expected a controlResponse message")
+            return
+        }
+        #expect(response.requestID == "sq-1")
+        #expect(response.payload["response"]?.stringValue == "PELICAN")
+        #expect(response.payload["synthetic"]?.boolValue == false)
+    }
 
     @Test func decodesBridgeState() throws {
         let line = """
@@ -252,5 +316,57 @@ struct RemoteControlTests {
             from: try #require(line.data(using: .utf8))
         )
         return try #require(root["request"]?.objectValue)
+    }
+
+    /// The wire shapes here are captured from a real `claude` 2.1.280 session,
+    /// not inferred — `rewind_conversation` is answered with `rewound: false`
+    /// and a `reason` rather than an error subtype when it declines.
+    @Test func rewindRequestCarriesTheTargetAndTheLastSeenMessage() throws {
+        let line = try #require(StreamJSONEncoder.rewindConversation(
+            targetMessageUUID: "target-uuid",
+            lastSeenMessageUUID: "last-seen-uuid",
+            requestID: "plume-7"
+        ))
+        let root = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        #expect(root["type"] as? String == "control_request")
+        #expect(root["request_id"] as? String == "plume-7")
+        let request = try #require(root["request"] as? [String: Any])
+        #expect(request["subtype"] as? String == "rewind_conversation")
+        #expect(request["target_message_uuid"] as? String == "target-uuid")
+        // Omitting this is what the CLI answers with `stale_target`.
+        #expect(request["last_seen_user_message_uuid"] as? String == "last-seen-uuid")
+    }
+
+    @Test func decodesASuccessfulRewind() throws {
+        let line = """
+        {"type":"control_response","response":{"subtype":"success","request_id":"plume-7",\
+        "response":{"rewound":true,"targetMessageUuid":"target-uuid",\
+        "prefillText":"Say only: TWO","precedingAssistantUuid":"a1"}}}
+        """
+        guard case .controlResponse(let response) = try #require(StreamJSONDecoder.decode(line: line))
+        else {
+            Issue.record("expected a controlResponse message")
+            return
+        }
+        #expect(response.payload["rewound"]?.boolValue == true)
+        #expect(response.payload["prefillText"]?.stringValue == "Say only: TWO")
+    }
+
+    /// A refusal is a *success* response carrying `rewound: false`, so reading
+    /// only `subtype` would take it for a completed rewind.
+    @Test func decodesARefusedRewind() throws {
+        let line = """
+        {"type":"control_response","response":{"subtype":"success","request_id":"plume-8",\
+        "response":{"rewound":false,"prefillText":null,"precedingAssistantUuid":null,\
+        "error":"target not found","reason":"target_not_found"}}}
+        """
+        guard case .controlResponse(let response) = try #require(StreamJSONDecoder.decode(line: line))
+        else {
+            Issue.record("expected a controlResponse message")
+            return
+        }
+        #expect(!response.isError)
+        #expect(response.payload["rewound"]?.boolValue == false)
+        #expect(response.payload["reason"]?.stringValue == "target_not_found")
     }
 }

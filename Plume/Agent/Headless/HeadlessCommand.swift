@@ -10,6 +10,19 @@ enum HeadlessCommand {
         resolved ?? .acceptEdits
     }
 
+    /// Where a forking resume cuts the conversation, and the id the fork is
+    /// given. `cutAfterMessageUUID` is the last entry to keep — to redo a
+    /// message, pass that message's own parent.
+    ///
+    /// `--resume-session-at` is undocumented and absent from `claude --help`,
+    /// so a CLI upgrade can withdraw it without warning. Forking is the
+    /// secondary path for exactly that reason: `rewind_conversation` on the
+    /// control plane does the same cut in place, and is documented.
+    struct Fork: Equatable {
+        let newSessionID: String
+        let cutAfterMessageUUID: String
+    }
+
     /// `isModelExplicitlyChosen` distinguishes a model the user picked from
     /// one that is only a snapshot of what the conversation already ran on.
     static func arguments(
@@ -17,7 +30,8 @@ enum HeadlessCommand {
         permissionMode: PermissionMode?,
         settingsPath: String?,
         model: AgentModel? = nil,
-        isModelExplicitlyChosen: Bool = true
+        isModelExplicitlyChosen: Bool = true,
+        fork: Fork? = nil
     ) -> [String] {
         var arguments = [
             "claude",
@@ -63,6 +77,17 @@ enum HeadlessCommand {
         if let resumeSessionID, !resumeSessionID.isEmpty {
             arguments.append("--resume")
             arguments.append(resumeSessionID)
+
+            // Only meaningful alongside `--resume`: the CLI writes the fork to
+            // its own transcript under `newSessionID` and leaves the resumed
+            // one untouched, so both conversations stay live.
+            if let fork {
+                arguments.append("--fork-session")
+                arguments.append("--session-id")
+                arguments.append(fork.newSessionID)
+                arguments.append("--resume-session-at")
+                arguments.append(fork.cutAfterMessageUUID)
+            }
         }
         return arguments
     }
