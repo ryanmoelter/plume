@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct TabStripView: View {
     @Environment(\.modelContext) private var context
@@ -8,13 +9,17 @@ struct TabStripView: View {
 
     @Query(sort: \WorkTask.orderIndex) private var allTasks: [WorkTask]
 
-    /// The chip a dragged tab would land in front of, and whether it would
-    /// land past the last one.
-    @State private var insertionTargetID: UUID?
-    @State private var isTargetingEnd = false
+    /// Each chip's frame in the strip's coordinate space, which is where a
+    /// drop reports its location.
+    @State private var chipFrames: [UUID: CGRect] = [:]
+    /// The gap a dragged tab would land in, while one is over the strip.
+    @State private var insertionGap: Int?
+
+    private static let chipSpacing: CGFloat = 6
+    private static let coordinateSpace = "tabStrip"
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Self.chipSpacing) {
             ForEach(task.orderedTabs) { tab in
                 TabChip(
                     task: task,
@@ -26,22 +31,10 @@ struct TabStripView: View {
                     moveToNewTask: { moveToNewTask(tab) }
                 )
                 .draggable(tab.id.uuidString)
-                .dropDestination(for: String.self) { draggedIDs, _ in
-                    insertionTargetID = nil
-                    return reorder(draggedIDs, before: tab)
-                } isTargeted: { targeted in
-                    if targeted {
-                        insertionTargetID = tab.id
-                    } else if insertionTargetID == tab.id {
-                        insertionTargetID = nil
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if insertionTargetID == tab.id { insertionMark(inGap: true) }
-                }
+                .onGeometryChange(for: CGRect.self) {
+                    $0.frame(in: .named(Self.coordinateSpace))
+                } action: { chipFrames[tab.id] = $0 }
             }
-
-            if isTargetingEnd { insertionMark() }
 
             Menu {
                 Button("Agent Tab") { TaskStore.addTab(to: task, kind: .agent, in: context) }
@@ -61,58 +54,46 @@ struct TabStripView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        // Behind the strip, not in it: a drop region sized inside the `HStack`
-        // either lays out zero-height (a bare `Spacer`) or claims the pane's
-        // whole height and pushes the chips down. As a background it takes
-        // the strip's own frame and influences no layout. A chip's own
-        // destination sits in front, so this only catches a drop past the
-        // last one.
-        .background {
-            Color.clear
-                .contentShape(.rect)
-                .dropDestination(for: String.self) { draggedIDs, _ in
-                    isTargetingEnd = false
-                    return reorder(draggedIDs, before: nil)
-                } isTargeted: { isTargetingEnd = $0 }
-        }
+        .coordinateSpace(.named(Self.coordinateSpace))
+        // One destination for the whole strip, placing the drop by its
+        // location, so there is no gap between chips where a drop misses.
+        // The marker is an overlay so it never takes part in the strip's
+        // layout.
+        .overlay(alignment: .topLeading) { insertionMarker }
+        .onDrop(of: [.utf8PlainText], delegate: TabStripDropDelegate(
+            chips: { chipExtents },
+            gap: $insertionGap,
+            perform: reorder
+        ))
         .themeTint(colorScheme: colorScheme)
     }
 
-    /// Where the dragged chip will land. Drawn over a chip's leading edge it
-    /// is nudged into the gap before it; standing alone after the last chip
-    /// the `HStack`'s own spacing already puts it there.
-    private func insertionMark(inGap: Bool = false) -> some View {
-        Capsule()
-            .fill(.tint)
-            .frame(width: 2)
-            .padding(.vertical, 2)
-            .offset(x: inGap ? -4 : 0)
+    /// The chips' horizontal extents, in strip order.
+    private var chipExtents: [ClosedRange<CGFloat>] {
+        task.orderedTabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
     }
 
-    /// Moves the dragged tab immediately before `target`, or to the end when
-    /// `target` is nil (dropped past the last chip). Reordering only rewrites
+    @ViewBuilder
+    private var insertionMarker: some View {
+        if let insertionGap,
+           let x = TabStripInsertion.markerX(gap: insertionGap, chips: chipExtents, spacing: Self.chipSpacing),
+           let chip = chipFrames.values.first {
+            Capsule()
+                .fill(.tint)
+                .frame(width: 2, height: chip.height)
+                .offset(x: x - 1, y: chip.minY)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// Moves the dragged tab into `gap`. Reordering only rewrites
     /// `orderIndex` through `TaskStore.moveTabs` — surfaces are keyed by tab
     /// id and untouched by it.
-    @discardableResult
-    private func reorder(_ draggedIDStrings: [String], before target: TaskTab?) -> Bool {
-        guard let idString = draggedIDStrings.first, let draggedID = UUID(uuidString: idString) else {
-            return false
-        }
+    private func reorder(_ draggedIDString: String, into gap: Int) {
+        guard let draggedID = UUID(uuidString: draggedIDString) else { return }
         let ordered = task.orderedTabs
-        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return false }
-
-        let destination: Int
-        if let target {
-            guard target.id != draggedID, let targetIndex = ordered.firstIndex(where: { $0.id == target.id }) else {
-                return false
-            }
-            destination = targetIndex
-        } else {
-            destination = ordered.count
-        }
-
-        TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: destination)
-        return true
+        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return }
+        TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: min(gap, ordered.count))
     }
 
     /// Splits `tab` into a new ungrouped task, as a sibling of every other
@@ -228,5 +209,34 @@ private struct TabChip: View {
         }
         let opacity = isSelected ? SidebarSelectionFill.opacity(for: colorScheme) : 0
         return AnyShapeStyle(themeForeground.opacity(opacity))
+    }
+}
+
+/// Tracks which gap a dragged tab is over, and hands the drop to the strip.
+private struct TabStripDropDelegate: DropDelegate {
+    let chips: () -> [ClosedRange<CGFloat>]
+    @Binding var gap: Int?
+    let perform: @MainActor (String, Int) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.utf8PlainText])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { gap = nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let target = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+        gap = nil
+        guard let provider = info.itemProviders(for: [.utf8PlainText]).first else { return false }
+        _ = provider.loadTransferable(type: String.self) { result in
+            guard case .success(let idString) = result else { return }
+            Task { @MainActor in perform(idString, target) }
+        }
+        return true
     }
 }
