@@ -66,7 +66,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-Move every shipped issue to Done through the `roadmap` skill. Then rewrite the `Queue position` line on the issues still in Todo so the numbering is dense again.
+Move every shipped issue to Done through the `roadmap` skill.
 
 ## 4. Debug build for manual evaluation
 
