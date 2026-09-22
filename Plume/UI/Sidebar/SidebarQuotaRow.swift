@@ -9,27 +9,61 @@ import SwiftUI
 /// Wider bars than the statusline's, since the footer has the room. Both
 /// carry the pacing mark; the comparison is what makes the number actionable
 /// rather than merely current.
+///
+/// The row holds its place before the first reading arrives, showing a dash
+/// instead: the quota appears partway through a session, and a row that
+/// materializes shifts every footer button under it.
 struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota = QuotaStore.shared
 
     var body: some View {
-        // Nothing to show before the first message of the app's life; a row
-        // reading "—" would be worse than no row.
-        if let snapshot = quota.snapshot {
-            content(snapshot)
-                .onAppear { quota.startTicking() }
-        }
+        content(quota.snapshot)
+            .onAppear { quota.startTicking() }
     }
 
     @ViewBuilder
-    private func content(_ snapshot: QuotaSnapshot) -> some View {
-        let isStale = QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
+    private func content(_ snapshot: QuotaSnapshot?) -> some View {
+        let isStale = snapshot.map {
+            QuotaFreshness.isStale(receivedAt: $0.receivedAt, now: quota.now)
+        } ?? false
 
         HStack(spacing: 8) {
-            Image(systemName: "gauge.with.dots.needle.33percent")
+            icon(snapshot)
                 .frame(width: 16)
-                .opacity(isStale ? colors.emphasis[.secondary] : 1)
+                // A row with nothing to say reads as quiet as one gone stale.
+                .opacity(isStale || snapshot == nil ? colors.emphasis[.secondary] : 1)
+            if let snapshot {
+                meters(snapshot, isStale: isStale)
+            } else {
+                Text("\u{2014}")
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .accessibilityLabel("No quota reading yet")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(typography.caption.font)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .padding(.horizontal, SidebarFooterMetrics.inset)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Account quota")
+        .accessibilityIdentifier(AccessibilityID.sidebarQuotaRow)
+    }
+
+    /// The ring fills with the five-hour window, the one that moves fast
+    /// enough to be worth a glance. A gauge would read as effort, which is
+    /// what it means everywhere else in the app.
+    private func icon(_ snapshot: QuotaSnapshot?) -> some View {
+        Image(
+            systemName: "ring.dashed",
+            variableValue: snapshot?.rateLimit.fiveHour?.utilization ?? 0
+        )
+    }
+
+    @ViewBuilder
+    private func meters(_ snapshot: QuotaSnapshot, isStale: Bool) -> some View {
+        Group {
             if let fiveHour = snapshot.rateLimit.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
@@ -54,14 +88,6 @@ struct SidebarQuotaRow: View, ThemedView {
                     readingAlignment: .leading
                 )
             }
-            Spacer(minLength: 0)
         }
-        .font(typography.caption.font)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .padding(.horizontal, SidebarFooterMetrics.inset)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Account quota")
-        .accessibilityIdentifier(AccessibilityID.sidebarQuotaRow)
     }
 }

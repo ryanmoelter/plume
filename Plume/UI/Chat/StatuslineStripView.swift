@@ -338,13 +338,20 @@ struct StatuslineMeterSegment: View, ThemedView {
         .help(helpText)
     }
 
+    /// Two lines: what has been spent against how much of the window has
+    /// gone, then when it refills. The elapsed share is what the pacing mark
+    /// draws, said in words — the mark shows the comparison but not the
+    /// number behind it.
     private var helpText: String {
-        var text = "\(label) quota used"
-        if let resetsAt {
-            text += ", resetting at \(QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now))"
+        var first = "\(Int((utilization * 100).rounded()))% of \(label) quota used"
+        if let windowLength,
+           let elapsed = QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: windowLength) {
+            first += ", \(Int((elapsed * 100).rounded()))% of time elapsed"
         }
-        if isStale { text += " (last heard over 30 minutes ago)" }
-        return text
+        if isStale { first += " (last heard over 30 minutes ago)" }
+        guard let resetsAt else { return first }
+        let reset = QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now)
+        return "\(first)\nResetting at \(reset)"
     }
 
     private var resetLabel: String {
@@ -516,10 +523,15 @@ struct MeterView: View, ThemedView {
                     // legible on whichever side of it the fill has reached,
                     // which a mark behind the fill loses exactly when the
                     // comparison matters.
+                    let layout = PacingMark.layout(
+                        pacing: pacing,
+                        fraction: fraction,
+                        barWidth: geometry.size.width
+                    )
                     Capsule()
                         .fill(markColor(pacing: pacing))
-                        .frame(width: PacingMark.width)
-                        .offset(x: markOffset(in: geometry.size.width, pacing: pacing))
+                        .frame(width: layout.width)
+                        .offset(x: layout.offset)
                 }
             }
         }
@@ -538,19 +550,16 @@ struct MeterView: View, ThemedView {
         let ground = colors.background ?? Color(nsColor: .windowBackgroundColor)
         return ground.opacity(fraction > pacing ? colors.emphasis[.secondary] : 1)
     }
-
-    /// Inset by the mark's own width so it stays whole at either end instead
-    /// of half-hanging off the bar.
-    private func markOffset(in width: CGFloat, pacing: Double) -> CGFloat {
-        let travel = max(width - PacingMark.width, 0)
-        return travel * pacing
-    }
 }
 
 /// The pacing mark's look, shared so the sidebar and the statusline draw the
 /// same thing at different bar lengths.
 enum PacingMark {
+    /// Over the fill, where it has the fill's own color behind it.
     static let width: CGFloat = 1.5
+    /// On bare track, where only the faint background tint sits behind it and
+    /// the same line reads thinner than it measures.
+    static let wideWidth: CGFloat = 2.5
 
     /// Below this the mark sits on the bar's own rounded end, where it reads
     /// as a nick in the capsule rather than as a position — and a window
@@ -559,6 +568,31 @@ enum PacingMark {
 
     static func isWorthDrawing(_ pacing: Double) -> Bool {
         pacing >= minimumPacing
+    }
+
+    struct Layout: Equatable {
+        var width: CGFloat
+        var offset: CGFloat
+    }
+
+    /// Where the mark sits and how wide it draws.
+    ///
+    /// Behind the pace the mark stands on bare track, so it takes the wider
+    /// width and is pushed clear of the fill's leading edge — a mark that
+    /// merely abuts the fill reads as part of it. Past the pace it crosses
+    /// the fill and keeps the narrower width, since the fill's own color
+    /// carries it.
+    static func layout(pacing: Double, fraction: Double, barWidth: CGFloat) -> Layout {
+        let isBehind = fraction <= pacing
+        let width = isBehind ? wideWidth : self.width
+        // Inset by the mark's own width so it stays whole at either end
+        // instead of half-hanging off the bar.
+        let travel = max(barWidth - width, 0)
+        let ideal = travel * pacing
+        guard isBehind else { return Layout(width: width, offset: ideal) }
+        // Clear of the fill, but never past where the mark belongs.
+        let fillEnd = barWidth * fraction
+        return Layout(width: width, offset: min(max(ideal, fillEnd), travel))
     }
 }
 

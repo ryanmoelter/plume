@@ -225,3 +225,53 @@ struct QuotaFocusRefreshTests {
         #expect(QuotaFreshness.isStale(receivedAt: received, now: later))
     }
 }
+
+/// Where the pacing mark sits and how wide it draws.
+@MainActor
+struct PacingMarkLayoutTests {
+    private let barWidth: CGFloat = 100
+
+    /// Behind the pace the mark stands on bare track, where the same line
+    /// reads thinner than it measures.
+    @Test func behindThePaceItTakesTheWiderWidth() {
+        let layout = PacingMark.layout(pacing: 0.8, fraction: 0.5, barWidth: barWidth)
+        #expect(layout.width == PacingMark.wideWidth)
+    }
+
+    /// Past the pace it crosses the fill, which carries it.
+    @Test func aheadOfThePaceItKeepsTheNarrowWidth() {
+        let layout = PacingMark.layout(pacing: 0.5, fraction: 0.8, barWidth: barWidth)
+        #expect(layout.width == PacingMark.width)
+    }
+
+    /// The case worth pinning: the fill stops just short of the mark. Without
+    /// the nudge the mark's own width would overlap the fill's leading edge
+    /// and read as part of it.
+    @Test func closeButBehindThePaceTheMarkClearsTheFill() {
+        let fraction = 0.79
+        let layout = PacingMark.layout(pacing: 0.8, fraction: fraction, barWidth: barWidth)
+
+        #expect(layout.offset >= barWidth * fraction)
+    }
+
+    /// Ahead of the pace it deliberately does draw over the fill — that is
+    /// the comparison.
+    @Test func aheadOfThePaceItDrawsOverTheFill() {
+        let layout = PacingMark.layout(pacing: 0.5, fraction: 1, barWidth: barWidth)
+        #expect(layout.offset < barWidth * 1)
+    }
+
+    @Test func theMarkStaysWithinTheBar() {
+        for pacing in [0.02, 0.5, 0.99, 1.0] {
+            let layout = PacingMark.layout(pacing: pacing, fraction: 0, barWidth: barWidth)
+            #expect(layout.offset >= 0)
+            #expect(layout.offset + layout.width <= barWidth + 0.0001)
+        }
+    }
+
+    /// A full bar behind a full window must not push the mark off the end.
+    @Test func afullFillAtFullPacingStaysInside() {
+        let layout = PacingMark.layout(pacing: 1, fraction: 1, barWidth: barWidth)
+        #expect(layout.offset + layout.width <= barWidth + 0.0001)
+    }
+}
