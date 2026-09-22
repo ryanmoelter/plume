@@ -191,6 +191,46 @@ struct WorktreeProvisioningTests {
         #expect(status.contains("?? scratch.txt"))
     }
 
+    /// Build output must not trip the dirty-tree confirmation, or every
+    /// removal would ask.
+    @Test func ignoredFilesDoNotCountAsUncommittedWork() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try "build/\n".write(toFile: "\(repository)/.gitignore", atomically: true, encoding: .utf8)
+        try GitRunner.run(["add", "."], in: repository)
+        try GitRunner.run(["commit", "-m", "ignore build"], in: repository)
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "plume/ignored-0001")
+        try FileManager.default.createDirectory(atPath: "\(path)/build", withIntermediateDirectories: true)
+        try "artifact\n".write(toFile: "\(path)/build/out.o", atomically: true, encoding: .utf8)
+
+        #expect(WorkspaceProvisioner.uncommittedChanges(in: path).isEmpty)
+    }
+
+    @Test func uncommittedChangesReportTrackedAndUntrackedWork() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "plume/dirty-0003")
+
+        #expect(WorkspaceProvisioner.uncommittedChanges(in: path).isEmpty)
+
+        try "changed\n".write(toFile: "\(path)/README.md", atomically: true, encoding: .utf8)
+        try "new\n".write(toFile: "\(path)/scratch.txt", atomically: true, encoding: .utf8)
+
+        let changes = WorkspaceProvisioner.uncommittedChanges(in: path)
+        #expect(changes.count == 2)
+        #expect(changes.contains { $0.hasSuffix("README.md") })
+        #expect(changes.contains { $0.hasSuffix("scratch.txt") })
+    }
+
+    /// A path git never resolves must not read as dirty, or removing an
+    /// already-missing worktree would stop to ask about nothing.
+    @Test func uncommittedChangesAreEmptyForAMissingDirectory() {
+        let missing = FileManager.default.temporaryDirectory
+            .appending(path: "plume-gone-\(UUID().uuidString)").path
+
+        #expect(WorkspaceProvisioner.uncommittedChanges(in: missing).isEmpty)
+    }
+
     private func standardized(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
