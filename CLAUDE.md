@@ -81,7 +81,7 @@ Both transports launch through `AgentLauncher` and report through `StatusEngine`
 
 ## Verifying the app from an agent
 
-A debug build serves a control socket. **`docs/control-server.md` is the reference**; `scripts/debug/plume-control.py` is the client. Launch a scratch instance with `open -g -n --env HOME=/tmp/plume-scratch …`, then `hierarchy` dumps the window as text, `readText` reads the composer or the chat list, `invoke`/`setValue`/`clickSpan` drive it, and `screenshot` is the expensive last resort. It needs no Accessibility grant and never activates the app; run every call with `--assert-frontmost`. Controls reach it through `plumeID(_:)`, so a control without one is invisible to it.
+A debug build serves a control socket. **`docs/control-server.md` is the reference**; `scripts/debug/plume-control.py` is the client. Launch a scratch instance with `open -g -n --env HOME=/tmp/plume-scratch …`, then `hierarchy` dumps the window as text, `readText` reads the composer or the chat list, `invoke`/`setValue`/`clickSpan`/`hover` drive it, and `screenshot` is the expensive last resort. It needs no Accessibility grant and never activates the app; run every call with `--assert-frontmost`. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. Clicks and hovers move an overlay cursor in the window so a person can follow along; `clear` removes it.
 
 ## Verifying terminal behavior
 
@@ -127,7 +127,8 @@ The config reaches libghostty as **generated contents with every `theme` directi
 
 ## Gotchas
 
-- **Name controls with `plumeID(_:)`, never a bare `.accessibilityIdentifier`.** SwiftUI puts identifiers on no NSView and builds its accessibility tree only for a trusted external client, so the debug control server finds controls through the registry `plumeID` feeds — a bare identifier is invisible to it. Apply it inside `.disabled(_:)` so the registered enabled state is real, and pass `label:` on repeated rows so a driver can tell them apart.
+- **Name controls with `plumeID(_:)`, never a bare `.accessibilityIdentifier`, and hover with `plumeHover`, never a bare `.onHover`.** SwiftUI puts identifiers on no NSView and builds its accessibility tree only for a trusted external client, so the debug control server finds controls through the registry `plumeID` feeds — a bare identifier is invisible to it. Apply it inside `.disabled(_:)` so the registered enabled state is real, and pass `label:` on repeated rows so a driver can tell them apart. SwiftUI's hover tracking likewise answers only the real pointer, so `plumeHover` registers the region and the server calls its closure itself.
+- **SwiftUI's `.global` frames hang from the top of the window frame, title bar included.** They equal content-view coordinates only when the content view fills the frame. `WindowGeometry.contentRect(fromGlobal:in:)` subtracts the difference; a hosted view in a plain titled window is off by the title bar height without it.
 - `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` means transitive imports don't count. Using `Array.move(fromOffsets:toOffset:)` needs an explicit `import SwiftUI`; `IndexSet` needs `import Foundation`. The error names the missing module.
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: everything is MainActor-isolated unless marked otherwise. Test suites touching models need `@MainActor`.
 - The app is **unsandboxed** (`ENABLE_APP_SANDBOX = NO`) — it spawns PTYs, reads `~/.claude/**`, and runs `git worktree`. Distribution is Developer ID + notarization, not the App Store. Don't re-enable the sandbox.

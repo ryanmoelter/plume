@@ -6,12 +6,14 @@
                      <command> [key=value ...] [--json '{...}']
 
 Commands: list, describe, invoke, setValue, readText, clickSpan, click,
-screenshot, hierarchy. Values parse as JSON when they can, so
+hover, clear, screenshot, hierarchy. Values parse as JSON when they can, so
 `target='{"id":"composer-field"}'` and `x=10` work; anything else is a
 string. Prints the response; exit 1 when the app reports an error.
 
 `hierarchy` is the cheap way to see the window — reach for `screenshot`
-only when layout is the question. docs/control-server.md is the reference.
+only when layout is the question. Every click and hover moves an overlay
+cursor in the window; `clear` removes it and un-hovers everything.
+docs/control-server.md is the reference.
 """
 
 import argparse

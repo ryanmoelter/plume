@@ -72,7 +72,7 @@ struct ChatPieceView: View, ThemedView {
             // piece's own bounds loses the pointer on the way to a button
             // that hangs past a short line.
             .contentShape(.rect)
-            .onHover { isHovered = $0 }
+            .plumeHover { isHovered = $0 }
     }
 
     /// The table's own source, on a table's piece. Hover-revealed, since a

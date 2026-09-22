@@ -43,7 +43,7 @@ private struct PlumeIDModifier: ViewModifier {
     let invoke: (() -> Void)?
     let setValue: ((String) -> Void)?
 
-    @State private var registration = Registration()
+    @State private var registration = ViewRegistration()
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.plumeControlsHidden) private var isHidden
 
@@ -82,22 +82,24 @@ private struct PlumeIDModifier: ViewModifier {
         }
         ControlRegistry.shared.register(ControlEntry(
             token: registration.token, id: id, label: label, value: value, isEnabled: isEnabled,
-            frame: registration.frame, window: registration.window, invoke: invoke, setValue: setValue
+            frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window, invoke: invoke, setValue: setValue
         ))
     }
+}
 
-    @MainActor
-    private final class Registration {
-        let token = UUID()
-        var frame = CGRect.zero
-        weak var window: NSWindow?
-        var isMounted = false
-    }
+/// What a self-registering modifier knows about its view so far. Geometry
+/// and window arrive before `onAppear`, and in either order.
+@MainActor
+final class ViewRegistration {
+    let token = UUID()
+    var frame = CGRect.zero
+    weak var window: NSWindow?
+    var isMounted = false
 }
 
 /// Reports the window a SwiftUI view landed in, which nothing in SwiftUI
 /// exposes. Inert: it draws nothing and takes no hits.
-private struct WindowProbe: NSViewRepresentable {
+struct WindowProbe: NSViewRepresentable {
     let onWindow: (NSWindow?) -> Void
 
     func makeNSView(context: Context) -> ProbeView {

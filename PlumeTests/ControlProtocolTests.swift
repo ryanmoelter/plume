@@ -38,6 +38,8 @@ struct ControlProtocolTests {
             #"{"id":"d","command":"click","x":10,"y":20}"#,
             #"{"id":"e","command":"screenshot"}"#,
             #"{"id":"f","command":"hierarchy","format":"json","textLimit":0}"#,
+            #"{"id":"g","command":"hover","target":{"id":"task-row","index":1}}"#,
+            #"{"id":"h","command":"clear","windowNumber":3}"#,
         ]
         for line in lines {
             _ = try decode(line)
@@ -49,6 +51,10 @@ struct ControlProtocolTests {
         guard case .hierarchy(let hierarchy) = try decode(lines[5]).command else { Issue.record("not hierarchy"); return }
         #expect(hierarchy.format == .json)
         #expect(hierarchy.textLimit == 0)
+        guard case .hover(let hover) = try decode(lines[6]).command else { Issue.record("not hover"); return }
+        #expect(hover.target == .control(id: "task-row", index: 1, label: nil) && hover.x == nil)
+        guard case .clear(let clear) = try decode(lines[7]).command else { Issue.record("not clear"); return }
+        #expect(clear.windowNumber == 3)
     }
 
     @Test func unknownCommandsAndKindsAreRejected() {

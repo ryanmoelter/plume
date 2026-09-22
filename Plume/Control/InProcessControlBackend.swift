@@ -106,6 +106,37 @@ final class InProcessControlBackend: ControlBackend {
         return ClickResult(rect: Rect(CGRect(x: params.x, y: params.y, width: 0, height: 0)), windowNumber: window.windowNumber)
     }
 
+    // MARK: Pointer
+
+    func hover(_ params: HoverParams) async throws -> HoverResult {
+        let window = try window(for: params.windowNumber, target: params.target)
+        let height = contentHeight(of: window)
+        let rect: CGRect
+        if let x = params.x, let y = params.y {
+            rect = CGRect(x: x, y: y, width: 0, height: 0)
+        } else if let target = params.target {
+            guard let frame = try frame(of: target) else { throw ControlError.badParams("hover needs a control, or x and y") }
+            rect = frame
+        } else {
+            throw ControlError.badParams("hover needs a target, or x and y")
+        }
+        let point = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: rect.midX, y: rect.midY), contentHeight: height)
+        SyntheticHover.move(to: point, in: window)
+        return HoverResult(rect: Rect(rect), windowNumber: window.windowNumber, regions: HoverRegistry.shared.hoveredCount)
+    }
+
+    func clear(_ params: ClearParams) async throws {
+        let windows: [NSWindow] = if let number = params.windowNumber {
+            [try window(for: number)]
+        } else {
+            NSApp.windows.filter { ControlOverlay.existing(for: $0) != nil }
+        }
+        for window in windows {
+            SyntheticHover.leave(window)
+            ControlOverlay.existing(for: window)?.remove()
+        }
+    }
+
     // MARK: Screenshot
 
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {

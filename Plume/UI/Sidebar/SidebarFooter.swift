@@ -333,7 +333,7 @@ private struct SidebarFooterButtonStyle: ButtonStyle {
                     )
                 )
                 .padding(.horizontal, SidebarFooterMetrics.inset)
-                .onHover { isHovered = $0 }
+                .plumeHover { isHovered = $0 }
         }
     }
 }

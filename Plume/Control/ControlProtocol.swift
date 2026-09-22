@@ -30,6 +30,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "click": command = .click(try ClickParams(from: decoder))
         case "screenshot": command = .screenshot(try ScreenshotParams(from: decoder))
         case "hierarchy": command = .hierarchy(try HierarchyParams(from: decoder))
+        case "hover": command = .hover(try HoverParams(from: decoder))
+        case "clear": command = .clear(try ClearParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -48,6 +50,8 @@ nonisolated enum ControlCommand {
     case click(ClickParams)
     case screenshot(ScreenshotParams)
     case hierarchy(HierarchyParams)
+    case hover(HoverParams)
+    case clear(ClearParams)
 }
 
 /// `plumeID`, not `id`: the request envelope's `id` is the correlation id.
@@ -109,6 +113,19 @@ nonisolated struct ClickParams: Decodable {
         windowNumber = try c.decodeIfPresent(Int.self, forKey: .windowNumber)
         clickCount = try c.decodeIfPresent(Int.self, forKey: .clickCount) ?? 1
     }
+}
+
+/// Either a `target` or an `x`/`y` point; the point wins when both are given.
+nonisolated struct HoverParams: Decodable {
+    var target: ControlTarget?
+    var x: Double?
+    var y: Double?
+    var windowNumber: Int?
+}
+
+nonisolated struct ClearParams: Decodable {
+    /// Clears every driven window when nil.
+    var windowNumber: Int?
 }
 
 nonisolated struct ScreenshotParams: Decodable {
@@ -242,6 +259,13 @@ nonisolated struct ClickResult: Codable, Equatable {
     var windowNumber: Int
 }
 
+nonisolated struct HoverResult: Codable, Equatable {
+    var rect: Rect
+    var windowNumber: Int
+    /// How many `plumeHover` regions the pointer now rests in.
+    var regions: Int
+}
+
 nonisolated struct ScreenshotResult: Codable, Equatable {
     var path: String
     var width: Int
@@ -283,6 +307,7 @@ nonisolated enum ControlResult: Encodable {
     case click(ClickResult)
     case screenshot(ScreenshotResult)
     case hierarchy(HierarchyResult)
+    case hover(HoverResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -294,6 +319,7 @@ nonisolated enum ControlResult: Encodable {
         case .click(let v): try v.encode(to: encoder)
         case .screenshot(let v): try v.encode(to: encoder)
         case .hierarchy(let v): try v.encode(to: encoder)
+        case .hover(let v): try v.encode(to: encoder)
         }
     }
 }

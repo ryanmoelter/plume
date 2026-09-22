@@ -20,12 +20,14 @@ struct ControlDispatcherTests {
             #"{"id":"7","command":"click","x":1,"y":2}"#,
             #"{"id":"8","command":"screenshot"}"#,
             #"{"id":"9","command":"hierarchy"}"#,
+            #"{"id":"10","command":"hover","x":1,"y":2}"#,
+            #"{"id":"11","command":"clear"}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear"])
         #expect(backend.lastValue == "v")
     }
 
@@ -109,5 +111,14 @@ final class FakeControlBackend: ControlBackend {
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult {
         try record("hierarchy")
         return HierarchyResult(text: "", root: nil)
+    }
+
+    func hover(_ params: HoverParams) async throws -> HoverResult {
+        try record("hover")
+        return HoverResult(rect: Rect(.zero), windowNumber: 0, regions: 0)
+    }
+
+    func clear(_ params: ClearParams) async throws {
+        try record("clear")
     }
 }

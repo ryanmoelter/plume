@@ -52,6 +52,8 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 | `readText` | `target` | `{text, rows?: [{index, text}]}`; rows for `chatList` and `window` |
 | `clickSpan` | `matching`, `target?`, `occurrence = 0` | `{rect, windowNumber}` of the text that was clicked |
 | `click` | `x`, `y`, `windowNumber?`, `clickCount = 1` | `{rect, windowNumber}` |
+| `hover` | `target?` or `x`, `y`; `windowNumber?` | `{rect, windowNumber, regions}`; `regions` counts the `plumeHover` regions now under the pointer |
+| `clear` | `windowNumber?` | `{}`; un-hovers everything and removes the overlay, in one window or all |
 | `screenshot` | `path?`, `target?`, `windowNumber?` | `{path, width, height, scale}`; PNG, cropped to the target when given |
 | `hierarchy` | `windowNumber?`, `target?`, `format = "text" \| "json"`, `textLimit = 200` | `{text}` or `{root}` |
 
@@ -65,6 +67,10 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 
 **Clicks go through `SyntheticClick`.** It builds `NSEvent`s for the window, calls `window.makeKey()` (never `NSApp.activate`, which would steal focus), posts the mouse-down, waits 150 ms, then posts the mouse-up. The gap is load-bearing: queued together, AppKit's tracking loop exits before it pumps the run loop, and the click behaves differently from a human one. `docs/selectable-text-link-hang.md` found this.
 
+**Hover goes through `plumeHover`, not through events.** SwiftUI's hover tracking answers only the real pointer: a `mouseMoved` posted to the window, sent straight to it, or delivered to the tracking area's owner does nothing, and faking `mouseLocationOutsideOfEventStream` does nothing either. So `.plumeHover { … }` stands in for `.onHover` everywhere. In a debug build it also registers the region's frame with `HoverRegistry`, and `hover` calls the closures itself: regions the pointer left hear `false`, regions it entered hear `true`, nested regions hover together. Every click hovers its point first, the way a real pointer arrives before it presses. A button style's own hover highlight is SwiftUI-internal and stays off.
+
+**The overlay shows the driver's pointer.** The first hover or click over a window attaches a transparent child window (`ControlOverlay`) that draws `pointer.arrow.ipad` — chosen to look unlike the real arrow — at the synthetic pointer, and a ring that fades over half a second where a click landed. It ignores mouse events, never becomes key, and follows the window when it moves or resizes. `clear` removes it.
+
 **Text is read from AppKit.** The composer is a real `NSTextView` and the chat list's selectable text is a real `NSTextField`, so `readText` reads their strings and `clickSpan` resolves a substring through the layout manager (`TextSpanLocator`): TextKit 2 first, because reading `layoutManager` on a TextKit 2 view silently downgrades it. An `NSTextField` without a live field editor is laid out again in a scratch container the size of its title rect, which matches to within a point.
 
 **Screenshots come from `cacheDisplay(in:to:)`** on the window's content view, which needs no ScreenCaptureKit permission. `scale` is pixels per point.
@@ -76,4 +82,5 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 - A SwiftUI control without `plumeID` is invisible to `list` and `invoke`. Add the modifier; never a bare `.accessibilityIdentifier`.
 - Views hidden by SwiftUI opacity outside a tab (not via `plumeControlsHidden`) still appear in `hierarchy`; their NSViews are not hidden.
 - `invoke` of a bare `Button` is a click, so it needs the control to be on screen and unobscured. Pass `invoke:` at sites where that matters.
+- `hover` reaches only `plumeHover` regions. A bare `.onHover`, `.onContinuousHover`, or a button style's hover highlight never sees the synthetic pointer. The real pointer still wins: if it crosses a region, SwiftUI's own callback overrides the synthetic state.
 - The server runs on the main thread. A command that blocks the UI blocks the response.

@@ -132,7 +132,7 @@ private struct TabChip: View {
         .background(chipBackground, in: .rect(cornerRadius: 6))
         .contentShape(.rect)
         .onTapGesture(perform: select)
-        .onHover { isHovering = $0 }
+        .plumeHover { isHovering = $0 }
         .plumeID(AccessibilityID.tabChip, label: chipTitle)
         .contextMenu {
             if tab.kind == .agent {

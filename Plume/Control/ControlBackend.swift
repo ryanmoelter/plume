@@ -15,6 +15,8 @@ protocol ControlBackend {
     func click(_ params: ClickParams) async throws -> ClickResult
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult
+    func hover(_ params: HoverParams) async throws -> HoverResult
+    func clear(_ params: ClearParams) async throws
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -48,6 +50,10 @@ enum ControlDispatcher {
             case .click(let params): result = .click(try await backend.click(params))
             case .screenshot(let params): result = .screenshot(try backend.screenshot(params))
             case .hierarchy(let params): result = .hierarchy(try backend.hierarchy(params))
+            case .hover(let params): result = .hover(try await backend.hover(params))
+            case .clear(let params):
+                try await backend.clear(params)
+                result = .empty
             }
             return .success(id: request.id, result)
         } catch {

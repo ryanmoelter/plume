@@ -54,6 +54,6 @@ struct GroupSectionHeader: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
+        .plumeHover { isHovering = $0 }
     }
 }

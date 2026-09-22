@@ -2,7 +2,8 @@
 import AppKit
 
 /// Posts a left click into a window from inside the process, without
-/// activating the app or moving the pointer.
+/// activating the app or moving the pointer. The overlay cursor moves there
+/// first and a ring marks the click.
 @MainActor
 enum SyntheticClick {
     /// With the up queued right behind the down, AppKit's tracking loop exits
@@ -20,6 +21,8 @@ enum SyntheticClick {
             )
         }
         guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return }
+        SyntheticHover.move(to: point, in: window)
+        ControlOverlay.overlay(for: window).flashClick(at: point)
         window.makeKey()
         NSApp.postEvent(down, atStart: false)
         try? await Task.sleep(for: releaseDelay)

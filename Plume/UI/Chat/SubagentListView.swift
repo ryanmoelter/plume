@@ -188,7 +188,7 @@ private struct SubagentRow: View, ThemedView {
             )
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .plumeHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
         .plumeID(AccessibilityID.subagentRow, label: subagent.title)
         .contextMenu { menu }
