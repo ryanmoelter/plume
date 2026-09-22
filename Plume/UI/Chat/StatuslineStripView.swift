@@ -220,21 +220,20 @@ enum StatuslineStripLayout {
     case stacked
 }
 
-/// Bar lengths, longest first: the context window reads most precisely, the
-/// seven-day quota next, the five-hour quota least. The row now lays out from
-/// each segment's own intrinsic size rather than squeezing to fit, so these
-/// can run a bit longer than a reading needs and still cost nothing but the
-/// branch chip's own truncation room. The stacked layout reuses the same widths,
-/// so a bar means the same thing whichever layout is showing.
+/// Bar lengths: the context window and the seven-day quota read most
+/// precisely, the five-hour quota less so. The row lays out from each
+/// segment's own intrinsic size rather than squeezing to fit, so these can run
+/// a bit longer than a reading needs and still cost nothing but the branch
+/// chip's own truncation room. The stacked layout reuses the same widths, so a
+/// bar means the same thing whichever layout is showing.
 enum StatuslineMeterWidth {
     static let context: CGFloat = 50
-    static let quota: CGFloat = 36
-    static let shortQuota: CGFloat = 28
+    static let quota: CGFloat = 50
+    static let shortQuota: CGFloat = 36
 
     /// The sidebar footer has width the statusline does not — it is not
-    /// competing with a branch chip — so its quota bars run half again as
-    /// long. Kept apart from the strip's own widths rather than raising
-    /// those, which would widen the chat meters too.
+    /// competing with a branch chip — so its quota bars run longer. Kept apart
+    /// from the strip's own widths so the two can be tuned independently.
     static let sidebarQuota: CGFloat = 54
     static let sidebarShortQuota: CGFloat = 42
 }
