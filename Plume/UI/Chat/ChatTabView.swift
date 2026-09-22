@@ -1035,6 +1035,16 @@ struct ChatTabView: View, ThemedView {
         let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
         newTab.transport = .headless
         newTab.agentSessionID = newSessionID
+        // Derived here, because `persistHeadlessSessionID` only derives it for
+        // an id it has not already seen — and the fork's id is recorded above,
+        // before the CLI reports it. Without the path the tab watches nothing,
+        // so its transcript is never read and the composer stays disabled.
+        if let workingDirectory = task.workingDirectoryPath {
+            newTab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
+                workingDirectory: workingDirectory,
+                sessionID: newSessionID
+            )
+        }
         newTab.model = tab.model
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
