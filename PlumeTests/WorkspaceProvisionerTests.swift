@@ -131,6 +131,70 @@ struct WorktreeProvisioningTests {
         #expect(remaining.isEmpty)
     }
 
+    /// The create flow points the task at the new path and then re-lists, so
+    /// the listing has to name the worktree that was just added.
+    @Test func aCreatedWorktreeAppearsInTheListing() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let branch = "plume/listed-0001"
+
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: branch)
+
+        let listed = GitRunner.worktrees(in: repository)
+        #expect(listed.contains { standardized($0.path) == standardized(path) && $0.branch == branch })
+        #expect(listed.first?.isMain == true)
+    }
+
+    @Test func aRemovedWorktreeLeavesTheListing() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let branch = "plume/listed-0002"
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: branch)
+
+        try WorkspaceProvisioner.removeWorktree(
+            repository: repository, path: path, branch: branch, deleteBranch: false
+        )
+
+        let listed = GitRunner.worktrees(in: repository)
+        #expect(!listed.contains { standardized($0.path) == standardized(path) })
+        // Only `deleteBranch` removes the branch; removal alone leaves it.
+        let remaining = try GitRunner.run(["branch", "--list", branch], in: repository)
+        #expect(remaining.contains(branch))
+    }
+
+    /// `--force` is what lets removal proceed at all once the tree is dirty.
+    @Test func removingADirtyWorktreeDiscardsItsChanges() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let branch = "plume/dirty-0001"
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: branch)
+        try "untracked\n".write(toFile: "\(path)/scratch.txt", atomically: true, encoding: .utf8)
+        try "modified\n".write(toFile: "\(path)/README.md", atomically: true, encoding: .utf8)
+
+        try WorkspaceProvisioner.removeWorktree(
+            repository: repository, path: path, branch: branch, deleteBranch: false
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: path))
+    }
+
+    /// What a dirty-tree guard reads before offering to remove.
+    @Test func aDirtyWorktreeReportsItsChanges() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let path = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "plume/dirty-0002")
+
+        #expect(try GitRunner.run(["status", "--porcelain"], in: path).isEmpty)
+
+        try "untracked\n".write(toFile: "\(path)/scratch.txt", atomically: true, encoding: .utf8)
+        let status = try GitRunner.run(["status", "--porcelain"], in: path)
+        #expect(status.contains("?? scratch.txt"))
+    }
+
+    private func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    }
+
     @Test func createWorktreeHonorsABasePathOverride() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
