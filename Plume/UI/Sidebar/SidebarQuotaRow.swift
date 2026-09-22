@@ -29,6 +29,7 @@ struct SidebarQuotaRow: View, ThemedView {
         HStack(spacing: 8) {
             Image(systemName: "gauge.with.dots.needle.33percent")
                 .frame(width: 16)
+                .opacity(isStale ? colors.emphasis[.secondary] : 1)
             if let fiveHour = snapshot.rateLimit.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",

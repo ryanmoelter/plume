@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -23,6 +24,7 @@ final class QuotaStore {
     private(set) var now = Date()
 
     @ObservationIgnored private var tickTimer: Timer?
+    @ObservationIgnored private var focusObservers: [NSObjectProtocol] = []
 
     init() {}
 
@@ -34,9 +36,12 @@ final class QuotaStore {
         now = date
     }
 
-    /// Starts the once-a-minute tick that keeps the reset labels and the
-    /// staleness dimming current. Idempotent, so every view can call it.
+    /// Starts the once-a-minute tick that keeps the reset labels, the pacing
+    /// mark and the staleness dimming current, and the focus watch that
+    /// catches a return the tick would answer late. Idempotent, so every view
+    /// can call it.
     func startTicking() {
+        startObservingFocus()
         guard tickTimer == nil else { return }
         let timer = Timer(timeInterval: QuotaFreshness.tickInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.now = Date() }
@@ -49,6 +54,41 @@ final class QuotaStore {
     func stopTicking() {
         tickTimer?.invalidate()
         tickTimer = nil
+        stopObservingFocus()
+    }
+
+    /// Re-reads the clock when the app gains or loses focus, so a window
+    /// coming back after a while shows the pacing it should rather than
+    /// whatever the tick last left.
+    ///
+    /// The tick is suspended while the app is inactive on some setups, and it
+    /// only ever fires on its own schedule — so without this, the first frame
+    /// after a return can be up to a whole interval stale. Nothing re-reads
+    /// below `focusRefreshInterval`, since the tick has it covered and
+    /// redrawing on every app switch would be churn.
+    private func startObservingFocus() {
+        guard focusObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSApplication.didBecomeActiveNotification,
+            NSApplication.didResignActiveNotification,
+        ]
+        focusObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.refreshIfStale() }
+            }
+        }
+    }
+
+    private func stopObservingFocus() {
+        focusObservers.forEach(NotificationCenter.default.removeObserver)
+        focusObservers = []
+    }
+
+    private func refreshIfStale() {
+        let date = Date()
+        guard date.timeIntervalSince(now) >= QuotaFreshness.focusRefreshInterval else { return }
+        now = date
     }
 }
 
@@ -63,8 +103,10 @@ struct QuotaSnapshot: Equatable {
 /// Pure so the timing is testable without a view or a clock.
 enum QuotaFreshness {
     static let tickInterval: TimeInterval = 60
+    /// How long the clock has to have gone unread before a focus change is
+    /// worth re-reading it for.
+    static let focusRefreshInterval: TimeInterval = 3 * 60
     static let staleAfter: TimeInterval = 30 * 60
-    static let staleOpacity: Double = 0.45
 
     static func isStale(receivedAt: Date, now: Date) -> Bool {
         now.timeIntervalSince(receivedAt) > staleAfter

@@ -170,3 +170,58 @@ struct QuotaPacingTests {
         #expect(abs(pacing - 0.5) < 0.0001)
     }
 }
+
+/// When the pacing mark is worth drawing at all.
+@MainActor
+struct PacingMarkTests {
+    @Test func aWindowThatJustOpenedDrawsNoMark() {
+        #expect(!PacingMark.isWorthDrawing(0))
+        #expect(!PacingMark.isWorthDrawing(0.01))
+    }
+
+    @Test func pastTheThresholdItDraws() {
+        #expect(PacingMark.isWorthDrawing(PacingMark.minimumPacing))
+        #expect(PacingMark.isWorthDrawing(0.5))
+        #expect(PacingMark.isWorthDrawing(1))
+    }
+}
+
+/// A focus change re-reads the clock, but only once it has gone unread long
+/// enough to be worth a redraw.
+@MainActor
+struct QuotaFocusRefreshTests {
+    @Test func theThresholdSitsBetweenTheTickAndStaleness() {
+        // The tick keeps things current under a minute, so the focus refresh
+        // exists for gaps longer than that but well short of stale.
+        #expect(QuotaFreshness.focusRefreshInterval > QuotaFreshness.tickInterval)
+        #expect(QuotaFreshness.focusRefreshInterval < QuotaFreshness.staleAfter)
+    }
+
+    /// `record` advances the clock, so a reading that just arrived is not
+    /// stale and the bars draw at full strength.
+    @Test func aFreshReadingIsNotStale() {
+        let store = QuotaStore()
+        let now = Date()
+        store.record(
+            RateLimitInfo(
+                fiveHour: .init(utilization: 0.5, resetsAt: now.addingTimeInterval(3600)),
+                sevenDay: nil,
+                isUsingOverage: false
+            ),
+            at: now
+        )
+
+        let snapshot = store.snapshot
+        #expect(snapshot != nil)
+        #expect(!QuotaFreshness.isStale(receivedAt: snapshot!.receivedAt, now: store.now))
+    }
+
+    /// Ticking the clock past the threshold makes the same reading stale
+    /// without a new payload — which is what dims the fill and the text.
+    @Test func timePassingAloneTurnsAReadingStale() {
+        let received = Date()
+        let later = received.addingTimeInterval(QuotaFreshness.staleAfter + 1)
+
+        #expect(QuotaFreshness.isStale(receivedAt: received, now: later))
+    }
+}

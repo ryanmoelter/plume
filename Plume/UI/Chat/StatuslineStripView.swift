@@ -262,12 +262,18 @@ struct StackedMeter: View, ThemedView {
     /// Leading rather than centered, for a row whose bars have to line up
     /// with content below them.
     var readingAlignment: HorizontalAlignment = .center
+    /// Steps the fill and the reading back one emphasis level. Deliberately
+    /// not an opacity over the whole meter: the track and the pacing mark are
+    /// already faint by design, and dimming them too would fade the frame the
+    /// reading is measured against rather than the reading itself.
+    var isStale: Bool = false
 
     var body: some View {
         let bar = MeterView(
             fraction: fraction,
             color: StatuslineColors.meter(for: attention, colors: colors),
-            pacing: pacing
+            pacing: pacing,
+            isStale: isStale
         )
         .frame(width: barWidth)
         if showsReading {
@@ -278,6 +284,7 @@ struct StackedMeter: View, ThemedView {
             VStack(alignment: readingAlignment, spacing: dimensions.statuslineMeterSpacing) {
                 Text(reading)
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
+                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
                 bar
             }
@@ -325,9 +332,9 @@ struct StatuslineMeterSegment: View, ThemedView {
             pacing: windowLength.flatMap {
                 QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0)
             },
-            readingAlignment: readingAlignment
+            readingAlignment: readingAlignment,
+            isStale: isStale
         )
-        .opacity(isStale ? QuotaFreshness.staleOpacity : 1)
         .help(helpText)
     }
 
@@ -488,6 +495,8 @@ struct MeterView: View, ThemedView {
     /// which is what every non-quota meter wants — a context window does not
     /// refill on a clock.
     var pacing: Double?
+    /// Dims the fill alone. The track stays put — see `StackedMeter.isStale`.
+    var isStale: Bool = false
 
     private var trackOpacity: Double {
         colors.emphasis[.divider]
@@ -500,14 +509,15 @@ struct MeterView: View, ThemedView {
                     .fill(color.opacity(trackOpacity))
                 Capsule()
                     .fill(color)
+                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .frame(width: geometry.size.width * fraction)
-                if let pacing {
+                if let pacing, PacingMark.isWorthDrawing(pacing) {
                     // Over the fill rather than under it: the mark has to stay
                     // legible on whichever side of it the fill has reached,
                     // which a mark behind the fill loses exactly when the
                     // comparison matters.
                     Capsule()
-                        .fill(markColor)
+                        .fill(markColor(pacing: pacing))
                         .frame(width: PacingMark.width)
                         .offset(x: markOffset(in: geometry.size.width, pacing: pacing))
                 }
@@ -519,9 +529,14 @@ struct MeterView: View, ThemedView {
     /// The window's ground, which reads as a notch cut out of the bar. A
     /// theme that sets no background leaves `colors.background` nil, so the
     /// mark falls back to the window's own material rather than disappearing.
-    private var markColor: Color {
-        (colors.background ?? Color(nsColor: .windowBackgroundColor))
-            .opacity(PacingMark.opacity)
+    ///
+    /// Full strength while the fill is behind the mark, which is the reading
+    /// worth interrupting the bar for: spending is outpacing the window.
+    /// Once the fill is past it the mark is only reassurance, and steps back
+    /// to secondary.
+    private func markColor(pacing: Double) -> Color {
+        let ground = colors.background ?? Color(nsColor: .windowBackgroundColor)
+        return ground.opacity(fraction > pacing ? colors.emphasis[.secondary] : 1)
     }
 
     /// Inset by the mark's own width so it stays whole at either end instead
@@ -536,9 +551,15 @@ struct MeterView: View, ThemedView {
 /// same thing at different bar lengths.
 enum PacingMark {
     static let width: CGFloat = 1.5
-    /// Translucent, so it reads as a reference mark rather than as another
-    /// reading competing with the fill.
-    static let opacity: Double = 0.55
+
+    /// Below this the mark sits on the bar's own rounded end, where it reads
+    /// as a nick in the capsule rather than as a position — and a window
+    /// that just opened has nothing to say anyway.
+    static let minimumPacing = 0.02
+
+    static func isWorthDrawing(_ pacing: Double) -> Bool {
+        pacing >= minimumPacing
+    }
 }
 
 #Preview("Terminal transport") {
