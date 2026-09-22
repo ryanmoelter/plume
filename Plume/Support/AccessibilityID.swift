@@ -159,6 +159,8 @@ enum AccessibilityID {
 
     static let sideQuestionsOpenButton = "side-questions-open-button"
     static let sideQuestionsClose = "side-questions-close"
+    static let sideQuestionChip = "side-question-chip"
+    static let sideQuestionChipDismiss = "side-question-chip-dismiss"
     static let messageRedoButton = "message-redo-button"
     static let messageForkButton = "message-fork-button"
     static let rewindFailureToast = "rewind-failure-toast"

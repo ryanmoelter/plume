@@ -453,6 +453,14 @@ struct ChatTabView: View, ThemedView {
             if !commandRuns.isEmpty {
                 commandRunsView
             }
+            if let claudeSession, let exchange = claudeSession.chippedSideQuestion {
+                SideQuestionChip(
+                    exchange: exchange,
+                    onOpenPanel: { isSideQuestionsPanelShown = true },
+                    onDismiss: { claudeSession.dismissChippedSideQuestion() }
+                )
+                .listItemPadding(vertical: false)
+            }
             if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -630,7 +638,8 @@ struct ChatTabView: View, ThemedView {
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
-                if let claudeSession, !claudeSession.sideQuestions.isEmpty {
+                if let claudeSession, !claudeSession.sideQuestions.isEmpty,
+                   claudeSession.chippedSideQuestion == nil {
                     sideQuestionsButton(session: claudeSession)
                 }
             }
@@ -642,8 +651,10 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
-    /// Only shown once a `/btw` has been asked — most tabs never use the
-    /// feature, so the statusline stays uncluttered until one is.
+    /// The way back to answered questions once their chip is dismissed. The
+    /// chip below the chat is the entry point while it is up, so this shows
+    /// only after a dismissal — most tabs never ask a `/btw` at all, and the
+    /// statusline stays uncluttered until one does.
     private func sideQuestionsButton(session: HeadlessSession) -> some View {
         Button {
             isSideQuestionsPanelShown.toggle()

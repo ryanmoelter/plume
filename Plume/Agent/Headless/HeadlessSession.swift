@@ -118,6 +118,23 @@ final class HeadlessSession: AgentSession {
     /// `/btw` exchanges, in-memory only — see `SideQuestion`.
     private(set) var sideQuestions: [SideQuestion] = []
 
+    /// The newest side question the user has dismissed from below the chat.
+    /// Recorded rather than removed: the panel still lists every exchange,
+    /// and dismissing hides the chip only.
+    private var dismissedSideQuestionID: String?
+
+    /// The side question the chip below the chat is showing: the newest one,
+    /// until it is dismissed. A question asked after a dismissal shows again,
+    /// which is what makes the chip the feedback for asking one.
+    var chippedSideQuestion: SideQuestion? {
+        guard let newest = sideQuestions.last else { return nil }
+        return newest.id == dismissedSideQuestionID ? nil : newest
+    }
+
+    func dismissChippedSideQuestion() {
+        dismissedSideQuestionID = sideQuestions.last?.id
+    }
+
     /// Why the last rewind did not happen, until the user dismisses it.
     private(set) var rewindFailure: String?
 
