@@ -32,7 +32,10 @@ final class StatusEngine {
     /// Called with the task and tab whenever a tab's own status changes.
     /// Both transports funnel through `setStatus`, so this is the one place a
     /// notification layer has to hook.
-    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus) -> Void)?
+    ///
+    /// `notifiable` is false for a change the user did not ask for, which is
+    /// worth showing but not worth interrupting over.
+    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus, _ notifiable: Bool) -> Void)?
 
     /// When each working tab started working, for the elapsed time the
     /// sidebar shows. Kept here rather than on the session so it covers both
@@ -147,11 +150,14 @@ final class StatusEngine {
     /// will not get one until the user sends a message, so it reads as
     /// `notStarted` and stays deaf to anything its old transcript says.
     func restore(tabID: UUID, taskID: UUID) {
-        setStatus(.notStarted, taskID: taskID, tabID: tabID)
+        setStatus(.notStarted, taskID: taskID, tabID: tabID, notifiable: false)
         dormantTabs.insert(tabID)
     }
 
-    func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID) {
+    /// `notifiable` is false when the app, not the user, started whatever
+    /// produced this status. The status still stands — the sidebar and the
+    /// chat both show it — but no system notification goes out for it.
+    func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID, notifiable: Bool = true) {
         tabsByTask[taskID, default: []].insert(tabID)
         dormantTabs.remove(tabID)
         guard tabStatuses[tabID] != status else { return }
@@ -159,7 +165,13 @@ final class StatusEngine {
         let previousTabStatus = self.status(forTab: tabID)
         let previousTaskStatus = self.status(forTask: taskID)
         tabStatuses[tabID] = status
-        report(taskID: taskID, tabID: tabID, previousTabStatus: previousTabStatus, previousTaskStatus: previousTaskStatus)
+        report(
+            taskID: taskID,
+            tabID: tabID,
+            previousTabStatus: previousTabStatus,
+            previousTaskStatus: previousTaskStatus,
+            notifiable: notifiable
+        )
     }
 
     /// Records whether a tab's conversation still has subagents working.
@@ -201,7 +213,8 @@ final class StatusEngine {
         taskID: UUID,
         tabID: UUID,
         previousTabStatus: TaskStatus,
-        previousTaskStatus: TaskStatus
+        previousTaskStatus: TaskStatus,
+        notifiable: Bool = true
     ) {
         let newTabStatus = status(forTab: tabID)
         if newTabStatus != previousTabStatus {
@@ -212,7 +225,7 @@ final class StatusEngine {
             } else {
                 workStartedAt.removeValue(forKey: tabID)
             }
-            onTabStatusChanged?(taskID, tabID, newTabStatus)
+            onTabStatusChanged?(taskID, tabID, newTabStatus, notifiable)
         }
         let newTaskStatus = status(forTask: taskID)
         if newTaskStatus != previousTaskStatus {
