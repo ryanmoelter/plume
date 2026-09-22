@@ -169,6 +169,13 @@ struct ChatTabView: View, ThemedView {
                     startFailure: headlessSession?.startFailure,
                     pending: $pendingFirstMessage
                 ))
+                .onDrop(
+                    of: ComposerImageDropDelegate.acceptedTypes,
+                    delegate: ComposerImageDropDelegate(
+                        isEnabled: tab.transport == .headless,
+                        attach: { [tabID = tab.id] in DraftStore.shared.attach($0, toTab: tabID) }
+                    )
+                )
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))

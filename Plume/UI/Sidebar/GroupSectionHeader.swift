@@ -36,7 +36,7 @@ struct GroupSectionHeader: View {
                         .contentShape(Rectangle())
                         // Simultaneous, not exclusive: a plain
                         // `.onTapGesture` claims the mouse-down, and the
-                        // section's reorder drag never starts.
+                        // header's drag never starts.
                         .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
                 }
             }

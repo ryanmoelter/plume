@@ -22,8 +22,9 @@ struct SidebarView: View {
 
     @State private var settings = AppSettings.shared
     @State private var renamingGroupID: UUID?
-    /// The task a dragged tab is currently over, so its row can ring itself.
-    @State private var tabDropTargetID: UUID?
+    @State private var dropIndicator: SidebarDropIndicator?
+    /// Each row and header's height, so a drop can tell which half it is over.
+    @State private var dropTargetHeights: [UUID: CGFloat] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,10 +50,16 @@ struct SidebarView: View {
                                 TaskStore.deleteGroup(group, in: context)
                             }
                         }
+                        .background {
+                            SidebarSelectionFill(isSelected: dropIndicator == .init(target: .group(group.id), placement: .into))
+                        }
+                        .sidebarDragAndDrop(
+                            .group(group.id),
+                            target: .group(group.id),
+                            heights: $dropTargetHeights,
+                            indicator: $dropIndicator
+                        ) { handleDrop($0, $1, onto: group) }
                     }
-                }
-                .onMove { offsets, destination in
-                    TaskStore.moveGroups(groups, from: offsets, to: destination)
                 }
 
                 Section("Ungrouped") {
@@ -115,14 +122,19 @@ struct SidebarView: View {
         ForEach(sectionTasks) { task in
             TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
-                .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
+                // A tab dragged over the row previews the selection it would
+                // get, since dropping it there selects the tab in this task.
+                .listRowBackground(SidebarSelectionFill(
+                    isSelected: selection == task.id
+                        || dropIndicator == .init(target: .task(task.id), placement: .into)
+                ))
                 // The list's own selection is turned off because
                 // `.listRowBackground` draws *behind* its fill, so the accent
                 // rectangle would show on top of the wash as a second
                 // selection state. Selection therefore comes from the tap.
                 .selectionDisabled()
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
-                // the mouse-down, and the list's reorder drag never starts.
+                // the mouse-down, and the row's drag never starts.
                 //
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
@@ -131,45 +143,61 @@ struct SidebarView: View {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
                 }
-                .dropDestination(for: String.self) { draggedIDs, _ in
-                    tabDropTargetID = nil
-                    return dropTab(draggedIDs, onto: task)
-                } isTargeted: { targeted in
-                    if targeted {
-                        tabDropTargetID = task.id
-                    } else if tabDropTargetID == task.id {
-                        tabDropTargetID = nil
-                    }
-                }
-                .overlay {
-                    if tabDropTargetID == task.id {
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(.tint, lineWidth: 2)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                    }
-                }
-        }
-        .onMove { offsets, destination in
-            TaskStore.move(sectionTasks, from: offsets, to: destination)
+                .sidebarDragAndDrop(
+                    .task(task.id),
+                    target: .task(task.id),
+                    heights: $dropTargetHeights,
+                    indicator: $dropIndicator
+                ) { handleDrop($0, $1, onto: task) }
         }
     }
 
-    // MARK: - Cross-task tab drop
+    // MARK: - Drag and drop
 
-    /// Accepts a tab chip dragged from `TabStripView` (payload is the tab's
-    /// `UUID` string) and moves it into `task`. Only the SwiftData
-    /// relationship and ordering change — never touches the surface registry
-    /// keyed by the tab's id.
-    @discardableResult
-    private func dropTab(_ draggedIDStrings: [String], onto task: WorkTask) -> Bool {
-        guard let idString = draggedIDStrings.first, let draggedID = UUID(uuidString: idString) else {
-            return false
+    private func handleDrop(_ item: SidebarDragItem, _ placement: SidebarDropPlacement, onto task: WorkTask) {
+        switch item {
+        case .tab(let id):
+            dropTab(id, onto: task)
+        case .task(let id):
+            moveTask(id, placement, relativeTo: task)
+        case .group:
+            break
         }
-        guard let tab = tasks.flatMap(\.tabs).first(where: { $0.id == draggedID }) else { return false }
-        guard tab.task?.id != task.id else { return false }
+    }
+
+    private func handleDrop(_ item: SidebarDragItem, _ placement: SidebarDropPlacement, onto group: TaskGroup) {
+        switch item {
+        case .task(let id):
+            guard let task = tasks.first(where: { $0.id == id }), task.group?.id != group.id else { return }
+            TaskStore.move(task, to: group, siblings: tasksFor(group))
+        case .group(let id):
+            guard let move = SidebarDropRules.move(id, placement, group.id, in: groups.map(\.id)) else { return }
+            TaskStore.moveGroups(groups, from: IndexSet(integer: move.from), to: move.to)
+        case .tab:
+            break
+        }
+    }
+
+    /// Moves a tab into `task`. Only the SwiftData relationship and ordering
+    /// change — never the surface registry keyed by the tab's id.
+    private func dropTab(_ tabID: UUID, onto task: WorkTask) {
+        guard let tab = tasks.flatMap(\.tabs).first(where: { $0.id == tabID }),
+              tab.task?.id != task.id
+        else { return }
         TaskStore.moveTab(tab, to: task)
-        return true
+    }
+
+    /// Puts the dragged task before or after `target`, joining `target`'s
+    /// group first when it comes from another one.
+    private func moveTask(_ id: UUID, _ placement: SidebarDropPlacement, relativeTo target: WorkTask) {
+        guard let dragged = tasks.first(where: { $0.id == id }) else { return }
+        var section = target.group.map(tasksFor) ?? ungroupedTasks
+        if dragged.group?.id != target.group?.id {
+            TaskStore.move(dragged, to: target.group, siblings: section)
+            section.append(dragged)
+        }
+        guard let move = SidebarDropRules.move(id, placement, target.id, in: section.map(\.id)) else { return }
+        TaskStore.move(section, from: IndexSet(integer: move.from), to: move.to)
     }
 
     private func select(_ task: WorkTask) {
