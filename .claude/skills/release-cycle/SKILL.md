@@ -68,6 +68,21 @@ Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent
 
 Move every shipped issue to Done through the `roadmap` skill.
 
+### Clean up as each package lands
+
+Remove a package's worktree and branch as soon as its work is on the release branch, rather than saving it all for after the release. A dozen stale worktrees make `git worktree list` useless for seeing what is still live, and every one of them holds a full DerivedData-adjacent checkout.
+
+```
+git worktree unlock <path>    # agent worktrees are created locked
+git worktree remove --force <path>
+git worktree prune
+git branch -D ryanm/<slug> worktree-agent-<id>
+```
+
+**`git branch --merged` is the check, but it answers about commits, not content.** A branch whose work reached the release branch by cherry-pick or by a re-signing rebase reads as *unmerged*, because its original SHAs are not ancestors. Confirm with `git diff <branch>..HEAD --stat` instead — an empty diff means the content landed and the branch is safe to delete.
+
+**Keep the worktree of any package whose work is not finished**, even if some of it merged. A package that was partly cherry-picked still holds the dropped commits, and they are the starting point for the follow-up agent.
+
 ## 4. Debug build for manual evaluation
 
 Delegate to a Sonnet verifier, on the release branch in the primary checkout:
@@ -93,7 +108,7 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Do the tag and push **before** the install anyway. The resume is reliable but the install is the one step that replaces the app underneath you, so land anything you would hate to redo first.
 - **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders first (`git rebase --force-rebase --rebase-merges <base>` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit).
 - Tag `v<version>` on the bump commit and push `main` with the tag.
-- `git worktree remove` each agent worktree, `git worktree prune`, delete merged `ryanm/*` branches.
+- Clean up anything step 3 left: `git worktree list` and `git branch --list 'ryanm/*'` should hold nothing from this cycle.
 
 ## Gotchas
 
