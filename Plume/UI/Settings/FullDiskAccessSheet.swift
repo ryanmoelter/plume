@@ -15,33 +15,28 @@ struct FullDiskAccessSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "lock.shield")
-                    .font(.system(size: 28))
                     .foregroundStyle(.tint)
                 Text("Grant Full Disk Access?")
-                    .font(.title2.weight(.semibold))
             }
+            .font(.title2.weight(.semibold))
 
             Text(
-                "Plume runs coding agents, and an agent reads and writes files wherever you " +
-                "point it — your repositories, and folders macOS protects such as Desktop, " +
-                "Documents, Downloads, and iCloud Drive."
+                "Agents running inside of Plume may ask for permission to read files inside " +
+                "protected folders like Desktop, Documents, Downloads, Music, and iCloud Drive."
             )
 
-            Text(
-                "Without Full Disk Access, macOS interrupts with a permission prompt the first " +
-                "time an agent touches one of those folders. That prompt names Plume rather " +
-                "than the agent or the command that caused it, so it tends to arrive with no " +
-                "clue what triggered it — often long after you started the work."
-            )
+            Text(LocalizedStringKey(
+                "**Giving Plume Full Disk Access gives your agents full access to all of your " +
+                "files**, including sensitive ones, without permission prompts."
+            ))
 
-            Text(
-                "Granting it now avoids those interruptions. You can skip this and grant it " +
-                "later in System Settings › Privacy & Security › Full Disk Access; Plume works " +
-                "either way, and will not ask again."
-            )
-            .foregroundStyle(.secondary)
+            Text(LocalizedStringKey(
+                "**Plume works with or without this, and you can change it at any time** in " +
+                "System Settings › Privacy & Security › Full Disk Access, or via the link in " +
+                "Plume's settings."
+            ))
 
-            Text("macOS requires you to quit and reopen Plume after granting access.")
+            Text("You will need to restart Plume after granting access.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
