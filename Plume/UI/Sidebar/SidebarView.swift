@@ -15,6 +15,7 @@ struct SidebarView: View {
     @Binding var archiveShown: Bool
     let windowWidth: CGFloat
 
+    @State private var settings = AppSettings.shared
     @State private var renamingGroupID: UUID?
     /// The task a dragged tab is currently over, so its row can ring itself.
     @State private var tabDropTargetID: UUID?
@@ -98,7 +99,7 @@ struct SidebarView: View {
 
             SidebarFooter(archiveShown: $archiveShown)
         }
-        .themeTint(colorScheme: colorScheme)
+        .sidebarBackground(colorScheme: colorScheme, style: settings.sidebarBackgroundStyle)
         .navigationSplitViewColumnWidth(
             min: WindowMetrics.sidebarMinimumWidth,
             ideal: WindowMetrics.sidebarIdealWidth,

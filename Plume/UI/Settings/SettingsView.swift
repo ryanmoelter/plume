@@ -109,6 +109,13 @@ struct SettingsView: View {
                     Text("⌘Return").tag(ComposerSendKey.commandReturn)
                     Text("Return").tag(ComposerSendKey.returnKey)
                 }
+
+                Picker("Sidebar background", selection: $settings.sidebarBackgroundStyle) {
+                    ForEach(SidebarBackgroundStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .plumeID(AccessibilityID.sidebarBackgroundStylePicker)
             } header: {
                 Text("Chat")
             } footer: {
