@@ -33,6 +33,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "hover": command = .hover(try HoverParams(from: decoder))
         case "clear": command = .clear(try ClearParams(from: decoder))
         case "drag": command = .drag(try DragParams(from: decoder))
+        case "key": command = .key(try KeyParams(from: decoder))
+        case "menu": command = .menu
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -54,6 +56,31 @@ nonisolated enum ControlCommand {
     case hover(HoverParams)
     case clear(ClearParams)
     case drag(DragParams)
+    case key(KeyParams)
+    case menu
+}
+
+/// A chord to press, written the way the settings editor writes it: a single
+/// character plus modifier names (`command`, `shift`, `option`, `control`).
+nonisolated struct KeyParams: Decodable {
+    var key: String
+    var modifiers: [String] = []
+    var windowNumber: Int?
+
+    private enum CodingKeys: String, CodingKey { case key, modifiers, windowNumber }
+
+    init(key: String, modifiers: [String] = [], windowNumber: Int? = nil) {
+        self.key = key
+        self.modifiers = modifiers
+        self.windowNumber = windowNumber
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        modifiers = try c.decodeIfPresent([String].self, forKey: .modifiers) ?? []
+        windowNumber = try c.decodeIfPresent(Int.self, forKey: .windowNumber)
+    }
 }
 
 /// `plumeID`, not `id`: the request envelope's `id` is the correlation id.
@@ -315,6 +342,32 @@ nonisolated struct ScreenshotResult: Codable, Equatable {
     var scale: Double
 }
 
+nonisolated struct KeyResult: Codable, Equatable {
+    var chord: String
+    var keyCode: Int
+    var windowNumber: Int
+    /// The menu item carrying this chord, or nil when none does. Read this
+    /// rather than assuming a press fired the command it was bound to.
+    var handledBy: String?
+    /// Whether that item was enabled when the chord was looked up. A menu
+    /// revalidates as it dispatches, so this can read false for an item that
+    /// still fires.
+    var handledByEnabled: Bool?
+}
+
+/// One menu item, as AppKit holds it — the authority on what chord a command
+/// actually carries, as against what `PlumeCommands` asked for.
+nonisolated struct MenuItemDescription: Codable, Equatable {
+    var path: String
+    var keyEquivalent: String?
+    var modifiers: [String]
+    var isEnabled: Bool
+}
+
+nonisolated struct MenuResult: Codable, Equatable {
+    var items: [MenuItemDescription]
+}
+
 nonisolated struct InvokeResult: Codable, Equatable {
     /// `"closure"` when the control's own action ran, `"click"` when a
     /// synthetic click at its center stood in for one.
@@ -351,6 +404,8 @@ nonisolated enum ControlResult: Encodable {
     case hierarchy(HierarchyResult)
     case hover(HoverResult)
     case drag(DragResult)
+    case key(KeyResult)
+    case menu(MenuResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -364,6 +419,8 @@ nonisolated enum ControlResult: Encodable {
         case .hierarchy(let v): try v.encode(to: encoder)
         case .hover(let v): try v.encode(to: encoder)
         case .drag(let v): try v.encode(to: encoder)
+        case .key(let v): try v.encode(to: encoder)
+        case .menu(let v): try v.encode(to: encoder)
         }
     }
 }

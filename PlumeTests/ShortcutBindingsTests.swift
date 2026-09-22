@@ -150,4 +150,23 @@ struct ShortcutBindingsTests {
         settings.hasPromptedForFullDiskAccess = true
         #expect(AppSettings(defaults: defaults).hasPromptedForFullDiskAccess)
     }
+
+    @Test func displayNameParsesBackToTheSameChord() {
+        let chords = [
+            MenuShortcut("j"),
+            MenuShortcut("j", modifiers: [.option]),
+            MenuShortcut("j", modifiers: [.option, .shift]),
+            MenuShortcut("]", modifiers: [.command, .shift]),
+            MenuShortcut("a", modifiers: [.control, .option, .shift, .command]),
+        ]
+        for chord in chords {
+            #expect(MenuShortcut(displayName: chord.displayName) == chord)
+        }
+    }
+
+    @Test func displayNameParsingRejectsMalformedText() {
+        #expect(MenuShortcut(displayName: "") == nil)
+        #expect(MenuShortcut(displayName: "⌘") == nil)
+        #expect(MenuShortcut(displayName: "⌘JK") == nil)
+    }
 }

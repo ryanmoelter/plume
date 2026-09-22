@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // per-tab monitor would across tab and task switches.
         TerminalShortcutMonitor.shared.install()
 
+        startApplyingShortcutBindings()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()
@@ -52,6 +54,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleWillPowerOff() {
         isPoweringOff = true
+    }
+
+    /// Keeps the menu's rebindable chords in step with the setting, for as
+    /// long as the app runs. `ShortcutMenuApplier` documents why the menu
+    /// SwiftUI built cannot be left to update itself.
+    ///
+    /// The first pass waits for the main menu, which SwiftUI installs after
+    /// this delegate callback returns.
+    private func startApplyingShortcutBindings() {
+        Task { @MainActor in
+            while NSApp.mainMenu == nil, !Task.isCancelled {
+                await Task.yield()
+            }
+            for await bindings in settings.shortcutBindingsStream {
+                guard let menu = NSApp.mainMenu else { continue }
+                ShortcutMenuApplier.apply(bindings, to: menu)
+            }
+        }
     }
 
     /// Transparent titlebar plus an explicit background color makes the

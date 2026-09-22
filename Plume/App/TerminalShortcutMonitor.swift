@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Gives the menu bar first refusal on Plume's own shortcuts, so they still
 /// work while a terminal surface holds keyboard focus.
@@ -47,7 +48,11 @@ final class TerminalShortcutMonitor {
         // `performKeyEquivalent` respects each item's `disabled` state, so a
         // command with no selected task declines here and the chord falls
         // through to the terminal rather than vanishing.
-        return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        let handled = NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        Log.app.debug(
+            "shortcut monitor claimed \(event.charactersIgnoringModifiers ?? "?", privacy: .public); menu handled it: \(handled, privacy: .public)"
+        )
+        return handled
     }
 
     /// Whether this chord is one `PlumeCommands` binds, and so one the menu
@@ -57,7 +62,15 @@ final class TerminalShortcutMonitor {
     /// narrowed to Command-bearing chords by `MenuShortcut.isClaimable` — the
     /// terminal keeps every bare key, every Control chord, and every Option
     /// chord that Command does not also cover.
-    static func isClaimed(characters: String?, flags: NSEvent.ModifierFlags) -> Bool {
-        PlumeShortcuts.all.contains { $0.matches(characters: characters, flags: flags) }
+    ///
+    /// `shortcuts` defaults to what is bound now. A test passes its own set
+    /// rather than the live one, whose rebindable half is whatever the
+    /// developer running the test last chose.
+    static func isClaimed(
+        shortcuts: [MenuShortcut] = PlumeShortcuts.all,
+        characters: String?,
+        flags: NSEvent.ModifierFlags
+    ) -> Bool {
+        shortcuts.contains { $0.matches(characters: characters, flags: flags) }
     }
 }
