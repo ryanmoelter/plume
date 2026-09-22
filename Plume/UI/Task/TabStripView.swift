@@ -133,7 +133,7 @@ private struct TabChip: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .plumeHover { isHovering = $0 }
-        .plumeID(AccessibilityID.tabChip, label: chipTitle)
+        .plumeID(AccessibilityID.tabChip, label: chipTitle, value: isSelected ? "selected" : nil, invoke: select)
         .contextMenu {
             if tab.kind == .agent {
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {

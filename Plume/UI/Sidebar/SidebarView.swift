@@ -169,7 +169,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
-            TaskRowView(task: task, renamingTaskID: $renamingTaskID)
+            TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
                 .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
                 // The list's own selection is turned off because
@@ -179,10 +179,7 @@ struct SidebarView: View {
                 .selectionDisabled()
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
-                .onTapGesture {
-                    guard renamingTaskID != task.id else { return }
-                    selection = task.id
-                }
+                .onTapGesture { select(task) }
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
@@ -191,6 +188,11 @@ struct SidebarView: View {
         .onMove { offsets, destination in
             TaskStore.move(sectionTasks, from: offsets, to: destination)
         }
+    }
+
+    private func select(_ task: WorkTask) {
+        guard renamingTaskID != task.id else { return }
+        selection = task.id
     }
 
     @ViewBuilder
