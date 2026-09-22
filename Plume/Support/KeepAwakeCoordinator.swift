@@ -255,7 +255,7 @@ final class KeepAwakeCoordinator {
     static func deriveReasons(
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
         remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
-        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] = [],
+        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] = [],
         allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
         let counted = allowsRemoteControl ? remoteControlledTabs : []
@@ -269,7 +269,13 @@ final class KeepAwakeCoordinator {
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .remoteControl) }
 
         let background = backgroundTaskTabs
-            .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .backgroundTask($0.kind)) }
+            .map {
+                KeepAwakeReason(
+                    taskID: $0.taskID,
+                    tabID: $0.tabID,
+                    kind: .backgroundTask($0.kind, description: $0.description)
+                )
+            }
 
         // Dictionary order is arbitrary; sorting keeps the panel from
         // reshuffling every time an unrelated tab changes status.

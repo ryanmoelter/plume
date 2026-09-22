@@ -120,10 +120,10 @@ final class StatusEngine {
     /// Every tab with a background task still running, with the task it
     /// belongs to. A tab whose task never registered is dropped, the way
     /// `setSubagentActivity` drops one.
-    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] {
-        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind in
+    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] {
+        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind, description in
             guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return nil }
-            return (taskID, tabID, kind)
+            return (taskID, tabID, kind, description)
         }
     }
 

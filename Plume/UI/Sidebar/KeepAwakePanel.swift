@@ -208,6 +208,10 @@ private struct KeepAwakeReasonRow: View {
                 Text(detail)
                     .font(.caption)
                     .emphasis(.subtle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+                    .help(detail)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
@@ -240,9 +244,15 @@ private struct KeepAwakeReasonRow: View {
         case .working(.needsTerminalInput): "Waiting"
         case .working: "Active"
         case .remoteControl: "Remote"
-        case .backgroundTask(.monitor): "Monitor"
-        case .backgroundTask(.backgroundCommand): "Background"
-        case .backgroundTask(.workflow): "Workflow"
+        case .backgroundTask(let kind, let description): description ?? Self.word(for: kind)
+        }
+    }
+
+    private static func word(for kind: BackgroundTaskTracker.Kind) -> String {
+        switch kind {
+        case .monitor: "Monitor"
+        case .backgroundCommand: "Background"
+        case .workflow: "Workflow"
         }
     }
 }
