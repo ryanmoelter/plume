@@ -1,11 +1,24 @@
 import SwiftUI
 
-/// Reveals a growing string a character at a time.
+/// Reveals a growing string a word at a time.
 ///
 /// `Text` content is not animatable, so the count is: SwiftUI interpolates
-/// `animatableData` and rebuilds this body per frame, and the body takes that
-/// many characters of the string. Nothing else in the chat animates a count,
+/// `animatableData` and rebuilds this body per frame, and the body takes as
+/// many characters as the word boundary at or before that count covers.
+/// Pacing (`RevealPacing`, `RevealProgress`) still runs on a character count
+/// — it is only ever used as a proxy for "how much text", not as the
+/// granularity shown — so this is the one place revealing by word instead of
+/// by character actually lives. Nothing else in the chat animates a count,
 /// so the type stays here rather than in a shared folder.
+///
+/// A whole word, not a whole delimited span (`**bold**`, `` `code` ``): a
+/// span needs a markdown-aware scan to find its matching close, which is
+/// real complexity for a pacing detail. Revealing by word already holds back
+/// a delimiter's opening character until the word it's attached to is
+/// complete, which is what stops a lone `**` or backtick flashing as literal
+/// text — it just doesn't also wait for the *closing* delimiter, which can
+/// still land a word or more later. That's an accepted trade for staying
+/// simple.
 struct CharacterReveal<Content: View>: View, Animatable {
     var revealedCount: Double
     var text: String
@@ -17,7 +30,39 @@ struct CharacterReveal<Content: View>: View, Animatable {
     }
 
     var body: some View {
-        content(String(text.prefix(max(0, Int(revealedCount)))))
+        content(String(text.prefix(RevealWordBoundaries.prefixLength(of: text, upTo: max(0, Int(revealedCount))))))
+    }
+}
+
+/// Finds where to cut a string so a reveal always stops on a word boundary
+/// rather than mid-word.
+enum RevealWordBoundaries {
+    /// The character count of the longest prefix of `text` that is at most
+    /// `count` characters and ends on a word boundary: the start of a word
+    /// token (so the run of punctuation or markdown delimiters trailing the
+    /// previous word stays attached to it, rather than that word showing
+    /// without its closing `**` or backtick for a frame), or — for the
+    /// streaming tail, which has no next token yet — the end of the last
+    /// token seen so far.
+    ///
+    /// Locale-aware word boundaries (`.byWords`) rather than a plain split on
+    /// whitespace: CJK text has no spaces between words, and `.byWords`
+    /// still segments it into small script-appropriate units instead of
+    /// revealing a whole unbroken run at once.
+    static func prefixLength(of text: String, upTo count: Int) -> Int {
+        guard count < text.count else { return text.count }
+        guard count > 0 else { return 0 }
+
+        var boundaries: [Int] = []
+        var lastTokenEnd = 0
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byWords) { _, range, _, _ in
+            boundaries.append(text.distance(from: text.startIndex, to: range.lowerBound))
+            lastTokenEnd = text.distance(from: text.startIndex, to: range.upperBound)
+        }
+        boundaries.append(lastTokenEnd)
+        boundaries.append(text.count)
+
+        return boundaries.filter { $0 <= count }.max() ?? 0
     }
 }
 

@@ -124,7 +124,7 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Animate chat message motion", isOn: $settings.animateChatMotion)
-                Toggle("Reveal streamed text a character at a time", isOn: $settings.animateCharacterReveal)
+                Toggle("Reveal streamed text a word at a time", isOn: $settings.animateCharacterReveal)
             } header: {
                 Text("Chat Animation")
             } footer: {
