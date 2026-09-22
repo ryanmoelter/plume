@@ -93,6 +93,10 @@ nonisolated enum TranscriptParser {
         // file — resolving forks afterward only walks this in-memory data.
         var seenUUIDs = Set<String>()
         var childrenByParent: [String: [BranchChild]] = [:]
+        // Every child, attachments included. Fork detection has to skip
+        // attachments, but collecting a branch cannot: attachments chain, so
+        // a branch that runs through one loses every row below it otherwise.
+        var allChildrenByParent: [String: [String]] = [:]
         var messageIndexByUUID: [String: Int] = [:]
         var parentByUUID: [String: String] = [:]
         // The file's last row with a uuid, whatever its type — Claude Code
@@ -173,10 +177,13 @@ nonisolated enum TranscriptParser {
                 tipUUID = uuid
                 if let parentUuid = entry.parentUuid { parentByUUID[uuid] = parentUuid }
             }
-            if let parentUuid = entry.parentUuid, let uuid = entry.uuid, entry.type != "attachment" {
-                childrenByParent[parentUuid, default: []].append(
-                    BranchChild(uuid: uuid, type: entry.type, isApiErrorMessage: entry.isApiErrorMessage)
-                )
+            if let parentUuid = entry.parentUuid, let uuid = entry.uuid {
+                allChildrenByParent[parentUuid, default: []].append(uuid)
+                if entry.type != "attachment" {
+                    childrenByParent[parentUuid, default: []].append(
+                        BranchChild(uuid: uuid, type: entry.type, isApiErrorMessage: entry.isApiErrorMessage)
+                    )
+                }
             }
 
             if let timestamp = entry.timestamp {
@@ -352,6 +359,7 @@ nonisolated enum TranscriptParser {
         resolveForks(
             in: &transcript,
             childrenByParent: childrenByParent,
+            allChildrenByParent: allChildrenByParent,
             messageIndexByUUID: messageIndexByUUID,
             parentByUUID: parentByUUID,
             tipUUID: tipUUID
@@ -381,6 +389,7 @@ nonisolated enum TranscriptParser {
     private static func resolveForks(
         in transcript: inout Transcript,
         childrenByParent: [String: [BranchChild]],
+        allChildrenByParent: [String: [String]],
         messageIndexByUUID: [String: Int],
         parentByUUID: [String: String],
         tipUUID: String?
@@ -393,7 +402,11 @@ nonisolated enum TranscriptParser {
 
             let abandonedRoots = children.filter { !live.contains($0.uuid) }
             let indices = abandonedRoots.flatMap {
-                subtreeMessageIndices(rootUUID: $0.uuid, childrenByParent: childrenByParent, messageIndexByUUID: messageIndexByUUID)
+                subtreeMessageIndices(
+                    rootUUID: $0.uuid,
+                    allChildrenByParent: allChildrenByParent,
+                    messageIndexByUUID: messageIndexByUUID
+                )
             }.sorted()
             let abandoned = indices.map { transcript.messages[$0] }
             if !abandoned.isEmpty {
@@ -407,7 +420,7 @@ nonisolated enum TranscriptParser {
     /// abandoned branch can itself be many rows deep.
     private static func subtreeMessageIndices(
         rootUUID: String,
-        childrenByParent: [String: [BranchChild]],
+        allChildrenByParent: [String: [String]],
         messageIndexByUUID: [String: Int]
     ) -> [Int] {
         var indices: [Int] = []
@@ -416,7 +429,7 @@ nonisolated enum TranscriptParser {
         while let uuid = stack.popLast() {
             guard visited.insert(uuid).inserted else { continue }
             if let index = messageIndexByUUID[uuid] { indices.append(index) }
-            stack.append(contentsOf: (childrenByParent[uuid] ?? []).map(\.uuid))
+            stack.append(contentsOf: allChildrenByParent[uuid] ?? [])
         }
         return indices
     }

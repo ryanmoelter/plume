@@ -163,6 +163,7 @@ enum AccessibilityID {
     static let messageForkButton = "message-fork-button"
     static let rewindFailureToast = "rewind-failure-toast"
     static let messageForkMarker = "message-fork-marker"
+    static let chatForkFailureCloseTab = "chat-fork-failure-close-tab"
 
     // MARK: Minimap
 

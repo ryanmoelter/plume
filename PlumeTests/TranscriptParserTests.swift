@@ -553,4 +553,22 @@ struct TranscriptParserForkTests {
         let abandoned = transcript.abandonedBranches["p1"]
         #expect(abandoned?.map(\.id) == ["abandoned1", "abandoned2"])
     }
+
+    /// The branch-collection walk has to follow attachments even though
+    /// fork detection ignores them. Attachments chain, so a branch that runs
+    /// through one loses every row below it when the walk stops there.
+    @Test func anAbandonedBranchIsCollectedThroughAnAttachment() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"original question"}}"#,
+            #"{"type":"user","uuid":"abandoned1","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited question"}}"#,
+            #"{"type":"attachment","uuid":"att","parentUuid":"abandoned1","isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/a.md"}}"#,
+            #"""
+            {"type":"assistant","uuid":"abandoned2","parentUuid":"att","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"reply below the attachment"}]}}
+            """#,
+            #"{"type":"user","uuid":"survivor","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited again"}}"#,
+        ]))
+
+        #expect(transcript.forkPoints == ["p1"])
+        #expect(transcript.abandonedBranches["p1"]?.map(\.id) == ["abandoned1", "abandoned2"])
+    }
 }

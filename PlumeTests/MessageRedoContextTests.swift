@@ -10,12 +10,14 @@ import Testing
 struct MessageRedoContextTests {
     private func context(
         lastSeenUserMessageID: String = "u2",
+        canFork: Bool = true,
         abandoned: [String: Int] = [:]
     ) -> MessageRedoContext {
         MessageRedoContext(
             tabID: Self.tabID,
             lastSeenUserMessageID: lastSeenUserMessageID,
             parentByMessageID: ["u2": "a1"],
+            canFork: canFork,
             onFork: { _ in },
             abandonedCountByMessageID: abandoned
         )
@@ -35,6 +37,12 @@ struct MessageRedoContextTests {
 
     @Test func aNewerLastSeenMessageChangesTheRenderedState() {
         #expect(context().renderedState != context(lastSeenUserMessageID: "u4").renderedState)
+    }
+
+    /// It gates whether the fork button draws enabled, so a session id
+    /// arriving has to restage the row that was drawn without one.
+    @Test func gainingASessionToForkFromChangesTheRenderedState() {
+        #expect(context(canFork: false).renderedState != context().renderedState)
     }
 
     /// The fork closure is rebuilt on every `body`, and the parent map is read

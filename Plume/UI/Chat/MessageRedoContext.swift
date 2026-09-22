@@ -20,6 +20,10 @@ struct MessageRedoContext {
     /// than the target, since cutting at the target keeps it and the fork
     /// then opens on two consecutive user turns.
     var parentByMessageID: [String: String]
+    /// Whether this tab has everything a fork needs: a session id to resume
+    /// and a working directory to spawn in. False leaves the fork buttons
+    /// disabled rather than letting them open an empty tab that never starts.
+    var canFork: Bool
     /// Opens a fork of this conversation cut after the given message uuid.
     var onFork: (String) -> Void
     /// The rows this conversation forked at, and how many messages each one
@@ -38,6 +42,7 @@ struct MessageRedoContext {
         RenderedState(
             tabID: tabID,
             lastSeenUserMessageID: lastSeenUserMessageID,
+            canFork: canFork,
             abandonedCountByMessageID: abandonedCountByMessageID
         )
     }
@@ -45,6 +50,7 @@ struct MessageRedoContext {
     struct RenderedState: Equatable {
         var tabID: UUID
         var lastSeenUserMessageID: String
+        var canFork: Bool
         var abandonedCountByMessageID: [String: Int]
     }
 }

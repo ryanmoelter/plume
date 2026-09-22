@@ -98,6 +98,10 @@ final class HeadlessSession: AgentSession {
     /// `startFailure` reports it rather than classifying a stderr line there
     /// is none of.
     private var preflightFailure: ChatStartFailure?
+    /// Whether this launch asked the CLI to fork. Kept because the stderr
+    /// line a refused fork dies with is only interpretable as a fork refusal
+    /// by a launch that asked for one.
+    private var didRequestFork = false
 
     /// Whether this conversation is published to claude.ai/code. In memory
     /// only — the bridge belongs to the process, not to the tab.
@@ -113,11 +117,6 @@ final class HeadlessSession: AgentSession {
 
     /// `/btw` exchanges, in-memory only — see `SideQuestion`.
     private(set) var sideQuestions: [SideQuestion] = []
-
-    /// The rewound message's own text, for the composer to pick up and clear.
-    /// Set only once the CLI confirms the cut, so the editable copy never
-    /// appears for a rewind that was refused.
-    private(set) var rewindPrefill: String?
 
     /// Why the last rewind did not happen, until the user dismisses it.
     private(set) var rewindFailure: String?
@@ -225,6 +224,7 @@ final class HeadlessSession: AgentSession {
         fork: HeadlessCommand.Fork? = nil
     ) {
         guard process == nil else { return }
+        didRequestFork = fork != nil
         launchDirectory = workingDirectory
         self.permissionMode = permissionMode
         permissionModeRequests.confirm(HeadlessCommand.launchPermissionMode(permissionMode))
@@ -300,7 +300,13 @@ final class HeadlessSession: AgentSession {
     var startFailure: ChatStartFailure? {
         guard hasExited else { return nil }
         if let preflightFailure { return preflightFailure }
-        return ChatStartFailure.classify(error: lastError, exitStatus: exitStatus)
+        // Before the generic classification, which would render a fork that
+        // died as a chat that would not start and offer a retry that can only
+        // fail again — the tab's recorded session id is the fork's, which the
+        // CLI never wrote.
+        guard let generic = ChatStartFailure.classify(error: lastError, exitStatus: exitStatus)
+        else { return nil }
+        return didRequestFork ? ChatStartFailure.forkRefusal(error: lastError) : generic
     }
 
     // MARK: - Sending
@@ -474,12 +480,13 @@ final class HeadlessSession: AgentSession {
             rewindFailure = Self.rewindRefusal(response.payload["reason"]?.stringValue)
             return
         }
-        let prefill = response.payload["prefillText"]?.stringValue ?? ""
-        rewindPrefill = prefill
+        // A refusal the user already saw would otherwise stay on screen
+        // beside the rewind that did work.
+        rewindFailure = nil
         // Straight into the draft rather than left for the view to consume:
         // the composer reads `DraftStore` for its text already, and a tab the
         // user has switched away from still gets its message back.
-        if !prefill.isEmpty {
+        if let prefill = response.payload["prefillText"]?.stringValue, !prefill.isEmpty {
             DraftStore.shared.setDraft(prefill, forTab: tabID)
         }
     }
@@ -510,6 +517,20 @@ final class HeadlessSession: AgentSession {
     private func updateSideQuestion(id: String, mutate: (inout SideQuestion) -> Void) {
         guard let index = sideQuestions.firstIndex(where: { $0.id == id }) else { return }
         mutate(&sideQuestions[index])
+    }
+
+    /// Nothing times out a control request, so a side question outstanding
+    /// when the process dies would otherwise spin forever with no answer
+    /// coming.
+    private func failUnansweredSideQuestions() {
+        for index in sideQuestions.indices {
+            switch sideQuestions[index].state {
+            case .pending, .running:
+                sideQuestions[index].state = .failed("claude stopped before answering.")
+            case .answered, .failed:
+                continue
+            }
+        }
     }
 
     private func updateRemoteControl(_ new: RemoteControlState, notify: Bool = true) {
@@ -906,6 +927,7 @@ final class HeadlessSession: AgentSession {
         }
         // Anything still pending will never be answered now.
         pendingPermissions.removeAll()
+        failUnansweredSideQuestions()
         pendingControlRequests.removeAll()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)

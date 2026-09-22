@@ -998,9 +998,20 @@ struct ChatTabView: View, ThemedView {
             tabID: tab.id,
             lastSeenUserMessageID: lastSeenUserMessageID,
             parentByMessageID: transcript.parentByMessageID,
+            canFork: forkSessionID != nil,
             onFork: { cutAfter in forkToNewTab(cutAfter: cutAfter) },
             abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
         )
+    }
+
+    /// The session a fork would resume, and the directory it would spawn in.
+    /// The tab has no session id until the CLI reports one, and a discarded
+    /// conversation drops it until the replacement arrives.
+    private var forkSessionID: String? {
+        guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+              task.workingDirectoryPath != nil
+        else { return nil }
+        return sessionID
     }
 
     /// Opens the conversation again in a new tab, cut after `cutAfter`, as a
@@ -1010,21 +1021,25 @@ struct ChatTabView: View, ThemedView {
     /// The new session's id is minted here rather than read back afterwards,
     /// so the tab records it before the process exists.
     private func forkToNewTab(cutAfter: String) {
-        guard let resumeSessionID = tab.agentSessionID, !resumeSessionID.isEmpty else { return }
-        let forkSessionID = UUID().uuidString.lowercased()
+        // Checked before the tab exists: `AgentLauncher` returns without a
+        // word when either is missing, which would leave a tab that never
+        // starts and never says why.
+        guard let resumeSessionID = forkSessionID else { return }
+        let newSessionID = UUID().uuidString.lowercased()
         let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
         newTab.transport = .headless
-        newTab.agentSessionID = forkSessionID
+        newTab.agentSessionID = newSessionID
         newTab.model = tab.model
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
+        newTab.effort = tab.effort
         AgentLauncher.launch(
             blocks: [],
             task: task,
             tab: newTab,
             resumeSessionID: resumeSessionID,
             fork: HeadlessCommand.Fork(
-                newSessionID: forkSessionID,
+                newSessionID: newSessionID,
                 cutAfterMessageUUID: cutAfter
             )
         )
@@ -1195,6 +1210,13 @@ struct ChatTabView: View, ThemedView {
                 ChatNoticeRow(notice: ChatNotice(kind: .error, title: detail, detail: nil))
                     .frame(maxWidth: 420)
             }
+            if failure.remedy == .redoInstead {
+                Text("Redo the message in this conversation instead — it rewinds in place and doesn't need the flag this fork asked for.")
+                    .font(.callout)
+                    .emphasis(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
             if failure.remedy == .installCLI {
                 Text("\(AppIdentity.displayName) runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
                     .font(.callout)
@@ -1205,7 +1227,15 @@ struct ChatTabView: View, ThemedView {
             HStack(spacing: 12) {
                 // Answering the folder-trust prompt is what unblocks this, so
                 // the terminal tab leads and the retry follows it.
-                if failure.remedy == .trustDirectory {
+                // A retry would re-run the same refused flags, so this
+                // offers to drop the empty fork tab instead.
+                if failure.remedy == .redoInstead {
+                    Button("Close This Tab") {
+                        TaskStore.closeTab(tab, in: modelContext)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .plumeID(AccessibilityID.chatForkFailureCloseTab)
+                } else if failure.remedy == .trustDirectory {
                     Button("Open Terminal Tab") {
                         TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
                     }
