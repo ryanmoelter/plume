@@ -45,6 +45,22 @@ struct MenuShortcut: Equatable, Codable {
         return text + String(key).uppercased()
     }
 
+    /// Parses what `displayName` writes — "⌥⇧J", "⌘]". Nil when the text is
+    /// not one modifier run followed by a single key.
+    init?(displayName: String) {
+        var modifiers: EventModifiers = []
+        var remainder = Substring(displayName)
+        let symbols: [(Character, EventModifiers)] = [
+            ("⌃", .control), ("⌥", .option), ("⇧", .shift), ("⌘", .command),
+        ]
+        while let first = remainder.first, let match = symbols.first(where: { $0.0 == first }) {
+            modifiers.insert(match.1)
+            remainder.removeFirst()
+        }
+        guard remainder.count == 1, let key = remainder.first else { return nil }
+        self.init(Character(String(key).lowercased()), modifiers: modifiers)
+    }
+
     /// Whether `characters` and `flags` are this exact chord.
     ///
     /// Compares the whole modifier set rather than testing membership, so ⌘]

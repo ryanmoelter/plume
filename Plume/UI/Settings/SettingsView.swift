@@ -233,7 +233,15 @@ struct SettingsView: View {
                                 settings.shortcutBindings.assign(shortcut, to: action)
                             }
                             .frame(width: 120, height: 22)
-                            .plumeID(AccessibilityID.shortcutRecorder, label: action.label)
+                            .plumeID(
+                                AccessibilityID.shortcutRecorder,
+                                label: action.label,
+                                value: settings.shortcutBindings[action]?.displayName ?? "Unassigned",
+                                setValue: { chord in
+                                    guard let shortcut = MenuShortcut(displayName: chord) else { return }
+                                    settings.shortcutBindings.assign(shortcut, to: action)
+                                }
+                            )
 
                             Button {
                                 settings.shortcutBindings.reset(action)

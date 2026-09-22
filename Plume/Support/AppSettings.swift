@@ -380,6 +380,21 @@ final class AppSettings {
     var shortcutBindings: ShortcutBindings {
         didSet {
             defaults.set(try? JSONEncoder().encode(shortcutBindings), forKey: Key.shortcutBindings)
+            shortcutBindingsContinuation?.yield(shortcutBindings)
+        }
+    }
+
+    private var shortcutBindingsContinuation: AsyncStream<ShortcutBindings>.Continuation?
+
+    /// The bindings now, then every later set. `AppDelegate` writes each onto
+    /// the menu; observation alone cannot, because the menu is built from a
+    /// `Commands` body that SwiftUI never re-evaluates.
+    ///
+    /// One consumer only — a second call replaces the first's continuation.
+    var shortcutBindingsStream: AsyncStream<ShortcutBindings> {
+        AsyncStream { continuation in
+            continuation.yield(shortcutBindings)
+            shortcutBindingsContinuation = continuation
         }
     }
 
