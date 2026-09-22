@@ -62,11 +62,7 @@ enum HeadlessCommand {
 
     /// Renders argv as one login-shell command line, quoting each argument so
     /// spaces and JSON punctuation survive the trip through the shell.
-    ///
-    /// `exec`s, so the login shell becomes `claude` rather than fathering it.
-    /// Terminating the session depends on it: the pid Plume holds has to be
-    /// the one it means to signal.
     static func loginShellCommand(arguments: [String]) -> String {
-        LoginShellCommand.wrapExec(arguments.map(shellQuoted).joined(separator: " "))
+        LoginShellCommand.wrap(arguments.map(shellQuoted).joined(separator: " "))
     }
 }

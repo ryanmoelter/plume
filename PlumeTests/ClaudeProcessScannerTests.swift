@@ -24,7 +24,7 @@ struct ClaudeProcessScannerTests {
         let output = """
           2475 /Applications/Claude.app/Contents/MacOS/Claude
           9001 claude -p --output-format stream-json
-          9002 /bin/zsh -lic 'exec claude'
+          9002 /bin/zsh -lic 'claude'
         """
         #expect(ClaudeProcessScanner.parse(psOutput: output, settingsPath: settings).isEmpty)
     }

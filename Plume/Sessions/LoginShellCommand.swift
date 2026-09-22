@@ -47,20 +47,6 @@ enum LoginShellCommand {
         return "\(resolvedShell) -lc \(shellQuoted(command))"
     }
 
-    /// Builds `<shell> -lic 'exec <command>'` — the login shell replaces
-    /// itself with the command, so the spawned pid *is* the command's.
-    ///
-    /// A caller that means to signal the command later needs this. Without
-    /// `exec` the shell stays in the middle, and a signal sent to the pid the
-    /// caller holds reaches the shell while the real process keeps running,
-    /// reparented to `init`.
-    static func wrapExec(
-        _ command: String,
-        shell: String? = ProcessInfo.processInfo.environment["SHELL"]
-    ) -> String {
-        wrap("exec " + command, shell: shell)
-    }
-
     /// A bare login, interactive shell with no inner command — for plain
     /// terminal tabs, where the "command" is just an interactive prompt.
     static func loginShell(shell: String? = ProcessInfo.processInfo.environment["SHELL"]) -> String {

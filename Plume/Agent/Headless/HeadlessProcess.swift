@@ -43,9 +43,9 @@ final class HeadlessProcess: @unchecked Sendable {
         // login shell exactly as terminal tabs do.
         //
         // `-m` (job control) puts the child in its own process group, so
-        // `kill(-pid)` reaps the whole tree; the login shell `exec`s, so that
-        // pid is `claude` itself. Together they are what makes terminating a
-        // session actually end it — see `terminate()`.
+        // `kill(-pid)` reaps the whole tree rather than one process — see
+        // `terminate()`. Each shell is handed a single trailing command and
+        // execs it away, so the pid is `claude` itself.
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-mc", HeadlessCommand.loginShellCommand(arguments: arguments)]
         if let workingDirectory {
@@ -81,9 +81,8 @@ final class HeadlessProcess: @unchecked Sendable {
         queue.sync { isRunning = true }
     }
 
-    /// The spawned pid, or nil before launch. `exec` in the wrapping shells
-    /// makes this `claude`'s own pid, so it is what distinguishes an agent
-    /// this app owns from one orphaned by a previous run.
+    /// The spawned pid, or nil before launch. Distinguishes an agent this app
+    /// owns from one orphaned by a previous run.
     var processIdentifier: pid_t? {
         queue.sync { isRunning ? process.processIdentifier : nil }
     }
@@ -112,8 +111,8 @@ final class HeadlessProcess: @unchecked Sendable {
     /// documented way to ask `claude` to exit, but an app that is quitting
     /// cannot wait indefinitely for it to notice, and a child that outlives
     /// the app keeps writing the transcript a later run will resume from.
-    /// `SIGTERM` then `SIGKILL` go to the process *group*, so a shell layer
-    /// that survived `exec` cannot strand the real process.
+    /// `SIGTERM` then `SIGKILL` go to the process *group*, so the agent's own
+    /// children go with it rather than outliving their parent.
     func terminate() {
         queue.sync {
             guard isRunning else { return }
