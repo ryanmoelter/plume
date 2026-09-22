@@ -142,16 +142,24 @@ final class InProcessControlBackend: ControlBackend {
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         let window = try window(for: params.windowNumber, target: params.target)
         guard let content = window.contentView else { throw ControlError.noWindow }
-        guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
-            throw ControlError.io("could not allocate a bitmap for the window")
+        guard let captured = WindowCapture.image(of: window) else { throw ControlError.io("could not capture the window") }
+        let scale = Double(captured.width) / Double(window.frame.width)
+        let contentInWindow = content.convert(content.bounds, to: nil)
+        let contentRect = CGRect(
+            x: contentInWindow.minX * scale, y: (window.frame.height - contentInWindow.maxY) * scale,
+            width: contentInWindow.width * scale, height: contentInWindow.height * scale
+        ).integral
+        guard var image = captured.cropping(to: contentRect) else { throw ControlError.io("could not crop to the content view") }
+        if WindowCapture.isUniform(image) {
+            throw ControlError.io("captured a blank window (\(WindowCapture.displayState))")
         }
-        content.cacheDisplay(in: content.bounds, to: rep)
-        let scale = Double(rep.pixelsWide) / Double(content.bounds.width)
-        var image = rep.cgImage
+        if let overlay = ControlOverlay.existing(for: window), let cursor = WindowCapture.image(of: overlay.panel) {
+            image = WindowCapture.composite(cursor, over: image) ?? image
+        }
         if let target = params.target, let crop = try cropRect(for: target, scale: scale) {
-            image = image?.cropping(to: crop)
+            guard let cropped = image.cropping(to: crop) else { throw ControlError.io("could not crop to \(target)") }
+            image = cropped
         }
-        guard let image else { throw ControlError.io("could not render the window") }
         let out = NSBitmapImageRep(cgImage: image)
         guard let png = out.representation(using: .png, properties: [:]) else { throw ControlError.io("could not encode PNG") }
         let path = params.path ?? defaultScreenshotPath()
@@ -165,8 +173,11 @@ final class InProcessControlBackend: ControlBackend {
         return CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale).integral
     }
 
+    /// Fractional seconds, so two shots in one second do not overwrite each other.
     private func defaultScreenshotPath() -> String {
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
         return AppPaths.controlDirectory.appending(path: "screenshots/\(stamp).png").path(percentEncoded: false)
     }
 
