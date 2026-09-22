@@ -130,6 +130,32 @@ if [ -n "$(running_pids)" ]; then
 fi
 echo "installed Plume exited"
 
+# Plume exiting does not guarantee its agents went with it. One that survives
+# keeps writing its transcript, and the relaunched app resumes that same
+# session — two writers on one file, forking it, each blind to the other's
+# turns. Matched on the settings path Plume launches agents with, which no
+# other `claude` carries.
+agent_pids() {
+  ps -Ao pid=,command= \
+    | awk '/claude/ && index($0, "Application Support/Plume/hooks/settings.json") {print $1}'
+}
+
+for _ in $(seq 1 10); do
+  [ -z "$(agent_pids)" ] && break
+  sleep 1
+done
+
+if [ -n "$(agent_pids)" ]; then
+  echo "agents outlived Plume, ending them: $(agent_pids | tr '\n' ' ')"
+  for pid in $(agent_pids); do kill "$pid" 2>/dev/null || true; done
+  sleep 2
+  for pid in $(agent_pids); do kill -9 "$pid" 2>/dev/null || true; done
+fi
+
+if [ -n "$(agent_pids)" ]; then
+  fail "agents still running: $(agent_pids | tr '\n' ' ') — bundle NOT replaced"
+fi
+
 # Replaced rather than merged, so a file dropped from the bundle doesn't survive.
 if ! (rm -rf "$DEST" && cp -R "$APP" "$DEST"); then
   fail "copy failed"

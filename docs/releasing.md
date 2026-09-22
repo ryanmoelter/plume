@@ -61,6 +61,8 @@ Notarization reads the `plume-notary` keychain profile, which can raise a Touch 
 
 **Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process. The script waits for a real exit and aborts rather than replacing a bundle still in use.
 
+**Quitting Plume does not reliably end its agents.** One that survives keeps writing its transcript, and the relaunched app resumes that same session — two writers on one file, which forks it and leaves each side blind to the other's turns. The script ends any agent still holding Plume's generated `settings.json` after the app exits, and aborts if one will not die.
+
 Check with `ps`, not `pgrep`:
 
 ```
