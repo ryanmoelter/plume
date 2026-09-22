@@ -184,10 +184,30 @@ struct SidebarView: View {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
                 }
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    dropTab(draggedIDs, onto: task)
+                }
         }
         .onMove { offsets, destination in
             TaskStore.move(sectionTasks, from: offsets, to: destination)
         }
+    }
+
+    // MARK: - Cross-task tab drop
+
+    /// Accepts a tab chip dragged from `TabStripView` (payload is the tab's
+    /// `UUID` string) and moves it into `task`. Only the SwiftData
+    /// relationship and ordering change — never touches the surface registry
+    /// keyed by the tab's id.
+    @discardableResult
+    private func dropTab(_ draggedIDStrings: [String], onto task: WorkTask) -> Bool {
+        guard let idString = draggedIDStrings.first, let draggedID = UUID(uuidString: idString) else {
+            return false
+        }
+        guard let tab = tasks.flatMap(\.tabs).first(where: { $0.id == draggedID }) else { return false }
+        guard tab.task?.id != task.id else { return false }
+        TaskStore.moveTab(tab, to: task)
+        return true
     }
 
     private func select(_ task: WorkTask) {
