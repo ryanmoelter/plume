@@ -137,11 +137,17 @@ extension ChatMessage {
 struct OptimisticFirstMessageTracking: ViewModifier {
     let messages: [ChatMessage]
     let startFailure: ChatStartFailure?
+    /// Retires the forked history this tab opened on, for the same reason and
+    /// on the same signal: the transcript now carries what was standing in
+    /// for it. Carried here because `ChatTabView`'s own modifier chain is at
+    /// the type-checker's limit.
+    let tabID: UUID
     @Binding var pending: OptimisticFirstMessage?
 
     func body(content: Content) -> some View {
         content
             .onChange(of: messages) { _, arrived in
+                InheritedForkHistory.shared.settleIfCarried(by: arrived, tabID: tabID)
                 guard OptimisticChatReconciler.isSettled(transcript: arrived, pending: pending) else { return }
                 pending = nil
             }

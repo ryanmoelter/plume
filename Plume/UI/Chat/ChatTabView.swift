@@ -84,9 +84,15 @@ struct ChatTabView: View, ThemedView {
     /// the two are never both on screen.
     private var conversationMessages: [ChatMessage] {
         OptimisticChatReconciler.messages(
-            transcript: transcriptMessages,
+            transcript: inheritedForkMessages + transcriptMessages,
             pending: pendingFirstMessage
         )
+    }
+
+    /// The conversation a forked tab was cut from, shown until the fork's own
+    /// transcript carries it.
+    private var inheritedForkMessages: [ChatMessage] {
+        InheritedForkHistory.shared.messages(forTab: tab.id)
     }
 
     /// The transcript's plan path is a stale snapshot from when the line was
@@ -271,6 +277,7 @@ struct ChatTabView: View, ThemedView {
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,
+                    tabID: tab.id,
                     pending: $pendingFirstMessage
                 ))
                 .onDrop(
@@ -1062,6 +1069,15 @@ struct ChatTabView: View, ThemedView {
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
         newTab.effort = tab.effort
+        // The fork writes no transcript until its first turn, so it opens on
+        // the conversation it was cut from rather than on an empty tab.
+        if let transcript {
+            InheritedForkHistory.shared.adopt(
+                from: transcript,
+                cutAfter: cutAfter,
+                tabID: newTab.id
+            )
+        }
         AgentLauncher.launch(
             blocks: [],
             task: task,
