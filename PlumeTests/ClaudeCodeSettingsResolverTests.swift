@@ -55,13 +55,12 @@ struct ClaudeCodeSettingsResolverTests {
         #expect(resolvedModel(shared: #"{ "model": "sonnet" }"#)?.id == "claude-sonnet-5")
     }
 
-    /// The context-window suffix names a different model to launch on, so it
-    /// resolves to the 1M variant rather than being stripped — which is what
-    /// makes an `opus[1m]` default display as "Opus 5.5" rather than
-    /// "Opus 5.5 200K".
+    /// `opus[1m]` is exactly the top-level alias Plume's own picker sends, so
+    /// a `~/.claude/settings.json` configuring it resolves to that same
+    /// entry — shown as "Opus" until a session reports the resolved version.
     @Test func resolvesAnAliasCarryingAContextSuffix() {
         #expect(resolvedModel(shared: #"{ "model": "opus[1m]" }"#) == .opus)
-        #expect(AgentModel.opus.label == "Opus 5.5")
+        #expect(AgentModel.opus.label == "Opus")
     }
 
     @Test func resolvesAFullModelID() {
