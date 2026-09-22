@@ -5,8 +5,10 @@ import Observation
 /// told to trust their directory — keyed by tab ID, the same shape as
 /// `StatusEngine`.
 ///
-/// The chat view reads this to show a message in place of the composer,
-/// since a refused launch leaves no transcript to put the message in.
+/// The chat view reads this to show a message in place of the composer, for
+/// a tab whose conversation is empty. A refusal that follows a sent message
+/// is reported through the session's own `startFailure` instead, so it lands
+/// beside the message rather than replacing it.
 @MainActor
 @Observable
 final class UntrustedDirectoryStore {

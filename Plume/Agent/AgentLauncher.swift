@@ -82,15 +82,24 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        // The headless transport has no way to surface Claude Code's
-        // folder-trust prompt, so an untrusted directory would otherwise
-        // hang the turn with nothing to look at. Refuse to spawn instead,
-        // and point at the terminal transport, where the prompt can
-        // actually be answered. Never write the trust flag here — that
-        // would grant the very trust the prompt exists to ask for.
+        // `claude -p` skips the folder-trust prompt outright rather than
+        // blocking on it, so a directory the user never accepted would run
+        // unasked. Refuse instead, and point at the terminal transport, where
+        // the prompt can actually be answered. Never write the trust flag
+        // here — that would grant the very trust the prompt exists to ask for.
         guard let workingDirectory = task.workingDirectoryPath else { return }
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
+            // Also reported through the session, so a refusal that follows a
+            // sent message lands in the conversation beside it. The full-pane
+            // state only shows while the conversation is empty, which a
+            // just-sent message it never spawned for is not.
+            HeadlessSessionManager.shared.session(
+                for: tab.id,
+                taskID: task.id,
+                initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+            )
+            .failToLaunch(failure: .untrustedDirectory(path: workingDirectory))
             return
         }
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)

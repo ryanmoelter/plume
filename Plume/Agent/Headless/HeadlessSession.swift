@@ -65,6 +65,10 @@ final class HeadlessSession {
     var nominalContextWindow: Int? { model?.nominalContextWindow }
     private(set) var slashCommands: [SlashCommand] = []
     private(set) var lastError: String?
+    /// Set when a refusal was decided before any process existed, so
+    /// `startFailure` reports it rather than classifying a stderr line there
+    /// is none of.
+    private var preflightFailure: ChatStartFailure?
 
     /// Whether this conversation is published to claude.ai/code. In memory
     /// only — the bridge belongs to the process, not to the tab.
@@ -223,11 +227,19 @@ final class HeadlessSession {
         )
     }
 
+    /// A pre-flight failure the caller has already worded, for a refusal no
+    /// stderr line describes.
+    func failToLaunch(failure: ChatStartFailure) {
+        preflightFailure = failure
+        failToLaunch(reason: failure.detail ?? failure.title)
+    }
+
     /// Why this conversation never started, or nil while it is healthy. Only
     /// meaningful before any transcript exists: a session that ran and later
     /// exited has its history on disk to explain itself.
     var startFailure: ChatStartFailure? {
         guard hasExited else { return nil }
+        if let preflightFailure { return preflightFailure }
         return ChatStartFailure.classify(error: lastError, exitStatus: exitStatus)
     }
 
