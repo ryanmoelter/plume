@@ -25,8 +25,8 @@ struct RevealedMarkdownBlock: View {
     var body: some View {
         Group {
             if settings.animateCharacterReveal {
-                CharacterReveal(revealedCount: revealedCount, text: source) { revealed in
-                    MarkdownView(revealed, isAgentVoice: isAgentVoice)
+                CharacterReveal(revealedCount: revealedCount, text: source) { revealed, fadeStep in
+                    MarkdownView(revealed, isAgentVoice: isAgentVoice, fadeStep: fadeStep)
                 }
             } else {
                 MarkdownView(source, isAgentVoice: isAgentVoice)

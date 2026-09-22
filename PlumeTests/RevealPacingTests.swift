@@ -146,3 +146,31 @@ struct RevealWordBoundariesTests {
         #expect(RevealWordBoundaries.prefixLength(of: "", upTo: 5) == 0)
     }
 }
+
+/// `WordFade.step` throttles how often the streaming overlay's prose
+/// cross-fades a newly-revealed word: see `docs/handoff-idle-cpu.md`-style
+/// evidence in `WordFade`'s own doc comment for why a wider bucket than
+/// `RevealPacing.charactersPerSecond * WordFade.duration` matters.
+struct WordFadeTests {
+    @Test func theBucketWidensLessOftenThanEveryCharacter() {
+        #expect(WordFade.step(forPrefixLength: 0) == 0)
+        #expect(WordFade.step(forPrefixLength: WordFade.charactersPerFade - 1) == 0)
+        #expect(WordFade.step(forPrefixLength: WordFade.charactersPerFade) == 1)
+        #expect(WordFade.step(forPrefixLength: WordFade.charactersPerFade * 2 - 1) == 1)
+    }
+
+    @Test func theStepIsMonotonicAsThePrefixGrows() {
+        let steps = (0...200).map { WordFade.step(forPrefixLength: $0) }
+        #expect(steps == steps.sorted())
+    }
+
+    /// The measurement that set `charactersPerFade`: a bucket narrower than
+    /// one fade's worth of reveal time lets consecutive fades overlap and
+    /// keeps a transparency layer open continuously. Widening past that
+    /// threshold is what took streaming CPU from ~84% of a core back to the
+    /// no-fade baseline.
+    @Test func theBucketWidthClearsOneFadeAtTheFastestRevealRate() {
+        let charactersPerFadeDuration = RevealPacing.charactersPerSecond * WordFade.duration
+        #expect(Double(WordFade.charactersPerFade) > charactersPerFadeDuration)
+    }
+}

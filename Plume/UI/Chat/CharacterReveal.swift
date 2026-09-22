@@ -22,7 +22,9 @@ import SwiftUI
 struct CharacterReveal<Content: View>: View, Animatable {
     var revealedCount: Double
     var text: String
-    @ViewBuilder var content: (String) -> Content
+    /// The revealed prefix, plus a fade step for the caller to key a
+    /// throttled animation off — see `WordFade`.
+    @ViewBuilder var content: (String, Int) -> Content
 
     var animatableData: Double {
         get { revealedCount }
@@ -30,7 +32,44 @@ struct CharacterReveal<Content: View>: View, Animatable {
     }
 
     var body: some View {
-        content(String(text.prefix(RevealWordBoundaries.prefixLength(of: text, upTo: max(0, Int(revealedCount))))))
+        let prefixLength = RevealWordBoundaries.prefixLength(of: text, upTo: max(0, Int(revealedCount)))
+        content(String(text.prefix(prefixLength)), WordFade.step(forPrefixLength: prefixLength))
+    }
+}
+
+/// Throttles how often a streaming word's arrival fades in.
+///
+/// A pure function of the revealed prefix length rather than a `@State`
+/// timer: several word boundaries a second is normal under a fast delta
+/// (`RevealPacing.minDuration` alone allows a boundary crossing every 0.1s),
+/// and `.contentTransition(.opacity)` is a real per-glyph crossfade —
+/// `sample` showed `CGContextBeginTransparencyLayerWithRect` staying open
+/// for the fade's own duration on every retrigger. Bucketing the prefix
+/// length into `charactersPerFade`-wide steps throttles the trigger
+/// frequency, but that alone isn't enough: measured at a 12-character bucket
+/// the cost was still ~84% of a core, because a new fade could start before
+/// the previous one's `duration` finished, keeping a transparency layer open
+/// almost continuously at the reveal's top speed. The fix is keeping the
+/// bucket wider than one fade takes to complete: at
+/// `RevealPacing.charactersPerSecond` (220/s) and `duration` (0.15s), a fade
+/// finishes every ~33 characters of reveal, so `charactersPerFade` clears
+/// that with margin. Measured at this value: ~15% of a core while
+/// streaming, matching the no-fade baseline — i.e. free relative to the
+/// reveal itself.
+enum WordFade {
+    static let duration: Double = 0.15
+    /// Wider than `RevealPacing.charactersPerSecond * duration` (~33
+    /// characters), so consecutive fades never overlap even at the reveal's
+    /// fastest pace. See the type's doc comment for the measurement that set
+    /// this.
+    static let charactersPerFade = 40
+
+    /// The revealed prefix's coarsened bucket, used to key
+    /// `.animation(value:)`. Monotonic in `prefixLength`, so the underlying
+    /// text still advances one word at a time even where the fade step does
+    /// not.
+    static func step(forPrefixLength prefixLength: Int) -> Int {
+        prefixLength / charactersPerFade
     }
 }
 
