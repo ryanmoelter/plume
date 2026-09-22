@@ -12,14 +12,16 @@ Reach for commands in this order. Each is cheaper than the next for an agent to 
 
 ## Finding the socket
 
-Each instance binds `~/Library/Application Support/Plume.debug/control/<pid>.sock`, mode `0600` in a `0700` directory, and logs the path under the `control` category at launch. Sockets of instances that have exited are unlinked the next time an instance starts. `PLUME_CONTROL_SOCKET=<path>` overrides the location, and a preferred path longer than 103 bytes (a long `HOME` override) falls back to `/tmp/plume-control-<pid>.sock`. `PLUME_CONTROL=0` disables the server. The test host has no bundle identifier and never starts one.
+Each instance binds `<Application Support>/control/<pid>.sock`, mode `0600` in a `0700` directory, and logs the path under the `control` category at launch. Sockets of instances that have exited are unlinked the next time an instance starts. `PLUME_CONTROL_SOCKET=<path>` overrides the location directly, and a preferred path longer than 103 bytes (a long `PLUME_APP_SUPPORT` override) falls back to `/tmp/plume-control-<pid>.sock`. `PLUME_CONTROL=0` disables the server. The test host has no bundle identifier and never starts one.
 
-The client discovers the socket in this order: `--socket`, `$PLUME_CONTROL_SOCKET`, then the live `*.sock` files under the debug control directory (`--home` points it at a scratch instance's `HOME`). With several instances running pass `--pid` or `--latest`. `--wait N` waits for a socket that accepts a connection, because a killed instance leaves its file behind.
+**`PLUME_APP_SUPPORT=<path>` redirects the whole Application Support directory** — `Plume.store`, `hooks`, `events`, and `control` all move with it. It is `#if DEBUG` only; a Release build ignores it. `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so `open --env HOME=...` does **not** isolate a scratch instance from the user's real data — it still reads `~/Library/Application Support/Plume.debug`. `PLUME_APP_SUPPORT` is the only way to get a genuinely isolated instance.
+
+The client discovers the socket in this order: `--socket`, `$PLUME_CONTROL_SOCKET`, then the live `*.sock` files under the debug control directory. With several instances running pass `--pid` or `--latest`. `--wait N` waits for a socket that accepts a connection, because a killed instance leaves its file behind.
 
 ## Driving a scratch instance
 
 ```
-open -g -j -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
+open -g -j -n --env PLUME_APP_SUPPORT=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
   --env PLUME_CONTROL_SOCKET=/tmp/plume-scratch.sock \
   <DerivedData>/Build/Products/Debug/Plume.app
 
@@ -34,6 +36,8 @@ c screenshot
 ```
 
 `-j` launches the app hidden, so the scratch window never appears on the user's Space; the window lookup falls back to the largest window when none is visible. The window server holds no image of a hidden window, and drawing it in-process gives a white page, so `screenshot` fails with an error naming the cause; relaunch without `-j` for one. `--assert-frontmost` reads `lsappinfo front` before and after the call and fails if it changed. Keep some other app frontmost while driving and run every call with it; that assertion is the load-bearing test of this whole feature.
+
+To tear the instance down, capture its pid at launch — `open` reports none itself, so diff `pgrep -f "$APP/Contents/MacOS/Plume"` before and after — and `kill` that pid. Never `pkill -f` on the app's path: it matches every instance built from that DerivedData path, including a developer's own debug Plume. The `drive-plume` skill has the full launch-and-capture recipe.
 
 ## Wire format
 

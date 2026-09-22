@@ -9,20 +9,27 @@ A debug build serves a Unix-socket control server; `scripts/debug/plume-control.
 
 ## Launch a scratch instance
 
-Never drive the instance the user is working in. Give the scratch one its own `HOME` so it has its own store, and its own socket path so the client finds it without guessing.
+Never drive the instance the user is working in. Give the scratch instance its own `PLUME_APP_SUPPORT` so it has its own store, and its own socket path so the client finds it without guessing.
+
+**`--env HOME=...` does not isolate a scratch instance.** `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so an instance launched with a fake `HOME` still opens `~/Library/Application Support/Plume.debug` — the user's real tasks and terminals. `PLUME_APP_SUPPORT` is a `#if DEBUG`-only override built for exactly this; it redirects the whole Application Support directory (store, hooks, events, control socket) in one shot. `docs/control-server.md` has the reference.
 
 ```
 APP=$(xcodebuild -scheme Plume -destination 'platform=macOS' -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Plume.app
-open -g -j -n --env HOME=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
+BEFORE=$(pgrep -f "$APP/Contents/MacOS/Plume")
+open -g -j -n --env PLUME_APP_SUPPORT=/tmp/plume-scratch --env PLUME_SEED_TASKS=1 \
   --env PLUME_CONTROL_SOCKET=/tmp/plume-scratch.sock "$APP"
+sleep 1
+PID=$(comm -13 <(echo "$BEFORE" | sort) <(pgrep -f "$APP/Contents/MacOS/Plume" | sort))
 c() { scripts/debug/plume-control.py --socket /tmp/plume-scratch.sock --assert-frontmost "$@"; }
 c --wait 30 hierarchy
 ```
 
-`open -j` launches the app **hidden**, so its window never appears on the user's screen at all; that is the default, because a new window lands on the user's current Space and in front of every other inactive app. Everything works hidden except `screenshot`, which needs the window server to hold an image of the window. Drop `-j` when a screenshot is the only way to answer the question, or when the user wants to watch the overlay pointer, and say so. `-g` keeps the app from activating either way. `--assert-frontmost` fails any call that changes the frontmost app; run every call with it, because never disturbing the user's focus is the point of this system. Synthetic clicks never reorder windows; the frontmost check plus a hidden launch is the whole focus story. When done, kill the instance by walking down from its own PID, never with a global match on `Plume`:
+`open -j` launches the app **hidden**, so its window never appears on the user's screen at all; that is the default, because a new window lands on the user's current Space and in front of every other inactive app. Everything works hidden except `screenshot`, which needs the window server to hold an image of the window. Drop `-j` when a screenshot is the only way to answer the question, or when the user wants to watch the overlay pointer, and say so. `-g` keeps the app from activating either way. `--assert-frontmost` fails any call that changes the frontmost app; run every call with it, because never disturbing the user's focus is the point of this system. Synthetic clicks never reorder windows; the frontmost check plus a hidden launch is the whole focus story.
+
+When done, kill the instance by the `$PID` captured above — never `pkill -f` on the app's path, which also matches a developer's own debug Plume launched from the same DerivedData build:
 
 ```
-pkill -f "$APP/Contents/MacOS/Plume"
+kill "$PID"
 ```
 
 ## Inspect before you screenshot
