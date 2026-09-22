@@ -34,13 +34,30 @@ enum SidebarDragItem: Equatable {
     /// Starts a drag of this item and records it as the one in flight.
     @MainActor
     func itemProvider() -> NSItemProvider {
-        InAppDrag.current = self
+        InAppDrag.shared.begin(self)
         return NSItemProvider(object: payload as NSString)
+    }
+
+    /// Hands a drop its item: the in-app drag's before `performDrop` returns,
+    /// or else the payload's once it loads, for a drag Plume did not start.
+    /// Waiting on the provider for Plume's own drags would hold the drag image
+    /// on screen after the drop.
+    @MainActor
+    static func receive(
+        from info: DropInfo,
+        drag: InAppDrag = .shared,
+        apply: @escaping @MainActor (SidebarDragItem) -> Void
+    ) {
+        if let item = drag.takeForDrop() {
+            apply(item)
+        } else {
+            load(from: info, completion: apply)
+        }
     }
 
     /// Reads the item a drop carries. The provider only loads asynchronously,
     /// so `completion` runs later, on the main actor, and only for a Plume item.
-    static func load(from info: DropInfo, completion: @escaping @MainActor (SidebarDragItem) -> Void) {
+    private static func load(from info: DropInfo, completion: @escaping @MainActor (SidebarDragItem) -> Void) {
         guard let provider = info.itemProviders(for: [.utf8PlainText]).first else { return }
         _ = provider.loadObject(ofClass: NSString.self) { object, _ in
             guard let payload = object as? NSString else { return }
@@ -52,16 +69,109 @@ enum SidebarDragItem: Equatable {
     }
 }
 
-/// The item the current in-app drag started with.
+/// The in-app drag in flight, and the drop feedback it draws.
 ///
 /// A drop's payload loads only asynchronously, but a destination has to pick
-/// its feedback on every pointer move, so it reads this instead. Each drag
-/// source overwrites it as its drag starts, and a drop acts on the payload,
-/// never on this — a value left over from a cancelled drag can mislead the
-/// feedback, never the move.
+/// its feedback on every pointer move, so it reads the item here. SwiftUI's
+/// `onDrag` reports no end to a drag, so one dropped outside Plume or
+/// cancelled ends when the mouse button comes up.
 @MainActor
-enum InAppDrag {
-    static var current: SidebarDragItem?
+@Observable
+final class InAppDrag {
+    static let shared = InAppDrag(watchesMouseButton: true)
+
+    private(set) var item: SidebarDragItem?
+    private(set) var sidebarIndicator: SidebarDropIndicator?
+    private(set) var tabStripGap: TabStripGap?
+
+    @ObservationIgnored private let watchesMouseButton: Bool
+    /// How long the item outlives the button coming up. The drop arrives
+    /// after the release, and a drop that finds no item takes the payload's
+    /// slow path.
+    @ObservationIgnored private let releaseGrace: Duration
+    @ObservationIgnored private var generation = 0
+
+    init(watchesMouseButton: Bool = false, releaseGrace: Duration = .milliseconds(500)) {
+        self.watchesMouseButton = watchesMouseButton
+        self.releaseGrace = releaseGrace
+    }
+
+    func begin(_ item: SidebarDragItem) {
+        generation += 1
+        self.item = item
+        clearFeedback()
+        if watchesMouseButton { watchForRelease(generation) }
+    }
+
+    /// Ends the drag as it drops, so a pointer update arriving after the drop
+    /// cannot draw feedback again.
+    func takeForDrop() -> SidebarDragItem? {
+        let taken = item
+        end()
+        return taken
+    }
+
+    func end() {
+        if item != nil { item = nil }
+        clearFeedback()
+    }
+
+    /// Clears the feedback at once, and the item after `releaseGrace` unless
+    /// another drag has begun by then.
+    @discardableResult
+    func buttonReleased() -> Task<Void, Never> {
+        clearFeedback()
+        let released = generation
+        return Task { [releaseGrace] in
+            try? await Task.sleep(for: releaseGrace)
+            if generation == released { end() }
+        }
+    }
+
+    /// Ignored with no in-app drag in flight, so a foreign drag draws nothing.
+    func showSidebarIndicator(_ indicator: SidebarDropIndicator) {
+        guard item != nil, sidebarIndicator != indicator else { return }
+        sidebarIndicator = indicator
+    }
+
+    /// Clears only `target`'s own indicator: the next target's update can
+    /// arrive before this one's exit.
+    func clearSidebarIndicator(on target: SidebarDropTarget) {
+        if sidebarIndicator?.target == target { sidebarIndicator = nil }
+    }
+
+    /// Ignored with no in-app drag in flight, so a foreign drag draws nothing.
+    func showTabStripGap(_ gap: TabStripGap) {
+        guard item != nil, tabStripGap != gap else { return }
+        tabStripGap = gap
+    }
+
+    func clearTabStripGap(in taskID: UUID) {
+        if tabStripGap?.taskID == taskID { tabStripGap = nil }
+    }
+
+    private func clearFeedback() {
+        if sidebarIndicator != nil { sidebarIndicator = nil }
+        if tabStripGap != nil { tabStripGap = nil }
+    }
+
+    private func watchForRelease(_ watched: Int) {
+        Task { [weak self] in
+            while let self, generation == watched, item != nil {
+                if NSEvent.pressedMouseButtons & 1 == 0 {
+                    buttonReleased()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+}
+
+/// The gap a dragged tab would land in, in the strip of task `taskID`.
+struct TabStripGap: Equatable {
+    let taskID: UUID
+    let gap: Int
 }
 
 /// Where a sidebar drop lands relative to the row or header under it.
@@ -129,7 +239,6 @@ enum SidebarDropRules {
 struct SidebarDropDelegate: DropDelegate {
     let target: SidebarDropTarget
     let height: CGFloat
-    @Binding var indicator: SidebarDropIndicator?
     let perform: @MainActor (SidebarDragItem, SidebarDropPlacement) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -139,23 +248,25 @@ struct SidebarDropDelegate: DropDelegate {
     /// A drag with no in-app item recorded gets no indicator, and its payload
     /// alone decides the drop.
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard let item = InAppDrag.current else { return DropProposal(operation: .move) }
+        let drag = InAppDrag.shared
+        guard let item = drag.item else { return DropProposal(operation: .move) }
         guard let placement = SidebarDropRules.placement(
             of: item, over: target, y: info.location.y, height: height
         ) else {
-            clearIndicator()
+            drag.clearSidebarIndicator(on: target)
             return DropProposal(operation: .forbidden)
         }
-        indicator = SidebarDropIndicator(target: target, placement: placement)
+        drag.showSidebarIndicator(SidebarDropIndicator(target: target, placement: placement))
         return DropProposal(operation: .move)
     }
 
-    func dropExited(info: DropInfo) { clearIndicator() }
+    func dropExited(info: DropInfo) {
+        InAppDrag.shared.clearSidebarIndicator(on: target)
+    }
 
     func performDrop(info: DropInfo) -> Bool {
-        clearIndicator()
         let y = info.location.y
-        SidebarDragItem.load(from: info) { [target, height, perform] item in
+        SidebarDragItem.receive(from: info) { [target, height, perform] item in
             guard let placement = SidebarDropRules.placement(of: item, over: target, y: y, height: height) else {
                 return
             }
@@ -163,37 +274,25 @@ struct SidebarDropDelegate: DropDelegate {
         }
         return true
     }
-
-    /// Only this target's own indicator: the next target's `dropUpdated` can
-    /// run before this one's `dropExited`.
-    private func clearIndicator() {
-        if indicator?.target == target { indicator = nil }
-    }
 }
 
 extension View {
     /// Makes a sidebar row or header draggable as `item` and a drop target
-    /// as `target`, drawing the insertion line for a reorder over it.
+    /// as `target`, marking where a drag over it would land.
     func sidebarDragAndDrop(
         _ item: SidebarDragItem,
         target: SidebarDropTarget,
         heights: Binding<[UUID: CGFloat]>,
-        indicator: Binding<SidebarDropIndicator?>,
         perform: @escaping @MainActor (SidebarDragItem, SidebarDropPlacement) -> Void
     ) -> some View {
         let id = target.id
         return self
             .onDrag { item.itemProvider() }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights.wrappedValue[id] = $0 }
-            .overlay {
-                if let current = indicator.wrappedValue, current.target == target {
-                    SidebarInsertionLine(placement: current.placement)
-                }
-            }
+            .overlay { SidebarDropMarker(target: target) }
             .onDrop(of: [.utf8PlainText], delegate: SidebarDropDelegate(
                 target: target,
                 height: heights.wrappedValue[id] ?? 0,
-                indicator: indicator,
                 perform: perform
             ))
     }
@@ -207,18 +306,38 @@ extension SidebarDropTarget {
     }
 }
 
-/// A reorder's landing spot, along the top or bottom edge of the row it is
-/// over. Drawn as an overlay so it never changes the row's height.
-private struct SidebarInsertionLine: View {
-    let placement: SidebarDropPlacement
+/// Where a drag over a row or header would land: an outline for a drop into
+/// it, or a line along its top or bottom edge for a reorder. An overlay, so
+/// it never changes the row's height, and not `.listRowBackground`, which the
+/// list does not reliably redraw while the row's content stays the same.
+private struct SidebarDropMarker: View {
+    let target: SidebarDropTarget
 
     var body: some View {
+        if let indicator = InAppDrag.shared.sidebarIndicator, indicator.target == target {
+            Group {
+                switch indicator.placement {
+                case .into: outline
+                case .before, .after: insertionLine(indicator.placement)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var outline: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .strokeBorder(.tint, lineWidth: 2)
+            .background(.tint.opacity(0.15), in: .rect(cornerRadius: 6))
+            .padding(.horizontal, -4)
+    }
+
+    private func insertionLine(_ placement: SidebarDropPlacement) -> some View {
         VStack(spacing: 0) {
             if placement == .before { line }
             Spacer(minLength: 0)
             if placement == .after { line }
         }
-        .allowsHitTesting(false)
     }
 
     private var line: some View {

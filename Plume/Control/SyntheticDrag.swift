@@ -59,13 +59,18 @@ enum SyntheticDrag {
     /// Runs the handshake and returns the step that ended it. Every step is
     /// reported, so a caller can tell a refusal apart from a view that was
     /// never asked.
-    static func perform(_ info: SyntheticDraggingInfo, on view: NSView) -> DragOutcome {
+    static func perform(
+        _ info: SyntheticDraggingInfo,
+        on view: NSView,
+        afterUpdate: () -> Void = {}
+    ) -> DragOutcome {
         let entered = view.draggingEntered(info)
         guard !entered.isEmpty else {
             view.draggingExited(info)
             return DragOutcome(view: view, entered: entered, updated: nil, prepared: nil, performed: nil)
         }
         let updated = view.draggingUpdated(info)
+        afterUpdate()
         guard !updated.isEmpty else {
             view.draggingExited(info)
             return DragOutcome(view: view, entered: entered, updated: updated, prepared: nil, performed: nil)

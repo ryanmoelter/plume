@@ -12,8 +12,6 @@ struct TabStripView: View {
     /// Each chip's frame in the strip's coordinate space, which is where a
     /// drop reports its location.
     @State private var chipFrames: [UUID: CGRect] = [:]
-    /// The gap a dragged tab would land in, while one is over the strip.
-    @State private var insertionGap: Int?
 
     private static let chipSpacing: CGFloat = 6
     private static let coordinateSpace = "tabStrip"
@@ -59,10 +57,17 @@ struct TabStripView: View {
         // location, so there is no gap between chips where a drop misses.
         // The marker is an overlay so it never takes part in the strip's
         // layout.
-        .overlay(alignment: .topLeading) { insertionMarker }
+        .overlay(alignment: .topLeading) {
+            TabStripInsertionMarker(
+                taskID: task.id,
+                chips: chipExtents,
+                spacing: Self.chipSpacing,
+                chipFrame: chipFrames.values.first
+            )
+        }
         .onDrop(of: [.utf8PlainText], delegate: TabStripDropDelegate(
+            taskID: task.id,
             chips: { chipExtents },
-            gap: $insertionGap,
             perform: reorder
         ))
         .themeTint(colorScheme: colorScheme)
@@ -71,19 +76,6 @@ struct TabStripView: View {
     /// The chips' horizontal extents, in strip order.
     private var chipExtents: [ClosedRange<CGFloat>] {
         task.orderedTabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
-    }
-
-    @ViewBuilder
-    private var insertionMarker: some View {
-        if let insertionGap,
-           let x = TabStripInsertion.markerX(gap: insertionGap, chips: chipExtents, spacing: Self.chipSpacing),
-           let chip = chipFrames.values.first {
-            Capsule()
-                .fill(.tint)
-                .frame(width: 2, height: chip.height)
-                .offset(x: x - 1, y: chip.minY)
-                .allowsHitTesting(false)
-        }
     }
 
     /// Moves the dragged tab into `gap`. Reordering only rewrites
@@ -213,8 +205,8 @@ private struct TabChip: View {
 
 /// Tracks which gap a dragged tab is over, and hands the drop to the strip.
 private struct TabStripDropDelegate: DropDelegate {
+    let taskID: UUID
     let chips: () -> [ClosedRange<CGFloat>]
-    @Binding var gap: Int?
     let perform: @MainActor (UUID, Int) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -222,25 +214,50 @@ private struct TabStripDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        switch InAppDrag.current {
+        let drag = InAppDrag.shared
+        switch drag.item {
         case .task, .group:
-            gap = nil
+            drag.clearTabStripGap(in: taskID)
             return DropProposal(operation: .forbidden)
-        case .tab, nil:
-            break
+        case .tab:
+            let gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+            drag.showTabStripGap(TabStripGap(taskID: taskID, gap: gap))
+            return DropProposal(operation: .move)
+        case nil:
+            return DropProposal(operation: .move)
         }
-        gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
-        return DropProposal(operation: .move)
     }
 
-    func dropExited(info: DropInfo) { gap = nil }
+    func dropExited(info: DropInfo) {
+        InAppDrag.shared.clearTabStripGap(in: taskID)
+    }
 
     func performDrop(info: DropInfo) -> Bool {
         let target = TabStripInsertion.gap(forX: info.location.x, chips: chips())
-        gap = nil
-        SidebarDragItem.load(from: info) { [perform] item in
+        SidebarDragItem.receive(from: info) { [perform] item in
             if case .tab(let id) = item { perform(id, target) }
         }
         return true
+    }
+}
+
+/// The line marking the gap a dragged tab would land in. Its own view, so
+/// only it redraws as the gap moves.
+private struct TabStripInsertionMarker: View {
+    let taskID: UUID
+    let chips: [ClosedRange<CGFloat>]
+    let spacing: CGFloat
+    let chipFrame: CGRect?
+
+    var body: some View {
+        if let gap = InAppDrag.shared.tabStripGap, gap.taskID == taskID,
+           let x = TabStripInsertion.markerX(gap: gap.gap, chips: chips, spacing: spacing),
+           let chipFrame {
+            Capsule()
+                .fill(.tint)
+                .frame(width: 2, height: chipFrame.height)
+                .offset(x: x - 1, y: chipFrame.minY)
+                .allowsHitTesting(false)
+        }
     }
 }

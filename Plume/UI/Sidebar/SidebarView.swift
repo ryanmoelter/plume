@@ -21,7 +21,6 @@ struct SidebarView: View {
     let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
-    @State private var dropIndicator: SidebarDropIndicator?
     /// Each row and header's height, so a drop can tell which half it is over.
     @State private var dropTargetHeights: [UUID: CGFloat] = [:]
 
@@ -49,14 +48,10 @@ struct SidebarView: View {
                                 TaskStore.deleteGroup(group, in: context)
                             }
                         }
-                        .background {
-                            SidebarSelectionFill(isSelected: dropIndicator == .init(target: .group(group.id), placement: .into))
-                        }
                         .sidebarDragAndDrop(
                             .group(group.id),
                             target: .group(group.id),
-                            heights: $dropTargetHeights,
-                            indicator: $dropIndicator
+                            heights: $dropTargetHeights
                         ) { handleDrop($0, $1, onto: group) }
                     }
                 }
@@ -120,12 +115,7 @@ struct SidebarView: View {
         ForEach(sectionTasks) { task in
             TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
                 .tag(task.id)
-                // A tab dragged over the row previews the selection it would
-                // get, since dropping it there selects the tab in this task.
-                .listRowBackground(SidebarSelectionFill(
-                    isSelected: selection == task.id
-                        || dropIndicator == .init(target: .task(task.id), placement: .into)
-                ))
+                .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
                 // The list's own selection is turned off because
                 // `.listRowBackground` draws *behind* its fill, so the accent
                 // rectangle would show on top of the wash as a second
@@ -144,8 +134,7 @@ struct SidebarView: View {
                 .sidebarDragAndDrop(
                     .task(task.id),
                     target: .task(task.id),
-                    heights: $dropTargetHeights,
-                    indicator: $dropIndicator
+                    heights: $dropTargetHeights
                 ) { handleDrop($0, $1, onto: task) }
         }
     }

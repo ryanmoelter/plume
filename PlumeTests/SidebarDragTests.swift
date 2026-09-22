@@ -78,3 +78,91 @@ struct SidebarDropRulesTests {
         #expect(SidebarDropRules.move(a, .into, b, in: [a, b]) == nil)
     }
 }
+
+/// Every way a drag leaves or ends clears the feedback it drew, and nothing
+/// draws once the drag is over.
+@MainActor
+struct InAppDragTests {
+    private let a = UUID(), b = UUID(), task = UUID(), otherTask = UUID()
+
+    private func dragWithFeedback() -> InAppDrag {
+        let drag = InAppDrag()
+        drag.begin(.task(a))
+        drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .before))
+        drag.showTabStripGap(TabStripGap(taskID: task, gap: 1))
+        return drag
+    }
+
+    @Test func updatesDrawFeedbackDuringADrag() {
+        let drag = dragWithFeedback()
+        #expect(drag.sidebarIndicator == SidebarDropIndicator(target: .task(b), placement: .before))
+        #expect(drag.tabStripGap == TabStripGap(taskID: task, gap: 1))
+    }
+
+    @Test func aForeignDragDrawsNothing() {
+        let drag = InAppDrag()
+        drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .into))
+        drag.showTabStripGap(TabStripGap(taskID: task, gap: 0))
+        #expect(drag.sidebarIndicator == nil)
+        #expect(drag.tabStripGap == nil)
+    }
+
+    @Test func exitClearsOnlyItsOwnTarget() {
+        let drag = dragWithFeedback()
+        drag.clearSidebarIndicator(on: .task(a))
+        drag.clearTabStripGap(in: otherTask)
+        #expect(drag.sidebarIndicator != nil)
+        #expect(drag.tabStripGap != nil)
+
+        drag.clearSidebarIndicator(on: .task(b))
+        drag.clearTabStripGap(in: task)
+        #expect(drag.sidebarIndicator == nil)
+        #expect(drag.tabStripGap == nil)
+    }
+
+    @Test func dropHandsOverTheItemAndClearsEverything() {
+        let drag = dragWithFeedback()
+        #expect(drag.takeForDrop() == .task(a))
+        #expect(drag.item == nil)
+        #expect(drag.sidebarIndicator == nil)
+        #expect(drag.tabStripGap == nil)
+        #expect(drag.takeForDrop() == nil)
+    }
+
+    @Test func anUpdateAfterTheDropDrawsNothing() {
+        let drag = dragWithFeedback()
+        _ = drag.takeForDrop()
+        drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .after))
+        drag.showTabStripGap(TabStripGap(taskID: task, gap: 2))
+        #expect(drag.sidebarIndicator == nil)
+        #expect(drag.tabStripGap == nil)
+    }
+
+    @Test func releaseClearsFeedbackAtOnceAndTheItemAfterTheGrace() async {
+        let drag = InAppDrag(releaseGrace: .milliseconds(1))
+        drag.begin(.tab(a))
+        drag.showTabStripGap(TabStripGap(taskID: task, gap: 0))
+        let release = drag.buttonReleased()
+        #expect(drag.tabStripGap == nil)
+        #expect(drag.item == .tab(a))
+        await release.value
+        #expect(drag.item == nil)
+    }
+
+    @Test func aDragBegunDuringTheGraceSurvivesTheRelease() async {
+        let drag = InAppDrag(releaseGrace: .milliseconds(1))
+        drag.begin(.tab(a))
+        let release = drag.buttonReleased()
+        drag.begin(.task(b))
+        await release.value
+        #expect(drag.item == .task(b))
+    }
+
+    @Test func beginClearsFeedbackLeftByAnEarlierDrag() {
+        let drag = dragWithFeedback()
+        drag.begin(.tab(b))
+        #expect(drag.item == .tab(b))
+        #expect(drag.sidebarIndicator == nil)
+        #expect(drag.tabStripGap == nil)
+    }
+}
