@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Confirms quitting while an agent is still working, since terminating kills
 /// every PTY child outright — there is no graceful shutdown to wait for.
@@ -96,6 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is what tells them to exit. Without this they outlive the app until
     /// they notice the pipe has gone.
     func applicationWillTerminate(_ notification: Notification) {
+        // Logged because its *absence* is the interesting case: AppKit skips
+        // this path when the process is signalled rather than quit, and an
+        // agent that outlives the app goes on writing a transcript the next
+        // run resumes from.
+        Log.app.info("Terminating, closing \(HeadlessSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
         HeadlessSessionManager.shared.closeAll()
         KeepAwakeCoordinator.shared.releaseForTermination()
     }
