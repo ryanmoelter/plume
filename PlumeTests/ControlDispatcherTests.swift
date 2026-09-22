@@ -103,6 +103,11 @@ final class FakeControlBackend: ControlBackend {
         return ClickResult(rect: Rect(.zero), windowNumber: 0)
     }
 
+    func drag(_ params: DragParams) async throws -> DragResult {
+        try record("drag")
+        return DragResult(dropped: true)
+    }
+
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         try record("screenshot")
         return ScreenshotResult(path: "/dev/null", width: 0, height: 0, scale: 1)
@@ -120,5 +125,15 @@ final class FakeControlBackend: ControlBackend {
 
     func clear(_ params: ClearParams) async throws {
         try record("clear")
+    }
+
+    func key(_ params: KeyParams) async throws -> KeyResult {
+        try record("key")
+        return KeyResult(chord: params.key, keyCode: 0, windowNumber: 0, handledBy: nil, handledByEnabled: nil)
+    }
+
+    func menu() throws -> MenuResult {
+        try record("menu")
+        return MenuResult(items: [])
     }
 }

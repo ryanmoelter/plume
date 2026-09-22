@@ -37,6 +37,8 @@ final class AppSettings {
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
+        static let shortcutBindings = "shortcutBindings"
+        static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -147,6 +149,14 @@ final class AppSettings {
         // Unset reads as false: bypassing every permission check is worth
         // opting into, not stumbling onto.
         self.showsBypassPermissions = defaults.bool(forKey: Key.showsBypassPermissions)
+
+        // A binding blob that no longer decodes falls back to the defaults
+        // rather than failing the launch.
+        self.shortcutBindings = defaults.data(forKey: Key.shortcutBindings)
+            .flatMap { try? JSONDecoder().decode(ShortcutBindings.self, from: $0) }
+            ?? ShortcutBindings()
+
+        self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -361,6 +371,40 @@ final class AppSettings {
     var notifiesOnTurnEnd: Bool {
         didSet {
             defaults.set(notifiesOnTurnEnd, forKey: Key.notifiesOnTurnEnd)
+        }
+    }
+
+    /// The user's chord for each rebindable menu command. Read by
+    /// `PlumeShortcuts`, so a change here moves both the menu item and what
+    /// `TerminalShortcutMonitor` claims back from a focused terminal.
+    var shortcutBindings: ShortcutBindings {
+        didSet {
+            defaults.set(try? JSONEncoder().encode(shortcutBindings), forKey: Key.shortcutBindings)
+            shortcutBindingsContinuation?.yield(shortcutBindings)
+        }
+    }
+
+    private var shortcutBindingsContinuation: AsyncStream<ShortcutBindings>.Continuation?
+
+    /// The bindings now, then every later set. `AppDelegate` writes each onto
+    /// the menu; observation alone cannot, because the menu is built from a
+    /// `Commands` body that SwiftUI never re-evaluates.
+    ///
+    /// One consumer only — a second call replaces the first's continuation.
+    var shortcutBindingsStream: AsyncStream<ShortcutBindings> {
+        AsyncStream { continuation in
+            continuation.yield(shortcutBindings)
+            shortcutBindingsContinuation = continuation
+        }
+    }
+
+    /// Whether the Full Disk Access explanation has been shown. Set once the
+    /// sheet is dismissed, however it is dismissed — the point is to explain
+    /// the permission before an agent trips it, not to nag until it is
+    /// granted.
+    var hasPromptedForFullDiskAccess: Bool {
+        didSet {
+            defaults.set(hasPromptedForFullDiskAccess, forKey: Key.hasPromptedForFullDiskAccess)
         }
     }
 

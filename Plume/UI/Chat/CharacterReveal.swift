@@ -1,15 +1,30 @@
 import SwiftUI
 
-/// Reveals a growing string a character at a time.
+/// Reveals a growing string a word at a time.
 ///
 /// `Text` content is not animatable, so the count is: SwiftUI interpolates
-/// `animatableData` and rebuilds this body per frame, and the body takes that
-/// many characters of the string. Nothing else in the chat animates a count,
+/// `animatableData` and rebuilds this body per frame, and the body takes as
+/// many characters as the word boundary at or before that count covers.
+/// Pacing (`RevealPacing`, `RevealProgress`) still runs on a character count
+/// — it is only ever used as a proxy for "how much text", not as the
+/// granularity shown — so this is the one place revealing by word instead of
+/// by character actually lives. Nothing else in the chat animates a count,
 /// so the type stays here rather than in a shared folder.
+///
+/// A whole word, not a whole delimited span (`**bold**`, `` `code` ``): a
+/// span needs a markdown-aware scan to find its matching close, which is
+/// real complexity for a pacing detail. Revealing by word already holds back
+/// a delimiter's opening character until the word it's attached to is
+/// complete, which is what stops a lone `**` or backtick flashing as literal
+/// text — it just doesn't also wait for the *closing* delimiter, which can
+/// still land a word or more later. That's an accepted trade for staying
+/// simple.
 struct CharacterReveal<Content: View>: View, Animatable {
     var revealedCount: Double
     var text: String
-    @ViewBuilder var content: (String) -> Content
+    /// The revealed prefix, plus a fade step for the caller to key a
+    /// throttled animation off — see `WordFade`.
+    @ViewBuilder var content: (String, Int) -> Content
 
     var animatableData: Double {
         get { revealedCount }
@@ -17,7 +32,76 @@ struct CharacterReveal<Content: View>: View, Animatable {
     }
 
     var body: some View {
-        content(String(text.prefix(max(0, Int(revealedCount)))))
+        let prefixLength = RevealWordBoundaries.prefixLength(of: text, upTo: max(0, Int(revealedCount)))
+        content(String(text.prefix(prefixLength)), WordFade.step(forPrefixLength: prefixLength))
+    }
+}
+
+/// Throttles how often a streaming word's arrival fades in.
+///
+/// A pure function of the revealed prefix length rather than a `@State`
+/// timer: several word boundaries a second is normal under a fast delta
+/// (`RevealPacing.minDuration` alone allows a boundary crossing every 0.1s),
+/// and `.contentTransition(.opacity)` is a real per-glyph crossfade —
+/// `sample` showed `CGContextBeginTransparencyLayerWithRect` staying open
+/// for the fade's own duration on every retrigger. Bucketing the prefix
+/// length into `charactersPerFade`-wide steps throttles the trigger
+/// frequency, but that alone isn't enough: measured at a 12-character bucket
+/// the cost was still ~84% of a core, because a new fade could start before
+/// the previous one's `duration` finished, keeping a transparency layer open
+/// almost continuously at the reveal's top speed. The fix is keeping the
+/// bucket wider than one fade takes to complete: at
+/// `RevealPacing.charactersPerSecond` (220/s) and `duration` (0.15s), a fade
+/// finishes every ~33 characters of reveal, so `charactersPerFade` clears
+/// that with margin. Measured at this value: ~15% of a core while
+/// streaming, matching the no-fade baseline — i.e. free relative to the
+/// reveal itself.
+enum WordFade {
+    static let duration: Double = 0.15
+    /// Wider than `RevealPacing.charactersPerSecond * duration` (~33
+    /// characters), so consecutive fades never overlap even at the reveal's
+    /// fastest pace. See the type's doc comment for the measurement that set
+    /// this.
+    static let charactersPerFade = 40
+
+    /// The revealed prefix's coarsened bucket, used to key
+    /// `.animation(value:)`. Monotonic in `prefixLength`, so the underlying
+    /// text still advances one word at a time even where the fade step does
+    /// not.
+    static func step(forPrefixLength prefixLength: Int) -> Int {
+        prefixLength / charactersPerFade
+    }
+}
+
+/// Finds where to cut a string so a reveal always stops on a word boundary
+/// rather than mid-word.
+enum RevealWordBoundaries {
+    /// The character count of the longest prefix of `text` that is at most
+    /// `count` characters and ends on a word boundary: the start of a word
+    /// token (so the run of punctuation or markdown delimiters trailing the
+    /// previous word stays attached to it, rather than that word showing
+    /// without its closing `**` or backtick for a frame), or — for the
+    /// streaming tail, which has no next token yet — the end of the last
+    /// token seen so far.
+    ///
+    /// Locale-aware word boundaries (`.byWords`) rather than a plain split on
+    /// whitespace: CJK text has no spaces between words, and `.byWords`
+    /// still segments it into small script-appropriate units instead of
+    /// revealing a whole unbroken run at once.
+    static func prefixLength(of text: String, upTo count: Int) -> Int {
+        guard count < text.count else { return text.count }
+        guard count > 0 else { return 0 }
+
+        var boundaries: [Int] = []
+        var lastTokenEnd = 0
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byWords) { _, range, _, _ in
+            boundaries.append(text.distance(from: text.startIndex, to: range.lowerBound))
+            lastTokenEnd = text.distance(from: text.startIndex, to: range.upperBound)
+        }
+        boundaries.append(lastTokenEnd)
+        boundaries.append(text.count)
+
+        return boundaries.filter { $0 <= count }.max() ?? 0
     }
 }
 

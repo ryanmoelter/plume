@@ -14,10 +14,15 @@ struct SidebarView: View {
     @Binding var renamingTaskID: UUID?
     @Binding var archiveShown: Bool
     let windowWidth: CGFloat
+    /// Both delete and archive can touch a Plume-owned worktree, so
+    /// `MainWindow` owns the shared confirmation dialog and this view only
+    /// asks it to run one.
+    let requestArchive: (WorkTask) -> Void
+    let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
-    @State private var taskPendingDeletion: WorkTask?
-    @State private var deletionError: String?
+    /// Each row and header's height, so a drop can tell which half it is over.
+    @State private var dropTargetHeights: [UUID: CGFloat] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,10 +48,12 @@ struct SidebarView: View {
                                 TaskStore.deleteGroup(group, in: context)
                             }
                         }
+                        .sidebarDragAndDrop(
+                            .group(group.id),
+                            target: .group(group.id),
+                            heights: $dropTargetHeights
+                        ) { handleDrop($0, $1, onto: group) }
                     }
-                }
-                .onMove { offsets, destination in
-                    TaskStore.moveGroups(groups, from: offsets, to: destination)
                 }
 
                 Section("Ungrouped") {
@@ -96,74 +103,11 @@ struct SidebarView: View {
 
             SidebarFooter(archiveShown: $archiveShown)
         }
-        .themeTint(colorScheme: colorScheme)
         .navigationSplitViewColumnWidth(
             min: WindowMetrics.sidebarMinimumWidth,
             ideal: WindowMetrics.sidebarIdealWidth,
             max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth)
         )
-        .confirmationDialog(
-            "Delete “\(taskPendingDeletion?.title ?? "")”?",
-            isPresented: Binding(
-                get: { taskPendingDeletion != nil },
-                set: { if !$0 { taskPendingDeletion = nil } }
-            ),
-            presenting: taskPendingDeletion
-        ) { task in
-            Button(BetaBadge.menuTitle("Delete Task and Remove Worktree"), role: .destructive) {
-                deleteTask(task, removeWorktree: true, deleteBranch: false)
-            }
-            Button(BetaBadge.menuTitle("Delete Task, Remove Worktree and Branch"), role: .destructive) {
-                deleteTask(task, removeWorktree: true, deleteBranch: true)
-            }
-            Button("Delete Task Only") {
-                deleteTask(task)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { task in
-            Text("This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "").\n\nBeta: worktree removal forces past a dirty tree, so uncommitted changes can be lost silently. This path hasn't been driven since it moved onto GitService.")
-        }
-        .alert("Could Not Remove Worktree", isPresented: Binding(
-            get: { deletionError != nil },
-            set: { if !$0 { deletionError = nil } }
-        )) {
-            Button("OK") { deletionError = nil }
-        } message: {
-            Text(deletionError ?? "")
-        }
-    }
-
-    /// Removing the worktree is best-effort: if git refuses, the task stays so
-    /// the user can resolve it rather than losing track of the directory.
-    private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
-        guard removeWorktree,
-              let repository = task.repoPath,
-              let path = task.workingDirectoryPath
-        else {
-            finishDeleting(task)
-            return
-        }
-        Task {
-            do {
-                try await GitService.shared.removeWorktree(
-                    repository: repository,
-                    path: path,
-                    branch: task.branchName,
-                    deleteBranch: deleteBranch
-                )
-            } catch {
-                deletionError = error.localizedDescription
-                taskPendingDeletion = nil
-                return
-            }
-            finishDeleting(task)
-        }
-    }
-
-    private func finishDeleting(_ task: WorkTask) {
-        if selection == task.id { selection = nil }
-        TaskStore.delete(task, in: context)
-        taskPendingDeletion = nil
     }
 
     @ViewBuilder
@@ -177,17 +121,70 @@ struct SidebarView: View {
                 // rectangle would show on top of the wash as a second
                 // selection state. Selection therefore comes from the tap.
                 .selectionDisabled()
+                // Simultaneous, not exclusive: a plain `.onTapGesture` claims
+                // the mouse-down, and the row's drag never starts.
+                //
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
-                .onTapGesture { select(task) }
+                .simultaneousGesture(TapGesture().onEnded { select(task) })
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
                     taskContextMenu(for: task)
                 }
+                .sidebarDragAndDrop(
+                    .task(task.id),
+                    target: .task(task.id),
+                    heights: $dropTargetHeights
+                ) { handleDrop($0, $1, onto: task) }
         }
-        .onMove { offsets, destination in
-            TaskStore.move(sectionTasks, from: offsets, to: destination)
+    }
+
+    // MARK: - Drag and drop
+
+    private func handleDrop(_ item: SidebarDragItem, _ placement: SidebarDropPlacement, onto task: WorkTask) {
+        switch item {
+        case .tab(let id):
+            dropTab(id, onto: task)
+        case .task(let id):
+            moveTask(id, placement, relativeTo: task)
+        case .group:
+            break
         }
+    }
+
+    private func handleDrop(_ item: SidebarDragItem, _ placement: SidebarDropPlacement, onto group: TaskGroup) {
+        switch item {
+        case .task(let id):
+            guard let task = tasks.first(where: { $0.id == id }), task.group?.id != group.id else { return }
+            TaskStore.move(task, to: group, siblings: tasksFor(group))
+        case .group(let id):
+            guard let move = SidebarDropRules.move(id, placement, group.id, in: groups.map(\.id)) else { return }
+            TaskStore.moveGroups(groups, from: IndexSet(integer: move.from), to: move.to)
+        case .tab:
+            break
+        }
+    }
+
+    /// Moves a tab into `task`. Only the SwiftData relationship and ordering
+    /// change — never the surface registry keyed by the tab's id.
+    private func dropTab(_ tabID: UUID, onto task: WorkTask) {
+        guard let tab = tasks.flatMap(\.tabs).first(where: { $0.id == tabID }),
+              tab.task?.id != task.id
+        else { return }
+        TaskStore.moveTab(tab, to: task)
+    }
+
+    /// Puts the dragged task before or after `target`, joining `target`'s
+    /// group first when it comes from another one.
+    private func moveTask(_ id: UUID, _ placement: SidebarDropPlacement, relativeTo target: WorkTask) {
+        guard let dragged = tasks.first(where: { $0.id == id }) else { return }
+        var section = target.group.map(tasksFor) ?? ungroupedTasks
+        if dragged.group?.id != target.group?.id {
+            TaskStore.move(dragged, to: target.group, siblings: section)
+            section.append(dragged)
+        }
+        guard let move = SidebarDropRules.move(id, placement, target.id, in: section.map(\.id)) else { return }
+        TaskStore.move(section, from: IndexSet(integer: move.from), to: move.to)
     }
 
     private func select(_ task: WorkTask) {
@@ -212,19 +209,11 @@ struct SidebarView: View {
             }
         }
         if !task.hasNeverStarted {
-            Button("Archive") { TaskStore.archive(task) }
+            Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
         }
         Divider()
-        Button("Delete", role: .destructive) {
-            // A worktree task owns a branch and a directory on disk, so
-            // deleting it asks before touching either.
-            if task.workspaceKind == .worktree {
-                taskPendingDeletion = task
-            } else {
-                deleteTask(task)
-            }
-        }
+        Button("Delete", role: .destructive) { requestDelete(task) }
     }
 
     /// Every task in the order the sidebar shows them, which is what the

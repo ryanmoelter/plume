@@ -38,7 +38,7 @@ One consequence of `-lic`: the user's `.zshrc` runs, and anything it prints land
 ## What's still missing or degraded
 
 - **Subagents show no live status.** `SubagentListView` always passes `status: .unset` — there's no indicator while a subagent is actually running.
-- **No workspace-trust dialog.** A `-p` session shows no first-run folder-trust prompt for an unfamiliar directory, and Plume has no equivalent in the headless flow.
+- **No workspace-trust dialog.** A `-p` session shows no first-run folder-trust prompt for an unfamiliar directory, and Plume has no equivalent in the headless flow. `claude --help` documents the skip as unconditional in non-interactive mode, and a probe of 2.1.278 bears it out: `claude -p` answers normally in a directory with no trusted ancestor, and records no `projects` entry for it. `AgentLauncher` still refuses to spawn into a directory `ClaudeTrustStore` cannot vouch for — Plume's own stance, not a limit the CLI imposes.
 - **`/login` and other terminal-only prompts don't exist headless.** Anything that depends on an interactive TUI prompt beyond `AskUserQuestion` and `ExitPlanMode` has no headless equivalent; the terminal transport remains the only way to run them.
 
 The terminal transport stays exactly for this last gap: a tab can be switched to it for `/login`, for first-run trust, or for anything else that needs a real TUI. Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.

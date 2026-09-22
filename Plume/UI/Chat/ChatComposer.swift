@@ -56,6 +56,11 @@ struct ChatComposer: View, ThemedView {
     /// Tracked separately from the draft text so a keystroke does not
     /// invalidate this whole body. The draft changes on every character; only
     /// its emptiness matters here, and that flips twice a message.
+    ///
+    /// Seeded from whatever draft already exists on `.onAppear`, so a
+    /// composer that mounts already holding text — returning from another
+    /// task, say — starts with its send button enabled rather than waiting
+    /// for the next keystroke to catch it up.
     @State private var hasSendableText = false
 
     private func sendableText(_ text: String) -> Bool {
@@ -266,6 +271,12 @@ struct ChatComposer: View, ThemedView {
         }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
+            let draft = drafts.draft(forTab: tab.id)
+            hasSendableText = sendableText(draft)
+            // A composer mounting with an existing draft — returning from
+            // another task — should pick up editing where it left off,
+            // rather than at offset 0.
+            pendingCaretLocation = (draft as NSString).length
         }
     }
 

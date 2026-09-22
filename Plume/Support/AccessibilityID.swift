@@ -28,6 +28,16 @@ enum AccessibilityID {
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
 
+    // MARK: Settings
+
+    static let shortcutRecorder = "shortcut-recorder"
+    static let shortcutResetButton = "shortcut-reset-button"
+    static let shortcutResetAllButton = "shortcut-reset-all-button"
+    static let fullDiskAccessOpenButton = "full-disk-access-open-button"
+    static let fullDiskAccessDismissButton = "full-disk-access-dismiss-button"
+    static let fullDiskAccessStatus = "full-disk-access-status"
+    static let fullDiskAccessManageButton = "full-disk-access-manage-button"
+
     // MARK: Tab strip
 
     static let tabChip = "tab-chip"
@@ -55,6 +65,23 @@ enum AccessibilityID {
     static let statuslineContextMeter = "statusline-context-meter"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
+
+    // MARK: Chat start failure
+
+    static let chatStartFailureRetry = "chat-start-failure-retry"
+    static let chatTrustOpenTerminal = "chat-trust-open-terminal"
+
+    static let workspaceWorktreeMenu = "workspace-worktree-menu"
+
+    // MARK: New worktree sheet
+
+    static let worktreeBranchField = "worktree-branch-field"
+    static let worktreeStripPrefixToggle = "worktree-strip-prefix-toggle"
+    static let worktreeEditLocationButton = "worktree-edit-location-button"
+    static let worktreeLocationField = "worktree-location-field"
+    static let worktreeChooseLocationButton = "worktree-choose-location-button"
+    static let worktreeCreateButton = "worktree-create-button"
+    static let worktreeCancelButton = "worktree-cancel-button"
 
     // MARK: Plan overlay
 

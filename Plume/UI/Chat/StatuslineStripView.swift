@@ -220,21 +220,20 @@ enum StatuslineStripLayout {
     case stacked
 }
 
-/// Bar lengths, longest first: the context window reads most precisely, the
-/// seven-day quota next, the five-hour quota least. The row now lays out from
-/// each segment's own intrinsic size rather than squeezing to fit, so these
-/// can run a bit longer than a reading needs and still cost nothing but the
-/// branch chip's own truncation room. The stacked layout reuses the same widths,
-/// so a bar means the same thing whichever layout is showing.
+/// Bar lengths: the context window and the seven-day quota read most
+/// precisely, the five-hour quota less so. The row lays out from each
+/// segment's own intrinsic size rather than squeezing to fit, so these can run
+/// a bit longer than a reading needs and still cost nothing but the branch
+/// chip's own truncation room. The stacked layout reuses the same widths, so a
+/// bar means the same thing whichever layout is showing.
 enum StatuslineMeterWidth {
     static let context: CGFloat = 50
-    static let quota: CGFloat = 36
-    static let shortQuota: CGFloat = 28
+    static let quota: CGFloat = 50
+    static let shortQuota: CGFloat = 36
 
     /// The sidebar footer has width the statusline does not — it is not
-    /// competing with a branch chip — so its quota bars run half again as
-    /// long. Kept apart from the strip's own widths rather than raising
-    /// those, which would widen the chat meters too.
+    /// competing with a branch chip — so its quota bars run longer. Kept apart
+    /// from the strip's own widths so the two can be tuned independently.
     static let sidebarQuota: CGFloat = 54
     static let sidebarShortQuota: CGFloat = 42
 }
@@ -272,6 +271,7 @@ struct StackedMeter: View, ThemedView {
         let bar = MeterView(
             fraction: fraction,
             color: StatuslineColors.meter(for: attention, colors: colors),
+            attention: attention,
             pacing: pacing,
             isStale: isStale
         )
@@ -451,6 +451,16 @@ enum StatuslineMeterMath {
         guard let percent else { return 0 }
         return Swift.min(Swift.max(percent / 100, 0), 1)
     }
+
+    /// The fill's width in points, clamped to the track's own width so a
+    /// fraction at or past 1 can never draw the fill past the track —
+    /// `MeterView` clips to the track's shape too, as a second line of
+    /// defense against rendering quirks at narrow track widths.
+    static func fillWidth(trackWidth: CGFloat, fraction: Double) -> CGFloat {
+        guard trackWidth > 0 else { return 0 }
+        let width = trackWidth * fraction
+        return Swift.min(Swift.max(width, 0), trackWidth)
+    }
 }
 
 /// Attention-to-color mapping shared by the strip and the composer's
@@ -496,6 +506,11 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
+    /// Drives the pacing dot's own tint via `StatuslineColors.foreground`,
+    /// kept apart from `color` because that one carries a baked-in opacity
+    /// for the neutral case that the dot's own emphasis levels already
+    /// apply.
+    let attention: StatuslineAttention
     /// How far through the window the clock is, 0–1. Drawn as a dot on the
     /// bar, so the fill's position against it reads the same whether the fill
     /// is short of it or past it. Nil draws nothing, which is what every
@@ -510,14 +525,17 @@ struct MeterView: View, ThemedView {
 
     var body: some View {
         GeometryReader { geometry in
-            // Centred vertically as well as leading, so the dot sits on the
-            // bar's midline rather than its top edge.
-            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
-                let fillWidth = geometry.size.width * fraction
-                let mark = pacing.map {
-                    PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
-                }
+            let fillWidth = StatuslineMeterMath.fillWidth(trackWidth: geometry.size.width, fraction: fraction)
+            let mark = pacing.map {
+                PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
+            }
 
+            // Centred vertically as well as leading, so the dot sits on the
+            // bar's midline rather than its top edge. Clipped to the track's
+            // own shape: at narrow track widths a capsule's rounded caps can
+            // otherwise render past the nominal frame, spilling the fill past
+            // the track it sits over.
+            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
                 Capsule()
                     .fill(color.opacity(trackOpacity))
 
@@ -541,6 +559,7 @@ struct MeterView: View, ThemedView {
                         .clipped()
                 }
             }
+            .clipShape(Capsule())
         }
         .frame(height: PacingMark.barHeight)
     }
@@ -548,12 +567,14 @@ struct MeterView: View, ThemedView {
     /// One copy of the dot, colored for the ground it lands on. Over the
     /// fill it is a hole punched in the bar; over the bare track, which is
     /// itself a wash on that same ground, a hole would vanish, so it draws
-    /// as content instead. Both sit at secondary emphasis, which is what
-    /// keeps the mark from outweighing the fill it annotates.
+    /// as content instead, in the same warning/danger tint the fill wears
+    /// once utilization crosses into those bands. Both sit at secondary
+    /// emphasis, which is what keeps the mark from outweighing the fill it
+    /// annotates.
     private func dot(at offset: CGFloat, isOverFill: Bool) -> some View {
         let ground = isOverFill
             ? colors.background ?? Color(nsColor: .windowBackgroundColor)
-            : colors.foreground
+            : StatuslineColors.foreground(for: attention, colors: colors)
         return Circle()
             .fill(ground.opacity(colors.emphasis[isOverFill ? .secondary : .subtle]))
             .frame(width: PacingMark.width, height: PacingMark.width)

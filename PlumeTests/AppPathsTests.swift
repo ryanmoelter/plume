@@ -26,6 +26,23 @@ struct AppPathsTests {
         #expect(AppPaths.eventsDirectory.path.hasPrefix(support))
     }
 
+    /// Passed as a parameter rather than a real env var, so this can run
+    /// alongside other tests in the same process without racing them over
+    /// shared process state.
+    @Test func applicationSupportOverrideReplacesTheWholePath() throws {
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "PlumeAppPathsTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let resolved = AppPaths.applicationSupport(environment: ["PLUME_APP_SUPPORT": scratch.path])
+        #expect(resolved.path == scratch.path)
+        #expect(FileManager.default.fileExists(atPath: scratch.path))
+    }
+
+    @Test func applicationSupportWithoutTheOverrideUsesTheNormalPath() {
+        let resolved = AppPaths.applicationSupport(environment: [:])
+        #expect(resolved.path == URL.applicationSupportDirectory.appending(path: AppPaths.directoryName).path)
+    }
+
     @Test func controlSocketHonorsTheOverride() {
         let path = AppPaths.controlSocketPath(pid: 42, environment: ["PLUME_CONTROL_SOCKET": "/tmp/x.sock"])
         #expect(path == "/tmp/x.sock")

@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Confirms quitting while an agent is still working, since terminating kills
 /// every PTY child outright — there is no graceful shutdown to wait for.
@@ -38,10 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // per-tab monitor would across tab and task switches.
         TerminalShortcutMonitor.shared.install()
 
+        startApplyingShortcutBindings()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()
         #endif
+
+        AppAppearance.apply(AppAppearance.decision())
 
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
@@ -51,6 +56,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleWillPowerOff() {
         isPoweringOff = true
+    }
+
+    /// Keeps the menu's rebindable chords in step with the setting, for as
+    /// long as the app runs. `ShortcutMenuApplier` documents why the menu
+    /// SwiftUI built cannot be left to update itself.
+    ///
+    /// The first pass waits for the main menu, which SwiftUI installs after
+    /// this delegate callback returns.
+    private func startApplyingShortcutBindings() {
+        Task { @MainActor in
+            while NSApp.mainMenu == nil, !Task.isCancelled {
+                await Task.yield()
+            }
+            for await bindings in settings.shortcutBindingsStream {
+                guard let menu = NSApp.mainMenu else { continue }
+                ShortcutMenuApplier.apply(bindings, to: menu)
+            }
+        }
     }
 
     /// Transparent titlebar plus an explicit background color makes the
@@ -97,6 +120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is what tells them to exit. Without this they outlive the app until
     /// they notice the pipe has gone.
     func applicationWillTerminate(_ notification: Notification) {
+        // Logged because its *absence* is the interesting case: AppKit skips
+        // this path when the process is signalled rather than quit, and an
+        // agent that outlives the app goes on writing a transcript the next
+        // run resumes from.
+        Log.app.info("Terminating, closing \(HeadlessSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
         HeadlessSessionManager.shared.closeAll()
         KeepAwakeCoordinator.shared.releaseForTermination()
         #if DEBUG

@@ -61,6 +61,10 @@ Notarization reads the `plume-notary` keychain profile, which can raise a Touch 
 
 **Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process. The script waits for a real exit and aborts rather than replacing a bundle still in use.
 
+**Quit Plume, never signal it.** `kill` ends the process without running AppKit's termination path, so `applicationWillTerminate` — and the `closeAll()` that stops this app's agents — never runs. Every agent is then orphaned: it keeps writing its transcript, and the relaunched app resumes that same session, putting two writers on one file. They fork it, and each goes on blind to the other's turns.
+
+Verified by the `Terminating, closing N agent session(s)` log line, which an AppleScript quit produces and a SIGTERM does not. The script quits first and only signals if that fails, then ends any agent still holding Plume's generated `settings.json` and aborts if one will not die.
+
 Check with `ps`, not `pgrep`:
 
 ```
@@ -73,7 +77,7 @@ Releasing from a session hosted *inside* Plume is the case to watch, though it s
 
 `scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately.
 
-**Stop after running the script and wait for Ryan.** The old `claude` process keeps running after the app quits, so an agent that carries straight on is talking from a session the relaunched app no longer hosts. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
+**Stop after running the script and wait for Ryan.** The script ends the agent driving it along with every other one, so an agent that carries straight on is talking from a session the relaunched app no longer hosts — and before that was fixed, one that kept running would fork its own transcript. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
 
 **The conversation comes back**, in the new app: it relaunches Plume, which restores the session with its context intact. Once Ryan messages, read `/tmp/plume-install.log` — that log is the whole record of what the install did.
 
@@ -260,6 +264,36 @@ Expect `accepted` and `source=Notarized Developer ID`. An `Apple Development` au
 Open the DMG, drag Plume to Applications. A correctly notarized build opens normally — **if anyone needs the right-click → Open workaround, the notarization is broken**, and that is the signal to check it rather than to talk them through the workaround.
 
 First launch prompts for permissions this machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
+
+## Publishing to Homebrew
+
+`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask plume`. Casks and formulae coexist in that one repo.
+
+There is no `auto_updates` — Plume has no self-updater, so `brew upgrade --cask plume` is the only update path for cask users.
+
+After a release is public (not a draft), bump the cask:
+
+```
+scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0
+```
+
+It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask, commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
+
+The script lives in this (public) repo, so it never references a tap checkout on any particular machine — only the tap's repo name.
+
+### Checking the cask
+
+From a machine with the tap already tapped (`brew tap ryanmoelter/tap`):
+
+```
+brew style --cask ryanmoelter/tap/plume
+brew audit --cask ryanmoelter/tap/plume
+brew livecheck ryanmoelter/tap/plume
+```
+
+`brew style --cask` refuses to run on a cask file outside a tap, so point it at the tapped name, not a bare path, unless you're working inside an actual tap checkout. `brew audit --cask --new` additionally fails with "GitHub repository not notable enough" — that rule gates submission to homebrew-cask proper, not a personal tap, and is expected here.
+
+**Never run `brew install --cask plume` or `brew uninstall --cask plume` against a Plume you're currently running** — it replaces or removes the live `/Applications/Plume.app` out from under the running process. Test cask changes against a build that isn't the one driving your session, or ask before running either command.
 
 ## Bundle ID and signing team migration
 

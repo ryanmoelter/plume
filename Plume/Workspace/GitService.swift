@@ -59,13 +59,25 @@ actor GitService {
     func createWorktree(
         repository: String,
         branch: String,
-        basePath: String?
+        basePath: String?,
+        strippingPrefix: Bool = false,
+        explicitPath: String? = nil
     ) throws -> String {
         try WorkspaceProvisioner.createWorktree(
             repository: repository,
             branch: branch,
-            basePath: basePath
+            basePath: basePath,
+            strippingPrefix: strippingPrefix,
+            explicitPath: explicitPath
         )
+    }
+
+    func configuredBranchPrefix(in repository: String?) -> String? {
+        WorkspaceProvisioner.configuredBranchPrefix(in: repository)
+    }
+
+    func uncommittedChanges(in path: String) -> [String] {
+        WorkspaceProvisioner.uncommittedChanges(in: path)
     }
 
     func removeWorktree(

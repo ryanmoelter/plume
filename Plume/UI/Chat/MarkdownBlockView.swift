@@ -14,10 +14,30 @@ struct MarkdownBlockView: View, ThemedView {
     /// else — the user's own message, a tool's output — stays in the system
     /// face so it reads as input rather than published prose.
     var isAgentVoice: Bool = false
+    /// The throttled fade bucket from `MarkdownView`, or nil to draw text
+    /// with no fade at all. See `WordFade`.
+    var fadeStep: Int?
 
     var body: some View {
         content
             .textSelection(.enabled)
+    }
+
+    /// A prose `Text` that cross-fades in when `fadeStep` advances.
+    ///
+    /// Keyed on `fadeStep` rather than on `attributed` itself: `attributed`
+    /// changes on nearly every animation frame while `CharacterReveal`
+    /// sweeps `revealedCount`, and `.contentTransition(.opacity)` retriggered
+    /// that often measured tens of percent of a core once a few blocks
+    /// streamed at once (`sample` showed a real per-glyph crossfade,
+    /// `CGContextBeginTransparencyLayerWithRect`, on every retrigger).
+    /// `fadeStep` only advances once every `WordFade.charactersPerFade`
+    /// characters, so the crossfade fires that much less often while the
+    /// text itself still updates every frame regardless.
+    private func fadingText(_ attributed: AttributedString) -> some View {
+        Text(attributed)
+            .contentTransition(fadeStep != nil ? .opacity : .identity)
+            .animation(fadeStep != nil ? .easeIn(duration: WordFade.duration) : nil, value: fadeStep)
     }
 
     /// The scale this view's prose renders in.
@@ -29,13 +49,13 @@ struct MarkdownBlockView: View, ThemedView {
     private var content: some View {
         switch block {
         case let .heading(level, text):
-            Text(heading(text, level: level))
+            fadingText(heading(text, level: level))
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
         case let .paragraph(text):
-            Text(inline(text))
+            fadingText(inline(text))
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
@@ -60,7 +80,7 @@ struct MarkdownBlockView: View, ThemedView {
                 Rectangle()
                     .fill(quoteBarColor)
                     .frame(width: 3)
-                Text(inline(text))
+                fadingText(inline(text))
                     .font(prose.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(prose.body.lineSpacing)

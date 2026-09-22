@@ -34,7 +34,10 @@ struct GroupSectionHeader: View {
                 } else {
                     Text(group.name)
                         .contentShape(Rectangle())
-                        .onTapGesture { group.isExpanded.toggle() }
+                        // Simultaneous, not exclusive: a plain
+                        // `.onTapGesture` claims the mouse-down, and the
+                        // header's drag never starts.
+                        .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
                 }
             }
 

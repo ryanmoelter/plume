@@ -312,15 +312,11 @@ final class ComposerNSTextView: NSTextView {
     /// Claims a drag only when it actually carries images, so a text drag
     /// still lands as an insertion.
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        attachableImages(on: sender.draggingPasteboard).isEmpty
-            ? super.draggingEntered(sender)
-            : .copy
+        carriesAttachableImages(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        attachableImages(on: sender.draggingPasteboard).isEmpty
-            ? super.draggingUpdated(sender)
-            : .copy
+        carriesAttachableImages(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -342,11 +338,11 @@ final class ComposerNSTextView: NSTextView {
 
     private func attachableImages(on pasteboard: NSPasteboard) -> [ChatImage] {
         guard onAttachImages != nil else { return [] }
-        // Text wins: dragging a snippet of text out of a rich document can
-        // also offer an image rendering of it, and pasting that as a picture
-        // is never what was meant.
-        if pasteboard.canReadObject(forClasses: [NSString.self]) { return [] }
         return ComposerImageAttachment.images(from: pasteboard)
+    }
+
+    private func carriesAttachableImages(_ pasteboard: NSPasteboard) -> Bool {
+        onAttachImages != nil && ComposerImageAttachment.hasImages(on: pasteboard)
     }
 
     /// Called on Delete with nothing left to delete, so command mode can be

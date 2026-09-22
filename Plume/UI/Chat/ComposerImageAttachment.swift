@@ -12,28 +12,50 @@ nonisolated enum ComposerImageAttachment {
         "image/png", "image/jpeg", "image/gif", "image/webp"
     ]
 
-    /// Reads every image on `pasteboard`, preferring file URLs so a dragged
-    /// file keeps its original encoding instead of being rasterized.
+    /// Reads every image a drop or paste should attach, preferring image files
+    /// so a dragged file keeps its original encoding instead of being
+    /// rasterized.
+    ///
+    /// An image file wins over text, because a drag out of Finder can carry
+    /// the file's name as text beside its URL. Bare image data loses to text:
+    /// a snippet dragged out of a rich document also offers a picture of
+    /// itself, and attaching that is never what was meant.
     @MainActor
     static func images(from pasteboard: NSPasteboard) -> [ChatImage] {
+        let files = imageFileURLs(on: pasteboard)
+        if !files.isEmpty { return files.compactMap { image(atFileURL: $0) } }
+        guard !pasteboard.canReadObject(forClasses: [NSString.self]),
+              let images = pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]
+        else { return [] }
+        return images.compactMap { image(from: $0) }
+    }
+
+    /// Whether `images(from:)` would find anything, without reading or
+    /// encoding a file. A drag asks this on every pointer move.
+    @MainActor
+    static func hasImages(on pasteboard: NSPasteboard) -> Bool {
+        if !imageFileURLs(on: pasteboard).isEmpty { return true }
+        return !pasteboard.canReadObject(forClasses: [NSString.self])
+            && pasteboard.canReadObject(forClasses: [NSImage.self])
+    }
+
+    @MainActor
+    private static func imageFileURLs(on pasteboard: NSPasteboard) -> [URL] {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
-           !urls.isEmpty {
-            let images = urls.compactMap { image(atFileURL: $0) }
-            if !images.isEmpty { return images }
-        }
-        if let images = pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage] {
-            return images.compactMap { image(from: $0) }
-        }
-        return []
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return urls.filter { imageType(of: $0) != nil }
     }
 
     static func image(atFileURL url: URL) -> ChatImage? {
-        guard let type = UTType(filenameExtension: url.pathExtension),
-              type.conforms(to: .image),
-              let data = try? Data(contentsOf: url)
-        else { return nil }
+        guard let type = imageType(of: url), let data = try? Data(contentsOf: url) else { return nil }
         return image(data: data, mediaType: type.preferredMIMEType)
+    }
+
+    private static func imageType(of url: URL) -> UTType? {
+        guard let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else {
+            return nil
+        }
+        return type
     }
 
     /// Passes through data already in a media type the API accepts, and

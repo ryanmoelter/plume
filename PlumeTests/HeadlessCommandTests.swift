@@ -77,12 +77,12 @@ struct HeadlessCommandModelTests {
         #expect(modelToken(in: arguments) == AgentModel.opus.id)
     }
 
-    /// The bare aliases resolve to the 200K models, so the top-level menu's
-    /// picks have to reach `--model` as explicit `[1m]` IDs.
+    /// The top-level presets send the CLI's own aliases — the 1M form where
+    /// one exists — so the CLI resolves the current version itself.
     @Test(arguments: [
-        (AgentModel.opus, "claude-opus-5[1m]"),
-        (AgentModel.sonnet, "claude-sonnet-5[1m]"),
-        (AgentModel.fable, "claude-fable-5-1"),
+        (AgentModel.opus, "opus[1m]"),
+        (AgentModel.sonnet, "sonnet[1m]"),
+        (AgentModel.fable, "fable"),
     ])
     func passesTheOneMillionIDForTheTopLevelPresets(model: AgentModel, expected: String) {
         let arguments = HeadlessCommand.arguments(

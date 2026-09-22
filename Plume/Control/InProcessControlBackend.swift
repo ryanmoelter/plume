@@ -1,5 +1,7 @@
 #if DEBUG
 import AppKit
+import UniformTypeIdentifiers
+import SwiftUI
 
 /// Answers control commands from inside the process: registered controls
 /// through `ControlRegistry`, text through the AppKit views that already
@@ -135,6 +137,189 @@ final class InProcessControlBackend: ControlBackend {
             SyntheticHover.leave(window)
             ControlOverlay.existing(for: window)?.remove()
         }
+    }
+
+    // MARK: Drag
+
+    func drag(_ params: DragParams) async throws -> DragResult {
+        let window = try window(for: params.windowNumber, target: params.target)
+        let height = contentHeight(of: window)
+        let topLeft: CGPoint
+        if let x = params.x, let y = params.y {
+            topLeft = CGPoint(x: x, y: y)
+        } else if let target = params.target {
+            guard let frame = try frame(of: target) else { throw ControlError.badParams("drag needs a control, or x and y") }
+            topLeft = CGPoint(x: frame.midX, y: frame.midY)
+        } else {
+            let destinations = SyntheticDrag.allDestinations(in: window).map { view, types in
+                DragDestination(
+                    view: String(describing: type(of: view)),
+                    frame: Rect(WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)),
+                    types: types
+                )
+            }
+            return DragResult(dropped: false, refusedAt: "noPoint", view: nil, destinations: destinations)
+        }
+
+        let pasteboard = SyntheticDraggingInfo.makePasteboard()
+        var types: [NSPasteboard.PasteboardType] = []
+        if let files = params.files, !files.isEmpty {
+            pasteboard.writeObjects(files.map { URL(fileURLWithPath: $0) as NSURL })
+            types.append(.fileURL)
+        }
+        if let text = params.text {
+            // SwiftUI reads a `Transferable` payload off the item's data, so
+            // the item carries both `public.utf8-plain-text` and the legacy
+            // string type an `NSString` write would produce on its own.
+            let item = NSPasteboardItem()
+            item.setData(Data(text.utf8), forType: .init(UTType.utf8PlainText.identifier))
+            item.setString(text, forType: .string)
+            pasteboard.writeObjects([item])
+            types.append(.string)
+        }
+        guard !types.isEmpty else { throw ControlError.badParams("drag needs files or text") }
+
+        let point = WindowGeometry.appKitPoint(fromTopLeft: topLeft, contentHeight: height)
+        SyntheticHover.move(to: point, in: window)
+        guard let destination = SyntheticDrag.destination(at: point, in: window, types: types) else {
+            return DragResult(dropped: false, refusedAt: "noDestination", view: nil)
+        }
+        if params.inApp == true, let text = params.text, let item = SidebarDragItem(payload: text) {
+            InAppDrag.shared.begin(item)
+        }
+        let info = SyntheticDraggingInfo(pasteboard: pasteboard, location: point, window: window)
+        var feedback: [String]?
+        let outcome = SyntheticDrag.perform(info, on: destination) { feedback = Self.inAppDragFeedback() }
+        return DragResult(
+            dropped: outcome.succeeded,
+            refusedAt: outcome.refusedAt,
+            view: String(describing: type(of: destination)),
+            entered: Self.names(outcome.entered),
+            updated: outcome.updated.map(Self.names),
+            prepared: outcome.prepared,
+            performed: outcome.performed,
+            feedbackAfterUpdate: feedback,
+            feedbackAfterDrop: outcome.performed == nil ? nil : Self.inAppDragFeedback()
+        )
+    }
+
+    private static func inAppDragFeedback() -> [String] {
+        let drag = InAppDrag.shared
+        var out: [String] = []
+        if let item = drag.item { out.append("item \(item.payload)") }
+        if let indicator = drag.sidebarIndicator { out.append("sidebar \(indicator.target) \(indicator.placement)") }
+        if let gap = drag.tabStripGap { out.append("tabStrip gap \(gap.gap)") }
+        return out
+    }
+
+    private static func names(_ operation: NSDragOperation) -> [String] {
+        var out: [String] = []
+        if operation.contains(.copy) { out.append("copy") }
+        if operation.contains(.move) { out.append("move") }
+        if operation.contains(.link) { out.append("link") }
+        if operation.contains(.generic) { out.append("generic") }
+        if operation.contains(.delete) { out.append("delete") }
+        return out
+    }
+
+    // MARK: Keyboard
+
+    func key(_ params: KeyParams) async throws -> KeyResult {
+        let shortcut = try Self.shortcut(from: params)
+        let window = try window(for: params.windowNumber)
+        guard let code = SyntheticKey.keyCode(for: shortcut.key) else {
+            throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
+        }
+        let item = Self.menuItem(matching: shortcut)
+        try await SyntheticKey.perform(shortcut, in: window)
+        return KeyResult(
+            chord: shortcut.displayName, keyCode: Int(code), windowNumber: window.windowNumber,
+            handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled
+        )
+    }
+
+    func menu() throws -> MenuResult {
+        guard let main = NSApp.mainMenu else { throw ControlError.notFound("main menu") }
+        var items: [MenuItemDescription] = []
+        func visit(_ menu: NSMenu) {
+            // AppKit recomputes enabled state only when a menu opens, which a
+            // hidden instance never does, so every item would read disabled.
+            menu.update()
+            for item in menu.items {
+                if !item.isSeparatorItem {
+                    items.append(
+                        MenuItemDescription(
+                            path: Self.path(of: item),
+                            keyEquivalent: item.keyEquivalent.isEmpty ? nil : item.keyEquivalent,
+                            modifiers: Self.modifierNames(item.keyEquivalentModifierMask),
+                            isEnabled: item.isEnabled
+                        )
+                    )
+                }
+                if let submenu = item.submenu { visit(submenu) }
+            }
+        }
+        visit(main)
+        return MenuResult(items: items)
+    }
+
+    private static func shortcut(from params: KeyParams) throws -> MenuShortcut {
+        guard params.key.count == 1, let key = params.key.first else {
+            throw ControlError.badParams("key must be a single character, got \"\(params.key)\"")
+        }
+        var modifiers: EventModifiers = []
+        for name in params.modifiers {
+            switch name {
+            case "command", "cmd": modifiers.insert(.command)
+            case "shift": modifiers.insert(.shift)
+            case "option", "alt": modifiers.insert(.option)
+            case "control", "ctrl": modifiers.insert(.control)
+            default: throw ControlError.badParams("unknown modifier \"\(name)\"")
+            }
+        }
+        return MenuShortcut(key, modifiers: modifiers)
+    }
+
+    /// The menu item carrying this chord, matched by key equivalent and
+    /// modifier mask rather than by title. Enabled state is reported
+    /// separately: `performKeyEquivalent` re-validates as it dispatches, so an
+    /// item can answer a chord that reads disabled here.
+    private static func menuItem(matching shortcut: MenuShortcut) -> NSMenuItem? {
+        guard let main = NSApp.mainMenu else { return nil }
+        let wanted = MenuShortcut.appKitFlags(shortcut.modifiers)
+        func search(_ menu: NSMenu) -> NSMenuItem? {
+            menu.update()
+            for item in menu.items {
+                if item.keyEquivalent.lowercased() == String(shortcut.key).lowercased(),
+                   MenuShortcut.deviceIndependentFlags(item.keyEquivalentModifierMask) == wanted {
+                    return item
+                }
+                if let submenu = item.submenu, let found = search(submenu) { return found }
+            }
+            return nil
+        }
+        return search(main)
+    }
+
+    private static func path(of item: NSMenuItem) -> String {
+        var components = [item.title]
+        var menu = item.menu
+        while let current = menu, let parent = current.supermenu {
+            if let owner = parent.items.first(where: { $0.submenu === current }) {
+                components.insert(owner.title, at: 0)
+            }
+            menu = parent
+        }
+        return components.joined(separator: " > ")
+    }
+
+    private static func modifierNames(_ mask: NSEvent.ModifierFlags) -> [String] {
+        var names: [String] = []
+        if mask.contains(.control) { names.append("control") }
+        if mask.contains(.option) { names.append("option") }
+        if mask.contains(.shift) { names.append("shift") }
+        if mask.contains(.command) { names.append("command") }
+        return names
     }
 
     // MARK: Screenshot

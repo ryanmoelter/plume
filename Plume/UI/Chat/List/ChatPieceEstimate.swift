@@ -21,7 +21,7 @@ enum ChatPieceEstimate {
             lines(in: segment.code) * 17 + 56
         case let .listSegment(segment):
             CGFloat(segment.items.count) * 24
-        case .thinking, .toolCall, .injected, .working:
+        case .thinking, .toolCall, .injected, .working, .agentMessageTitle:
             27
         case .notice:
             30

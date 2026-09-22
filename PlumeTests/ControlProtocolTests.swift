@@ -30,6 +30,14 @@ struct ControlProtocolTests {
         #expect(kind == .composer)
     }
 
+    @Test func dragDecodesItsPayloadAndDestination() throws {
+        let request = try decode(#"{"id":"9","command":"drag","text":"abc","target":{"id":"tab-chip","index":1}}"#)
+        guard case .drag(let params) = request.command else { Issue.record("not drag"); return }
+        #expect(params.text == "abc")
+        #expect(params.files == nil)
+        #expect(params.target == .control(id: "tab-chip", index: 1, label: nil))
+    }
+
     @Test func everyCommandDecodes() throws {
         let lines = [
             #"{"id":"a","command":"invoke","target":{"id":"x"}}"#,
@@ -40,6 +48,7 @@ struct ControlProtocolTests {
             #"{"id":"f","command":"hierarchy","format":"json","textLimit":0}"#,
             #"{"id":"g","command":"hover","target":{"id":"task-row","index":1}}"#,
             #"{"id":"h","command":"clear","windowNumber":3}"#,
+            #"{"id":"i","command":"drag","files":["/tmp"],"x":10,"y":20}"#,
         ]
         for line in lines {
             _ = try decode(line)

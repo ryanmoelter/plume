@@ -155,18 +155,20 @@ private struct ThemeTintModifier: ViewModifier {
         let background = ThemeChrome.background(for: colorScheme)
         let foreground = ThemeChrome.foreground(for: colorScheme)
         content
-            // `List` paints its own background under `.sidebar` style; hide it
-            // so the tint underneath (or default chrome, absent a theme) shows.
-            .scrollContentBackground(background == nil ? .visible : .hidden)
-            .background(background ?? Color.clear)
+            // Left visible so `List`'s vibrant sidebar material still shows
+            // through the tint below — an opaque `.background()` here would
+            // paint over the system glass instead of tinting it, the same
+            // way the composer's own glass panel tints rather than covers.
+            .scrollContentBackground(.visible)
+            .background(background?.opacity(0.5) ?? Color.clear)
             .foregroundStyle(background == nil ? AnyShapeStyle(.primary) : AnyShapeStyle(foreground ?? .primary))
     }
 }
 
 extension View {
-    /// Applies the resolved terminal theme's background as this view's
-    /// background, falling back to standard chrome when no theme is
-    /// configured or its color didn't parse.
+    /// Tints this view with the resolved terminal theme's background, over
+    /// its existing material rather than in place of it. Falls back to
+    /// standard chrome when no theme is configured or its color didn't parse.
     func themeTint(colorScheme: ColorScheme) -> some View {
         modifier(ThemeTintModifier(colorScheme: colorScheme))
     }

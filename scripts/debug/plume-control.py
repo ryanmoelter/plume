@@ -6,7 +6,7 @@
                      <command> [key=value ...] [--json '{...}']
 
 Commands: list, describe, invoke, setValue, readText, clickSpan, click,
-hover, clear, screenshot, hierarchy. Values parse as JSON when they can, so
+hover, clear, drag, screenshot, hierarchy, key, menu. Values parse as JSON when they can, so
 `target='{"id":"composer-field"}'` and `x=10` work; anything else is a
 string. Prints the response; exit 1 when the app reports an error.
 
