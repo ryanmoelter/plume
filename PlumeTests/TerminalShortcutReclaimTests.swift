@@ -97,6 +97,20 @@ import Testing
         #expect(!TerminalShortcutMonitor.isClaimed(characters: "h", flags: [.option]))
     }
 
+    /// The menu item and the terminal monitor must read the same store, or
+    /// rebinding a chord moves one and not the other.
+    @Test func theMenuAndTheMonitorReadTheSameRebind() {
+        let chord = MenuShortcut("j", modifiers: [.option])
+        let previous = AppSettings.shared.shortcutBindings
+        AppSettings.shared.shortcutBindings = ShortcutBindings(overrides: [.nextTab: chord])
+        defer { AppSettings.shared.shortcutBindings = previous }
+
+        #expect(PlumeShortcuts.shortcut(for: .nextTab) == chord)
+        #expect(PlumeShortcuts.all.contains(chord))
+        #expect(!PlumeShortcuts.all.contains(ShortcutAction.nextTab.defaultShortcut))
+        #expect(TerminalShortcutMonitor.isClaimed(characters: "j", flags: [.option]))
+    }
+
     /// The monitor sees the event before the surface does, so an Option chord
     /// it claims never reaches `performKeyEquivalent` on the terminal at all.
     /// Exercised through the real monitor rather than its filter alone.
