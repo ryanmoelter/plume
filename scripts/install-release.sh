@@ -114,8 +114,32 @@ running_pids() {
   ps -ef | awk -v d="$DEST" 'index($0, d "/Contents/MacOS/Plume") && !/awk/ {print $2}'
 }
 
+# Quit rather than signal. A bare `kill` ends the process without running
+# AppKit's termination path, so `applicationWillTerminate` — and the
+# `closeAll()` that stops this app's agents — never runs, and every agent is
+# orphaned. Verified: SIGTERM produces no "Terminating, closing N agent
+# session(s)" log line, an AppleScript quit does.
+#
+# Backgrounded with a timeout: `applicationShouldTerminate` puts up a modal
+# when an agent is still working, and `osascript` would otherwise wait on it
+# forever. The signal below is the fallback when it does.
+if [ -n "$(running_pids)" ]; then
+  echo "quitting installed Plume: $(running_pids | tr '\n' ' ')"
+  osascript -e 'tell application id "com.ryanmoelter.Plume" to quit' >/dev/null 2>&1 &
+  osascript_pid=$!
+  ( sleep 20; kill "$osascript_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  wait "$osascript_pid" 2>/dev/null || true
+fi
+
+for _ in $(seq 1 20); do
+  [ -z "$(running_pids)" ] && break
+  sleep 1
+done
+
+# Only once the graceful path has had its chance; by here an agent has already
+# been told to stop, so signalling costs nothing.
 for pid in $(running_pids); do
-  echo "quitting installed Plume $pid"
+  echo "quit did not take, signalling Plume $pid"
   kill "$pid"
 done
 
@@ -129,6 +153,32 @@ if [ -n "$(running_pids)" ]; then
   fail "Plume still running: $(running_pids) — bundle NOT replaced"
 fi
 echo "installed Plume exited"
+
+# Plume exiting does not guarantee its agents went with it. One that survives
+# keeps writing its transcript, and the relaunched app resumes that same
+# session — two writers on one file, forking it, each blind to the other's
+# turns. Matched on the settings path Plume launches agents with, which no
+# other `claude` carries.
+agent_pids() {
+  ps -Ao pid=,command= \
+    | awk '/claude/ && index($0, "Application Support/Plume/hooks/settings.json") {print $1}'
+}
+
+for _ in $(seq 1 10); do
+  [ -z "$(agent_pids)" ] && break
+  sleep 1
+done
+
+if [ -n "$(agent_pids)" ]; then
+  echo "agents outlived Plume, ending them: $(agent_pids | tr '\n' ' ')"
+  for pid in $(agent_pids); do kill "$pid" 2>/dev/null || true; done
+  sleep 2
+  for pid in $(agent_pids); do kill -9 "$pid" 2>/dev/null || true; done
+fi
+
+if [ -n "$(agent_pids)" ]; then
+  fail "agents still running: $(agent_pids | tr '\n' ' ') — bundle NOT replaced"
+fi
 
 # Replaced rather than merged, so a file dropped from the bundle doesn't survive.
 if ! (rm -rf "$DEST" && cp -R "$APP" "$DEST"); then

@@ -56,4 +56,10 @@ final class HeadlessSessionManager {
     }
 
     var activeSessionCount: Int { sessions.count }
+
+    /// Pids of every agent this app currently owns. A `claude` process that
+    /// looks like Plume's but is absent here outlived a previous run.
+    var ownedProcessIdentifiers: Set<pid_t> {
+        Set(sessions.values.compactMap(\.processIdentifier))
+    }
 }

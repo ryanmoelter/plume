@@ -109,11 +109,36 @@ private struct HeadlessAgentTabContent: View {
             agentSessionID: tab.agentSessionID,
             workingDirectoryPath: task.workingDirectoryPath,
             hasExistingSurfaceSession: HeadlessSessionManager.shared.existingSession(for: tab.id) != nil,
+            isSessionWrittenElsewhere: isSessionWrittenElsewhere(),
             directoryExists: { FileManager.default.fileExists(atPath: $0) }
         ) else { return }
 
         hasResumed = true
         AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+    }
+
+    /// True when an agent orphaned by a previous run is still appending to
+    /// this tab's transcript. Resuming on top of one forks the transcript and
+    /// leaves both sides blind to the other's turns.
+    private func isSessionWrittenElsewhere() -> Bool {
+        guard
+            let sessionID = tab.agentSessionID,
+            let workingDirectory = task.workingDirectoryPath
+        else { return false }
+
+        let transcript = SessionJSONLReader.transcriptPath(
+            workingDirectory: workingDirectory,
+            sessionID: sessionID
+        )
+        let modified = try? FileManager.default
+            .attributesOfItem(atPath: transcript)[.modificationDate] as? Date
+
+        return OrphanedSessionDetector.isWrittenElsewhere(
+            transcriptModifiedAt: modified ?? nil,
+            now: Date(),
+            candidatePIDs: ClaudeProcessScanner.plumeLaunchedProcessIDs(),
+            ownedPIDs: HeadlessSessionManager.shared.ownedProcessIdentifiers
+        )
     }
 }
 

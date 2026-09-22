@@ -185,6 +185,9 @@ final class HeadlessSession {
         send(StreamJSONEncoder.initialize(requestID: requestID))
     }
 
+    /// The running agent's pid, or nil when this session has none.
+    var processIdentifier: pid_t? { process?.processIdentifier }
+
     func stop() {
         process?.terminate()
         process = nil

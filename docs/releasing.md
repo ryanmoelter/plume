@@ -61,6 +61,10 @@ Notarization reads the `plume-notary` keychain profile, which can raise a Touch 
 
 **Quit a running Plume before copying.** Overwriting a live bundle corrupts the running process. The script waits for a real exit and aborts rather than replacing a bundle still in use.
 
+**Quit Plume, never signal it.** `kill` ends the process without running AppKit's termination path, so `applicationWillTerminate` — and the `closeAll()` that stops this app's agents — never runs. Every agent is then orphaned: it keeps writing its transcript, and the relaunched app resumes that same session, putting two writers on one file. They fork it, and each goes on blind to the other's turns.
+
+Verified by the `Terminating, closing N agent session(s)` log line, which an AppleScript quit produces and a SIGTERM does not. The script quits first and only signals if that fails, then ends any agent still holding Plume's generated `settings.json` and aborts if one will not die.
+
 Check with `ps`, not `pgrep`:
 
 ```
@@ -73,7 +77,7 @@ Releasing from a session hosted *inside* Plume is the case to watch, though it s
 
 `scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately.
 
-**Stop after running the script and wait for Ryan.** The old `claude` process keeps running after the app quits, so an agent that carries straight on is talking from a session the relaunched app no longer hosts. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
+**Stop after running the script and wait for Ryan.** The script ends the agent driving it along with every other one, so an agent that carries straight on is talking from a session the relaunched app no longer hosts — and before that was fixed, one that kept running would fork its own transcript. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
 
 **The conversation comes back**, in the new app: it relaunches Plume, which restores the session with its context intact. Once Ryan messages, read `/tmp/plume-install.log` — that log is the whole record of what the install did.
 
