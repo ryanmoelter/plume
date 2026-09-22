@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
+    @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
     var body: some View {
         Form {
@@ -285,6 +286,15 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
             }
             Section {
+                fullDiskAccessRow
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("A change here applies after Plume restarts.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Show GitHub PR status in the sidebar", isOn: $settings.showsPullRequestStatus)
 
                 ForEach(settings.ignoredPendingChecks, id: \.self) { name in
@@ -327,6 +337,23 @@ struct SettingsView: View {
         .onAppear {
             helperState = CommandLineHelper.state()
             keepAwake.refreshLidOverride()
+            fullDiskAccessGranted = FullDiskAccess.isGranted
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            fullDiskAccessGranted = FullDiskAccess.isGranted
+        }
+    }
+
+    @ViewBuilder
+    private var fullDiskAccessRow: some View {
+        LabeledContent("Full Disk Access") {
+            Text(fullDiskAccessGranted ? "Granted" : "Not granted")
+                .foregroundStyle(fullDiskAccessGranted ? Color.secondary : Color.orange)
+                .plumeID(AccessibilityID.fullDiskAccessStatus, value: fullDiskAccessGranted ? "Granted" : "Not granted")
+            Button("Open System Settings…") {
+                NSWorkspace.shared.open(FullDiskAccess.settingsURL)
+            }
+            .plumeID(AccessibilityID.fullDiskAccessManageButton)
         }
     }
 
