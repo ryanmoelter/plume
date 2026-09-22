@@ -81,7 +81,7 @@ Both transports launch through `AgentLauncher` and report through `StatusEngine`
 
 ## Verifying the app from an agent
 
-A debug build serves a control socket. **`docs/control-server.md` is the reference**; `scripts/debug/plume-control.py` is the client. Launch a scratch instance with `open -g -n --env HOME=/tmp/plume-scratch …`, then `hierarchy` dumps the window as text, `readText` reads the composer or the chat list, `invoke`/`setValue`/`clickSpan`/`hover` drive it, and `screenshot` is the expensive last resort. It needs no Accessibility grant and never activates the app; run every call with `--assert-frontmost`. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. Clicks and hovers move an overlay cursor in the window so a person can follow along; `clear` removes it.
+**Use the `drive-app` skill.** A debug build serves a control socket that reads the window as text, drives controls, hovers, and screenshots without an Accessibility grant and without activating the app; `docs/control-server.md` is the reference and `scripts/debug/plume-control.py` the client. Controls reach it through `plumeID(_:)` and hover through `plumeHover`, so a control without one is invisible to it. The whole layer is `#if DEBUG` and compiles to nothing in Release.
 
 ## Verifying terminal behavior
 
