@@ -92,7 +92,11 @@ enum PlumeShortcuts {
     }
 
     static var all: [MenuShortcut] {
-        fixed + AppSettings.shared.shortcutBindings.all
+        all(with: AppSettings.shared.shortcutBindings)
+    }
+
+    static func all(with bindings: ShortcutBindings) -> [MenuShortcut] {
+        fixed + bindings.all
     }
 }
 

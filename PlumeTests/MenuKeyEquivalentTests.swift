@@ -57,10 +57,10 @@ import Testing
         #expect(fires(MenuShortcut("j", modifiers: [.command, .option]), composed: "j", flags: [.command, .option]))
     }
 
-    /// The bug PLUME-49 shipped with. An Option chord composes to another
-    /// character, and AppKit matches a key equivalent against that composed
-    /// character, so a bare Option chord never reaches its item.
-    @Test func bareOptionChordMissesTheItemItComposesAwayFrom() {
-        #expect(!fires(MenuShortcut("j", modifiers: [.option]), composed: "∆", flags: .option))
+    /// ⌥J composes to ∆ on a US layout. AppKit still matches the item, because
+    /// it compares against the key's label rather than what the chord types —
+    /// so a bare Option chord is a usable binding.
+    @Test func bareOptionChordFiresDespiteComposing() {
+        #expect(fires(MenuShortcut("j", modifiers: [.option]), composed: "∆", flags: .option))
     }
 }

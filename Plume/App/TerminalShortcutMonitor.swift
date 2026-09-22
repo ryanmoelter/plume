@@ -42,7 +42,6 @@ final class TerminalShortcutMonitor {
     /// returned to AppKit untouched, so every key Plume does not bind reaches
     /// the terminal exactly as before.
     private func handle(_ event: NSEvent) -> Bool {
-        Log.app.notice("shortcut monitor saw \(event.charactersIgnoringModifiers ?? "?", privacy: .public)")
         guard Self.isClaimed(characters: event.charactersIgnoringModifiers, flags: event.modifierFlags)
         else { return false }
 
@@ -50,8 +49,8 @@ final class TerminalShortcutMonitor {
         // command with no selected task declines here and the chord falls
         // through to the terminal rather than vanishing.
         let handled = NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
-        Log.app.notice(
-            "shortcut monitor claimed \(event.charactersIgnoringModifiers ?? "?", privacy: .public), menu handled: \(handled, privacy: .public)"
+        Log.app.debug(
+            "shortcut monitor claimed \(event.charactersIgnoringModifiers ?? "?", privacy: .public); menu handled it: \(handled, privacy: .public)"
         )
         return handled
     }
@@ -63,7 +62,15 @@ final class TerminalShortcutMonitor {
     /// narrowed to Command-bearing chords by `MenuShortcut.isClaimable` — the
     /// terminal keeps every bare key, every Control chord, and every Option
     /// chord that Command does not also cover.
-    static func isClaimed(characters: String?, flags: NSEvent.ModifierFlags) -> Bool {
-        PlumeShortcuts.all.contains { $0.matches(characters: characters, flags: flags) }
+    ///
+    /// `shortcuts` defaults to what is bound now. A test passes its own set
+    /// rather than the live one, whose rebindable half is whatever the
+    /// developer running the test last chose.
+    static func isClaimed(
+        shortcuts: [MenuShortcut] = PlumeShortcuts.all,
+        characters: String?,
+        flags: NSEvent.ModifierFlags
+    ) -> Bool {
+        shortcuts.contains { $0.matches(characters: characters, flags: flags) }
     }
 }

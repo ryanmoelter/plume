@@ -8,11 +8,16 @@ import Testing
 /// needed, so the near-miss cases matter as much as the matches.
 @MainActor
 struct TerminalShortcutMonitorTests {
+    /// The shipped chords, not the live ones. `PlumeShortcuts.all` reads
+    /// `AppSettings.shared`, whose rebindable half is whatever the developer
+    /// running these tests last chose in Settings.
+    private let defaults = PlumeShortcuts.all(with: ShortcutBindings())
+
     @Test func everyBoundShortcutIsClaimed() {
-        for shortcut in PlumeShortcuts.all {
+        for shortcut in defaults {
             let flags = MenuShortcut.appKitFlags(shortcut.modifiers)
             #expect(
-                TerminalShortcutMonitor.isClaimed(characters: String(shortcut.key), flags: flags),
+                TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: String(shortcut.key), flags: flags),
                 "\(shortcut.modifiers) \(shortcut.key) should be claimed"
             )
         }
@@ -20,69 +25,71 @@ struct TerminalShortcutMonitorTests {
 
     @Test func plainTypingIsNeverClaimed() {
         for character in "abcdefghijklmnopqrstuvwxyz0123456789[]" {
-            #expect(!TerminalShortcutMonitor.isClaimed(characters: String(character), flags: []))
+            #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: String(character), flags: []))
         }
     }
 
     /// The terminal sends these as C0 control codes and Meta sequences; taking
     /// one would break ⌃C or Option-composed input.
     @Test func controlAndOptionChordsAreLeftToTheTerminal() {
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.control]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.option]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "a", flags: [.control]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "c", flags: [.control]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "n", flags: [.option]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.option]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "a", flags: [.control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "c", flags: [.control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "n", flags: [.option]))
     }
 
     @Test func commandChordsPlumeDoesNotBindPassThrough() {
         for character in "bcdefghijklmopqrsuvxyz" {
             #expect(
-                !TerminalShortcutMonitor.isClaimed(characters: String(character), flags: [.command]),
+                !TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: String(character), flags: [.command]),
                 "⌘\(character) is unbound and should pass through"
             )
         }
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "0", flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "0", flags: [.command]))
     }
 
     /// The modifier set is compared whole, so a chord never matches a
     /// differently-modified version of the same key.
     @Test func extraOrMissingModifiersDoNotMatch() {
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "]", flags: [.command]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "]", flags: [.command, .shift]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "]", flags: [.command, .control]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "]", flags: [.command, .option]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "]", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "]", flags: [.command, .shift]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "]", flags: [.command, .control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "]", flags: [.command, .option]))
 
         // ⌘T and ⌘⌥T are both bound; ⌘⇧T and ⌘⌃T are not.
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.command]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.command, .option]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.command, .shift]))
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "t", flags: [.command, .control]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.command, .option]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.command, .shift]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "t", flags: [.command, .control]))
 
         // ⌘⇧A and ⌘⌃A are bound; plain ⌘A (select all) is not.
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: "a", flags: [.command]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "a", flags: [.command, .shift]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "a", flags: [.command, .control]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "a", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "a", flags: [.command, .shift]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "a", flags: [.command, .control]))
     }
 
     /// Caps lock and the numeric-pad bit ride along on real events; they must
     /// not stop an otherwise-exact chord from matching.
     @Test func incidentalModifierBitsAreIgnored() {
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "n", flags: [.command, .capsLock]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "1", flags: [.command, .numericPad]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "w", flags: [.command, .function]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "n", flags: [.command, .capsLock]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "1", flags: [.command, .numericPad]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "w", flags: [.command, .function]))
     }
 
     @Test func aKeyWithNoCharactersIsNeverClaimed() {
-        #expect(!TerminalShortcutMonitor.isClaimed(characters: nil, flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: nil, flags: [.command]))
     }
 
     /// Caps lock makes AppKit report "N" where the shortcut declares "n".
     @Test func matchingIsCaseInsensitive() {
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "N", flags: [.command]))
-        #expect(TerminalShortcutMonitor.isClaimed(characters: "A", flags: [.command, .shift]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "N", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "A", flags: [.command, .shift]))
     }
 
-    @Test func everyClaimedShortcutCarriesCommand() {
+    /// Reads the live bindings on purpose: a chord the user can record must
+    /// also be one the monitor can take back from a terminal.
+    @Test func everyClaimedShortcutCarriesCommandOrOption() {
         #expect(PlumeShortcuts.all.allSatisfy { $0.isClaimable })
     }
 
