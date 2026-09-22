@@ -134,7 +134,9 @@ struct SidebarView: View {
     }
 
     /// Removing the worktree is best-effort: if git refuses, the task stays so
-    /// the user can resolve it rather than losing track of the directory.
+    /// the user can resolve it rather than losing track of the directory. Its
+    /// tabs are closed by then either way — they have to go before git touches
+    /// the directory, and there is no reopening them if it declines.
     private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
         guard removeWorktree,
               let repository = task.repoPath,
@@ -142,6 +144,13 @@ struct SidebarView: View {
         else {
             finishDeleting(task)
             return
+        }
+        // Every tab's shell and agent has its working directory inside the
+        // tree git is about to delete, so they go first. Removal awaits, and a
+        // process left running across that wait holds a cwd that no longer
+        // exists — and can still write into the directory as it is removed.
+        for tab in task.tabs {
+            TaskStore.forgetTab(tab)
         }
         Task {
             do {
