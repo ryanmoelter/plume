@@ -271,7 +271,12 @@ struct ChatComposer: View, ThemedView {
         }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
-            hasSendableText = sendableText(drafts.draft(forTab: tab.id))
+            let draft = drafts.draft(forTab: tab.id)
+            hasSendableText = sendableText(draft)
+            // A composer mounting with an existing draft — returning from
+            // another task — should pick up editing where it left off,
+            // rather than at offset 0.
+            pendingCaretLocation = (draft as NSString).length
         }
     }
 
