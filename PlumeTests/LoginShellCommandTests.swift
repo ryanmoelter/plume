@@ -27,6 +27,10 @@ struct LoginShellCommandTests {
         #expect(wrapped == "/bin/zsh -lic \(shellQuoted(inner))")
     }
 
+    @Test func wrapExecReplacesTheShellWithTheCommand() {
+        #expect(LoginShellCommand.wrapExec("claude -p", shell: "/bin/zsh") == "/bin/zsh -lic 'exec claude -p'")
+    }
+
     @Test func loginShellWithNoInnerCommand() {
         #expect(LoginShellCommand.loginShell(shell: "/bin/zsh") == "/bin/zsh -li")
     }
