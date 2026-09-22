@@ -265,6 +265,36 @@ Open the DMG, drag Plume to Applications. A correctly notarized build opens norm
 
 First launch prompts for permissions this machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
 
+## Publishing to Homebrew
+
+`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask plume`. Casks and formulae coexist in that one repo.
+
+There is no `auto_updates` — Plume has no self-updater, so `brew upgrade --cask plume` is the only update path for cask users.
+
+After a release is public (not a draft), bump the cask:
+
+```
+scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0
+```
+
+It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask, commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
+
+The script lives in this (public) repo, so it never references a tap checkout on any particular machine — only the tap's repo name.
+
+### Checking the cask
+
+From a machine with the tap already tapped (`brew tap ryanmoelter/tap`):
+
+```
+brew style --cask ryanmoelter/tap/plume
+brew audit --cask ryanmoelter/tap/plume
+brew livecheck ryanmoelter/tap/plume
+```
+
+`brew style --cask` refuses to run on a cask file outside a tap, so point it at the tapped name, not a bare path, unless you're working inside an actual tap checkout. `brew audit --cask --new` additionally fails with "GitHub repository not notable enough" — that rule gates submission to homebrew-cask proper, not a personal tap, and is expected here.
+
+**Never run `brew install --cask plume` or `brew uninstall --cask plume` against a Plume you're currently running** — it replaces or removes the live `/Applications/Plume.app` out from under the running process. Test cask changes against a build that isn't the one driving your session, or ask before running either command.
+
 ## Bundle ID and signing team migration
 
 Plume is expected to move to company ownership, with the bundle ID becoming `com.gingerlabs.plume` and the signing team changing to the work one. Neither blocks distribution, and they are independent knobs.

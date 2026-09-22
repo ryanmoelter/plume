@@ -28,7 +28,15 @@ Designed for people who jump between Claude Code sessions and do many things in 
 
 ## Installing
 
-Download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases).
+With [Homebrew](https://brew.sh):
+
+```
+brew install ryanmoelter/tap/plume
+```
+
+Upgrade with `brew upgrade --cask plume`. Plume has no self-updater, so this is the only way to get a newer version once it's installed.
+
+Or download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases).
 
 ## Building from source
 
