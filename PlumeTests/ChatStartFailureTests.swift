@@ -62,4 +62,11 @@ struct ChatStartFailureTests {
 
         #expect(failure.remedy == .installCLI)
     }
+
+    @Test func anUntrustedDirectoryPointsAtTheTerminalTransport() {
+        let failure = ChatStartFailure.untrustedDirectory(path: "/Users/ryan/repo/.plume/worktrees/x")
+
+        #expect(failure.remedy == .trustDirectory)
+        #expect(failure.detail?.contains("x") == true)
+    }
 }

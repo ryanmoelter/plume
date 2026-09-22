@@ -59,6 +59,82 @@ struct BranchNamingTests {
         #expect(suffix.count == 4)
         #expect(suffix.allSatisfy { $0.isHexDigit })
     }
+
+    // MARK: - Dropping the branch prefix
+
+    @Test func strippingThePrefixKeepsOnlyTheLastSegment() {
+        #expect(WorkspaceProvisioner.worktreeDirectoryName(
+            for: "ryanm/plume-183", strippingPrefix: true
+        ) == "plume-183")
+        #expect(WorkspaceProvisioner.worktreeDirectoryName(
+            for: "plume/task", strippingPrefix: true
+        ) == "task")
+    }
+
+    @Test func strippingThePrefixLeavesAnUnprefixedBranchAlone() {
+        #expect(WorkspaceProvisioner.worktreeDirectoryName(
+            for: "hotfix", strippingPrefix: true
+        ) == "hotfix")
+    }
+
+    @Test func strippingDropsEveryLeadingSegment() {
+        #expect(WorkspaceProvisioner.worktreeDirectoryName(
+            for: "a/b/c", strippingPrefix: true
+        ) == "c")
+    }
+
+    /// Stripping to nothing would name every such worktree `worktree`.
+    @Test func aTrailingSlashKeepsTheNameItWouldOtherwiseLose() {
+        #expect(WorkspaceProvisioner.worktreeDirectoryName(
+            for: "ryanm/", strippingPrefix: true
+        ) == "ryanm")
+    }
+
+    @Test func strippingReachesTheDerivedPath() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/repo", branch: "ryanm/plume-183", strippingPrefix: true
+        ) == "/repo/.plume/worktrees/plume-183")
+    }
+
+    // MARK: - An explicit location
+
+    @Test func anExplicitPathOverridesEveryDerivation() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/repo",
+            branch: "plume/x-0001",
+            basePath: "/elsewhere",
+            explicitPath: "/somewhere/else/tree"
+        ) == "/somewhere/else/tree")
+    }
+
+    @Test func anExplicitPathExpandsATilde() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/repo", branch: "plume/x-0001", explicitPath: "~/trees/x"
+        ) == NSHomeDirectory() + "/trees/x")
+    }
+
+    @Test func anEmptyExplicitPathFallsBackToTheDerivedOne() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/repo", branch: "plume/x-0001", explicitPath: "  "
+        ) == "/repo/.plume/worktrees/plume-x-0001")
+    }
+
+    @Test func aSiblingOfTheRepositoryIsNotInsideItsPlumeDirectory() {
+        #expect(!WorkspaceProvisioner.isInsidePlumeDirectory(
+            path: "/parent/repo-trees/x", repository: "/parent/repo"
+        ))
+        #expect(WorkspaceProvisioner.isInsidePlumeDirectory(
+            path: "/parent/repo/.plume/worktrees/x", repository: "/parent/repo"
+        ))
+    }
+
+    // MARK: - The branch prefix
+
+    @Test func aCustomPrefixReplacesPlume() {
+        #expect(WorkspaceProvisioner.suggestedBranchName(
+            for: "Fix Login", suffix: "a1b2", prefix: "ryanm/"
+        ) == "ryanm/fix-login-a1b2")
+    }
 }
 
 /// Drives real `git`, so these create and tear down scratch repositories.
@@ -273,6 +349,53 @@ struct WorktreeProvisioningTests {
         // The temporary directory is a symlink on macOS, so compare resolved paths.
         #expect(root.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
             == URL(fileURLWithPath: repository).resolvingSymlinksInPath().path)
+    }
+
+    @Test func theConfiguredPrefixComesFromWtBranchprefix() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try GitRunner.run(["config", "wt.branchprefix", "ryanm/"], in: repository)
+
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository) == "ryanm/")
+    }
+
+    /// A prefix is a path segment, so a config that omits the slash still
+    /// yields one. Set on `wt.branchprefix` because a developer's own global
+    /// config may define it, which would outrank a local `stack.branchprefix`.
+    @Test func aPrefixWithoutASlashGainsOne() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try GitRunner.run(["config", "wt.branchprefix", "alice"], in: repository)
+
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository) == "alice/")
+    }
+
+    @Test func createsAWorktreeAtAnExplicitSiblingLocation() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let sibling = repository + "-trees/feature"
+        defer { try? FileManager.default.removeItem(atPath: repository + "-trees") }
+
+        let path = try WorkspaceProvisioner.createWorktree(
+            repository: repository, branch: "plume/feature-0002", explicitPath: sibling
+        )
+
+        #expect(path == sibling)
+        #expect(FileManager.default.fileExists(atPath: "\(path)/README.md"))
+        // Outside `.plume`, so no ignore file is this call's business.
+        #expect(!FileManager.default.fileExists(atPath: "\(repository)/.plume/.gitignore"))
+    }
+
+    @Test func createsAWorktreeUnderTheStrippedDirectoryName() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+
+        let path = try WorkspaceProvisioner.createWorktree(
+            repository: repository, branch: "ryanm/plume-183", strippingPrefix: true
+        )
+
+        #expect(path == "\(repository)/.plume/worktrees/plume-183")
+        #expect(FileManager.default.fileExists(atPath: "\(path)/README.md"))
     }
 
     @Test func repositoryRootIsNilOutsideAnyRepository() throws {

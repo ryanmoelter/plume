@@ -402,7 +402,10 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         Divider()
+        // The sheet takes the repository from the task rather than asking, so
+        // it has nothing to work from until one is chosen.
         Button("New Worktree…") { worktreeSheetShown = true }
+            .disabled(task.repoPath == nil)
     }
 
     private var worktreeChip: some View {
