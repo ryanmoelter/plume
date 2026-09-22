@@ -33,12 +33,17 @@ nonisolated struct CommandModeResult: Equatable, Sendable {
     /// its own bash mode, and `InjectedContent` classifies the same tags, so
     /// the chat renders it as a shell marker rather than words the user
     /// typed. Both output tags are always written, empty or not, as the CLI
-    /// does. The exit code has no tag of its own and is left out: a failing
-    /// command explains itself through stderr.
+    /// does.
+    ///
+    /// The exit code is always written too, though the CLI has no tag for it.
+    /// Writing it only on failure would make its absence ambiguous — a
+    /// missing tag could mean success or an older message — and stderr is a
+    /// poor substitute, since plenty of commands write progress there and
+    /// exit zero.
     var transcriptText: String {
         """
         <bash-input>\(command)</bash-input>
-        <bash-stdout>\(stdout)</bash-stdout><bash-stderr>\(stderr)</bash-stderr>
+        <bash-stdout>\(stdout)</bash-stdout><bash-stderr>\(stderr)</bash-stderr><bash-exit>\(exitCode)</bash-exit>
         """
     }
 }

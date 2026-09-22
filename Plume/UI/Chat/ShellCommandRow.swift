@@ -31,7 +31,23 @@ struct ShellCommandRow: View {
     /// can be a whole build log, so it is bounded.
     var maxHeight: CGFloat?
 
-    private var hasBoth: Bool { shell.command != nil && shell.output != nil }
+    private var hasBoth: Bool { shell.command != nil && output != nil }
+
+    /// A failing command with nothing on either stream still has its exit
+    /// code to report, so the output half draws an empty block rather than
+    /// vanishing and leaving the failure unsaid.
+    private var output: String? {
+        if let output = shell.output { return output }
+        return shell.didFail ? "" : nil
+    }
+
+    /// `error • exit 1`, or plain `error` when no exit code was recorded —
+    /// Claude Code's own bash mode writes none.
+    private var outputTitle: String {
+        guard shell.didFail else { return "output" }
+        guard let exitCode = shell.exitCode else { return "error" }
+        return "error \u{2022} exit \(exitCode)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,10 +60,10 @@ struct ShellCommandRow: View {
                     maxHeight: maxHeight
                 )
             }
-            if let output = shell.output {
+            if let output {
                 CodeSegmentView(
                     segment: CodeSegment(code: output),
-                    title: shell.didFail ? "error" : "output",
+                    title: outputTitle,
                     bleeds: bleeds,
                     joins: hasBoth ? .above : .alone,
                     isOutlined: true,

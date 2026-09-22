@@ -101,15 +101,30 @@ struct CommandModeRunnerTests {
         #expect(CommandModeRunner.truncated("hello") == "hello")
     }
 
-    /// The exact shape Claude Code's own bash mode writes, from a captured
+    /// The shape Claude Code's own bash mode writes, from a captured
     /// `!echo hello` session — the whole point of the tags is that the agent
     /// and `InjectedContent` both already understand them.
+    ///
+    /// `<bash-exit>` is Plume's own addition and has no counterpart in the
+    /// captured session: the CLI reports no exit code, and an agent reading
+    /// stderr to guess at one is wrong often enough to be worth the
+    /// divergence. Everything before it stays byte-identical.
     @Test func transcriptTextMatchesTheCLIsBashModeFormat() {
         let result = CommandModeResult(command: "echo hello", stdout: "hello", stderr: "", exitCode: 0)
         #expect(result.transcriptText == """
         <bash-input>echo hello</bash-input>
-        <bash-stdout>hello</bash-stdout><bash-stderr></bash-stderr>
+        <bash-stdout>hello</bash-stdout><bash-stderr></bash-stderr><bash-exit>0</bash-exit>
         """)
+    }
+
+    /// The exit code rides after the streams, so the tags the CLI does write
+    /// keep their captured order and an agent parsing them positionally is
+    /// unaffected.
+    @Test func theExitTagFollowsTheStreamTags() throws {
+        let result = CommandModeResult(command: "false", stdout: "", stderr: "", exitCode: 1)
+        let text = result.transcriptText
+        let stderrEnd = try #require(text.range(of: "</bash-stderr>")).upperBound
+        #expect(text[stderrEnd...] == "<bash-exit>1</bash-exit>")
     }
 
     /// Plume renders its own sent text back through the same classifier the

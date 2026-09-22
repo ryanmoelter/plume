@@ -13,12 +13,17 @@ nonisolated struct ShellTranscript: Equatable {
     /// in the order the shell printed it.
     var output: String?
 
-    /// Whether the command wrote anything to stderr.
+    /// How the command ended, when the line says. Plume's command mode
+    /// always writes it; Claude Code's own bash mode never does, so a line
+    /// from there leaves it nil and falls back to `didFail`.
+    var exitCode: Int32?
+
+    /// Whether the run failed.
     ///
-    /// The transcript records no exit code — `CommandModeResult` leaves it
-    /// out — so this is the only failure signal a parsed line carries. It
-    /// over-reports: plenty of commands write progress to stderr and exit
-    /// zero. A tool call knows better and passes its own `is_error`.
+    /// An exit code settles it outright. Without one, the only signal a
+    /// parsed line carries is whether anything reached stderr, which
+    /// over-reports — plenty of commands write progress there and exit zero.
+    /// A tool call knows better and passes its own `is_error`.
     var didFail = false
 
     var isEmpty: Bool { command == nil && output == nil }
@@ -28,10 +33,14 @@ nonisolated struct ShellTranscript: Equatable {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
         let stderr = tagged(text, "bash-stderr")
+        let exitCode = tagged(text, "bash-exit").flatMap { Int32($0) }
         return ShellTranscript(
             command: tagged(text, "bash-input"),
             output: streams.isEmpty ? nil : streams.joined(separator: "\n"),
-            didFail: !(stderr ?? "").isEmpty
+            exitCode: exitCode,
+            // The exit code is the better answer wherever there is one, so it
+            // replaces the stderr guess rather than joining it.
+            didFail: exitCode.map { $0 != 0 } ?? !(stderr ?? "").isEmpty
         )
     }
 

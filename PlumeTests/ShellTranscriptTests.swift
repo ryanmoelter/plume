@@ -54,3 +54,65 @@ struct ShellTranscriptTests {
         #expect(shell.command == "echo a > b.txt")
     }
 }
+
+/// The exit code Plume's command mode writes, and what a line without one
+/// falls back to.
+@MainActor
+struct ShellExitCodeTests {
+    private func result(stdout: String = "", stderr: String = "", exitCode: Int32) -> CommandModeResult {
+        CommandModeResult(command: "ls", stdout: stdout, stderr: stderr, exitCode: exitCode)
+    }
+
+    @Test func aZeroExitParsesAsSuccess() {
+        let shell = ShellTranscript.parse(result(stdout: "foo", exitCode: 0).transcriptText)
+
+        #expect(shell.exitCode == 0)
+        #expect(!shell.didFail)
+    }
+
+    @Test func aNonzeroExitParsesAsFailure() {
+        let shell = ShellTranscript.parse(result(stderr: "nope", exitCode: 1).transcriptText)
+
+        #expect(shell.exitCode == 1)
+        #expect(shell.didFail)
+    }
+
+    /// The whole point of sending the code: a command that chats on stderr
+    /// and exits zero is not a failure, which the stderr guess got wrong.
+    @Test func stderrWithAZeroExitIsNotAFailure() {
+        let shell = ShellTranscript.parse(result(stderr: "downloading…", exitCode: 0).transcriptText)
+
+        #expect(!shell.didFail)
+    }
+
+    /// And the reverse: a silent failure is still a failure.
+    @Test func aNonzeroExitWithNoOutputStillFails() {
+        let shell = ShellTranscript.parse(result(exitCode: 2).transcriptText)
+
+        #expect(shell.exitCode == 2)
+        #expect(shell.didFail)
+    }
+
+    /// Claude Code's own bash mode writes no exit tag, so those lines keep
+    /// the stderr heuristic rather than reading as a success.
+    @Test func aLineWithNoExitTagFallsBackToStderr() {
+        let withStderr = ShellTranscript.parse(
+            "<bash-input>ls</bash-input>\n<bash-stdout></bash-stdout><bash-stderr>boom</bash-stderr>"
+        )
+        #expect(withStderr.exitCode == nil)
+        #expect(withStderr.didFail)
+
+        let clean = ShellTranscript.parse(
+            "<bash-input>ls</bash-input>\n<bash-stdout>foo</bash-stdout><bash-stderr></bash-stderr>"
+        )
+        #expect(clean.exitCode == nil)
+        #expect(!clean.didFail)
+    }
+
+    @Test func theCommandAndOutputStillParseAlongsideTheExitCode() {
+        let shell = ShellTranscript.parse(result(stdout: "foo", stderr: "bar", exitCode: 1).transcriptText)
+
+        #expect(shell.command == "ls")
+        #expect(shell.output == "foo\nbar")
+    }
+}
