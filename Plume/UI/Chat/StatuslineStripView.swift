@@ -496,11 +496,10 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
-    /// How far through the window the clock is, 0–1. Drawn as a thin mark
-    /// across the bar, so the fill's position against it reads the same
-    /// whether the fill is short of the mark or past it. Nil draws nothing,
-    /// which is what every non-quota meter wants — a context window does not
-    /// refill on a clock.
+    /// How far through the window the clock is, 0–1. Drawn as a dot on the
+    /// bar, so the fill's position against it reads the same whether the fill
+    /// is short of it or past it. Nil draws nothing, which is what every
+    /// non-quota meter wants — a context window does not refill on a clock.
     var pacing: Double?
     /// Dims the fill alone. The track stays put — see `StackedMeter.isStale`.
     var isStale: Bool = false
@@ -511,55 +510,69 @@ struct MeterView: View, ThemedView {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .leading) {
+            // Centred vertically as well as leading, so the dot sits on the
+            // bar's midline rather than its top edge.
+            ZStack(alignment: Alignment(horizontal: .leading, vertical: .center)) {
+                let fillWidth = geometry.size.width * fraction
+                let mark = pacing.flatMap { pacing in
+                    PacingMark.isWorthDrawing(pacing)
+                        ? PacingMark.offset(pacing: pacing, barWidth: geometry.size.width)
+                        : nil
+                }
+
                 Capsule()
                     .fill(color.opacity(trackOpacity))
+
+                // The dot is drawn twice at the one position: once here, over
+                // the track, and once clipped to the fill. Each copy carries
+                // the contrast its own ground needs, so a dot straddling the
+                // fill's edge reads whole instead of changing shape there —
+                // which is exactly where the comparison matters most.
+                if let mark {
+                    dot(at: mark, isOverFill: false)
+                }
+
                 Capsule()
                     .fill(color)
                     .opacity(isStale ? colors.emphasis[.secondary] : 1)
-                    .frame(width: geometry.size.width * fraction)
-                if let pacing, PacingMark.isWorthDrawing(pacing) {
-                    // Over the fill rather than under it: the mark has to stay
-                    // legible on whichever side of it the fill has reached,
-                    // which a mark behind the fill loses exactly when the
-                    // comparison matters.
-                    let layout = PacingMark.layout(
-                        pacing: pacing,
-                        fraction: fraction,
-                        barWidth: geometry.size.width
-                    )
-                    Capsule()
-                        .fill(markColor(pacing: pacing))
-                        .frame(width: layout.width)
-                        .offset(x: layout.offset)
+                    .frame(width: fillWidth)
+
+                if let mark {
+                    dot(at: mark, isOverFill: true)
+                        .frame(width: fillWidth, alignment: .leading)
+                        .clipped()
                 }
             }
         }
-        .frame(height: 5)
+        .frame(height: PacingMark.barHeight)
     }
 
-    /// The window's ground, which reads as a notch cut out of the bar. A
-    /// theme that sets no background leaves `colors.background` nil, so the
-    /// mark falls back to the window's own material rather than disappearing.
-    ///
-    /// Full strength while the fill is behind the mark, which is the reading
-    /// worth interrupting the bar for: spending is outpacing the window.
-    /// Once the fill is past it the mark is only reassurance, and steps back
-    /// to secondary.
-    private func markColor(pacing: Double) -> Color {
+    /// One copy of the dot. `isOverFill` picks the contrast for the ground
+    /// it lands on: full strength against the faint track, stepped back
+    /// against the fill's solid color, which needs less to read against.
+    private func dot(at offset: CGFloat, isOverFill: Bool) -> some View {
         let ground = colors.background ?? Color(nsColor: .windowBackgroundColor)
-        return ground.opacity(fraction > pacing ? colors.emphasis[.secondary] : 1)
+        return Circle()
+            .fill(ground.opacity(isOverFill ? colors.emphasis[.secondary] : 1))
+            .frame(width: PacingMark.width, height: PacingMark.width)
+            .offset(x: offset)
     }
 }
 
 /// The pacing mark's look, shared so the sidebar and the statusline draw the
 /// same thing at different bar lengths.
 enum PacingMark {
-    /// Over the fill, where it has the fill's own color behind it.
-    static let width: CGFloat = 1.5
-    /// On bare track, where only the faint background tint sits behind it and
-    /// the same line reads thinner than it measures.
-    static let wideWidth: CGFloat = 2.5
+    /// The meter's own height, which the dot is sized against.
+    static let barHeight: CGFloat = 5
+
+    /// A dot rather than a full-height line, so the track shows above and
+    /// below it. That margin is what keeps the mark reading as a position
+    /// once the pacing nears the end of the bar, where a full-height mark
+    /// merges into the bar's own rounded cap.
+    ///
+    /// Sized to leave a ring of track either side; a dot as tall as the bar
+    /// would read as a fat line with rounded ends instead.
+    static let width: CGFloat = 3.5
 
     /// Below this the mark sits on the bar's own rounded end, where it reads
     /// as a nick in the capsule rather than as a position — and a window
@@ -570,29 +583,13 @@ enum PacingMark {
         pacing >= minimumPacing
     }
 
-    struct Layout: Equatable {
-        var width: CGFloat
-        var offset: CGFloat
-    }
-
-    /// Where the mark sits and how wide it draws.
+    /// Where the dot sits, which is its true position and nothing else: the
+    /// two-layer draw means it no longer has to dodge the fill's edge.
     ///
-    /// Behind the pace the mark stands on bare track, so it takes the wider
-    /// width and is pushed clear of the fill's leading edge — a mark that
-    /// merely abuts the fill reads as part of it. Past the pace it crosses
-    /// the fill and keeps the narrower width, since the fill's own color
-    /// carries it.
-    static func layout(pacing: Double, fraction: Double, barWidth: CGFloat) -> Layout {
-        let isBehind = fraction <= pacing
-        let width = isBehind ? wideWidth : self.width
-        // Inset by the mark's own width so it stays whole at either end
-        // instead of half-hanging off the bar.
-        let travel = max(barWidth - width, 0)
-        let ideal = travel * pacing
-        guard isBehind else { return Layout(width: width, offset: ideal) }
-        // Clear of the fill, but never past where the mark belongs.
-        let fillEnd = barWidth * fraction
-        return Layout(width: width, offset: min(max(ideal, fillEnd), travel))
+    /// Inset by the dot's own width so it stays whole at either end instead
+    /// of half-hanging off the bar.
+    static func offset(pacing: Double, barWidth: CGFloat) -> CGFloat {
+        max(barWidth - width, 0) * pacing
     }
 }
 

@@ -231,47 +231,24 @@ struct QuotaFocusRefreshTests {
 struct PacingMarkLayoutTests {
     private let barWidth: CGFloat = 100
 
-    /// Behind the pace the mark stands on bare track, where the same line
-    /// reads thinner than it measures.
-    @Test func behindThePaceItTakesTheWiderWidth() {
-        let layout = PacingMark.layout(pacing: 0.8, fraction: 0.5, barWidth: barWidth)
-        #expect(layout.width == PacingMark.wideWidth)
+    /// The dot sits at its true position on either side of the fill: the two
+    /// layers, not the offset, are what keep it legible against the fill.
+    @Test func theOffsetIsTheSameOnEitherSideOfTheFill() {
+        let behind = PacingMark.offset(pacing: 0.8, barWidth: barWidth)
+        let ahead = PacingMark.offset(pacing: 0.8, barWidth: barWidth)
+        #expect(behind == ahead)
     }
 
-    /// Past the pace it crosses the fill, which carries it.
-    @Test func aheadOfThePaceItKeepsTheNarrowWidth() {
-        let layout = PacingMark.layout(pacing: 0.5, fraction: 0.8, barWidth: barWidth)
-        #expect(layout.width == PacingMark.width)
-    }
-
-    /// The case worth pinning: the fill stops just short of the mark. Without
-    /// the nudge the mark's own width would overlap the fill's leading edge
-    /// and read as part of it.
-    @Test func closeButBehindThePaceTheMarkClearsTheFill() {
-        let fraction = 0.79
-        let layout = PacingMark.layout(pacing: 0.8, fraction: fraction, barWidth: barWidth)
-
-        #expect(layout.offset >= barWidth * fraction)
-    }
-
-    /// Ahead of the pace it deliberately does draw over the fill — that is
-    /// the comparison.
-    @Test func aheadOfThePaceItDrawsOverTheFill() {
-        let layout = PacingMark.layout(pacing: 0.5, fraction: 1, barWidth: barWidth)
-        #expect(layout.offset < barWidth * 1)
-    }
-
-    @Test func theMarkStaysWithinTheBar() {
+    @Test func theDotStaysWithinTheBar() {
         for pacing in [0.02, 0.5, 0.99, 1.0] {
-            let layout = PacingMark.layout(pacing: pacing, fraction: 0, barWidth: barWidth)
-            #expect(layout.offset >= 0)
-            #expect(layout.offset + layout.width <= barWidth + 0.0001)
+            let offset = PacingMark.offset(pacing: pacing, barWidth: barWidth)
+            #expect(offset >= 0)
+            #expect(offset + PacingMark.width <= barWidth + 0.0001)
         }
     }
 
-    /// A full bar behind a full window must not push the mark off the end.
-    @Test func afullFillAtFullPacingStaysInside() {
-        let layout = PacingMark.layout(pacing: 1, fraction: 1, barWidth: barWidth)
-        #expect(layout.offset + layout.width <= barWidth + 0.0001)
+    /// A bar narrower than the dot must not offset it negatively.
+    @Test func aBarNarrowerThanTheDotPinsItAtZero() {
+        #expect(PacingMark.offset(pacing: 1, barWidth: 2) == 0)
     }
 }
