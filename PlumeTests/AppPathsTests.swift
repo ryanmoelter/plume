@@ -26,6 +26,24 @@ struct AppPathsTests {
         #expect(AppPaths.eventsDirectory.path.hasPrefix(support))
     }
 
+    /// The test host has no bundle ID, so PLUME_APP_SUPPORT is the only way
+    /// to exercise the override path here.
+    @Test func applicationSupportOverrideReplacesTheWholePath() throws {
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "PlumeAppPathsTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        setenv("PLUME_APP_SUPPORT", scratch.path, 1)
+        defer { unsetenv("PLUME_APP_SUPPORT") }
+
+        #expect(AppPaths.applicationSupport.path == scratch.path)
+        #expect(AppPaths.storeFile.path == scratch.appending(path: "Plume.store").path)
+        #expect(FileManager.default.fileExists(atPath: scratch.path))
+    }
+
+    @Test func applicationSupportWithoutTheOverrideUsesTheNormalPath() {
+        unsetenv("PLUME_APP_SUPPORT")
+        #expect(AppPaths.applicationSupport.path == URL.applicationSupportDirectory.appending(path: AppPaths.directoryName).path)
+    }
+
     @Test func controlSocketHonorsTheOverride() {
         let path = AppPaths.controlSocketPath(pid: 42, environment: ["PLUME_CONTROL_SOCKET": "/tmp/x.sock"])
         #expect(path == "/tmp/x.sock")
