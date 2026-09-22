@@ -5,6 +5,10 @@ import SwiftUI
 /// The same reading a chat's statusline shows, in the one place that is not
 /// about any single chat — the quota is the account's, so it belongs beside
 /// Archive and Settings rather than inside a conversation.
+///
+/// Wider bars than the statusline's, with a pacing band behind the fill: the
+/// footer has the room, and the comparison is what makes the number
+/// actionable rather than merely current.
 struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota = QuotaStore.shared
@@ -32,7 +36,9 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
-                    barWidth: StatuslineMeterWidth.shortQuota
+                    barWidth: StatuslineMeterWidth.sidebarShortQuota,
+                    windowLength: QuotaWindowLength.fiveHour,
+                    readingAlignment: .leading
                 )
             }
             if let sevenDay = snapshot.rateLimit.sevenDay {
@@ -42,7 +48,9 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
-                    barWidth: StatuslineMeterWidth.quota
+                    barWidth: StatuslineMeterWidth.sidebarQuota,
+                    windowLength: QuotaWindowLength.sevenDay,
+                    readingAlignment: .leading
                 )
             }
             Spacer(minLength: 0)

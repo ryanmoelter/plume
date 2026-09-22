@@ -226,6 +226,20 @@ enum StatuslineMeterWidth {
     static let context: CGFloat = 50
     static let quota: CGFloat = 36
     static let shortQuota: CGFloat = 28
+
+    /// The sidebar footer has width the statusline does not — it is not
+    /// competing with a branch chip — so its quota bars run half again as
+    /// long. Kept apart from the strip's own widths rather than raising
+    /// those, which would widen the chat meters too.
+    static let sidebarQuota: CGFloat = 54
+    static let sidebarShortQuota: CGFloat = 42
+}
+
+/// How long each quota window runs, for deriving how far through it the clock
+/// is: the stream reports only when a window resets, never when it opened.
+enum QuotaWindowLength {
+    static let fiveHour: TimeInterval = 5 * 3600
+    static let sevenDay: TimeInterval = 7 * 86400
 }
 
 /// A reading over its bar — the shape every meter in the strip takes.
@@ -240,16 +254,24 @@ struct StackedMeter: View, ThemedView {
     /// bar; the reading still reaches VoiceOver, as the bar's
     /// `accessibilityValue`, rather than disappearing with the label.
     var showsReading: Bool = true
+    var pacing: Double?
+    /// Leading rather than centered, for a row whose bars have to line up
+    /// with content below them.
+    var readingAlignment: HorizontalAlignment = .center
 
     var body: some View {
-        let bar = MeterView(fraction: fraction, color: StatuslineColors.meter(for: attention, colors: colors))
-            .frame(width: barWidth)
+        let bar = MeterView(
+            fraction: fraction,
+            color: StatuslineColors.meter(for: attention, colors: colors),
+            pacing: pacing
+        )
+        .frame(width: barWidth)
         if showsReading {
             // Centered rather than leading: the reading and the bar rarely
             // share a width (a short reading over a long bar, or the
             // reverse), and centering is what keeps whichever is narrower
             // looking placed rather than merely left-aligned with the other.
-            VStack(alignment: .center, spacing: dimensions.statuslineMeterSpacing) {
+            VStack(alignment: readingAlignment, spacing: dimensions.statuslineMeterSpacing) {
                 Text(reading)
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                     .lineLimit(1)
@@ -283,6 +305,10 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// quota moves fast enough that its exact percent matters least.
     var barWidth: CGFloat = StatuslineMeterWidth.quota
     var showsReading: Bool = true
+    /// The window's own length, which turns `resetsAt` into how far through
+    /// it the clock is. Nil draws no pacing band.
+    var windowLength: TimeInterval?
+    var readingAlignment: HorizontalAlignment = .center
 
     var body: some View {
         let percent = utilization * 100
@@ -291,7 +317,11 @@ struct StatuslineMeterSegment: View, ThemedView {
             fraction: StatuslineMeterMath.fraction(percent: percent),
             barWidth: barWidth,
             attention: StatuslineAttention.attention(percent: percent),
-            showsReading: showsReading
+            showsReading: showsReading,
+            pacing: windowLength.flatMap {
+                QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0)
+            },
+            readingAlignment: readingAlignment
         )
         .opacity(isStale ? QuotaFreshness.staleOpacity : 1)
         .help(helpText)
@@ -448,6 +478,12 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
+    /// How far through the window the clock is, 0–1. Drawn as a faint band
+    /// behind the fill so the two read against each other: a fill short of
+    /// the band is spending slower than the window refills. Nil draws no
+    /// band, which is what every non-quota meter wants — a context window
+    /// does not refill on a clock.
+    var pacing: Double?
 
     private var trackOpacity: Double {
         colors.emphasis[.divider]
@@ -458,6 +494,13 @@ struct MeterView: View, ThemedView {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(color.opacity(trackOpacity))
+                if let pacing {
+                    // Between the track and the fill, so a fill past the mark
+                    // covers it rather than being striped by it.
+                    Capsule()
+                        .fill(color.opacity(trackOpacity))
+                        .frame(width: geometry.size.width * pacing)
+                }
                 Capsule()
                     .fill(color)
                     .frame(width: geometry.size.width * fraction)

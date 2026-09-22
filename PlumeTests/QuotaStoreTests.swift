@@ -105,3 +105,68 @@ struct QuotaStoreTests {
         #expect(store.snapshot?.rateLimit.sevenDay?.utilization == 0.1)
     }
 }
+
+/// How far through a quota window the clock is, which the pacing band draws.
+/// The stream reports only when a window resets, so the elapsed share comes
+/// from the window's own length.
+@MainActor
+struct QuotaPacingTests {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    /// An hour left of five means four are gone: 80% through.
+    @Test func anHourLeftOfFiveIsEightyPercent() throws {
+        let pacing = try #require(QuotaFreshness.pacing(
+            resetsAt: now.addingTimeInterval(3600),
+            now: now,
+            window: QuotaWindowLength.fiveHour
+        ))
+        #expect(abs(pacing - 0.8) < 0.0001)
+    }
+
+    @Test func aFullWindowRemainingIsTheStart() throws {
+        let pacing = try #require(QuotaFreshness.pacing(
+            resetsAt: now.addingTimeInterval(QuotaWindowLength.fiveHour),
+            now: now,
+            window: QuotaWindowLength.fiveHour
+        ))
+        #expect(abs(pacing) < 0.0001)
+    }
+
+    /// A reset further out than the window's length would read as negative
+    /// elapsed; the band clamps rather than drawing backwards.
+    @Test func aResetBeyondTheWindowClampsToTheStart() throws {
+        let pacing = try #require(QuotaFreshness.pacing(
+            resetsAt: now.addingTimeInterval(QuotaWindowLength.fiveHour * 2),
+            now: now,
+            window: QuotaWindowLength.fiveHour
+        ))
+        #expect(pacing == 0)
+    }
+
+    /// A reset already past means the window refilled and no message has said
+    /// so yet. Drawing a full band would overstate what is known.
+    @Test func aPassedResetPacesNothing() {
+        #expect(QuotaFreshness.pacing(
+            resetsAt: now.addingTimeInterval(-60),
+            now: now,
+            window: QuotaWindowLength.fiveHour
+        ) == nil)
+    }
+
+    @Test func noResetTimePacesNothing() {
+        #expect(QuotaFreshness.pacing(
+            resetsAt: nil,
+            now: now,
+            window: QuotaWindowLength.fiveHour
+        ) == nil)
+    }
+
+    @Test func halfOfTheSevenDayWindow() throws {
+        let pacing = try #require(QuotaFreshness.pacing(
+            resetsAt: now.addingTimeInterval(QuotaWindowLength.sevenDay / 2),
+            now: now,
+            window: QuotaWindowLength.sevenDay
+        ))
+        #expect(abs(pacing - 0.5) < 0.0001)
+    }
+}

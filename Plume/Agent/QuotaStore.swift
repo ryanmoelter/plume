@@ -82,6 +82,23 @@ enum QuotaFreshness {
         return "\(Int((seconds + 30) / 60))m"
     }
 
+    /// How far through the window the clock is, 0–1, or nil when nothing says.
+    ///
+    /// The stream reports when a window resets but never when it opened, so
+    /// the elapsed share is derived from the window's own length. Reading it
+    /// against `utilization` is the point: a fill well behind the pacing mark
+    /// is spending slower than the window refills, and one ahead of it is
+    /// spending faster than the window will forgive.
+    static func pacing(resetsAt: Date?, now: Date, window: TimeInterval) -> Double? {
+        guard let resetsAt, window > 0 else { return nil }
+        let remaining = resetsAt.timeIntervalSince(now)
+        // A reset already past says the window has refilled and no message has
+        // reported it yet; claiming a full bar would overstate what is known.
+        guard remaining > 0 else { return nil }
+        let elapsed = window - remaining
+        return Swift.min(Swift.max(elapsed / window, 0), 1)
+    }
+
     /// The absolute time the window resets, which is what a tooltip says — the
     /// relative countdown is already the visible reading. A reset on a later
     /// day is named by weekday: only the 7d window ever spans days, and it
