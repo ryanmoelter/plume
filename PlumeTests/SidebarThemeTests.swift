@@ -36,6 +36,19 @@ struct SidebarThemeTests {
         #expect(themed.danger != unthemed.danger)
     }
 
+    /// `Color.chatSurface` resolves from the same runtime theme the palette
+    /// does, so the sidebar call sites still using it already draw the themed
+    /// color. Moving them onto the palette would be a refactor, not a fix.
+    @Test func chatSurfaceMatchesThePaletteItBypasses() throws {
+        let definitions = try #require(machineDefinitions)
+
+        for scheme in [ColorScheme.light, .dark] {
+            let palette = Palette(colorScheme: scheme, definitions: definitions)
+            #expect(Color.chatSurface(.divider, colorScheme: scheme) == palette.divider)
+            #expect(Color.chatSurface(.primary, colorScheme: scheme) == palette.surface(.primary))
+        }
+    }
+
     /// The sidebar takes the chrome scale, not the chat's, so changing the
     /// chat font size leaves sidebar type where it is.
     @Test func sidebarTypeDoesNotFollowTheChatFontSize() {
