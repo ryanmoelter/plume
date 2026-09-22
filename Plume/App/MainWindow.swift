@@ -14,6 +14,8 @@ struct MainWindow: View {
     @State private var fullDiskAccessShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var pendingWorktreeRemoval: WorktreeRemovalPrompt.PendingRemoval?
+    @State private var worktreeRemovalError: String?
     /// Starts generous so the sidebar's max width is unclamped until the
     /// first real measurement lands.
     @State private var windowWidth: CGFloat = .infinity
@@ -25,12 +27,7 @@ struct MainWindow: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
-                selection: $selection,
-                renamingTaskID: $renamingTaskID,
-                archiveShown: $archiveShown,
-                windowWidth: windowWidth
-            )
+            sidebar
             // Chrome, not chat: the fixed default rather than the user's chat
             // font size, so enlarging the conversation's type leaves the
             // sidebar's own scale where it is.
@@ -120,8 +117,7 @@ struct MainWindow: View {
                     return true
                 },
                 archiveSelectedTask: {
-                    TaskStore.archive(task)
-                    if selection == task.id { selection = nil }
+                    requestRemoval(of: task, verb: .archive)
                 },
                 startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
                     { tabPendingStartFresh = tab }
@@ -143,6 +139,7 @@ struct MainWindow: View {
         } message: {
             Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
         }
+        .modifier(worktreeRemovalDialog)
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
@@ -199,6 +196,30 @@ struct MainWindow: View {
         return tasks.first { $0.id == selection }
     }
 
+    /// Broken out of `body` because the full `SidebarView(...)` initializer
+    /// call inline there defeats the type checker's time budget.
+    private var sidebar: some View {
+        SidebarView(
+            selection: $selection,
+            renamingTaskID: $renamingTaskID,
+            archiveShown: $archiveShown,
+            windowWidth: windowWidth,
+            requestArchive: { requestRemoval(of: $0, verb: .archive) },
+            requestDelete: { requestRemoval(of: $0, verb: .delete) }
+        )
+    }
+
+    /// Broken out of `body` for the same reason as `sidebar`: another
+    /// `confirmationDialog`/`alert` pair inline there tips the whole
+    /// expression past the type checker's time budget.
+    private var worktreeRemovalDialog: WorktreeRemovalDialogModifier {
+        WorktreeRemovalDialogModifier(
+            pendingRemoval: $pendingWorktreeRemoval,
+            removalError: $worktreeRemovalError,
+            onConfirm: finishRemoval
+        )
+    }
+
     /// Every task in the order the sidebar shows them, matching
     /// `SidebarView.navigableTasks` so ⌘] / ⌘[ walk the same order as the
     /// arrow keys do inside the sidebar.
@@ -212,6 +233,54 @@ struct MainWindow: View {
     private func restoreLastOpenTask() {
         guard selection == nil, let id = LastOpenTask.load() else { return }
         selection = tasks.first { $0.id == id }?.id
+    }
+
+    /// Entry point for both the sidebar's context menu and ⌘⌃A: a task that
+    /// owns a Plume-created worktree asks before either deleting or archiving
+    /// touches it, since both would otherwise silently orphan the directory.
+    /// A task without one skips straight to `finishRemoval`, exactly as
+    /// today.
+    private func requestRemoval(of task: WorkTask, verb: WorktreeRemovalVerb) {
+        guard WorktreeRemovalPrompt.needsConfirmation(for: task) else {
+            finishRemoval(task, verb: verb, removeWorktree: false, deleteBranch: false)
+            return
+        }
+        guard let path = task.workingDirectoryPath else {
+            pendingWorktreeRemoval = .init(task: task, verb: verb, dirtySummary: nil)
+            return
+        }
+        // Checks for uncommitted work before presenting the confirmation, so
+        // the dialog's copy is settled before it ever appears rather than
+        // mutating under the user once the check resolves.
+        Task {
+            let changes = await GitService.shared.uncommittedChanges(in: path)
+            pendingWorktreeRemoval = .init(
+                task: task,
+                verb: verb,
+                dirtySummary: changes.isEmpty ? nil : WorktreeRemovalPrompt.describe(changes)
+            )
+        }
+    }
+
+    private func finishRemoval(_ task: WorkTask, verb: WorktreeRemovalVerb, removeWorktree: Bool, deleteBranch: Bool) {
+        TaskStore.removeWorktreeThenFinish(
+            for: task,
+            removeWorktree: removeWorktree,
+            deleteBranch: deleteBranch,
+            in: context,
+            onError: { message in
+                worktreeRemovalError = message
+                pendingWorktreeRemoval = nil
+            },
+            finish: {
+                if selection == task.id { selection = nil }
+                switch verb {
+                case .delete: TaskStore.delete(task, in: context)
+                case .archive: TaskStore.archive(task)
+                }
+                pendingWorktreeRemoval = nil
+            }
+        )
     }
 
     private func tabWithResumableSession(in task: WorkTask) -> TaskTab? {

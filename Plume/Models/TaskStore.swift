@@ -131,6 +131,49 @@ enum TaskStore {
         context.delete(task)
     }
 
+    // MARK: - Worktree removal (shared by delete and archive)
+
+    /// Removing the worktree is best-effort: if git refuses, the task stays
+    /// so the user can resolve it rather than losing track of the directory.
+    /// Its tabs are closed by then either way — they have to go before git
+    /// touches the directory, and there is no reopening them if it declines.
+    ///
+    /// `finish` runs after a successful (or skipped) worktree removal, and is
+    /// where the caller actually deletes or archives the task.
+    static func removeWorktreeThenFinish(
+        for task: WorkTask,
+        removeWorktree: Bool,
+        deleteBranch: Bool,
+        in context: ModelContext,
+        onError: @escaping (String) -> Void,
+        finish: @escaping () -> Void
+    ) {
+        guard removeWorktree,
+              let repository = task.repoPath,
+              let path = task.workingDirectoryPath
+        else {
+            finish()
+            return
+        }
+        for tab in task.tabs {
+            forgetTab(tab)
+        }
+        Task {
+            do {
+                try await GitService.shared.removeWorktree(
+                    repository: repository,
+                    path: path,
+                    branch: task.branchName,
+                    deleteBranch: deleteBranch
+                )
+            } catch {
+                onError(error.localizedDescription)
+                return
+            }
+            finish()
+        }
+    }
+
     /// Everything a tab leaves outside SwiftData: its live sessions and every
     /// in-memory store keyed by tab id. Closing one tab, archiving its task and
     /// deleting its task all go through here, so none can drift into forgetting
