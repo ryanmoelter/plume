@@ -212,6 +212,54 @@ enum TaskStore {
         reindex(ordered)
     }
 
+    // MARK: - Cross-task tab moves
+
+    /// Reassigns `tab.task` and appends it to the end of `destination`'s
+    /// tabs, reindexing both tasks. Only the SwiftData relationship and
+    /// ordering change — the tab's `id` is untouched, so `SurfaceManager` and
+    /// `HeadlessSessionManager` (both keyed by tab id) keep serving the same
+    /// running process across the move. Selects the tab in its new task by
+    /// default so the drop reads as "the tab landed here."
+    ///
+    /// The tab keeps whatever `workingDirectoryPath` it already reported: a
+    /// running process cannot be redirected to `destination`'s folder, so a
+    /// moved tab stays in its original directory rather than silently
+    /// pointing at the wrong one.
+    static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
+        guard let source = tab.task, source.id != destination.id else { return }
+
+        let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
+        if source.lastFocusedAgentTabID == tab.id {
+            source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
+        }
+        if source.selectedTabID == tab.id {
+            source.selectedTabID = remainingInSource.first?.id
+        }
+        reindex(remainingInSource)
+
+        tab.task = destination
+        tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id })
+        if selectAfterMove {
+            selectTab(tab, in: destination)
+        }
+    }
+
+    /// Splits `tab` out of its current task into a new, otherwise-empty task
+    /// of its own. Shares `moveTab`'s guarantee that the surface keyed by the
+    /// tab's id is never touched.
+    @discardableResult
+    static func splitTabIntoNewTask(
+        _ tab: TaskTab,
+        in context: ModelContext,
+        group: TaskGroup? = nil,
+        siblings: [WorkTask]
+    ) -> WorkTask {
+        let newTask = WorkTask(title: tab.displayTitle, orderIndex: nextIndex(after: siblings), group: group)
+        context.insert(newTask)
+        moveTab(tab, to: newTask)
+        return newTask
+    }
+
     // MARK: - Ordering helpers
 
     private static func nextIndex(after items: [some Ordered]) -> Int {

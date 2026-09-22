@@ -93,3 +93,56 @@ struct RevealPacingTests {
         #expect(afterRest == .easeOut(duration: RevealPacing.duration(pendingCharacters: 200, interruptions: 0)))
     }
 }
+
+/// Where `CharacterReveal` cuts a string so it always stops on a word
+/// boundary, never mid-word — the mechanism behind revealing by word.
+@MainActor
+struct RevealWordBoundariesTests {
+    private func prefix(_ text: String, _ count: Int) -> String {
+        String(text.prefix(RevealWordBoundaries.prefixLength(of: text, upTo: count)))
+    }
+
+    @Test func fullLengthReturnsTheWholeString() {
+        let text = "Hello, world"
+        #expect(RevealWordBoundaries.prefixLength(of: text, upTo: text.count) == text.count)
+        #expect(RevealWordBoundaries.prefixLength(of: text, upTo: text.count + 5) == text.count)
+    }
+
+    @Test func zeroReturnsNothing() {
+        #expect(RevealWordBoundaries.prefixLength(of: "Hello", upTo: 0) == 0)
+    }
+
+    @Test func aWordAndItsClosingDelimiterRevealTogether() {
+        let text = "Hello, **world**! end."
+        // Mid-word: "world" without its "**" would flash as an opening bold
+        // marker with no matching close.
+        for count in 10...17 {
+            #expect(prefix(text, count) == "Hello, **")
+        }
+        #expect(prefix(text, 18) == "Hello, **world**! ")
+    }
+
+    @Test func cjkRevealsInSmallRunsRatherThanAllAtOnce() {
+        let text = "你好世界 done"
+        // No whitespace inside the run, so a plain split on spaces would
+        // reveal all four characters in one jump; word boundaries keep the
+        // usual small steps instead.
+        #expect(prefix(text, 1) == "你")
+        #expect(prefix(text, 2) == "你好")
+        #expect(prefix(text, 4) == "你好")
+        #expect(prefix(text, 5) == "你好世界 ")
+    }
+
+    @Test func aStreamingTailShowsAsMuchAsHasArrived() {
+        // The word in progress has no closing punctuation yet, so it should
+        // still show what has streamed in rather than waiting for a
+        // boundary that has not happened.
+        let partial = "The **bol"
+        #expect(prefix(partial, partial.count) == partial)
+    }
+
+    @Test func emptyTextRevealsNothing() {
+        #expect(RevealWordBoundaries.prefixLength(of: "", upTo: 0) == 0)
+        #expect(RevealWordBoundaries.prefixLength(of: "", upTo: 5) == 0)
+    }
+}

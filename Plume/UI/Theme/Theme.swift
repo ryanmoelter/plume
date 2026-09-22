@@ -64,6 +64,7 @@ private struct ThemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
 
     let bodySize: CGFloat
+    let setsAmbientFont: Bool
 
     func body(content: Content) -> some View {
         let typography = Typography(bodySize: bodySize)
@@ -77,13 +78,18 @@ private struct ThemeModifier: ViewModifier {
         )
         content
             .environment(\.theme, theme)
-            .font(typography.body.font)
+            .font(setsAmbientFont ? typography.body.font : nil)
     }
 }
 
 extension View {
     /// Resolves and installs the theme for this view and its children.
-    func plumeTheme(bodySize: CGFloat) -> some View {
-        modifier(ThemeModifier(bodySize: bodySize))
+    ///
+    /// `setsAmbientFont` also makes `body` the default font below here, which
+    /// is what a reading surface wants. Chrome passes `false`: it takes the
+    /// palette but leaves unstyled text on the platform's own control font,
+    /// which is the size a sidebar or a toolbar is expected to be.
+    func plumeTheme(bodySize: CGFloat, setsAmbientFont: Bool = true) -> some View {
+        modifier(ThemeModifier(bodySize: bodySize, setsAmbientFont: setsAmbientFont))
     }
 }

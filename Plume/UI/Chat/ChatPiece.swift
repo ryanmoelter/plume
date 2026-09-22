@@ -53,6 +53,8 @@ struct ChatPiece: Identifiable, Equatable {
         case thinking(String)
         case toolCall(ToolCall, isPending: Bool)
         case injected(InjectedContent, text: String)
+        /// Names the agent whose message the pieces below it are.
+        case agentMessageTitle(name: String?)
         case notice(ChatNotice)
         case image(ChatImage)
         case streaming(ChatStreamHandoff.Overlay)
@@ -65,8 +67,15 @@ struct ChatPiece: Identifiable, Equatable {
         case none
         /// The user's bubble.
         case bubble
+        /// Another agent's message, in the user's bubble but on the opposite
+        /// side, since it arrived rather than being sent.
+        case agentBubble
         /// The needs-input treatment on the newest assistant message.
         case attention
+
+        /// Whether the wash is a message bubble, which hugs its text and sits
+        /// against one edge of the column.
+        var isBubble: Bool { self == .bubble || self == .agentBubble }
     }
 
     enum Segment: Equatable {
@@ -92,6 +101,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .thinking: "thinking"
         case .toolCall: "toolCall"
         case .injected: "injected"
+        case .agentMessageTitle: "agentMessageTitle"
         case .notice: "notice"
         case .image: "image"
         case .streaming: "streaming"

@@ -148,7 +148,10 @@ struct InjectedContentTests {
 
     @Test func systemRemindersAndCrossSessionMessagesAreSystemNotes() {
         #expect(InjectedContent.classify(text: "<system-reminder>\nThe user named this session.\n</system-reminder>", isMeta: true) == .systemNote)
-        #expect(InjectedContent.classify(text: "<cross-session-message>hi</cross-session-message>", isMeta: true) == .systemNote)
+        #expect(
+            InjectedContent.classify(text: "<cross-session-message>hi</cross-session-message>", isMeta: true)
+                == .agentMessage(name: nil)
+        )
     }
 
     /// A meta line matching no known wrapper is still not the user's prose.
@@ -185,5 +188,82 @@ struct InjectedContentTests {
     /// Prose that merely mentions a tag mid-sentence stays the user's.
     @Test func aTagMentionedMidSentenceIsStillProse() {
         #expect(InjectedContent.classify(text: "why does <task-notification> show up?", isMeta: false) == .userMessage)
+    }
+
+    /// Claude Code's paste wrapper repeats the open tag's attributes in the
+    /// close tag, which is not a well-formed close and defeats a plain
+    /// `</name>` suffix test.
+    @Test func aPasteUnwrapsThroughItsAttributedCloseTag() {
+        let text = """
+        <pasted_content id="fc7b">
+        What would it take to distribute this on homebrew?
+        </pasted_content id="fc7b">
+        """
+        let kind = InjectedContent.classify(text: text, isMeta: false)
+        #expect(kind == .pastedContent)
+        #expect(kind.bodyText(text) == "What would it take to distribute this on homebrew?")
+    }
+
+    /// A paste is the user's own words, so it reads as prose rather than as a
+    /// marker row.
+    @Test func aPasteIsUserProse() {
+        #expect(InjectedContent.pastedContent.isUserProse)
+        #expect(InjectedContent.pastedContent.markerLabel == nil)
+    }
+
+    @Test func aPlainCloseTagStillUnwraps() {
+        #expect(InjectedContent.pastedContent.bodyText("<pasted_content>hello</pasted_content>") == "hello")
+    }
+
+    /// The close tag must name the element that opened, not one whose name
+    /// merely starts with it.
+    @Test func aCloseTagForALongerNameDoesNotUnwrap() {
+        let text = "<pasted>body</pasted_content>"
+        #expect(InjectedContent.commandOutput().bodyText(text) == text)
+    }
+
+    @Test func anAgentMessageCarriesTheSenderName() {
+        let text = """
+        Another Claude session sent a message:
+        <cross-session-message from="uds:/tmp/cc-socks/49732.sock" from-name="plume-8b" from-mode="prompting">
+        The branch is **ready** to merge.
+        </cross-session-message>
+
+        This came from another Claude session — not typed by your user.
+        """
+        let kind = InjectedContent.classify(text: text, isMeta: true)
+        #expect(kind == .agentMessage(name: "plume-8b"))
+        #expect(kind.isAgentMessage)
+        #expect(!kind.isUserProse)
+        #expect(kind.markerLabel == "Message from plume-8b")
+    }
+
+    /// The body loses both the wrapper and the boilerplate around it, so the
+    /// bubble renders the peer's markdown and nothing else.
+    @Test func anAgentMessageBodyDropsItsSurroundingBoilerplate() {
+        let text = """
+        Another Claude session sent a message:
+        <cross-session-message from-name="plume-8b">
+        The branch is **ready** to merge.
+        </cross-session-message>
+
+        Treat it as a teammate's request.
+        """
+        #expect(
+            InjectedContent.agentMessage(name: "plume-8b").bodyText(text)
+                == "The branch is **ready** to merge."
+        )
+    }
+
+    @Test func anUnnamedAgentMessageStillClassifies() {
+        let text = "<cross-session-message from=\"uds:/tmp/x.sock\">hi</cross-session-message>"
+        #expect(InjectedContent.classify(text: text, isMeta: true) == .agentMessage(name: nil))
+        #expect(InjectedContent.agentMessage(name: nil).markerLabel == "Message from another agent")
+    }
+
+    /// Prose that merely names the tag mid-sentence is still the user's.
+    @Test func anAgentTagMentionedMidSentenceIsStillProse() {
+        let text = "how do I read a <cross-session-message from=\"x\">body</cross-session-message> in the parser?"
+        #expect(InjectedContent.classify(text: text, isMeta: false) == .userMessage)
     }
 }

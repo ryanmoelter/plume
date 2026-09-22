@@ -6,6 +6,8 @@ struct TabStripView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var task: WorkTask
 
+    @Query(sort: \WorkTask.orderIndex) private var allTasks: [WorkTask]
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(task.orderedTabs) { tab in
@@ -15,7 +17,8 @@ struct TabStripView: View {
                     isSelected: task.selectedTabID == tab.id,
                     themeForeground: ThemeChrome.foreground(for: colorScheme),
                     select: { TaskStore.selectTab(tab, in: task) },
-                    close: { TaskStore.closeTab(tab, in: context) }
+                    close: { TaskStore.closeTab(tab, in: context) },
+                    moveToNewTask: { moveToNewTask(tab) }
                 )
                 .draggable(tab.id.uuidString)
                 .dropDestination(for: String.self) { draggedIDs, _ in
@@ -72,6 +75,13 @@ struct TabStripView: View {
         TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: destination)
         return true
     }
+
+    /// Splits `tab` into a new ungrouped task, as a sibling of every other
+    /// top-level task.
+    private func moveToNewTask(_ tab: TaskTab) {
+        let siblings = allTasks.filter { $0.group == nil }
+        TaskStore.splitTabIntoNewTask(tab, in: context, siblings: siblings)
+    }
 }
 
 private struct TabChip: View {
@@ -85,6 +95,7 @@ private struct TabChip: View {
     let themeForeground: Color?
     let select: () -> Void
     let close: () -> Void
+    let moveToNewTask: () -> Void
 
     @State private var isHovering = false
     @State private var isConfirmingStartFresh = false
@@ -142,7 +153,10 @@ private struct TabChip: View {
                 if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                     Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
                 }
+                Divider()
             }
+            Button("Move to New Task") { moveToNewTask() }
+                .disabled(task.tabs.count < 2)
         }
         .confirmationDialog(
             "Start a fresh conversation?",

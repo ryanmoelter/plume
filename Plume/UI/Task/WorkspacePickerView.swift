@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// What a loaded worktree listing is keyed on.
+private struct WorktreeListingKey: Equatable {
+    let repository: String?
+    let directory: String?
+}
+
 /// The task's workspace, as two chips in the statusline: the folder to run
 /// in, and — when that folder is a git repository — which of its worktrees,
 /// with that worktree's ahead/behind and dirty markers beside it. Worktree
@@ -74,7 +80,10 @@ struct WorkspacePickerView: View, ThemedView {
         // `git` runs off the main actor and lands in state: a subprocess per
         // render would be ruinous, and writing observable state from `body`
         // invalidates the view being rendered.
-        .task(id: task.repoPath) {
+        // Keyed on the directory as well as the repository: creating or
+        // removing a worktree moves the task inside one repository, leaving
+        // `repoPath` untouched while the listing it loaded goes stale.
+        .task(id: WorktreeListingKey(repository: task.repoPath, directory: task.workingDirectoryPath)) {
             guard let repoPath = task.repoPath else {
                 worktrees = []
                 repositoryBranch = nil
@@ -393,7 +402,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         Divider()
-        Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+        Button("New Worktree…") { worktreeSheetShown = true }
     }
 
     private var worktreeChip: some View {
