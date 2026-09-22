@@ -82,8 +82,9 @@ enum AppPaths {
     }
 
     /// `sun_path` holds 104 bytes including the terminator, and a scratch
-    /// instance launched with a long `HOME` override can push the preferred
-    /// path past it, so such an instance binds under `/tmp` instead.
+    /// instance launched with a long `PLUME_APP_SUPPORT` override can push
+    /// the preferred path past it, so such an instance binds under `/tmp`
+    /// instead.
     static let maxSocketPathLength = 103
 
     static func controlSocketPath(
