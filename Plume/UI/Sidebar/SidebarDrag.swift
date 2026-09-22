@@ -136,8 +136,13 @@ struct SidebarDropDelegate: DropDelegate {
         info.hasItemsConforming(to: [.utf8PlainText])
     }
 
+    /// A drag with no in-app item recorded gets no indicator, and its payload
+    /// alone decides the drop.
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard let placement = placement(at: info) else {
+        guard let item = InAppDrag.current else { return DropProposal(operation: .move) }
+        guard let placement = SidebarDropRules.placement(
+            of: item, over: target, y: info.location.y, height: height
+        ) else {
             clearIndicator()
             return DropProposal(operation: .forbidden)
         }
@@ -157,13 +162,6 @@ struct SidebarDropDelegate: DropDelegate {
             perform(item, placement)
         }
         return true
-    }
-
-    /// A drag with no in-app item recorded reads as a tab, so it can still
-    /// land in a task. The payload decides the drop either way.
-    private func placement(at info: DropInfo) -> SidebarDropPlacement? {
-        let item = InAppDrag.current ?? .tab(UUID())
-        return SidebarDropRules.placement(of: item, over: target, y: info.location.y, height: height)
     }
 
     /// Only this target's own indicator: the next target's `dropUpdated` can
