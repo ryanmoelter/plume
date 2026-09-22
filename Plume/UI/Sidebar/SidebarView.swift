@@ -14,12 +14,15 @@ struct SidebarView: View {
     @Binding var renamingTaskID: UUID?
     @Binding var archiveShown: Bool
     let windowWidth: CGFloat
+    /// Both delete and archive can touch a Plume-owned worktree, so
+    /// `MainWindow` owns the shared confirmation dialog and this view only
+    /// asks it to run one.
+    let requestArchive: (WorkTask) -> Void
+    let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
     /// The task a dragged tab is currently over, so its row can ring itself.
     @State private var tabDropTargetID: UUID?
-    @State private var pendingRemoval: PendingRemoval?
-    @State private var deletionError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -104,122 +107,6 @@ struct SidebarView: View {
             ideal: WindowMetrics.sidebarIdealWidth,
             max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth)
         )
-        .confirmationDialog(
-            "Delete “\(pendingRemoval?.task.title ?? "")”?",
-            isPresented: Binding(
-                get: { pendingRemoval != nil },
-                set: { if !$0 { pendingRemoval = nil } }
-            ),
-            presenting: pendingRemoval
-        ) { removal in
-            Button("Delete Task and Remove Worktree", role: .destructive) {
-                deleteTask(removal.task, removeWorktree: true, deleteBranch: false)
-            }
-            Button("Delete Task, Remove Worktree and Branch", role: .destructive) {
-                deleteTask(removal.task, removeWorktree: true, deleteBranch: true)
-            }
-            Button("Delete Task Only") {
-                deleteTask(removal.task)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { removal in
-            Text(removal.message)
-        }
-        .alert("Could Not Remove Worktree", isPresented: Binding(
-            get: { deletionError != nil },
-            set: { if !$0 { deletionError = nil } }
-        )) {
-            Button("OK") { deletionError = nil }
-        } message: {
-            Text(deletionError ?? "")
-        }
-    }
-
-    /// A worktree removal awaiting confirmation. `dirtySummary` is filled in
-    /// only once the async uncommitted-changes check resolves, so the dialog
-    /// never presents until its copy is final — its text must not change
-    /// while the user is looking at it.
-    private struct PendingRemoval: Identifiable {
-        let task: WorkTask
-        let dirtySummary: String?
-
-        var id: UUID { task.id }
-
-        var message: String {
-            let base = "This task uses the worktree at \(task.workingDirectoryPath ?? "") on branch \(task.branchName ?? "")."
-            guard let dirtySummary else { return base }
-            return "\(base)\n\n\(dirtySummary)\n\nRemoving the worktree discards this work, and it cannot be recovered."
-        }
-    }
-
-    /// Checks for uncommitted work before presenting the confirmation, so the
-    /// one dialog's copy is settled before it ever appears rather than
-    /// mutating under the user once the check resolves.
-    private func confirmRemoval(of task: WorkTask) {
-        guard let path = task.workingDirectoryPath else {
-            pendingRemoval = PendingRemoval(task: task, dirtySummary: nil)
-            return
-        }
-        Task {
-            let changes = await GitService.shared.uncommittedChanges(in: path)
-            pendingRemoval = PendingRemoval(
-                task: task,
-                dirtySummary: changes.isEmpty ? nil : Self.describe(changes)
-            )
-        }
-    }
-
-    /// Porcelain status as a sentence and a short list. The codes mean nothing
-    /// to a reader deciding whether to lose the work, so only the paths show.
-    private static func describe(_ changes: [String]) -> String {
-        let paths = changes.map { $0.dropFirst(3) }.map(String.init)
-        let count = paths.count
-        let noun = count == 1 ? "file has" : "files have"
-        let shown = paths.prefix(5).map { "• \($0)" }.joined(separator: "\n")
-        let more = count > 5 ? "\n• and \(count - 5) more" : ""
-        return "\(count) \(noun) uncommitted changes:\n\(shown)\(more)"
-    }
-
-    /// Removing the worktree is best-effort: if git refuses, the task stays so
-    /// the user can resolve it rather than losing track of the directory. Its
-    /// tabs are closed by then either way — they have to go before git touches
-    /// the directory, and there is no reopening them if it declines.
-    private func deleteTask(_ task: WorkTask, removeWorktree: Bool = false, deleteBranch: Bool = false) {
-        guard removeWorktree,
-              let repository = task.repoPath,
-              let path = task.workingDirectoryPath
-        else {
-            finishDeleting(task)
-            return
-        }
-        // Every tab's shell and agent has its working directory inside the
-        // tree git is about to delete, so they go first. Removal awaits, and a
-        // process left running across that wait holds a cwd that no longer
-        // exists — and can still write into the directory as it is removed.
-        for tab in task.tabs {
-            TaskStore.forgetTab(tab)
-        }
-        Task {
-            do {
-                try await GitService.shared.removeWorktree(
-                    repository: repository,
-                    path: path,
-                    branch: task.branchName,
-                    deleteBranch: deleteBranch
-                )
-            } catch {
-                deletionError = error.localizedDescription
-                pendingRemoval = nil
-                return
-            }
-            finishDeleting(task)
-        }
-    }
-
-    private func finishDeleting(_ task: WorkTask) {
-        if selection == task.id { selection = nil }
-        TaskStore.delete(task, in: context)
-        pendingRemoval = nil
     }
 
     @ViewBuilder
@@ -306,19 +193,11 @@ struct SidebarView: View {
             }
         }
         if !task.hasNeverStarted {
-            Button("Archive") { TaskStore.archive(task) }
+            Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
         }
         Divider()
-        Button("Delete", role: .destructive) {
-            // A worktree task owns a branch and a directory on disk, so
-            // deleting it asks before touching either.
-            if task.workspaceKind == .worktree {
-                confirmRemoval(of: task)
-            } else {
-                deleteTask(task)
-            }
-        }
+        Button("Delete", role: .destructive) { requestDelete(task) }
     }
 
     /// Every task in the order the sidebar shows them, which is what the
