@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ControlServer.shared.startIfEnabled()
         #endif
 
+        AppAppearance.apply(AppAppearance.decision())
+
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
         guard let window = NSApp.windows.first else { return }
