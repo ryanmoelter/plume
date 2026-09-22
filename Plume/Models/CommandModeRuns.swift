@@ -36,17 +36,21 @@ final class CommandModeRuns {
         runsByTab[id] ?? []
     }
 
-    /// `onFinish` gets the result unless the run was cancelled, in which
-    /// case the command's output goes nowhere. It runs while the chip is
-    /// still listed, so a caller handing the result to a busy session can
-    /// leave the chip up until the turn takes it.
+    /// `onFinish` gets the run's id and the result unless the run was
+    /// cancelled, in which case the command's output goes nowhere. It runs
+    /// while the chip is still listed, so a caller handing the result to a
+    /// busy session can leave the chip up until the turn takes it.
+    ///
+    /// The id rides on the closure, not only the return value: a closure that
+    /// names the `let` it initializes compiles without a diagnostic and
+    /// captures uninitialized memory.
     @discardableResult
     func start(
         _ command: String,
         in directory: String?,
         tabID: UUID,
-        onFinish: @escaping (CommandModeResult) -> Void
-    ) -> UUID {
+        onFinish: @escaping (Run.ID, CommandModeResult) -> Void
+    ) -> Run.ID {
         var run = Run(command: command)
         let runID = run.id
         run.task = Task {
@@ -58,7 +62,7 @@ final class CommandModeRuns {
                 return
             }
             setQueued(runID, tabID: tabID, text: result.transcriptText)
-            onFinish(result)
+            onFinish(runID, result)
         }
         runsByTab[tabID, default: []].append(run)
         return runID

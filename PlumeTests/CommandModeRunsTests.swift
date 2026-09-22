@@ -8,7 +8,7 @@ struct CommandModeRunsTests {
         let runs = CommandModeRuns()
         let tabID = UUID()
         let result = await withCheckedContinuation { continuation in
-            runs.start("echo hi", in: nil, tabID: tabID) { continuation.resume(returning: $0) }
+            runs.start("echo hi", in: nil, tabID: tabID) { continuation.resume(returning: $1) }
             #expect(runs.runs(forTab: tabID).map(\.command) == ["echo hi"])
         }
         #expect(result.stdout == "hi")
@@ -24,11 +24,30 @@ struct CommandModeRunsTests {
         #expect(runs.queuedText(forTab: tabID).isEmpty)
     }
 
+    /// The composer retires a run from inside `onFinish`, so the id it gets
+    /// there has to be the listed run's — finishing with any other id leaves
+    /// the chip up for good.
+    @Test func onFinishNamesTheRunItIsFor() async throws {
+        let runs = CommandModeRuns()
+        let tabID = UUID()
+        let (finishedID, returnedID) = await withCheckedContinuation { continuation in
+            var returned: UUID?
+            returned = runs.start("echo hi", in: nil, tabID: tabID) { runID, _ in
+                continuation.resume(returning: (runID, returned))
+            }
+        }
+        #expect(finishedID == returnedID)
+        #expect(runs.runs(forTab: tabID).map(\.id) == [finishedID])
+
+        runs.finish(finishedID, tabID: tabID)
+        #expect(runs.runs(forTab: tabID).isEmpty)
+    }
+
     @Test func aCancelledRunSendsNothing() async throws {
         let runs = CommandModeRuns()
         let tabID = UUID()
         var delivered = false
-        runs.start("sleep 60", in: nil, tabID: tabID) { _ in delivered = true }
+        runs.start("sleep 60", in: nil, tabID: tabID) { _, _ in delivered = true }
         let run = try #require(runs.runs(forTab: tabID).first)
 
         runs.cancel(run.id, tabID: tabID)
@@ -42,7 +61,7 @@ struct CommandModeRunsTests {
         let runs = CommandModeRuns()
         let tabID = UUID()
         var delivered = false
-        runs.start("sleep 60", in: nil, tabID: tabID) { _ in delivered = true }
+        runs.start("sleep 60", in: nil, tabID: tabID) { _, _ in delivered = true }
 
         runs.forget(tabID: tabID)
         #expect(runs.runs(forTab: tabID).isEmpty)
@@ -95,7 +114,7 @@ struct RunRetirementTests {
         let runs = CommandModeRuns()
         let tabID = UUID()
         let result = await withCheckedContinuation { continuation in
-            runs.start("echo hi", in: nil, tabID: tabID) { continuation.resume(returning: $0) }
+            runs.start("echo hi", in: nil, tabID: tabID) { continuation.resume(returning: $1) }
         }
         let run = try #require(runs.runs(forTab: tabID).first)
         #expect(runs.queuedText(forTab: tabID) == [result.transcriptText])

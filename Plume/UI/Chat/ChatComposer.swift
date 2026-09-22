@@ -374,11 +374,11 @@ struct ChatComposer: View, ThemedView {
     /// rather than as prose quoting one.
     private func runCommand(_ command: String) {
         let tabID = tab.id
-        let runID = CommandModeRuns.shared.start(
+        CommandModeRuns.shared.start(
             command,
             in: TabDirectoryStore.shared.directory(for: tab),
             tabID: tabID
-        ) { result in
+        ) { runID, result in
             // Sent outright rather than queued, so the transcript takes over
             // telling the story and the chip has nothing left to say. Read
             // from the delivery, not from `isWorking` afterwards: sending
