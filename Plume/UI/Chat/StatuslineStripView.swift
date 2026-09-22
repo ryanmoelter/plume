@@ -92,7 +92,8 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
-                    barWidth: StatuslineMeterWidth.shortQuota
+                    barWidth: StatuslineMeterWidth.shortQuota,
+                    windowLength: QuotaWindowLength.fiveHour
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
@@ -103,7 +104,8 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
-                    barWidth: StatuslineMeterWidth.quota
+                    barWidth: StatuslineMeterWidth.quota,
+                    windowLength: QuotaWindowLength.sevenDay
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
             }
@@ -130,7 +132,8 @@ struct StatuslineStripView: View, ThemedView {
                     now: quota.now,
                     isStale: isStale,
                     barWidth: StatuslineMeterWidth.shortQuota,
-                    showsReading: false
+                    showsReading: false,
+                    windowLength: QuotaWindowLength.fiveHour
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
@@ -142,7 +145,8 @@ struct StatuslineStripView: View, ThemedView {
                     now: quota.now,
                     isStale: isStale,
                     barWidth: StatuslineMeterWidth.quota,
-                    showsReading: false
+                    showsReading: false,
+                    windowLength: QuotaWindowLength.sevenDay
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineSevenDayMeter)
             }
@@ -478,11 +482,11 @@ struct MeterView: View, ThemedView {
 
     let fraction: Double
     let color: Color
-    /// How far through the window the clock is, 0–1. Drawn as a faint band
-    /// behind the fill so the two read against each other: a fill short of
-    /// the band is spending slower than the window refills. Nil draws no
-    /// band, which is what every non-quota meter wants — a context window
-    /// does not refill on a clock.
+    /// How far through the window the clock is, 0–1. Drawn as a thin mark
+    /// across the bar, so the fill's position against it reads the same
+    /// whether the fill is short of the mark or past it. Nil draws nothing,
+    /// which is what every non-quota meter wants — a context window does not
+    /// refill on a clock.
     var pacing: Double?
 
     private var trackOpacity: Double {
@@ -494,20 +498,47 @@ struct MeterView: View, ThemedView {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(color.opacity(trackOpacity))
-                if let pacing {
-                    // Between the track and the fill, so a fill past the mark
-                    // covers it rather than being striped by it.
-                    Capsule()
-                        .fill(color.opacity(trackOpacity))
-                        .frame(width: geometry.size.width * pacing)
-                }
                 Capsule()
                     .fill(color)
                     .frame(width: geometry.size.width * fraction)
+                if let pacing {
+                    // Over the fill rather than under it: the mark has to stay
+                    // legible on whichever side of it the fill has reached,
+                    // which a mark behind the fill loses exactly when the
+                    // comparison matters.
+                    Capsule()
+                        .fill(markColor)
+                        .frame(width: PacingMark.width)
+                        .offset(x: markOffset(in: geometry.size.width, pacing: pacing))
+                }
             }
         }
         .frame(height: 5)
     }
+
+    /// The window's ground, which reads as a notch cut out of the bar. A
+    /// theme that sets no background leaves `colors.background` nil, so the
+    /// mark falls back to the window's own material rather than disappearing.
+    private var markColor: Color {
+        (colors.background ?? Color(nsColor: .windowBackgroundColor))
+            .opacity(PacingMark.opacity)
+    }
+
+    /// Inset by the mark's own width so it stays whole at either end instead
+    /// of half-hanging off the bar.
+    private func markOffset(in width: CGFloat, pacing: Double) -> CGFloat {
+        let travel = max(width - PacingMark.width, 0)
+        return travel * pacing
+    }
+}
+
+/// The pacing mark's look, shared so the sidebar and the statusline draw the
+/// same thing at different bar lengths.
+enum PacingMark {
+    static let width: CGFloat = 1.5
+    /// Translucent, so it reads as a reference mark rather than as another
+    /// reading competing with the fill.
+    static let opacity: Double = 0.55
 }
 
 #Preview("Terminal transport") {

@@ -6,9 +6,9 @@ import SwiftUI
 /// about any single chat — the quota is the account's, so it belongs beside
 /// Archive and Settings rather than inside a conversation.
 ///
-/// Wider bars than the statusline's, with a pacing band behind the fill: the
-/// footer has the room, and the comparison is what makes the number
-/// actionable rather than merely current.
+/// Wider bars than the statusline's, since the footer has the room. Both
+/// carry the pacing mark; the comparison is what makes the number actionable
+/// rather than merely current.
 struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota = QuotaStore.shared
