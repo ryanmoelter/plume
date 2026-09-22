@@ -184,7 +184,7 @@ struct ComposerSettingsTests {
         let tab = makeTab()
         tab.model = .opus
 
-        #expect(tab.modelRaw == "claude-opus-5-5[1m]")
+        #expect(tab.modelRaw == "opus[1m]")
         #expect(tab.model == .opus)
     }
 
