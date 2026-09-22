@@ -176,7 +176,11 @@ final class HeadlessSession: AgentSession {
     /// chat shows that as a `ChatStartFailure` in place of the conversation;
     /// a notification saying the agent stopped would blame the user's own
     /// launch for stopping something that never ran.
-    private var hasUserSubmitted = false
+    ///
+    /// It also separates a session waiting on its own reply from one waiting
+    /// on the user, which the existence of a process cannot: a fork is
+    /// launched with no prompt and must keep its composer usable.
+    private(set) var hasUserSubmitted = false
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore

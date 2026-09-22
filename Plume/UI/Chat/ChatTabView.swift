@@ -226,6 +226,21 @@ struct ChatTabView: View, ThemedView {
         headlessSession as? HeadlessSession
     }
 
+    /// Whether something has been asked of this tab that has yet to produce
+    /// anything to read, which is what the composer waits out.
+    ///
+    /// A live session is not enough on its own. A forked tab is launched with
+    /// no prompt, so it holds a running process that is waiting on the user —
+    /// disabling its composer would be a deadlock, since the first message is
+    /// the only thing that can end the wait.
+    private var isAwaitingFirstContent: Bool {
+        if SurfaceManager.shared.existingSession(for: tab.id) != nil { return true }
+        if let claudeSession { return claudeSession.hasUserSubmitted }
+        if headlessSession != nil { return true }
+        // No process yet, but a session id means a resume is still to come.
+        return tab.agentSessionID?.isEmpty == false
+    }
+
     /// Which of the tab's states is on screen. An optimistic first message is
     /// enough to reach the conversation, so the transcript is not what decides
     /// it — `conversationMessages` is.
@@ -239,11 +254,9 @@ struct ChatTabView: View, ThemedView {
             startFailureState(startFailure)
         } else if let error = headlessSession?.lastError, !error.isEmpty {
             agentErrorState(error)
-        } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
-            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
-            || (tab.agentSessionID?.isEmpty == false) {
-            // A process (or a resumable session) exists but has written no
-            // transcript content yet — nothing to show but a quiet wait.
+        } else if isAwaitingFirstContent {
+            // Work is in flight but has written no transcript content yet —
+            // nothing to show but a quiet wait.
             emptyState(isComposerEnabled: tab.transport == .headless)
         } else {
             emptyState(isComposerEnabled: true)
