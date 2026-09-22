@@ -24,7 +24,9 @@ struct MessageRedoButtons: View, ThemedView {
         if let context {
             HStack(spacing: 4) {
                 forkMarker(context: context)
-                if role == .user, let session = session(for: context) {
+                if role == .user,
+                   context.transcriptMessageIDs.contains(messageID),
+                   let session = session(for: context) {
                     actions(session: session, context: context)
                 }
             }

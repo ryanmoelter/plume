@@ -34,7 +34,9 @@ struct RewindFailureToast: View, ThemedView {
             .buttonStyle(.plain)
             .help("Dismiss")
             .transition(.opacity)
-            .plumeID(AccessibilityID.rewindFailureToast)
+            // The text as the value, since it is SwiftUI's own and a driver
+            // cannot read it as AppKit text.
+            .plumeID(AccessibilityID.rewindFailureToast, value: failure)
         }
     }
 }

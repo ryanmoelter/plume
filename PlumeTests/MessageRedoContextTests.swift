@@ -10,6 +10,7 @@ import Testing
 struct MessageRedoContextTests {
     private func context(
         lastSeenUserMessageID: String = "u2",
+        transcriptMessageIDs: Set<String> = ["u2"],
         canFork: Bool = true,
         abandoned: [String: Int] = [:]
     ) -> MessageRedoContext {
@@ -17,6 +18,7 @@ struct MessageRedoContextTests {
             tabID: Self.tabID,
             lastSeenUserMessageID: lastSeenUserMessageID,
             parentByMessageID: ["u2": "a1"],
+            transcriptMessageIDs: transcriptMessageIDs,
             canFork: canFork,
             onFork: { _ in },
             abandonedCountByMessageID: abandoned
@@ -24,6 +26,22 @@ struct MessageRedoContextTests {
     }
 
     private static let tabID = UUID()
+
+    /// The bug this guards: the chat renders an optimistic first message
+    /// before the transcript exists, and its id is Plume's own string rather
+    /// than a uuid the CLI has ever seen. Offering redo on it sends that
+    /// string as `target_message_uuid`, which the CLI refuses.
+    @Test func theOptimisticFirstMessageIsNeverARedoTarget() {
+        let onlyOptimistic = context(transcriptMessageIDs: [])
+        #expect(!onlyOptimistic.transcriptMessageIDs.contains(OptimisticFirstMessage.messageID))
+        #expect(!context().transcriptMessageIDs.contains(OptimisticFirstMessage.messageID))
+    }
+
+    /// The transcript landing is what turns the buttons on, and it need not
+    /// change any piece — so it has to restage rows on its own.
+    @Test func theTranscriptArrivingChangesTheRenderedState() {
+        #expect(context(transcriptMessageIDs: []).renderedState != context().renderedState)
+    }
 
     @Test func twoContextsOverTheSameConversationCompareEqual() {
         #expect(context().renderedState == context().renderedState)

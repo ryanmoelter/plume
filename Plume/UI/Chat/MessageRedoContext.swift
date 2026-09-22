@@ -20,6 +20,10 @@ struct MessageRedoContext {
     /// than the target, since cutting at the target keeps it and the fork
     /// then opens on two consecutive user turns.
     var parentByMessageID: [String: String]
+    /// The messages the transcript actually recorded. The chat also renders
+    /// an optimistic first message whose id is Plume's own string rather than
+    /// a uuid the CLI has seen, and neither redo nor fork can name that.
+    var transcriptMessageIDs: Set<String>
     /// Whether this tab has everything a fork needs: a session id to resume
     /// and a working directory to spawn in. False leaves the fork buttons
     /// disabled rather than letting them open an empty tab that never starts.
@@ -42,6 +46,7 @@ struct MessageRedoContext {
         RenderedState(
             tabID: tabID,
             lastSeenUserMessageID: lastSeenUserMessageID,
+            transcriptMessageIDs: transcriptMessageIDs,
             canFork: canFork,
             abandonedCountByMessageID: abandonedCountByMessageID
         )
@@ -50,6 +55,7 @@ struct MessageRedoContext {
     struct RenderedState: Equatable {
         var tabID: UUID
         var lastSeenUserMessageID: String
+        var transcriptMessageIDs: Set<String>
         var canFork: Bool
         var abandonedCountByMessageID: [String: Int]
     }

@@ -477,7 +477,13 @@ final class HeadlessSession: AgentSession {
             return
         }
         guard response.payload["rewound"]?.boolValue == true else {
-            rewindFailure = Self.rewindRefusal(response.payload["reason"]?.stringValue)
+            let reason = response.payload["reason"]?.stringValue
+            // The CLI's own word for it, which the wording shown to the user
+            // deliberately does not repeat. A reason this does not recognize
+            // reaches the user as a generic refusal, so without this there is
+            // nothing to tell one apart from another.
+            Log.agent.error("Rewind refused: \(reason ?? "no reason given", privacy: .public)")
+            rewindFailure = Self.rewindRefusal(reason)
             return
         }
         // A refusal the user already saw would otherwise stay on screen

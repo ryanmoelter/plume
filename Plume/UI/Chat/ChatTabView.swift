@@ -933,7 +933,7 @@ struct ChatTabView: View, ThemedView {
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
-            redoContext: redoContext(transcript: transcript, messages: messages),
+            redoContext: redoContext(transcript: transcript),
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: isSide ? geometry.chatTopInset : 0,
@@ -990,14 +990,20 @@ struct ChatTabView: View, ThemedView {
     /// Nil unless a Claude Code headless session is live: the rewind rides
     /// that session's control plane, and a fork resumes the session id it has
     /// recorded.
-    private func redoContext(transcript: Transcript, messages: [ChatMessage]) -> MessageRedoContext? {
+    ///
+    /// Read from the transcript rather than from the rendered messages, which
+    /// also carry the optimistic first message. That one's id is Plume's own
+    /// string, not a uuid the CLI has ever seen, and sending it as the last
+    /// seen message is refused as `stale_target`.
+    private func redoContext(transcript: Transcript) -> MessageRedoContext? {
         guard claudeSession != nil,
-              let lastSeenUserMessageID = messages.last(where: { $0.role == .user })?.id
+              let lastSeenUserMessageID = transcript.messages.last(where: { $0.role == .user })?.id
         else { return nil }
         return MessageRedoContext(
             tabID: tab.id,
             lastSeenUserMessageID: lastSeenUserMessageID,
             parentByMessageID: transcript.parentByMessageID,
+            transcriptMessageIDs: Set(transcript.messages.map(\.id)),
             canFork: forkSessionID != nil,
             onFork: { cutAfter in forkToNewTab(cutAfter: cutAfter) },
             abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
