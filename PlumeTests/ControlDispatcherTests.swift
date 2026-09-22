@@ -121,4 +121,14 @@ final class FakeControlBackend: ControlBackend {
     func clear(_ params: ClearParams) async throws {
         try record("clear")
     }
+
+    func key(_ params: KeyParams) async throws -> KeyResult {
+        try record("key")
+        return KeyResult(chord: params.key, keyCode: 0, windowNumber: 0, handledBy: nil, handledByEnabled: nil)
+    }
+
+    func menu() throws -> MenuResult {
+        try record("menu")
+        return MenuResult(items: [])
+    }
 }

@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 
 /// Answers control commands from inside the process: registered controls
 /// through `ControlRegistry`, text through the AppKit views that already
@@ -135,6 +136,106 @@ final class InProcessControlBackend: ControlBackend {
             SyntheticHover.leave(window)
             ControlOverlay.existing(for: window)?.remove()
         }
+    }
+
+    // MARK: Keyboard
+
+    func key(_ params: KeyParams) async throws -> KeyResult {
+        let shortcut = try Self.shortcut(from: params)
+        let window = try window(for: params.windowNumber)
+        guard let code = SyntheticKey.keyCode(for: shortcut.key) else {
+            throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
+        }
+        let item = Self.menuItem(matching: shortcut)
+        try await SyntheticKey.perform(shortcut, in: window)
+        return KeyResult(
+            chord: shortcut.displayName, keyCode: Int(code), windowNumber: window.windowNumber,
+            handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled
+        )
+    }
+
+    func menu() throws -> MenuResult {
+        guard let main = NSApp.mainMenu else { throw ControlError.notFound("main menu") }
+        var items: [MenuItemDescription] = []
+        func visit(_ menu: NSMenu) {
+            // AppKit recomputes enabled state only when a menu opens, which a
+            // hidden instance never does, so every item would read disabled.
+            menu.update()
+            for item in menu.items {
+                if !item.isSeparatorItem {
+                    items.append(
+                        MenuItemDescription(
+                            path: Self.path(of: item),
+                            keyEquivalent: item.keyEquivalent.isEmpty ? nil : item.keyEquivalent,
+                            modifiers: Self.modifierNames(item.keyEquivalentModifierMask),
+                            isEnabled: item.isEnabled
+                        )
+                    )
+                }
+                if let submenu = item.submenu { visit(submenu) }
+            }
+        }
+        visit(main)
+        return MenuResult(items: items)
+    }
+
+    private static func shortcut(from params: KeyParams) throws -> MenuShortcut {
+        guard params.key.count == 1, let key = params.key.first else {
+            throw ControlError.badParams("key must be a single character, got \"\(params.key)\"")
+        }
+        var modifiers: EventModifiers = []
+        for name in params.modifiers {
+            switch name {
+            case "command", "cmd": modifiers.insert(.command)
+            case "shift": modifiers.insert(.shift)
+            case "option", "alt": modifiers.insert(.option)
+            case "control", "ctrl": modifiers.insert(.control)
+            default: throw ControlError.badParams("unknown modifier \"\(name)\"")
+            }
+        }
+        return MenuShortcut(key, modifiers: modifiers)
+    }
+
+    /// The menu item carrying this chord, matched by key equivalent and
+    /// modifier mask rather than by title. Enabled state is reported
+    /// separately: `performKeyEquivalent` re-validates as it dispatches, so an
+    /// item can answer a chord that reads disabled here.
+    private static func menuItem(matching shortcut: MenuShortcut) -> NSMenuItem? {
+        guard let main = NSApp.mainMenu else { return nil }
+        let wanted = MenuShortcut.appKitFlags(shortcut.modifiers)
+        func search(_ menu: NSMenu) -> NSMenuItem? {
+            menu.update()
+            for item in menu.items {
+                if item.keyEquivalent.lowercased() == String(shortcut.key).lowercased(),
+                   MenuShortcut.deviceIndependentFlags(item.keyEquivalentModifierMask) == wanted {
+                    return item
+                }
+                if let submenu = item.submenu, let found = search(submenu) { return found }
+            }
+            return nil
+        }
+        return search(main)
+    }
+
+    private static func path(of item: NSMenuItem) -> String {
+        var components = [item.title]
+        var menu = item.menu
+        while let current = menu, let parent = current.supermenu {
+            if let owner = parent.items.first(where: { $0.submenu === current }) {
+                components.insert(owner.title, at: 0)
+            }
+            menu = parent
+        }
+        return components.joined(separator: " > ")
+    }
+
+    private static func modifierNames(_ mask: NSEvent.ModifierFlags) -> [String] {
+        var names: [String] = []
+        if mask.contains(.control) { names.append("control") }
+        if mask.contains(.option) { names.append("option") }
+        if mask.contains(.shift) { names.append("shift") }
+        if mask.contains(.command) { names.append("command") }
+        return names
     }
 
     // MARK: Screenshot

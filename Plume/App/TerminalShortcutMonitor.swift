@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Gives the menu bar first refusal on Plume's own shortcuts, so they still
 /// work while a terminal surface holds keyboard focus.
@@ -41,13 +42,18 @@ final class TerminalShortcutMonitor {
     /// returned to AppKit untouched, so every key Plume does not bind reaches
     /// the terminal exactly as before.
     private func handle(_ event: NSEvent) -> Bool {
+        Log.app.notice("shortcut monitor saw \(event.charactersIgnoringModifiers ?? "?", privacy: .public)")
         guard Self.isClaimed(characters: event.charactersIgnoringModifiers, flags: event.modifierFlags)
         else { return false }
 
         // `performKeyEquivalent` respects each item's `disabled` state, so a
         // command with no selected task declines here and the chord falls
         // through to the terminal rather than vanishing.
-        return NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        let handled = NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        Log.app.notice(
+            "shortcut monitor claimed \(event.charactersIgnoringModifiers ?? "?", privacy: .public), menu handled: \(handled, privacy: .public)"
+        )
+        return handled
     }
 
     /// Whether this chord is one `PlumeCommands` binds, and so one the menu
