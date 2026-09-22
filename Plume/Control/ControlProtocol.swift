@@ -161,6 +161,10 @@ nonisolated struct DragParams: Decodable {
     /// Offered as `public.utf8-plain-text`, which is what SwiftUI's
     /// `.draggable(String)` puts on the pasteboard.
     var text: String?
+    /// Records a Plume `text` payload as the in-app drag first, the way a
+    /// real drag source does, so the replay draws feedback and takes the
+    /// drop's in-app path instead of loading the payload.
+    var inApp: Bool?
     var target: ControlTarget?
     var x: Double?
     var y: Double?
@@ -181,6 +185,10 @@ nonisolated struct DragResult: Encodable {
     var updated: [String]?
     var prepared: Bool?
     var performed: Bool?
+    /// `InAppDrag`'s item and feedback state after `draggingUpdated`, and
+    /// after the drop.
+    var feedbackAfterUpdate: [String]?
+    var feedbackAfterDrop: [String]?
     /// Every drag destination in the window. Reported when the request named
     /// no point, which is how to ask what the window will accept and where.
     var destinations: [DragDestination]?

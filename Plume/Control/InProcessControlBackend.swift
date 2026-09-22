@@ -184,8 +184,12 @@ final class InProcessControlBackend: ControlBackend {
         guard let destination = SyntheticDrag.destination(at: point, in: window, types: types) else {
             return DragResult(dropped: false, refusedAt: "noDestination", view: nil)
         }
+        if params.inApp == true, let text = params.text, let item = SidebarDragItem(payload: text) {
+            InAppDrag.shared.begin(item)
+        }
         let info = SyntheticDraggingInfo(pasteboard: pasteboard, location: point, window: window)
-        let outcome = SyntheticDrag.perform(info, on: destination)
+        var feedback: [String]?
+        let outcome = SyntheticDrag.perform(info, on: destination) { feedback = Self.inAppDragFeedback() }
         return DragResult(
             dropped: outcome.succeeded,
             refusedAt: outcome.refusedAt,
@@ -193,8 +197,19 @@ final class InProcessControlBackend: ControlBackend {
             entered: Self.names(outcome.entered),
             updated: outcome.updated.map(Self.names),
             prepared: outcome.prepared,
-            performed: outcome.performed
+            performed: outcome.performed,
+            feedbackAfterUpdate: feedback,
+            feedbackAfterDrop: outcome.performed == nil ? nil : Self.inAppDragFeedback()
         )
+    }
+
+    private static func inAppDragFeedback() -> [String] {
+        let drag = InAppDrag.shared
+        var out: [String] = []
+        if let item = drag.item { out.append("item \(item.payload)") }
+        if let indicator = drag.sidebarIndicator { out.append("sidebar \(indicator.target) \(indicator.placement)") }
+        if let gap = drag.tabStripGap { out.append("tabStrip gap \(gap.gap)") }
+        return out
     }
 
     private static func names(_ operation: NSDragOperation) -> [String] {
