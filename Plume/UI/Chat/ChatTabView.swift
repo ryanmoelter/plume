@@ -456,6 +456,7 @@ struct ChatTabView: View, ThemedView {
             if let claudeSession, let exchange = claudeSession.chippedSideQuestion {
                 SideQuestionChip(
                     exchange: exchange,
+                    glass: planGlass,
                     onOpenPanel: { isSideQuestionsPanelShown = true },
                     onDismiss: { claudeSession.dismissChippedSideQuestion() }
                 )
@@ -660,7 +661,7 @@ struct ChatTabView: View, ThemedView {
             isSideQuestionsPanelShown.toggle()
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "questionmark.bubble")
+                Image(systemName: SideQuestionChip.symbol)
                 Text("\(session.sideQuestions.count)")
             }
         }

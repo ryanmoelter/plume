@@ -4,25 +4,31 @@ import SwiftUI
 ///
 /// A side question answers out of band and writes nothing to the transcript,
 /// so without this there is nothing on screen between asking and reading the
-/// panel — the question looks ignored. Shaped like `CommandRunChip` for the
-/// same reason: both report work running beside the conversation rather than
-/// in it.
+/// panel — the question looks ignored.
+///
+/// Drawn as a second composer panel — same glass, radius, width and inset —
+/// so the question lines up with the text being written below it. The answer
+/// is the agent speaking, so it takes the chat's prose face and size.
 struct SideQuestionChip: View, ThemedView {
     @Environment(\.theme) var theme
+    @Environment(\.chatFontSize) private var chatFontSize
 
     let exchange: SideQuestion
+    let glass: Glass
     let onOpenPanel: () -> Void
     let onDismiss: () -> Void
 
+    static let symbol = "bubble.left.and.bubble.right"
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: questionAnswerSpacing) {
             questionLine
             answer
         }
-        .padding(10)
-        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
-        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(dimensions.composerFieldInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(glass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+        .plumeTheme(bodySize: chatFontSize)
         .plumeID(AccessibilityID.sideQuestionChip, value: chipValue)
     }
 
@@ -36,7 +42,6 @@ struct SideQuestionChip: View, ThemedView {
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
@@ -55,7 +60,7 @@ struct SideQuestionChip: View, ThemedView {
             WorkingEllipsis(color: colors.activity)
                 .font(typography.caption.font)
         case .answered:
-            Image(systemName: "questionmark.bubble")
+            Image(systemName: Self.symbol)
                 .font(typography.caption.font)
                 .emphasis(.secondary)
         case .failed:
@@ -65,40 +70,40 @@ struct SideQuestionChip: View, ThemedView {
         }
     }
 
-    /// The answer scrolls rather than growing without limit, so a long one
-    /// cannot push the composer off the window. Capped in height rather than
-    /// in lines: a short answer takes only the room it needs.
     @ViewBuilder
     private var answer: some View {
         switch exchange.state {
         case .pending, .running:
             EmptyView()
         case let .answered(answer):
-            scrollingText(answer)
-                .emphasis(.secondary)
+            scrolling {
+                MarkdownView(answer, isAgentVoice: true)
+            }
         case let .failed(message):
-            scrollingText(message)
-                .foregroundStyle(.red)
+            scrolling {
+                Text(message)
+                    .font(typography.body.font)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
-    private func scrollingText(_ text: String) -> some View {
+    /// The answer scrolls rather than growing without limit, so a long one
+    /// cannot push the composer off the window. Capped in height rather than
+    /// in lines: a short answer takes only the room it needs.
+    private func scrolling(@ViewBuilder _ content: () -> some View) -> some View {
         ScrollView {
-            Text(text)
-                .font(typography.caption.font)
-                .lineSpacing(typography.caption.lineSpacing)
+            content()
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: answerMaxHeight)
-        // Height follows the text until the cap, so a one-line answer is not
-        // padded out to a scroller's worth of empty space.
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.top, 6)
         .onTapGesture(perform: onOpenPanel)
     }
 
     private let questionLineLimit = 2
+    private let questionAnswerSpacing: CGFloat = 12
     private let answerMaxHeight: CGFloat = 220
 
     /// What a driver reads to tell the states apart without the glyph.

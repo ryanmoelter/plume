@@ -40,7 +40,7 @@ struct SideQuestionsOverlay: View, ThemedView {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: "questionmark.bubble")
+            Image(systemName: SideQuestionChip.symbol)
                 .emphasis(.secondary)
             Text("Side questions")
                 .font(.headline)
