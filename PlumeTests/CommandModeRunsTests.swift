@@ -85,3 +85,29 @@ struct QueuedProseTests {
         #expect(prose.map(\.offset) == [1])
     }
 }
+
+/// Retiring the last run empties the chip list, so whatever observes the
+/// queue has to outlive that list — otherwise the run stays queued, its text
+/// stays "spoken for", and the message it stood in for is hidden forever.
+@MainActor
+struct RunRetirementTests {
+    @Test func retiringTheLastRunClearsWhatItSpokeFor() async throws {
+        let runs = CommandModeRuns()
+        let tabID = UUID()
+        let result = await withCheckedContinuation { continuation in
+            runs.start("echo hi", in: nil, tabID: tabID) { continuation.resume(returning: $0) }
+        }
+        let run = try #require(runs.runs(forTab: tabID).first)
+        #expect(runs.queuedText(forTab: tabID) == [result.transcriptText])
+
+        runs.finish(run.id, tabID: tabID)
+
+        // Nothing is spoken for any more, so a queued message with this text
+        // would show rather than stay hidden behind a chip that is gone.
+        #expect(runs.queuedText(forTab: tabID).isEmpty)
+        #expect(ChatTabView.prose(
+            in: [[.text(result.transcriptText)]],
+            spokenFor: runs.queuedText(forTab: tabID)
+        ).count == 1)
+    }
+}

@@ -291,6 +291,13 @@ struct ChatTabView: View, ThemedView {
             composerPanel(transcript: transcript)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+        // A queued run is retired by the session taking its text off the
+        // queue, which the session does without knowing runs exist. Watched
+        // from here rather than the chip list, which retiring the last run
+        // unmounts — taking the observation with it before it can fire.
+        .onChange(of: headlessSession?.queuedMessages.map(\.plainText) ?? []) { _, queued in
+            retireSentRuns(queued: Set(queued))
+        }
     }
 
     /// Each queued message is a message the user already wrote, waiting its
@@ -348,11 +355,6 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .listItemPadding(vertical: false)
-        // A queued run is retired by the session taking its text off the
-        // queue, which the session does without knowing runs exist.
-        .onChange(of: headlessSession?.queuedMessages.map(\.plainText) ?? []) { _, queued in
-            retireSentRuns(queued: Set(queued))
-        }
     }
 
     private func retireSentRuns(queued: Set<String>) {
@@ -989,14 +991,13 @@ private struct CommandRunChip: View, ThemedView {
     private var commandLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             status
-            ScrollView(.vertical, showsIndicators: false) {
-                Text(run.command)
-                    .font(typography.body.font.monospaced())
-                    .lineSpacing(typography.body.lineSpacing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: commandMaxHeight)
+            Text(run.command)
+                .font(typography.body.font.monospaced())
+                .lineSpacing(typography.body.lineSpacing)
+                .lineLimit(commandLineLimit)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             Button(action: onCancel) {
                 Image(systemName: "xmark.circle.fill")
@@ -1023,13 +1024,11 @@ private struct CommandRunChip: View, ThemedView {
         }
     }
 
-    /// Three lines of the command, scrolling past that. A heredoc or a long
+    /// Four lines of the command, truncated past that. A heredoc or a long
     /// pipeline would otherwise push the composer down the window, and the
     /// chip is a progress indicator rather than somewhere to read a script.
-    private var commandMaxHeight: CGFloat {
-        let line = typography.bodySize + typography.body.lineSpacing
-        return line * 3
-    }
+    /// A cap rather than a height: a one-line command takes one line.
+    private let commandLineLimit = 4
 
     /// One line, monospaced and dimmed, so a command that prints steadily
     /// shows movement without the chip growing.
