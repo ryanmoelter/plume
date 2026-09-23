@@ -26,15 +26,27 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String? = nil
     ) {
+        launch(blocks: message.map { [.text($0)] } ?? [], task: task, tab: tab, resumeSessionID: resumeSessionID)
+    }
+
+    static func launch(
+        blocks: [UserContentBlock],
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String? = nil
+    ) {
+        let normalized = blocks.normalized
+        let text = normalized.plainText
         switch (tab.provider, tab.transport) {
         case (.claudeCode, .headless):
-            launchClaudeHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchClaudeHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case (.claudeCode, .terminal):
-            launchClaudeTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case (.codex, .headless):
-            launchCodexHeadless(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchCodexHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case (.codex, .terminal):
-            launchCodexTerminal(message: message, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchCodexTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
+
         }
     }
 
@@ -58,20 +70,30 @@ enum AgentLauncher {
     }
 
     private static func launchClaudeHeadless(
-        message: String?,
+        blocks: [UserContentBlock],
+
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        // The headless transport has no way to surface Claude Code's
-        // folder-trust prompt, so an untrusted directory would otherwise
-        // hang the turn with nothing to look at. Refuse to spawn instead,
-        // and point at the terminal transport, where the prompt can
-        // actually be answered. Never write the trust flag here — that
-        // would grant the very trust the prompt exists to ask for.
+        // `claude -p` skips the folder-trust prompt outright rather than
+        // blocking on it, so a directory the user never accepted would run
+        // unasked. Refuse instead, and point at the terminal transport, where
+        // the prompt can actually be answered. Never write the trust flag
+        // here — that would grant the very trust the prompt exists to ask for.
         guard let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
+
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
+            // Also reported through the session, so a refusal that follows a
+            // sent message lands in the conversation beside it. The full-pane
+            // state only shows while the conversation is empty, which a
+            // just-sent message it never spawned for is not.
+            let session = AgentSessionManager.shared.session(
+                for: tab.id, taskID: task.id, provider: .claudeCode,
+                initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+            ) as? HeadlessSession
+            session?.failToLaunch(failure: .untrustedDirectory(path: workingDirectory))
             return
         }
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
@@ -123,8 +145,8 @@ enum AgentLauncher {
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: LoginShellCommand.plumeEnvironment
         )
-        if let message {
-            session.submit(text: message)
+        if blocks.hasContent {
+            session.submit(blocks: blocks)
         }
     }
 
@@ -156,7 +178,7 @@ enum AgentLauncher {
     }
 
     private static func launchCodexHeadless(
-        message: String?,
+        blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?
@@ -173,6 +195,10 @@ enum AgentLauncher {
             Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
             return
         }
+        guard AgentSessionManager.shared.claimCodexThread(resumeSessionID, for: tab.id) else {
+            session.failToLaunch(reason: "This Codex conversation is already open in another Plume tab. Continue there, or close that tab before resuming here.")
+            return
+        }
         session.start(
             workingDirectory: TabDirectoryStore.shared.directory(for: tab),
             resumeThreadID: resumeSessionID,
@@ -182,8 +208,8 @@ enum AgentLauncher {
             defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
             environment: LoginShellCommand.plumeEnvironment
         )
-        if let message {
-            session.submit(text: message)
+        if blocks.hasContent {
+            session.submit(blocks: blocks)
         }
     }
 

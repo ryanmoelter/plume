@@ -3,6 +3,8 @@ import SwiftUI
 
 struct TaskRowView: View {
     @Bindable var task: WorkTask
+    var isSelected = false
+    var onSelect: (() -> Void)? = nil
     /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
 
@@ -160,7 +162,7 @@ struct TaskRowView: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier(AccessibilityID.taskRow)
+        .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: onSelect)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
         .animatedHeight(alignment: .top)

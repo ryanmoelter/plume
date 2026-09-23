@@ -20,7 +20,11 @@ struct KeepAwakePanel: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accessibilityIdentifier(AccessibilityID.keepAwakeModePicker)
+            .plumeID(
+                AccessibilityID.keepAwakeModePicker,
+                value: settings.keepAwakeMode.rawValue,
+                setValue: { if let mode = KeepAwakeMode(rawValue: $0) { settings.keepAwakeMode = mode } }
+            )
 
             summary
                 .font(.callout)
@@ -67,13 +71,17 @@ struct KeepAwakePanel: View {
                 Text("Keep awake with the lid closed")
                     .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
             }
-                .disabled(!coordinator.lidOverrideStatus.canEngage)
-                .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
                 .help(
                     "Only applies while Plume is holding the Mac awake, so on battery it "
                         + "also needs “Keep awake on battery”."
                 )
-                .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
+                .plumeID(
+                    AccessibilityID.keepAwakeLidToggle,
+                    value: String(settings.keepsAwakeWithLidClosed),
+                    setValue: { settings.keepsAwakeWithLidClosed = ($0 == "true" || $0 == "1") }
+                )
+                .disabled(!coordinator.lidOverrideStatus.canEngage)
+                .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
 
             if settings.keepsAwakeWithLidClosed {
                 LabeledContent("Allow sleep when temperature is") {
@@ -94,7 +102,7 @@ struct KeepAwakePanel: View {
         }
         .padding(12)
         .frame(width: 340)
-        .accessibilityIdentifier(AccessibilityID.keepAwakePanel)
+        .plumeID(AccessibilityID.keepAwakePanel)
         .onAppear { coordinator.refreshLidOverride() }
     }
 
@@ -115,20 +123,20 @@ struct KeepAwakePanel: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+            .plumeID(AccessibilityID.keepAwakeLidInstallButton)
         } else if guidance.offersLoginItems {
             Button("Open Login Items…") {
                 SMAppService.openSystemSettingsLoginItems()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+            .plumeID(AccessibilityID.keepAwakeLidApprovalButton)
         } else if let note = guidance.note {
             Text(note)
                 .font(.callout)
                 .emphasis(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(AccessibilityID.keepAwakeLidNote)
+                .plumeID(AccessibilityID.keepAwakeLidNote)
         }
     }
 
@@ -212,13 +220,17 @@ private struct KeepAwakeReasonRow: View {
                 Text(detail)
                     .font(.caption)
                     .emphasis(.subtle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+                    .help(detail)
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(AccessibilityID.keepAwakeReasonRow)
+        .plumeID(AccessibilityID.keepAwakeReasonRow, label: title)
     }
 
     @ViewBuilder
@@ -244,9 +256,15 @@ private struct KeepAwakeReasonRow: View {
         case .working(.needsTerminalInput): "Waiting"
         case .working: "Active"
         case .remoteControl: "Remote"
-        case .backgroundTask(.monitor): "Monitor"
-        case .backgroundTask(.backgroundCommand): "Background"
-        case .backgroundTask(.workflow): "Workflow"
+        case .backgroundTask(let kind, let description): description ?? Self.word(for: kind)
+        }
+    }
+
+    private static func word(for kind: BackgroundTaskTracker.Kind) -> String {
+        switch kind {
+        case .monitor: "Monitor"
+        case .backgroundCommand: "Background"
+        case .workflow: "Workflow"
         }
     }
 }

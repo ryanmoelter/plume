@@ -82,7 +82,7 @@ final class CodexBackgroundTaskTracker {
                 guard let processID = terminal["processId"]?.stringValue else { continue }
                 let id = "\(threadID)/\(processID)"
                 inventory[id] = previous[id] ?? BackgroundTaskTracker.Entry(
-                    id: id, kind: .backgroundCommand, startedAt: now, expiresAt: nil
+                    id: id, kind: .backgroundCommand, description: terminal["command"]?.stringValue, startedAt: now, expiresAt: nil
                 )
             }
             entriesByThread[threadID] = inventory.values.sorted { $0.id < $1.id }

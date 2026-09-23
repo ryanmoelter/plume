@@ -28,11 +28,18 @@ nonisolated struct OptimisticFirstMessage: Equatable {
     /// not changed.
     static let messageID = "plume.optimistic.first-message"
 
+    /// Classified the way `TranscriptParser` classifies the line it is
+    /// standing in for, so a `!` command renders as one here too rather than
+    /// showing its wrapper tags as prose until the transcript catches up.
+    private var kind: InjectedContent {
+        InjectedContent.classify(text: text, isMeta: false)
+    }
+
     var message: ChatMessage {
         ChatMessage(
             id: Self.messageID,
             role: .user,
-            blocks: [.markdown(text)],
+            blocks: [kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)],
             timestamp: sentAt
         )
     }
@@ -60,7 +67,8 @@ nonisolated struct OptimisticFirstMessage: Equatable {
         let wanted = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !wanted.isEmpty else { return true }
         return messages.contains { message in
-            message.role == .user && message.prose == wanted
+            guard message.role == .user else { return false }
+            return message.prose == wanted || message.injectedText == wanted
         }
     }
 }
@@ -72,6 +80,20 @@ extension ChatMessage {
         blocks
             .compactMap { block in
                 if case .markdown(let text) = block { return text }
+                return nil
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension ChatMessage {
+    /// The text of an injected line — a `!` command among them — which
+    /// carries no prose to match a pending message against.
+    var injectedText: String {
+        blocks
+            .compactMap { block in
+                if case .injected(_, let text) = block { return text }
                 return nil
             }
             .joined(separator: "\n")

@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated enum AgentDelivery {
+    case sent
+    case queued
+}
+
 /// One agent conversation, however Plume happens to be talking to it.
 ///
 /// The chat UI renders against this rather than a concrete session, so a tab
@@ -13,7 +18,8 @@ import Foundation
 @MainActor
 protocol AgentSession: AnyObject, Observable {
     var tabID: UUID { get }
-    var taskID: UUID { get }
+    var taskID: UUID { get set }
+    var processIdentifier: Int32? { get }
 
     /// The CLI's own identifier for the conversation, persisted to the tab so
     /// a relaunch can resume it.
@@ -30,7 +36,6 @@ protocol AgentSession: AnyObject, Observable {
     var streamingText: String { get }
     var streamingThinking: String { get }
 
-    var rateLimit: RateLimitInfo? { get }
     /// Nil where the CLI reports usage in tokens only, which hides the cost
     /// readout rather than showing a zero.
     var sessionCostUSD: Double? { get }
@@ -46,7 +51,7 @@ protocol AgentSession: AnyObject, Observable {
     var effort: AgentEffort? { get }
     var hasReportedModeAndModel: Bool { get }
 
-    var queuedMessages: [String] { get }
+    var queuedMessages: [[UserContentBlock]] { get }
 
     /// Whether the CLI can propose a plan for approval. False hides the plan
     /// dock outright — a CLI without the concept never produces one, and an
@@ -58,9 +63,11 @@ protocol AgentSession: AnyObject, Observable {
     var isRemotelyControlled: Bool { get }
 
     func stop()
+    @discardableResult func submit(blocks: [UserContentBlock]) -> AgentDelivery
     func submit(text: String)
+    func steer(blocks: [UserContentBlock]) async -> Bool
     func steer(text: String) async -> Bool
-    @discardableResult func removeQueuedMessage(at index: Int) -> String?
+    @discardableResult func removeQueuedMessage(at index: Int) -> [UserContentBlock]?
     func interrupt()
     func setPermissionMode(_ mode: PermissionMode)
     func setModel(_ newModel: AgentModel)
@@ -83,7 +90,8 @@ extension AgentSession {
     var supportsSteering: Bool { false }
     var canSteer: Bool { false }
     var isSteering: Bool { false }
-    func steer(text: String) async -> Bool { false }
+    func steer(blocks: [UserContentBlock]) async -> Bool { false }
+    func steer(text: String) async -> Bool { await steer(blocks: [.text(text)]) }
 
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
         if option.allowsAction {

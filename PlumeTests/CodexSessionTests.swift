@@ -397,7 +397,7 @@ struct CodexSessionTests {
     @Test func messagesTypedBeforeTheThreadExistsAreQueued() {
         let (session, _, _) = makeSession()
         session.submit(text: "first")
-        #expect(session.queuedMessages == ["first"])
+        #expect(session.queuedMessages.map(\.plainText) == ["first"])
     }
 
     @Test func steeringTargetsTheActiveTurnAndDoesNotUseTheQueue() async throws {
@@ -430,13 +430,15 @@ struct CodexSessionTests {
         client.receive(#"{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}"#)
         #expect(session.canSteer)
 
-        let outcome = Task { await session.steer(text: "  change course  ") }
+        let steeringImage = ChatImage(mediaType: "image/png", base64: "aW1hZ2U=")
+        let outcome = Task { await session.steer(blocks: [.text("  change course  "), .image(steeringImage)]) }
         try await waitUntil { sent().contains { requestMethod(in: $0) == "turn/steer" } }
         let request = try #require(sent().first { requestMethod(in: $0) == "turn/steer" })
         let params = try #require(decodedObject(request)?["params"])
         #expect(params["threadId"] == .string("thread-1"))
         #expect(params["expectedTurnId"] == .string("turn-1"))
         #expect(params["input"]?.arrayValue?.first?["text"] == .string("change course"))
+        #expect(params["input"]?.arrayValue?.last?["url"] == .string("data:image/png;base64,aW1hZ2U="))
         #expect(session.queuedMessages.isEmpty)
         #expect(session.isSteering)
         #expect(!session.canSteer)
@@ -477,7 +479,7 @@ struct CodexSessionTests {
 
         #expect(session.collaborationMode == .default)
         #expect(session.planProposal == nil)
-        #expect(session.queuedMessages == ["Implement the proposed plan with this feedback:\n\nPreserve compatibility"])
+        #expect(session.queuedMessages.map(\.plainText) == ["Implement the proposed plan with this feedback:\n\nPreserve compatibility"])
         #expect(session.supportsPlanApproval)
         #expect(session.sessionCostUSD == nil)
     }
@@ -491,7 +493,7 @@ struct CodexSessionTests {
 
         #expect(session.collaborationMode == .plan)
         #expect(session.planProposal == nil)
-        #expect(session.queuedMessages == ["Revise the proposed plan with this feedback:\n\nKeep the old API"])
+        #expect(session.queuedMessages.map(\.plainText) == ["Revise the proposed plan with this feedback:\n\nKeep the old API"])
     }
 
     @Test func planDecisionWaitsForThePlanningTurnToFinish() {

@@ -95,9 +95,12 @@ struct ComposerSettings {
             : provider.efforts
     }
     var permissionPresets: [AgentPermissionPreset] {
-        provider == .codex
-            ? CodexCatalogStore.shared.profiles(for: tab.id)
-            : provider.permissionPresets
+        if provider == .codex {
+            return AgentPermissionPreset.offeredCodexProfiles(CodexCatalogStore.shared.profiles(for: tab.id),
+                showsFullAccess: AppSettings.shared.showsBypassPermissions)
+        }
+        return PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)
+            .map { AgentPermissionPreset(id: $0.rawValue, label: $0.label) }
     }
     var permissionPreset: AgentPermissionPreset? {
         if provider == .claudeCode {

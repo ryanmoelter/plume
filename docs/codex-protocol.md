@@ -294,3 +294,31 @@ Focused tests cover recovery ordering, stale approvals, skill inputs,
 discovery pagination, subagents, background inventory reconciliation and
 Stay Awake. The skill autocomplete and resume picker UI interactions still need a
 manual visual check; protocol probes and unit tests do not verify their layout.
+
+
+## Plume 0.11–0.12 integration
+
+Composer messages keep text and images as `UserContentBlock` values through
+queueing, editing, retries and steering. Codex receives images as `image`
+inputs with data URLs. The shared local `!` runner supplies cancellation,
+timeouts and live command chips; command/output text uses the shared shell
+transcript renderer when Codex replays it. These explicitly entered shell
+commands run locally through Plume, as they do in Claude tabs.
+
+Codex account quotas are shared independently of Claude's account quota. Both
+show time-based pacing and stale readings, and refresh countdowns without a
+new message. Codex preserves the server's actual bucket/window durations and
+omits unused windows. Full Access follows the same visibility preference as
+Claude's Bypass Permissions; planning and permission profiles remain separate.
+
+Both headless providers now use process-group shutdown. Moving a tab between
+tasks retains its process and reparents status/background work. Plume reserves
+Codex thread IDs before resume handshakes so two Plume tabs cannot both own
+one thread. This is an in-app guard: the app-server protocol does not provide
+an exclusive cross-application thread lease, and Plume does not apply Claude's
+process/transcript heuristics to Codex.
+
+Codex titles still use server thread names (including name-update events),
+with a first-message preview fallback. The installed app-server exposes name
+assignment, but no equivalent of Claude's `generate_session_title` request;
+Plume does not introduce a hidden extra model call for this purpose.

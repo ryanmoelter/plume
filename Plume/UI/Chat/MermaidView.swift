@@ -131,7 +131,7 @@ private struct MermaidExpandButton: View, ThemedView {
         .opacity(isRevealed ? 1 : 0)
         .help("Open diagram full screen")
         .accessibilityLabel("Open diagram full screen")
-        .accessibilityIdentifier(AccessibilityID.mermaidExpandButton)
+        .plumeID(AccessibilityID.mermaidExpandButton)
     }
 }
 
@@ -199,7 +199,7 @@ private struct MermaidFullScreenView: View, ThemedView {
             .keyboardShortcut(.cancelAction)
             .help("Close")
             .accessibilityLabel("Close")
-            .accessibilityIdentifier(AccessibilityID.mermaidFullScreenClose)
+            .plumeID(AccessibilityID.mermaidFullScreenClose)
         }
         .padding(12)
     }

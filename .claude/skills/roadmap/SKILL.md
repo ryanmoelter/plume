@@ -27,7 +27,7 @@ An issue states the item and any real blocker. It does not describe what the cod
 
 Call `list_issues` with `team: "Plume"`, `state: "Todo"`, and `fields: ["identifier", "title", "priority", "estimate", "project", "description"]`.
 
-Sort by `priority` ascending, then by the `Queue position` line in each description. Priority buckets the queue; the position line is the exact order.
+Sort by `priority` ascending. Priority is the queue order.
 
 Report a numbered list: identifier, title, size, project. Read the whole description before starting anything.
 
@@ -49,7 +49,7 @@ Do not inventory the codebase in the description. Ask the user for a size; leave
 
 Into the queue: `state: "Todo"` plus a `priority`. Out of it: `state: "Backlog"` and `priority: 0`.
 
-Reordering means rewriting the `Queue position: n of m` line on every affected issue. Use `patch` for that, never a full `description` — a full resend loses whatever else the description holds.
+Reordering means changing `priority`. Never record an order in the description — priority already holds it.
 
 ## Present it back
 

@@ -68,6 +68,8 @@ final class CodexAppServerClient {
         writeLine = { [weak handler] line in handler?.send(line: line) ?? false }
     }
 
+    var processIdentifier: pid_t? { process?.processIdentifier }
+
     func stop() {
         process?.terminate()
         process = nil

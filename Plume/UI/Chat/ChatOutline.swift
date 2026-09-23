@@ -35,6 +35,8 @@ struct ChatOutline: Equatable {
         case plan(String)
         /// The user stopping the agent mid-turn.
         case interruption
+        /// A shell command the user ran with `!`.
+        case shellCommand(String)
         /// Everything the agent produced between two pieces of user input.
         case response
 
@@ -45,7 +47,8 @@ struct ChatOutline: Equatable {
         /// The line this entry carries, empty for a run of agent output.
         var text: String {
             switch self {
-            case .prompt(let text), .question(let text), .plan(let text): text
+            case .prompt(let text), .question(let text), .plan(let text),
+                 .shellCommand(let text): text
             case .interruption: "Interrupted"
             case .response: ""
             }
@@ -66,6 +69,7 @@ struct ChatOutline: Equatable {
             case .question: StatusSymbol.question.name
             case .plan: StatusSymbol.plan.name
             case .interruption: StatusSymbol.interruption.name
+            case .shellCommand: "terminal"
             }
         }
     }
@@ -242,12 +246,21 @@ enum ChatOutlineBuilder {
             }
         }
         guard piece.role == .user else { return nil }
+        // Another agent's message arrives under the user's role but is not
+        // the user speaking, so it anchors nothing.
+        guard piece.wash != .agentBubble else { return nil }
         switch piece.content {
         case .injected(let content, let text):
             // An interruption is the user reaching for the conversation
             // rather than writing in it, and it marks where a turn was cut
             // short — which is exactly what a reader scans back for.
             if content == .interrupted { return .interruption }
+            // A `!` command is the user acting on the conversation, not the
+            // agent producing output, so it anchors the map the way a prompt
+            // does. Only the command — its output is the agent's half.
+            if case .shellCommand(let command) = content {
+                return .shellCommand(firstLine(of: command))
+            }
             return content.isUserProse ? .prompt(firstLine(of: text)) : nil
         case .markdown, .codeSegment, .listSegment, .image:
             return .prompt(firstLine(of: promptText(of: piece)))
@@ -288,6 +301,8 @@ enum ChatOutlineBuilder {
             toolCallWeight
         case .injected(_, let text):
             proseWeight(of: text, block: nil)
+        case .agentMessageTitle:
+            toolCallWeight
         case .notice(let notice):
             proseWeight(of: notice.title, block: nil)
         case .image:

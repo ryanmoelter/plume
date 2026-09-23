@@ -9,7 +9,7 @@ import SwiftUI
 /// the same values. That shared origin is the point: a chord added to a menu
 /// item is claimed back from a focused terminal automatically, with no parallel
 /// list to keep in step.
-struct MenuShortcut: Equatable {
+struct MenuShortcut: Equatable, Codable {
     /// The character the key produces with no modifiers applied — "a", "]",
     /// "1". Matching reads `charactersIgnoringModifiers`, so this is compared
     /// against what the key is labelled, not what the chord composes to.
@@ -25,13 +25,41 @@ struct MenuShortcut: Equatable {
 
     /// Whether this chord may be claimed back from a focused terminal.
     ///
-    /// Only Command-bearing chords qualify. Everything else belongs to the
-    /// terminal: a bare key is typing, a Control chord is a C0 control code
-    /// (⌃C, ⌃D, ⌃Z), and an Option chord is how a terminal composes characters
-    /// and sends Meta-prefixed escape sequences. Command is the one modifier
-    /// that never reaches a program over a PTY, so taking it costs the
-    /// terminal nothing.
-    var isClaimable: Bool { modifiers.contains(.command) }
+    /// A Command chord always qualifies: Command is the one modifier that
+    /// never reaches a program over a PTY, so taking it costs the terminal
+    /// nothing. An Option chord qualifies only because the user asked for it
+    /// by binding one — the terminal otherwise uses Option to compose
+    /// characters and to send Meta-prefixed escape sequences, so claiming it
+    /// takes a key the shell would have received. Bare keys and Control
+    /// chords stay with the terminal unconditionally: a bare key is typing
+    /// and a Control chord is a C0 control code (⌃C, ⌃D, ⌃Z).
+    var isClaimable: Bool { modifiers.contains(.command) || modifiers.contains(.option) }
+
+    /// The chord as macOS writes it, for menus and the settings editor.
+    var displayName: String {
+        var text = ""
+        if modifiers.contains(.control) { text += "⌃" }
+        if modifiers.contains(.option) { text += "⌥" }
+        if modifiers.contains(.shift) { text += "⇧" }
+        if modifiers.contains(.command) { text += "⌘" }
+        return text + String(key).uppercased()
+    }
+
+    /// Parses what `displayName` writes — "⌥⇧J", "⌘]". Nil when the text is
+    /// not one modifier run followed by a single key.
+    init?(displayName: String) {
+        var modifiers: EventModifiers = []
+        var remainder = Substring(displayName)
+        let symbols: [(Character, EventModifiers)] = [
+            ("⌃", .control), ("⌥", .option), ("⇧", .shift), ("⌘", .command),
+        ]
+        while let first = remainder.first, let match = symbols.first(where: { $0.0 == first }) {
+            modifiers.insert(match.1)
+            remainder.removeFirst()
+        }
+        guard remainder.count == 1, let key = remainder.first else { return nil }
+        self.init(Character(String(key).lowercased()), modifiers: modifiers)
+    }
 
     /// Whether `characters` and `flags` are this exact chord.
     ///
@@ -52,6 +80,15 @@ struct MenuShortcut: Equatable {
         flags.intersection([.command, .shift, .option, .control])
     }
 
+    static func eventModifiers(_ flags: NSEvent.ModifierFlags) -> EventModifiers {
+        var modifiers: EventModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return modifiers
+    }
+
     static func appKitFlags(_ modifiers: EventModifiers) -> NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         if modifiers.contains(.command) { flags.insert(.command) }
@@ -62,8 +99,60 @@ struct MenuShortcut: Equatable {
     }
 }
 
+/// Persistence. `Character` and `EventModifiers` are neither of them
+/// `Codable`, so the stored form is a string key plus the modifier names —
+/// readable in `defaults read`, and stable if `EventModifiers`' bit values
+/// ever move.
+extension MenuShortcut {
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case modifiers
+    }
+
+    private static let modifierNames: [(name: String, modifier: EventModifiers)] = [
+        ("command", .command), ("shift", .shift), ("option", .option), ("control", .control),
+    ]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let keyText = try container.decode(String.self, forKey: .key)
+        guard keyText.count == 1, let key = keyText.first else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .key,
+                in: container,
+                debugDescription: "Expected a single character, got \"\(keyText)\""
+            )
+        }
+        let names = Set(try container.decode([String].self, forKey: .modifiers))
+        let modifiers = Self.modifierNames
+            .filter { names.contains($0.name) }
+            .reduce(into: EventModifiers()) { $0.insert($1.modifier) }
+        self.init(key, modifiers: modifiers)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(String(key), forKey: .key)
+        try container.encode(
+            Self.modifierNames.filter { modifiers.contains($0.modifier) }.map(\.name),
+            forKey: .modifiers
+        )
+    }
+}
+
 extension View {
     func keyboardShortcut(_ shortcut: MenuShortcut) -> some View {
         keyboardShortcut(shortcut.keyEquivalent, modifiers: shortcut.modifiers)
+    }
+
+    /// Nil leaves the item with no chord, which is how a rebind that took this
+    /// action's chord away renders.
+    @ViewBuilder
+    func keyboardShortcut(_ shortcut: MenuShortcut?) -> some View {
+        if let shortcut {
+            keyboardShortcut(shortcut.keyEquivalent, modifiers: shortcut.modifiers)
+        } else {
+            self
+        }
     }
 }

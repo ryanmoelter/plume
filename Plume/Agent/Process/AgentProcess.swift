@@ -43,11 +43,18 @@ final class AgentProcess: @unchecked Sendable {
     }
 
     func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
-        // An agent CLI reaches PATH only through the user's shell profile,
-        // which a GUI-launched app does not inherit, so the command runs
-        // inside a login shell exactly as terminal tabs do.
+        // The agent reaches PATH only through the user's shell profile, which a
+        // GUI-launched app does not inherit, so the command runs inside a
+        // login shell exactly as terminal tabs do.
+        //
+        // `-m` (job control) puts the child in its own process group, so
+        // `kill(-pid)` reaps the whole tree rather than one process — see
+        // `terminate()`. Each shell is handed a single trailing command and
+        // execs it away, so the pid is the agent itself.
+
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", LoginShellCommand.wrap(arguments: arguments)]
+        process.arguments = ["-mc", LoginShellCommand.wrap(arguments: arguments)]
+
         if let workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
         }
@@ -81,6 +88,12 @@ final class AgentProcess: @unchecked Sendable {
         queue.sync { isRunning = true }
     }
 
+    /// The spawned pid, or nil before launch. Distinguishes an agent this app
+    /// owns from one orphaned by a previous run.
+    var processIdentifier: pid_t? {
+        queue.sync { isRunning ? process.processIdentifier : nil }
+    }
+
     /// Writes one NDJSON line, reporting `false` when the process is already
     /// gone. A caller sending the user's own text must surface that rather
     /// than let the message disappear.
@@ -100,15 +113,54 @@ final class AgentProcess: @unchecked Sendable {
 
     /// Ends the process. Prefer an `interrupt` control request to stop a turn;
     /// this tears the whole session down.
+    ///
+    /// Escalates rather than trusting any one step. Closing stdin is the
+    /// documented way to ask `claude` to exit, but an app that is quitting
+    /// cannot wait indefinitely for it to notice, and a child that outlives
+    /// the app keeps writing the transcript a later run will resume from.
+    /// `SIGTERM` then `SIGKILL` go to the process *group*, so the agent's own
+    /// children go with it rather than outliving their parent.
     func terminate() {
-        queue.sync {
-            guard isRunning else { return }
+        let wasRunning = queue.sync {
+            guard isRunning else { return false }
             isRunning = false
+            return true
         }
+        guard wasRunning else { return }
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
         try? inPipe.fileHandleForWriting.close()
-        if process.isRunning { process.terminate() }
+
+        guard process.isRunning else { return }
+        let pid = process.processIdentifier
+        guard waitForExit(within: Self.gracePeriod) == false else { return }
+
+        signalGroup(SIGTERM, pid: pid)
+        guard waitForExit(within: Self.gracePeriod) == false else { return }
+
+        signalGroup(SIGKILL, pid: pid)
+    }
+
+    /// Long enough for `claude` to notice stdin closed and flush its
+    /// transcript, short enough not to stall app termination.
+    private static let gracePeriod: TimeInterval = 2
+
+    /// Signals the child's whole process group, falling back to the single
+    /// process when it leads no group of its own. `-m` on the spawning shell
+    /// is what creates that group.
+    private func signalGroup(_ signal: Int32, pid: pid_t) {
+        if kill(-pid, signal) == -1 && errno == ESRCH {
+            kill(pid, signal)
+        }
+    }
+
+    private func waitForExit(within timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !process.isRunning { return true }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return !process.isRunning
     }
 
     private func consume(_ data: Data) {
@@ -122,6 +174,7 @@ final class AgentProcess: @unchecked Sendable {
                 guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
                 self.didReceiveLine = true
                 self.onLine(line)
+
             }
         }
     }

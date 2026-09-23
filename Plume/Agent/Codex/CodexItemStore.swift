@@ -522,7 +522,10 @@ final class CodexItemStore {
     private static func userBlocks(_ content: [JSONValue]) -> [ChatBlock] {
         content.compactMap { value in
             switch value["type"]?.stringValue {
-            case "text": return value["text"]?.stringValue.map(ChatBlock.markdown)
+            case "text":
+                guard let text = value["text"]?.stringValue else { return nil }
+                let kind = InjectedContent.classify(text: text, isMeta: false)
+                return kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)
             case "skill":
                 let name = value["name"]?.stringValue ?? "Skill"
                 return .injected(.skill(name: name), text: value["path"]?.stringValue ?? "")

@@ -1,5 +1,5 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 /// The chat rendering of an agent tab: the messages, with a floating panel
 /// over them carrying the composer above the statusline strip, and the plan
@@ -201,6 +201,13 @@ struct ChatTabView: View, ThemedView {
                     startFailure: headlessSession?.startFailure,
                     pending: $pendingFirstMessage
                 ))
+                .onDrop(
+                    of: ComposerImageDropDelegate.acceptedTypes,
+                    delegate: ComposerImageDropDelegate(
+                        isEnabled: tab.transport == .headless,
+                        attach: { [tabID = tab.id] in DraftStore.shared.attach($0, toTab: tabID) }
+                    )
+                )
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -345,12 +352,22 @@ struct ChatTabView: View, ThemedView {
             }
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
-            if let headlessSession, !headlessSession.queuedMessages.isEmpty {
+            if !commandRuns.isEmpty {
+                commandRunsView
+            }
+            if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
             }
             composerPanel(transcript: transcript)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+        // A queued run is retired by the session taking its text off the
+        // queue, which the session does without knowing runs exist. Watched
+        // from here rather than the chip list, which retiring the last run
+        // unmounts — taking the observation with it before it can fire.
+        .onChange(of: headlessSession?.queuedMessages.map(\.plainText) ?? []) { _, queued in
+            retireSentRuns(queued: Set(queued))
+        }
     }
 
     /// Each queued message is a message the user already wrote, waiting its
@@ -360,15 +377,61 @@ struct ChatTabView: View, ThemedView {
     /// of what says "not sent yet".
     private func queuedMessagesView(_ session: any AgentSession) -> some View {
         VStack(spacing: 6) {
-            ForEach(Array(session.queuedMessages.enumerated()), id: \.offset) { index, message in
+            ForEach(queuedProse(session), id: \.offset) { index, message in
                 QueuedMessageChip(
-                    text: message,
+                    text: message.plainText,
+                    imageCount: message.count { if case .image = $0 { true } else { false } },
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
             }
         }
         .listItemPadding(vertical: false)
+    }
+
+    /// The queued messages the user actually wrote. A `!` command's output
+    /// is queued as the tagged wire format, which reads as markup rather
+    /// than as the command that produced it — its own chip says it better.
+    private func queuedProse(
+        _ session: any AgentSession
+    ) -> [(offset: Int, element: [UserContentBlock])] {
+        Self.prose(
+            in: session.queuedMessages,
+            spokenFor: CommandModeRuns.shared.queuedText(forTab: tab.id)
+        )
+    }
+
+    /// Pure so the filter the view draws and the guard that shows it cannot
+    /// drift apart: gating on the unfiltered queue leaves an empty row up
+    /// whenever every queued entry belongs to a command chip.
+    static func prose(
+        in queued: [[UserContentBlock]],
+        spokenFor: Set<String>
+    ) -> [(offset: Int, element: [UserContentBlock])] {
+        Array(queued.enumerated())
+            .filter { !spokenFor.contains($0.element.plainText) }
+    }
+
+    private var commandRuns: [CommandModeRuns.Run] {
+        CommandModeRuns.shared.runs(forTab: tab.id)
+    }
+
+    private var commandRunsView: some View {
+        VStack(spacing: 6) {
+            ForEach(commandRuns) { run in
+                CommandRunChip(run: run) {
+                    CommandModeRuns.shared.cancel(run.id, tabID: tab.id, session: headlessSession)
+                }
+            }
+        }
+        .listItemPadding(vertical: false)
+    }
+
+    private func retireSentRuns(queued: Set<String>) {
+        for run in commandRuns where run.isQueued {
+            guard let text = run.queuedText, !queued.contains(text) else { continue }
+            CommandModeRuns.shared.finish(run.id, tabID: tab.id)
+        }
     }
 
     /// The bottom chrome as one floating panel, content width like the prose
@@ -450,6 +513,7 @@ struct ChatTabView: View, ThemedView {
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 StatuslineStripView(
                     layout: meters,
+                    provider: tab.provider,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.
@@ -461,12 +525,11 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    rateLimit: tab.provider == .claudeCode ? headlessSession?.rateLimit : nil,
                     sessionCostUSD: displayedSessionCost
                 )
-                if let codex = headlessSession as? CodexSession,
-                   codex.quotaWindows.contains(where: { $0.usedPercent > 0 }) {
-                    CodexQuotaStrip(windows: codex.quotaWindows, layout: meters == .stacked ? .stacked : .wide)
+                if tab.provider == .codex,
+                   CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
+                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows, layout: meters == .stacked ? .stacked : .wide)
                 }
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
@@ -487,7 +550,7 @@ struct ChatTabView: View, ThemedView {
             state: GitStateStore.shared.state(for: gitDirectory)
         )
         .font(typography.caption.font)
-        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+        .plumeID(AccessibilityID.composerWorkspacePicker)
     }
 
     /// A wash of the chat's own surface, so the glass reads as the chat holding
@@ -533,9 +596,7 @@ struct ChatTabView: View, ThemedView {
         .keyboardShortcut(.cancelAction)
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
-        .accessibilityIdentifier(
-            isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton
-        )
+        .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -584,11 +645,11 @@ struct ChatTabView: View, ThemedView {
                     answerPlan(.reject)
                 }
                 .disabled(codexPlan != nil && headlessSession?.isWorking == true)
-                .accessibilityIdentifier(AccessibilityID.planRejectButton)
+                .plumeID(AccessibilityID.planRejectButton)
                 Button(codexPlan == nil ? "Approve" : "Implement plan") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
                     .disabled(codexPlan != nil && headlessSession?.isWorking == true)
-                    .accessibilityIdentifier(AccessibilityID.planApproveButton)
+                    .plumeID(AccessibilityID.planApproveButton)
             }
             Text(codexPlan == nil ? "⌥↩ approves with this feedback" : "Return requests changes")
                 .font(typography.caption.font)
@@ -611,7 +672,7 @@ struct ChatTabView: View, ThemedView {
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
         .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
-        .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+        .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
         .onAppear {
             guard planApproval.showsApprovalOptions else { return }
             DispatchQueue.main.async { planFeedbackFocused = true }
@@ -700,7 +761,7 @@ struct ChatTabView: View, ThemedView {
             .buttonStyle(.plain)
             .help("Expand the plan")
             .accessibilityLabel("Expand the plan")
-            .accessibilityIdentifier(AccessibilityID.planExpandButton)
+            .plumeID(AccessibilityID.planExpandButton)
         }
         .font(.callout)
         // The one leading edge the composer's text and the statusline's
@@ -815,7 +876,7 @@ struct ChatTabView: View, ThemedView {
         )
         .font(typography.headline.font)
         .emphasis(.primary)
-        .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
+        .plumeID(AccessibilityID.composerWorkspacePicker)
     }
 
     private func reconnectAgent() {
@@ -823,7 +884,7 @@ struct ChatTabView: View, ThemedView {
         AgentSessionManager.shared.closeSession(for: tab.id)
         AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
         if let session = headlessSession {
-            for message in queued { session.submit(text: message) }
+            for message in queued { session.submit(blocks: message) }
         }
     }
 
@@ -906,10 +967,24 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 360)
             }
             HStack(spacing: 12) {
-                Button("Try Again", action: retryAfterStartFailure)
+                // Answering the folder-trust prompt is what unblocks this, so
+                // the terminal tab leads and the retry follows it.
+                if failure.remedy == .trustDirectory {
+                    Button("Open Terminal Tab") {
+                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    }
                     .buttonStyle(.borderedProminent)
-                Button("Open Terminal Tab") {
-                    TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    .plumeID(AccessibilityID.chatTrustOpenTerminal)
+                    Button("Try Again", action: retryAfterStartFailure)
+                        .plumeID(AccessibilityID.chatStartFailureRetry)
+                } else {
+                    Button("Try Again", action: retryAfterStartFailure)
+                        .buttonStyle(.borderedProminent)
+                        .plumeID(AccessibilityID.chatStartFailureRetry)
+                    Button("Open Terminal Tab") {
+                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                    }
+                    .plumeID(AccessibilityID.chatTrustOpenTerminal)
                 }
             }
             Spacer()
@@ -923,6 +998,7 @@ struct ChatTabView: View, ThemedView {
     private func retryAfterStartFailure() {
         ClaudeCLILocator.invalidate()
         AgentSessionManager.shared.closeSession(for: tab.id)
+        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
     }
 
@@ -1010,6 +1086,7 @@ private struct QueuedMessageChip: View, ThemedView {
     @Environment(\.theme) var theme
 
     let text: String
+    var imageCount = 0
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -1024,11 +1101,21 @@ private struct QueuedMessageChip: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
                 .help("Queued — not sent yet")
-            Text(text)
-                .font(typography.body.font)
-                .lineSpacing(typography.body.lineSpacing)
-                .lineLimit(1 ... 4)
-                .fixedSize(horizontal: false, vertical: true)
+            if !text.isEmpty {
+                Text(text)
+                    .font(typography.body.font)
+                    .lineSpacing(typography.body.lineSpacing)
+                    .lineLimit(1 ... 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if imageCount > 0 {
+                Label(
+                    imageCount == 1 ? "1 image" : "\(imageCount) images",
+                    systemImage: "photo"
+                )
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+            }
             controls
         }
         .padding(10)
@@ -1059,5 +1146,92 @@ private struct QueuedMessageChip: View, ThemedView {
     /// on its near-opaque source.
     private var washColor: Color {
         colors.surfaceTint
+    }
+}
+
+/// A command-mode command still running, sitting where a queued message
+/// would: its output becomes the next message once it finishes. Cancelling
+/// kills it and sends nothing.
+/// A `!` command while it runs.
+///
+/// Mirrors the chat's own `ShellCommandRow` — the command over what it
+/// printed, joined as one shape — so the same command reads the same before
+/// and after it lands in the transcript. In glass rather than a flat surface,
+/// like the queued messages beside it, because this has not been sent yet.
+///
+/// Only the newest line of output shows. The point is to watch something long
+/// make progress, not to read its output here; the whole of it goes to the
+/// agent when the run finishes, and the chip gives way to the transcript.
+private struct CommandRunChip: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let run: CommandModeRuns.Run
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            commandLine
+            if !run.latestOutput.isEmpty {
+                outputPreview
+            }
+        }
+        .padding(10)
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .rect(cornerRadius: 10))
+        .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var commandLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            status
+            Text(run.command)
+                .font(typography.body.font.monospaced())
+                .lineSpacing(typography.body.lineSpacing)
+                .lineLimit(commandLineLimit)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(run.isQueued ? "Discard this command's output" : "Stop this command")
+            .accessibilityLabel(run.isQueued ? "Discard command output" : "Stop command")
+        }
+    }
+
+    /// Working while it runs, then a clock: the command is done and what it
+    /// printed is waiting for the agent to be free to take it.
+    @ViewBuilder
+    private var status: some View {
+        if run.isQueued {
+            Image(systemName: "clock")
+                .font(typography.caption.font)
+                .emphasis(.secondary)
+                .help("Finished — waiting to send its output to the agent")
+        } else {
+            WorkingEllipsis(color: colors.activity)
+                .font(typography.caption.font)
+        }
+    }
+
+    /// Four lines of the command, truncated past that. A heredoc or a long
+    /// pipeline would otherwise push the composer down the window, and the
+    /// chip is a progress indicator rather than somewhere to read a script.
+    /// A cap rather than a height: a one-line command takes one line.
+    private let commandLineLimit = 4
+
+    /// One line, monospaced and dimmed, so a command that prints steadily
+    /// shows movement without the chip growing.
+    private var outputPreview: some View {
+        Text(run.latestOutput)
+            .font(typography.caption.font.monospaced())
+            .emphasis(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
     }
 }

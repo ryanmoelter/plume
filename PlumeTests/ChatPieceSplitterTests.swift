@@ -189,6 +189,28 @@ struct ChatPieceSplitterTests {
         #expect(result.map(\.wash) == [.none, .bubble, .attention])
     }
 
+    /// Another agent's message is somebody speaking, so it takes a bubble —
+    /// on the leading edge, titled, with its body split as markdown.
+    @Test func anAgentMessageTakesItsOwnBubble() {
+        let text = """
+        Another Claude session sent a message:
+        <cross-session-message from-name="plume-8b">
+        First.
+
+        Second.
+        </cross-session-message>
+
+        Boilerplate the reader never sees.
+        """
+        let result = pieces([message("m", .user, [.injected(.agentMessage(name: "plume-8b"), text: text)])])
+        #expect(result.allSatisfy { $0.wash == .agentBubble })
+        #expect(result.first?.content == .agentMessageTitle(name: "plume-8b"))
+        #expect(result.count == 3)
+        #expect(Set(result.map(\.id)).count == result.count)
+        #expect(result.first?.segment == .first)
+        #expect(result.last?.segment == .last)
+    }
+
     /// An injected line is not the user speaking, so it skips the bubble.
     @Test func anInjectedOnlyUserMessageSkipsTheBubble() {
         let result = pieces([message("m", .user, [.injected(.slashCommand(name: "clear"), text: "/clear")])])

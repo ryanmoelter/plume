@@ -123,7 +123,9 @@ struct ChatOutlineTests {
         .taskNotification,
         .systemNote,
         .compactSummary,
-        .skill(name: "worktrees")
+        .skill(name: "worktrees"),
+        // The command anchors; what it printed is the run, not the asking.
+        .shellOutput
     ])
     func injectedContentIsNotAPrompt(_ content: InjectedContent) {
         let result = outline([
@@ -142,6 +144,19 @@ struct ChatOutlineTests {
 
         #expect(result.entries.map(\.kind) == [.interruption])
         #expect(ChatOutline.Kind.interruption.symbol != nil)
+    }
+
+    @Test func aShellCommandAnchors() {
+        // Running `!` is the user acting on the conversation, so it is a
+        // landmark the same way a prompt is, and it carries the command.
+        let result = outline([
+            message("a", .user, [
+                .injected(.shellCommand(command: "git status"), text: "<bash-input>git status</bash-input>")
+            ])
+        ])
+
+        #expect(result.entries.map(\.kind) == [.shellCommand("git status")])
+        #expect(ChatOutline.Kind.shellCommand("git status").symbol != nil)
     }
 
     @Test func whatTheUserActuallyTypedIsAPrompt() {
@@ -197,6 +212,7 @@ struct ChatOutlineTests {
         #expect(ChatOutline.Kind.question("Which?").symbol != nil)
         #expect(ChatOutline.Kind.plan("A plan").symbol != nil)
         #expect(ChatOutline.Kind.interruption.symbol != nil)
+        #expect(ChatOutline.Kind.shellCommand("ls").symbol != nil)
     }
 
     @Test func aTypedCommandIsMarkedAsOne() {

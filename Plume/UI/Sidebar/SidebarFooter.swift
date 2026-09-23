@@ -5,7 +5,7 @@ import SwiftData
 
 /// Pinned to the bottom of the sidebar, below the task list rather than
 /// after its last row — it stays put whether the list is empty or
-/// overflowing. Archive above, Settings below.
+/// overflowing. The quota reading sits at the top, then the actions.
 struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -26,6 +26,9 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
+                SidebarQuotaRow()
+                SidebarCodexQuotaRow()
+
 #if DEBUG
                 Button {
                     SidebarFixtures.seed(in: context, existingGroups: groups)
@@ -51,7 +54,7 @@ struct SidebarFooter: View, ThemedView {
                     )
                 }
                 .help(keepAwakeHelp)
-                .accessibilityIdentifier(AccessibilityID.sidebarKeepAwakeButton)
+                .plumeID(AccessibilityID.sidebarKeepAwakeButton)
                 .buttonStyle(SidebarFooterButtonStyle())
                 .popover(isPresented: $keepAwakeShown, arrowEdge: .trailing) {
                     KeepAwakePanel()
@@ -63,13 +66,13 @@ struct SidebarFooter: View, ThemedView {
                     SidebarFooterRow(icon: "archivebox", title: "Archive")
                 }
                 .help("Show archived tasks")
-                .accessibilityIdentifier(AccessibilityID.sidebarArchiveButton)
+                .plumeID(AccessibilityID.sidebarArchiveButton)
                 .buttonStyle(SidebarFooterButtonStyle())
 
                 SettingsLink {
                     SidebarFooterRow(icon: "gearshape", title: "Settings")
                 }
-                .accessibilityIdentifier(AccessibilityID.sidebarSettingsButton)
+                .plumeID(AccessibilityID.sidebarSettingsButton)
                 .buttonStyle(SidebarFooterButtonStyle(bottomCornerRadius: bottomCornerRadius))
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
@@ -331,7 +334,7 @@ private struct SidebarFooterButtonStyle: ButtonStyle {
                     )
                 )
                 .padding(.horizontal, SidebarFooterMetrics.inset)
-                .onHover { isHovered = $0 }
+                .plumeHover { isHovered = $0 }
         }
     }
 }

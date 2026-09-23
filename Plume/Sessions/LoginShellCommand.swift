@@ -36,6 +36,24 @@ enum LoginShellCommand {
         wrap(arguments.map(shellQuoted).joined(separator: " "))
     }
 
+    /// Builds `<shell> -lc '<command>'` — a login shell that is *not*
+    /// interactive, for a command whose output is captured rather than shown
+    /// in a terminal.
+    ///
+    /// An interactive shell sources `.zshrc`, which prints to stderr on any
+    /// warning it hits (an unbound key, a missing terminfo entry). A terminal
+    /// shows that once at startup and it scrolls away; captured output would
+    /// carry it into every result instead. Dropping `i` keeps the login PATH
+    /// that is the point of wrapping at all.
+    static func wrapNonInteractive(
+        _ command: String,
+        shell: String? = ProcessInfo.processInfo.environment["SHELL"]
+    ) -> String {
+        let resolvedShell = shell?.isEmpty == false ? shell! : "/bin/zsh"
+        return "\(resolvedShell) -lc \(shellQuoted(command))"
+    }
+
+
     /// A bare login, interactive shell with no inner command — for plain
     /// terminal tabs, where the "command" is just an interactive prompt.
     static func loginShell(shell: String? = ProcessInfo.processInfo.environment["SHELL"]) -> String {

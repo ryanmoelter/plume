@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// What a loaded worktree listing is keyed on.
+private struct WorktreeListingKey: Equatable {
+    let repository: String?
+    let directory: String?
+}
+
 /// The task's workspace, as two chips in the statusline: the folder to run
 /// in, and — when that folder is a git repository — which of its worktrees,
 /// with that worktree's ahead/behind and dirty markers beside it. Worktree
@@ -55,9 +61,14 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
-        .onDrop(of: [.fileURL], isTargeted: isEditable ? $isTargetedForDrop : .constant(false)) { providers in
-            handleDrop(providers)
-        }
+        .onDrop(
+            of: [.fileURL],
+            delegate: FolderDropDelegate(
+                isEnabled: isEditable,
+                isTargeted: $isTargetedForDrop,
+                setDirectory: setDirectory
+            )
+        )
         .sheet(isPresented: $worktreeSheetShown) {
             NewWorktreeSheet(task: task)
         }
@@ -74,7 +85,10 @@ struct WorkspacePickerView: View, ThemedView {
         // `git` runs off the main actor and lands in state: a subprocess per
         // render would be ruinous, and writing observable state from `body`
         // invalidates the view being rendered.
-        .task(id: task.repoPath) {
+        // Keyed on the directory as well as the repository: creating or
+        // removing a worktree moves the task inside one repository, leaving
+        // `repoPath` untouched while the listing it loaded goes stale.
+        .task(id: WorktreeListingKey(repository: task.repoPath, directory: task.workingDirectoryPath)) {
             guard let repoPath = task.repoPath else {
                 worktrees = []
                 repositoryBranch = nil
@@ -108,7 +122,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .fixedSize()
             if task.repoPath != nil {
                 branchGroup
-                    .accessibilityIdentifier(AccessibilityID.statuslineBranch)
+                    .plumeID(AccessibilityID.statuslineBranch)
             }
             if task.workingDirectoryPath != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
@@ -220,6 +234,7 @@ struct WorkspacePickerView: View, ThemedView {
                 inlineLabel(worktreeName, systemImage: "tree")
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
+            .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } else {
             inlineLabel(worktreeName, systemImage: "tree", isControl: false)
                 .help(worktreeHelp)
@@ -393,7 +408,10 @@ struct WorkspacePickerView: View, ThemedView {
             }
         }
         Divider()
-        Button(BetaBadge.menuTitle("New Worktree…")) { worktreeSheetShown = true }
+        // The sheet takes the repository from the task rather than asking, so
+        // it has nothing to work from until one is chosen.
+        Button("New Worktree…") { worktreeSheetShown = true }
+            .disabled(task.repoPath == nil)
     }
 
     private var worktreeChip: some View {
@@ -404,6 +422,7 @@ struct WorkspacePickerView: View, ThemedView {
                 worktreeLabel
             }
             .menuStyle(.borderlessButton)
+            .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } readOnly: {
             worktreeLabel
         }
@@ -597,15 +616,6 @@ struct WorkspacePickerView: View, ThemedView {
         setDirectory(url.path)
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard isEditable, let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url, url.hasDirectoryPath else { return }
-            Task { @MainActor in setDirectory(url.path) }
-        }
-        return true
-    }
-
     private func setDirectory(_ path: String) {
         task.workingDirectoryPath = path
         task.workspaceKind = .directory
@@ -619,6 +629,44 @@ struct WorkspacePickerView: View, ThemedView {
             task.repoPath = root
             directoryWithoutRepository = root == nil ? path : nil
         }
+    }
+}
+
+/// Takes a dragged folder as the task's working directory, and declines
+/// anything else.
+///
+/// A plain `.onDrop(of: [.fileURL])` accepts every file URL and can only
+/// inspect it after the drop, so dragging an image across the picker
+/// highlights it, consumes the drop and silently discards it — the image
+/// never reaches the composer's attachment target underneath. `validateDrop`
+/// is the only hook that runs before the drop is claimed.
+private struct FolderDropDelegate: DropDelegate {
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let setDirectory: (String) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        isEnabled && !folders(in: info).isEmpty
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = true }
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        guard let folder = folders(in: info).first else { return false }
+        setDirectory(folder.path)
+        return true
+    }
+
+    /// `NSItemProvider` only loads asynchronously, so the URLs come off the
+    /// drag pasteboard instead — `validateDrop` has to answer now.
+    private func folders(in info: DropInfo) -> [URL] {
+        guard info.hasItemsConforming(to: [.fileURL]) else { return [] }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let urls = NSPasteboard(name: .drag)
+            .readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return urls.filter(\.hasDirectoryPath)
     }
 }
 

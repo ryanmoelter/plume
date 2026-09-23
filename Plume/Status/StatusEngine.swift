@@ -32,7 +32,10 @@ final class StatusEngine {
     /// Called with the task and tab whenever a tab's own status changes.
     /// Both transports funnel through `setStatus`, so this is the one place a
     /// notification layer has to hook.
-    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus) -> Void)?
+    ///
+    /// `notifiable` is false for a change the user did not ask for, which is
+    /// worth showing but not worth interrupting over.
+    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus, _ notifiable: Bool) -> Void)?
 
     /// When each working tab started working, for the elapsed time the
     /// sidebar shows. Kept here rather than on the session so it covers both
@@ -124,10 +127,10 @@ final class StatusEngine {
     /// Every tab with a background task still running, with the task it
     /// belongs to. A tab whose task never registered is dropped, the way
     /// `setSubagentActivity` drops one.
-    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind)] {
-        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind in
+    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] {
+        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind, description in
             guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return nil }
-            return (taskID, tabID, kind)
+            return (taskID, tabID, kind, description)
         }
     }
 
@@ -151,11 +154,16 @@ final class StatusEngine {
     /// will not get one until the user sends a message, so it reads as
     /// `notStarted` and stays deaf to anything its old transcript says.
     func restore(tabID: UUID, taskID: UUID) {
-        setStatus(.notStarted, taskID: taskID, tabID: tabID)
+        setStatus(.notStarted, taskID: taskID, tabID: tabID, notifiable: false)
         dormantTabs.insert(tabID)
     }
 
-    func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID) {
+    /// `notifiable` is false when the app, not the user, started whatever
+    /// produced this status. The status still stands — the sidebar and the
+    /// chat both show it — but no system notification goes out for it.
+    func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID, notifiable: Bool = true) {
+        // Terminal hooks carry the task at launch even after a tab moves.
+        let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key ?? taskID
         tabsByTask[taskID, default: []].insert(tabID)
         dormantTabs.remove(tabID)
         guard tabStatuses[tabID] != status else { return }
@@ -163,7 +171,13 @@ final class StatusEngine {
         let previousTabStatus = self.status(forTab: tabID)
         let previousTaskStatus = self.status(forTask: taskID)
         tabStatuses[tabID] = status
-        report(taskID: taskID, tabID: tabID, previousTabStatus: previousTabStatus, previousTaskStatus: previousTaskStatus)
+        report(
+            taskID: taskID,
+            tabID: tabID,
+            previousTabStatus: previousTabStatus,
+            previousTaskStatus: previousTaskStatus,
+            notifiable: notifiable
+        )
     }
 
     /// Records whether a tab's conversation still has subagents working.
@@ -205,7 +219,8 @@ final class StatusEngine {
         taskID: UUID,
         tabID: UUID,
         previousTabStatus: TaskStatus,
-        previousTaskStatus: TaskStatus
+        previousTaskStatus: TaskStatus,
+        notifiable: Bool = true
     ) {
         let newTabStatus = status(forTab: tabID)
         if newTabStatus != previousTabStatus {
@@ -216,7 +231,7 @@ final class StatusEngine {
             } else {
                 workStartedAt.removeValue(forKey: tabID)
             }
-            onTabStatusChanged?(taskID, tabID, newTabStatus)
+            onTabStatusChanged?(taskID, tabID, newTabStatus, notifiable)
         }
         let newTaskStatus = status(forTask: taskID)
         if newTaskStatus != previousTaskStatus {
@@ -231,6 +246,24 @@ final class StatusEngine {
         if tabStatuses[tabID] == nil {
             tabStatuses[tabID] = status
         }
+    }
+
+    /// Moves only ownership; live status, elapsed time, and background work
+    /// stay attached to the same tab and no turn notification is emitted.
+    func reparent(tabID: UUID, taskID: UUID) {
+        let previousOwners = tabsByTask.keys.filter { tabsByTask[$0]?.contains(tabID) == true && $0 != taskID }
+        guard !previousOwners.isEmpty else { return }
+        let oldDestinationStatus = status(forTask: taskID)
+        for previous in previousOwners {
+            let oldStatus = status(forTask: previous)
+            tabsByTask[previous]?.remove(tabID)
+            if tabsByTask[previous]?.isEmpty == true { tabsByTask.removeValue(forKey: previous) }
+            let newStatus = status(forTask: previous)
+            if newStatus != oldStatus { onTaskStatusChanged?(previous, newStatus) }
+        }
+        tabsByTask[taskID, default: []].insert(tabID)
+        let newDestinationStatus = status(forTask: taskID)
+        if newDestinationStatus != oldDestinationStatus { onTaskStatusChanged?(taskID, newDestinationStatus) }
     }
 
     func forget(tabID: UUID, taskID: UUID) {

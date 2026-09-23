@@ -47,6 +47,16 @@ struct AgentAutoResumeTests {
         ) == false)
     }
 
+    @Test func doesNotResumeWhileAnotherProcessWritesTheSession() {
+        #expect(AgentAutoResume.shouldResume(
+            agentSessionID: "abc123",
+            workingDirectoryPath: "/tmp/some-task",
+            hasExistingSurfaceSession: false,
+            isSessionWrittenElsewhere: true,
+            directoryExists: { _ in true }
+        ) == false)
+    }
+
     @Test func doesNotResumeWithNoWorkingDirectory() {
         #expect(AgentAutoResume.shouldResume(
             agentSessionID: "abc123",

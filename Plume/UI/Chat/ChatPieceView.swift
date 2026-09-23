@@ -33,7 +33,7 @@ struct ChatPieceView: View, ThemedView {
             content
             footer
         }
-            .environment(\.chatHugsContent, piece.wash == .bubble)
+            .environment(\.chatHugsContent, piece.wash.isBubble)
             .frame(maxWidth: fillsColumn ? .infinity : nil, alignment: .leading)
             .padding(.top, insideInset)
             .padding(.horizontal, washPadding)
@@ -65,14 +65,14 @@ struct ChatPieceView: View, ThemedView {
             // wraps a long one at reading measure. A message split across
             // several pieces takes the full column instead, so every segment
             // is the same width and the joined shape reads as one bubble.
-            .frame(maxWidth: piece.wash == .bubble ? dimensions.contentWidth : nil, alignment: .trailing)
-            .frame(maxWidth: .infinity, alignment: piece.wash == .bubble ? .trailing : .leading)
+            .frame(maxWidth: piece.wash.isBubble ? dimensions.contentWidth : nil, alignment: bubbleAlignment)
+            .frame(maxWidth: .infinity, alignment: bubbleAlignment)
             // Outside both width frames, so the region tracked for the table
             // button encloses the button as well as the text. Hovering the
             // piece's own bounds loses the pointer on the way to a button
             // that hangs past a short line.
             .contentShape(.rect)
-            .onHover { isHovered = $0 }
+            .plumeHover { isHovered = $0 }
     }
 
     /// The table's own source, on a table's piece. Hover-revealed, since a
@@ -150,7 +150,15 @@ struct ChatPieceView: View, ThemedView {
         case let .toolCall(call, isPending):
             ToolCallRow(call: call, isPending: isPending)
         case let .injected(kind, text):
-            InjectedContentRow(kind: kind, text: text)
+            // A `!` command is shown in full rather than behind a marker's
+            // disclosure — see `ShellCommandRow`.
+            if kind.isShell, case let shell = ShellTranscript.parse(text), !shell.isEmpty {
+                ShellCommandRow(shell: shell)
+            } else {
+                InjectedContentRow(kind: kind, text: text)
+            }
+        case let .agentMessageTitle(name):
+            AgentMessageTitle(name: name)
         case let .notice(notice):
             ChatNoticeRow(notice: notice)
         case let .image(image):
@@ -172,7 +180,7 @@ struct ChatPieceView: View, ThemedView {
     /// A bubble of several pieces takes the whole column so every segment is
     /// the same width; one that is a whole message on its own hugs its text.
     private var fillsColumn: Bool {
-        piece.wash == .bubble && piece.segment != .single
+        piece.wash.isBubble && piece.segment != .single
     }
 
     /// The gap above a piece whose wash continues upwards, painted as wash so
@@ -193,13 +201,19 @@ struct ChatPieceView: View, ThemedView {
     private var washFill: Color {
         switch piece.wash {
         case .none: .clear
-        case .bubble: colors.surfaceTint
+        case .bubble, .agentBubble: colors.surfaceTint
         case .attention: colors.attention.emphasized(.backgroundTint, in: colors)
         }
     }
 
     private var attentionBorder: Color {
         colors.attention.emphasized(.disabled, in: colors)
+    }
+
+    /// The user's own words sit against the trailing edge; everything else,
+    /// another agent's message included, reads from the leading edge.
+    private var bubbleAlignment: Alignment {
+        piece.wash == .bubble ? .trailing : .leading
     }
 
     private var washPadding: CGFloat { piece.wash == .none ? 0 : 10 }

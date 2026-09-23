@@ -1,8 +1,8 @@
 import Foundation
 
-/// Identifiers for driving the app through the accessibility tree —
-/// `PlumeUITests` and any external driver query controls by these strings
-/// rather than by their visible label, which can change or localize.
+/// Identifiers passed to `plumeID(_:)`, which sets the accessibility
+/// identifier and registers the control with the debug control server.
+/// `PlumeUITests` and other drivers query by these, not by the visible label.
 enum AccessibilityID {
     // MARK: Sidebar
 
@@ -17,6 +17,7 @@ enum AccessibilityID {
     static let archivedTaskUnarchiveButton = "archived-task-unarchive-button"
     static let sidebarSettingsButton = "sidebar-settings-button"
     static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
+    static let sidebarQuotaRow = "sidebar-quota-row"
     static let keepAwakePanel = "keep-awake-panel"
     static let keepAwakeModePicker = "keep-awake-mode-picker"
     static let keepAwakeReasonRow = "keep-awake-reason-row"
@@ -26,6 +27,16 @@ enum AccessibilityID {
     static let keepAwakeLidInstallButton = "keep-awake-lid-install-button"
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
+
+    // MARK: Settings
+
+    static let shortcutRecorder = "shortcut-recorder"
+    static let shortcutResetButton = "shortcut-reset-button"
+    static let shortcutResetAllButton = "shortcut-reset-all-button"
+    static let fullDiskAccessOpenButton = "full-disk-access-open-button"
+    static let fullDiskAccessDismissButton = "full-disk-access-dismiss-button"
+    static let fullDiskAccessStatus = "full-disk-access-status"
+    static let fullDiskAccessManageButton = "full-disk-access-manage-button"
 
     // MARK: Tab strip
 
@@ -55,6 +66,23 @@ enum AccessibilityID {
     static let statuslineContextMeter = "statusline-context-meter"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
+
+    // MARK: Chat start failure
+
+    static let chatStartFailureRetry = "chat-start-failure-retry"
+    static let chatTrustOpenTerminal = "chat-trust-open-terminal"
+
+    static let workspaceWorktreeMenu = "workspace-worktree-menu"
+
+    // MARK: New worktree sheet
+
+    static let worktreeBranchField = "worktree-branch-field"
+    static let worktreeStripPrefixToggle = "worktree-strip-prefix-toggle"
+    static let worktreeEditLocationButton = "worktree-edit-location-button"
+    static let worktreeLocationField = "worktree-location-field"
+    static let worktreeChooseLocationButton = "worktree-choose-location-button"
+    static let worktreeCreateButton = "worktree-create-button"
+    static let worktreeCancelButton = "worktree-cancel-button"
 
     // MARK: Plan overlay
 

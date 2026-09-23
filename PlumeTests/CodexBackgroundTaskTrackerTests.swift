@@ -11,6 +11,19 @@ struct CodexBackgroundTaskTrackerTests {
         ])
     }
 
+    @Test func namesBackgroundWorkFromTheLiveCommand() async {
+        let tracker = BackgroundTaskTracker()
+        let tabID = UUID()
+        let store = CodexBackgroundTaskTracker(tabID: tabID, tracker: tracker) { _, _ in
+            .object(["data": .array([.object([
+                "processId": .string("build"), "command": .string("swift build")
+            ])])])
+        }
+        await store.refresh(threadID: "parent")?.value
+        #expect(tracker.inFlight(tabID: tabID).first?.description == "swift build")
+        store.stop()
+    }
+
     @Test func inventoriesCombineParentAndChildAndReleaseCompletedProcesses() async {
         let tracker = BackgroundTaskTracker()
         let tabID = UUID()

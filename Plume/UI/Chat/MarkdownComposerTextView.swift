@@ -49,6 +49,15 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
+    /// Called with images dropped on or pasted into the composer. Nil leaves
+    /// both gestures to `NSTextView`.
+    var onAttachImages: (([ChatImage]) -> Void)?
+    /// Whether the draft is a shell command rather than a message: the whole
+    /// field turns monospaced and no markdown is styled.
+    var isCommandMode = false
+    /// Called on Delete in an empty composer, so command mode can be left the
+    /// way it was entered.
+    var onDeleteBackwardWhenEmpty: (() -> Void)?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -61,6 +70,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.composerCoordinator = context.coordinator
         context.coordinator.textView = textView
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
+        context.coordinator.isCommandMode = isCommandMode
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         return view
     }
@@ -75,14 +85,18 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onOptionReturn = onOptionReturn
+        textView.onAttachImages = onAttachImages
+        textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
+        let modeChanged = context.coordinator.isCommandMode != isCommandMode
+        context.coordinator.isCommandMode = isCommandMode
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
@@ -130,6 +144,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         weak var textView: ComposerNSTextView?
         private(set) var fontSize: CGFloat = 0
         var recognizedSlashCommandNames: Set<String> = []
+        var isCommandMode = false
 
         init(
             text: Binding<String>,
@@ -156,14 +171,17 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             if textView.string != text {
                 textView.string = text
             }
-            let bodyFont = NSFont.composerBody(ofSize: fontSize)
+            let bodyFont = isCommandMode
+                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                : NSFont.composerBody(ofSize: fontSize)
             textView.font = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             MarkdownComposerStyler.style(
                 textView.textStorage!,
                 text: text,
                 fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames
+                recognizedSlashCommandNames: recognizedSlashCommandNames,
+                isCommandMode: isCommandMode
             )
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
@@ -184,7 +202,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 textView.textStorage!,
                 text: newText,
                 fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames
+                recognizedSlashCommandNames: recognizedSlashCommandNames,
+                isCommandMode: isCommandMode
             )
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()
@@ -284,6 +303,52 @@ final class ComposerNSTextView: NSTextView {
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
 
+    /// Called with images dropped on or pasted into the composer. Nil leaves
+    /// both gestures to `NSTextView`'s own handling.
+    var onAttachImages: (([ChatImage]) -> Void)?
+
+    // MARK: - Image attachment
+
+    /// Claims a drag only when it actually carries images, so a text drag
+    /// still lands as an insertion.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        carriesAttachableImages(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        carriesAttachableImages(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let images = attachableImages(on: sender.draggingPasteboard)
+        guard !images.isEmpty else { return super.performDragOperation(sender) }
+        onAttachImages?(images)
+        return true
+    }
+
+    /// ⌘V routes here for every flavor, so images are intercepted before
+    /// `NSTextView` turns them into an attachment inside the text storage —
+    /// the composer's `String` binding has no way to carry one.
+    override func readSelection(from pasteboard: NSPasteboard) -> Bool {
+        let images = attachableImages(on: pasteboard)
+        guard !images.isEmpty else { return super.readSelection(from: pasteboard) }
+        onAttachImages?(images)
+        return true
+    }
+
+    private func attachableImages(on pasteboard: NSPasteboard) -> [ChatImage] {
+        guard onAttachImages != nil else { return [] }
+        return ComposerImageAttachment.images(from: pasteboard)
+    }
+
+    private func carriesAttachableImages(_ pasteboard: NSPasteboard) -> Bool {
+        onAttachImages != nil && ComposerImageAttachment.hasImages(on: pasteboard)
+    }
+
+    /// Called on Delete with nothing left to delete, so command mode can be
+    /// backspaced out of the way the `!` that started it was typed.
+    var onDeleteBackwardWhenEmpty: (() -> Void)?
+
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted { composerCoordinator?.focusDidChange(true) }
@@ -328,6 +393,11 @@ final class ComposerNSTextView: NSTextView {
             default:
                 break
             }
+        }
+
+        if event.keyCode == 51 /* Delete */, string.isEmpty, let onDeleteBackwardWhenEmpty {
+            onDeleteBackwardWhenEmpty()
+            return
         }
 
         if event.keyCode == 126 /* Up */, string.isEmpty, let onEditQueuedMessage {
@@ -416,6 +486,9 @@ final class ScrollableComposerTextView: NSView {
         composerTextView.isVerticallyResizable = true
         composerTextView.isHorizontallyResizable = false
         composerTextView.autoresizingMask = [.width]
+        // A plain-text view accepts only string drags, so image types have to
+        // be asked for by name before a dropped file reaches the overrides.
+        composerTextView.registerForDraggedTypes([.fileURL, .png, .tiff, .string])
 
         scrollView.documentView = composerTextView
         scrollView.hasVerticalScroller = true

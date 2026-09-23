@@ -16,7 +16,9 @@ enum MarkdownSource {
         case let .markdown(block, _): markdown(of: block)
         case let .codeSegment(segment): markdown(of: segment)
         case let .listSegment(segment): markdown(of: segment)
-        case .thinking, .toolCall, .injected, .notice, .image, .streaming, .working: nil
+        case .thinking, .toolCall, .injected, .notice, .image, .streaming, .working,
+             .agentMessageTitle:
+            nil
         }
     }
 

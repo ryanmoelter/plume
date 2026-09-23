@@ -19,7 +19,9 @@ final class CodexSession: AgentSession {
     ])
 
     let tabID: UUID
-    let taskID: UUID
+    var taskID: UUID
+    var processIdentifier: Int32? { client.processIdentifier }
+    private var hasUserSubmitted = false
 
     private(set) var sessionID: String?
     private(set) var isWorking = false
@@ -30,7 +32,7 @@ final class CodexSession: AgentSession {
     private(set) var streamingThinking = ""
     private(set) var rateLimit: RateLimitInfo?
     private var accountRateLimits = CodexRateLimits()
-    var quotaWindows: [CodexQuotaWindow] { accountRateLimits.windows }
+    var quotaWindows: [CodexQuotaWindow] { CodexQuotaStore.shared.windows }
     private var queuePaused = false
     private var selectedPermissionProfile: String?
     /// Codex reports tokens, never dollars.
@@ -53,7 +55,7 @@ final class CodexSession: AgentSession {
     private(set) var effort: AgentEffort?
     private(set) var collaborationMode: CodexCollaborationMode = .default
     private(set) var hasReportedModeAndModel = false
-    private(set) var queuedMessages: [String] = []
+    private(set) var queuedMessages: [[UserContentBlock]] = []
 
     let supportsPlanApproval = true
     let supportsSteering = true
@@ -158,7 +160,7 @@ final class CodexSession: AgentSession {
             Log.agent.error("Codex launch failed: \(error.localizedDescription, privacy: .public)")
             lastError = error.localizedDescription
             hasExited = true
-            StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+            StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
             return
         }
         Task {
@@ -233,6 +235,7 @@ final class CodexSession: AgentSession {
         do {
             let result = try await client.send("account/rateLimits/read", .object([:]))
             rateLimit = accountRateLimits.receive(result)
+            CodexQuotaStore.shared.record(result)
         } catch {
             // API-key accounts may have no account quota snapshot.
             Log.agent.error("Codex account quota load failed: \(error.localizedDescription, privacy: .public)")
@@ -387,8 +390,16 @@ final class CodexSession: AgentSession {
         } catch { /* Skill discovery never prevents ordinary conversation. */ }
     }
 
-    private func turnInput(_ text: String) -> [JSONValue] {
-        CodexSkill.input(text: text, skills: CodexSkillStore.shared.skills(in: skillDirectory))
+    private func turnInput(_ blocks: [UserContentBlock]) -> [JSONValue] {
+        blocks.flatMap { block -> [JSONValue] in
+            switch block {
+            case .text(let text):
+                CodexSkill.input(text: text, skills: CodexSkillStore.shared.skills(in: skillDirectory))
+            case .image(let image):
+                [.object(["type": .string("image"),
+                          "url": .string("data:\(image.mediaType);base64,\(image.base64)")])]
+            }
+        }
     }
 
     @ObservationIgnored private lazy var backgroundTasks = CodexBackgroundTaskTracker(tabID: tabID) { [client] method, params in
@@ -398,34 +409,46 @@ final class CodexSession: AgentSession {
     // MARK: - Sending
 
     func submit(text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        submit(blocks: [.text(text)])
+    }
+
+    @discardableResult
+    func submit(blocks: [UserContentBlock]) -> AgentDelivery {
+        let normalized = blocks.normalized
+        guard normalized.hasContent else { return .queued }
+        hasUserSubmitted = true
         // A normal follow-up is also an answer to a pending proposal. Clear
         // the decision surface immediately; `send` repeats this for a message
         // queued before the proposal arrived.
         planProposal = nil
         guard isReady, let threadID = sessionID, !isWorking else {
-            queuedMessages.append(trimmed)
-            return
+            queuedMessages.append(normalized)
+            return .queued
         }
         queuePaused = false
-        send(text: trimmed, threadID: threadID)
+        send(blocks: normalized, threadID: threadID)
+        return .sent
     }
 
     /// Adds text to the active turn. Failure is reported to the caller so
     /// the composer retains the draft; steering never falls back to queueing.
     func steer(text: String) async -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, canSteer,
+        await steer(blocks: [.text(text)])
+    }
+
+    func steer(blocks: [UserContentBlock]) async -> Bool {
+        let normalized = blocks.normalized
+        guard normalized.hasContent, canSteer,
               let threadID = sessionID, let turnID = currentTurnID
         else { return false }
+        hasUserSubmitted = true
         isSteering = true
         defer { isSteering = false }
         do {
             _ = try await client.send("turn/steer", .object([
                 "threadId": .string(threadID),
                 "expectedTurnId": .string(turnID),
-                "input": .array(turnInput(trimmed))
+                "input": .array(turnInput(normalized))
             ]))
             planProposal = nil
             return true
@@ -436,7 +459,7 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func send(text: String, threadID: String) {
+    private func send(blocks: [UserContentBlock], threadID: String) {
         planProposal = nil
         lastError = nil
         streamingText = ""
@@ -448,7 +471,7 @@ final class CodexSession: AgentSession {
         StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
         var params: [String: JSONValue] = [
             "threadId": .string(threadID),
-            "input": .array(turnInput(text))
+            "input": .array(turnInput(blocks))
         ]
         if let selectedPermissionProfile { params["permissions"] = .string(selectedPermissionProfile) }
         if let effort { params["effort"] = .string(effort.rawValue) }
@@ -459,12 +482,12 @@ final class CodexSession: AgentSession {
         Task {
             do {
                 let result = try await client.send("turn/start", .object(params))
-                if TitleStore.shared.title(forTab: tabID) == nil, let title = CodexThreadTitle.preview(text) {
+                if TitleStore.shared.title(forTab: tabID) == nil, let title = CodexThreadTitle.preview(blocks.plainText) {
                     TitleStore.shared.setTitle(title, forTab: tabID)
                 }
                 finishTurnStart(sequence: sequence, result: result)
             } catch {
-                failTurnStart(sequence: sequence, error: error, text: text)
+                failTurnStart(sequence: sequence, error: error, blocks: blocks)
             }
         }
     }
@@ -476,7 +499,7 @@ final class CodexSession: AgentSession {
               !isWorking,
               !queuedMessages.isEmpty
         else { return }
-        send(text: queuedMessages.removeFirst(), threadID: threadID)
+        send(blocks: queuedMessages.removeFirst(), threadID: threadID)
     }
 
     private func finishTurnStart(sequence: Int, result: JSONValue) {
@@ -492,11 +515,11 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func failTurnStart(sequence: Int, error: Error, text: String) {
+    private func failTurnStart(sequence: Int, error: Error, blocks: [UserContentBlock]) {
         guard pendingTurnStartSequence == sequence else { return }
         pendingTurnStartSequence = nil
         if let failure = error as? CodexAppServerClient.Failure, failure == .notRunning {
-            queuedMessages.insert(text, at: 0)
+            queuedMessages.insert(blocks, at: 0)
         }
         // Once the request was written, a transport failure cannot tell us
         // whether Codex accepted it. Never put the text back in the queue and
@@ -505,7 +528,7 @@ final class CodexSession: AgentSession {
     }
 
     @discardableResult
-    func removeQueuedMessage(at index: Int) -> String? {
+    func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
         return queuedMessages.remove(at: index)
     }
@@ -530,6 +553,13 @@ final class CodexSession: AgentSession {
                 "turnId": .string(turnID)
             ]))
         }
+    }
+
+    func failToLaunch(reason: String) {
+        lastError = reason
+        hasExited = true
+        isWorking = false
+        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
     }
 
     func stop() {
@@ -912,6 +942,7 @@ final class CodexSession: AgentSession {
             contextUsedTokens = usage?["last"]?["totalTokens"]?.intValue
         case "account/rateLimits/updated":
             rateLimit = accountRateLimits.receive(params)
+            CodexQuotaStore.shared.record(params)
         case "error":
             lastError = params["error"]?["message"]?.stringValue
             // A retry is still the same turn in flight, so it is not a failure
@@ -921,7 +952,7 @@ final class CodexSession: AgentSession {
                 currentTurnID = nil
                 interruptRequested = false
                 queuePaused = true
-                StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+                StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
             }
         case "serverRequest/resolved":
             dropPermission(requestID: params["requestId"])
@@ -980,7 +1011,7 @@ final class CodexSession: AgentSession {
         case "failed":
             queuePaused = true
             lastError = turn["error"]?["message"]?.stringValue
-            StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+            StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
         case "interrupted":
             queuePaused = true
             StatusEngine.shared.setStatus(.interrupted, taskID: taskID, tabID: tabID)
@@ -1265,7 +1296,7 @@ final class CodexSession: AgentSession {
         queuePaused = true
         lastError = (error as? CodexAppServerClient.Failure).map(String.init(describing:))
             ?? error.localizedDescription
-        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
     }
 
     private func handleExit(status: Int32, message: String?) {
@@ -1288,7 +1319,7 @@ final class CodexSession: AgentSession {
         // Explicit `stop()` suppresses AgentProcess's exit callback. Any exit
         // that reaches here is an unexpected loss of the app-server, even if
         // the subprocess happened to return zero.
-        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID)
+        StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
     }
 
     private enum SessionFailure: Error {

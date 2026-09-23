@@ -61,7 +61,7 @@ struct CodexRecoveryTests {
         session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
         session.submit(text: "still unsent")
         try await waitFor { session.hasExited }
-        #expect(session.queuedMessages == ["still unsent"])
+        #expect(session.queuedMessages.map(\.plainText) == ["still unsent"])
         #expect(h.turns.isEmpty)
         #expect(!h.requests.contains { $0["method"] == .string("thread/start") })
         #expect(session.lastError?.contains("Thread unavailable") == true)
@@ -79,7 +79,7 @@ struct CodexRecoveryTests {
         await Task.yield()
         #expect(session.hasExited)
         #expect(session.sessionID == "thread")
-        #expect(session.queuedMessages == ["definitely unsent"])
+        #expect(session.queuedMessages.map(\.plainText) == ["definitely unsent"])
         #expect(h.turns.count == 1)
     }
 
@@ -113,7 +113,7 @@ struct CodexRecoveryTests {
         h.reply(id: try #require(h.turns.first?["id"]))
         await Task.yield()
         #expect(h.turns.count == 1)
-        #expect(session.queuedMessages == ["two"])
+        #expect(session.queuedMessages.map(\.plainText) == ["two"])
         #expect(!session.isWorking)
     }
 
@@ -134,7 +134,7 @@ struct CodexRecoveryTests {
         await Task.yield()
 
         #expect(h.turns.count == 1)
-        #expect(session.queuedMessages == ["two"])
+        #expect(session.queuedMessages.map(\.plainText) == ["two"])
         #expect(!session.isWorking)
         #expect(session.lastError == "terminal failure")
     }
@@ -174,4 +174,38 @@ struct CodexRecoveryTests {
         #expect(StatusEngine.shared.ownStatus(forTab: tabID) == .error)
         #expect(session.lastError?.contains("disconnected") == true)
     }
+
+    @Test func queuedImageOnlyTurnRetainsPayloadThroughSubmissionAndEditing() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        let image = ChatImage(mediaType: "image/png", base64: "aW1hZ2U=")
+        let blocks: [UserContentBlock] = [.image(image)]
+        #expect(session.submit(blocks: blocks) == .queued)
+        #expect(session.removeQueuedMessage(at: 0) == blocks)
+        session.submit(blocks: blocks)
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        try await waitFor { h.turns.count == 1 }
+        #expect(h.turns[0]["params"]?["input"] == .array([
+            .object(["type": .string("image"), "url": .string("data:image/png;base64,aW1hZ2U=")])
+        ]))
+    }
+
+    @Test func imagesSurviveDefinitelyUnsentTransportFailure() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        session.submit(text: "first")
+        try await waitFor { h.turns.count == 1 }
+        h.reply(id: try #require(h.turns.first?["id"]), result: .object(["turn": .object(["id": .string("initial")])]))
+        try await waitFor { session.canSteer }
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"initial","status":"completed"}}}"#)
+        h.client.stop()
+        let blocks: [UserContentBlock] = [.text("Keep this"), .image(.init(mediaType: "image/png", base64: "aW1hZ2U="))]
+        session.submit(blocks: blocks)
+        try await waitFor { !session.queuedMessages.isEmpty }
+        #expect(session.queuedMessages == [blocks])
+    }
+
 }

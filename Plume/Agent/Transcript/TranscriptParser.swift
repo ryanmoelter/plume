@@ -72,7 +72,7 @@ nonisolated enum TranscriptParser {
             pendingAssistantTimestamp = nil
         }
 
-        func applyResult(toolUseId: String, content: String?, images: [ChatImage]) {
+        func applyResult(toolUseId: String, content: String?, images: [ChatImage], isError: Bool) {
             guard let location = pendingToolCalls.removeValue(forKey: toolUseId) else { return }
             switch location {
             case .pendingAssistant(let blockIndex):
@@ -81,6 +81,7 @@ nonisolated enum TranscriptParser {
                 else { return }
                 call.result = content
                 call.resultImages = images
+                call.didFail = isError
                 pendingAssistantBlocks[blockIndex] = .toolCall(call)
             case .flushedMessage(let messageIndex, let blockIndex):
                 guard transcript.messages.indices.contains(messageIndex),
@@ -89,6 +90,7 @@ nonisolated enum TranscriptParser {
                 else { return }
                 call.result = content
                 call.resultImages = images
+                call.didFail = isError
                 transcript.messages[messageIndex].blocks[blockIndex] = .toolCall(call)
             }
         }
@@ -183,13 +185,13 @@ nonisolated enum TranscriptParser {
             case ("user", "user"):
                 flushPendingAssistant()
 
-                var results: [(toolUseId: String, content: String?, images: [ChatImage])] = []
+                var results: [(toolUseId: String, content: String?, images: [ChatImage], isError: Bool)] = []
                 var texts: [String] = []
                 var otherBlocks: [ChatBlock] = []
                 for block in contentBlocks {
                     switch block {
-                    case .toolResult(let toolUseId, let content, let images):
-                        results.append((toolUseId, content, images))
+                    case .toolResult(let toolUseId, let content, let images, let isError):
+                        results.append((toolUseId, content, images, isError))
                     case .text(let text):
                         texts.append(text)
                     case .thinking(let text):
@@ -202,7 +204,12 @@ nonisolated enum TranscriptParser {
                 }
 
                 for result in results {
-                    applyResult(toolUseId: result.toolUseId, content: result.content, images: result.images)
+                    applyResult(
+                        toolUseId: result.toolUseId,
+                        content: result.content,
+                        images: result.images,
+                        isError: result.isError
+                    )
                 }
 
                 // One line's text blocks are one unit of injected content, so
@@ -222,7 +229,7 @@ nonisolated enum TranscriptParser {
                     default: lastSlashCommand = nil
                     }
                     otherBlocks.insert(
-                        kind.isUserProse ? .markdown(text) : .injected(kind, text: text),
+                        kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
                         at: 0
                     )
                 }

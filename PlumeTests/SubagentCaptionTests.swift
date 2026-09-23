@@ -80,9 +80,9 @@ struct SubagentCaptionTests {
             now: date("2026-09-05T22:00:10.000Z")
         )
 
-        #expect(caption.modelLabel == "Sonnet")
+        #expect(caption.modelLabel == "Sonnet 5")
         #expect(caption.contextFraction == 0.1)
-        #expect(caption.text == "Sonnet · 0s · 10% context")
+        #expect(caption.text == "Sonnet 5 · 0s · 10% context")
     }
 
     /// A model this build has never heard of implies no window, so the row
@@ -95,7 +95,7 @@ struct SubagentCaptionTests {
             now: date("2026-09-05T22:00:00.000Z")
         )
 
-        #expect(caption.modelLabel == "newthing-9")
+        #expect(caption.modelLabel == "Newthing 9")
         #expect(caption.contextFraction == nil)
     }
 
@@ -110,7 +110,7 @@ struct SubagentCaptionTests {
             now: date("2026-09-05T22:00:00.000Z")
         )
 
-        #expect(caption.modelLabel == "Sonnet 200K")
+        #expect(caption.modelLabel == "Sonnet 5 200K")
     }
 
     @Test func aTranscriptWithNothingInItSaysNothing() {

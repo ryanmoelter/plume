@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
+    @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
     var body: some View {
         Form {
@@ -62,17 +63,18 @@ struct SettingsView: View {
             Section {
                 if settings.defaultProvider == .claudeCode {
                     Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
-                        ForEach(PermissionModeDefault.allCases) { mode in
+                        ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
                             Text(mode.label).tag(mode)
                         }
                     }
                 } else {
                     Picker("New agent tabs start in", selection: $settings.defaultCodexPermissionProfileRaw) {
-                        ForEach(AgentPermissionPreset.codexPresets) { profile in
+                        ForEach(AgentPermissionPreset.offeredCodexProfiles(AgentPermissionPreset.codexPresets, showsFullAccess: settings.showsBypassPermissions)) { profile in
                             Text(profile.label).tag(profile.id)
                         }
                     }
                 }
+                Toggle("Show Bypass Permissions / Full Access", isOn: $settings.showsBypassPermissions)
             } header: {
                 Text("Default Permissions")
             } footer: {
@@ -140,7 +142,7 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Animate chat message motion", isOn: $settings.animateChatMotion)
-                Toggle("Reveal streamed text a character at a time", isOn: $settings.animateCharacterReveal)
+                Toggle("Reveal streamed text a word at a time", isOn: $settings.animateCharacterReveal)
             } header: {
                 Text("Chat Animation")
             } footer: {
@@ -208,8 +210,12 @@ struct SettingsView: View {
                     )
                 }
                 Toggle("Keep awake with the lid closed", isOn: $settings.keepsAwakeWithLidClosed)
+                    .plumeID(
+                        AccessibilityID.keepAwakeLidToggle,
+                        value: String(settings.keepsAwakeWithLidClosed),
+                        setValue: { settings.keepsAwakeWithLidClosed = ($0 == "true" || $0 == "1") }
+                    )
                     .disabled(!keepAwake.lidOverrideStatus.canEngage)
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidToggle)
                 sleepHelperRow
                 if settings.keepsAwakeWithLidClosed {
                     LabeledContent("Allow sleep when temperature is") {
@@ -238,6 +244,51 @@ struct SettingsView: View {
             }
 
             Section {
+                ForEach(ShortcutAction.allCases) { action in
+                    LabeledContent(action.label) {
+                        HStack(spacing: 6) {
+                            ShortcutRecorder(shortcut: settings.shortcutBindings[action]) { shortcut in
+                                settings.shortcutBindings.assign(shortcut, to: action)
+                            }
+                            .frame(width: 120, height: 22)
+                            .plumeID(
+                                AccessibilityID.shortcutRecorder,
+                                label: action.label,
+                                value: settings.shortcutBindings[action]?.displayName ?? "Unassigned",
+                                setValue: { chord in
+                                    guard let shortcut = MenuShortcut(displayName: chord) else { return }
+                                    settings.shortcutBindings.assign(shortcut, to: action)
+                                }
+                            )
+
+                            Button {
+                                settings.shortcutBindings.reset(action)
+                            } label: {
+                                Image(systemName: "arrow.uturn.backward")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!settings.shortcutBindings.isCustomized(action))
+                            .plumeID(AccessibilityID.shortcutResetButton, label: action.label)
+                        }
+                    }
+                }
+
+                Button("Reset All") { settings.shortcutBindings.resetAll() }
+                    .plumeID(AccessibilityID.shortcutResetAllButton)
+            } header: {
+                Text("Keyboard Shortcuts")
+            } footer: {
+                Text(
+                    "Click a shortcut, then press the chord you want. Assigning a chord that " +
+                    "another command here already uses leaves that command unassigned, since two " +
+                    "menu items sharing a chord leaves macOS to pick one. Command and Option " +
+                    "chords are taken back from a focused terminal; an Option chord you bind " +
+                    "stops reaching the shell inside that terminal."
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {
@@ -251,6 +302,15 @@ struct SettingsView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+            Section {
+                fullDiskAccessRow
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("A change here applies after Plume restarts.")
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Toggle("Show GitHub PR status in the sidebar", isOn: $settings.showsPullRequestStatus)
 
@@ -294,6 +354,23 @@ struct SettingsView: View {
         .onAppear {
             helperState = CommandLineHelper.state()
             keepAwake.refreshLidOverride()
+            fullDiskAccessGranted = FullDiskAccess.isGranted
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            fullDiskAccessGranted = FullDiskAccess.isGranted
+        }
+    }
+
+    @ViewBuilder
+    private var fullDiskAccessRow: some View {
+        LabeledContent("Full Disk Access") {
+            Text(fullDiskAccessGranted ? "Granted" : "Not granted")
+                .foregroundStyle(fullDiskAccessGranted ? Color.secondary : Color.orange)
+                .plumeID(AccessibilityID.fullDiskAccessStatus, value: fullDiskAccessGranted ? "Granted" : "Not granted")
+            Button("Open System Settings…") {
+                NSWorkspace.shared.open(FullDiskAccess.settingsURL)
+            }
+            .plumeID(AccessibilityID.fullDiskAccessManageButton)
         }
     }
 
@@ -303,12 +380,12 @@ struct SettingsView: View {
         case .notRegistered:
             LabeledContent("Sleep helper") {
                 Button("Install…") { keepAwake.installLidHelper() }
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidInstallButton)
+                    .plumeID(AccessibilityID.keepAwakeLidInstallButton)
             }
         case .needsApproval:
             LabeledContent("Sleep helper") {
                 Button("Approve in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
-                    .accessibilityIdentifier(AccessibilityID.keepAwakeLidApprovalButton)
+                    .plumeID(AccessibilityID.keepAwakeLidApprovalButton)
             }
         case .unavailable(let reason):
             LabeledContent("Sleep helper") {
@@ -319,7 +396,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Installed").foregroundStyle(.secondary)
                     Button("Uninstall") { keepAwake.uninstallLidHelper() }
-                        .accessibilityIdentifier(AccessibilityID.keepAwakeLidUninstallButton)
+                        .plumeID(AccessibilityID.keepAwakeLidUninstallButton)
                 }
             }
         }

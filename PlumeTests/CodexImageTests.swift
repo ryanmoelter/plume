@@ -114,4 +114,18 @@ struct CodexImageTests {
         #expect(store.transcript(forTab: tab)?.messages.first?.blocks == [.image(image)])
     }
 
+
+    @Test func shellCommandOutputUsesSharedShellTranscriptRendering() throws {
+        let store = CodexItemStore(), tab = UUID()
+        let text = "<bash-input>pwd</bash-input>\n<bash-stdout>/repo</bash-stdout><bash-stderr></bash-stderr><bash-exit>0</bash-exit>"
+        store.replace(tabID: tab, items: [.object([
+            "id": .string("shell"), "type": .string("userMessage"),
+            "content": .array([.object(["type": .string("text"), "text": .string(text)])])
+        ])])
+        let block = try #require(store.transcript(forTab: tab)?.messages.first?.blocks.first)
+        #expect(block == .injected(.shellCommand(command: "pwd"), text: text))
+        #expect(ShellTranscript.parse(text).output == "/repo")
+        #expect(ShellTranscript.parse(text).exitCode == 0)
+    }
+
 }

@@ -26,9 +26,20 @@ final class BackgroundTaskTracker {
     struct Entry: Equatable, Identifiable, Sendable {
         let id: String
         let kind: Kind
+        /// What the call said the task was for, so two monitors in one tab
+        /// are told apart. Nil when the call named nothing.
+        let description: String?
         let startedAt: Date
         /// When the tool said it would stop, or nil when it declared no end.
         let expiresAt: Date?
+
+        init(id: String, kind: Kind, description: String? = nil, startedAt: Date, expiresAt: Date?) {
+            self.id = id
+            self.kind = kind
+            self.description = description
+            self.startedAt = startedAt
+            self.expiresAt = expiresAt
+        }
     }
 
     /// Nothing may hold the Mac awake longer than this, whatever a task
@@ -74,12 +85,16 @@ final class BackgroundTaskTracker {
     }
 
     /// Every tab with something still running, for the keep-awake reason set.
-    var tabsWithBackgroundTasks: [(tabID: UUID, kind: Kind)] {
+    ///
+    /// One row per tab however many tasks it runs, so the description is the
+    /// oldest running task's — the one the tab has been held awake for
+    /// longest.
+    var tabsWithBackgroundTasks: [(tabID: UUID, kind: Kind, description: String?)] {
         _ = revision
         let now = Date()
         return entriesByTab.compactMap { tabID, entries in
             guard let first = entries.first(where: { $0.isRunning(at: now) }) else { return nil }
-            return (tabID, first.kind)
+            return (tabID, first.kind, first.description)
         }
     }
 

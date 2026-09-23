@@ -28,7 +28,7 @@ struct RemoteControlToast: View, ThemedView {
             .disabled(notice.link?.shareableURL == nil)
             .help(helpText(for: notice))
             .transition(.opacity)
-            .accessibilityIdentifier(AccessibilityID.remoteControlToast)
+            .plumeID(AccessibilityID.remoteControlToast)
         } else if let codex = AgentSessionManager.shared.existingSession(for: tabID) as? CodexSession {
             CodexRemoteControlNotice(remote: codex.effectiveRemoteControl)
         }

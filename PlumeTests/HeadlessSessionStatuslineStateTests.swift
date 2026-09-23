@@ -90,9 +90,9 @@ struct HeadlessSessionStatuslineStateTests {
         let session = makeSession()
         session.setPermissionMode(.auto)
 
-        // "manual" is a real CLI mode PermissionMode deliberately doesn't
-        // offer (see PermissionMode's doc comment).
-        session.handle(.initialized(sessionInit(permissionMode: "manual")))
+        // "dontAsk" is a real CLI mode PermissionMode has no case for (see
+        // PermissionMode's doc comment).
+        session.handle(.initialized(sessionInit(permissionMode: "dontAsk")))
 
         #expect(session.permissionMode == .auto)
     }

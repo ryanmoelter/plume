@@ -15,6 +15,19 @@ nonisolated struct ChatStartFailure: Equatable {
         /// `claude` has to be installed, or put on the login shell's PATH,
         /// before a retry can work.
         case installCLI
+        /// Claude Code has not been told to trust the directory, so the fix is
+        /// a terminal tab, where the folder-trust prompt can be answered.
+        case trustDirectory
+    }
+
+    /// The refusal `AgentLauncher` reports when it will not spawn into a
+    /// directory Claude Code has no record of trusting.
+    static func untrustedDirectory(path: String) -> ChatStartFailure {
+        ChatStartFailure(
+            title: "This directory isn't trusted",
+            detail: "Claude Code needs to ask about \((path as NSString).lastPathComponent) before it can run there, and this chat can't show that prompt.",
+            remedy: .trustDirectory
+        )
     }
 
     let title: String

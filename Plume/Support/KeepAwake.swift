@@ -33,7 +33,9 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         /// Something the agent started that outlives its turn — a monitor, a
         /// backgrounded command, a workflow. One per tab however many are
         /// running, since the panel lists reasons rather than counting tasks.
-        case backgroundTask(BackgroundTaskTracker.Kind)
+        /// The description is what the call said the task was for, absent
+        /// when it named nothing.
+        case backgroundTask(BackgroundTaskTracker.Kind, description: String?)
     }
 
     let taskID: UUID

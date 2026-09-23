@@ -13,6 +13,16 @@ nonisolated enum BackgroundTaskResult {
         /// How long the tool says it will run, or nil when it says it runs
         /// until something stops it.
         let expiry: Duration?
+        /// What the tool says the task is for. Only the async-agent
+        /// acknowledgement names one; Monitor and Bash announce the id alone,
+        /// so for those the scanner reads the call's own `description`.
+        let description: String?
+
+        init(id: String, expiry: Duration?, description: String? = nil) {
+            self.id = id
+            self.expiry = expiry
+            self.description = description
+        }
     }
 
     private struct Shape {
@@ -31,7 +41,7 @@ nonisolated enum BackgroundTaskResult {
         },
         Shape(prefix: "agentId: ") { rest in
             let id = String(rest.prefix { !$0.isWhitespace })
-            return id.isEmpty ? nil : Started(id: id, expiry: nil)
+            return id.isEmpty ? nil : Started(id: id, expiry: nil, description: parenthetical(in: rest))
         },
     ]
 
@@ -62,6 +72,19 @@ nonisolated enum BackgroundTaskResult {
         case "s": return .seconds(value)
         default: return nil
         }
+    }
+
+    /// The async-agent acknowledgement follows the id with the agent's task
+    /// in parentheses. A build that instead explains the id there says so in
+    /// a sentence, which no reader wants as a title.
+    private static func parenthetical(in rest: Substring) -> String? {
+        guard let open = rest.firstIndex(of: "("),
+              let close = rest[open...].firstIndex(of: ")")
+        else { return nil }
+        let text = rest[rest.index(after: open)..<close]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.contains("internal ID") else { return nil }
+        return text
     }
 
     private static func number(in text: Substring) -> Int? {
@@ -100,9 +123,24 @@ nonisolated enum BackgroundTaskScanner {
         "Bash": .backgroundCommand,
     ]
 
+    /// What the tool call said it was for, and which tool it was.
+    ///
+    /// The launch acknowledgement names no description for either Monitor or
+    /// a backgrounded Bash, so the only place it exists is the call's own
+    /// `description` argument — read here and carried to the entry.
+    private struct Launch {
+        let kind: BackgroundTaskTracker.Kind
+        let description: String?
+        /// A monitor asked to persist watches for as long as it is allowed.
+        /// One that was not stops at its first event, which is the only
+        /// notice some of them ever write.
+        let stopsAtFirstEvent: Bool
+    }
+
     static func inFlight(parentData: Data, now: Date = Date()) -> [BackgroundTaskTracker.Entry] {
-        var kindByToolUseID: [String: BackgroundTaskTracker.Kind] = [:]
+        var launchByToolUseID: [String: Launch] = [:]
         var entries: [String: BackgroundTaskTracker.Entry] = [:]
+        var stopsAtFirstEvent: Set<String> = []
         let decoder = JSONDecoder()
 
         for line in parentData.split(separator: UInt8(ascii: "\n")) {
@@ -113,35 +151,66 @@ nonisolated enum BackgroundTaskScanner {
             for block in entry.message?.content?.blocks ?? [] {
                 switch block {
                 case .toolUse(let id, let name, let input):
+                    let description = describedPurpose(in: input)
+                    // Only an explicit `false` settles this. The argument is
+                    // absent from a sixth of real Monitor calls, and reading
+                    // that as one-shot would retire a monitor still watching
+                    // — letting the Mac sleep mid-work, the costlier mistake.
+                    let oneShot = name == "Monitor" && input["persistent"]?.boolValue == false
                     if let kind = alwaysBackground[name] {
-                        kindByToolUseID[id] = kind
+                        launchByToolUseID[id] = Launch(
+                            kind: kind,
+                            description: description,
+                            stopsAtFirstEvent: oneShot
+                        )
                     } else if let kind = backgroundWhenAsked[name],
                               input["run_in_background"]?.boolValue == true {
-                        kindByToolUseID[id] = kind
+                        launchByToolUseID[id] = Launch(
+                            kind: kind,
+                            description: description,
+                            stopsAtFirstEvent: false
+                        )
                     }
-                case .toolResult(let toolUseID, let content, _):
-                    guard let kind = kindByToolUseID[toolUseID],
+                case .toolResult(let toolUseID, let content, _, _):
+                    guard let launch = launchByToolUseID[toolUseID],
                           let content,
                           let started = BackgroundTaskResult.parse(content)
                     else { continue }
                     let startedAt = entry.timestamp ?? now
                     entries[started.id] = BackgroundTaskTracker.Entry(
                         id: started.id,
-                        kind: kind,
+                        kind: launch.kind,
+                        description: started.description ?? launch.description,
                         startedAt: startedAt,
                         expiresAt: started.expiry.map { startedAt.addingTimeInterval($0.seconds) }
                     )
+                    // Only a persistent monitor declares no end, so an
+                    // announcement naming none overrides the call's argument.
+                    if launch.stopsAtFirstEvent, started.expiry != nil {
+                        stopsAtFirstEvent.insert(started.id)
+                    }
                 default:
                     continue
                 }
             }
 
-            for id in finishedTaskIDs(in: entry) {
+            for id in finishedTaskIDs(in: entry, stoppingAtFirstEvent: stopsAtFirstEvent) {
                 entries.removeValue(forKey: id)
+                stopsAtFirstEvent.remove(id)
             }
         }
 
         return entries.values.sorted { $0.startedAt < $1.startedAt }
+    }
+
+    /// A Monitor and a backgrounded Bash both take a `description`; a
+    /// Workflow names itself through `workflow_name` instead.
+    private static func describedPurpose(in input: [String: JSONValue]) -> String? {
+        for key in ["description", "workflow_name"] {
+            let value = input[key]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let value, !value.isEmpty { return value }
+        }
+        return nil
     }
 
     /// Every task the line reports as no longer running.
@@ -150,7 +219,10 @@ nonisolated enum BackgroundTaskScanner {
     /// ending reports all its orphans at once — so the header's ids are read
     /// as a set rather than through `TranscriptTaskNotification`, which
     /// models the single-task case the subagent list needs.
-    private static func finishedTaskIDs(in entry: TranscriptEntry) -> [String] {
+    private static func finishedTaskIDs(
+        in entry: TranscriptEntry,
+        stoppingAtFirstEvent: Set<String>
+    ) -> [String] {
         var ids: [String] = []
         if let outcome = entry.toolUseResult, let id = outcome.agentID, isTerminal(outcome.status) {
             ids.append(id)
@@ -159,19 +231,32 @@ nonisolated enum BackgroundTaskScanner {
             ids.append(task.taskID)
         }
         if entry.type == "queue-operation", let content = entry.systemContent {
-            ids.append(contentsOf: terminalNotificationTaskIDs(in: content))
+            ids.append(contentsOf: terminalNotificationTaskIDs(
+                in: content,
+                stoppingAtFirstEvent: stoppingAtFirstEvent
+            ))
         }
         return ids
     }
 
-    /// A Monitor event notification carries no `<status>` and must clear
-    /// nothing — only the monitor's closing notice does.
-    private static func terminalNotificationTaskIDs(in content: String) -> [String] {
+    /// A Monitor event notification carries no `<status>`, so a persistent
+    /// monitor's events clear nothing and only its closing notice does. A
+    /// monitor that was not asked to persist stops at that first event
+    /// instead, and some never write a closing notice at all — so for those
+    /// the event is the end.
+    private static func terminalNotificationTaskIDs(
+        in content: String,
+        stoppingAtFirstEvent: Set<String>
+    ) -> [String] {
         guard let start = content.range(of: "<task-notification>") else { return [] }
         let rest = content[start.upperBound...]
         let header = rest.range(of: "<result>").map { rest[..<$0.lowerBound] } ?? rest
-        guard let status = tagValue("status", in: header), isTerminal(status) else { return [] }
-        return tagValues("task-id", in: header)
+        let ids = tagValues("task-id", in: header)
+        if let status = tagValue("status", in: header) {
+            return isTerminal(status) ? ids : []
+        }
+        guard header.contains("<event>") else { return [] }
+        return ids.filter { stoppingAtFirstEvent.contains($0) }
     }
 
     private static func isTerminal(_ status: String?) -> Bool {

@@ -135,9 +135,53 @@ enum TaskStore {
         // The row that took this watch is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown.
         if let directory = task.workingDirectoryPath {
+            GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
         context.delete(task)
+    }
+
+    // MARK: - Worktree removal (shared by delete and archive)
+
+    /// Removing the worktree is best-effort: if git refuses, the task stays
+    /// so the user can resolve it rather than losing track of the directory.
+    /// Its tabs are closed by then either way — they have to go before git
+    /// touches the directory, and there is no reopening them if it declines.
+    ///
+    /// `finish` runs after a successful (or skipped) worktree removal, and is
+    /// where the caller actually deletes or archives the task.
+    static func removeWorktreeThenFinish(
+        for task: WorkTask,
+        removeWorktree: Bool,
+        deleteBranch: Bool,
+        in context: ModelContext,
+        onError: @escaping (String) -> Void,
+        finish: @escaping () -> Void
+    ) {
+        guard removeWorktree,
+              let repository = task.repoPath,
+              let path = task.workingDirectoryPath
+        else {
+            finish()
+            return
+        }
+        for tab in task.tabs {
+            forgetTab(tab)
+        }
+        Task {
+            do {
+                try await GitService.shared.removeWorktree(
+                    repository: repository,
+                    path: path,
+                    branch: task.branchName,
+                    deleteBranch: deleteBranch
+                )
+            } catch {
+                onError(error.localizedDescription)
+                return
+            }
+            finish()
+        }
     }
 
     /// Everything a tab leaves outside SwiftData: its live sessions and every
@@ -156,6 +200,7 @@ enum TaskStore {
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
+        CommandModeRuns.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
@@ -221,6 +266,56 @@ enum TaskStore {
         var ordered = groups.sorted { $0.orderIndex < $1.orderIndex }
         ordered.move(fromOffsets: offsets, toOffset: destination)
         reindex(ordered)
+    }
+
+    // MARK: - Cross-task tab moves
+
+    /// Reassigns `tab.task` and appends it to the end of `destination`'s
+    /// tabs, reindexing both tasks. Only the SwiftData relationship and
+    /// ordering change — the tab's `id` is untouched, so `SurfaceManager` and
+    /// `AgentSessionManager` (both keyed by tab id) keep serving the same
+    /// running process across the move. Selects the tab in its new task by
+    /// default so the drop reads as "the tab landed here."
+    ///
+    /// The tab keeps whatever `workingDirectoryPath` it already reported: a
+    /// running process cannot be redirected to `destination`'s folder, so a
+    /// moved tab stays in its original directory rather than silently
+    /// pointing at the wrong one.
+    static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
+        guard let source = tab.task, source.id != destination.id else { return }
+
+        let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
+        if source.lastFocusedAgentTabID == tab.id {
+            source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
+        }
+        if source.selectedTabID == tab.id {
+            source.selectedTabID = remainingInSource.first?.id
+        }
+        reindex(remainingInSource)
+
+        tab.task = destination
+        AgentSessionManager.shared.reparent(tabID: tab.id, taskID: destination.id)
+        StatusEngine.shared.reparent(tabID: tab.id, taskID: destination.id)
+        tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id })
+        if selectAfterMove {
+            selectTab(tab, in: destination)
+        }
+    }
+
+    /// Splits `tab` out of its current task into a new, otherwise-empty task
+    /// of its own. Shares `moveTab`'s guarantee that the surface keyed by the
+    /// tab's id is never touched.
+    @discardableResult
+    static func splitTabIntoNewTask(
+        _ tab: TaskTab,
+        in context: ModelContext,
+        group: TaskGroup? = nil,
+        siblings: [WorkTask]
+    ) -> WorkTask {
+        let newTask = WorkTask(title: tab.displayTitle, orderIndex: nextIndex(after: siblings), group: group)
+        context.insert(newTask)
+        moveTab(tab, to: newTask)
+        return newTask
     }
 
     // MARK: - Ordering helpers
