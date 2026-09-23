@@ -20,9 +20,11 @@ enum SmokeHarness {
         else { return }
 
         let existing = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
-        var tasks = existing
+        // Seed into newly created tasks only. Reusing the user's tasks lets
+        // provider/session flags corrupt conversations from earlier runs.
+        var tasks: [WorkTask] = []
         while tasks.count < count {
-            tasks.append(TaskStore.createTask(in: context, title: "Task \(tasks.count + 1)", siblings: tasks))
+            tasks.append(TaskStore.createTask(in: context, title: "Task \(tasks.count + 1)", siblings: existing + tasks))
         }
 
         // PLUME_SEED_TABS gives every task extra terminal tabs, so several
@@ -79,13 +81,20 @@ enum SmokeHarness {
             }
         }
 
-        // PLUME_SEED_PROVIDER puts every agent tab on one CLI, so a seeded
+        // PLUME_SEED_PROVIDER puts newly seeded agent tabs on one CLI, so a seeded
         // run can exercise Codex instead of Claude Code.
         if let raw = environment["PLUME_SEED_PROVIDER"],
            let provider = AgentProviderKind(rawValue: raw) {
             for task in tasks {
                 for agentTab in task.orderedTabs where agentTab.kind == .agent {
                     agentTab.provider = provider
+                    if let model = environment["PLUME_SEED_MODEL"] {
+                        agentTab.model = AgentModel.recognizing(model, provider: provider)
+                        agentTab.isModelUserChosen = true
+                    }
+                    if let mode = environment["PLUME_SEED_CODEX_MODE"].flatMap(CodexCollaborationMode.init(rawValue:)) {
+                        agentTab.codexCollaborationMode = mode
+                    }
                 }
             }
         }

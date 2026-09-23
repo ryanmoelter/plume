@@ -182,6 +182,10 @@ struct KeepAwakePanel: View {
     /// Falls back to the task's title, because a tab only has one once its
     /// agent has named the conversation.
     private func title(for reason: KeepAwakeReason) -> String {
+        if reason.kind == .remoteControl,
+           AgentSessionManager.shared.existingSession(for: reason.tabID) is CodexSession {
+            return "Codex Remote Control"
+        }
         if let tabTitle = TitleStore.shared.title(forTab: reason.tabID), !tabTitle.isEmpty {
             return tabTitle
         }

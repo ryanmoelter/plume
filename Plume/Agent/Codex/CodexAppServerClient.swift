@@ -15,11 +15,22 @@ final class CodexAppServerClient {
     }
 
     private var process: AgentProcess?
+    private let launchesProcess: Bool
     /// Where outgoing lines go, reporting false once the transport is gone.
     /// Set when the process starts.
     private(set) var writeLine: ((String) -> Bool)?
     private var nextRequestNumber = 0
     private var pending: [CodexRPC.RequestID: CheckedContinuation<JSONValue, Error>] = [:]
+
+    /// `AgentProcess` delivers bytes in order on its serial queue. Crossing to
+    /// MainActor with one independent Task per line can reorder those lines,
+    /// including a turn notification overtaking the response that started it.
+    private lazy var incomingEvents = OrderedCodexEvents { [weak self] event in
+        switch event {
+        case .line(let line): self?.receive(line)
+        case .exit(let status, let message): self?.handleExit(status: status, message: message)
+        }
+    }
 
     var onNotification: ((_ method: String, _ params: JSONValue) -> Void)?
     var onServerRequest: ((_ id: CodexRPC.RequestID, _ method: String, _ params: JSONValue) -> Void)?
@@ -29,16 +40,23 @@ final class CodexAppServerClient {
     /// test driving the protocol directly. `start` sets it otherwise.
     init(writeLine: ((String) -> Bool)? = nil) {
         self.writeLine = writeLine
+        launchesProcess = writeLine == nil
     }
 
     func start(workingDirectory: String?, environment: [String: String]) throws {
+        // An injected transport already is the running connection. This lets
+        // tests drive the complete handshake without launching or paying for
+        // a real Codex process.
+        guard launchesProcess else { return }
+        guard process == nil else { return }
+        let incomingEvents = incomingEvents
         let handler = AgentProcess(
             label: "codex",
-            onLine: { [weak self] line in
-                Task { @MainActor in self?.receive(line) }
+            onLine: { line in
+                incomingEvents.enqueue(.line(line))
             },
-            onExit: { [weak self] status, errorLine in
-                Task { @MainActor in self?.handleExit(status: status, message: errorLine) }
+            onExit: { status, errorLine in
+                incomingEvents.enqueue(.exit(status, errorLine))
             }
         )
         try handler.start(
@@ -119,6 +137,11 @@ final class CodexAppServerClient {
         }
     }
 
+    /// Exercises the same ordered actor hop as subprocess output.
+    func enqueueForTesting(_ line: String) {
+        incomingEvents.enqueue(.line(line))
+    }
+
     func handleExit(status: Int32, message: String?) {
         process = nil
         writeLine = nil
@@ -141,5 +164,54 @@ final class CodexAppServerClient {
         encoder.outputFormatting = .withoutEscapingSlashes
         guard let data = try? encoder.encode(JSONValue.object(fields)) else { return nil }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+private enum CodexTransportEvent: Sendable {
+    case line(String)
+    case exit(Int32, String?)
+}
+
+/// A lock protects the tiny synchronous producer side; one consumer Task
+/// drains the FIFO on MainActor. Starting a Task per event does not guarantee
+/// FIFO execution even though the source callbacks themselves are ordered.
+private final class OrderedCodexEvents: @unchecked Sendable {
+    typealias Handler = @MainActor @Sendable (CodexTransportEvent) -> Void
+
+    private let lock = NSLock()
+    private let handler: Handler
+    private var events: [CodexTransportEvent] = []
+    private var isDraining = false
+
+    init(handler: @escaping Handler) {
+        self.handler = handler
+    }
+
+    func enqueue(_ event: CodexTransportEvent) {
+        lock.lock()
+        events.append(event)
+        let shouldStart = !isDraining
+        if shouldStart { isDraining = true }
+        lock.unlock()
+
+        if shouldStart {
+            Task { await drain() }
+        }
+    }
+
+    private func drain() async {
+        while let event = next() {
+            await handler(event)
+        }
+    }
+
+    private func next() -> CodexTransportEvent? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !events.isEmpty else {
+            isDraining = false
+            return nil
+        }
+        return events.removeFirst()
     }
 }

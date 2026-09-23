@@ -1,10 +1,11 @@
 import SwiftData
 import SwiftUI
 
-/// Picks a past `claude` conversation for a tab to resume.
+/// Picks a past conversation for the selected provider to resume.
 struct ResumeSessionSheet: View {
     let workingDirectory: String
     let repoPath: String?
+    var provider: AgentProviderKind = .claudeCode
     let onSelect: (StoredSession) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -14,9 +15,11 @@ struct ResumeSessionSheet: View {
     @Query private var tabs: [TaskTab]
     @State private var sessions: [StoredSession]?
     @State private var query = ""
+    @State private var loadError: String?
+    @State private var codexLoader = CodexResumableSessions()
 
     private var openSessionIDs: Set<String> {
-        Set(tabs.compactMap { $0.agentSessionID }.filter { !$0.isEmpty })
+        Set(tabs.filter { $0.provider == provider }.compactMap { $0.agentSessionID }.filter { !$0.isEmpty })
     }
 
     private var available: [StoredSession] {
@@ -50,11 +53,25 @@ struct ResumeSessionSheet: View {
         }
         .padding(20)
         .frame(width: 520)
-        .task {
-            sessions = await ResumableSessions.load(
-                workingDirectory: workingDirectory,
-                repoPath: repoPath
-            )
+        .task(id: provider) {
+            await load()
+        }
+        .onDisappear { codexLoader.stop() }
+    }
+
+    private func load() async {
+        sessions = nil
+        loadError = nil
+        do {
+            switch provider {
+            case .claudeCode:
+                sessions = await ResumableSessions.load(workingDirectory: workingDirectory, repoPath: repoPath)
+            case .codex:
+                sessions = try await codexLoader.load(workingDirectory: workingDirectory, repoPath: repoPath)
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = "Could not load conversations: \(error.localizedDescription)"
         }
     }
 
@@ -72,7 +89,12 @@ struct ResumeSessionSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if sessions == nil {
+        if let loadError {
+            centered {
+                Text(loadError).foregroundStyle(.secondary)
+                Button("Try Again") { Task { await load() } }
+            }
+        } else if sessions == nil {
             centered { ProgressView() }
         } else if matches.isEmpty {
             centered {

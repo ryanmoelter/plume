@@ -30,11 +30,11 @@ enum SlashCommandMatcher {
     /// Replaces the leading `/token` in `text` with `/name `, leaving the
     /// rest of the message (if any) untouched so arguments can follow
     /// immediately.
-    static func accepting(_ command: SlashCommand, in text: String) -> AcceptedCommand {
+    static func accepting(_ command: SlashCommand, in text: String, prefix: String = "/") -> AcceptedCommand {
         let ns = text as NSString
         let tokenEnd = ns.rangeOfCharacter(from: .whitespacesAndNewlines).location
         let firstTokenLength = tokenEnd == NSNotFound ? ns.length : tokenEnd
-        let replacement = "/\(command.name) "
+        let replacement = "\(prefix)\(command.name) "
         let newText = ns.replacingCharacters(in: NSRange(location: 0, length: firstTokenLength), with: replacement)
         return AcceptedCommand(text: newText, caretLocation: replacement.utf16.count)
     }
@@ -65,8 +65,8 @@ enum SlashCommandMatcher {
     /// The first token is delimited by whitespace or a newline, so a command
     /// typed on a later line (after arguments or more text above it) doesn't
     /// trigger this — only the very start of the message can be a command.
-    static func query(text: String, caretLocation: Int) -> String? {
-        guard text.hasPrefix("/") else { return nil }
+    static func query(text: String, caretLocation: Int, prefix: String = "/") -> String? {
+        guard text.hasPrefix(prefix) else { return nil }
         let ns = text as NSString
         // caretLocation == 0 sits before the slash itself — no token yet.
         guard caretLocation >= 1, caretLocation <= ns.length else { return nil }

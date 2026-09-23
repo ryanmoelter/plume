@@ -11,18 +11,35 @@ final class CodexCatalogStore {
 
     private var modelsByTab: [UUID: [AgentModel]] = [:]
     private var effortsByTabAndModel: [UUID: [String: [AgentEffort]]] = [:]
+    private var defaultEffortByTabAndModel: [UUID: [String: AgentEffort]] = [:]
     private var defaultModelByTab: [UUID: AgentModel] = [:]
     private var profilesByTab: [UUID: [AgentPermissionPreset]] = [:]
+    private var profilesLoaded: Set<UUID> = []
 
     func models(for tabID: UUID) -> [AgentModel] {
         modelsByTab[tabID] ?? AgentModel.codexSelectable
     }
 
     func efforts(for tabID: UUID, modelID: String?) -> [AgentEffort] {
-        if let modelID, let efforts = effortsByTabAndModel[tabID]?[modelID], !efforts.isEmpty {
+        if let modelID, let efforts = effortsByTabAndModel[tabID]?[modelID] {
             return efforts
         }
         return AgentProviderKind.codex.efforts
+    }
+
+    /// The server's model-specific default, when a live catalog has supplied
+    /// one. Callers may fall back to the app's static default before discovery.
+    func defaultEffort(for tabID: UUID, modelID: String?) -> AgentEffort? {
+        guard let modelID else { return nil }
+        return defaultEffortByTabAndModel[tabID]?[modelID]
+    }
+
+    /// Resolves a server-reported model to its catalog display name. The
+    /// caller can preserve an unrecognized ID separately when this is nil.
+    func model(for tabID: UUID, id: String) -> AgentModel? {
+        models(for: tabID).first {
+            $0.id.caseInsensitiveCompare(id) == .orderedSame
+        }
     }
 
     func defaultModel(for tabID: UUID) -> AgentModel? {
@@ -30,7 +47,9 @@ final class CodexCatalogStore {
     }
 
     func profiles(for tabID: UUID) -> [AgentPermissionPreset] {
-        profilesByTab[tabID] ?? AgentPermissionPreset.codexPresets
+        profilesLoaded.contains(tabID)
+            ? profilesByTab[tabID] ?? []
+            : AgentPermissionPreset.codexPresets
     }
 
     /// Resolves a persisted profile against what this app-server actually
@@ -43,18 +62,18 @@ final class CodexCatalogStore {
         for tabID: UUID,
         requestedID: String?,
         fallbackID: String = AgentPermissionPreset.codexWorkspace.id
-    ) -> AgentPermissionPreset {
+    ) -> AgentPermissionPreset? {
         let available = profiles(for: tabID)
         return available.first { $0.id == requestedID }
             ?? available.first { $0.id == fallbackID }
             ?? available.first { $0.id == AgentPermissionPreset.codexWorkspace.id }
             ?? available.first
-            ?? .codexWorkspace
     }
 
     func replaceModels(tabID: UUID, values: [JSONValue]) {
         var models: [AgentModel] = []
         var efforts: [String: [AgentEffort]] = [:]
+        var defaultEfforts: [String: AgentEffort] = [:]
         var defaultModel: AgentModel?
         for value in values where value["hidden"]?.boolValue != true {
             guard let id = value["id"]?.stringValue, !id.isEmpty else { continue }
@@ -64,13 +83,18 @@ final class CodexCatalogStore {
             )
             models.append(model)
             if value["isDefault"]?.boolValue == true { defaultModel = model }
-            efforts[id] = value["supportedReasoningEfforts"]?.arrayValue?.compactMap { option in
-                option["reasoningEffort"]?.stringValue.flatMap(AgentEffort.init(rawValue:))
+            efforts[id] = value["supportedReasoningEfforts"]?.arrayValue?.compactMap {
+                AgentEffort.recognizing($0["reasoningEffort"]?.stringValue ?? "")
+            } ?? []
+            if let rawDefault = value["defaultReasoningEffort"]?.stringValue,
+               let defaultEffort = AgentEffort.recognizing(rawDefault) {
+                defaultEfforts[id] = defaultEffort
             }
         }
         guard !models.isEmpty else { return }
         modelsByTab[tabID] = models
         effortsByTabAndModel[tabID] = efforts
+        defaultEffortByTabAndModel[tabID] = defaultEfforts
         defaultModelByTab[tabID] = defaultModel ?? models[0]
     }
 
@@ -81,14 +105,17 @@ final class CodexCatalogStore {
             else { return nil }
             return AgentPermissionPreset(id: id, label: Self.profileLabel(id))
         }
-        if !profiles.isEmpty { profilesByTab[tabID] = profiles }
+        profilesLoaded.insert(tabID)
+        profilesByTab[tabID] = profiles
     }
 
     func forget(tabID: UUID) {
         modelsByTab[tabID] = nil
         effortsByTabAndModel[tabID] = nil
+        defaultEffortByTabAndModel[tabID] = nil
         defaultModelByTab[tabID] = nil
         profilesByTab[tabID] = nil
+        profilesLoaded.remove(tabID)
     }
 
     private static func profileLabel(_ id: String) -> String {

@@ -24,10 +24,8 @@ struct TabStripView: View {
             }
 
             Menu {
-                ForEach(AgentProviderKind.allCases) { provider in
-                    Button("Agent Tab (\(provider.displayName))") {
-                        TaskStore.addTab(to: task, kind: .agent, provider: provider, in: context)
-                    }
+                Button("Chat Tab") {
+                    TaskStore.addTab(to: task, kind: .agent, in: context)
                 }
                 Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, in: context) }
             } label: {
@@ -97,13 +95,30 @@ private struct TabChip: View {
     /// The live title wins over the snapshot on the tab, which is only there
     /// to label the chip before anything reconnects.
     private var chipTitle: String {
-        TitleStore.shared.title(forTab: tab.id) ?? tab.displayTitle
+        TitleStore.shared.title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
+    }
+
+    private var hasConversation: Bool {
+        tab.agentSessionID?.isEmpty == false || tab.sessionJSONLPath?.isEmpty == false
+            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
+            || SurfaceManager.shared.existingSession(for: tab.id) != nil
     }
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: tab.kind == .agent ? tab.provider.glyph : "terminal")
-                .font(.caption)
+            if tab.kind == .agent {
+                if hasConversation {
+                    AgentProviderIcon(provider: tab.provider, size: 12)
+                } else {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.caption)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Image(systemName: "terminal")
+                    .font(.caption)
+                    .accessibilityHidden(true)
+            }
             Text(chipTitle)
                 .lineLimit(1)
                 .truncationMode(.middle)

@@ -39,6 +39,7 @@ protocol AgentSession: AnyObject, Observable {
     var nominalContextWindow: Int? { get }
     var slashCommands: [SlashCommand] { get }
     var lastError: String? { get }
+    var startFailure: ChatStartFailure? { get }
 
     var permissionMode: PermissionMode? { get }
     var model: AgentModel? { get }
@@ -51,9 +52,14 @@ protocol AgentSession: AnyObject, Observable {
     /// dock outright — a CLI without the concept never produces one, and an
     /// approval control that cannot fire reads as broken.
     var supportsPlanApproval: Bool { get }
+    var supportsSteering: Bool { get }
+    var canSteer: Bool { get }
+    var isSteering: Bool { get }
+    var isRemotelyControlled: Bool { get }
 
     func stop()
     func submit(text: String)
+    func steer(text: String) async -> Bool
     @discardableResult func removeQueuedMessage(at index: Int) -> String?
     func interrupt()
     func setPermissionMode(_ mode: PermissionMode)
@@ -67,6 +73,18 @@ protocol AgentSession: AnyObject, Observable {
 }
 
 extension AgentSession {
+    var isRemotelyControlled: Bool {
+        guard !hasExited, let session = self as? HeadlessSession else { return false }
+        switch session.remoteControl {
+        case .connected, .connecting: return true
+        case .disconnected, .failed: return false
+        }
+    }
+    var supportsSteering: Bool { false }
+    var canSteer: Bool { false }
+    var isSteering: Bool { false }
+    func steer(text: String) async -> Bool { false }
+
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
         if option.allowsAction {
             resolve(permission, with: .allow(updatedInput: permission.input))

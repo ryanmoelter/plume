@@ -16,7 +16,6 @@ nonisolated enum CodexCommand {
     /// prefixes, so a pattern here silently suppresses nothing. These are the
     /// ones a real session was seen to emit unprompted.
     static let ignoredNotifications = [
-        "mcpServer/startupStatus/updated",
-        "remoteControl/status/changed"
+        "mcpServer/startupStatus/updated"
     ]
 }

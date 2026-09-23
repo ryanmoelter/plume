@@ -103,7 +103,7 @@ final class AppSettings {
         ) ?? AgentPermissionPreset.codexWorkspace.id
 
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
-            .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
+            .flatMap { raw in AgentProviderKind.claudeCode.efforts.first { $0.rawValue == raw } } ?? Self.defaultEffort
 
         // Unset must read as true, which `bool(forKey:)` cannot express.
         self.animateChatMotion = defaults.object(forKey: Key.animateChatMotion) == nil

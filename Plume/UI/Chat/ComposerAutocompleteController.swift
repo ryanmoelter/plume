@@ -17,8 +17,8 @@ final class ComposerAutocompleteController: ComposerAutocompleteHandler {
 
     var isShowing: Bool { !matches.isEmpty }
 
-    func update(text: String, caretLocation: Int, commands: [SlashCommand]) {
-        guard !commands.isEmpty, let query = SlashCommandMatcher.query(text: text, caretLocation: caretLocation) else {
+    func update(text: String, caretLocation: Int, commands: [SlashCommand], prefix: String = "/") {
+        guard !commands.isEmpty, let query = SlashCommandMatcher.query(text: text, caretLocation: caretLocation, prefix: prefix) else {
             matches = []
             selectedIndex = 0
             return

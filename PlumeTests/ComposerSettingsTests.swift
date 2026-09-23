@@ -211,6 +211,78 @@ struct ComposerSettingsTests {
     /// The Default menu item names the model the launch will resolve to.
     @Test func theDefaultModelIsTheResolvedOne() {
         #expect(makeSettings(session: nil, tab: makeTab()).defaultModel == defaults.model)
+        let codexTab = makeTab()
+        codexTab.provider = .codex
+        #expect(makeSettings(session: nil, tab: codexTab).defaultModel(for: .claudeCode) == defaults.model)
+    }
+
+    @Test func providerCanChangeOnlyBeforeConversationStateExists() {
+        let tab = makeTab()
+        #expect(makeSettings(session: nil, tab: tab).canChangeProvider)
+
+        tab.agentSessionID = "conversation"
+        #expect(!makeSettings(session: nil, tab: tab).canChangeProvider)
+
+        tab.agentSessionID = nil
+        tab.sessionJSONLPath = "/tmp/conversation.jsonl"
+        #expect(!makeSettings(session: nil, tab: tab).canChangeProvider)
+
+        tab.sessionJSONLPath = nil
+        #expect(!makeSettings(session: makeSession(), tab: tab).canChangeProvider)
+    }
+
+    @Test func providerSwitchClearsProviderSpecificChoices() {
+        let tab = makeTab()
+        tab.model = .opus
+        tab.isModelUserChosen = true
+        tab.effort = .max
+        tab.isEffortUserChosen = true
+        tab.permissionMode = .plan
+        tab.codexCollaborationMode = .plan
+        let state = makeSettings(session: nil, tab: tab)
+
+        #expect(state.setProvider(.codex))
+
+        #expect(tab.provider == .codex)
+        #expect(tab.modelRaw == nil)
+        #expect(!tab.isModelUserChosen)
+        #expect(tab.effortRaw == nil)
+        #expect(!tab.isEffortUserChosen)
+        #expect(tab.permissionModeRaw == nil)
+        #expect(tab.codexCollaborationMode == .default)
+    }
+
+    @Test func crossProviderModelPickChangesProviderAndPinsModel() {
+        let tab = makeTab()
+        let codexModel = AgentModel.codexSelectable[0]
+
+        #expect(makeSettings(session: nil, tab: tab).setModel(codexModel, provider: .codex))
+
+        #expect(tab.provider == .codex)
+        #expect(tab.model == codexModel)
+        #expect(tab.isModelUserChosen)
+    }
+
+    @Test func persistedConversationRejectsCrossProviderModelPick() {
+        let tab = makeTab()
+        tab.agentSessionID = "conversation"
+
+        #expect(!makeSettings(session: nil, tab: tab).setModel(.codexSelectable[0], provider: .codex))
+        #expect(tab.provider == .claudeCode)
+        #expect(tab.modelRaw == nil)
+    }
+
+    @Test func providerAwarePickStillChangesALiveModelWithinItsProvider() {
+        let tab = makeTab()
+        tab.agentSessionID = "conversation"
+        let session = makeSession()
+        let state = makeSettings(session: session, tab: tab)
+
+        #expect(state.setModel(.sonnet, provider: .claudeCode))
+
+        #expect(session.model == .sonnet)
+        #expect(tab.model == .sonnet)
+        #expect(tab.provider == .claudeCode)
     }
 
     /// A model the CLI reports that this build has no preset for still has to

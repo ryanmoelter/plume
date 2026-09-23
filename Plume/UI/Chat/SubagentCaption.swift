@@ -18,7 +18,9 @@ nonisolated struct SubagentCaption: Equatable {
 
     init(subagent: SubagentTranscript, now: Date = .now) {
         let transcript = subagent.transcript
-        let model = (transcript.model ?? subagent.descriptor?.model).flatMap(AgentModel.recognizing)
+        let model = (transcript.model ?? subagent.descriptor?.model).flatMap {
+            AgentModel.recognizing($0, provider: subagent.provider)
+        }
         modelLabel = model?.label
 
         if let startedAt = transcript.startedAt {

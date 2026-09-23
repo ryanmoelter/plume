@@ -48,13 +48,8 @@ final class AgentSessionManager {
     /// so a tab the user closed would otherwise read as connected forever.
     var remoteControlledTabs: [(taskID: UUID, tabID: UUID)] {
         sessions.values.compactMap { session in
-            guard !session.hasExited else { return nil }
-            switch session.remoteControl {
-            case .connected, .connecting:
-                return (session.taskID, session.tabID)
-            case .disconnected, .failed:
-                return nil
-            }
+            guard session.isRemotelyControlled else { return nil }
+            return (session.taskID, session.tabID)
         }
     }
 

@@ -5,7 +5,7 @@ import Observation
 /// Holds the Mac awake while agents are working or a session is being driven
 /// remotely.
 ///
-/// The reason set is *derived* from `StatusEngine` and `HeadlessSessionManager`
+/// The reason set is *derived* from `StatusEngine` and `AgentSessionManager`
 /// rather than registered by their call sites. Those two already hold the
 /// authoritative state, and a tab stops working from half a dozen places — a
 /// counter kept in step by hand would eventually miss one, and a leaked reason
@@ -48,7 +48,7 @@ final class KeepAwakeCoordinator {
     private(set) var lidOverridePausedForHeat = false
 
     @ObservationIgnored private let engine: StatusEngine
-    @ObservationIgnored private let sessions: HeadlessSessionManager
+    @ObservationIgnored private let sessions: AgentSessionManager
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let assertion: any SleepAssertion
     @ObservationIgnored private let powerSnapshotReader: () -> PowerSnapshot
@@ -70,7 +70,7 @@ final class KeepAwakeCoordinator {
 
     init(
         engine: StatusEngine = .shared,
-        sessions: HeadlessSessionManager = .shared,
+        sessions: AgentSessionManager = .shared,
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
         powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot,
@@ -242,9 +242,9 @@ final class KeepAwakeCoordinator {
 
     // MARK: - Deciding
 
-    /// A tab is a reason when it is working, when it is remotely controlled,
-    /// when it wants the user *and* is remotely controlled, or when it has a
-    /// background task still running.
+    /// Running work, remote access, and background tasks each provide a
+    /// reason. A waiting remote tab is covered by its remote-access reason;
+    /// it must not also inflate the working count.
     ///
     /// A tab waiting for an answer with no Remote Control is not a reason: no
     /// work is happening, and nobody is coming to answer it.
@@ -259,10 +259,9 @@ final class KeepAwakeCoordinator {
         allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
         let counted = allowsRemoteControl ? remoteControlledTabs : []
-        let remoteTabIDs = Set(counted.map(\.tabID))
 
         let working = activeTabs
-            .filter { $0.status == .working || remoteTabIDs.contains($0.tabID) }
+            .filter { $0.status == .working }
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .working($0.status)) }
 
         let remote = counted

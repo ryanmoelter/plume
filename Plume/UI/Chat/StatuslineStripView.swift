@@ -74,7 +74,7 @@ struct StatuslineStripView: View, ThemedView {
         // up along it whether or not a bar follows. The cost opts back out.
         HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
             contextSegment(showsReading: true)
-            if let fiveHour = rateLimit?.fiveHour {
+            if let fiveHour = rateLimit?.fiveHour, fiveHour.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -83,7 +83,7 @@ struct StatuslineStripView: View, ThemedView {
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
-            if let sevenDay = rateLimit?.sevenDay {
+            if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,
@@ -107,7 +107,7 @@ struct StatuslineStripView: View, ThemedView {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
             contextSegment(showsReading: false)
-            if let fiveHour = rateLimit?.fiveHour {
+            if let fiveHour = rateLimit?.fiveHour, fiveHour.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -117,7 +117,7 @@ struct StatuslineStripView: View, ThemedView {
                 )
                 .accessibilityIdentifier(AccessibilityID.statuslineFiveHourMeter)
             }
-            if let sevenDay = rateLimit?.sevenDay {
+            if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,
@@ -246,6 +246,7 @@ struct StackedMeter: View, ThemedView {
 /// `5d 15%` — over its bar.
 struct StatuslineMeterSegment: View, ThemedView {
     @Environment(\.theme) var theme
+    @State private var showingDetails = false
 
     let label: String
     /// 0–1, matching the stream's own `utilization` — scaled to a percent
@@ -260,14 +261,34 @@ struct StatuslineMeterSegment: View, ThemedView {
 
     var body: some View {
         let percent = utilization * 100
-        StackedMeter(
-            reading: "\(resetLabel) \(Int(percent.rounded()))%",
-            fraction: StatuslineMeterMath.fraction(percent: percent),
-            barWidth: barWidth,
-            attention: StatuslineAttention.attention(percent: percent),
-            showsReading: showsReading
-        )
+        Button {
+            showingDetails = true
+        } label: {
+            StackedMeter(
+                reading: "\(resetLabel) \(Int(percent.rounded()))%",
+                fraction: StatuslineMeterMath.fraction(percent: percent),
+                barWidth: barWidth,
+                attention: StatuslineAttention.attention(percent: percent),
+                showsReading: showsReading
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .help(helpText)
+        .accessibilityLabel("\(label) quota")
+        .accessibilityValue("\(Int(percent.rounded()))% used, \(resetDescription)")
+        .popover(isPresented: $showingDetails) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(label) quota")
+                    .font(.headline)
+                Text("Used: \(Int(percent.rounded()))%")
+                Text("Resets: \(resetDescription)")
+            }
+            .font(typography.caption.font)
+            .padding(12)
+            .frame(minWidth: 160, alignment: .leading)
+            .environment(\.theme, theme)
+        }
     }
 
     private var helpText: String {
@@ -287,6 +308,13 @@ struct StatuslineMeterSegment: View, ThemedView {
         }
         return "\(Int((seconds + 30) / 60))m"
     }
+
+    private var resetDescription: String {
+        guard let resetsAt else { return "Unavailable" }
+        let seconds = resetsAt.timeIntervalSinceNow
+        guard seconds > 0 else { return "now" }
+        return "in \(resetLabel)"
+    }
 }
 
 /// Remote Control's own segment, driving the same `setRemoteControl` the
@@ -295,80 +323,121 @@ struct StatuslineMeterSegment: View, ThemedView {
 /// a session exists, since there is no bridge to attach to until then.
 struct RemoteControlControl: View, ThemedView {
     @Environment(\.theme) var theme
-    let session: HeadlessSession
+    let session: any AgentSession
+    @State private var showsCodexDetails = false
+
+    private enum State {
+        case off, connecting, on, failed(String)
+    }
+
+    private var codexRemote: CodexRemoteControl? {
+        (session as? CodexSession)?.effectiveRemoteControl
+    }
+
+    private var state: State {
+        if let remote = codexRemote {
+            // Pairing/device-management failures do not turn off a live host.
+            if remote.status == .connected { return .on }
+            if remote.status == .connecting || remote.operation == .enabling { return .connecting }
+            if let error = remote.operationError { return .failed(error) }
+            switch remote.status {
+            case .disabled: return .off
+            case .connecting: return .connecting
+            case .connected: return .on
+            case .errored: return .failed("Codex could not establish remote access")
+            }
+        }
+        guard let claude = session as? HeadlessSession else { return .off }
+        switch claude.remoteControl {
+        case .disconnected: return .off
+        case .connecting: return .connecting
+        case .connected: return .on
+        case .failed(let error): return .failed(error)
+        }
+    }
+
+    private var isEnabled: Bool {
+        if let remote = codexRemote { return remote.isAvailableForRemoteAccess }
+        switch state {
+        case .on, .connecting: return true
+        case .off, .failed: return false
+        }
+    }
 
     var body: some View {
         Menu {
-            switch session.remoteControl {
-            case .connected(let link):
-                Button("Disconnect Remote Control") { session.setRemoteControl(enabled: false) }
-                if let url = link.shareableURL {
-                    Button("Copy Remote Control Link") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url, forType: .string)
-                    }
+            Button(isEnabled ? "Disconnect Remote Control" : "Connect Remote Control") {
+                let enabled = !isEnabled
+                if let remote = codexRemote {
+                    if enabled { showsCodexDetails = true }
+                    Task { await remote.setEnabled(enabled) }
+                } else if let claude = session as? HeadlessSession {
+                    claude.setRemoteControl(enabled: enabled)
                 }
-            default:
-                Button("Connect Remote Control") { session.setRemoteControl(enabled: true) }
+            }
+            .disabled(codexRemote?.operation == .disabling)
+            if codexRemote != nil {
+                Button("Pair and Manage Devices…") { showsCodexDetails = true }
+            } else if let claude = session as? HeadlessSession,
+                      case .connected(let link) = claude.remoteControl,
+                      let url = link.shareableURL {
+                Button("Copy Remote Control Link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                }
             }
         } label: {
-            // No height, so the label takes one caption line: the composer's
-            // 22pt control height would centre the glyph well below the meter
-            // readings this sits beside.
-            ComposerSegmentLabel(
-                systemImage: symbol,
-                text: "Remote Control",
-                showsText: false,
-                foreground: tint
-            )
+            ComposerSegmentLabel(systemImage: symbol, text: "Remote Control", showsText: false, foreground: tint)
         }
         .menuStyle(.borderlessButton)
         .font(typography.caption.font)
         .fixedSize()
-        // The antenna reports on the session rather than on any one meter, so
-        // it centres against the two-line strip instead of topping out with
-        // the readings. Stretching leaves the row's height the meters'.
         .frame(maxHeight: .infinity)
         .help(helpText)
         .accessibilityLabel("Remote Control")
         .accessibilityValue(accessibilityValue)
         .accessibilityIdentifier(AccessibilityID.composerRemoteControlControl)
-    }
-
-    private var symbol: String {
-        switch session.remoteControl {
-        case .connected, .connecting: return StatusSymbol.remoteControl.name
-        case .disconnected, .failed: return "\(StatusSymbol.remoteControl.name).slash"
+        .sheet(isPresented: $showsCodexDetails) {
+            if let remote = codexRemote { CodexRemoteControlPanel(remote: remote) }
         }
     }
 
-    /// A live bridge means someone else can drive this session, which is worth
-    /// its own color; a failure is worth another. Connecting and off are
-    /// ordinary statusline chrome and dim with the rest of the strip.
+    private var symbol: String {
+        switch state {
+        case .on, .connecting: return StatusSymbol.remoteControl.name
+        case .off, .failed: return "\(StatusSymbol.remoteControl.name).slash"
+        }
+    }
+
     private var tint: Color {
-        switch session.remoteControl {
-        case .connected: return colors.attention
+        switch state {
+        case .on: return colors.attention
         case .failed: return colors.danger
-        case .connecting, .disconnected:
-            return colors.foreground.opacity(colors.emphasis[.secondary])
+        case .connecting, .off: return colors.foreground.opacity(colors.emphasis[.secondary])
         }
     }
 
     private var accessibilityValue: String {
-        switch session.remoteControl {
-        case .disconnected: return "Off"
+        switch state {
+        case .off: return "Off"
         case .connecting: return "Connecting"
-        case .connected: return "On"
+        case .on: return "On"
         case .failed(let message): return "Failed: \(message)"
         }
     }
 
     private var helpText: String {
-        switch session.remoteControl {
-        case .connected: return "Remote Control is on \u{2014} this session is on claude.ai/code"
-        case .connecting: return "Connecting to Remote Control\u{2026}"
+        switch state {
+        case .on:
+            return codexRemote != nil
+                ? "Remote Control is on — manage this Codex host and paired devices"
+                : "Remote Control is on — this session is on claude.ai/code"
+        case .connecting: return "Connecting to Remote Control…"
         case .failed(let message): return "Remote Control failed: \(message)"
-        case .disconnected: return "Remote Control \u{2014} drive this session from your phone or claude.ai/code"
+        case .off:
+            return codexRemote != nil
+                ? "Remote Control — pair a device with this Codex host"
+                : "Remote Control — drive this session from your phone or claude.ai/code"
         }
     }
 }

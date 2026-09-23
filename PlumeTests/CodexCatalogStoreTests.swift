@@ -12,9 +12,10 @@ struct CodexCatalogStoreTests {
             .object([
                 "id": .string("visible"), "displayName": .string("Visible"),
                 "hidden": .bool(false), "isDefault": .bool(true),
+                "defaultReasoningEffort": .string("deliberate"),
                 "supportedReasoningEfforts": .array([
                     .object(["reasoningEffort": .string("low")]),
-                    .object(["reasoningEffort": .string("ultra")])
+                    .object(["reasoningEffort": .string("deliberate")])
                 ])
             ]),
             .object([
@@ -25,7 +26,9 @@ struct CodexCatalogStoreTests {
 
         #expect(store.models(for: tabID).map(\.id) == ["visible"])
         #expect(store.defaultModel(for: tabID)?.id == "visible")
-        #expect(store.efforts(for: tabID, modelID: "visible") == [.low, .ultra])
+        #expect(store.efforts(for: tabID, modelID: "visible") == [.low, AgentEffort(rawValue: "deliberate")])
+        #expect(store.defaultEffort(for: tabID, modelID: "visible")?.rawValue == "deliberate")
+        #expect(store.model(for: tabID, id: "visible")?.label == "Visible")
     }
 
     @Test func liveProfilesDropDisallowedEntries() {
@@ -55,7 +58,7 @@ struct CodexCatalogStoreTests {
             fallbackID: AgentPermissionPreset.codexReadOnly.id
         )
 
-        #expect(profile == .codexReadOnly)
+        #expect(profile == .some(.codexReadOnly))
     }
 
     @Test func advertisedCustomPermissionProfileSurvivesResolution() {
@@ -65,6 +68,18 @@ struct CodexCatalogStoreTests {
             .object(["id": .string("reviewer"), "allowed": .bool(true)])
         ])
 
-        #expect(store.resolvedProfile(for: tabID, requestedID: "reviewer").id == "reviewer")
+        #expect(store.resolvedProfile(for: tabID, requestedID: "reviewer")?.id == "reviewer")
+    }
+
+    @Test func anEmptyAllowedProfileCatalogDoesNotRestoreForbiddenPresets() {
+        let tabID = UUID()
+        let store = CodexCatalogStore()
+        store.replaceProfiles(tabID: tabID, values: [
+            .object(["id": .string(":workspace"), "allowed": .bool(false)]),
+            .object(["id": .string(":danger-full-access"), "allowed": .bool(false)])
+        ])
+
+        #expect(store.profiles(for: tabID).isEmpty)
+        #expect(store.resolvedProfile(for: tabID, requestedID: nil) == nil)
     }
 }

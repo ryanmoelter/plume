@@ -71,6 +71,6 @@ struct ComposerControlSymbolsTests {
         let symbols = AgentEffort.allCases.map(\.symbol)
         let gauges = symbols.filter { $0.hasPrefix("gauge.with.dots.needle.") }
         #expect(Set(symbols).count == AgentEffort.allCases.count)
-        #expect(gauges.count == symbols.count)
+        #expect(gauges.count == AgentProviderKind.claudeCode.efforts.count)
     }
 }

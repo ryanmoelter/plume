@@ -69,7 +69,7 @@ enum AgentLauncher {
         // and point at the terminal transport, where the prompt can
         // actually be answered. Never write the trust flag here — that
         // would grant the very trust the prompt exists to ask for.
-        guard let workingDirectory = task.workingDirectoryPath else { return }
+        guard let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
             return
@@ -81,11 +81,12 @@ enum AgentLauncher {
         // Reporting it before the process exists says the same thing with the
         // remedy attached.
         guard ClaudeCLILocator.isAvailable() else {
-            let session = HeadlessSessionManager.shared.session(
+            let existing = AgentSessionManager.shared.session(
                 for: tab.id,
                 taskID: task.id,
                 initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
             )
+            guard let session = existing as? HeadlessSession else { return }
             session.failToLaunch(reason: "claude: command not found")
             return
         }
@@ -110,7 +111,7 @@ enum AgentLauncher {
             return
         }
         session.start(
-            workingDirectory: task.workingDirectoryPath,
+            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
             permissionMode: resolvedPermissionMode(
                 tab: tab.permissionMode,
                 task: task.permissionMode,
@@ -143,11 +144,11 @@ enum AgentLauncher {
             tabID: nil,
             permissionMode: nil
         )
-        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .notStarted)
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: task.workingDirectoryPath,
+                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
                 envVars: launch.environment,
                 command: launch.command
             )
@@ -166,16 +167,17 @@ enum AgentLauncher {
             for: tab.id,
             taskID: task.id,
             provider: .codex,
-            initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
+            initialEffort: tab.isEffortUserChosen ? tab.effort : nil
         )
         guard let session = existing as? CodexSession else {
             Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
             return
         }
         session.start(
-            workingDirectory: task.workingDirectoryPath,
+            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
             resumeThreadID: resumeSessionID,
-            model: tab.model,
+            model: resumeSessionID == nil || tab.isModelUserChosen ? tab.model : nil,
+            collaborationMode: tab.codexCollaborationMode,
             permissionProfile: tab.permissionModeRaw,
             defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
             environment: LoginShellCommand.plumeEnvironment
@@ -215,7 +217,7 @@ enum AgentLauncher {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: task.workingDirectoryPath,
+                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
                 envVars: launch.environment,
                 command: launch.command
             )

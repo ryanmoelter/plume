@@ -33,7 +33,12 @@ struct SettingsView: View {
             Section {
                 Picker("New agent tabs run", selection: $settings.defaultProvider) {
                     ForEach(AgentProviderKind.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
+                        Label {
+                            Text(provider.displayName)
+                        } icon: {
+                            AgentProviderIcon(provider: provider)
+                        }
+                        .tag(provider)
                     }
                 }
             } footer: {

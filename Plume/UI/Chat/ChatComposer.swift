@@ -70,8 +70,17 @@ struct ChatComposer: View, ThemedView {
     /// `/rc` drives a control request, which has no process to reach without
     /// one — and never shadow a name the CLI reports: if a later CLI serves
     /// `/rc` headlessly, its version wins.
+    private var skillDirectory: String? {
+        tab.provider == .codex && tab.transport == .headless ? tabDirectories.directory(for: tab) : nil
+    }
+
+    private var completionPrefix: String { tab.provider == .codex ? "$" : "/" }
+
     private var availableSlashCommands: [SlashCommand] {
-        guard tab.transport == .headless else { return [] }
+        if tab.provider == .codex, tab.transport == .headless {
+            return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
+        }
+        guard tab.provider == .claudeCode, tab.transport == .headless else { return [] }
         let remembered = commandMemory.commands(inDirectory: tabDirectories.directory(for: tab))
         guard let headlessSession else { return remembered }
         let reported = headlessSession.slashCommands.isEmpty
@@ -84,12 +93,16 @@ struct ChatComposer: View, ThemedView {
     /// True while the CLI list on offer is the last session's rather than this
     /// one's, so the popup can say the names are a guess.
     private var slashCommandsAreRemembered: Bool {
-        headlessSession?.slashCommands.isEmpty ?? true
+        tab.provider == .claudeCode && (headlessSession?.slashCommands.isEmpty ?? true)
     }
 
     private var composerPlaceholder: String {
         guard let headlessSession, !headlessSession.queuedMessages.isEmpty else {
-            return "Message Claude…"
+            if headlessSession == nil, tab.agentSessionID?.isEmpty != false,
+               tab.sessionJSONLPath?.isEmpty != false {
+                return "Message…"
+            }
+            return "Message \(tab.provider.displayName)…"
         }
         return "Press ↑ to edit a queued message"
     }
@@ -99,7 +112,7 @@ struct ChatComposer: View, ThemedView {
     /// goes on to type.
     private func acceptSlashCommand(_ command: SlashCommand) {
         let tabID = tab.id
-        let accepted = SlashCommandMatcher.accepting(command, in: drafts.draft(forTab: tabID))
+        let accepted = SlashCommandMatcher.accepting(command, in: drafts.draft(forTab: tabID), prefix: completionPrefix)
         drafts.setDraft(accepted.text, forTab: tabID)
         hasSendableText = sendableText(accepted.text)
         pendingCaretLocation = accepted.caretLocation
@@ -123,7 +136,8 @@ struct ChatComposer: View, ThemedView {
                     selectedIndex: autocomplete.selectedIndex,
                     onSelect: { autocomplete.select($0) },
                     isTopOfPanel: !hasContentAbove,
-                    isRemembered: slashCommandsAreRemembered
+                    isRemembered: slashCommandsAreRemembered,
+                    tokenPrefix: completionPrefix
                 )
             }
 
@@ -138,11 +152,11 @@ struct ChatComposer: View, ThemedView {
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
-                        autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands)
+                        autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
                     },
                     onCaretChange: { location in
                         caretLocation = location
-                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands)
+                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands, prefix: completionPrefix)
                     },
                     pendingCaretLocation: $pendingCaretLocation,
                     autocompleteHandler: autocomplete,
@@ -169,6 +183,10 @@ struct ChatComposer: View, ThemedView {
                     if headlessSession?.isWorking == true {
                         stopButton
                     }
+                    if headlessSession?.supportsSteering == true,
+                       headlessSession?.isWorking == true {
+                        steerButton
+                    }
                     sendButton
                 }
                 .padding(.top, dimensions.panelContentInset)
@@ -187,13 +205,22 @@ struct ChatComposer: View, ThemedView {
         // first responder when this fires. Claiming it in the same
         // transaction loses the race silently; the next run loop turn wins it.
         .onChange(of: isVisible, initial: true) { _, visible in
-            guard visible else { return }
+            guard visible else {
+                inputFocused = false
+                return
+            }
             DispatchQueue.main.async { inputFocused = true }
         }
         .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
             guard let index else { return }
             editQueuedMessage(at: index)
             editQueuedMessageIndex.wrappedValue = nil
+        }
+        .task(id: skillDirectory) {
+            if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
+        }
+        .onChange(of: availableSlashCommands) { _, commands in
+            autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation, commands: commands, prefix: completionPrefix)
         }
         .onAppear {
             autocomplete.onAccept = acceptSlashCommand
@@ -212,9 +239,9 @@ struct ChatComposer: View, ThemedView {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.circle)
-        .disabled(!hasSendableText)
-        .help("Send")
-        .accessibilityLabel("Send")
+        .disabled(!hasSendableText || headlessSession?.isSteering == true)
+        .help(headlessSession?.isWorking == true ? "Queue for the next turn" : "Send")
+        .accessibilityLabel(headlessSession?.isWorking == true ? "Queue" : "Send")
         .accessibilityIdentifier(AccessibilityID.composerSendButton)
     }
 
@@ -235,16 +262,53 @@ struct ChatComposer: View, ThemedView {
         .accessibilityIdentifier(AccessibilityID.composerStopButton)
     }
 
+    private var steerButton: some View {
+        Button(action: steer) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .disabled(!hasSendableText || headlessSession?.canSteer != true)
+        .help("Steer the current turn")
+        .accessibilityLabel("Steer")
+        .accessibilityIdentifier(AccessibilityID.composerSteerButton)
+    }
+
+    private func steer() {
+        guard hasSendableText, let headlessSession else { return }
+        let text = drafts.draft(forTab: tab.id)
+        Task {
+            guard await headlessSession.steer(text: text) else { return }
+            // Do not erase text typed while the request was awaiting its
+            // reply. Only the exact acknowledged draft has been sent.
+            guard drafts.draft(forTab: tab.id) == text else { return }
+            drafts.setDraft("", forTab: tab.id)
+            hasSendableText = false
+        }
+    }
+
     private func send() {
-        guard hasSendableText else { return }
+        guard hasSendableText, headlessSession?.isSteering != true else { return }
         let text = drafts.draft(forTab: tab.id)
         drafts.setDraft("", forTab: tab.id)
         // Only on the headless transport: a terminal tab's composer feeds the
         // real TUI, where `/rc` already works. And only with a session live —
         // the launch path below is a tab's first message, which has no bridge
         // to attach to, so the command is dropped rather than sent as prose.
-        if tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession else { return }
+        if tab.provider == .codex, tab.transport == .headless,
+           let command = PlumeSlashCommand.parse(text) {
+            guard let codex = headlessSession as? CodexSession else { return }
+            switch command {
+            case .remoteControl:
+                let remote = codex.effectiveRemoteControl
+                Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
+            }
+            return
+        }
+        if tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
+            guard let headlessSession = headlessSession as? HeadlessSession else { return }
             switch command {
             case .remoteControl(let name):
                 headlessSession.setRemoteControl(
@@ -254,13 +318,21 @@ struct ChatComposer: View, ThemedView {
             }
             return
         }
-        if let headlessSession {
+        if let headlessSession, !headlessSession.hasExited {
             headlessSession.submit(text: text)
+        } else if let exitedSession = headlessSession {
+            let unsent = exitedSession.queuedMessages
+            AgentSessionManager.shared.closeSession(for: tab.id)
+            AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+            if let resumed = headlessSession {
+                for message in unsent { resumed.submit(text: message) }
+                resumed.submit(text: text)
+            }
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
             session.submit(text: text)
         } else {
             onLaunch(text)
-            AgentLauncher.launch(message: text, task: task, tab: tab)
+            AgentLauncher.launch(message: text, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
         }
     }
 }

@@ -46,6 +46,9 @@ struct ComposerControlsRow: View, ThemedView {
             Spacer(minLength: 0)
             ModelControl(state: settings, form: form)
             EffortControl(state: settings, form: form)
+            if tab.provider == .codex {
+                CodexCollaborationControl(state: settings, form: form)
+            }
             PermissionModeControl(state: settings, form: form)
         }
         .font(typography.caption.font)
@@ -83,7 +86,9 @@ struct ComposerControlsRow: View, ThemedView {
 enum ComposerControlLabels {
     @MainActor
     static func all(state: ComposerSettings) -> [String] {
-        [model(state), state.effort.label, state.permissionMode?.label].compactMap { $0 }
+        [model(state), state.effort.label,
+         state.provider == .codex ? state.collaborationMode.label : nil,
+         state.permissionPreset?.label].compactMap { $0 }
     }
 
     /// A tab that has never chosen one launches without `--model` and runs on
@@ -232,7 +237,7 @@ private struct PermissionModeControl: View, ThemedView {
                 }
             } label: {
                 ComposerSegmentLabel(
-                    systemImage: preset.claudeMode?.symbol ?? "lock.shield",
+                    systemImage: PermissionMode(rawValue: preset.id)?.symbol ?? "lock.shield",
                     text: preset.label,
                     showsText: form.showsLabels,
                     foreground: foreground(for: attention(preset)),
@@ -266,46 +271,60 @@ private struct ModelControl: View, ThemedView {
 
     @State private var isAskingForCustomID = false
     @State private var customID = ""
+    @State private var customProvider: AgentProviderKind = .claudeCode
 
     var body: some View {
-        Menu {
-            if let resolved = state.defaultModel {
-                Button("Default (\(resolved.label))") { state.clearModel() }
-                Divider()
+        ModelSegmentLabel(
+            provider: state.provider,
+            text: label,
+            showsText: form.showsLabels,
+            foreground: colors.foreground,
+            height: dimensions.composerControlHeight
+        )
+        .unconfirmed(state.isModelAwaitingConfirmation)
+        .overlay {
+            ModelMenuButton(state: state, label: label) { provider in
+                customProvider = provider
+                isAskingForCustomID = true
             }
-            ForEach(Array(state.models.prefix(4))) { option in
-                Button(option.label) { state.setModel(option) }
-            }
-            Menu("More") {
-                ForEach(Array(state.models.dropFirst(4))) { option in
-                    Button(option.label) { state.setModel(option) }
-                }
-                Divider()
-                Button("Other…") { isAskingForCustomID = true }
-            }
-        } label: {
-            ComposerSegmentLabel(
-                systemImage: "brain",
-                text: label,
-                showsText: form.showsLabels,
-                foreground: colors.foreground,
-                height: dimensions.composerControlHeight
-            )
-            .unconfirmed(state.isModelAwaitingConfirmation)
         }
-        .menuStyle(.borderlessButton)
         .help(state.modeAndModelHelp("Model: \(label)"))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
         .accessibilityIdentifier(AccessibilityID.composerModelControl)
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
-                state.setModel(AgentModel(unrecognizedID: $0))
+                state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)
             }
         }
     }
 
     private var label: String { ComposerControlLabels.model(state) }
+
+
+}
+
+private struct ModelSegmentLabel: View, ThemedView {
+    @Environment(\.theme) var theme
+    let provider: AgentProviderKind
+    let text: String
+    let showsText: Bool
+    let foreground: Color
+    let height: CGFloat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            AgentProviderIcon(provider: provider, size: 12)
+            if showsText { Text(text) }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(foreground)
+        .lineLimit(1)
+        .frame(height: typography.caption.lineHeight, alignment: .center)
+        .frame(height: height)
+    }
 }
 
 /// Takes a model ID the menu has no item for. Free text, because the CLI
@@ -365,7 +384,9 @@ private struct EffortControl: View, ThemedView {
         .menuStyle(.borderlessButton)
         // Changing effort has no control request, so it sends an ordinary
         // chat turn — that turn appearing in the transcript is expected.
-        .help("Effort: \(state.effort.label) (changing it sends a message)")
+        .help(state.provider == .codex
+            ? "Effort: \(state.effort.label) (applies to the next turn)"
+            : "Effort: \(state.effort.label) (changing it sends a message)")
         .accessibilityLabel("Effort")
         .accessibilityValue(state.effort.label)
         .accessibilityIdentifier(AccessibilityID.composerEffortControl)
@@ -408,6 +429,8 @@ extension AgentEffort {
         case .high: return "gauge.with.dots.needle.50percent"
         case .xhigh: return "gauge.with.dots.needle.67percent"
         case .max: return "gauge.with.dots.needle.100percent"
+        case .ultra: return "bolt.circle"
+        default: return "gauge.with.dots.needle.50percent"
         }
     }
 }

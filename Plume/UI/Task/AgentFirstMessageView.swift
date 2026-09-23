@@ -26,7 +26,7 @@ struct AgentFirstMessageView: View {
         VStack(spacing: 12) {
             Spacer()
 
-            Image(systemName: "sparkles")
+            Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
 
@@ -37,15 +37,17 @@ struct AgentFirstMessageView: View {
                 HStack(spacing: 14) {
                     WorkspacePickerView(task: task)
                     Spacer()
-                    Button("Resume…") { resumeSheetShown = true }
-                        .buttonStyle(.link)
-                        .disabled(!directoryExists)
-                        .help("Continue a past Claude conversation in this folder")
+                    Group {
+                        Button("Resume…") { resumeSheetShown = true }
+                            .buttonStyle(.link)
+                            .disabled(!directoryExists)
+                            .help("Continue a past conversation in this folder")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 8) {
-                    TextField("Send a message to Claude…", text: $message, axis: .vertical)
+                    TextField("Message…", text: $message, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...6)
                         .focused($inputFocused)
@@ -55,6 +57,7 @@ struct AgentFirstMessageView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(!canSend)
                 }
+                ComposerControlsRow(task: task, tab: tab, headlessSession: nil)
             }
             .frame(maxWidth: 560)
 
@@ -80,6 +83,7 @@ struct AgentFirstMessageView: View {
                 ResumeSessionSheet(
                     workingDirectory: path,
                     repoPath: task.repoPath,
+                    provider: tab.provider,
                     onSelect: resume
                 )
             }
@@ -96,6 +100,6 @@ struct AgentFirstMessageView: View {
     /// for `AutoResumingAgentTabView`, which launches `claude --resume`.
     private func resume(_ session: StoredSession) {
         tab.agentSessionID = session.sessionID
-        tab.sessionJSONLPath = session.transcriptPath
+        tab.sessionJSONLPath = tab.provider == .claudeCode ? session.transcriptPath : nil
     }
 }

@@ -41,7 +41,8 @@ enum TaskStore {
             Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
-        tab.transport = AppSettings.shared.defaultAgentTransport
+        tab.provider = AppSettings.shared.defaultProvider
+        tab.transport = tab.provider.resolvedTransport(preferring: AppSettings.shared.defaultAgentTransport)
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -159,6 +160,7 @@ enum TaskStore {
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
+        CodexSubagentStore.shared.forget(tabID: tabID)
         CodexItemStore.shared.forget(tabID: tabID)
         CodexCatalogStore.shared.forget(tabID: tabID)
         UntrustedDirectoryStore.shared.clear(tabID: tabID)

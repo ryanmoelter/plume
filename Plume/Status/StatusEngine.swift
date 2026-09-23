@@ -110,7 +110,11 @@ final class StatusEngine {
     var activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)] {
         tabsByTask.flatMap { taskID, tabs in
             tabs.compactMap { tabID -> (UUID, UUID, TaskStatus)? in
-                let status = status(forTab: tabID)
+                // Attention still wins in the sidebar, but a parent waiting
+                // for permission does not stop its other children working.
+                // Stay Awake must see that independent live activity.
+                let childWorking = tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+                let status: TaskStatus = childWorking ? .working : status(forTab: tabID)
                 guard status == .working || status.wantsAttention else { return nil }
                 return (taskID, tabID, status)
             }

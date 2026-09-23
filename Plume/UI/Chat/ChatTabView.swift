@@ -85,6 +85,13 @@ struct ChatTabView: View, ThemedView {
         return PlanFileExistence.exists(path) ? path : nil
     }
 
+    private var codexPlan: CodexItemStore.PlanProposal? {
+        (headlessSession as? CodexSession)?.planProposal
+    }
+
+    private var displayedPlanMarkdown: String? { codexPlan?.markdown ?? planFile.content }
+    private var hasPlan: Bool { planFilePath != nil || codexPlan != nil }
+
     /// The live `ExitPlanMode` request, when the agent is waiting on one.
     private var pendingPlan: PendingPermission? {
         headlessSession?.pendingPermissions.first { permission in
@@ -97,6 +104,7 @@ struct ChatTabView: View, ThemedView {
     /// outranks a remembered answer: a fresh proposal after an approval puts
     /// the footer back to awaiting a decision.
     private var planApproval: PlanApprovalState {
+        if codexPlan != nil { return .awaitingDecision }
         if let pendingPlan {
             return .derive(latestProposal: .init(toolUseID: pendingPlan.id))
         }
@@ -107,13 +115,15 @@ struct ChatTabView: View, ThemedView {
     /// transcript at all — so unlike the plan path, this is not on the
     /// streaming render path and can check the filesystem directly.
     private var canResume: Bool {
-        guard tab.provider == .claudeCode else { return false }
         guard let directory = task.workingDirectoryPath else { return false }
         return FileManager.default.fileExists(atPath: directory)
     }
 
     private var subagents: [SubagentTranscript] {
-        TranscriptStore.shared.subagents(forTab: tab.id)
+        switch tab.provider {
+        case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+        case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+        }
     }
 
     private var openSubagent: SubagentTranscript? {
@@ -125,7 +135,7 @@ struct ChatTabView: View, ThemedView {
     /// `EnterWorktree`; the task's path only covers the window before any
     /// transcript exists.
     private var gitDirectory: String? {
-        transcript?.cwd ?? task.workingDirectoryPath
+        transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
     /// The main agent's own status, ignoring its subagents — what the chat's
@@ -162,7 +172,7 @@ struct ChatTabView: View, ThemedView {
     /// it — `conversationMessages` is.
     @ViewBuilder
     private var content: some View {
-        if !conversationMessages.isEmpty {
+        if !conversationMessages.isEmpty || hasPlan {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
@@ -175,7 +185,7 @@ struct ChatTabView: View, ThemedView {
             || (tab.agentSessionID?.isEmpty == false) {
             // A process (or a resumable session) exists but has written no
             // transcript content yet — nothing to show but a quiet wait.
-            emptyState(isComposerEnabled: false)
+            emptyState(isComposerEnabled: tab.transport == .headless)
         } else {
             emptyState(isComposerEnabled: true)
         }
@@ -197,6 +207,10 @@ struct ChatTabView: View, ThemedView {
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .task(id: tab.agentSessionID) {
+            guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
+            await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
+        }
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
             if let current { GitStateStore.shared.watch(current) }
@@ -249,11 +263,14 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: planApproval, initial: true) { _, approval in
             planPresentation = planPresentation.reconciled(with: approval)
         }
+        .onChange(of: codexPlan?.id) { _, id in
+            presentPendingPlan(id)
+        }
         .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
             persistHeadlessSessionID(sessionID)
         }
         .overlay {
-            if planPresentation.isExpanded, let planFilePath {
+            if planPresentation.isExpanded, hasPlan {
                 planPanel(path: planFilePath)
                     // The bar is the source whenever it exists, so the panel
                     // grows out of it; opened straight from the Plan button
@@ -274,11 +291,23 @@ struct ChatTabView: View, ThemedView {
         }
         .animation(.snappy(duration: 0.22), value: planPresentation)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
+        .onChange(of: planPresentation) { _, presentation in
+            guard presentation == .expanded, planApproval.showsApprovalOptions else {
+                planFeedbackFocused = false
+                return
+            }
+            // The feedback editor wraps NSTextView. Claim first responder on
+            // the next run-loop turn, after the overlay's view has joined its
+            // window; an accessibility press does not reliably perform the
+            // native mouse-down focus handoff for that wrapper.
+            DispatchQueue.main.async { planFeedbackFocused = true }
+        }
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
                     workingDirectory: path,
                     repoPath: task.repoPath,
+                    provider: tab.provider,
                     onSelect: resume
                 )
             }
@@ -295,6 +324,25 @@ struct ChatTabView: View, ThemedView {
     /// is what keeps the measurement from feeding back into itself.
     private func bottomChrome(transcript: Transcript) -> some View {
         VStack(spacing: dimensions.panelContentInset) {
+            if let error = headlessSession?.lastError, !error.isEmpty {
+                HStack(alignment: .top) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .textSelection(.enabled)
+                    if headlessSession?.hasExited == true {
+                        Button("Reconnect") { reconnectAgent() }
+                    }
+                }
+                .font(.callout)
+                .padding(10)
+                .background(.regularMaterial, in: .rect(cornerRadius: 10))
+                .listItemPadding(vertical: false)
+            }
+            if tab.provider == .codex, CodexItemStore.shared.isSavedCopy(forTab: tab.id) {
+                Label("Saved conversation — reconnect to refresh history.", systemImage: "clock.arrow.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listItemPadding(vertical: false)
+            }
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
             if let headlessSession, !headlessSession.queuedMessages.isEmpty {
@@ -331,7 +379,7 @@ struct ChatTabView: View, ThemedView {
     private func composerPanel(transcript: Transcript) -> some View {
         let isDocked = planPresentation.hiddenForm == .dockBar
         return VStack(spacing: 0) {
-            if let planFilePath, isDocked {
+            if hasPlan, isDocked {
                 planDockBar(path: planFilePath)
                     .transition(.opacity)
                 Divider()
@@ -339,10 +387,10 @@ struct ChatTabView: View, ThemedView {
             ChatComposer(
                 task: task,
                 tab: tab,
-                isVisible: isVisible,
+                isVisible: isVisible && !planPresentation.isExpanded,
                 hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
-                showsPlanButton: planFilePath != nil && planPresentation.hiddenForm == .closed,
+                showsPlanButton: hasPlan && planPresentation.hiddenForm == .closed,
                 onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
@@ -413,9 +461,13 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    rateLimit: headlessSession?.rateLimit,
-                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+                    rateLimit: tab.provider == .claudeCode ? headlessSession?.rateLimit : nil,
+                    sessionCostUSD: displayedSessionCost
                 )
+                if let codex = headlessSession as? CodexSession,
+                   codex.quotaWindows.contains(where: { $0.usedPercent > 0 }) {
+                    CodexQuotaStrip(windows: codex.quotaWindows, layout: meters == .stacked ? .stacked : .wide)
+                }
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
@@ -445,17 +497,17 @@ struct ChatTabView: View, ThemedView {
         ThemeChrome.background(for: colorScheme)?.opacity(0.5)
     }
 
-    private func planPanel(path: String) -> some View {
+    private func planPanel(path: String?) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text((path as NSString).lastPathComponent)
+                Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                     .font(.headline)
                 Spacer()
                 hidePlanButton
             }
             .padding(12)
             Divider()
-            MarkdownContentView(content: planFile.content)
+            MarkdownContentView(content: displayedPlanMarkdown)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -524,17 +576,21 @@ struct ChatTabView: View, ThemedView {
             HStack(alignment: .bottom, spacing: DecisionCard.nestedPadding) {
                 feedbackField
                 ReservedWidthButton(
-                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
-                    labels: PlanRejectionLabel.allLabels
+                    title: codexPlan == nil
+                        ? PlanRejectionLabel.label(forReason: planRejectionReason)
+                        : "Request changes",
+                    labels: codexPlan == nil ? PlanRejectionLabel.allLabels : ["Request changes"]
                 ) {
                     answerPlan(.reject)
                 }
+                .disabled(codexPlan != nil && headlessSession?.isWorking == true)
                 .accessibilityIdentifier(AccessibilityID.planRejectButton)
-                Button("Approve") { answerPlan(.approve) }
+                Button(codexPlan == nil ? "Approve" : "Implement plan") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
+                    .disabled(codexPlan != nil && headlessSession?.isWorking == true)
                     .accessibilityIdentifier(AccessibilityID.planApproveButton)
             }
-            Text("⌥↩ approves with this feedback")
+            Text(codexPlan == nil ? "⌥↩ approves with this feedback" : "Return requests changes")
                 .font(typography.caption.font)
                 .emphasis(.subtle)
         }
@@ -549,13 +605,17 @@ struct ChatTabView: View, ThemedView {
             isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
-            onOptionReturn: { answerPlan(.approveWithFeedback) }
+            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) }
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
         .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
         .accessibilityIdentifier(AccessibilityID.planFeedbackField)
+        .onAppear {
+            guard planApproval.showsApprovalOptions else { return }
+            DispatchQueue.main.async { planFeedbackFocused = true }
+        }
     }
 
     /// `NSTextView` draws its first glyph one line-fragment padding in from
@@ -572,7 +632,23 @@ struct ChatTabView: View, ThemedView {
     /// Answers the live proposal and remembers where it landed, so the footer
     /// keeps saying so once the request is gone.
     private func answerPlan(_ decision: PlanDecision) {
-        guard let session = headlessSession, let pendingPlan else { return }
+        guard let session = headlessSession else { return }
+        if let codex = session as? CodexSession, let codexPlan {
+            switch decision {
+            case .approve, .approveWithFeedback:
+                guard codex.implementPlan(feedback: planRejectionReason) else { return }
+                tab.codexCollaborationMode = .default
+                settledPlan = .init(toolUseID: codexPlan.id, decision: .approved)
+            case .reject:
+                guard codex.requestPlanChanges(planRejectionReason) else { return }
+                tab.codexCollaborationMode = .plan
+                settledPlan = .init(toolUseID: codexPlan.id, decision: .rejected)
+            }
+            planRejectionReason = ""
+            planPresentation = .hidden(.closed)
+            return
+        }
+        guard let pendingPlan else { return }
         switch decision {
         case .approve:
             session.approvePlan(pendingPlan)
@@ -591,7 +667,7 @@ struct ChatTabView: View, ThemedView {
         planPresentation = .hidden(.closed)
     }
 
-    private func planDockBar(path: String) -> some View {
+    private func planDockBar(path: String?) -> some View {
         HStack(spacing: 8) {
             // The whole row expands, so the target is the bar rather than just
             // the chevron; close stays a sibling so it isn't a nested button.
@@ -601,18 +677,18 @@ struct ChatTabView: View, ThemedView {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text")
                         .emphasis(.secondary)
-                    if let title = planFile.content.flatMap(PlanSummary.title(of:)) {
+                    if let title = displayedPlanMarkdown.flatMap(PlanSummary.title(of:)) {
                         Text(title)
                             .lineLimit(1)
                         // Same size as the title, so the bar is the same
                         // height with or without one and the conversation
                         // above it never shifts. It yields its width first.
-                        Text((path as NSString).lastPathComponent)
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                             .lineLimit(1)
                             .emphasis(.secondary)
                             .layoutPriority(-1)
                     } else {
-                        Text((path as NSString).lastPathComponent)
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -742,6 +818,15 @@ struct ChatTabView: View, ThemedView {
         .accessibilityIdentifier(AccessibilityID.composerWorkspacePicker)
     }
 
+    private func reconnectAgent() {
+        let queued = headlessSession?.queuedMessages ?? []
+        AgentSessionManager.shared.closeSession(for: tab.id)
+        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        if let session = headlessSession {
+            for message in queued { session.submit(text: message) }
+        }
+    }
+
     private func agentErrorState(_ message: String) -> some View {
         VStack(spacing: 12) {
             Spacer()
@@ -756,6 +841,14 @@ struct ChatTabView: View, ThemedView {
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .frame(maxWidth: 480)
+            Button("Retry") {
+                reconnectAgent()
+            }
+            .accessibilityIdentifier("agent-retry-button")
+            Button("New \(tab.provider.displayName) Tab") {
+                TaskStore.addTab(to: task, kind: .agent, provider: tab.provider, in: modelContext)
+            }
+            .help("Start a separate conversation and keep this tab available to retry")
             Spacer()
         }
         .padding()
@@ -806,7 +899,7 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 420)
             }
             if failure.remedy == .installCLI {
-                Text("Plume runs `claude` through your login shell. Install Claude Code, or make sure it's on the PATH your shell profile sets.")
+                Text("Plume runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
                     .font(.callout)
                     .emphasis(.secondary)
                     .multilineTextAlignment(.center)
@@ -829,7 +922,7 @@ struct ChatTabView: View, ThemedView {
     /// installing the CLI is the fix this offers.
     private func retryAfterStartFailure() {
         ClaudeCLILocator.invalidate()
-        HeadlessSessionManager.shared.closeSession(for: tab.id)
+        AgentSessionManager.shared.closeSession(for: tab.id)
         StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
     }
 
@@ -887,7 +980,7 @@ struct ChatTabView: View, ThemedView {
     /// `tab.agentSessionID` and launch `claude --resume` from it.
     private func resume(_ session: StoredSession) {
         tab.agentSessionID = session.sessionID
-        tab.sessionJSONLPath = session.transcriptPath
+        tab.sessionJSONLPath = tab.provider == .claudeCode ? session.transcriptPath : nil
     }
 
     /// The TUI path learns these from hook events; headless has no hooks, so

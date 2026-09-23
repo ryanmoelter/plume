@@ -17,7 +17,7 @@ struct RemoteControlToast: View, ThemedView {
     let tabID: UUID
 
     var body: some View {
-        if let session = HeadlessSessionManager.shared.existingSession(for: tabID),
+        if let session = AgentSessionManager.shared.existingSession(for: tabID) as? HeadlessSession,
            let notice = session.remoteControlNotice {
             Button {
                 copyLink(for: notice, in: session)
@@ -29,30 +29,16 @@ struct RemoteControlToast: View, ThemedView {
             .help(helpText(for: notice))
             .transition(.opacity)
             .accessibilityIdentifier(AccessibilityID.remoteControlToast)
+        } else if let codex = AgentSessionManager.shared.existingSession(for: tabID) as? CodexSession {
+            CodexRemoteControlNotice(remote: codex.effectiveRemoteControl)
         }
     }
 
     private func content(for notice: RemoteControlState) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol(for: notice))
-                .imageScale(.small)
-            Text(title(for: notice))
-                .lineLimit(1)
-            if let detail = detail(for: notice) {
-                Text(detail)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .emphasis(.secondary)
-            }
-        }
-        .font(typography.caption.font)
-        .foregroundStyle(tint(for: notice))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        // Glass, like the queued chips beside it: the toast floats over the
-        // conversation, and a flat fill is hard to read against it.
-        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .capsule)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        RemoteControlToastContent(
+            symbol: symbol(for: notice), title: title(for: notice),
+            detail: detail(for: notice), tint: tint(for: notice)
+        )
     }
 
     private func copyLink(for notice: RemoteControlState, in session: HeadlessSession) {
@@ -98,5 +84,30 @@ struct RemoteControlToast: View, ThemedView {
         case .connected, .connecting: return colors.attention
         case .disconnected: return colors.foreground
         }
+    }
+}
+
+/// Shared presentation; each provider owns the notice's meaning and lifetime.
+struct RemoteControlToastContent: View, ThemedView {
+    @Environment(\.theme) var theme
+    let symbol: String
+    let title: String
+    let detail: String?
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).imageScale(.small)
+            Text(title).lineLimit(1)
+            if let detail {
+                Text(detail).lineLimit(1).truncationMode(.middle).emphasis(.secondary)
+            }
+        }
+        .font(typography.caption.font)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .glassEffect(Glass.regular.tint(colors.surfaceTint), in: .capsule)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -9,6 +9,13 @@ struct PlumeApp: App {
     let modelContainer: ModelContainer = makeModelContainer()
 
     init() {
+        #if DEBUG
+        do {
+            try SeededProviderRecovery.recover(in: modelContainer.mainContext)
+        } catch {
+            Log.app.error("Could not repair seeded providers: \(error, privacy: .public)")
+        }
+        #endif
         BundledFonts.registerIfNeeded()
 
         // Xcode Previews launch this app as their host, and libghostty

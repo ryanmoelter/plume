@@ -129,10 +129,10 @@ enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    var glyph: String {
+    var assetName: String {
         switch self {
-        case .claudeCode: "sparkles"
-        case .codex: "chevron.left.forwardslash.chevron.right"
+        case .claudeCode: "ClaudeLogo"
+        case .codex: "ChatGPTLogo"
         }
     }
 

@@ -28,7 +28,7 @@ enum Importer {
         return tasks.contains { task in
             task.tabs.contains { tab in
                 SurfaceManager.shared.existingSession(for: tab.id) != nil
-                    || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+                    || AgentSessionManager.shared.existingSession(for: tab.id) != nil
             }
         }
     }

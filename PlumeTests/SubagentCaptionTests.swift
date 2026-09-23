@@ -121,6 +121,13 @@ struct SubagentCaptionTests {
         #expect(caption.contextFraction == nil)
     }
 
+    @Test func codexSubagentsUseTheCodexModelCatalog() {
+        var child = subagent([], descriptor: SubagentDescriptor(model: "gpt-5.6-luna"))
+        child.provider = .codex
+
+        #expect(SubagentCaption(subagent: child).modelLabel == "Luna")
+    }
+
     @Test(arguments: [
         (0.0, "0s"), (45.0, "45s"), (59.6, "1m"), (60.0, "1m"), (3599.0, "59m"),
         (3600.0, "1h"), (5400.0, "1h 30m"), (-5.0, "0s"),
