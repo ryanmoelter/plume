@@ -21,7 +21,6 @@ final class ChatPieceCache {
         for messages: [ChatMessage],
         status: TaskStatus,
         hiddenToolUseIDs: Set<String>,
-        streaming: ChatStreamHandoff.Overlay,
         dimensions: Dimensions
     ) -> [ChatPiece] {
         var next: [String: [MarkdownBlock.Parsed]] = [:]
@@ -30,7 +29,6 @@ final class ChatPieceCache {
             for: messages,
             status: status,
             hiddenToolUseIDs: hiddenToolUseIDs,
-            streaming: streaming,
             dimensions: dimensions,
             parse: { markdown in
                 if let reused = next[markdown] { return reused }

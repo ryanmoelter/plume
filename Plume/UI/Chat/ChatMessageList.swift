@@ -38,25 +38,30 @@ struct ChatMessageList: View, ThemedView {
     /// parsing must not run on the render path, and writing observable state
     /// during a body is what spins SwiftUI forever.
     @State private var pieces: [ChatPiece] = []
+    /// `pieces` without those the reveal has yet to reach, which is what the
+    /// list draws: a piece takes room only once its text starts appearing.
+    @State private var shownPieces: [ChatPiece] = []
     @State private var cache = ChatPieceCache()
 
-    /// The ids the last rebuild produced, and the overlay it was built from,
-    /// so the next one can name what arrived. See `ChatListMotion`.
+    /// The ids the last rebuild produced, so the next one can name what
+    /// arrived. See `ChatListMotion`.
     @State private var previousPieceIDs: [String] = []
-    @State private var previousStreaming = ChatStreamHandoff.Overlay()
+
+    /// A rebuild waiting out `streamRebuildInterval`. Deltas land dozens of
+    /// times a second and each rebuild splits the whole transcript, while
+    /// the reveal paces what is shown on its own, so batching them costs
+    /// nothing visible.
+    @State private var pendingStreamRebuild: Task<Void, Never>?
+    private static let streamRebuildInterval: Duration = .milliseconds(100)
 
     /// The pieces that grow into place. Only replaced when a rebuild actually
     /// brings some, so a piece has time to mount and read it — an id left
     /// here after the row has measured itself does nothing.
     @State private var arrivals: Set<String> = []
 
-    /// The stream blocks that should type from nothing rather than appear
-    /// whole. See `ChatListMotion.openings`.
-    @State private var openings: Set<String> = []
-
-    /// Keeps this chat's reveals from typing over each other. One per list,
-    /// which is one per tab.
-    @State private var revealClock = RevealClock()
+    /// The replies still revealing after their turn ended, keyed to where
+    /// each is headed. The working indicator stays until they get there.
+    @State private var heldTurnTargets: [String: Double] = [:]
 
     private var session: HeadlessSession? {
         guard let tabID else { return nil }
@@ -69,14 +74,14 @@ struct ChatMessageList: View, ThemedView {
         Set(session?.pendingPermissions.compactMap(\.toolUseID) ?? [])
     }
 
-    /// The live turn, minus whatever the transcript has already caught up on.
-    private var streaming: ChatStreamHandoff.Overlay {
-        guard let session else { return ChatStreamHandoff.Overlay() }
-        return ChatStreamHandoff.overlay(
-            streamedText: session.streamingText,
-            streamedThinking: session.streamingThinking,
-            transcriptTail: ChatStreamHandoff.trailingAssistantMarkdown(messages)
-        )
+    /// The message the stream is writing, merged into the transcript's.
+    private var live: ChatStreamHandoff.LiveMessage {
+        ChatStreamHandoff.LiveMessage(session: session)
+    }
+
+    /// Nil without a tab, which leaves every message drawn whole.
+    private var revealModel: ChatRevealModel? {
+        tabID.map(ChatRevealModel.shared(for:))
     }
 
     /// The conversation reduced to its prompts, rebuilt beside the pieces it
@@ -125,7 +130,7 @@ struct ChatMessageList: View, ThemedView {
     private var list: some View {
         ChatListView(
             inputs: ChatListInputs(
-                pieces: pieces,
+                pieces: shownPieces,
                 tabID: tabID,
                 subagents: subagents,
                 animate: settings.animateChatMotion,
@@ -133,10 +138,9 @@ struct ChatMessageList: View, ThemedView {
                 chatFontSize: chatFontSize,
                 workStartedAt: tabID.flatMap { StatusEngine.shared.workStarted(forTab: $0) },
                 linkDirectory: linkDirectory,
-                arrivals: arrivals,
-                openings: openings
+                arrivals: arrivals
             ),
-            revealClock: revealClock,
+            revealModel: revealModel,
             commands: commands,
             onOpenSubagent: onOpenSubagent,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
@@ -145,7 +149,7 @@ struct ChatMessageList: View, ThemedView {
         .onChange(of: messages, initial: true) { rebuildPieces() }
         .onChange(of: status) { rebuildPieces() }
         .onChange(of: pendingToolUseIDs) { rebuildPieces() }
-        .onChange(of: streaming) { rebuildPieces() }
+        .background { LiveMessageObserver(tabID: tabID, onChange: scheduleStreamRebuild) }
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         #if DEBUG
         .task(id: pieces.count) {
@@ -172,29 +176,55 @@ struct ChatMessageList: View, ThemedView {
         commands.jump(to: id)
     }
 
+    private func scheduleStreamRebuild() {
+        guard pendingStreamRebuild == nil else { return }
+        pendingStreamRebuild = Task { @MainActor in
+            try? await Task.sleep(for: Self.streamRebuildInterval)
+            pendingStreamRebuild = nil
+            guard !Task.isCancelled else { return }
+            rebuildPieces()
+        }
+    }
+
     private func rebuildPieces() {
-        let overlay = streaming
-        let rebuilt = cache.pieces(
-            for: messages,
-            status: status,
-            hiddenToolUseIDs: pendingToolUseIDs,
-            streaming: overlay,
-            dimensions: dimensions
-        )
-        let ids = rebuilt.map(\.id)
-        let arrived = ChatListMotion.arrivals(
-            previous: previousPieceIDs,
-            current: ids,
-            streamingChanged: overlay != previousStreaming
-        )
-        if !arrived.isEmpty { arrivals = arrived }
-        let opened = ChatListMotion.openings(previous: previousPieceIDs, current: ids)
-        if !opened.isEmpty { openings = opened }
-        previousPieceIDs = ids
-        previousStreaming = overlay
+        let merged = ChatStreamHandoff.merge(messages, live: live)
+        let split = { (status: TaskStatus) in
+            cache.pieces(for: merged, status: status, hiddenToolUseIDs: pendingToolUseIDs, dimensions: dimensions)
+        }
+        var rebuilt = split(status)
+        // Before the pieces reach the list, so a new message's rows mount
+        // with its reveal already in place.
+        revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt))
+        heldTurnTargets = status == .awaitingReply ? revealModel?.unsettledTargets ?? [:] : [:]
+        if !heldTurnTargets.isEmpty { rebuilt = split(.working) }
         pieces = rebuilt
+        showRevealedPieces()
         outline = ChatOutlineBuilder.outline(from: rebuilt)
         pinSentPrompt(in: rebuilt)
+    }
+
+    /// Hands the list every piece the reveal has reached, and asks the reveal
+    /// to call back when it reaches the next one held back.
+    private func showRevealedPieces() {
+        var shown: [ChatPiece] = []
+        var thresholds: [String: Double] = [:]
+        for piece in pieces {
+            if let revealModel, !revealModel.hasReached(piece) {
+                let offset = Double(piece.revealOffset)
+                thresholds[piece.messageID] = min(thresholds[piece.messageID] ?? offset, offset)
+            } else {
+                shown.append(piece)
+            }
+        }
+        let ids = shown.map(\.id)
+        let arrived = ChatListMotion.arrivals(previous: previousPieceIDs, current: ids)
+        if !arrived.isEmpty { arrivals = arrived }
+        previousPieceIDs = ids
+        shownPieces = shown
+        thresholds.merge(heldTurnTargets) { min($0, $1) }
+        revealModel?.watch(thresholds) {
+            if heldTurnTargets.isEmpty { showRevealedPieces() } else { rebuildPieces() }
+        }
     }
 
     /// A prompt the user just sent goes to the top of the viewport, with
@@ -213,6 +243,29 @@ struct ChatMessageList: View, ThemedView {
         guard let prompt = appended.last(where: { $0.role == .user }),
               let piece = pieces.first(where: { $0.messageID == prompt.id }) else { return }
         commands.pin(pieceID: piece.id)
+    }
+}
+
+/// Watches the stream on the list's behalf, so a delta re-runs this empty
+/// body rather than the list's.
+private struct LiveMessageObserver: View {
+    let tabID: UUID?
+    let onChange: () -> Void
+
+    var body: some View {
+        let session = tabID.flatMap { HeadlessSessionManager.shared.existingSession(for: $0) }
+        Color.clear
+            .onChange(of: ChatStreamHandoff.LiveMessage(session: session)) { onChange() }
+    }
+}
+
+private extension ChatStreamHandoff.LiveMessage {
+    init(session: HeadlessSession?) {
+        self.init(
+            id: session?.streamingMessageID,
+            thinking: session?.streamingThinking ?? "",
+            text: session?.streamingText ?? ""
+        )
     }
 }
 

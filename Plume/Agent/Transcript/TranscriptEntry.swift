@@ -194,6 +194,8 @@ nonisolated struct TranscriptEntry: Decodable {
 }
 
 nonisolated struct TranscriptMessage: Decodable {
+    /// The API message id, shared by every line one response wrote.
+    let id: String?
     let role: String?
     let model: String?
     let usage: TranscriptUsage?
@@ -205,6 +207,7 @@ nonisolated struct TranscriptMessage: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
         role = try container.decodeIfPresent(String.self, forKey: .role)
         model = try container.decodeIfPresent(String.self, forKey: .model)
         usage = try container.decodeIfPresent(TranscriptUsage.self, forKey: .usage)
@@ -213,7 +216,7 @@ nonisolated struct TranscriptMessage: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case role, model, usage, content
+        case id, role, model, usage, content
         case stopReason = "stop_reason"
     }
 }

@@ -9,14 +9,12 @@ struct ChatPieceSplitterTests {
     private func pieces(
         _ messages: [ChatMessage],
         status: TaskStatus = .awaitingReply,
-        hidden: Set<String> = [],
-        streaming: ChatStreamHandoff.Overlay = .init()
+        hidden: Set<String> = []
     ) -> [ChatPiece] {
         ChatPieceSplitter.pieces(
             for: messages,
             status: status,
             hiddenToolUseIDs: hidden,
-            streaming: streaming,
             dimensions: dimensions
         )
     }
@@ -24,9 +22,10 @@ struct ChatPieceSplitterTests {
     private func message(
         _ id: String,
         _ role: ChatMessage.Role = .assistant,
-        _ blocks: [ChatBlock]
+        _ blocks: [ChatBlock],
+        isLive: Bool = false
     ) -> ChatMessage {
-        ChatMessage(id: id, role: role, blocks: blocks, timestamp: nil)
+        ChatMessage(id: id, role: role, blocks: blocks, timestamp: nil, isLive: isLive)
     }
 
     private func toolCall(_ id: String) -> ChatBlock {
@@ -126,13 +125,9 @@ struct ChatPieceSplitterTests {
                 message("c", .notice, [
                     .notice(ChatNotice(kind: .compaction, title: "Compacted", detail: nil))
                 ]),
-                message("d", .assistant, [.markdown("Nearly done.")])
+                message("d", .assistant, [.markdown("Nearly done.")], isLive: true)
             ],
-            status: .working,
-            streaming: ChatStreamHandoff.Overlay(
-                thinking: "Thinking out loud.",
-                text: "Settled block.\n\nStill arriving"
-            )
+            status: .working
         )
         let ids = result.map(\ChatPiece.id)
         #expect(Set(ids).count == ids.count)
@@ -154,25 +149,26 @@ struct ChatPieceSplitterTests {
             == [.first, .middle, .last])
     }
 
+    /// A live message's own blocks join the working indicator's group the
+    /// same way a settled message's do.
     @Test func theTurnInFlightJoinsTheLastMessagesGroup() {
         let result = pieces(
-            [message("m", .assistant, [.markdown("Working on it.")])],
-            status: .working,
-            streaming: ChatStreamHandoff.Overlay(text: "Nearly there.")
+            [message("m", .assistant, [.markdown("Working on it."), .markdown("Nearly there.")], isLive: true)],
+            status: .working
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "working"])
+        #expect(result.map(\.id) == ["m/0/0", "m/1/0", "working"])
         #expect(result.map(\.segment) == [.first, .middle, .last])
-        #expect(result.allSatisfy { $0.messageID == "m" || $0.messageID == "stream" })
+        #expect(result.allSatisfy { $0.messageID == "m" })
     }
 
     /// A turn that has not produced an assistant message yet stands alone,
     /// taking the gap the message it becomes will have.
-    @Test func aStreamAfterAUserMessageStandsOnItsOwn() {
-        let result = pieces(
-            [message("m", .user, [.markdown("go")])],
-            streaming: ChatStreamHandoff.Overlay(text: "On it.")
-        )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0"])
+    @Test func aLiveMessageAfterAUserMessageStandsOnItsOwn() {
+        let result = pieces([
+            message("m", .user, [.markdown("go")]),
+            message(ChatStreamHandoff.unidentifiedLiveID, .assistant, [.markdown("On it.")], isLive: true)
+        ])
+        #expect(result.map(\.id) == ["m/0/0", "\(ChatStreamHandoff.unidentifiedLiveID)/0/0"])
         #expect(result[1].segment == .single)
         #expect(result[1].topInset == dimensions.messageSpacing)
     }
@@ -427,81 +423,54 @@ struct ChatPieceSplitterTests {
         #expect(result[1].topInset == dimensions.messageSpacing)
     }
 
-    @Test func theWorkingIndicatorFollowsAStreamAfterAUserMessage() {
+    /// A live message already produced by the turn takes the working
+    /// indicator into its own group, rather than the user's bubble above it.
+    @Test func theWorkingIndicatorFollowsALiveMessageAfterAUserMessage() {
         let result = pieces(
-            [message("m", .user, [.markdown("go")])],
-            status: .working,
-            streaming: ChatStreamHandoff.Overlay(text: "On it.")
+            [
+                message("m", .user, [.markdown("go")]),
+                message(ChatStreamHandoff.unidentifiedLiveID, .assistant, [.markdown("On it.")], isLive: true)
+            ],
+            status: .working
         )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "working"])
+        #expect(result.map(\.id) == ["m/0/0", "\(ChatStreamHandoff.unidentifiedLiveID)/0/0", "working"])
         #expect(result.map(\.segment) == [.single, .first, .last])
         #expect(result[2].topInset == dimensions.workingIndicatorSpacing)
     }
 
-    @Test func theStreamTakesTheGapItWillHaveOnceItSettles() {
-        let afterProse = pieces(
-            [message("m", .assistant, [.markdown("hi")])],
-            streaming: ChatStreamHandoff.Overlay(text: "more")
-        )
-        #expect(afterProse[1].topInset == dimensions.messageBlockSpacing)
+    // MARK: - Reveal
 
-        let afterCall = pieces(
-            [message("m", .assistant, [toolCall("1")])],
-            streaming: ChatStreamHandoff.Overlay(text: "more")
-        )
-        #expect(afterCall[1].topInset == dimensions.messageSpacing)
-    }
-
-    // MARK: - The streaming overlay
-
-    /// Everything above the block still arriving is settled markdown, so a
-    /// long reply mid-stream is as bounded as the transcript it becomes.
-    @Test func onlyTheBlockStillArrivingStaysLive() {
-        let result = pieces(
-            [message("m", .user, [.markdown("go")])],
-            streaming: ChatStreamHandoff.Overlay(text: "Settled paragraph.\n\nStill arri")
-        )
-        #expect(result.map(\.id) == ["m/0/0", "stream/0", "stream/1"])
-        guard case .markdown(.paragraph("Settled paragraph."), 0) = result[1].content else {
-            Issue.record("expected a settled paragraph, got \(result[1].content)")
-            return
+    /// Every piece of an assistant message carries the next stretch of the
+    /// reveal, in piece order.
+    @Test func assistantPiecesGetCumulativeRevealOffsets() {
+        let result = pieces([message("m", .assistant, [
+            .markdown("First paragraph.\n\nSecond paragraph."),
+            toolCall("t1")
+        ])])
+        var offset = 0
+        for piece in result {
+            #expect(piece.revealOffset == offset)
+            #expect(piece.revealLength == ChatReveal.length(of: piece.content))
+            offset += piece.revealLength
         }
-        #expect(!result[1].isArriving)
-        #expect(result[2].isArriving)
-        #expect(result[2].topInset == dimensions.blockSpacing)
-        // Each keeps its own source, which is what lets a block go on typing
-        // after it stops growing.
-        #expect(result[1].streamSource == "Settled paragraph.")
-        #expect(result[2].streamSource == "Still arri")
+        #expect(offset > 0)
     }
 
-    /// The point of keying the arriving block by its index: the piece keeps
-    /// its identity when the block completes, so the view drawing it keeps
-    /// the reveal's progress instead of snapping to the finished text.
-    @Test func aBlockKeepsItsIDWhenItStopsArriving() {
-        let arriving = pieces(
-            [message("m", .user, [.markdown("go")])],
-            streaming: ChatStreamHandoff.Overlay(text: "First one.\n\nSecond stil")
-        )
-        let settled = pieces(
-            [message("m", .user, [.markdown("go")])],
-            streaming: ChatStreamHandoff.Overlay(text: "First one.\n\nSecond still here.\n\nThird")
-        )
-        #expect(arriving.map(\.id) == ["m/0/0", "stream/0", "stream/1"])
-        #expect(settled.map(\.id) == ["m/0/0", "stream/0", "stream/1", "stream/2"])
-        #expect(arriving[2].isArriving)
-        #expect(!settled[2].isArriving)
-        #expect(settled[2].streamSource == "Second still here.")
+    /// The reveal only ever applies to the assistant's own prose.
+    @Test func userPiecesCarryNoRevealLength() {
+        let result = pieces([message("m", .user, [.markdown("Some prose here.")])])
+        #expect(result.allSatisfy { $0.revealLength == 0 && $0.revealOffset == 0 })
     }
 
-    @Test func liveThinkingStaysOnePiece() {
-        let result = pieces(
-            [message("m", .user, [.markdown("go")])],
-            streaming: ChatStreamHandoff.Overlay(thinking: "considering", text: "Hello")
-        )
-        #expect(result.map(\.id) == ["m/0/0", "stream/thinking", "stream/0"])
-        #expect(result[1].content == .streaming(ChatStreamHandoff.Overlay(thinking: "considering")))
-        #expect(result[2].topInset == ChatBlockSpacing.streamingBlockSpacing)
+    @Test func piecesOfALiveMessageAreLive() {
+        let result = pieces([message("m", .assistant, [.markdown("Still going"), toolCall("t1")], isLive: true)])
+        #expect(!result.isEmpty)
+        #expect(result.allSatisfy { $0.isLive })
+    }
+
+    @Test func piecesOfASettledMessageAreNotLive() {
+        let result = pieces([message("m", .assistant, [.markdown("Done.")])])
+        #expect(result.allSatisfy { !$0.isLive })
     }
 
     // MARK: - The cache
@@ -516,7 +485,6 @@ struct ChatPieceSplitterTests {
             for: messages,
             status: .awaitingReply,
             hiddenToolUseIDs: [],
-            streaming: .init(),
             dimensions: dimensions
         )
         #expect(cache.parseCount == 2)
@@ -525,7 +493,6 @@ struct ChatPieceSplitterTests {
             for: messages,
             status: .awaitingReply,
             hiddenToolUseIDs: [],
-            streaming: .init(),
             dimensions: dimensions
         )
         #expect(cache.parseCount == 2)
@@ -535,7 +502,6 @@ struct ChatPieceSplitterTests {
             for: [messages[0], message("b", .assistant, [.markdown("Two, revised.")])],
             status: .awaitingReply,
             hiddenToolUseIDs: [],
-            streaming: .init(),
             dimensions: dimensions
         )
         #expect(cache.parseCount == 3)
@@ -550,7 +516,6 @@ struct ChatPieceSplitterTests {
                 for: [message("a", .assistant, [.markdown(text)])],
                 status: .awaitingReply,
                 hiddenToolUseIDs: [],
-                streaming: .init(),
                 dimensions: dimensions
             )
         }
@@ -666,10 +631,7 @@ struct ChatPieceSplitterTests {
 
     /// The source is still growing, so the button would copy a fragment.
     @Test func aLiveMessageOffersNoMessageCopy() {
-        let result = pieces(
-            [message("m", .assistant, [.markdown("Partial")])],
-            streaming: ChatStreamHandoff.Overlay(text: "and more")
-        )
+        let result = pieces([message("m", .assistant, [.markdown("Partial and more")], isLive: true)])
         #expect(result.allSatisfy { !$0.offersMessageCopy })
     }
 }
