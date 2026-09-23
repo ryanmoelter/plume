@@ -8,15 +8,11 @@ import Testing
 struct ChatOutlineTests {
     private let dimensions = Dimensions(bodySize: 13)
 
-    private func pieces(
-        _ messages: [ChatMessage],
-        streaming: ChatStreamHandoff.Overlay = .init()
-    ) -> [ChatPiece] {
+    private func pieces(_ messages: [ChatMessage]) -> [ChatPiece] {
         ChatPieceSplitter.pieces(
             for: messages,
             status: .awaitingReply,
             hiddenToolUseIDs: [],
-            streaming: streaming,
             dimensions: dimensions
         )
     }
@@ -95,15 +91,17 @@ struct ChatOutlineTests {
         #expect(result.entries.first?.id == all.first?.id)
     }
 
-    @Test func theStreamIsNotAnEntry() {
-        // The overlay stands in for a message the transcript has yet to take
-        // over, so counting it would double the newest reply.
-        let overlay = ChatStreamHandoff.Overlay(text: "Still writing")
-        let result = ChatOutlineBuilder.outline(
-            from: pieces([message("a", .user, [.markdown("Go.")])], streaming: overlay)
+    @Test func theWorkingIndicatorIsNotAnEntry() {
+        // The indicator stands in for a message the turn has yet to produce,
+        // so counting it would double the newest reply.
+        let working = ChatPieceSplitter.pieces(
+            for: [message("a", .user, [.markdown("Go.")])],
+            status: .working,
+            hiddenToolUseIDs: [],
+            dimensions: dimensions
         )
-
-        #expect(result.entries.map(\.kind) == [.prompt("Go.")])
+        #expect(working.contains { $0.messageID == ChatPieceSplitter.workingID })
+        #expect(ChatOutlineBuilder.outline(from: working).entries.map(\.kind) == [.prompt("Go.")])
     }
 
     @Test func anEmptyConversationHasNoEntries() {

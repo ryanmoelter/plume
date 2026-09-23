@@ -3,8 +3,7 @@ import Foundation
 /// One item of the chat list.
 ///
 /// A piece is the smallest unit the list can place on its own: one markdown
-/// block, one thinking row, one tool call, one notice, the streaming overlay,
-/// the working indicator. Splitting messages this way is what keeps a single
+/// block, one thinking row, one tool call, one notice, the working indicator. Splitting messages this way is what keeps a single
 /// item from towering over its neighbors — see `docs/chat-list.md` for why
 /// that matters and `ChatPieceSplitter` for how it is done.
 struct ChatPiece: Identifiable, Equatable {
@@ -26,14 +25,12 @@ struct ChatPiece: Identifiable, Equatable {
     var segment: Segment = .single
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
-    /// The raw markdown of a block the stream wrote, kept so the piece can
-    /// type it out. Set while the block is still arriving and kept after it
-    /// settles, which is what lets one view finish a reveal the block's
-    /// completion would otherwise cut short. Nil for transcript content,
-    /// which never types.
-    var streamSource: String?
-    /// Whether the stream is still writing this block.
-    var isArriving: Bool = false
+    /// Whether the stream is still writing this piece's message.
+    var isLive = false
+    /// Where this piece starts along its message's reveal, in the UTF-16
+    /// units `Text.Layout` counts. Zero outside an assistant message.
+    var revealOffset = 0
+    var revealLength = 0
     /// The markdown this piece's own copy button yields — the lines it was
     /// parsed from where the splitter kept them, written back from the block
     /// otherwise. Nil for a piece that is not markdown at all.
@@ -57,7 +54,6 @@ struct ChatPiece: Identifiable, Equatable {
         case agentMessageTitle(name: String?)
         case notice(ChatNotice)
         case image(ChatImage)
-        case streaming(ChatStreamHandoff.Overlay)
         case working
     }
 
@@ -104,18 +100,9 @@ struct ChatPiece: Identifiable, Equatable {
         case .agentMessageTitle: "agentMessageTitle"
         case .notice: "notice"
         case .image: "image"
-        case .streaming: "streaming"
         case .working: "working"
         }
     }
-
-    var isStreaming: Bool {
-        if case .streaming = content { return true }
-        return false
-    }
-
-    /// A piece the turn in flight is still changing, by either route.
-    var isLive: Bool { isStreaming || isArriving }
 
     /// A piece whose wash continues into its neighbours. The gap above it is
     /// painted inside that wash, so the joined shape has no break in it.

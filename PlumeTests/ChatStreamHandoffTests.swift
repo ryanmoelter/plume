@@ -7,98 +7,116 @@ import Testing
 /// Both a gap (nothing rendered) and a duplicate (both rendered) are bugs, so
 /// each case here pins one side of that.
 struct ChatStreamHandoffTests {
-    private func message(_ blocks: [ChatBlock], role: ChatMessage.Role = .assistant) -> ChatMessage {
-        ChatMessage(id: UUID().uuidString, role: role, blocks: blocks, timestamp: nil)
+    private func message(
+        _ id: String,
+        _ blocks: [ChatBlock],
+        role: ChatMessage.Role = .assistant
+    ) -> ChatMessage {
+        ChatMessage(id: id, role: role, blocks: blocks, timestamp: nil)
     }
 
-    @Test func liveTextRendersWhileTheTranscriptIsBehind() {
-        let overlay = ChatStreamHandoff.overlay(
-            streamedText: "Here is the ans",
-            streamedThinking: "",
-            transcriptTail: []
+    @Test func emptyLiveMessageLeavesTheTranscriptUnchanged() {
+        let messages = [message("a", [.markdown("hi")])]
+        #expect(ChatStreamHandoff.merge(messages, live: .init()) == messages)
+    }
+
+    @Test func liveTextMatchingAnIDMergesIntoThatMessage() {
+        // The transcript has caught the thinking but not yet a markdown
+        // block, which is the ordinary shape mid-turn.
+        let messages = [message("a", [.thinking("Considering.")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(id: "a", text: "Here is the answer.")
         )
-        #expect(overlay.text == "Here is the ans")
+        #expect(merged.count == 1)
+        #expect(merged[0].blocks == [.thinking("Considering."), .markdown("Here is the answer.")])
+        #expect(merged[0].isLive)
     }
 
-    /// The window that makes this hard: the turn has ended and the session
-    /// still holds the text, but the debounced re-read has not happened.
-    @Test func settledTextStillRendersUntilTheTranscriptCatchesUp() {
-        let overlay = ChatStreamHandoff.overlay(
-            streamedText: "Here is the answer.",
-            streamedThinking: "",
-            transcriptTail: ["An older paragraph."]
+    /// Text is inserted before the first tool call, since that is where the
+    /// stream's own reply belongs relative to what already followed it.
+    @Test func liveTextIsInsertedBeforeTheFirstToolCall() {
+        let call = ToolCall(id: "t1", name: "Bash", summary: ToolCallSummary(name: "Bash", detail: "ls"), input: .json("{}"))
+        let messages = [message("a", [.toolCall(call)])]
+        let merged = ChatStreamHandoff.merge(messages, live: .init(id: "a", text: "Reasoning first."))
+        #expect(merged[0].blocks == [.markdown("Reasoning first."), .toolCall(call)])
+    }
+
+    @Test func liveThinkingIsInsertedAtTheStartWhenMissing() {
+        let messages = [message("a", [.markdown("Here.")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(id: "a", thinking: "Considering…", text: "Here.")
         )
-        #expect(overlay.text == "Here is the answer.")
+        #expect(merged[0].blocks == [.thinking("Considering…"), .markdown("Here.")])
     }
 
-    @Test func matchingTranscriptTextRetiresTheOverlay() {
-        let overlay = ChatStreamHandoff.overlay(
-            streamedText: "Here is the answer.",
-            streamedThinking: "",
-            transcriptTail: ["Here is the answer."]
+    @Test func existingThinkingIsNotDuplicated() {
+        let messages = [message("a", [.thinking("Considering…"), .markdown("Here.")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(id: "a", thinking: "Considering…", text: "Here.")
         )
-        #expect(overlay.text.isEmpty)
+        #expect(merged[0].blocks == [.thinking("Considering…"), .markdown("Here.")])
     }
 
-    /// The transcript's own block often carries trailing whitespace the
-    /// stream did not, which must not read as different text.
-    @Test func trailingWhitespaceDoesNotBlockTheHandoff() {
-        #expect(ChatStreamHandoff.isCoveredByTranscript("Done.", tail: ["Done.\n\n"]))
+    /// The transcript's own block may carry trailing whitespace the stream
+    /// did not, or the transcript already has the whole text while the
+    /// stream holds a prefix of it.
+    @Test func textAlreadyCoveredByTheTranscriptIsLeftUntouchedAndNotLive() {
+        let messages = [message("a", [.markdown("Here is the answer.\n")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(id: "a", text: "Here is the ans")
+        )
+        #expect(merged == messages)
+        #expect(!merged[0].isLive)
     }
 
-    /// An interrupted turn leaves the stream holding a prefix of what Claude
-    /// Code wrote to disk.
-    @Test func aStreamedPrefixIsCoveredByTheFullTranscriptText() {
-        #expect(ChatStreamHandoff.isCoveredByTranscript("Here is the ans", tail: ["Here is the answer."]))
+    @Test func noMatchingIDAppendsANewAssistantMessage() {
+        let messages = [message("a", [.markdown("done")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(id: "b", thinking: "hm", text: "On it.")
+        )
+        #expect(merged.count == 2)
+        let appended = merged[1]
+        #expect(appended.id == "b")
+        #expect(appended.role == .assistant)
+        #expect(appended.isLive)
+        #expect(appended.blocks == [.thinking("hm"), .markdown("On it.")])
+    }
+
+    @Test func aLiveMessageWithNoIDUsesTheUnidentifiedID() {
+        let merged = ChatStreamHandoff.merge([], live: .init(text: "On it."))
+        #expect(merged.map(\.id) == [ChatStreamHandoff.unidentifiedLiveID])
+    }
+
+    /// An older CLI's stream names no message id at all, so it is matched by
+    /// content against the trailing assistant message instead.
+    @Test func unidentifiedLiveTextCoveredByTheTrailingAssistantMessageIsNotAppended() {
+        let messages = [message("a", [.markdown("Here is the answer.")])]
+        let merged = ChatStreamHandoff.merge(
+            messages,
+            live: .init(text: "Here is the ans")
+        )
+        #expect(merged == messages)
+    }
+
+    @Test func coversIgnoresTrailingWhitespace() {
+        #expect(ChatStreamHandoff.covers([.markdown("Done.\n\n")], text: "Done."))
+    }
+
+    @Test func coversMatchesAStreamedPrefixAgainstTheFullText() {
+        #expect(ChatStreamHandoff.covers([.markdown("Here is the answer.")], text: "Here is the ans"))
     }
 
     @Test func emptyStreamedTextIsAlwaysCovered() {
-        #expect(ChatStreamHandoff.isCoveredByTranscript("", tail: []))
-        #expect(ChatStreamHandoff.isCoveredByTranscript("   \n", tail: []))
+        #expect(ChatStreamHandoff.covers([], text: ""))
+        #expect(ChatStreamHandoff.covers([], text: "   \n"))
     }
 
-    /// An empty transcript block must not swallow real streamed text.
-    @Test func anEmptyTranscriptBlockDoesNotCover() {
-        #expect(!ChatStreamHandoff.isCoveredByTranscript("Real text", tail: ["", "   "]))
-    }
-
-    @Test func aLaterBlockInTheSameMessageCovers() {
-        #expect(ChatStreamHandoff.isCoveredByTranscript("Second.", tail: ["First.", "Second."]))
-    }
-
-    /// Thinking has no transcript counterpart to compare against while the
-    /// turn runs, so it renders whenever the session holds it.
-    @Test func thinkingPassesThroughUnfiltered() {
-        let overlay = ChatStreamHandoff.overlay(
-            streamedText: "done",
-            streamedThinking: "Considering…",
-            transcriptTail: ["done"]
-        )
-        #expect(overlay.thinking == "Considering…")
-        #expect(overlay.text.isEmpty)
-    }
-
-    @Test func onlyATrailingAssistantMessageOffersTail() {
-        let assistant = message([.markdown("hi")])
-        let user = message([.markdown("hello")], role: .user)
-        #expect(ChatStreamHandoff.trailingAssistantMarkdown([user, assistant]) == ["hi"])
-        #expect(ChatStreamHandoff.trailingAssistantMarkdown([assistant, user]).isEmpty)
-        #expect(ChatStreamHandoff.trailingAssistantMarkdown([]).isEmpty)
-    }
-
-    /// A notice appended after the reply must not hide the assistant text the
-    /// overlay is being compared against — the tail is empty, so the overlay
-    /// keeps rendering until the transcript's own assistant message is last
-    /// again. Pinned because the alternative, searching back past notices,
-    /// would double-render the reply above the notice.
-    @Test func aTrailingNoticeYieldsNoTail() {
-        let assistant = message([.markdown("hi")])
-        let notice = message([.notice(ChatNotice(kind: .error, title: "API error", detail: nil))], role: .notice)
-        #expect(ChatStreamHandoff.trailingAssistantMarkdown([assistant, notice]).isEmpty)
-    }
-
-    @Test func toolCallBlocksAreNotPartOfTheTail() {
-        let call = ToolCall(id: "1", name: "Bash", summary: ToolCallSummary(name: "Bash", detail: "ls"), input: .json("{}"))
-        #expect(ChatStreamHandoff.trailingAssistantMarkdown([message([.toolCall(call)])]).isEmpty)
+    @Test func anEmptyMarkdownBlockDoesNotCover() {
+        #expect(!ChatStreamHandoff.covers([.markdown(""), .markdown("   ")], text: "Real text"))
     }
 }

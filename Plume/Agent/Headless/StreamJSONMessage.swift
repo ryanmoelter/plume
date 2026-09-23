@@ -83,6 +83,10 @@ struct PartialEvent {
     let index: Int?
     let textDelta: String?
     let thinkingDelta: String?
+    /// The API message id, carried only by `message_start`. The transcript
+    /// keys the same message by it, which is what lets the live reply and
+    /// the transcript's copy be one message.
+    let messageID: String?
 }
 
 struct TurnResult {

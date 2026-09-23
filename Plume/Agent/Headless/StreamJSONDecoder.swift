@@ -94,7 +94,8 @@ enum StreamJSONDecoder {
             eventType: event["type"]?.stringValue ?? "",
             index: event["index"]?.doubleValue.map(Int.init),
             textDelta: delta["text"]?.stringValue,
-            thinkingDelta: delta["thinking"]?.stringValue
+            thinkingDelta: delta["thinking"]?.stringValue,
+            messageID: event["message"]?.objectValue?["id"]?.stringValue
         )
     }
 

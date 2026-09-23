@@ -14,30 +14,14 @@ struct MarkdownBlockView: View, ThemedView {
     /// else — the user's own message, a tool's output — stays in the system
     /// face so it reads as input rather than published prose.
     var isAgentVoice: Bool = false
-    /// The throttled fade bucket from `MarkdownView`, or nil to draw text
-    /// with no fade at all. See `WordFade`.
-    var fadeStep: Int?
 
     var body: some View {
         content
             .textSelection(.enabled)
     }
 
-    /// A prose `Text` that cross-fades in when `fadeStep` advances.
-    ///
-    /// Keyed on `fadeStep` rather than on `attributed` itself: `attributed`
-    /// changes on nearly every animation frame while `CharacterReveal`
-    /// sweeps `revealedCount`, and `.contentTransition(.opacity)` retriggered
-    /// that often measured tens of percent of a core once a few blocks
-    /// streamed at once (`sample` showed a real per-glyph crossfade,
-    /// `CGContextBeginTransparencyLayerWithRect`, on every retrigger).
-    /// `fadeStep` only advances once every `WordFade.charactersPerFade`
-    /// characters, so the crossfade fires that much less often while the
-    /// text itself still updates every frame regardless.
-    private func fadingText(_ attributed: AttributedString) -> some View {
-        Text(attributed)
-            .contentTransition(fadeStep != nil ? .opacity : .identity)
-            .animation(fadeStep != nil ? .easeIn(duration: WordFade.duration) : nil, value: fadeStep)
+    private func streamedText(_ attributed: AttributedString) -> some View {
+        Text(attributed).revealFade(attributed)
     }
 
     /// The scale this view's prose renders in.
@@ -49,13 +33,13 @@ struct MarkdownBlockView: View, ThemedView {
     private var content: some View {
         switch block {
         case let .heading(level, text):
-            fadingText(heading(text, level: level))
+            streamedText(heading(text, level: level))
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
         case let .paragraph(text):
-            fadingText(inline(text))
+            streamedText(inline(text))
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
@@ -80,7 +64,7 @@ struct MarkdownBlockView: View, ThemedView {
                 Rectangle()
                     .fill(quoteBarColor)
                     .frame(width: 3)
-                fadingText(inline(text))
+                streamedText(inline(text))
                     .font(prose.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(prose.body.lineSpacing)
@@ -116,6 +100,8 @@ struct MarkdownBlockView: View, ThemedView {
     ) -> some View {
         let hasHeader = MarkdownBlock.headerIsMeaningful(header)
         let columnCount = max(header.count, rows.map(\.count).max() ?? 0)
+        let revealOffsets = ChatReveal.tableCellOffsets(header: header, rows: rows)
+        let bodyOffset = hasHeader ? columnCount : 0
         // Cells are laid out flat, row-major: `TableLayout` groups them back
         // into rows. Each draws its own leading and top rule; the outer border
         // closes the remaining two sides.
@@ -130,6 +116,7 @@ struct MarkdownBlockView: View, ThemedView {
                         isFirstRow: true,
                         fill: colors.surfaceTint
                     )
+                    .chatRevealOffset(revealOffsets[column])
                 }
             }
             // Every row draws all the columns, so a ragged row still carries
@@ -144,6 +131,7 @@ struct MarkdownBlockView: View, ThemedView {
                         isFirstRow: !hasHeader && row == 0,
                         fill: .clear
                     )
+                    .chatRevealOffset(revealOffsets[bodyOffset + row * columnCount + column])
                 }
             }
         }
@@ -171,7 +159,9 @@ struct MarkdownBlockView: View, ThemedView {
         isFirstRow: Bool,
         fill: Color
     ) -> some View {
-        Text(inline(text))
+        let attributed = inline(text)
+        return Text(attributed)
+            .revealFade(attributed)
             .font(font)
             .lineSpacing(prose.body.lineSpacing)
             .fixedSize(horizontal: false, vertical: true)
@@ -292,12 +282,15 @@ struct ListSegmentView: View, ThemedView {
                 let item = segment.items[index]
                 HStack(alignment: .top, spacing: 6) {
                     Text(marker(for: item))
-                    Text(MarkdownCache.styledInline(
+                        .revealFade(marker(for: item))
+                    let text = MarkdownCache.styledInline(
                         item.text,
                         fontSize: typography.bodySize,
                         tint: colors.surfaceTint
-                    ))
+                    )
+                    Text(text).revealFade(text)
                 }
+                .chatRevealOffset(revealOffset(of: index))
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
@@ -307,6 +300,11 @@ struct ListSegmentView: View, ThemedView {
         }
         .textSelection(.enabled)
         .listItemPadding(vertical: false)
+    }
+
+    /// Where item `index` starts in the list's run of revealed characters.
+    private func revealOffset(of index: Int) -> Int {
+        segment.items[..<index].reduce(0) { $0 + ChatReveal.length(of: $1.text) }
     }
 
     /// Each item renders the number the parser resolved for it, so a segment
@@ -453,6 +451,7 @@ struct CodeSegmentView: View, ThemedView {
     private var lines: some View {
         ScrollView(maxHeight == nil ? .horizontal : [.horizontal, .vertical], showsIndicators: false) {
             Text(highlighted)
+                .revealFade(highlighted)
                 .font(.chatCode(size: typography.bodySize * AppSettings.shared.codeFontSizeMultiplier))
                 .padding(.horizontal, padding)
                 .padding(.bottom, padding)

@@ -13,7 +13,6 @@ enum ChatPieceSplitter {
         for messages: [ChatMessage],
         status: TaskStatus,
         hiddenToolUseIDs: Set<String>,
-        streaming: ChatStreamHandoff.Overlay,
         dimensions: Dimensions,
         parse: (String) -> [MarkdownBlock.Parsed] = MarkdownBlock.parseWithSources
     ) -> [ChatPiece] {
@@ -35,13 +34,12 @@ enum ChatPieceSplitter {
                 needsInput: isLast && status.wantsAttention,
                 isWorking: isLast && status == .working,
                 hiddenToolUseIDs: messageHiddenToolUseIDs,
-                streaming: isLast && attachesToLastMessage ? streaming : .init(),
                 previousMessageKind: previousMessageKind,
                 dimensions: dimensions
             )
             let group = pieces(of: context, parse: parse)
             guard !group.isEmpty else { continue }
-            result += grouped(group, role: message.role)
+            result += grouped(revealed(group, of: message), role: message.role)
             // The last *rendered* block, not the whole message: a message
             // ending in a call after prose still opens a run with whatever
             // follows it, and a message whose only call the dock has taken
@@ -52,28 +50,22 @@ enum ChatPieceSplitter {
             ) ?? previousMessageKind
         }
 
-        if !attachesToLastMessage, !streaming.isEmpty || status == .working {
-            // The turn stands in for the assistant message it will become,
-            // so it takes that message's gap and the reply doesn't shift as
-            // the transcript takes over. The working indicator belongs to it
-            // rather than to the user's bubble above.
-            let leading = ChatBlockSpacing.rowTopInset(
-                previous: previousMessageKind,
-                current: .other,
-                dimensions: dimensions
-            )
-            var turn = streamingPieces(streaming, wash: .none, leading: leading, dimensions: dimensions)
-            if status == .working {
-                turn.append(ChatPiece(
-                    id: Self.workingID,
-                    messageID: "stream",
-                    role: .assistant,
-                    content: .working,
-                    wash: .none,
-                    topInset: turn.isEmpty ? leading : dimensions.workingIndicatorSpacing
-                ))
-            }
-            result += grouped(turn, role: .assistant)
+        if !attachesToLastMessage, status == .working {
+            // The indicator stands in for the assistant message the turn
+            // will become, so it takes that message's gap rather than
+            // belonging to the user's bubble above.
+            result.append(ChatPiece(
+                id: Self.workingID,
+                messageID: Self.workingID,
+                role: .assistant,
+                content: .working,
+                wash: .none,
+                topInset: ChatBlockSpacing.rowTopInset(
+                    previous: previousMessageKind,
+                    current: .other,
+                    dimensions: dimensions
+                )
+            ))
         }
 
         return result
@@ -85,7 +77,6 @@ enum ChatPieceSplitter {
         let needsInput: Bool
         let isWorking: Bool
         let hiddenToolUseIDs: Set<String>
-        let streaming: ChatStreamHandoff.Overlay
         let previousMessageKind: ChatBlockSpacing.Kind?
         let dimensions: Dimensions
 
@@ -123,7 +114,7 @@ enum ChatPieceSplitter {
         /// An assistant message the turn can still add blocks to. A parked
         /// turn counts: answering the prompt resumes it.
         var isInFlight: Bool {
-            message.role == .assistant && (isWorking || needsInput || !streaming.isEmpty)
+            message.role == .assistant && (isWorking || needsInput || message.isLive)
         }
 
         /// The gap above the message's first piece, from what the previous
@@ -177,21 +168,6 @@ enum ChatPieceSplitter {
                 lastMarkdownPieceIndex = result.count - 1
             }
             previousBlockKind = ChatBlockSpacing.kind(of: block)
-        }
-
-        if !context.streaming.isEmpty {
-            let leading = result.isEmpty
-                ? context.leadingInset
-                : ChatBlockSpacing.streamingTopInset(
-                    previous: previousBlockKind,
-                    dimensions: context.dimensions
-                )
-            result += streamingPieces(
-                context.streaming,
-                wash: context.wash,
-                leading: leading,
-                dimensions: context.dimensions
-            )
         }
 
         if context.isWorking, message.role == .assistant {
@@ -294,8 +270,7 @@ enum ChatPieceSplitter {
         role: ChatMessage.Role,
         wash: ChatPiece.Wash,
         leading: CGFloat,
-        dimensions: Dimensions,
-        streams: Bool = false
+        dimensions: Dimensions
     ) -> [ChatPiece] {
         var result: [ChatPiece] = []
         for (index, entry) in parsed.enumerated() {
@@ -314,10 +289,6 @@ enum ChatPieceSplitter {
                     content: segment.content,
                     wash: wash,
                     topInset: segmentIndex == 0 ? blockLeading : segment.joinInset,
-                    // Only a block that stayed whole can go on typing: a
-                    // reveal counts characters of one source, and a split
-                    // block has no single piece to count them in.
-                    streamSource: streams && segments.count == 1 ? entry.source : nil,
                     // A whole block copies the lines it was parsed from; a
                     // segment has no lines of its own, so it is written back.
                     copySource: segments.count == 1
@@ -408,77 +379,24 @@ enum ChatPieceSplitter {
         return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
     }
 
-    /// The turn in flight: the thinking text, then the prose it has produced,
-    /// with only the block still growing left live.
-    ///
-    /// Everything but the tail block is settled markdown, so a long reply
-    /// mid-stream is as bounded as the transcript it becomes. Parsing is not
-    /// prefix-stable — a delimiter line re-reads the paragraph above it as a
-    /// table — so a settled piece can be reinterpreted while the stream runs.
     /// One id for the working indicator wherever it sits, so the row that
-    /// draws it survives the stream becoming a transcript message and its
-    /// ellipsis keeps pulsing through the handoff instead of restarting.
+    /// draws it survives the reply arriving below the prompt and its
+    /// ellipsis keeps pulsing instead of restarting.
     static let workingID = "working"
 
-    private static func streamingPieces(
-        _ overlay: ChatStreamHandoff.Overlay,
-        wash: ChatPiece.Wash,
-        leading: CGFloat,
-        dimensions: Dimensions
-    ) -> [ChatPiece] {
-        var result: [ChatPiece] = []
-
-        if !overlay.thinking.isEmpty {
-            result.append(ChatPiece(
-                id: "stream/thinking",
-                messageID: "stream",
-                role: .assistant,
-                content: .streaming(ChatStreamHandoff.Overlay(thinking: overlay.thinking)),
-                wash: wash,
-                topInset: leading
-            ))
+    /// Lays an assistant message's pieces end to end along its reveal, and
+    /// marks them live while the stream is writing the message.
+    private static func revealed(_ pieces: [ChatPiece], of message: ChatMessage) -> [ChatPiece] {
+        var offset = 0
+        return pieces.map { piece in
+            var piece = piece
+            piece.isLive = message.isLive
+            guard message.role == .assistant, piece.content != .working else { return piece }
+            piece.revealOffset = offset
+            piece.revealLength = ChatReveal.length(of: piece.content)
+            offset += piece.revealLength
+            return piece
         }
-
-        guard !overlay.text.isEmpty else { return result }
-        let textLeading = result.isEmpty ? leading : ChatBlockSpacing.streamingBlockSpacing
-        let stream = ChatStreamHandoff.settledBlocks(in: overlay.text)
-
-        result += markdownPieces(
-            stream.settled,
-            idPrefix: "stream",
-            messageID: "stream",
-            role: .assistant,
-            wash: wash,
-            leading: textLeading,
-            dimensions: dimensions,
-            streams: true
-        )
-
-        guard !stream.tail.isEmpty, let tailBlock = stream.tailBlock else { return result }
-        let tailLeading: CGFloat = stream.blocks.isEmpty
-            ? textLeading
-            : ChatBlockSpacing.markdownBlockTopInset(
-                tailBlock,
-                at: stream.blocks.count,
-                dimensions: dimensions
-            )
-        // Keyed by its block index, not by being the live one, so the piece
-        // keeps its identity — and so the reveal keeps its progress — when
-        // the block completes and joins the settled ones above.
-        //
-        // Never split, however long it grows. A reveal counts characters of
-        // one source, and the block is about to settle anyway.
-        result.append(ChatPiece(
-            id: "stream/\(stream.blocks.count)",
-            messageID: "stream",
-            role: .assistant,
-            content: .markdown(tailBlock, index: stream.blocks.count),
-            wash: wash,
-            topInset: tailLeading,
-            streamSource: stream.tail,
-            isArriving: true
-        ))
-        return result
     }
 
     /// Assigns each piece its place in the message's wash group, and the

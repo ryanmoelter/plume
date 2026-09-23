@@ -7,7 +7,7 @@ import SwiftUI
 /// `docs/chat-list.md` for why this exists beside the lazy stack.
 struct ChatListView: NSViewRepresentable {
     var inputs: ChatListInputs
-    var revealClock: RevealClock
+    var revealModel: ChatRevealModel?
     var commands: ChatListCommands
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
@@ -38,7 +38,7 @@ struct ChatListView: NSViewRepresentable {
         controller.onOpenSubagent = onOpenSubagent
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
-        controller.revealClock = revealClock
+        controller.revealModel = revealModel
         if controller.inputs != inputs {
             controller.update(inputs)
         }

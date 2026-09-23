@@ -14,8 +14,6 @@ struct ChatPieceView: View, ThemedView {
     /// Set for a piece that has just arrived, so it grows into place and
     /// pushes the pieces below it down.
     var growsFromZero: Bool = false
-    /// Set for a block the stream has just opened, so it types itself out.
-    var typesFromZero: Bool = false
     /// Set by the custom list, which eases the height itself: the piece
     /// draws at the state's `containerHeight` and reports its natural height
     /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
@@ -23,6 +21,7 @@ struct ChatPieceView: View, ThemedView {
     var onNaturalHeight: ((CGFloat) -> Void)?
 
     @State private var isHovered = false
+    @Environment(\.chatRevealModel) private var revealModel
 
     // One modifier chain for every wash, so a message gaining the
     // needs-input treatment changes values rather than structure. A `switch`
@@ -31,6 +30,8 @@ struct ChatPieceView: View, ThemedView {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             content
+                .environment(\.chatReveal, piece.revealLength > 0 ? reveal : nil)
+                .revealGate(piece.revealLength == 0 ? reveal : nil)
             footer
         }
             .environment(\.chatHugsContent, piece.wash.isBubble)
@@ -128,19 +129,7 @@ struct ChatPieceView: View, ThemedView {
     private var content: some View {
         switch piece.content {
         case let .markdown(block, _):
-            // Stable for a piece's whole life: a block the stream wrote keeps
-            // its source until the transcript replaces it wholesale under new
-            // ids, so this branch never flips underneath a live reveal.
-            if let source = piece.streamSource {
-                RevealedMarkdownBlock(
-                    source: source,
-                    isArriving: piece.isArriving,
-                    typesFromZero: typesFromZero,
-                    isAgentVoice: piece.isAgentVoice
-                )
-            } else {
-                MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
-            }
+            MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
         case let .codeSegment(segment):
             CodeSegmentView(segment: segment)
         case let .listSegment(segment):
@@ -163,11 +152,17 @@ struct ChatPieceView: View, ThemedView {
             ChatNoticeRow(notice: notice)
         case let .image(image):
             ChatImageView(image: image)
-        case let .streaming(overlay):
-            StreamingBlocks(overlay: overlay)
         case .working:
             ChatWorkingIndicator()
         }
+    }
+
+    /// Where this piece sits along its message's reveal. Nil for the
+    /// working indicator, which is not part of the message.
+    private var reveal: ChatRevealContext? {
+        guard piece.role == .assistant, piece.content != .working,
+              let messageReveal = revealModel?.reveal(for: piece.messageID) else { return nil }
+        return ChatRevealContext(reveal: messageReveal, offset: piece.revealOffset)
     }
 
     /// Shorter for a piece the turn in flight is still changing: its height
@@ -335,7 +330,6 @@ private struct SegmentBorder: Shape {
         for: messages,
         status: .questionAsked,
         hiddenToolUseIDs: [],
-        streaming: ChatStreamHandoff.Overlay(),
         dimensions: dimensions
     )
     return VStack(alignment: .leading, spacing: 0) {

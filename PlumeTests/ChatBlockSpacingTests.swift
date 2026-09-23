@@ -160,21 +160,4 @@ struct ChatBlockSpacingTests {
         )
         #expect(insets == [0, 0])
     }
-
-    /// A tool result ends the assistant's run, so text streamed after a call
-    /// lands in a message of its own and must already sit a message apart.
-    @Test func theStreamTakesTheGapItWillHaveOnceItSettles() {
-        #expect(ChatBlockSpacing.streamingTopInset(
-            previous: .toolCall,
-            dimensions: dimensions
-        ) == dimensions.messageSpacing)
-        #expect(ChatBlockSpacing.streamingTopInset(
-            previous: .other,
-            dimensions: dimensions
-        ) == dimensions.messageBlockSpacing)
-    }
-
-    @Test func theStandaloneStreamPaysNothingOfItsOwn() {
-        #expect(ChatBlockSpacing.streamingTopInset(previous: nil, dimensions: dimensions) == 0)
-    }
 }
