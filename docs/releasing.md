@@ -304,19 +304,27 @@ Xcode embeds and signs `Sparkle.framework` into `Contents/Frameworks` on its own
 
 ### Testing an update end-to-end
 
-There's no way to point Sparkle at a real feed without publishing a release, so test locally instead:
+There's no way to point Sparkle at a real feed without publishing a release, so test locally instead. For iterating on the update UI or flow, a Debug build needs no publish step at all:
+
+```
+xcodebuild -scheme Plume -destination 'platform=macOS' build   # build Debug first
+scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by default
+scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
+```
+
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Updates (Debug)** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, exercise the scheduled/gentle background check on its own, or reset Sparkle's skipped-version and last-check state. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+
+For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
 
 1. Install an older Release build (`scripts/install-release.sh`).
 2. Bump the version and build a higher-version signed DMG (`scripts/package-release.sh`, or the DMG steps above by hand).
-3. Sign the DMG with `sign_update` and write an appcast pointing its enclosure at `http://localhost:8000/<dmg>` instead of the GitHub URL.
-4. Serve that directory: `python3 -m http.server 8000`.
-5. Point the installed app at the local feed:
+3. Serve the DMG and the `appcast.xml` that `package-release.sh` wrote — e.g. `python3 -m http.server 8000` from the `out/` directory.
+4. Point the installed app at that local feed:
    ```
    defaults write com.ryanmoelter.Plume PlumeUpdateFeedURLOverride http://localhost:8000/appcast.xml
    ```
-   For a Debug build, the domain is `com.ryanmoelter.Plume.debug`.
-6. Launch the app and use Check for Updates….
-7. `defaults delete com.ryanmoelter.Plume PlumeUpdateFeedURLOverride` afterward, so the installed app goes back to the real feed.
+5. Launch the app and use Check for Updates….
+6. `defaults delete com.ryanmoelter.Plume PlumeUpdateFeedURLOverride` afterward, so the installed app goes back to the real feed.
 
 ### The first Sparkle-enabled release
 

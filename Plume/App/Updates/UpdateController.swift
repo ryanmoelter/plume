@@ -177,6 +177,55 @@ final class UpdateController: NSObject {
     #endif
 }
 
+#if DEBUG
+/// Backs the "Updates (Debug)" Settings section (`UpdatesDebugSection`), so
+/// both update paths — the installer swap and the scheduled background check
+/// — are exercisable without reinstalling.
+extension UpdateController {
+    /// The raw `PlumeUpdateFeedURLOverride` user default. Empty when unset.
+    var debugFeedURLOverride: String {
+        feedURLOverride ?? ""
+    }
+
+    /// Saves a feed URL override typed into the debug text field, and starts
+    /// the updater if a non-empty value was just saved and it wasn't already
+    /// running — `start()` at launch already ran and found no override to
+    /// act on. Sparkle has no API to stop a running updater, so clearing the
+    /// override while already running only takes effect on relaunch.
+    func debugApplyFeedURLOverride(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.feedURLOverrideKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: Self.feedURLOverrideKey)
+        }
+        if !trimmed.isEmpty, !isRunning {
+            start()
+        }
+    }
+
+    /// The scheduled/gentle path: a row-only background check, with no
+    /// window even when an update is found — unlike `checkForUpdates()`,
+    /// which a user-initiated action is allowed to surface a window for.
+    func debugCheckForUpdatesInBackground() {
+        controller.updater.checkForUpdatesInBackground()
+    }
+
+    /// Clears Sparkle's own skipped-version and last-check state, plus
+    /// Plume's own record of a found update, so the next check behaves like
+    /// the very first one. Sparkle has no API to close a gentle-reminder
+    /// session it already has open — that needs a relaunch to fully reset.
+    func debugResetUpdateState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "SUSkippedVersion")
+        defaults.removeObject(forKey: "SUSkippedMajorVersion")
+        defaults.removeObject(forKey: "SUSkippedMajorSubreleaseVersion")
+        defaults.removeObject(forKey: "SULastCheckTime")
+        availableUpdate = nil
+    }
+}
+#endif
+
 // MARK: - SPUUpdaterDelegate
 
 extension UpdateController: SPUUpdaterDelegate {

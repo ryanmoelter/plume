@@ -292,6 +292,10 @@ struct SettingsView: View {
             }
             .disabled(!updates.isRunning)
 
+            #if DEBUG
+            UpdatesDebugSection()
+            #endif
+
             Section {
                 HStack {
                     Text(helperStatusText)

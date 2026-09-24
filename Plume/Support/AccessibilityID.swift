@@ -45,6 +45,10 @@ enum AccessibilityID {
     static let updatesAutoCheckToggle = "updates-auto-check-toggle"
     static let updatesCheckNowButton = "updates-check-now-button"
     static let updatesInstallSourcePicker = "updates-install-source-picker"
+    static let debugUpdatesInstallSourcePicker = "debug-updates-install-source-picker"
+    static let debugUpdatesFeedURLField = "debug-updates-feed-url-field"
+    static let debugUpdatesCheckBackgroundButton = "debug-updates-check-background-button"
+    static let debugUpdatesResetStateButton = "debug-updates-reset-state-button"
 
     // MARK: Tab strip
 
