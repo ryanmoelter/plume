@@ -10,16 +10,16 @@ enum BuildInfo {
         return URL(fileURLWithPath: raw)
     }
 
+    static var worktreeName: String? { sourceRoot?.lastPathComponent }
+
     /// The source root's branch at launch, not at build time — a checkout
     /// after the build shows the new branch.
     static var branch: String? {
-        if let root = sourceRoot,
-           let gitDirectory = gitDirectory(forSourceRoot: root),
-           let head = try? String(contentsOf: gitDirectory.appending(path: "HEAD"), encoding: .utf8),
-           let branch = branch(fromHEAD: head) {
-            return branch
-        }
-        return sourceRoot?.lastPathComponent
+        guard let root = sourceRoot,
+              let gitDirectory = gitDirectory(forSourceRoot: root),
+              let head = try? String(contentsOf: gitDirectory.appending(path: "HEAD"), encoding: .utf8)
+        else { return nil }
+        return branch(fromHEAD: head)
     }
 
     /// The modification date of the image holding this code — in Debug,
@@ -67,24 +67,8 @@ enum BuildInfo {
         return nil
     }
 
-    /// The build time reads as a bare time today, and gains a relative day
-    /// marker once it no longer is.
-    static func label(
-        branch: String?,
-        builtAt: Date?,
-        now: Date,
-        calendar: Calendar,
-        locale: Locale
-    ) -> String? {
-        let parts = [branch, timeDescription(builtAt: builtAt, now: now, calendar: calendar, locale: locale)]
-            .compactMap { $0 }
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: " · ")
-    }
-
-    private static func timeDescription(builtAt: Date?, now: Date, calendar: Calendar, locale: Locale) -> String? {
-        guard let builtAt else { return nil }
-
+    /// `15:33 today`, `15:33 yesterday`, then just `3 days ago`.
+    static func buildTime(_ builtAt: Date, now: Date, calendar: Calendar, locale: Locale) -> String {
         var timeStyle = Date.FormatStyle(date: .omitted, time: .shortened, locale: locale, calendar: calendar)
         timeStyle.timeZone = calendar.timeZone
         let time = builtAt.formatted(timeStyle)
@@ -94,14 +78,13 @@ enum BuildInfo {
             from: calendar.startOfDay(for: builtAt),
             to: calendar.startOfDay(for: now)
         ).day ?? 0
-        guard days > 0 else { return time }
 
         let formatter = RelativeDateTimeFormatter()
         formatter.calendar = calendar
         formatter.locale = locale
         formatter.dateTimeStyle = .named
-        let relative = formatter.localizedString(from: DateComponents(day: -days))
-        return days == 1 ? "\(relative), \(time)" : relative
+        let relative = formatter.localizedString(from: DateComponents(day: -max(days, 0)))
+        return days <= 1 ? "\(time) \(relative)" : relative
     }
 }
 #endif

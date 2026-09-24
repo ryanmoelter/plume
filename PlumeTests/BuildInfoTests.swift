@@ -72,45 +72,27 @@ struct BuildInfoTests {
         return url
     }
 
-    // MARK: label
+    // MARK: buildTime
 
-    @Test func labelForTodayShowsBranchAndTimeAlone() {
+    @Test func buildTimeForTodaySaysTodayAndTheTime() {
         let now = date(2026, 9, 24, 15, 30)
-        let builtAt = date(2026, 9, 24, 9, 5)
-        let label = BuildInfo.label(branch: "main", builtAt: builtAt, now: now, calendar: calendar, locale: locale)
-        #expect(label?.contains("main") == true)
-        #expect(label?.contains("9:05") == true)
-        #expect(label?.contains("yesterday") == false)
-        #expect(label?.contains("ago") == false)
+        let text = BuildInfo.buildTime(date(2026, 9, 24, 9, 5), now: now, calendar: calendar, locale: locale)
+        #expect(text.contains("9:05"))
+        #expect(text.hasSuffix("today"))
     }
 
-    @Test func labelForYesterdaySaysYesterdayAndTheTime() {
+    @Test func buildTimeForYesterdaySaysYesterdayAndTheTime() {
         let now = date(2026, 9, 24, 15, 30)
-        let builtAt = date(2026, 9, 23, 9, 5)
-        let label = BuildInfo.label(branch: "main", builtAt: builtAt, now: now, calendar: calendar, locale: locale)
-        #expect(label?.contains("yesterday") == true)
-        #expect(label?.contains("9:05") == true)
+        let text = BuildInfo.buildTime(date(2026, 9, 23, 9, 5), now: now, calendar: calendar, locale: locale)
+        #expect(text.contains("yesterday"))
+        #expect(text.contains("9:05"))
     }
 
-    @Test func labelForSeveralDaysAgoOmitsTheTime() {
+    @Test func buildTimeForSeveralDaysAgoOmitsTheTime() {
         let now = date(2026, 9, 24, 15, 30)
-        let builtAt = date(2026, 9, 21, 9, 5)
-        let label = BuildInfo.label(branch: "main", builtAt: builtAt, now: now, calendar: calendar, locale: locale)
-        #expect(label?.contains("3 days ago") == true)
-        #expect(label?.contains("9:05") == false)
-    }
-
-    @Test func labelWithNoBranchShowsTheTimeAlone() {
-        let now = date(2026, 9, 24, 15, 30)
-        let builtAt = date(2026, 9, 24, 9, 5)
-        let label = BuildInfo.label(branch: nil, builtAt: builtAt, now: now, calendar: calendar, locale: locale)
-        #expect(label?.contains("9:05") == true)
-        #expect(label?.contains("·") == false)
-    }
-
-    @Test func labelWithNeitherPieceIsNil() {
-        let now = date(2026, 9, 24, 15, 30)
-        #expect(BuildInfo.label(branch: nil, builtAt: nil, now: now, calendar: calendar, locale: locale) == nil)
+        let text = BuildInfo.buildTime(date(2026, 9, 21, 9, 5), now: now, calendar: calendar, locale: locale)
+        #expect(text.contains("3 days ago"))
+        #expect(!text.contains("9:05"))
     }
 }
 #endif
