@@ -236,7 +236,11 @@ final class CodexTerminalMonitor {
                 ?? roots.max { ($0["createdAt"]?.doubleValue ?? 0) < ($1["createdAt"]?.doubleValue ?? 0) }
             if let root, let id = root["id"]?.stringValue {
                 hadThread = true
-                if rootID != id { rootID = id; onThread(id) }
+                if rootID != id {
+                    if rootID != nil { TitleStore.shared.beginNewConversation(forTab: tabID) }
+                    rootID = id
+                    onThread(id)
+                }
                 if let name = CodexThreadTitle.name(root["name"]?.stringValue) {
                     TitleStore.shared.setTitle(name, forTab: tabID, source: .reply)
                 } else if let preview = CodexThreadTitle.preview(root["preview"]?.stringValue) {

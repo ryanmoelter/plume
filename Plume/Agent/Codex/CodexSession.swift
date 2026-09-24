@@ -1095,7 +1095,11 @@ final class CodexSession: AgentSession {
         titleTask = Task { [weak self, generateTitle] in
             let title = await generateTitle(description)
             guard let self else { return }
-            defer { self.titleTask = nil }
+            defer {
+                self.titleTask = nil
+                // A plan turn that ended while this request ran was skipped.
+                if !Task.isCancelled, !self.hasExited { self.requestTitleIfDue() }
+            }
             guard !Task.isCancelled, !self.hasExited,
                   self.sessionID == threadID, self.titleRevision == revision,
                   let context = self.titleContextProvider?(self.tabID),

@@ -204,6 +204,17 @@ struct TitleStoreTests {
         #expect(store.source(forTab: tab) == .reply)
     }
 
+    @Test func aSourceUpgradeWithUnchangedTextIsReported() {
+        let store = TitleStore()
+        var reported: [TitleSource] = []
+        store.onTitleChanged = { _, _, source in reported.append(source) }
+        let tab = UUID()
+        store.setTitle("Largest planet", forTab: tab, source: .fallback)
+        store.setTitle("Largest planet", forTab: tab, source: .reply)
+
+        #expect(reported == [.fallback, .reply])
+    }
+
     @Test func beginningANewConversationClearsTheTitleAndTheSource() {
         let store = TitleStore()
         let tab = UUID()

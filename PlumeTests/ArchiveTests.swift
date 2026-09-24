@@ -129,6 +129,7 @@ struct ArchiveTests {
         try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let tab = try #require(task.tabs.first)
+            tab.agentSessionID = "session-abc"
             tab.title = "Add OAuth2 login"
             tab.titleSource = .reply
 

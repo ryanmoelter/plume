@@ -87,4 +87,21 @@ struct StartFreshTests {
         #expect(TitleStore.shared.title(forTab: tab.id) == "Old conversation")
         #expect(TitleStore.shared.source(forTab: tab.id) == .reply)
     }
+
+    /// The live-session path leaves the old title in place, so what stops it
+    /// outranking the next conversation after a relaunch is the seed.
+    @Test func aTabStartedFreshRestoresNoTitleSource() throws {
+        let context = try context()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = try #require(task.tabs.first)
+        tab.agentSessionID = "session-abc"
+        tab.titleSource = .reply
+        _ = AgentSessionManager.shared.session(for: tab.id, taskID: task.id)
+        defer { AgentSessionManager.shared.closeSession(for: tab.id) }
+
+        TaskStore.startFresh(tab)
+
+        #expect(tab.titleSource == .reply)
+        #expect(tab.restorableTitleSource == nil)
+    }
 }

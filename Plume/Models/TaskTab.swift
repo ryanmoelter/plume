@@ -81,6 +81,13 @@ final class TaskTab {
         set { titleSourceRaw = newValue?.rawValue }
     }
 
+    /// The source to seed on launch or unarchive. A tab with no session to
+    /// resume starts a new conversation, which must be free to title itself
+    /// even if Start Fresh left the old conversation's title behind.
+    var restorableTitleSource: TitleSource? {
+        agentSessionID == nil ? nil : titleSource
+    }
+
     /// Only meaningful for an agent tab. Nil means the tab predates this
     /// field, or is new but hasn't been stamped yet — `TaskStore` stamps
     /// `AppSettings.defaultAgentTransport` onto every agent tab it creates,

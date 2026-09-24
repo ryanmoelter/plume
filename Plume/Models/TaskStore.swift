@@ -118,7 +118,7 @@ enum TaskStore {
             // ahead of a real transcript write finds the source already
             // recorded rather than being free to overwrite a higher-ranked
             // title this tab was given before archiving.
-            if let source = tab.titleSource {
+            if let source = tab.restorableTitleSource {
                 TitleStore.shared.seedSource(source, forTab: tab.id)
             }
             if tab.transport == .terminal {

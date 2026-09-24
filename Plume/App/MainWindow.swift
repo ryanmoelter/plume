@@ -360,7 +360,7 @@ struct MainWindow: View {
             for tab in task.tabs where tab.kind == .agent {
                 // Seeded before any watch below, so a fallback read cannot
                 // outrank a title this tab earned in an earlier run.
-                if let source = tab.titleSource { TitleStore.shared.seedSource(source, forTab: tab.id) }
+                if let source = tab.restorableTitleSource { TitleStore.shared.seedSource(source, forTab: tab.id) }
                 switch (tab.provider, tab.transport) {
                 case (.claudeCode, .terminal):
                     AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)

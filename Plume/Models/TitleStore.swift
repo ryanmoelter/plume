@@ -98,8 +98,9 @@ final class TitleStore {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard source >= (sources[id] ?? .fallback) else { return }
+        let previousSource = sources[id]
         sources[id] = source
-        guard titles[id] != trimmed else { return }
+        guard titles[id] != trimmed || previousSource != source else { return }
         titles[id] = trimmed
         onTitleChanged?(id, trimmed, source)
     }
