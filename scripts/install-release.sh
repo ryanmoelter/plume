@@ -25,6 +25,9 @@
 # keyboard.
 set -uo pipefail
 
+# shellcheck source=lib/sign-bundle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
+
 LOG="${LOG:-/tmp/plume-install.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
 DEST=/Applications/Plume.app
@@ -53,6 +56,9 @@ SRC="$(xcodebuild -scheme Plume -configuration Release -destination 'platform=ma
   -showBuildSettings 2>/dev/null | awk '$1 == "BUILT_PRODUCTS_DIR" {print $3; exit}')/Plume.app"
 [ -d "$SRC" ] || fail "no Release bundle at $SRC — build it first"
 
+SU_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$SRC/Contents/Info.plist" 2>/dev/null || true)"
+[ -n "$SU_PUBLIC_KEY" ] || fail "no SUPublicEDKey in the built Info.plist — Configuration/Info.plist must carry it"
+
 IDENTITY="$(security find-identity -v -p codesigning \
   | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
 [ -n "$IDENTITY" ] || fail "no Developer ID Application identity. Xcode → Settings →
@@ -75,16 +81,20 @@ HELPER="$APP/Contents/MacOS/$HELPER_NAME"
 [ -f "$APP/Contents/Library/LaunchDaemons/$DAEMON_PLIST" ] \
   || fail "daemon plist missing from Contents/Library/LaunchDaemons"
 
-# Inside out: the outer signature seals the helper, so the helper goes first.
-# Without --deep codesign leaves nested code alone, and notarization rejects
-# a helper still carrying the build's Apple Development signature.
 echo "--- re-signing ---"
-codesign --force --sign "$IDENTITY" --options runtime --timestamp "$HELPER" \
-  || fail "codesign of the helper failed"
-codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP" \
-  || fail "codesign of the app failed"
+sign_bundle "$IDENTITY" "$APP"
 codesign -d --verbose=4 "$APP" 2>&1 | grep -iE 'Authority=|flags=|Timestamp='
 codesign --verify --deep --strict "$APP" || fail "signature does not verify"
+
+echo "--- non-system dylibs (expect only Sparkle.framework; Release links Ghostty statically) ---"
+non_system_dylibs="$(otool -L "$APP/Contents/MacOS/Plume" | tail -n +2 | grep -v '/usr/lib\|/System/Library')"
+echo "$non_system_dylibs"
+dylib_count="$(grep -c . <<<"$non_system_dylibs")"
+if [ "$dylib_count" -eq 0 ]; then
+  fail "no non-system dylibs found — expected @rpath/Sparkle.framework"
+elif [ "$dylib_count" -ne 1 ] || ! grep -q '@rpath/Sparkle\.framework' <<<"$non_system_dylibs"; then
+  fail "unexpected non-system dylibs — expected exactly @rpath/Sparkle.framework"
+fi
 
 echo "--- notarizing (a few minutes) ---"
 ZIP="$STAGE_DIR/Plume-submit.zip"
@@ -200,8 +210,8 @@ codesign -d --verbose=2 "$DEST/Contents/MacOS/$HELPER_NAME" 2>&1 \
   | grep -iE '^Identifier=|Authority=Developer ID|flags='
 /usr/libexec/PlistBuddy -c 'Print :BundleProgram' \
   "$DEST/Contents/Library/LaunchDaemons/$DAEMON_PLIST"
-echo "--- non-system dylibs (expect none; Release links Ghostty statically) ---"
-otool -L "$DEST/Contents/MacOS/Plume" | grep -v '/usr/lib\|/System/Library'
+echo "--- non-system dylibs (already checked on the staged bundle above) ---"
+otool -L "$DEST/Contents/MacOS/Plume" | tail -n +2 | grep -v '/usr/lib\|/System/Library'
 
 # The symlink points at a path inside the bundle, so replacing the bundle
 # re-resolves it. It only breaks if the helper stopped shipping.

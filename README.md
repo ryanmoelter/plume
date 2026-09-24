@@ -35,9 +35,9 @@ With [Homebrew](https://brew.sh):
 brew install ryanmoelter/tap/plume
 ```
 
-Upgrade with `brew upgrade --cask plume`. Plume has no self-updater, so this is the only way to get a newer version once it's installed.
+Upgrade with `brew upgrade --cask plume`. Plume tells you in-app when an update is available, with the command to run.
 
-Or download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases).
+Or download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases). A DMG install updates itself: use Check for Updates…, or click the "Update Available" row in the sidebar when one shows up.
 
 ## Building from source
 

@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         startApplyingShortcutBindings()
 
+        UpdateController.shared.start()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()

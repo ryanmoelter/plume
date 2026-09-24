@@ -36,5 +36,13 @@
     <string></string>
     <key>PlumeBuildSourceRoot</key>
     <string>$(PLUME_BUILD_SOURCE_ROOT)</string>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>qCYsGkswzFHTl66oPl+dPgbuvBaMw38MlmdFtPpl0O0=</string>
 </dict>
 </plist>
