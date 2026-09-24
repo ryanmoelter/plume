@@ -114,6 +114,13 @@ enum TaskStore {
         task.archivedAt = nil
         for tab in task.tabs where tab.kind == .agent {
             StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+            // Seeded before any watch below, so a fallback read racing in
+            // ahead of a real transcript write finds the source already
+            // recorded rather than being free to overwrite a higher-ranked
+            // title this tab was given before archiving.
+            if let source = tab.restorableTitleSource {
+                TitleStore.shared.seedSource(source, forTab: tab.id)
+            }
             if tab.transport == .terminal {
                 AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
             }
@@ -122,6 +129,24 @@ enum TaskStore {
                 TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
             }
         }
+    }
+
+    // MARK: - Start fresh
+
+    /// Discards Plume's link to a tab's conversation, so a later relaunch or
+    /// resume starts clean. A live headless session keeps talking to the old
+    /// conversation regardless (tracked separately), so while one exists this
+    /// only drops `agentSessionID` and leaves the title and watches alone.
+    static func startFresh(_ tab: TaskTab) {
+        guard AgentSessionManager.shared.existingSession(for: tab.id) == nil else {
+            tab.agentSessionID = nil
+            return
+        }
+        tab.agentSessionID = nil
+        tab.sessionJSONLPath = nil
+        AgentTitleMonitor.shared.stopWatching(tabID: tab.id)
+        TranscriptStore.shared.stopWatching(tabID: tab.id)
+        TitleStore.shared.beginNewConversation(forTab: tab.id)
     }
 
     // MARK: - Delete

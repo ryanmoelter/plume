@@ -306,8 +306,10 @@ final class CodexSession: AgentSession {
         restoreRuntimeState(from: result["thread"] ?? .null)
         serverTitle = CodexThreadTitle.name(result["thread"]?["name"]?.stringValue)
         hasServerTitle = serverTitle != nil
-        if let title = CodexThreadTitle.title(thread: result["thread"] ?? .null) {
-            TitleStore.shared.setTitle(title, forTab: tabID)
+        if let serverTitle {
+            TitleStore.shared.setTitle(serverTitle, forTab: tabID, source: .reply)
+        } else if let preview = CodexThreadTitle.preview(result["thread"]?["preview"]?.stringValue) {
+            TitleStore.shared.setTitle(preview, forTab: tabID, source: .fallback)
         }
         TabDirectoryStore.shared.setDirectory(result["thread"]?["cwd"]?.stringValue, forTab: tabID)
         if let reported = result["model"]?.stringValue {
@@ -525,9 +527,10 @@ final class CodexSession: AgentSession {
             do {
                 let result = try await client.send("turn/start", .object(params))
                 if TitleStore.shared.title(forTab: tabID) == nil, let title = CodexThreadTitle.preview(blocks.plainText) {
-                    TitleStore.shared.setTitle(title, forTab: tabID)
+                    TitleStore.shared.setTitle(title, forTab: tabID, source: .fallback)
                 }
                 finishTurnStart(sequence: sequence, result: result)
+                requestTitleIfDue()
             } catch {
                 failTurnStart(sequence: sequence, error: error, blocks: blocks)
             }
@@ -946,7 +949,7 @@ final class CodexSession: AgentSession {
                 hasServerTitle = true
                 serverTitle = title
                 titleRevision += 1
-                TitleStore.shared.setTitle(title, forTab: tabID)
+                TitleStore.shared.setTitle(title, forTab: tabID, source: .reply)
             }
         case "thread/started":
             break
@@ -1083,7 +1086,7 @@ final class CodexSession: AgentSession {
         let plan = planProposal
         let description = titleRequester.descriptionForTitleRequest(.init(
             transport: context.transport, userTaskName: context.userTaskName,
-            isWorking: isWorking, openingMessage: openingMessage,
+            openingMessage: openingMessage,
             planFilePath: plan?.id, planTitle: plan.flatMap { PlanSummary.title(of: $0.markdown) },
             hasExistingTitle: hasServerTitle
         ))
@@ -1092,7 +1095,11 @@ final class CodexSession: AgentSession {
         titleTask = Task { [weak self, generateTitle] in
             let title = await generateTitle(description)
             guard let self else { return }
-            defer { self.titleTask = nil }
+            defer {
+                self.titleTask = nil
+                // A plan turn that ended while this request ran was skipped.
+                if !Task.isCancelled, !self.hasExited { self.requestTitleIfDue() }
+            }
             guard !Task.isCancelled, !self.hasExited,
                   self.sessionID == threadID, self.titleRevision == revision,
                   let context = self.titleContextProvider?(self.tabID),
@@ -1109,7 +1116,7 @@ final class CodexSession: AgentSession {
                 else { return }
                 self.hasServerTitle = true
                 self.serverTitle = title
-                TitleStore.shared.setTitle(title, forTab: self.tabID)
+                TitleStore.shared.setTitle(title, forTab: self.tabID, source: .reply)
             } catch { /* A title failure must never fail the user's turn. */ }
         }
     }

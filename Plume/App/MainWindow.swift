@@ -132,7 +132,9 @@ struct MainWindow: View {
             )
         ) {
             Button("Start Fresh", role: .destructive) {
-                tabPendingStartFresh?.agentSessionID = nil
+                if let tab = tabPendingStartFresh {
+                    TaskStore.startFresh(tab)
+                }
                 tabPendingStartFresh = nil
             }
             Button("Cancel", role: .cancel) { tabPendingStartFresh = nil }
@@ -304,8 +306,14 @@ struct MainWindow: View {
             else { return }
             tab.agentSessionID = sessionID
         }
-        AgentEventMonitor.shared.onSessionCleared = { tabID in
-            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
+        AgentEventMonitor.shared.onSessionCleared = { tabID, clearedSessionID in
+            // Never fires for a launch's backlog replay — `AgentEventMonitor`
+            // itself withholds a clear read that way. This guard covers a
+            // live clear: the event's own session ID must still match what
+            // the tab is carrying, so a clear for a session the tab has
+            // already moved past is ignored.
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
+                  let clearedSessionID, tab.agentSessionID == clearedSessionID
             else { return }
             // Dropped rather than replaced, because the new session's ID
             // arrives a moment later in its own event. Losing auto-resume if
@@ -317,6 +325,7 @@ struct MainWindow: View {
             // user just discarded, until the replacement session's first
             // write.
             TranscriptStore.shared.stopWatching(tabID: tabID)
+            TitleStore.shared.beginNewConversation(forTab: tabID)
         }
         AgentEventMonitor.shared.onTranscriptPathDiscovered = { tabID, path in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
@@ -327,23 +336,31 @@ struct MainWindow: View {
             AgentTitleMonitor.shared.watch(tabID: tabID, transcriptPath: path)
             TranscriptStore.shared.watch(tabID: tabID, transcriptPath: path)
         }
-        AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title in
-            TitleStore.shared.setTitle(title, forTab: tabID)
+        AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title, source in
+            TitleStore.shared.setTitle(title, forTab: tabID, source: source)
         }
         AgentSessionManager.shared.titleContextProvider = { tabID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
             else { return nil }
             return (tab.transport, tab.task?.title)
         }
-        TitleStore.shared.onTitleChanged = { tabID, title in
-            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
-                  tab.title != title
-            else { return }
+        TitleStore.shared.onTitleChanged = { tabID, title, source in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }) else { return }
+            if tab.titleSource != source { tab.titleSource = source }
+            guard tab.title != title else { return }
             tab.title = title
+        }
+        TitleStore.shared.onConversationReset = { tabID in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }) else { return }
+            tab.title = nil
+            tab.titleSource = nil
         }
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
+                // Seeded before any watch below, so a fallback read cannot
+                // outrank a title this tab earned in an earlier run.
+                if let source = tab.restorableTitleSource { TitleStore.shared.seedSource(source, forTab: tab.id) }
                 switch (tab.provider, tab.transport) {
                 case (.claudeCode, .terminal):
                     AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)

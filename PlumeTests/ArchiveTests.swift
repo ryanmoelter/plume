@@ -23,6 +23,7 @@ struct ArchiveTests {
                 for tab in task.tabs {
                     StatusEngine.shared.forget(tabID: tab.id, taskID: task.id)
                     DraftStore.shared.forget(tabID: tab.id)
+                    TitleStore.shared.forget(tabID: tab.id)
                 }
             }
         }
@@ -118,6 +119,24 @@ struct ArchiveTests {
             #expect(tab.agentSessionID == "session-abc")
             #expect(tab.sessionJSONLPath == "/tmp/session-abc.jsonl")
             #expect(task.tabs.count == 1)
+        }
+    }
+
+    /// Unarchiving is a re-watch, the same as a relaunch or `EnterWorktree` —
+    /// without seeding the source first, a fallback read racing ahead of the
+    /// transcript would be free to downgrade a title this tab already earned.
+    @Test func unarchivingSeedsTheTitleSourceBeforeWatching() throws {
+        try isolated { context in
+            let task = TaskStore.createTask(in: context, siblings: [])
+            let tab = try #require(task.tabs.first)
+            tab.agentSessionID = "session-abc"
+            tab.title = "Add OAuth2 login"
+            tab.titleSource = .reply
+
+            TaskStore.archive(task)
+            TaskStore.unarchive(task)
+
+            #expect(TitleStore.shared.source(forTab: tab.id) == .reply)
         }
     }
 

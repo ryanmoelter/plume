@@ -59,7 +59,7 @@ struct CodexTitleTests {
         }
     }
 
-    @Test func firstCompletedTurnReplacesPreviewOnlyOnce() async throws {
+    @Test func firstTurnReplacesPreviewOnlyOnce() async throws {
         let harness = Harness()
         var descriptions: [String] = []
         let session = CodexSession(tabID: UUID(), taskID: UUID(), client: harness.client, generateTitle: {
@@ -70,12 +70,10 @@ struct CodexTitleTests {
         session.titleContextProvider = { _ in (.headless, nil) }
         session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
         session.submit(text: "Please implement generated Codex conversation titles")
-        try await until { harness.turns == 1 }
-        #expect(descriptions.isEmpty)
-        harness.complete()
         try await until { harness.names.count == 1 }
         #expect(descriptions == ["Please implement generated Codex conversation titles"])
         #expect(harness.names == ["Implement Codex titles"])
+        harness.complete()
         session.submit(text: "Continue")
         try await until { harness.turns == 2 }
         harness.complete()

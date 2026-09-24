@@ -293,6 +293,7 @@ final class HeadlessSession: AgentSession {
             if lastError == nil { lastError = "claude is not running; the message was not sent" }
             return .queued
         }
+        requestTitleIfDue()
         return .sent
     }
 
@@ -324,9 +325,10 @@ final class HeadlessSession: AgentSession {
 
     /// Asks the CLI to name the conversation.
     ///
-    /// The reply is what delivers the title. The CLI also writes an
-    /// `ai-title` line, but only for a session's first title, so a re-title
-    /// reaches the UI from here or not at all.
+    /// The reply is what delivers the title. The CLI may also write an
+    /// `ai-title` line for a session's first title — but only the first, and
+    /// not every session gets one at all — so a re-title reaches the UI
+    /// through the reply here or not at all.
     func requestSessionTitle(description: String) {
         let requestID = nextRequestID()
         pendingControlRequests[requestID] = .generateSessionTitle
@@ -588,7 +590,7 @@ final class HeadlessSession: AgentSession {
         guard let title = response.payload["title"]?.stringValue,
               !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
-        TitleStore.shared.setTitle(title, forTab: tabID)
+        TitleStore.shared.setTitle(title, forTab: tabID, source: .reply)
     }
 
     private func applyReportedCommands(in response: ControlResponse) {
@@ -651,15 +653,16 @@ final class HeadlessSession: AgentSession {
         sendNextQueuedMessage()
     }
 
-    /// Asked at the end of a turn, when the conversation has just gained
-    /// whatever the title would describe.
+    /// Called when the opening message is sent, and again at the end of
+    /// every turn — the second call is what catches a plan naming the work
+    /// better than the opening message did, since a plan usually is not
+    /// written yet when the turn that produces it begins.
     private func requestTitleIfDue() {
         guard let tab = titleContextProvider?(tabID) else { return }
         let plan = TranscriptStore.shared.transcript(forTab: tabID)?.planFilePath
         let context = SessionTitleRequester.Context(
             transport: tab.transport,
             userTaskName: tab.userTaskName,
-            isWorking: isWorking,
             openingMessage: openingMessage,
             planFilePath: plan,
             planTitle: plan.flatMap(Self.planHeading(atPath:)),
@@ -670,16 +673,18 @@ final class HeadlessSession: AgentSession {
     }
 
     /// Whether this conversation has already been named by a model, as
-    /// opposed to labelled with the first user message.
-    ///
-    /// Read from the transcript rather than from `TitleStore`, which cannot
-    /// tell the two apart: `AgentTitleMonitor` publishes
-    /// `bestAvailableTitle`, so a tab showing its opening message reads as
-    /// titled and would never be given a real one.
+    /// opposed to labelled with the first user message: either the
+    /// transcript carries an `ai-title` of its own, or `TitleStore` already
+    /// ranks this tab's title as `.transcript` or `.reply`.
     private var hasGeneratedTitle: Bool {
-        guard let path = TranscriptStore.shared.watchedPath(forTab: tabID)
-        else { return false }
-        return SessionJSONLReader.latestAITitle(atPath: path) != nil
+        if let path = TranscriptStore.shared.watchedPath(forTab: tabID),
+           SessionJSONLReader.latestAITitle(atPath: path) != nil {
+            return true
+        }
+        switch TitleStore.shared.source(forTab: tabID) {
+        case .transcript, .reply: return true
+        case .fallback, nil: return false
+        }
     }
 
     /// What a plan calls itself, for titling from the plan rather than the

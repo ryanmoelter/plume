@@ -6,7 +6,8 @@ import Testing
 ///
 /// The events are verbatim copies of what Claude Code wrote during a real
 /// clear: `SessionEnd` carrying the *old* ID, then `SessionStart` carrying
-/// the new one.
+/// the new one. Writing them to the events file before `watch` is called (as
+/// below) is what a launch's backlog replay looks like.
 @MainActor
 struct AgentClearTransitionTests {
     private let oldSessionID = "3176c2af-d557-46a8-8fe9-db44b1870211"
@@ -34,7 +35,7 @@ struct AgentClearTransitionTests {
         var sessionID: String?
         let monitor = AgentEventMonitor(statusEngine: StatusEngine())
         monitor.onSessionIDDiscovered = { _, discovered in sessionID = discovered }
-        monitor.onSessionCleared = { _ in sessionID = nil }
+        monitor.onSessionCleared = { _, _ in sessionID = nil }
         monitor.watch(taskID: taskID, tabID: tabID)
         monitor.stopWatching(tabID: tabID)
         return sessionID
@@ -61,5 +62,29 @@ struct AgentClearTransitionTests {
             hasExistingSurfaceSession: false,
             directoryExists: { _ in true }
         ))
+    }
+
+    /// The scenario `MainWindow`'s guard alone cannot catch: a launch
+    /// replays `SessionStart(A)`, `clear(A)`, `SessionStart(B)` in one drain,
+    /// so `agentSessionID` still equals A — the clear's own ID — by the time
+    /// the replayed clear is read. Reporting it would be indistinguishable
+    /// from a live clear, so `AgentEventMonitor` must withhold it itself.
+    @Test func aReplayedClearNeverFiresOnSessionCleared() throws {
+        let (taskID, tabID) = (UUID(), UUID())
+        let url = AppPaths.eventsFile(taskID: taskID, tabID: tabID)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let lines = [sessionEndClear(), sessionStartClear()]
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+
+        var clearedCount = 0
+        let monitor = AgentEventMonitor(statusEngine: StatusEngine())
+        monitor.onSessionCleared = { _, _ in clearedCount += 1 }
+        monitor.watch(taskID: taskID, tabID: tabID)
+        monitor.stopWatching(tabID: tabID)
+
+        #expect(clearedCount == 0)
     }
 }

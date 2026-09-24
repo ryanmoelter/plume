@@ -1056,6 +1056,9 @@ struct ChatTabView: View, ThemedView {
     /// Storing the ID is the whole resume: both transports watch
     /// `tab.agentSessionID` and launch `claude --resume` from it.
     private func resume(_ session: StoredSession) {
+        if tab.agentSessionID != session.sessionID {
+            TitleStore.shared.beginNewConversation(forTab: tab.id)
+        }
         tab.agentSessionID = session.sessionID
         tab.sessionJSONLPath = tab.provider == .claudeCode ? session.transcriptPath : nil
     }

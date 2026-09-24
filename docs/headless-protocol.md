@@ -202,9 +202,9 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 
 ## Session titles — `generate_session_title`
 
-Verified first-hand against 2.1.276.
+Verified first-hand against 2.1.276 and 2.1.280.
 
-**Claude Code auto-titles only the interactive TUI.** A headless conversation never writes an `ai-title` line on its own, however long it runs, which is why `SessionJSONLReader` falls back to the first user message. This request is how a headless host gets a real title.
+**Claude Code auto-titles the interactive TUI. A headless conversation may not get an `ai-title` line on its own** — a scan of this machine's `~/.claude/projects` found one on 26 of 87 recent headless (`entrypoint: sdk-cli`) transcripts, and no guarantee it will appear on the rest — which is why `SessionJSONLReader` falls back to the first user message, and why Plume asks for a title explicitly rather than waiting for one to show up.
 
 ```json
 {"type":"control_request","request_id":"plume-7","request":{
@@ -224,19 +224,15 @@ The title is generated from `description`, *not* from the conversation — the C
 {"subtype":"success","request_id":"plume-7","response":{"title":"OAuth2 login with Google in Flask"}}
 ```
 
-**The CLI also appends the title to the transcript**, as the same line the TUI writes:
+**The request is answered mid-turn without disturbing the turn.** `generate_session_title` rides the control plane, which is answered independently of whatever turn is running on the conversation plane. Against 2.1.280, a title request sent in the same breath as the first user turn was answered while that turn was still streaming, and the turn finished exactly as if it had not been asked at all.
 
-```json
-{"type":"ai-title","aiTitle":"OAuth2 login with Google","sessionId":"dcf361e4-…"}
-```
+**When the CLI does write an `ai-title` line for a session, only the first one lands in the transcript.** Asking again returns a new title in the control response, and the transcript keeps the original — measured by titling one session twice and finding two identical `ai-title` lines against two different replies. So the control response is the authoritative delivery path, not a shortcut past the watcher's debounce: a re-title reaches the UI only because `HeadlessSession` applies the reply itself.
 
-That side effect is what makes this cheap to adopt: `AgentTitleMonitor` already watches for `ai-title`, and `SessionJSONLReader.latestAITitle` already reads it, so a first title reaches `TitleStore` and the sidebar with no new delivery path.
-
-**Only the first title of a session is written to the transcript, though.** Asking again returns a new title in the control response, and the transcript keeps the original — measured by titling one session twice and finding two identical `ai-title` lines against two different replies. So the control response is the authoritative delivery path, not a shortcut past the watcher's debounce: a re-title reaches the UI only because `HeadlessSession` applies the reply itself. It also means `latestAITitle` answers "has this session ever been titled", which is what `SessionTitleRequester` uses it for.
+`TitleStore` ranks each tab's title by `TitleSource` — `fallback` < `transcript` < `reply` — and only accepts a title whose source ranks at or above the one already recorded. This matters because `AgentTitleMonitor` gets re-watched (a relaunch, `EnterWorktree` relocating the transcript, an unarchive) and re-reads the transcript's `ai-title` fresh on every watch; since that line stays frozen at the first title, a re-watch after a reply has retitled the tab would otherwise clobber it right back to the stale first title. Ranking, not the watcher's own dedup, is what stops that.
 
 **An empty `description` is answered with `{"title": null}`**, not an error. So a decline and a failure are distinct — null means the CLI had nothing to work with, an `error` subtype means the request was malformed — and neither ever yields a bad title string. Plume treats both the same way: keep whatever the tab is already called.
 
-`SessionTitleRequester` decides when to ask, since every request is a model call: once when the conversation has something to describe, again when a plan file names the work better than the opening message did, and every tenth turn after that. Never on the terminal transport, whose TUI titles itself.
+`SessionTitleRequester` decides when to ask, since every request is a model call: once as soon as the opening message reaches the agent, and again when a plan file names the work better than the opening message did. Never on the terminal transport, whose TUI titles itself.
 
 ## Remote Control — `remote_control`
 
