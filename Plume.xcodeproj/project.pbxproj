@@ -510,6 +510,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Configuration/Info.plist;
+				PLUME_BUILD_SOURCE_ROOT = "$(SRCROOT)";
 				PLUME_DISPLAY_NAME = "Plume α";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -544,6 +545,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Configuration/Info.plist;
+				PLUME_BUILD_SOURCE_ROOT = "";
 				PLUME_DISPLAY_NAME = Plume;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

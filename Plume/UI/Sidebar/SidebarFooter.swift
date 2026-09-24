@@ -6,7 +6,8 @@ import SwiftData
 
 /// Pinned to the bottom of the sidebar, below the task list rather than
 /// after its last row — it stays put whether the list is empty or
-/// overflowing. The quota reading sits at the top, then the actions.
+/// overflowing. The quota reading sits at the top (below a build label in
+/// DEBUG), then the actions.
 struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -31,6 +32,9 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
+#if DEBUG
+                SidebarBuildLabel()
+#endif
                 if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }
                 if installedProviders.contains(.codex) { SidebarCodexQuotaRow() }
 
