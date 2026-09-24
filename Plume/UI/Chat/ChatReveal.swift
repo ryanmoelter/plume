@@ -72,6 +72,12 @@ final class MessageReveal {
     }
 
     private func phase(across start: Double, _ end: Double) -> RevealSpan.Phase {
+        // Non-text pieces (tool calls, thinking, notices) use a zero-width
+        // gate at their reveal offset. There is no character span for the
+        // ordinary `faded >= end` check to cross, so show that boundary once
+        // the reveal reaches it. A normal span still follows its end, even
+        // when its start happens to be beyond the current target.
+        if start == end && position >= start { return .shown }
         if faded >= end { return .shown }
         if position <= start { return .hidden }
         return .partial
@@ -607,7 +613,7 @@ private struct RevealGate: ViewModifier {
     func body(content: Content) -> some View {
         let isShown: Bool = context.map { context in
             let offset = Double(context.offset)
-            return context.reveal.span(across: offset, offset + 1).phase != .hidden
+            return context.reveal.span(across: offset, offset).phase != .hidden
         } ?? true
         content
             .opacity(isShown ? 1 : 0)
