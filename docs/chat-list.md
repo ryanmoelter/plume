@@ -16,7 +16,7 @@ An earlier version rendered messages in a SwiftUI `LazyVStack` instead, and hung
 
 `ChatListCommands` (`ChatListController.swift`) is the handle `ChatMessageList` calls into: `jump(to:)`, `scrollToBottom(animated:)`, and `pin(pieceID:)`, each forwarding to the matching controller method. `ChatMessageList` holds one in `@State` before the representable's `makeCoordinator()` has ever run, and `makeNSView` sets `commands.controller` to the real controller once it exists.
 
-`ChatListInputs` (top of `ChatListController.swift`) is the one value the SwiftUI side hands down each render: the pieces, the tab id, the subagent list, whether motion is on, the trailing inset the composer covers, the chat font size, when the current turn started, and the `arrivals`/`openings` sets that mark which pieces should grow in or type from zero. It is `Equatable`, and `ChatListView.updateNSView` only calls `controller.update(_:)` when it actually changed, so an unrelated SwiftUI re-render costs nothing on the AppKit side.
+`ChatListInputs` (top of `ChatListController.swift`) is the one value the SwiftUI side hands down each render: the pieces, the tab id, the subagent list, whether motion is on, the trailing inset the composer covers, the chat font size, when the current turn started, and the `arrivals` set that marks which pieces should grow in. It is `Equatable`, and `ChatListView.updateNSView` only calls `controller.update(_:)` when it actually changed, so an unrelated SwiftUI re-render costs nothing on the AppKit side.
 
 `update(_:)` diffs the old and new inputs field by field. A change to `pieces` or `tabID` rebuilds the item list (`rebuildItems`, which also frees hosts for anything removed); a change to `trailingInset` eases the composer room; turning `animate` off snaps every in-flight ease to its target instead of leaving it stranded mid-flight; a change to `chatFontSize` or `workStartedAt` marks every realized host stale so its root gets rebuilt with the new environment. `ChatListDocumentView.layout()`, AppKit's own layout hook, is what actually calls `layoutPass()`. `update(_:)` and everything else only ever request one, through `documentView.needsLayout = true`.
 
@@ -69,7 +69,7 @@ Hosts are pooled. `dequeueHost()` pops a spare `NSHostingView` before creating o
 
 ## The environment a fresh root needs
 
-A fresh `NSHostingView` root starts with none of the ambient SwiftUI environment a view mounted inside `ChatMessageList` would normally inherit. `ChatListItemRoot` (bottom of `ChatListController.swift`) puts back everything a row reads: `plumeTheme(bodySize:)`, `\.chatFontSize`, `\.revealClock`, and `\.workStartedAt`. **Any new environment key a chat row starts reading has to be added here too**, or the row silently renders with SwiftUI's default for that key instead of failing loudly.
+A fresh `NSHostingView` root starts with none of the ambient SwiftUI environment a view mounted inside `ChatMessageList` would normally inherit. `ChatListItemRoot` (bottom of `ChatListController.swift`) puts back everything a row reads: `plumeTheme(bodySize:)`, `\.chatFontSize`, `\.chatRevealModel`, and `\.workStartedAt`. **Any new environment key a chat row starts reading has to be added here too**, or the row silently renders with SwiftUI's default for that key instead of failing loudly.
 
 ## Send-to-top and slack
 
@@ -100,6 +100,16 @@ A code block's horizontal scroller is an `NSScrollView` of its own, and AppKit g
 ## Code blocks draw whole
 
 A code block is never split — `ChatPieceSplitter` gives it one piece however long it is — and `CodeSegmentView` draws it at full height with no scroll ceiling of its own; the list's own scroll view is the only scroll. `ChatPieceEstimate` guesses a code block's initial height from its full line count for the same reason. The disclosed-body ceiling (`ChatPieceMetrics.maxDisclosedHeight`) still bounds a tool call's input and result, a thinking block, and an injected line — that one is a reading choice, not a layout one, and applies regardless of how tall the surrounding list can go.
+
+## The streaming reveal
+
+A streamed reply lays out everything received the moment it arrives. `ChatRevealModel` (`ChatReveal.swift`) keeps one `MessageReveal` per message: a character index on a spring toward the newest character. `WordReveal`, a `TextRenderer`, fades each word in over a fixed time from when that index reaches it. The reveal only decides opacity at draw time, so it never re-parses or re-wraps text.
+
+- **The list holds back pieces the reveal has not reached.** `ChatMessageList.showRevealedPieces()` hands the list only reached pieces, so a piece takes room when its first word starts fading. It then arrives through the ordinary grow-in.
+- **Each `Text` observes only its own span.** `MessageReveal.span(across:_:)` gives each stretch of the message an observable phase: hidden, partial or shown. A frame re-renders only the `Text`s whose phase it changes, plus the one or two mid-fade that read the per-frame position. Observing a shared coarse position instead re-rendered every `Text` in the reply each time it moved, which grew to hundreds of body runs a second on a long reply.
+- **The reveal draws at 60 fps.** A new renderer value makes SwiftUI re-size the `Text`, so every reveal frame costs a small layout. At the display's 120 Hz it cost about 7 more points of main-thread CPU while streaming, with no visible gain.
+
+`RevealTuning` holds the spring and fade constants. A debug build exposes them in Settings; a release build always uses `RevealTuning.Values.defaults`.
 
 ## The `chat-list` log category
 

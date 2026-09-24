@@ -69,9 +69,8 @@ nonisolated enum MarkdownBlock: Equatable {
 
     /// A block alongside the raw lines it was parsed from.
     ///
-    /// The streaming overlay needs the source of the block still growing, so
-    /// the settled ones can be handed to the list as ordinary pieces while
-    /// only the tail keeps revealing.
+    /// A piece holding a whole block copies these lines rather than a
+    /// markdown rendering written back from the block.
     nonisolated struct Parsed: Equatable {
         let block: MarkdownBlock
         let source: String

@@ -14,21 +14,23 @@ struct ArchiveTests {
         ))
     }
 
-    /// The shared stores outlive any one test, and Swift Testing runs suites
-    /// in parallel in one process.
-    private func isolated(_ body: () throws -> Void) rethrows {
-        StatusEngine.shared.reset()
-        DraftStore.shared.reset()
+    /// Each fixture owns fresh IDs. Clearing the shared stores would erase
+    /// state belonging to asynchronous suites running alongside this one.
+    private func isolated(_ body: (ModelContext) throws -> Void) throws {
+        let context = try context()
         defer {
-            StatusEngine.shared.reset()
-            DraftStore.shared.reset()
+            for task in (try? context.fetch(FetchDescriptor<WorkTask>())) ?? [] {
+                for tab in task.tabs {
+                    StatusEngine.shared.forget(tabID: tab.id, taskID: task.id)
+                    DraftStore.shared.forget(tabID: tab.id)
+                }
+            }
         }
-        try body()
+        try body(context)
     }
 
     @Test func archivingMarksTheTask() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
 
             TaskStore.archive(task)
@@ -39,8 +41,7 @@ struct ArchiveTests {
     }
 
     @Test func archivingForgetsEveryTabsStores() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let second = TaskStore.addTab(to: task, kind: .agent, in: context)
             let first = try #require(task.tabs.first { $0.id != second.id })
@@ -55,8 +56,7 @@ struct ArchiveTests {
     }
 
     @Test func archivingClearsLiveStatus() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let tab = try #require(task.tabs.first)
             StatusEngine.shared.setStatus(.working, taskID: task.id, tabID: tab.id)
@@ -71,8 +71,7 @@ struct ArchiveTests {
     /// The archived task's agent is dead, so a sidebar row that still reads
     /// `working` invites the user back to nothing.
     @Test func unarchivingDoesNotRestoreTheStatusItWasArchivedWith() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let tab = try #require(task.tabs.first)
             StatusEngine.shared.setStatus(.working, taskID: task.id, tabID: tab.id)
@@ -91,8 +90,7 @@ struct ArchiveTests {
     /// task whose tabs the engine has never heard of can never leave
     /// `notStarted`.
     @Test func unarchivedTabsReportStatusAgain() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let tab = try #require(task.tabs.first)
 
@@ -108,8 +106,7 @@ struct ArchiveTests {
     /// `agentSessionID` is what `--resume` reads, and the transcript it names
     /// outlives the process, so teardown must not drop it.
     @Test func archivingKeepsWhatARelaunchNeeds() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             let tab = try #require(task.tabs.first)
             tab.agentSessionID = "session-abc"
@@ -125,15 +122,16 @@ struct ArchiveTests {
     }
 
     @Test func archivingKeepsTheTaskAndItsTabs() throws {
-        try isolated {
-            let context = try context()
+        try isolated { context in
             let task = TaskStore.createTask(in: context, siblings: [])
             TaskStore.addTab(to: task, kind: .terminal, in: context)
 
             TaskStore.archive(task)
 
-            #expect(try context.fetch(FetchDescriptor<WorkTask>()).count == 1)
-            #expect(try context.fetch(FetchDescriptor<TaskTab>()).count == 2)
+            let tasks = try context.fetch(FetchDescriptor<WorkTask>())
+            let tabs = try context.fetch(FetchDescriptor<TaskTab>())
+            #expect(tasks.count == 1)
+            #expect(tabs.count == 2)
         }
     }
 }

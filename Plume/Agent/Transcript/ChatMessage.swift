@@ -16,6 +16,8 @@ nonisolated struct ChatMessage: Identifiable, Equatable {
     let role: Role
     var blocks: [ChatBlock]
     let timestamp: Date?
+    /// Set while the stream is still writing this message.
+    var isLive = false
 }
 
 nonisolated enum ChatBlock: Equatable {

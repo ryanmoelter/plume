@@ -17,7 +17,6 @@ struct ChatListInputs: Equatable {
     /// Resolves relative paths in a clicked link.
     var linkDirectory: URL?
     var arrivals: Set<String> = []
-    var openings: Set<String> = []
 }
 
 /// The handle `ChatMessageList` keeps to ask the custom list for a scroll.
@@ -58,7 +57,7 @@ final class ChatListController: NSObject {
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
-    var revealClock: RevealClock?
+    var revealModel: ChatRevealModel?
 
     private(set) var inputs = ChatListInputs()
     private var model = ChatLayoutModel()
@@ -92,8 +91,10 @@ final class ChatListController: NSObject {
     /// rubber-banding past the end included — is left where they are.
     private var lastResolvedOffset: CGFloat?
     private var consumedArrivals: Set<String> = []
-    private var consumedOpenings: Set<String> = []
     private var arriving: Set<String> = []
+    /// Working indicators the pieces no longer hold, fading and collapsing
+    /// in place of vanishing, each keyed to the piece it followed.
+    private var departing: [String: Departure] = [:]
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
 
@@ -113,6 +114,12 @@ final class ChatListController: NSObject {
         let view: NSHostingView<AnyView>
         let state: ChatListItemState
         let generation: Int
+    }
+
+    private struct Departure {
+        let piece: ChatPiece
+        let after: String?
+        var isCollapsing = false
     }
 
     private struct Measurement {
@@ -204,7 +211,7 @@ final class ChatListController: NSObject {
         var stale: Set<String> = []
 
         if new.pieces != old.pieces || new.tabID != old.tabID {
-            stale.formUnion(rebuildItems(previous: old.pieces))
+            stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
         if new.trailingInset != old.trailingInset {
             if new.animate, model.viewportHeight > 0, documentView.window != nil {
@@ -216,6 +223,10 @@ final class ChatListController: NSObject {
         if new.animate != old.animate {
             if !new.animate {
                 for key in animator.eases.keys { animator.cancelEase(key) }
+                if !departing.isEmpty {
+                    departing.removeAll()
+                    _ = rebuildItems(previous: new.pieces)
+                }
                 model.snapDisplayHeights()
                 model.trailingInset = new.trailingInset
                 for host in hosts.values { host.state.containerHeight = nil; host.view.alphaValue = 1 }
@@ -237,20 +248,43 @@ final class ChatListController: NSObject {
     }
 
     /// Returns the ids of realized pieces whose content changed.
-    private func rebuildItems(previous: [ChatPiece]) -> Set<String> {
+    private func rebuildItems(previous: [ChatPiece], allowsDepartures: Bool = false) -> Set<String> {
         var next: [String: Item] = [:]
         var layoutItems: [ChatLayoutItem] = []
         layoutItems.reserveCapacity(inputs.pieces.count + 2)
         let width = max(1, model.measurementWidth)
         for piece in inputs.pieces {
             next[piece.id] = .piece(piece)
+        }
+        if allowsDepartures { startDepartures(from: previous, staying: next) }
+        for id in departing.keys where next[id] != nil {
+            departing[id] = nil
+            animator.cancelEase(id)
+            hosts[id]?.view.alphaValue = 1
+        }
+        var departuresAfter: [String?: [ChatPiece]] = [:]
+        for departure in departing.values {
+            let after = departure.after.flatMap { next[$0] == nil ? nil : $0 }
+            departuresAfter[after, default: []].append(departure.piece)
+        }
+        func appendDepartures(after id: String?) {
+            for piece in departuresAfter[id] ?? [] {
+                next[piece.id] = .piece(piece)
+                // Its inset is folded into the collapsing height, so the
+                // content below closes up continuously.
+                layoutItems.append(ChatLayoutItem(id: piece.id, estimatedHeight: 0))
+            }
+        }
+        for piece in inputs.pieces {
             layoutItems.append(ChatLayoutItem(
                 id: piece.id,
                 topInset: piece.paysInsetOutside ? piece.topInset : 0,
                 bottomInset: piece.bottomInset,
                 estimatedHeight: ChatPieceEstimate.height(of: piece, width: width)
             ))
+            appendDepartures(after: piece.id)
         }
+        appendDepartures(after: nil)
         if inputs.tabID != nil {
             // The dock needs a click, so it stays above the composer; the
             // subagent rows fold behind it and only their header holds.
@@ -263,9 +297,11 @@ final class ChatListController: NSObject {
         }
         items = next
         model.setItems(layoutItems)
+        for (id, departure) in departing where !departure.isCollapsing {
+            beginCollapse(id, topInset: departure.piece.paysInsetOutside ? departure.piece.topInset : 0)
+        }
         for id in Array(hosts.keys) where next[id] == nil { free(id, force: true) }
         consumedArrivals = consumedArrivals.intersection(next.keys)
-        consumedOpenings = consumedOpenings.intersection(next.keys)
 
         var before: [String: ChatPiece] = [:]
         for piece in previous { before[piece.id] = piece }
@@ -278,6 +314,7 @@ final class ChatListController: NSObject {
         for id in ids {
             guard let host = hosts[id], let item = items[id] else { continue }
             host.view.rootView = makeRoot(for: item, id: id, state: host.state, generation: host.generation)
+            applyClipping(for: item, view: host.view, state: host.state)
         }
     }
 
@@ -392,6 +429,8 @@ final class ChatListController: NSObject {
                 host.state.containerHeight = value
                 if arriving.contains(key) {
                     host.view.alphaValue = ease.progress(at: now)
+                } else if departing[key] != nil {
+                    host.view.alphaValue = 1 - ease.progress(at: now)
                 }
             } else {
                 model.setDisplayHeight(value, for: key)
@@ -406,12 +445,39 @@ final class ChatListController: NSObject {
                 easedOffset = nil
             }
         }
+        var departed = false
         for key in animator.eases.keys where animator.eases[key]!.isFinished(at: now) {
             finishArrival(key)
+            if departing.removeValue(forKey: key) != nil { departed = true }
         }
         animator.prune(at: now)
+        // Dropped from the items, which frees the host.
+        if departed { _ = rebuildItems(previous: inputs.pieces) }
         documentView.needsLayout = true
         documentView.layoutSubtreeIfNeeded()
+    }
+
+    /// A working indicator that leaves while showing fades and collapses
+    /// rather than vanishing, which would jump everything below it.
+    private func startDepartures(from previous: [ChatPiece], staying next: [String: Item]) {
+        guard inputs.animate, model.viewportHeight > 0, documentView.window != nil else { return }
+        for (index, piece) in previous.enumerated()
+        where piece.content == .working && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
+            departing[piece.id] = Departure(piece: piece, after: index > 0 ? previous[index - 1].id : nil)
+        }
+    }
+
+    private func beginCollapse(_ id: String, topInset: CGFloat) {
+        guard let host = hosts[id] else {
+            departing[id] = nil
+            return
+        }
+        departing[id]?.isCollapsing = true
+        finishArrival(id)
+        let from = model.displayHeight(of: id) + topInset
+        model.setDisplayHeight(from, for: id)
+        host.state.containerHeight = from
+        animator.ease(id, from: from, to: 0, duration: 0.2)
     }
 
     private func finishArrival(_ id: String) {
@@ -453,7 +519,7 @@ final class ChatListController: NSObject {
         applyPendingMeasurements()
         if widthChanged, width > 0 {
             reestimateUnmeasured()
-            for (id, host) in hosts {
+            for (id, host) in hosts where departing[id] == nil {
                 guard let item = items[id] else { continue }
                 remeasure(id: id, item: item, host: host)
             }
@@ -523,7 +589,7 @@ final class ChatListController: NSObject {
     private func applyPendingMeasurements() {
         let measurements = pendingMeasurements
         pendingMeasurements.removeAll()
-        for m in measurements {
+        for m in measurements where departing[m.id] == nil {
             let hadMeasurement = model.hasMeasurement(m.id)
             let before = model.displayHeight(of: m.id)
             guard model.setTargetHeight(m.height, for: m.id, width: m.width, generation: m.generation) else { continue }
@@ -572,13 +638,10 @@ final class ChatListController: NSObject {
 
     private func realize(id: String, item: Item) {
         let state = ChatListItemState()
-        if inputs.openings.contains(id), !consumedOpenings.contains(id) {
-            consumedOpenings.insert(id)
-            state.typesFromZero = true
-        }
         let generation = model.realize(id)
         let view = dequeueHost()
         view.rootView = makeRoot(for: item, id: id, state: state, generation: generation)
+        applyClipping(for: item, view: view, state: state)
         let host = Host(view: view, state: state, generation: generation)
         hosts[id] = host
         let hadMeasurement = model.hasMeasurement(id)
@@ -610,6 +673,7 @@ final class ChatListController: NSObject {
         // applied, `fittingSize` would report the frame, not the content.
         host.state.containerHeight = nil
         host.view.rootView = makeRoot(for: item, id: id, state: host.state, generation: host.generation)
+        applyClipping(for: item, view: host.view, state: host.state)
         let measured = naturalHeight(of: host.view)
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: host.generation)
         // A width change re-wraps everything at once; easing every row would
@@ -651,6 +715,14 @@ final class ChatListController: NSObject {
         return view.fittingSize.height
     }
 
+    /// A washed piece stays clipped even while live, because its wash follows
+    /// the eased height and the text would spill past it.
+    private func applyClipping(for item: Item, view: NSHostingView<AnyView>, state: ChatListItemState) {
+        let overflows = if case let .piece(piece) = item { piece.isLive && piece.wash == .none } else { false }
+        state.clipsContent = !overflows
+        view.clipsToBounds = !overflows
+    }
+
     private func dequeueHost() -> NSHostingView<AnyView> {
         if let view = pool.popLast() { return view }
         let view = NSHostingView(rootView: AnyView(EmptyView()))
@@ -668,16 +740,15 @@ final class ChatListController: NSObject {
         }
         let environment = ChatListItemEnvironment(
             chatFontSize: inputs.chatFontSize,
-            revealClock: revealClock,
+            revealModel: revealModel,
             workStartedAt: inputs.workStartedAt,
             linkDirectory: inputs.linkDirectory
         )
         switch item {
         case let .piece(piece):
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, typesFromZero in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 ChatPieceView(
                     piece: piece,
-                    typesFromZero: typesFromZero,
                     containerState: state,
                     onNaturalHeight: onMeasure
                 )
@@ -687,14 +758,14 @@ final class ChatListController: NSObject {
             let subagents = inputs.subagents
             let tabID = inputs.tabID ?? UUID()
             let onOpen = onOpenSubagent
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
                     .listItemPadding(vertical: false)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state, _ in
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 PendingPermissionDock(tabID: tabID)
                     .listItemPadding(bleed: true)
                     .containerHeight(state, onMeasure: onMeasure)
@@ -732,13 +803,13 @@ final class ChatListDocumentView: NSView {
 /// The SwiftUI root of one hosted item.
 ///
 /// A fresh root has none of the list's environment, so this puts back what
-/// every row reads: the theme, the chat font size, the reveal clock and the
+/// every row reads: the theme, the chat font size, the reveal model and the
 /// working clock. It also lifts the lazy stack's height ceilings, which this
 /// list has no need of. It reads the item's state itself, so a height ease
 /// re-renders only this root.
 struct ChatListItemEnvironment {
     var chatFontSize: CGFloat
-    var revealClock: RevealClock?
+    var revealModel: ChatRevealModel?
     var workStartedAt: Date?
     /// Resolves relative paths in a clicked link. A hosted root inherits no
     /// environment, so the link handler has to be rebuilt here rather than
@@ -750,13 +821,13 @@ struct ChatListItemRoot<Content: View>: View {
     let state: ChatListItemState
     let width: CGFloat
     let environment: ChatListItemEnvironment
-    @ViewBuilder let content: (ChatListItemState, Bool) -> Content
+    @ViewBuilder let content: (ChatListItemState) -> Content
 
     var body: some View {
-        content(state, state.typesFromZero)
+        content(state)
             .frame(width: width, alignment: .top)
             .environment(\.chatFontSize, environment.chatFontSize)
-            .environment(\.revealClock, environment.revealClock)
+            .environment(\.chatRevealModel, environment.revealModel)
             .environment(\.workStartedAt, environment.workStartedAt)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)

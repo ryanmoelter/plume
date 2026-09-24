@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// The chat list does not use this: it places each block as its own lazy item
 /// (`ChatPieceSplitter`). What is left needing a whole document at once is a
-/// tool call's input, an injected line's body, and the streaming overlay.
+/// tool call's input and an injected line's body.
 struct MarkdownView: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -16,22 +16,15 @@ struct MarkdownView: View, ThemedView {
     /// else — the user's own message, a tool's output — stays in the system
     /// face so it reads as input rather than published prose.
     let isAgentVoice: Bool
-    /// The throttled fade bucket from `CharacterReveal`/`WordFade`, or nil
-    /// outside the streaming overlay. Forwarded to `MarkdownBlockView` so its
-    /// prose `Text`s can fade the newest words in — see `WordFade`'s doc
-    /// comment for why the trigger is bucketed rather than per-word.
-    var fadeStep: Int?
 
-    init(_ markdown: String, isAgentVoice: Bool = false, fadeStep: Int? = nil) {
+    init(_ markdown: String, isAgentVoice: Bool = false) {
         self.blocks = MarkdownCache.blocks(for: markdown)
         self.isAgentVoice = isAgentVoice
-        self.fadeStep = fadeStep
     }
 
-    init(blocks: [MarkdownBlock], isAgentVoice: Bool = false, fadeStep: Int? = nil) {
+    init(blocks: [MarkdownBlock], isAgentVoice: Bool = false) {
         self.blocks = blocks
         self.isAgentVoice = isAgentVoice
-        self.fadeStep = fadeStep
     }
 
     var body: some View {
@@ -42,7 +35,7 @@ struct MarkdownView: View, ThemedView {
             // rebuilds the whole subtree. A trace caught this rebuilding
             // markdown blocks ~31,000 times over 15 seconds of scrolling.
             ForEach(blocks.indices, id: \.self) { index in
-                MarkdownBlockView(block: blocks[index], isAgentVoice: isAgentVoice, fadeStep: fadeStep)
+                MarkdownBlockView(block: blocks[index], isAgentVoice: isAgentVoice)
                     .padding(.top, ChatBlockSpacing.markdownBlockTopInset(
                         blocks[index],
                         at: index,

@@ -278,7 +278,14 @@ final class CodexItemStore {
     func transcript(forTab tabID: UUID) -> Transcript? {
         guard let items = tabs[tabID] else { return nil }
         let messages = items.order.compactMap { id in
-            items.values[id].flatMap(Self.message)
+            items.values[id].flatMap {
+                Self.message(
+                    $0,
+                    isLive: !items.historical.contains(id)
+                        && !items.completed.contains(id)
+                        && !items.cached.contains(id)
+                )
+            }
         }
         return Transcript(messages: messages)
     }
@@ -407,7 +414,7 @@ final class CodexItemStore {
         if items.completed.remove(legacyID) != nil { items.completed.insert(id) }
     }
 
-    private static func message(_ item: JSONValue) -> ChatMessage? {
+    private static func message(_ item: JSONValue, isLive: Bool) -> ChatMessage? {
         guard let id = item["id"]?.stringValue,
               let type = item["type"]?.stringValue
         else { return nil }
@@ -418,18 +425,19 @@ final class CodexItemStore {
             guard !blocks.isEmpty else { return nil }
             return ChatMessage(id: id, role: .user, blocks: blocks, timestamp: nil)
         case "agentMessage":
-            return textMessage(id: id, role: .assistant, block: .markdown(item["text"]?.stringValue ?? ""))
+            return textMessage(id: id, role: .assistant, block: .markdown(item["text"]?.stringValue ?? ""), isLive: isLive)
         case "plan":
             let text = item["text"]?.stringValue ?? item["proposed_plan"]?.stringValue ?? ""
             return textMessage(
                 id: id,
                 role: .assistant,
-                block: .markdown(text.isEmpty ? "" : "## Plan\n\n" + text)
+                block: .markdown(text.isEmpty ? "" : "## Plan\n\n" + text),
+                isLive: isLive
             )
         case "reasoning":
             let summary = strings(item["summary"]).joined(separator: "\n")
             let content = strings(item["content"]).joined(separator: "\n")
-            return textMessage(id: id, role: .assistant, block: .thinking(summary.isEmpty ? content : summary))
+            return textMessage(id: id, role: .assistant, block: .thinking(summary.isEmpty ? content : summary), isLive: isLive)
         case "contextCompaction":
             return notice(id: id, kind: .compaction, title: "Conversation compacted")
         case "enteredReviewMode":
@@ -446,7 +454,7 @@ final class CodexItemStore {
             return nil
         default:
             guard let call = toolCall(item, type: type, id: id) else { return nil }
-            return ChatMessage(id: id, role: .assistant, blocks: [.toolCall(call)], timestamp: nil)
+            return ChatMessage(id: id, role: .assistant, blocks: [.toolCall(call)], timestamp: nil, isLive: isLive)
         }
     }
 
@@ -518,11 +526,11 @@ final class CodexItemStore {
         )
     }
 
-    private static func textMessage(id: String, role: ChatMessage.Role, block: ChatBlock) -> ChatMessage? {
+    private static func textMessage(id: String, role: ChatMessage.Role, block: ChatBlock, isLive: Bool = false) -> ChatMessage? {
         switch block {
         case .markdown(let text) where text.isEmpty: return nil
         case .thinking(let text) where text.isEmpty: return nil
-        default: return ChatMessage(id: id, role: role, blocks: [block], timestamp: nil)
+        default: return ChatMessage(id: id, role: role, blocks: [block], timestamp: nil, isLive: isLive && role == .assistant)
         }
     }
 

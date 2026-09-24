@@ -78,6 +78,22 @@ struct CodexOfflineHistoryTests {
         await store.flush(tabID: tabID)
     }
 
+    @Test func anIncompleteCachedItemDoesNotAnimateAsLive() throws {
+        let tabID = UUID()
+        let store = CodexItemStore()
+        store.restoreSnapshot(tabID: tabID, snapshot: .init(threadID: "thread", entries: [
+            .init(
+                stableID: "turn#message",
+                turnID: "turn",
+                item: message("Interrupted reply"),
+                completed: false,
+                historical: false
+            )
+        ]))
+
+        #expect(store.transcript(forTab: tabID)?.messages.first?.isLive == false)
+    }
+
     @Test func completedHydrationBeforeViewRestorePreventsStaleRowsReturning() async throws {
         let directory = try directory()
         defer { try? FileManager.default.removeItem(at: directory) }

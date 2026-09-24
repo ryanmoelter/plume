@@ -163,7 +163,7 @@ enum SmokeHarness {
 
         // PLUME_FAKE_STREAM=<seconds> appends a chunk of markdown to the first
         // agent tab's live text on that interval, restarting the message every
-        // 400 chunks, so the streaming overlay and its follow-bottom scroll
+        // 400 chunks, so the streamed reply and its follow-bottom scroll
         // run against a transcript rendered from disk with no process.
         if let tickValue = environment["PLUME_FAKE_STREAM"],
            let tick = Double(tickValue), tick > 0,

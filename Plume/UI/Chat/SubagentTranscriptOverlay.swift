@@ -60,7 +60,6 @@ struct SubagentTranscriptOverlay: View, ThemedView {
             for: messages,
             status: subagent.status,
             hiddenToolUseIDs: [],
-            streaming: ChatStreamHandoff.Overlay(),
             dimensions: dimensions
         )
     }

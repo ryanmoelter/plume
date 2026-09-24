@@ -172,9 +172,7 @@ enum ChatOutlineBuilder {
         var entries: [ChatOutline.Entry] = []
 
         for piece in pieces {
-            // The stream stands in for a message the transcript has yet to
-            // take over, and its pieces carry no real message id.
-            guard !piece.isStreaming, piece.messageID != "stream" else { continue }
+            guard piece.messageID != ChatPieceSplitter.workingID else { continue }
             let weight = self.weight(of: piece)
 
             if let kind = userInputKind(of: piece) {
@@ -307,7 +305,7 @@ enum ChatOutlineBuilder {
             proseWeight(of: notice.title, block: nil)
         case .image:
             imageWeight
-        case .streaming, .working:
+        case .working:
             0
         }
     }

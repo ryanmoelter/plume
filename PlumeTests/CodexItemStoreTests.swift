@@ -215,6 +215,27 @@ struct CodexItemStoreTests {
         #expect(messages.first?.blocks == [.markdown("complete")])
     }
 
+    @Test func onlyUnfinishedLiveItemsAreMarkedForReveal() throws {
+        let store = CodexItemStore()
+        let tabID = UUID()
+        store.upsert(tabID: tabID, item: item([
+            "id": .string("live"), "type": .string("agentMessage"), "text": .string("Streaming")
+        ]), lifecycle: .started)
+        store.upsert(tabID: tabID, item: item([
+            "id": .string("done"), "type": .string("agentMessage"), "text": .string("Finished")
+        ]), lifecycle: .completed)
+        store.mergeHistory(tabID: tabID, entries: [item([
+            "turnId": .string("old"), "item": item([
+                "id": .string("history"), "type": .string("agentMessage"), "text": .string("Earlier")
+            ])
+        ])], since: store.revision(forTab: tabID))
+
+        let messages = try #require(store.transcript(forTab: tabID)?.messages)
+        #expect(messages.first { $0.id == "live" }?.isLive == true)
+        #expect(messages.first { $0.id == "done" }?.isLive == false)
+        #expect(messages.first { $0.id == "old#history" }?.isLive == false)
+    }
+
     @Test func historyPagesStayOrderedAroundInterleavedLiveRows() throws {
         let store = CodexItemStore()
         let tabID = UUID()

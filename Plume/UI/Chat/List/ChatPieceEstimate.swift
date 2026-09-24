@@ -27,8 +27,6 @@ enum ChatPieceEstimate {
             30
         case .image:
             200
-        case .streaming:
-            60
         }
         return max(1, base) + (piece.wash == .none ? 0 : 20)
     }

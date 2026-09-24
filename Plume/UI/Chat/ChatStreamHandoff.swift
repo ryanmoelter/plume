@@ -1,101 +1,126 @@
 import Foundation
 
-/// Decides what live text the chat should draw beneath the transcript, and
-/// when the transcript has taken over.
+/// Merges the reply the stream is writing into the transcript's messages, so
+/// the chat draws one list whichever source a message came from.
 ///
-/// The hard part is the seam. A turn's text arrives twice: first as stream
-/// deltas, then as transcript lines the file watcher re-reads on a 250ms
-/// debounce. Drop the stream the moment the turn's `result` lands and the
-/// reply blinks out until the file catches up; keep it and the same paragraph
-/// renders twice. So `HeadlessSession` retains the finished text rather than
-/// clearing it, and this decides — from content, not from timing — whether the
-/// transcript already shows it.
+/// A turn's text arrives twice: first as stream deltas, then as transcript
+/// lines the file watcher re-reads on a 250ms debounce. Both carry the API
+/// message id, and the transcript keys an assistant message by it, so the live
+/// reply is simply that message before the transcript has caught up —
+/// `HeadlessSession` retains the finished text until it has.
 enum ChatStreamHandoff {
-    /// What to draw below the last transcript message.
-    struct Overlay: Equatable {
+    /// The message the stream is writing.
+    struct LiveMessage: Equatable {
+        var id: String?
         var thinking: String = ""
         var text: String = ""
 
         var isEmpty: Bool { thinking.isEmpty && text.isEmpty }
-    }
 
-    /// - Parameters:
-    ///   - streamedText: the session's live or just-settled assistant text.
-    ///   - streamedThinking: the same for thinking.
-    ///   - transcriptTail: the markdown of the transcript's trailing assistant
-    ///     message, in order. Empty when the last message is not the agent's.
-    static func overlay(
-        streamedText: String,
-        streamedThinking: String,
-        transcriptTail: [String]
-    ) -> Overlay {
-        Overlay(
-            thinking: streamedThinking,
-            text: isCoveredByTranscript(streamedText, tail: transcriptTail) ? "" : streamedText
-        )
-    }
+        init(id: String? = nil, thinking: String = "", text: String = "") {
+            self.id = id
+            self.thinking = thinking
+            self.text = text
+        }
 
-    /// The stream's prose split into what has settled and what is still
-    /// growing.
-    ///
-    /// Only the last block can still change, so everything above it is handed
-    /// to the list as ordinary markdown pieces and only the tail keeps
-    /// revealing. This is what stops a long reply from being one item over a
-    /// thousand points tall while it arrives.
-    struct SettledStream: Equatable {
-        var blocks: [MarkdownBlock] = []
-        /// Each settled block's own source, in the same order. A block the
-        /// stream wrote keeps it so its piece can go on typing after the
-        /// block completes.
-        var sources: [String] = []
-        /// The raw source of the block still arriving.
-        var tail: String = ""
-        var tailBlock: MarkdownBlock?
-
-        var settled: [MarkdownBlock.Parsed] {
-            zip(blocks, sources).map { MarkdownBlock.Parsed(block: $0, source: $1) }
+        /// Claude exposes the in-flight reply as a trailing text overlay.
+        /// Other agent transports (currently Codex) publish their in-flight
+        /// items through their own transcript store and therefore contribute
+        /// an empty overlay here.
+        init(session: (any AgentSession)?) {
+            guard let session, session is HeadlessSession else {
+                self.init(id: nil)
+                return
+            }
+            self.init(
+                id: (session as? HeadlessSession)?.streamingMessageID,
+                thinking: session.streamingThinking,
+                text: session.streamingText
+            )
         }
     }
 
-    static func settledBlocks(in text: String) -> SettledStream {
-        let parsed = MarkdownBlock.parseWithSources(text)
-        guard let last = parsed.last else { return SettledStream() }
-        return SettledStream(
-            blocks: parsed.dropLast().map(\.block),
-            sources: parsed.dropLast().map(\.source),
-            tail: last.source,
-            tailBlock: last.block
-        )
+    /// Stands in for a stream that never said which message it is writing.
+    static let unidentifiedLiveID = "live"
+
+    static func merge(_ messages: [ChatMessage], live: LiveMessage) -> [ChatMessage] {
+        guard !live.isEmpty else { return messages }
+        var messages = messages
+
+        if let id = live.id,
+           let index = messages.lastIndex(where: { $0.id == id && $0.role == .assistant }) {
+            messages[index] = merged(messages[index], live: live)
+            return messages
+        }
+
+        // The transcript wrote the message under an id the stream never
+        // named — an older CLI, say. Match by content instead.
+        if let last = messages.indices.last, messages[last].role == .assistant,
+           covers(messages[last].blocks, text: live.text),
+           live.thinking.isEmpty || messages[last].blocks.contains(where: \.isThinking) {
+            return messages
+        }
+
+        var blocks: [ChatBlock] = []
+        if !live.thinking.isEmpty { blocks.append(.thinking(live.thinking)) }
+        if !live.text.isEmpty { blocks.append(.markdown(live.text)) }
+        messages.append(ChatMessage(
+            id: live.id ?? unidentifiedLiveID,
+            role: .assistant,
+            blocks: blocks,
+            timestamp: nil,
+            isLive: true
+        ))
+        return messages
+    }
+
+    /// The transcript's copy of the message with whatever the stream has that
+    /// it does not yet. Claude Code writes a line per finished content block,
+    /// so the transcript can hold the thinking while the text still streams.
+    private static func merged(_ message: ChatMessage, live: LiveMessage) -> ChatMessage {
+        var message = message
+        let textIsCovered = covers(message.blocks, text: live.text)
+        if !live.thinking.isEmpty, !message.blocks.contains(where: \.isThinking) {
+            message.blocks.insert(.thinking(live.thinking), at: 0)
+        }
+        if !textIsCovered {
+            // Text comes after the thinking and before any tool call.
+            let index = message.blocks.firstIndex(where: \.isToolCall) ?? message.blocks.endIndex
+            message.blocks.insert(.markdown(live.text), at: index)
+            message.isLive = true
+        }
+        return message
     }
 
     /// Whether the transcript already carries this streamed text.
     ///
     /// A prefix match rather than equality: the transcript's own block may
     /// carry trailing whitespace the stream did not, and a turn that ended
-    /// early leaves the stream holding a prefix of what was written. Matching
-    /// either way round means the overlay retires as soon as the same words
-    /// exist on disk.
-    static func isCoveredByTranscript(_ streamedText: String, tail: [String]) -> Bool {
+    /// early leaves the stream holding a prefix of what was written.
+    static func covers(_ blocks: [ChatBlock], text streamedText: String) -> Bool {
         let streamed = normalize(streamedText)
         guard !streamed.isEmpty else { return true }
-        return tail.contains { block in
-            let text = normalize(block)
+        return blocks.contains { block in
+            guard case .markdown(let markdown) = block else { return false }
+            let text = normalize(markdown)
             guard !text.isEmpty else { return false }
             return text.hasPrefix(streamed) || streamed.hasPrefix(text)
         }
     }
 
-    /// The trailing assistant message's markdown blocks, or nothing when the
-    /// transcript's last message is a user turn or a notice.
-    static func trailingAssistantMarkdown(_ messages: [ChatMessage]) -> [String] {
-        guard let last = messages.last, last.role == .assistant else { return [] }
-        return last.blocks.compactMap { block in
-            if case .markdown(let text) = block { return text }
-            return nil
-        }
-    }
-
     private static func normalize(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension ChatBlock {
+    var isThinking: Bool {
+        if case .thinking = self { return true }
+        return false
+    }
+
+    var isToolCall: Bool {
+        if case .toolCall = self { return true }
+        return false
     }
 }

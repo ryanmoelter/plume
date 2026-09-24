@@ -52,6 +52,7 @@ nonisolated enum TranscriptParser {
         var pendingAssistantTimestamp: Date?
 
         var pendingToolCalls: [String: ToolCallLocation] = [:]
+        var assistantIDs: Set<String> = []
 
         func flushPendingAssistant() {
             guard !pendingAssistantBlocks.isEmpty else { return }
@@ -179,7 +180,16 @@ nonisolated enum TranscriptParser {
                         continue
                     }
                 }
-                if pendingAssistantID == nil { pendingAssistantID = entry.uuid }
+                // Keyed by the API message id, which the live stream also
+                // knows, so the reply keeps its identity when the transcript
+                // takes it over. The line's own uuid covers a repeat.
+                if pendingAssistantID == nil {
+                    if let apiID = message.id, assistantIDs.insert(apiID).inserted {
+                        pendingAssistantID = apiID
+                    } else {
+                        pendingAssistantID = entry.uuid
+                    }
+                }
                 if pendingAssistantTimestamp == nil { pendingAssistantTimestamp = entry.timestamp }
 
             case ("user", "user"):

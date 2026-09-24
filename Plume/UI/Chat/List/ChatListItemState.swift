@@ -8,12 +8,12 @@ final class ChatListItemState {
     /// The height the container is drawing this item at. Nil draws the
     /// natural height, which is what the list uses with motion turned off.
     var containerHeight: CGFloat?
-    /// Set for a stream block that should type from nothing.
-    var typesFromZero = false
+    /// Off for a piece the stream is writing, so a new line draws whole below
+    /// the eased frame instead of being cut off while its space opens.
+    var clipsContent = true
 
-    init(containerHeight: CGFloat? = nil, typesFromZero: Bool = false) {
+    init(containerHeight: CGFloat? = nil) {
         self.containerHeight = containerHeight
-        self.typesFromZero = typesFromZero
     }
 }
 
@@ -41,6 +41,20 @@ private struct ContainerHeight: ViewModifier {
                 onMeasure(measured)
             }
             .frame(height: state.containerHeight, alignment: .top)
-            .clipped()
+            // A shape rather than a conditional `.clipped()`, so toggling
+            // never restructures the chain and remounts the content.
+            .clipShape(OverflowClip(allowsOverflow: !state.clipsContent))
+    }
+}
+
+/// The view's own bounds, or those bounds extended far enough downward that
+/// nothing below them is clipped.
+private struct OverflowClip: Shape {
+    let allowsOverflow: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var clip = rect
+        if allowsOverflow { clip.size.height += 100_000 }
+        return Path(clip)
     }
 }

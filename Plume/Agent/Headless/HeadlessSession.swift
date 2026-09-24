@@ -62,6 +62,8 @@ final class HeadlessSession: AgentSession {
     /// new turn clears it outright.
     private(set) var streamingText = ""
     private(set) var streamingThinking = ""
+    /// The API id of the message `streamingText` belongs to.
+    private(set) var streamingMessageID: String?
 
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
@@ -163,7 +165,10 @@ final class HeadlessSession: AgentSession {
     /// Feeds the live-text path without a process, so `SmokeHarness` can
     /// stream into a chat rendered from a transcript on disk.
     func debugStream(text delta: String, restart: Bool = false) {
-        if restart { streamingText = "" }
+        if restart || streamingMessageID == nil {
+            streamingText = ""
+            streamingMessageID = "debug-\(UUID().uuidString)"
+        }
         streamingText += delta
     }
     #endif
@@ -467,6 +472,7 @@ final class HeadlessSession: AgentSession {
             if event.eventType == "message_start" {
                 streamingText = ""
                 streamingThinking = ""
+                streamingMessageID = event.messageID
             }
             if let delta = event.textDelta { streamingText += delta }
             if let delta = event.thinkingDelta { streamingThinking += delta }
@@ -607,6 +613,7 @@ final class HeadlessSession: AgentSession {
     private func beginTurn() {
         streamingText = ""
         streamingThinking = ""
+        streamingMessageID = nil
         beginUnpromptedTurn()
     }
 
@@ -699,6 +706,7 @@ final class HeadlessSession: AgentSession {
         isWorking = false
         streamingText = ""
         streamingThinking = ""
+        streamingMessageID = nil
         exitStatus = status
         process = nil
         if status != 0, lastError == nil {
