@@ -10,6 +10,6 @@ struct TaskDetailView: View {
             Divider()
             TabContentView(task: task)
         }
-        .navigationTitle(task.title)
+        .navigationTitle(TitleStore.shared.displayTitle(for: task))
     }
 }

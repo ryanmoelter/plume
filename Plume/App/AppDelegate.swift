@@ -78,9 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Transparent titlebar plus an explicit background color makes the
     /// titlebar read as part of the tinted window instead of a separate gray
-    /// strip. Leaving `styleMask` untouched (no `.fullSizeContentView`) keeps
-    /// the traffic lights and content layout exactly where AppKit already
-    /// puts them.
+    /// strip. SwiftUI already gives this window `.fullSizeContentView`, so
+    /// content runs under the titlebar whether or not it is tinted.
     ///
     /// Applied once: the tint resolves its own light/dark variant per draw.
     private func tintTitlebar(of window: NSWindow) {

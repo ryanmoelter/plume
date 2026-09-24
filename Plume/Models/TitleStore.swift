@@ -60,7 +60,7 @@ final class TitleStore {
         return tabs.first
     }
 
-    /// What the sidebar shows for a task: the name the user gave it, else the
+    /// What the UI shows for a task: the name the user gave it, else the
     /// representative tab's title.
     func displayTitle(for task: WorkTask) -> String {
         let name = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -70,6 +70,6 @@ final class TitleStore {
             if let live = titles[tab.id], !live.isEmpty { return live }
             if let stored = tab.title, !stored.isEmpty { return stored }
         }
-        return "Untitled"
+        return "New task"
     }
 }

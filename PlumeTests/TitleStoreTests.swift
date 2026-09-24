@@ -40,11 +40,11 @@ struct TitleStoreTests {
         #expect(TitleStore().displayTitle(for: task) == "From last launch")
     }
 
-    @Test func aTaskWithNoTitleAnywhereReadsAsUntitled() throws {
+    @Test func aTaskWithNoTitleAnywhereReadsAsNewTask() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
 
-        #expect(TitleStore().displayTitle(for: task) == "Untitled")
+        #expect(TitleStore().displayTitle(for: task) == "New task")
     }
 
     @Test func aWhitespaceOnlyNameCountsAsUnnamed() throws {
