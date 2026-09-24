@@ -8,6 +8,15 @@ nonisolated enum AgentCLIInstallation {
         return installed
     }
 
+    /// UI-only overrides leave command lookup and running sessions untouched.
+    @MainActor static func displayedProviders(_ detected: Set<AgentProviderKind>) -> Set<AgentProviderKind> {
+        #if DEBUG
+        return AgentInstallationDebug.shared.applying(to: detected)
+        #else
+        return detected
+        #endif
+    }
+
     static func downloadTitle(for provider: AgentProviderKind) -> String {
         provider == .claudeCode ? "Download Claude Code…" : "Download Codex…"
     }

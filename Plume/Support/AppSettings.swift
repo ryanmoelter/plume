@@ -184,6 +184,12 @@ final class AppSettings {
         dismissedMissingProviders.insert(provider)
     }
 
+    #if DEBUG
+    func resetMissingProviderDismissal(_ provider: AgentProviderKind) {
+        dismissedMissingProviders.remove(provider)
+    }
+    #endif
+
     func reconcileInstalledProviders(_ installed: Set<AgentProviderKind>) {
         dismissedMissingProviders.subtract(installed)
     }

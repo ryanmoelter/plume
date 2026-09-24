@@ -29,8 +29,8 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
-                if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }
-                if installedProviders.contains(.codex) { SidebarCodexQuotaRow() }
+                if AgentCLIInstallation.displayedProviders(installedProviders).contains(.claudeCode) { SidebarQuotaRow() }
+                if AgentCLIInstallation.displayedProviders(installedProviders).contains(.codex) { SidebarCodexQuotaRow() }
 
 #if DEBUG
                 Button {

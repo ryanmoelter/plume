@@ -43,7 +43,7 @@ final class ModelPopupButton: NSButton {
             }.value
             guard let self else { return }
             checking = false
-            guard window != nil, let menu = makeMenu?(installed) else { return }
+            guard window != nil, let menu = makeMenu?(AgentCLIInstallation.displayedProviders(installed)) else { return }
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.minY), in: self)
         }
     }

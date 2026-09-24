@@ -18,6 +18,10 @@ struct SettingsView: View {
     @State private var helperError: String?
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
+    private var displayedProviders: Set<AgentProviderKind>? {
+        installedProviders.map { AgentCLIInstallation.displayedProviders($0) }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -52,7 +56,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let installedProviders, installedProviders.count < AgentProviderKind.allCases.count {
+            #if DEBUG
+            AgentInstallationDebugSection()
+            #endif
+
+            if let installedProviders = displayedProviders, installedProviders.count < AgentProviderKind.allCases.count {
                 Section("Install agents") {
                     ForEach(AgentProviderKind.allCases.filter { !installedProviders.contains($0) }) { provider in
                         Link(destination: AgentCLIInstallation.downloadURL(for: provider)) {
@@ -431,7 +439,9 @@ struct SettingsView: View {
             let installed = await Task.detached(priority: .utility) { AgentCLIInstallation.installedProviders() }.value
             guard !Task.isCancelled else { return }
             installedProviders = installed
-            settings.reconcileInstalledProviders(installed)
+        }
+        .onChange(of: displayedProviders) { _, installed in
+            if let installed { settings.reconcileInstalledProviders(installed) }
         }
         .formStyle(.grouped)
         .frame(width: 460)
