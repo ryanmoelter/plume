@@ -30,7 +30,7 @@ struct CodexRemoteControlNotice: View, ThemedView {
                 .buttonStyle(.plain)
                 .help("Show Codex remote access and pairing details")
                 .transition(.opacity)
-                .accessibilityIdentifier(AccessibilityID.remoteControlToast)
+                .plumeID(AccessibilityID.remoteControlToast, label: title, value: error)
             }
         }
         .sheet(isPresented: $showsDetails) { CodexRemoteControlPanel(remote: remote) }
@@ -65,10 +65,10 @@ struct CodexRemoteControlPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Codex Remote Control").font(.headline)
+            Text("Codex Remote Control (Beta)").font(.headline)
             Text("Remote access applies to the Codex host, including its conversations and local tools. It is not limited to this chat.")
                 .foregroundStyle(.secondary)
-            Text("Remote access runs through the Plume tab that connected this host. Other running tabs keep separate connections. Closing the hosting tab ends remote access.")
+            Text("Remote access is shared by \(AppIdentity.displayName)’s connected Codex chat tabs. Terminal-mode tabs use separate servers. Closing one connected chat keeps the host available while another remains connected.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Label(statusText, systemImage: StatusSymbol.remoteControl.name)
@@ -78,6 +78,7 @@ struct CodexRemoteControlPanel: View {
                     Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
                 }
                 .disabled(remote.operation == .disabling)
+                .plumeID("codex-remote-toggle", label: remote.isAvailableForRemoteAccess ? "Disconnect" : "Connect", value: statusText)
             }
             if let error = remote.operationError {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
@@ -126,21 +127,31 @@ struct CodexRemoteControlPanel: View {
                     Task { await remote.startPairing() }
                 }
                 .disabled(remote.isLoadingPairing || remote.operation != nil)
+                .plumeID("codex-remote-generate-pairing", invoke: { Task { await remote.startPairing() } })
                 Divider()
                 HStack {
                     Text("Paired devices").font(.subheadline.bold())
                     Spacer()
                     Button("Refresh") { Task { await remote.refreshClients() } }
-                        .disabled(remote.isLoadingClients)
+                        .disabled(remote.isLoadingClients || remote.clientsUnavailable)
                 }
-                if remote.clients.isEmpty {
-                    Text(remote.isLoadingClients ? "Loading devices…" : "No paired devices.").foregroundStyle(.secondary)
+                if remote.clientsUnavailable {
+                    Text("This Codex version cannot list paired devices. Manage devices in ChatGPT Settings > Connections > Control other devices.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if remote.clients.isEmpty {
+                    Text(remote.isLoadingClients ? "Loading devices…" : remote.hasLoadedClients ? "No paired devices." : "Paired devices could not be loaded.")
+                        .foregroundStyle(.secondary)
+                }
+                if remote.revokeUnavailable {
+                    Text("This Codex version cannot revoke device access. Manage devices in ChatGPT Settings > Connections > Control other devices.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(remote.clients) { client in
                     HStack {
                         Text(client.displayName)
                         Spacer()
                         Button("Revoke Access", role: .destructive) { Task { await remote.revokeClient(client.id) } }
+                            .disabled(remote.revokeUnavailable)
                     }
                 }
             }

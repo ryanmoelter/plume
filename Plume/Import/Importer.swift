@@ -129,6 +129,7 @@ enum Importer {
         let kind: TabKind = plan.kind == .agent && sessionID != nil ? .agent : .terminal
 
         let tab = TaskTab(kind: kind, orderIndex: index, task: task)
+        tab.provider = plan.provider
         tab.title = plan.title
         tab.workingDirectoryPath = plan.workingDirectoryPath
 

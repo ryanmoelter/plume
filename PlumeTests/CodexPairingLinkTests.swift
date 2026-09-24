@@ -1,8 +1,23 @@
+import AppKit
+import CoreImage
 import Foundation
 import Testing
 @testable import Plume
 
 struct CodexPairingLinkTests {
+    @MainActor @Test func qrImageContainsDecodableSyntheticLink() throws {
+        let url = URL(string: "https://chatgpt.com/codex/pair?pairing_code=synthetic%2Bcode")!
+        let image = try #require(CodexPairingQRRenderer.image(for: url))
+        let data = try #require(image.tiffRepresentation)
+        let ciImage = try #require(CIImage(data: data))
+        let detector = try #require(CIDetector(ofType: CIDetectorTypeQRCode, context: CIContext(),
+                                              options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]))
+        let codes = detector.features(in: ciImage).compactMap { ($0 as? CIQRCodeFeature)?.messageString }
+        #expect(codes == [url.absoluteString])
+        #expect(image.size.width == image.size.height)
+        #expect(image.size.width > 180)
+    }
+
     @Test func opaquePairingCodeIsEncodedInVerifiedSetupRoute() throws {
         let now = Date(timeIntervalSince1970: 1000)
         let code = "opaque+code/&?=# value"

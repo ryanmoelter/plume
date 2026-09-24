@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 final class CodexSubagentStore {
-    static let shared = CodexSubagentStore()
+    static let shared = CodexSubagentStore(cache: .shared)
 
     private struct Child {
         let storeID: UUID
@@ -28,15 +28,106 @@ final class CodexSubagentStore {
     private let statusOverrides: SubagentStatusOverrides
     private var children: [UUID: [String: Child]] = [:]
     private var taskIDs: [UUID: UUID] = [:]
+    private let cache: CodexSubagentHistoryCache?
+    private var parentThreadIDs: [UUID: String] = [:]
+    private var bindings: [UUID: UUID] = [:]
+    private var restoredTabs: Set<UUID> = []
+    private var parentHydratedTabs: Set<UUID> = []
+    private var verifiedChildren: [UUID: Set<String>] = [:]
+    @ObservationIgnored private var cacheWrites: [UUID: Task<Void, Never>] = [:]
 
     init(
         statusEngine: StatusEngine = .shared,
         completionTracker: SubagentCompletionTracker = .shared,
-        statusOverrides: SubagentStatusOverrides = .shared
+        statusOverrides: SubagentStatusOverrides = .shared,
+        cache: CodexSubagentHistoryCache? = nil
     ) {
+        self.cache = cache
         self.statusEngine = statusEngine
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
+    }
+
+    /// Restore is independent of app-server startup and scoped to the parent
+    /// conversation, never just a child's globally unique thread identifier.
+    func restore(tabID: UUID, taskID: UUID, parentThreadID: String) async {
+        guard !parentThreadID.isEmpty else { return }
+        if let previous = parentThreadIDs[tabID], previous != parentThreadID { forget(tabID: tabID) }
+        parentThreadIDs[tabID] = parentThreadID
+        taskIDs[tabID] = taskID
+        if bindings[tabID] == nil { bindings[tabID] = UUID() }
+        guard let cache, let binding = bindings[tabID] else { return }
+        let saved = await cache.load(tabID: tabID, parentThreadID: parentThreadID)
+        guard !Task.isCancelled, bindings[tabID] == binding else { return }
+        restoredTabs.insert(tabID)
+        for savedChild in saved ?? [] {
+            // If the authoritative parent was read first, only children it
+            // still references are eligible; removed children stay removed.
+            if parentHydratedTabs.contains(tabID), verifiedChildren[tabID]?.contains(savedChild.threadID) != true { continue }
+            let existed = children[tabID]?[savedChild.threadID] != nil
+            var child = ensure(tabID: tabID, threadID: savedChild.threadID, authoritative: false)
+            child.path = child.path ?? savedChild.path
+            var descriptor = child.descriptor ?? SubagentDescriptor()
+            descriptor.description = descriptor.description ?? savedChild.description
+            descriptor.agentType = descriptor.agentType ?? savedChild.agentType
+            descriptor.toolUseID = descriptor.toolUseID ?? savedChild.toolUseID
+            descriptor.model = descriptor.model ?? savedChild.model
+            if !existed { descriptor.stoppedByUser = savedChild.stoppedByUser }
+            child.descriptor = descriptor.isEmpty ? nil : descriptor
+            child.modifiedAt = child.modifiedAt ?? savedChild.modifiedAt
+            if !existed || (!child.hasLiveLifecycle && child.status == .notStarted) {
+                child.status = Self.offlineStatus(savedChild.status)
+                child.hasLiveLifecycle = false
+            }
+            children[tabID, default: [:]][savedChild.threadID] = child
+            items.restoreSnapshot(tabID: child.storeID, snapshot: .init(threadID: savedChild.threadID, entries: savedChild.entries))
+        }
+        publish(tabID: tabID)
+    }
+
+    /// The parent transcript is authoritative for discovery. Child transcripts
+    /// may still be loading and can independently retain their saved content.
+    func parentHistoryHydrated(tabID: UUID) {
+        parentHydratedTabs.insert(tabID)
+        let valid = verifiedChildren[tabID] ?? []
+        for id in children[tabID]?.keys.map({ $0 }) ?? [] where !valid.contains(id) {
+            if let removed = children[tabID]?.removeValue(forKey: id) { items.forget(tabID: removed.storeID) }
+        }
+        publish(tabID: tabID)
+    }
+
+    func flush(tabID: UUID) async {
+        await cacheWrites[tabID]?.value
+        await cache?.flush(tabID: tabID)
+    }
+
+    private func persist(tabID: UUID) {
+        guard let cache, let parentThreadID = parentThreadIDs[tabID], restoredTabs.contains(tabID) else { return }
+        let snapshots = (children[tabID] ?? [:]).map { threadID, child in
+            CodexSubagentHistoryCache.Child(
+                threadID: threadID, path: child.path, description: child.descriptor?.description,
+                agentType: child.descriptor?.agentType, toolUseID: child.descriptor?.toolUseID,
+                model: child.descriptor?.model, stoppedByUser: child.descriptor?.stoppedByUser ?? false,
+                status: Self.offlineStatus(child.status.rawValue).rawValue, modifiedAt: child.modifiedAt,
+                entries: items.snapshot(tabID: child.storeID, threadID: threadID)?.entries ?? []
+            )
+        }.sorted {
+            if $0.modifiedAt == $1.modifiedAt { return $0.threadID < $1.threadID }
+            return ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast)
+        }
+        let previous = cacheWrites[tabID]
+        cacheWrites[tabID] = Task {
+            await previous?.value
+            await cache.schedule(tabID: tabID, parentThreadID: parentThreadID, children: snapshots)
+        }
+    }
+
+    private static func offlineStatus(_ raw: String) -> TaskStatus {
+        switch TaskStatus(rawValue: raw) {
+        case .done: .done
+        case .error: .error
+        default: .interrupted
+        }
     }
 
     func subagents(forTab tabID: UUID) -> [SubagentTranscript] {
@@ -61,7 +152,8 @@ final class CodexSubagentStore {
             )
         }
         return statusOverrides.applying(values, tabID: tabID).sorted {
-            ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast)
+            if $0.modifiedAt == $1.modifiedAt { return $0.id < $1.id }
+            return ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast)
         }
     }
 
@@ -116,6 +208,7 @@ final class CodexSubagentStore {
     func mergeHistory(tabID: UUID, threadID: String, entries: [JSONValue], since revision: Int) {
         let storeID = ensure(tabID: tabID, threadID: threadID).storeID
         items.mergeHistory(tabID: storeID, entries: entries, since: revision)
+        items.historyHydrated(tabID: storeID)
         update(tabID: tabID, threadID: threadID) { $0.hydrationError = nil }
         publish(tabID: tabID)
     }
@@ -169,7 +262,7 @@ final class CodexSubagentStore {
     func connectionClosed(tabID: UUID) {
         let threadIDs = children[tabID]?.keys.map { $0 } ?? []
         for threadID in threadIDs {
-            update(tabID: tabID, threadID: threadID) { child in
+            update(tabID: tabID, threadID: threadID, authoritative: false) { child in
                 if child.status == .working { child.status = .interrupted }
                 child.hasLiveLifecycle = true
             }
@@ -181,6 +274,11 @@ final class CodexSubagentStore {
         let forgotten = children.removeValue(forKey: tabID)?.values.map { $0 } ?? []
         for child in forgotten { items.forget(tabID: child.storeID) }
         taskIDs.removeValue(forKey: tabID)
+        parentThreadIDs.removeValue(forKey: tabID)
+        bindings.removeValue(forKey: tabID)
+        restoredTabs.remove(tabID)
+        parentHydratedTabs.remove(tabID)
+        verifiedChildren.removeValue(forKey: tabID)
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
     }
 
@@ -252,15 +350,16 @@ final class CodexSubagentStore {
         value?.stringValue ?? value?.arrayValue?.compactMap(\.stringValue).joined(separator: "/")
     }
 
-    @discardableResult private func ensure(tabID: UUID, threadID: String) -> Child {
+    @discardableResult private func ensure(tabID: UUID, threadID: String, authoritative: Bool = true) -> Child {
+        if authoritative { verifiedChildren[tabID, default: []].insert(threadID) }
         if let child = children[tabID]?[threadID] { return child }
         let child = Child(storeID: UUID(), path: nil, descriptor: nil, status: .notStarted, modifiedAt: nil, hydrationError: nil, revision: 0, hasLiveLifecycle: false)
         children[tabID, default: [:]][threadID] = child
         return child
     }
 
-    private func update(tabID: UUID, threadID: String, advanceRevision: Bool = true, body: (inout Child) -> Void) {
-        var child = ensure(tabID: tabID, threadID: threadID)
+    private func update(tabID: UUID, threadID: String, advanceRevision: Bool = true, authoritative: Bool = true, body: (inout Child) -> Void) {
+        var child = ensure(tabID: tabID, threadID: threadID, authoritative: authoritative)
         body(&child)
         if advanceRevision { child.revision += 1 }
         child.modifiedAt = .now
@@ -269,7 +368,7 @@ final class CodexSubagentStore {
 
     private func touch(tabID: UUID, threadID: String) {
         update(tabID: tabID, threadID: threadID) { child in
-            if child.status == .notStarted { child.status = .working }
+            if child.status == .notStarted || !child.hasLiveLifecycle { child.status = .working }
             child.hasLiveLifecycle = true
         }
         publish(tabID: tabID)
@@ -279,5 +378,6 @@ final class CodexSubagentStore {
         let subagents = subagents(forTab: tabID)
         completionTracker.observe(subagents, tabID: tabID)
         statusEngine.setSubagentActivity(tabID: tabID, working: subagents.contains { $0.status == .working })
+        persist(tabID: tabID)
     }
 }

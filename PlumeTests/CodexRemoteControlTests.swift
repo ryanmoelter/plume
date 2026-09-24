@@ -42,31 +42,41 @@ struct CodexRemoteControlTests {
     }
 
     @Test func codexRemoteStateFeedsTheSharedStayAwakeReasonsAndStopsOnClose() throws {
-        let manager = AgentSessionManager()
+        let wire = CodexAppServerClient(writeLine: { _ in true })
+        let host = CodexSharedAppServer(physical: wire)
+        let manager = AgentSessionManager(codexClientFactory: {
+            let endpoint = CodexAppServerClient(sharedServer: host)
+            try! endpoint.start(workingDirectory: nil, environment: [:])
+            return endpoint
+        })
         let tabID = UUID(), taskID = UUID()
         let session = try #require(manager.session(for: tabID, taskID: taskID, provider: .codex) as? CodexSession)
         defer { manager.closeAll() }
         session.remoteControl.receive(status("connecting"))
         #expect(session.isRemotelyControlled)
         let second = try #require(manager.session(for: UUID(), taskID: taskID, provider: .codex) as? CodexSession)
-        #expect(second.effectiveRemoteControl === session.remoteControl)
-        #expect(!second.isRemotelyControlled)
+        #expect(second.remoteControl === session.remoteControl)
+        #expect(second.isRemotelyControlled)
         #expect(manager.remoteControlledTabs.count == 1)
+        let representative = try #require(manager.remoteControlledTabs.first)
         let reasons = KeepAwakeCoordinator.deriveReasons(
-            activeTabs: [(taskID, tabID, .permissionNeeded)],
+            activeTabs: [(representative.taskID, representative.tabID, .permissionNeeded)],
             remoteControlledTabs: manager.remoteControlledTabs
         )
         #expect(reasons.map(\.kind) == [.remoteControl])
         let disabled = KeepAwakeCoordinator.deriveReasons(
-            activeTabs: [(taskID, tabID, .permissionNeeded)],
+            activeTabs: [(representative.taskID, representative.tabID, .permissionNeeded)],
             remoteControlledTabs: manager.remoteControlledTabs,
             allowsRemoteControl: false
         )
         #expect(disabled.isEmpty)
         manager.closeSession(for: tabID)
-        #expect(manager.remoteControlledTabs.isEmpty)
+        #expect(manager.remoteControlledTabs.count == 1)
         #expect(!session.isRemotelyControlled)
-        #expect(second.effectiveRemoteControl === second.remoteControl)
+        #expect(second.isRemotelyControlled)
+        manager.closeAll()
+        #expect(manager.remoteControlledTabs.isEmpty)
+        #expect(!second.isRemotelyControlled)
     }
 
     @Test func leaseAllowsOnlyOneHostAndAcknowledgedDisableReleasesIt() async {
@@ -171,6 +181,22 @@ struct CodexRemoteControlTests {
         #expect(controller.operation == nil)
     }
 
+    @Test func disabledNotificationBeforeEnableReplyDoesNotStrandHostLease() async throws {
+        let deferred = Deferred()
+        let lease = CodexRemoteControlLease()
+        let controller = CodexRemoteControl(lease: lease, request: deferred.request)
+        let enable = Task { await controller.setEnabled(true) }
+        try await waitUntil { deferred.replies["remoteControl/enable"] != nil }
+        controller.receive(status("disabled"))
+        deferred.reply("remoteControl/enable", status("connecting"))
+        await enable.value
+        #expect(controller.status == .disabled)
+        #expect(lease.owner == nil)
+        let other = CodexRemoteControl(lease: lease) { _, _ in self.status("connected") }
+        await other.setEnabled(true)
+        #expect(other.status == .connected)
+    }
+
     @Test func cancellingAnEnableCannotBeUndoneByItsLateReply() async throws {
         let deferred = Deferred()
         let controller = CodexRemoteControl(request: deferred.request)
@@ -204,6 +230,99 @@ struct CodexRemoteControlTests {
         controller.receive(status("connected"))
         #expect(controller.status == .disabled)
         #expect(!controller.isAvailableForRemoteAccess)
+    }
+
+    @Test func unsupportedDeviceListingLeavesPairingUsableAndDoesNotRetry() async {
+        var listCalls = 0
+        let controller = CodexRemoteControl { method, _ in
+            if method == "remoteControl/client/list" {
+                listCalls += 1
+                throw CodexAppServerClient.Failure.server(code: -32600, message: "Invalid request: unknown variant `remoteControl/client/list`, expected one of `initialize`, `thread/start`")
+            }
+            return .object(["environmentId": .string("environment"), "pairingCode": .string("test-only"), "expiresAt": .number(Date().addingTimeInterval(60).timeIntervalSince1970)])
+        }
+        controller.receive(status("connected"))
+        await controller.refreshClients()
+        await controller.refreshClients()
+        await controller.startPairing()
+        #expect(listCalls == 1)
+        #expect(controller.clientsUnavailable)
+        #expect(!controller.hasLoadedClients)
+        #expect(controller.operationError == nil)
+        #expect(controller.pairing?.isUsable == true)
+        #expect(controller.status == .connected)
+    }
+
+    @Test func unsupportedRevokePreservesPairedDeviceAndStopsRetrying() async {
+        var revokeCalls = 0
+        let controller = CodexRemoteControl { method, _ in
+            if method == "remoteControl/client/revoke" {
+                revokeCalls += 1
+                throw CodexAppServerClient.Failure.server(code: -32601, message: "Method not found")
+            }
+            return .object(["data": .array([.object(["clientId": .string("device"), "displayName": .string("Phone")])])])
+        }
+        controller.receive(status("connected"))
+        await controller.refreshClients()
+        await controller.revokeClient("device")
+        await controller.revokeClient("device")
+        #expect(revokeCalls == 1)
+        #expect(controller.revokeUnavailable)
+        #expect(controller.clients.count == 1)
+        #expect(controller.hasLoadedClients)
+        #expect(controller.operationError == nil)
+        #expect(controller.status == .connected)
+    }
+
+    @Test func unexpectedDeviceFailureIsBoundedAndDoesNotClaimEmptyInventory() async {
+        let controller = CodexRemoteControl { _, _ in
+            throw CodexAppServerClient.Failure.server(code: -1, message: String(repeating: "error ", count: 1000))
+        }
+        controller.receive(status("connected"))
+        await controller.refreshClients()
+        #expect(!controller.clientsUnavailable)
+        #expect(!controller.hasLoadedClients)
+        #expect(controller.operationError?.count == 401)
+    }
+
+    @Test func refreshSuccessClearsOnlyTheErrorFromThatOperation() async {
+        var failsStatus = true
+        var failsClients = false
+        let controller = CodexRemoteControl { method, _ in
+            if method == "remoteControl/status/read" {
+                if failsStatus { throw CodexAppServerClient.Failure.server(code: -1, message: "Status unavailable") }
+                return self.status("connected")
+            }
+            if failsClients { throw CodexAppServerClient.Failure.server(code: -1, message: "Devices unavailable") }
+            return .object(["data": .array([])])
+        }
+        controller.receive(status("connected"))
+        await controller.refresh()
+        #expect(controller.operationError == "Status unavailable")
+        await controller.refreshClients()
+        #expect(controller.operationError == "Status unavailable")
+        failsStatus = false
+        await controller.refresh()
+        #expect(controller.operationError == nil)
+        failsClients = true
+        await controller.refreshClients()
+        #expect(controller.operationError == "Devices unavailable")
+        await controller.refresh()
+        #expect(controller.operationError == "Devices unavailable")
+        failsClients = false
+        await controller.refreshClients()
+        #expect(controller.operationError == nil)
+        #expect(controller.status == .connected)
+    }
+
+    @Test func successfulStatusPollingKeepsCleanedUpConnectionFailureVisible() async throws {
+        let controller = CodexRemoteControl { _, _ in self.status("disabled") }
+        controller.receive(status("errored"))
+        try await waitUntil { controller.operation == nil }
+        let failure = try #require(controller.operationError)
+        await controller.refresh()
+        #expect(controller.operationError == failure)
+        #expect(controller.status == .errored)
     }
 
     @Test func pairingFailureDoesNotTurnOffALiveConnection() async {
@@ -261,7 +380,7 @@ struct CodexRemoteControlTests {
         var pages = 0
         let controller = CodexRemoteControl { method, params in
             #expect(params["environmentId"] == .string("environment"))
-            if method == "remoteControl/clients/revoke" {
+            if method == "remoteControl/client/revoke" {
                 revokeParams = params
                 return .object([:])
             }

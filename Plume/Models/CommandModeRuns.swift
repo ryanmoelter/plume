@@ -14,6 +14,7 @@ final class CommandModeRuns {
     struct Run: Identifiable {
         let id = UUID()
         let command: String
+        var taskID: UUID? = nil
         /// The newest line the command has printed, for a live preview while
         /// it works. Empty until it prints anything.
         var latestOutput = ""
@@ -32,6 +33,19 @@ final class CommandModeRuns {
 
     init() {}
 
+    /// Completed commands waiting to be sent are chips, not running work.
+    var activeCommands: [(tabID: UUID, taskID: UUID?, command: String)] {
+        runsByTab.flatMap { tabID, runs in
+            runs.filter { !$0.isQueued }.map { (tabID, $0.taskID, $0.command) }
+        }
+    }
+
+    func reparent(tabID: UUID, taskID: UUID) {
+        guard var runs = runsByTab[tabID] else { return }
+        for index in runs.indices { runs[index].taskID = taskID }
+        runsByTab[tabID] = runs
+    }
+
     func runs(forTab id: UUID) -> [Run] {
         runsByTab[id] ?? []
     }
@@ -49,9 +63,10 @@ final class CommandModeRuns {
         _ command: String,
         in directory: String?,
         tabID: UUID,
+        taskID: UUID? = nil,
         onFinish: @escaping (Run.ID, CommandModeResult) -> Void
     ) -> Run.ID {
-        var run = Run(command: command)
+        var run = Run(command: command, taskID: taskID)
         let runID = run.id
         run.task = Task {
             let result = await CommandModeRunner.run(command, in: directory) { line in

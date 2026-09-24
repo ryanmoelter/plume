@@ -51,12 +51,14 @@ final class SurfaceManager {
     /// Tears down a tab's terminal. Call when the tab or its task is deleted,
     /// never merely because the tab scrolled out of view.
     func closeSession(for id: UUID) {
+        CodexTerminalMonitor.shared.stop(tabID: id)
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.releaseHostedView()
         Log.ghostty.info("Closed surface for tab \(id, privacy: .public)")
     }
 
     func closeAll() {
+        CodexTerminalMonitor.shared.stopAll()
         for session in sessions.values {
             session.releaseHostedView()
         }

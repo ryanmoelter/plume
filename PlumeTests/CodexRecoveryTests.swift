@@ -9,6 +9,9 @@ struct CodexRecoveryTests {
         var client: CodexAppServerClient!
         var requests: [JSONValue] = []
         var failResume = false
+        var resumedThread: JSONValue?
+        var beforeResumeReply: (() -> Void)?
+        var beforeHistoryReply: (() -> Void)?
 
         init() {
             client = CodexAppServerClient { [weak self] line in
@@ -16,13 +19,15 @@ struct CodexRecoveryTests {
                       let request = try? JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)),
                       let method = request["method"]?.stringValue else { return true }
                 requests.append(request)
+                if method == "thread/resume" { beforeResumeReply?() }
+                if method == "thread/items/list" { beforeHistoryReply?() }
                 guard let id = request["id"], method != "turn/start" else { return true }
                 if method == "thread/resume", failResume {
                     reply(id: id, error: .object(["code": .number(-1), "message": .string("Thread unavailable")]))
                 } else {
                     let result: JSONValue = switch method {
                     case "thread/resume", "thread/start": .object([
-                        "thread": .object(["id": .string("thread")]),
+                        "thread": resumedThread ?? .object(["id": .string("thread")]),
                         "model": .string("gpt-6-astra"), "reasoningEffort": .string("medium")
                     ])
                     default: .object(["data": .array([])])
@@ -51,6 +56,89 @@ struct CodexRecoveryTests {
         }
         Issue.record("Protocol task did not settle")
         throw CancellationError()
+    }
+
+    private var activeRemoteThread: JSONValue {
+        .object(["id": .string("thread"), "status": .object(["type": .string("active")]),
+                 "turns": .array([.object(["id": .string("remote-turn"), "status": .string("inProgress")])])])
+    }
+
+    @Test func resumeRestoresRemoteTurnAndQueuesFollowupUntilItEnds() async throws {
+        let h = Harness()
+        h.resumedThread = activeRemoteThread
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        try await waitFor { session.canSteer }
+        #expect(session.isWorking)
+        session.submit(text: "Follow up after the remote turn")
+        #expect(h.turns.isEmpty)
+        #expect(session.queuedMessages.count == 1)
+        session.interrupt()
+        try await waitFor { !h.interrupts.isEmpty }
+        #expect(h.interrupts.first?["params"]?["turnId"] == .string("remote-turn"))
+    }
+
+    @Test func resumeRestoresWaitingFlagsWithoutAWorkingAwakeHold() async throws {
+        for (flag, expected) in [("waitingOnApproval", TaskStatus.permissionNeeded), ("waitingOnUserInput", .questionAsked)] {
+            let h = Harness()
+            h.resumedThread = .object([
+                "id": .string("thread"),
+                "status": .object(["type": .string("active"), "activeFlags": .array([.string(flag)])]),
+                "turns": .array([.object(["id": .string("remote-turn"), "status": .string("inProgress")])])
+            ])
+            let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+            session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+            try await waitFor { h.requests.contains { $0["method"] == .string("thread/items/list") } }
+            #expect(session.isWorking) // The turn is still active; follow-ups must queue.
+            #expect(StatusEngine.shared.status(forTab: session.tabID) == expected)
+            session.stop()
+        }
+    }
+
+    @Test func remoteAttachmentDoesNotOverrideRuntimeConfiguration() async throws {
+        let h = Harness()
+        h.resumedThread = activeRemoteThread
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: "/stale/path", resumeThreadID: "thread",
+                      model: AgentModel(id: "stale-model", label: "Stale"),
+                      preserveRemoteConfiguration: true, environment: [:])
+        try await waitFor { session.canSteer }
+        let request = try #require(h.requests.first { $0["method"] == .string("thread/resume") })
+        #expect(request["params"] == .object(["threadId": .string("thread")]))
+        #expect(session.model?.id == "gpt-6-astra")
+    }
+
+    @Test func bufferedCompletionWinsOverActiveResumeSnapshot() async throws {
+        let h = Harness()
+        h.resumedThread = activeRemoteThread
+        h.beforeResumeReply = {
+            h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"remote-turn","status":"completed"}}}"#)
+        }
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        try await waitFor { h.requests.contains { $0["method"] == .string("thread/items/list") } }
+        #expect(!session.isWorking)
+        #expect(!session.canSteer)
+    }
+
+    @Test func liveTurnDuringHistoryHydrationWinsOverResumeSnapshot() async throws {
+        let h = Harness()
+        h.resumedThread = activeRemoteThread
+        h.beforeHistoryReply = {
+            h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"remote-turn","status":"completed"}}}"#)
+            h.client.receive(#"{"method":"turn/started","params":{"threadId":"thread","turn":{"id":"new-turn","status":"inProgress"}}}"#)
+        }
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        try await waitFor { h.requests.contains { $0["method"] == .string("thread/items/list") } }
+        session.interrupt()
+        try await waitFor { !h.interrupts.isEmpty }
+        #expect(session.isWorking)
+        #expect(h.interrupts.first?["params"]?["turnId"] == .string("new-turn"))
     }
 
     @Test func failedResumeBecomesRetryableWithoutStartingANewThread() async throws {

@@ -72,7 +72,7 @@ struct KeepAwakePanel: View {
                     .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
             }
                 .help(
-                    "Only applies while Plume is holding the Mac awake, so on battery it "
+                    "Only applies while \(AppIdentity.displayName) is holding the Mac awake, so on battery it "
                         + "also needs “Keep awake on battery”."
                 )
                 .plumeID(

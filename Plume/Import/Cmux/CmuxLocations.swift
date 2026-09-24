@@ -1,6 +1,6 @@
 import Foundation
 
-/// The only two cmux files Plume ever reads.
+/// The cmux layout and provider hook registries Plume reads.
 ///
 /// `closed-item-history-*.json` is deliberately excluded: it retains raw
 /// terminal scrollback, which can contain incidentally-typed secrets.
@@ -14,6 +14,10 @@ nonisolated enum CmuxLocations {
     static var hookSessionsFile: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm/claude-hook-sessions.json")
+    }
+
+    static var codexHookSessionsFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmuxterm/codex-hook-sessions.json")
     }
 
     static func isInstalled() -> Bool {

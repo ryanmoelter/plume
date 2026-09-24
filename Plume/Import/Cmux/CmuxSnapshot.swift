@@ -5,13 +5,14 @@ import Foundation
 nonisolated struct CmuxSnapshot: Sendable {
     let workspaces: [CmuxWorkspaceView]
 
-    static func decoding(sessionData: Data, hookData: Data?) -> CmuxSnapshot {
+    static func decoding(sessionData: Data, hookData: Data?, codexHookData: Data? = nil) -> CmuxSnapshot {
         let decoder = JSONDecoder()
         guard let file = try? decoder.decode(CmuxSessionFile.self, from: sessionData) else {
             return CmuxSnapshot(workspaces: [])
         }
         let hooks = hookData.flatMap { try? decoder.decode(CmuxHookSessions.self, from: $0) }
 
+        let codexHooks = codexHookData.flatMap { try? decoder.decode(CmuxHookSessions.self, from: $0) }
         var views: [CmuxWorkspaceView] = []
         for window in file.windows {
             guard let manager = window.tabManager else { continue }
@@ -27,7 +28,7 @@ nonisolated struct CmuxSnapshot: Sendable {
                     CmuxWorkspaceView(
                         workspace: workspace,
                         groupName: workspace.groupId.flatMap { groupNames[$0] },
-                        hooks: hooks
+                        hooks: hooks, codexHooks: codexHooks
                     )
                 )
             }
@@ -41,7 +42,8 @@ nonisolated struct CmuxSnapshot: Sendable {
         }
         return decoding(
             sessionData: sessionData,
-            hookData: try? Data(contentsOf: CmuxLocations.hookSessionsFile)
+            hookData: try? Data(contentsOf: CmuxLocations.hookSessionsFile),
+            codexHookData: try? Data(contentsOf: CmuxLocations.codexHookSessionsFile)
         )
     }
 }
@@ -64,6 +66,8 @@ nonisolated struct CmuxPanelView: Sendable {
     /// The agent running in this pane, if cmux still records one.
     let session: CmuxSessionRecord?
 
+    var provider: AgentProviderKind = .claudeCode
+
     var isTerminal: Bool { type == "terminal" }
 }
 
@@ -75,7 +79,7 @@ extension CmuxWorkspaceView {
     /// fallback for the common single-agent workspace, and applies to one
     /// panel only — two panes sharing a session id would each claim a
     /// conversation that cannot be held twice.
-    init(workspace: CmuxWorkspace, groupName: String?, hooks: CmuxHookSessions?) {
+    init(workspace: CmuxWorkspace, groupName: String?, hooks: CmuxHookSessions?, codexHooks: CmuxHookSessions? = nil) {
         let bySurface = hooks?.activeSessionsBySurface ?? [:]
         let records = hooks?.sessions ?? [:]
 
@@ -88,16 +92,22 @@ extension CmuxWorkspaceView {
         }
 
         var resolved = workspace.panels.map { panel in
-            CmuxPanelView(
+            let claude = directSession(for: panel)
+            let codex = CmuxCodexSessions.match(panel: panel, workspaceID: workspace.workspaceId, records: codexHooks?.sessions ?? [:])
+            // Conflicting provider claims cannot safely choose a conversation.
+            let session = claude != nil && codex != nil ? nil : (codex ?? claude)
+            return CmuxPanelView(
                 panelID: panel.id ?? UUID().uuidString,
                 type: panel.type ?? "terminal",
                 title: panel.title,
                 directory: panel.directory ?? panel.terminal?.workingDirectory,
-                session: directSession(for: panel)
+                session: session,
+                provider: codex != nil ? .codex : .claudeCode
             )
         }
 
-        if resolved.allSatisfy({ $0.session == nil }),
+        if codexHooks?.sessions?.values.contains(where: { $0.workspaceId?.lowercased() == workspace.workspaceId?.lowercased() }) != true,
+           resolved.allSatisfy({ $0.session == nil }),
            let workspaceID = workspace.workspaceId,
            let id = hooks?.activeSessionsByWorkspace?[workspaceID]?.sessionId,
            let record = records[id],

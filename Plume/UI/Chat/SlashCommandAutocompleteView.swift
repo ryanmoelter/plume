@@ -85,7 +85,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                 Image(systemName: "apple.terminal.fill")
                     .imageScale(.small)
                     .emphasis(.secondary)
-                    .help("Handled by Plume")
+                    .help("Handled by \(AppIdentity.displayName)")
             }
             if !command.description.isEmpty {
                 Text(command.description)

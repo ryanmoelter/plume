@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // agent that outlives the app goes on writing a transcript the next
         // run resumes from.
         Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
+        CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
 
         KeepAwakeCoordinator.shared.releaseForTermination()

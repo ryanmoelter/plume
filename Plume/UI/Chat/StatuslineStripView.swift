@@ -469,7 +469,8 @@ struct RemoteControlControl: View, ThemedView {
         .help(helpText)
         .accessibilityLabel("Remote Control")
         .accessibilityValue(accessibilityValue)
-        .plumeID(AccessibilityID.composerRemoteControlControl)
+        .plumeID(AccessibilityID.composerRemoteControlControl, value: accessibilityValue,
+                 invoke: codexRemote == nil ? nil : { showsCodexDetails = true })
         .sheet(isPresented: $showsCodexDetails) {
             if let remote = codexRemote { CodexRemoteControlPanel(remote: remote) }
         }

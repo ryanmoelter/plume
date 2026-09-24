@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 #if DEBUG
 import SwiftData
 #endif
@@ -10,6 +11,8 @@ struct SidebarFooter: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @Binding var archiveShown: Bool
+    @State private var installedProviders: Set<AgentProviderKind> = []
+    @State private var cliRefresh = 0
     @State private var keepAwakeShown = false
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
@@ -26,8 +29,8 @@ struct SidebarFooter: View, ThemedView {
                 .frame(height: 1)
 
             VStack(spacing: 0) {
-                SidebarQuotaRow()
-                SidebarCodexQuotaRow()
+                if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }
+                if installedProviders.contains(.codex) { SidebarCodexQuotaRow() }
 
 #if DEBUG
                 Button {
@@ -76,6 +79,19 @@ struct SidebarFooter: View, ThemedView {
                 .buttonStyle(SidebarFooterButtonStyle(bottomCornerRadius: bottomCornerRadius))
             }
             .padding(.vertical, SidebarFooterMetrics.inset)
+        }
+        .task(id: cliRefresh) {
+            let available = await Task.detached(priority: .utility) {
+                var providers = Set<AgentProviderKind>()
+                if ClaudeCLILocator.isAvailable(commandName: "claude", refresh: true) { providers.insert(.claudeCode) }
+                if ClaudeCLILocator.isAvailable(commandName: "codex", refresh: true) { providers.insert(.codex) }
+                return providers
+            }.value
+            guard !Task.isCancelled else { return }
+            installedProviders = available
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            cliRefresh += 1
         }
     }
 

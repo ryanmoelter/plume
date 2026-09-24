@@ -137,7 +137,7 @@ struct MainWindow: View {
             }
             Button("Cancel", role: .cancel) { tabPendingStartFresh = nil }
         } message: {
-            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+            Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
         .modifier(worktreeRemovalDialog)
         .onChange(of: selection) { _, id in
@@ -176,7 +176,7 @@ struct MainWindow: View {
         statusNotifier = StatusNotifier { tabID in
             TitleStore.shared.title(forTab: tabID)
                 ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
-                ?? "Plume"
+                ?? AppIdentity.displayName
         }
     }
 
@@ -295,6 +295,9 @@ struct MainWindow: View {
     /// to `notStarted` — nothing is running yet this launch, whatever the
     /// last event said, and claiming a turn ended would overstate that.
     private func restoreStatusMonitoring() {
+        CodexSharedAppServer.shared.adoptRemoteThread = { thread in
+            await CodexRemoteThreadAdopter.adopt(thread: thread, in: context)
+        }
         AgentEventMonitor.shared.onSessionIDDiscovered = { tabID, sessionID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
                   tab.agentSessionID != sessionID

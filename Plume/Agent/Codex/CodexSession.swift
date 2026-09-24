@@ -22,6 +22,14 @@ final class CodexSession: AgentSession {
     var taskID: UUID
     var processIdentifier: Int32? { client.processIdentifier }
     private var hasUserSubmitted = false
+    @ObservationIgnored var titleContextProvider: ((UUID) -> (transport: AgentTransport, userTaskName: String?)?)?
+    @ObservationIgnored private var generateTitle: CodexTitleGenerator.Generate
+    @ObservationIgnored private var titleTask: Task<Void, Never>?
+    private var titleRequester = SessionTitleRequester()
+    private var openingMessage: String?
+    private var hasServerTitle = false
+    private var serverTitle: String?
+    private var titleRevision = 0
 
     private(set) var sessionID: String?
     private(set) var isWorking = false
@@ -66,9 +74,9 @@ final class CodexSession: AgentSession {
     private(set) var planProposal: CodexItemStore.PlanProposal?
 
     private let client: CodexAppServerClient
-    let remoteControl: CodexRemoteControl
-    /// Every Codex composer controls the same active host, while each tab's
-    /// connection and transcript still belong to its own app-server.
+    private let standaloneRemoteControl: CodexRemoteControl?
+    var remoteControl: CodexRemoteControl { client.sharedRemoteControl ?? standaloneRemoteControl! }
+    /// Headless Codex tabs share a host and its remote-control state.
     var effectiveRemoteControl: CodexRemoteControl {
         CodexRemoteControlLease.shared.owner ?? remoteControl
     }
@@ -120,13 +128,14 @@ final class CodexSession: AgentSession {
     private var attemptedChildHydrations: Set<String> = []
     private var failedChildHydrations: Set<String> = []
 
-    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil, client: CodexAppServerClient? = nil) {
-        let client = client ?? CodexAppServerClient()
+    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil, client: CodexAppServerClient? = nil, generateTitle: CodexTitleGenerator.Generate? = nil) {
+        let client = client ?? CodexAppServerClient.sharedSessionClient()
         self.tabID = tabID
         self.taskID = taskID
         self.effort = initialEffort
         self.client = client
-        self.remoteControl = CodexRemoteControl(lease: .shared) { [client] method, params in
+        self.generateTitle = generateTitle ?? CodexTitleGenerator.generate
+        self.standaloneRemoteControl = client.usesSharedServer ? nil : CodexRemoteControl(lease: .shared) { [client] method, params in
             try await client.send(method, params)
         }
         client.onNotification = { [weak self] method, params in
@@ -147,10 +156,12 @@ final class CodexSession: AgentSession {
         collaborationMode: CodexCollaborationMode = .default,
         permissionProfile: String? = nil,
         defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
+        preserveRemoteConfiguration: Bool = false,
         environment: [String: String]
     ) {
         guard !hasStartedHandshake else { return }
-        if let model { self.model = model }
+        if preserveRemoteConfiguration { effort = nil }
+        if let model, !preserveRemoteConfiguration { self.model = model }
         self.collaborationMode = collaborationMode
         hasStartedHandshake = true
         isReady = false
@@ -168,7 +179,8 @@ final class CodexSession: AgentSession {
                 workingDirectory: workingDirectory,
                 resumeThreadID: resumeThreadID,
                 permissionProfile: permissionProfile,
-                defaultPermissionProfile: defaultPermissionProfile
+                defaultPermissionProfile: defaultPermissionProfile,
+                preserveRemoteConfiguration: preserveRemoteConfiguration
             )
         }
     }
@@ -177,13 +189,14 @@ final class CodexSession: AgentSession {
         workingDirectory: String?,
         resumeThreadID: String?,
         permissionProfile: String?,
-        defaultPermissionProfile: String
+        defaultPermissionProfile: String,
+        preserveRemoteConfiguration: Bool
     ) async {
         do {
             _ = try await client.send("initialize", .object([
                 "clientInfo": .object([
                     "name": .string("Plume"),
-                    "title": .string("Plume"),
+                    "title": .string(AppIdentity.displayName),
                     "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
                 ]),
                 "capabilities": Self.initializeCapabilities
@@ -208,6 +221,12 @@ final class CodexSession: AgentSession {
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
                 method = "thread/resume"
+                if preserveRemoteConfiguration {
+                    // Attach to the shared server's running thread without
+                    // applying stale tab defaults over the remote client.
+                    params = [:]
+                    selectedPermissionProfile = nil
+                }
                 params["threadId"] = .string(resumeThreadID)
             } else {
                 method = "thread/start"
@@ -284,6 +303,9 @@ final class CodexSession: AgentSession {
     private func adopt(startResponse result: JSONValue) -> Bool {
         guard let id = result["thread"]?["id"]?.stringValue, !id.isEmpty else { return false }
         sessionID = id
+        restoreRuntimeState(from: result["thread"] ?? .null)
+        serverTitle = CodexThreadTitle.name(result["thread"]?["name"]?.stringValue)
+        hasServerTitle = serverTitle != nil
         if let title = CodexThreadTitle.title(thread: result["thread"] ?? .null) {
             TitleStore.shared.setTitle(title, forTab: tabID)
         }
@@ -300,6 +322,24 @@ final class CodexSession: AgentSession {
         }
         hasReportedModeAndModel = true
         return true
+    }
+
+    /// Resume can attach after a remote turn started, so no turn/started
+    /// event is guaranteed. Apply this snapshot before draining buffered
+    /// notifications; newer completion/start events then always win. History
+    /// hydration must never reapply this older runtime snapshot.
+    private func restoreRuntimeState(from thread: JSONValue) {
+        let status = thread["status"]?["type"]?.stringValue
+        let activeTurn = thread["turns"]?.arrayValue?.last {
+            $0["status"]?.stringValue == "inProgress"
+        }
+        guard status == "active" || (status == nil && activeTurn != nil) else { return }
+        isWorking = true
+        currentTurnID = activeTurn?["id"]?.stringValue
+        let flags = thread["status"]?["activeFlags"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let taskStatus: TaskStatus = flags.contains("waitingOnApproval") ? .permissionNeeded
+            : flags.contains("waitingOnUserInput") ? .questionAsked : .working
+        StatusEngine.shared.setStatus(taskStatus, taskID: taskID, tabID: tabID)
     }
 
     private func hydrateHistory(threadID: String) async {
@@ -326,6 +366,7 @@ final class CodexSession: AgentSession {
         CodexItemStore.shared.mergeHistory(tabID: tabID, entries: items, since: revision)
         CodexItemStore.shared.historyHydrated(tabID: tabID)
         for entry in items { discoverSubagents(in: entry["item"] ?? entry, historical: true) }
+        CodexSubagentStore.shared.parentHistoryHydrated(tabID: tabID)
     }
 
     private func discoverSubagents(in item: JSONValue, historical: Bool = false) {
@@ -417,6 +458,7 @@ final class CodexSession: AgentSession {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
         hasUserSubmitted = true
+        if openingMessage == nil, !normalized.plainText.isEmpty { openingMessage = normalized.plainText }
         // A normal follow-up is also an answer to a pending proposal. Clear
         // the decision surface immediately; `send` repeats this for a message
         // queued before the proposal arrived.
@@ -563,8 +605,13 @@ final class CodexSession: AgentSession {
     }
 
     func stop() {
-        Task { await CodexItemStore.shared.flush(tabID: tabID) }
-        remoteControl.stop()
+        titleTask?.cancel()
+        titleTask = nil
+        Task {
+            await CodexItemStore.shared.flush(tabID: tabID)
+            await CodexSubagentStore.shared.flush(tabID: tabID)
+        }
+        if !client.usesSharedServer { remoteControl.stop() }
         backgroundTasks.stop()
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         isReady = false
@@ -579,6 +626,7 @@ final class CodexSession: AgentSession {
         attemptedChildHydrations.removeAll()
         failedChildHydrations.removeAll()
         interruptRequested = false
+        if let sessionID { client.releaseThread(threadID: sessionID, turnID: currentTurnID) }
         client.stop()
         hasExited = true
     }
@@ -721,6 +769,7 @@ final class CodexSession: AgentSession {
     // MARK: - Incoming
 
     private func handle(notification method: String, params: JSONValue) {
+        guard !hasExited, !client.usesSharedServer || hasStartedHandshake else { return }
         if let incomingThreadID = threadID(in: params) {
             guard let sessionID else {
                 if hasStartedHandshake {
@@ -894,6 +943,9 @@ final class CodexSession: AgentSession {
             Task { await refreshSkills() }
         case "thread/name/updated":
             if let title = CodexThreadTitle.name(params["threadName"]?.stringValue) {
+                hasServerTitle = true
+                serverTitle = title
+                titleRevision += 1
                 TitleStore.shared.setTitle(title, forTab: tabID)
             }
         case "thread/started":
@@ -908,7 +960,10 @@ final class CodexSession: AgentSession {
         case "turn/completed":
             if let sessionID { backgroundTasks.refresh(threadID: sessionID) }
             endTurn(params["turn"] ?? .null)
-            Task { await CodexItemStore.shared.flush(tabID: tabID) }
+            Task {
+                await CodexItemStore.shared.flush(tabID: tabID)
+                await CodexSubagentStore.shared.flush(tabID: tabID)
+            }
         case "item/agentMessage/delta":
             if let itemID = params["itemId"]?.stringValue {
                 CodexItemStore.shared.appendText(
@@ -1018,10 +1073,49 @@ final class CodexSession: AgentSession {
         default:
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
             if pendingTurnStartSequence == nil { flushQueue() }
+            requestTitleIfDue()
+        }
+    }
+
+    private func requestTitleIfDue() {
+        guard titleTask == nil, let threadID = sessionID,
+              let context = titleContextProvider?(tabID) else { return }
+        let plan = planProposal
+        let description = titleRequester.descriptionForTitleRequest(.init(
+            transport: context.transport, userTaskName: context.userTaskName,
+            isWorking: isWorking, openingMessage: openingMessage,
+            planFilePath: plan?.id, planTitle: plan.flatMap { PlanSummary.title(of: $0.markdown) },
+            hasExistingTitle: hasServerTitle
+        ))
+        guard let description else { return }
+        let revision = titleRevision
+        titleTask = Task { [weak self, generateTitle] in
+            let title = await generateTitle(description)
+            guard let self else { return }
+            defer { self.titleTask = nil }
+            guard !Task.isCancelled, !self.hasExited,
+                  self.sessionID == threadID, self.titleRevision == revision,
+                  let context = self.titleContextProvider?(self.tabID),
+                  context.userTaskName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true,
+                  let title else { return }
+            do {
+                _ = try await self.client.send("thread/name/set", .object([
+                    "threadId": .string(threadID), "name": .string(title)
+                ]))
+                guard !Task.isCancelled, !self.hasExited,
+                      self.titleRevision == revision || self.serverTitle == title,
+                      let context = self.titleContextProvider?(self.tabID),
+                      context.userTaskName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+                else { return }
+                self.hasServerTitle = true
+                self.serverTitle = title
+                TitleStore.shared.setTitle(title, forTab: self.tabID)
+            } catch { /* A title failure must never fail the user's turn. */ }
         }
     }
 
     private func handle(request id: CodexRPC.RequestID, method: String, params: JSONValue) {
+        guard !hasExited, !client.usesSharedServer || hasStartedHandshake else { return }
         if let incomingThreadID = threadID(in: params) {
             guard let sessionID else {
                 if hasStartedHandshake {
@@ -1091,6 +1185,7 @@ final class CodexSession: AgentSession {
         kind: PermissionRequestKind = .decision
     ) {
         let key = permissionKey(id)
+        guard permissionRequestIDs[key] == nil else { return }
         let keyedPermission = PendingPermission(
             id: key,
             toolName: permission.toolName,
@@ -1300,8 +1395,10 @@ final class CodexSession: AgentSession {
     }
 
     private func handleExit(status: Int32, message: String?) {
+        titleTask?.cancel()
+        titleTask = nil
         clearForeignRouting()
-        remoteControl.stop()
+        if !client.usesSharedServer { remoteControl.stop() }
         backgroundTasks.stop()
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         hasExited = true

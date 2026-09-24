@@ -458,7 +458,8 @@ struct ChatComposer: View, ThemedView {
         CommandModeRuns.shared.start(
             command,
             in: TabDirectoryStore.shared.directory(for: tab),
-            tabID: tabID
+            tabID: tabID,
+            taskID: task.id
         ) { runID, result in
             // Sent outright rather than queued, so the transcript takes over
             // telling the story and the chip has nothing left to say. Read

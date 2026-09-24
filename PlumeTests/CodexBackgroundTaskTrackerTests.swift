@@ -11,6 +11,34 @@ struct CodexBackgroundTaskTrackerTests {
         ])
     }
 
+    @Test func unloadedReadCannotRemoveReloadedThreadsPendingRefresh() async throws {
+        let tracker = BackgroundTaskTracker()
+        var replies: [CheckedContinuation<JSONValue, Never>] = []
+        var calls = 0
+        let store = CodexBackgroundTaskTracker(tabID: UUID(), tracker: tracker) { _, _ in
+            calls += 1
+            if calls > 2 { return self.page([]) }
+            return await withCheckedContinuation { replies.append($0) }
+        }
+        defer { store.stop() }
+        let old = store.refresh(threadID: "thread")
+        for _ in 0..<1000 where replies.count < 1 { await Task.yield() }
+        try #require(replies.count == 1)
+        store.retainThreads([])
+        let current = store.refresh(threadID: "thread")
+        for _ in 0..<1000 where replies.count < 2 { await Task.yield() }
+        try #require(replies.count == 2)
+        replies[0].resume(returning: page(["stale"]))
+        await old?.value
+        let coalesced = store.refresh(threadID: "thread")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(calls == 2)
+        replies[1].resume(returning: page([]))
+        await current?.value
+        await coalesced?.value
+        #expect(calls == 3)
+    }
+
     @Test func namesBackgroundWorkFromTheLiveCommand() async {
         let tracker = BackgroundTaskTracker()
         let tabID = UUID()

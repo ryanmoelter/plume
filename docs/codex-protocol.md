@@ -211,6 +211,22 @@ Selecting a row restores its thread ID through the normal recovery path,
 using the tab's current directory as the picker describes. Titles prefer thread names, fall back to the first
 message preview, and follow `thread/name/updated` events.
 
+## Offline subagent history and cmux import
+
+Child descriptors and ordered conversation items are cached alongside the parent
+history in a separate bounded, atomic cache. Each snapshot belongs to a specific
+Plume tab and parent thread. Restoring it never recreates approvals, working
+status, or Stay Awake holds; live notifications and authoritative server history
+win over saved content. Archiving preserves the cache.
+
+cmux import reads `~/.cmuxterm/codex-hook-sessions.json`. It requires an exact
+surface and workspace match, selects a uniquely newest thread when a surface was
+reused, and verifies the recorded rollout's `session_meta.id` and directory.
+Ambiguous or unverifiable records remain terminal tabs. Imported Codex tabs keep
+their provider and thread ID and resume through app-server, not the Claude JSONL
+reader. Import does not stop or take over the source cmux process. Protection
+against concurrent resumes across applications is tracked separately in PLUME-153.
+
 ## Work after a turn and Stay Awake
 
 Codex's authoritative live inventory is `thread/backgroundTerminals/list`.
@@ -222,34 +238,51 @@ only previously confirmed entries with their original 30-minute hard cap;
 disconnecting clears the hold. A working child also keeps the machine awake
 while its parent waits for an approval.
 
+This inventory describes Codex-managed terminal sessions, not arbitrary shell
+children. Use `exec_command` with a short `yield_time_ms` to keep a command such
+as `sleep 60` in a managed session. A shell command such as `sleep 60 &` can
+finish its command item immediately and leave an empty inventory; the shell’s
+child may also fail to start or be terminated as the shell exits. Plume does not
+infer live process ownership from printed PIDs or assistant messages, and
+shell-detached work currently acquires no hold. Supporting it needs reliable
+process ownership and exit evidence beyond this app-server inventory.
+
+Local `!` commands also hold Stay Awake while their processes run. A completed
+command waiting in the composer queue is no longer running work. Moving the tab
+preserves its task ownership, and cancellation releases the reason.
+
 ## Remote control
 
 Codex CLI 0.153.4 exposes experimental `remoteControl/*` app-server methods.
-They work on the tab's existing stdio server, but expose a host/environment,
-not just a single conversation. Plume reuses the antenna menu, `/rc`, sidebar
+Headless Codex tabs share one stdio app-server, which exposes a host/environment
+rather than a single conversation. Plume reuses the antenna menu, `/rc`, sidebar
 indicator and configurable Stay Awake reason. Codex's details panel provides
 phone pairing QR codes and links, manual computer pairing codes with expiry,
 paired-device listing and revocation. A pairing link connects a device to the
 host; it is not a Claude-style conversation URL.
 
-Only one Plume tab may serve the remote connection at once. Enabling and
-disabling pass `ephemeral: true`, leaving user configuration unchanged; closing
-the hosting tab terminates its server and remote connection. Other running
-tabs remain on their own servers. The panel states this scope explicitly.
-Every Codex composer's common Remote Control menu targets that same active
-host, so its state and disconnect action agree across tabs. The sidebar marks
-the hosting task only; sharing a host control does not make the other running
-processes remotely reachable. Stay Awake counts the host once and does not
-add a second Active reason for an idle remote connection. Actual working
-turns still have their own Working reason.
+Enabling and disabling pass `ephemeral: true`, leaving user configuration
+unchanged. All headless Codex tabs use the same remote controller. Closing one
+tab detaches it; the server and remote connection remain while other headless
+Codex tabs are attached. The last tab closes the server. Stay Awake counts the
+host once, while actual working turns keep their individual Working reasons.
+Terminal Codex tabs still use their separate private servers.
+
+Sharing the process is necessary for remote access across chats: another server
+can read a persisted transcript but cannot resume its active writer. A live
+0.153.4 probe reproduced that rejection with both history formats. Virtual
+clients share one initialization and request sequence; thread notifications and
+approval requests still pass through each session's thread/ancestry checks.
+Server-request responses are deduplicated at the shared host.
 
 All servers using the same Codex installation report the same installation
 identity. A live probe reached the backend but returned HTTP 409, "Remote app
 server already online", while another app owned remote access. Plume must
-report that failure and must not take over or stop the other app. End-to-end
-pairing on a phone remains unverified until that existing connection is off.
+report that failure and must not take over or stop the other app. Phone pairing succeeded once the desktop remote connection was turned off.
+This conflict was reverified against CLI 0.153.4 on September 22, 2026; the
+temporary probe exited and the configuration checksum was unchanged.
 
-A shared backend is future work. In the installed CLI, `app-server proxy`
+For the separate terminal transport, `app-server proxy`
 sends raw JSON to its socket, whereas `app-server --listen unix://PATH`
 expects WebSocket framing. A custom WebSocket probe confirmed that separate
 clients can join a running thread, but even unsubscribed clients receive
@@ -265,8 +298,8 @@ workspace and complete any requested authentication. Alternatively, on another
 computer, open ChatGPT Settings > Connections > Control other devices, choose
 Add, and enter the manual code. Check that a remote follow-up streams locally, an
 approval answered remotely disappears locally, and disconnecting removes the
-remote Stay Awake reason without ending the local conversation. Closing the
-hosting tab should end both its conversation process and remote connection.
+remote Stay Awake reason without ending the local conversation. Closing one of two headless tabs must keep the other reachable; closing the
+last tab should end the host and remote connection.
 
 Pairing route evidence: the installed
 `/Applications/ChatGPT.app/Contents/Resources/app.asar` constructs
@@ -279,8 +312,7 @@ locally. Expired or claimed codes remove the QR/link and copy controls; no
 pairing secrets are logged or persisted. The official
 [Remote connections guide](https://learn.chatgpt.com/docs/remote-connections)
 describes QR-based mobile setup and account/workspace authentication, but does
-not document third-party host setup. Successful Plume pairing remains a live
-verification requirement.
+not document third-party host setup. The generated QR and paired-device list were verified in a live Plume host.
 
 ## Verification, September 2026
 
@@ -313,12 +345,99 @@ Claude's Bypass Permissions; planning and permission profiles remain separate.
 
 Both headless providers now use process-group shutdown. Moving a tab between
 tasks retains its process and reparents status/background work. Plume reserves
-Codex thread IDs before resume handshakes so two Plume tabs cannot both own
-one thread. This is an in-app guard: the app-server protocol does not provide
-an exclusive cross-application thread lease, and Plume does not apply Claude's
-process/transcript heuristics to Codex.
+Codex thread IDs before resume handshakes and checks live terminal ownership
+before launching or resuming another tab. This is a guard on Plume's launch path:
+commands entered directly into the TUI cannot be preflighted by its read-only
+observer. Codex 0.153.4 rejects a second server resuming a live thread with an
+“already has an active writer” error. Plume does not apply Claude's
+process/transcript heuristics to Codex; friendly cross-app ownership recovery
+remains tracked separately.
 
-Codex titles still use server thread names (including name-update events),
-with a first-message preview fallback. The installed app-server exposes name
-assignment, but no equivalent of Claude's `generate_session_title` request;
-Plume does not introduce a hidden extra model call for this purpose.
+Codex title generation follows the shared policy: once after the first completed
+turn, then when a plan provides a better subject. User-named tasks and existing
+server names suppress the initial request. Because app-server has no equivalent
+of Claude's `generate_session_title`, Plume uses a separate ephemeral Luna request
+with user configuration, rules, skill discovery, and tools disabled. A dedicated
+model catalog removes patch/Code Mode tools that feature flags alone leave
+available; strict configuration rejects incompatible CLI versions. The request
+has a 45-second timeout and is canceled with its conversation. Successful short
+structured titles are saved through `thread/name/set`; failure retains the
+preview. Newer server names and user renames win over in-flight generation.
+A live probe using the exact Swift-generated arguments verified structured title
+output; a separate tool-inventory probe reported no tools.
+
+### Terminal activity and Stay Awake
+
+Plume's Codex terminal transport now starts a private `codex app-server --listen
+unix://PATH` process and launches the actual TUI with `codex --remote unix://PATH`.
+The socket sits inside a unique owner-only directory under `/private/tmp`. It is
+not the user's shared desktop daemon and does not expose a TCP port.
+
+A separate read-only WebSocket client initializes, then polls `thread/loaded/list`
+and `thread/read` once a second. Idle servers provide no sleep hold. Active flags
+separate approval/question waits from running work. Other active roots and child
+threads continue to count if the selected root finishes. Background terminals
+come from the same server's live inventory, and unloading a thread retires its
+inventory. The observer never starts/resumes a thread or answers server requests;
+the terminal remains the approval owner. Ephemeral title-helper threads never
+replace the root conversation used for resume.
+
+Closing the surface or quitting Plume stops its observer and owned server. A dead
+surface is detected within two seconds. An unresponsive observer releases stale
+activity after twenty seconds and retries its read-only connection up to three
+times, without terminating the TUI's work. Exhausted retries leave an explicit
+error until the tab is reopened; closing the tab still stops its owned server.
+Unsupported CLI versions fail visibly rather than falling back to untracked work.
+
+Verification: create a Codex terminal tab, send a short prompt, then leave it idle
+and inspect Stay Awake. Run a command long enough to observe working status and
+an approval-requiring command to check the wait state. Background a command and
+finish the turn to check its independent hold, then let it exit. Close the tab;
+its `codex app-server --listen unix://...` process and socket directory must go
+away. `CodexUnixWebSocketTests` covers partial frames, fragmented text, interleaved
+ping, handshake validation, and closing an unfinished handshake.
+
+The alternative hook route requires users to review each hook definition in
+`/hooks` ([official hook documentation](https://learn.chatgpt.com/docs/hooks)).
+Plume does not disable that trust check to instrument terminals.
+
+### Verification of the parity follow-up
+
+The September 22 follow-up exercised offline child history, exact cmux identity
+matching, local command holds, title generation, Unix WebSocket framing, and
+remote-control races. The broad unit run passed 2,119 tests; the title path
+escaping failure was fixed and the intermittent GUI shortcut test passed on its
+focused rerun. All 32 follow-up tests passed. The three existing environmental
+suites (real transcript corpus, real surface commands, checkout-specific session
+path discovery) were excluded from that broad run.
+
+A separate hidden Plume instance generated a title visible in its sidebar and
+tab; Codex's persisted `name` matched while `preview` remained the original
+prompt. The remote conflict notice was verified in an isolated UI instance.
+Phone pairing succeeded after the desktop remote host was disabled. A later
+multi-chat test exposed an ownership conflict: the remote server could list
+threads owned by other per-tab servers, but could not resume them.
+
+The terminal smoke test used the actual Codex TUI connected to Plume's private
+server. Its command moved the tab from working to awaiting reply. A later sleep
+process survived its parent turn: while the parent was idle, the live inventory
+contained the process and `pmset` showed Plume's “1 background task” sleep
+assertion. Once the process exited, the inventory and assertion both cleared.
+The display was asleep, so this test attached the TUI through a separate PTY;
+Ghostty's visible interaction still needs a manual check on an awake display.
+
+### Shared remote host follow-up
+
+The headless host is now shared across tabs. Remotely opened roots attach to an
+exact persisted Codex thread ID, or create a new headless tab. Helpers and child
+threads are excluded from task creation. Pending approvals replay after attachment,
+including child requests whose parent was not attached yet. Session request-ID
+deduplication prevents repeated rows. Remote attachment preserves server settings
+and restores active turns and approval/input waits.
+
+Verification: 81 focused tests passed. In an isolated Debug instance, two separate
+chats completed through one app-server. Closing one tab preserved the server PID;
+the remaining chat completed a follow-up. The Debug build and signature checks
+passed. The prior remote-test instance was restarted with its saved data and this
+build. The user subsequently confirmed that remote access works from iOS.
+See [Codex beta compatibility](codex-beta.md) for the remaining manual checklist.

@@ -294,6 +294,8 @@ enum TaskStore {
         reindex(remainingInSource)
 
         tab.task = destination
+        CodexTerminalMonitor.shared.reparent(tabID: tab.id, taskID: destination.id)
+        CommandModeRuns.shared.reparent(tabID: tab.id, taskID: destination.id)
         AgentSessionManager.shared.reparent(tabID: tab.id, taskID: destination.id)
         StatusEngine.shared.reparent(tabID: tab.id, taskID: destination.id)
         tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id })

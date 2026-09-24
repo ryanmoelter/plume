@@ -96,6 +96,10 @@ final class StatusEngine {
         }
     }
 
+    func taskID(forTab id: UUID) -> UUID? {
+        tabsByTask.first(where: { $0.value.contains(id) })?.key
+    }
+
     func status(forTask id: UUID) -> TaskStatus {
         guard let tabs = tabsByTask[id] else { return .notStarted }
         return TaskStatus.aggregate(tabs.map { status(forTab: $0) })

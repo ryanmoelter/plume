@@ -70,6 +70,12 @@ final class CodexItemStore {
             persist(tabID: tabID)
             return
         }
+        restoreSnapshot(tabID: tabID, snapshot: snapshot)
+    }
+
+    /// Shared with offline child history; any live item already present wins.
+    func restoreSnapshot(tabID: UUID, snapshot: CodexHistoryCache.Snapshot) {
+        guard !hydratedTabs.contains(tabID) else { return }
         var current = tabs[tabID] ?? Items()
         var restoredOrder: [String] = []
         var restoredIDs = Set<String>()
@@ -114,14 +120,19 @@ final class CodexItemStore {
         await cache?.flush(tabID: tabID)
     }
 
-    private func persist(tabID: UUID) {
-        guard let cache, let threadID = threadIDs[tabID], let items = tabs[tabID],
-              restoredTabs.contains(tabID) || hydratedTabs.contains(tabID) else { return }
-        let snapshot = CodexHistoryCache.Snapshot(threadID: threadID, entries: items.order.compactMap { key in
+    func snapshot(tabID: UUID, threadID: String) -> CodexHistoryCache.Snapshot? {
+        guard let items = tabs[tabID] else { return nil }
+        return CodexHistoryCache.Snapshot(threadID: threadID, entries: items.order.compactMap { key in
             guard let item = items.values[key] else { return nil }
             return .init(stableID: key, turnID: key.firstIndex(of: "#").map { String(key[..<$0]) }, item: item,
                          completed: items.completed.contains(key), historical: items.historical.contains(key))
         })
+    }
+
+    private func persist(tabID: UUID) {
+        guard let cache, let threadID = threadIDs[tabID], tabs[tabID] != nil,
+              restoredTabs.contains(tabID) || hydratedTabs.contains(tabID) else { return }
+        guard let snapshot = snapshot(tabID: tabID, threadID: threadID) else { return }
         let previous = cacheWrites[tabID]
         cacheWrites[tabID] = Task {
             await previous?.value

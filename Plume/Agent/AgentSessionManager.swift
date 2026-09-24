@@ -11,12 +11,18 @@ final class AgentSessionManager {
     static let shared = AgentSessionManager()
 
     private var sessions: [UUID: any AgentSession] = [:]
+    @ObservationIgnored private let codexClientFactory: @MainActor () -> CodexAppServerClient
+
+    init(codexClientFactory: @escaping @MainActor () -> CodexAppServerClient = { .sharedSessionClient() }) {
+        self.codexClientFactory = codexClientFactory
+    }
     /// Reserves resumed threads before the asynchronous handshake publishes
     /// sessionID, closing the window in which two tabs could both resume.
     private var codexThreadClaims: [UUID: String] = [:]
 
     func isCodexThreadOwnedElsewhere(_ threadID: String?, by tabID: UUID) -> Bool {
         guard let threadID, !threadID.isEmpty else { return false }
+        if CodexTerminalMonitor.shared.owns(threadID: threadID, excludingTabID: tabID) { return true }
         return sessions.contains { otherID, session in
             otherID != tabID && session is CodexSession && !session.hasExited &&
                 (session.sessionID == threadID || codexThreadClaims[otherID] == threadID)
@@ -53,9 +59,10 @@ final class AgentSessionManager {
         if let existing = sessions[tabID] { return existing }
         let session: any AgentSession = switch provider {
         case .claudeCode: HeadlessSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
-        case .codex: CodexSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
+        case .codex: CodexSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort, client: codexClientFactory())
         }
         (session as? HeadlessSession)?.titleContextProvider = titleContextProvider
+        (session as? CodexSession)?.titleContextProvider = titleContextProvider
 
         sessions[tabID] = session
         return session
@@ -72,15 +79,14 @@ final class AgentSessionManager {
         codexThreadClaims.removeAll()
     }
 
-    /// Tabs whose conversation is published to claude.ai/code, or on its way
-    /// there. Connecting counts, because sleeping through the handshake is
-    /// how it fails to finish.
-    ///
-    /// A stopped session is excluded: `stop()` leaves `remoteControl` alone,
-    /// so a tab the user closed would otherwise read as connected forever.
+    /// Claude publishes individual conversations; Codex publishes one shared
+    /// server. Keep one stable representative tab per server in Stay Awake.
     var remoteControlledTabs: [(taskID: UUID, tabID: UUID)] {
-        sessions.values.compactMap { session in
+        var codexHosts = Set<ObjectIdentifier>()
+        return sessions.values.sorted { $0.tabID.uuidString < $1.tabID.uuidString }.compactMap { session in
             guard session.isRemotelyControlled else { return nil }
+            if let codex = session as? CodexSession,
+               !codexHosts.insert(ObjectIdentifier(codex.remoteControl)).inserted { return nil }
             return (session.taskID, session.tabID)
         }
     }

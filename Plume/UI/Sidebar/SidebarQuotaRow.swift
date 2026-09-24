@@ -29,8 +29,7 @@ struct SidebarQuotaRow: View, ThemedView {
         } ?? false
 
         HStack(spacing: 8) {
-            Text("Claude")
-                .frame(width: 42, alignment: .leading)
+            AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
                 .opacity(isStale || snapshot == nil ? colors.emphasis[.secondary] : 1)
             if let snapshot {
@@ -83,27 +82,33 @@ struct SidebarQuotaRow: View, ThemedView {
 }
 
 
-/// Codex quota is a different account from Claude and keeps its own label.
+/// Keep the Codex row visible while installed, even before its first reading.
 struct SidebarCodexQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota = CodexQuotaStore.shared
 
     var body: some View {
-        if quota.windows.contains(where: { $0.usedPercent > 0 }) {
-            HStack(spacing: 8) {
-                Text("Codex").frame(width: 42, alignment: .leading)
+        HStack(spacing: 8) {
+            AgentProviderIcon(provider: .codex, size: 16)
+                .opacity(quota.windows.isEmpty ? colors.emphasis[.secondary] : 1)
+            if quota.windows.contains(where: { $0.usedPercent > 0 }) {
                 ViewThatFits(in: .horizontal) {
                     CodexQuotaStrip(windows: quota.windows, sidebar: true)
                     CodexQuotaStrip(windows: quota.windows, layout: .stacked, sidebar: true)
                 }
-                Spacer(minLength: 0)
+            } else {
+                Text("—")
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .accessibilityLabel(quota.windows.isEmpty ? "No quota reading yet" : "No quota usage")
             }
-            .font(typography.caption.font)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .padding(.horizontal, SidebarFooterMetrics.inset)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Codex account quota")
+            Spacer(minLength: 0)
         }
+        .font(typography.caption.font)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .padding(.horizontal, SidebarFooterMetrics.inset)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Codex account quota")
+        .plumeID("sidebar-codex-quota-row")
     }
 }

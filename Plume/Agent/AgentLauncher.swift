@@ -158,7 +158,25 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        let provider = AgentProviderRegistry.provider(for: .codex, settingsPath: nil)
+        guard SurfaceManager.shared.existingSession(for: tab.id) == nil else { return }
+        guard !AgentSessionManager.shared.isCodexThreadOwnedElsewhere(resumeSessionID, by: tab.id) else {
+            Log.agent.error("Refusing to resume a Codex thread already open in another Plume tab")
+            StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
+            return
+        }
+        let socket: String
+        do {
+            socket = try CodexTerminalMonitor.shared.start(
+                tabID: tab.id, taskID: task.id, directory: TabDirectoryStore.shared.directory(for: tab),
+                resumeThreadID: resumeSessionID
+            ) { [tabID = tab.id] id in
+                AgentEventMonitor.shared.onSessionIDDiscovered?(tabID, id)
+            }
+        } catch {
+            StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
+            return
+        }
+        let provider = CodexProvider(remoteSocket: socket)
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,
@@ -196,7 +214,7 @@ enum AgentLauncher {
             return
         }
         guard AgentSessionManager.shared.claimCodexThread(resumeSessionID, for: tab.id) else {
-            session.failToLaunch(reason: "This Codex conversation is already open in another Plume tab. Continue there, or close that tab before resuming here.")
+            session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
             return
         }
         session.start(

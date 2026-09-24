@@ -7,6 +7,8 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var installedProviders: Set<AgentProviderKind>?
+    @State private var cliRefresh = 0
     @State private var keepAwake = KeepAwakeCoordinator.shared
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
@@ -35,7 +37,7 @@ struct SettingsView: View {
                 Picker("New agent tabs run", selection: $settings.defaultProvider) {
                     ForEach(AgentProviderKind.allCases) { provider in
                         Label {
-                            Text(provider.displayName)
+                            Text(provider == .codex ? "Codex (Beta)" : provider.displayName)
                         } icon: {
                             AgentProviderIcon(provider: provider)
                         }
@@ -43,8 +45,23 @@ struct SettingsView: View {
                     }
                 }
             } footer: {
-                Text("A tab records the CLI it was created with, so changing this never moves an existing conversation.")
+                Text("A tab records the CLI it was created with, so changing this never moves an existing conversation. Codex support is in beta; tested with Codex CLI 0.153.4.")
                     .foregroundStyle(.secondary)
+            }
+
+            if let installedProviders, installedProviders.count < AgentProviderKind.allCases.count {
+                Section("Install agents") {
+                    ForEach(AgentProviderKind.allCases.filter { !installedProviders.contains($0) }) { provider in
+                        Link(destination: AgentCLIInstallation.downloadURL(for: provider)) {
+                            Label {
+                                Text(AgentCLIInstallation.downloadTitle(for: provider))
+                            } icon: {
+                                AgentProviderIcon(provider: provider)
+                            }
+                        }
+                        .plumeID("settings-install-cli", label: provider.rawValue)
+                    }
+                }
             }
 
             Section {
@@ -307,7 +324,7 @@ struct SettingsView: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("A change here applies after Plume restarts.")
+                Text("A change here applies after \(AppIdentity.displayName) restarts.")
                     .foregroundStyle(.secondary)
             }
 
@@ -338,7 +355,7 @@ struct SettingsView: View {
                 Text("Integrations")
             } footer: {
                 Text(
-                    "Names a check whose PENDING state Plume ignores while folding a PR's CI " +
+                    "Names a check whose PENDING state \(AppIdentity.displayName) ignores while folding a PR's CI " +
                     "result — a real pass or fail from it still counts, only a check stuck " +
                     "pending forever stops masking the rest. Matching is an exact, " +
                     "case-sensitive name; a mismatch silently won't apply. The repository's " +
@@ -347,6 +364,12 @@ struct SettingsView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+        }
+        .task(id: cliRefresh) {
+            let installed = await Task.detached(priority: .utility) { AgentCLIInstallation.installedProviders() }.value
+            guard !Task.isCancelled else { return }
+            installedProviders = installed
+            settings.reconcileInstalledProviders(installed)
         }
         .formStyle(.grouped)
         .frame(width: 460)
@@ -357,6 +380,7 @@ struct SettingsView: View {
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            cliRefresh += 1
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
     }

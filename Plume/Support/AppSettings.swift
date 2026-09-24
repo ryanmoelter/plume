@@ -14,6 +14,7 @@ final class AppSettings {
     private enum Key {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
+        static let dismissedMissingProviders = "dismissedMissingProviders"
         static let chatFontSize = "chatFontSize"
         static let codeFontSizeMultiplier = "codeFontSizeMultiplier"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
@@ -64,6 +65,7 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
         self.defaultProvider = defaults.string(forKey: Key.providerID)
             .flatMap(AgentProviderKind.init(rawValue:)) ?? .claudeCode
@@ -171,6 +173,19 @@ final class AppSettings {
         didSet {
             defaults.set(worktreeBasePath, forKey: Key.worktreeBasePath)
         }
+    }
+
+    /// Hide install offers in the model menu, but always retain them in Settings.
+    private(set) var dismissedMissingProviders: Set<AgentProviderKind> {
+        didSet { defaults.set(dismissedMissingProviders.map(\.rawValue).sorted(), forKey: Key.dismissedMissingProviders) }
+    }
+
+    func dismissMissingProvider(_ provider: AgentProviderKind) {
+        dismissedMissingProviders.insert(provider)
+    }
+
+    func reconcileInstalledProviders(_ installed: Set<AgentProviderKind>) {
+        dismissedMissingProviders.subtract(installed)
     }
 
     /// Which CLI a new agent tab runs. A tab records its own provider at

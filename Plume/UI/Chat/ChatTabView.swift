@@ -217,6 +217,7 @@ struct ChatTabView: View, ThemedView {
         .task(id: tab.agentSessionID) {
             guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
             await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
+            await CodexSubagentStore.shared.restore(tabID: tab.id, taskID: task.id, parentThreadID: threadID)
         }
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
@@ -960,7 +961,7 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 420)
             }
             if failure.remedy == .installCLI {
-                Text("Plume runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
+                Text("\(AppIdentity.displayName) runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
                     .font(.callout)
                     .emphasis(.secondary)
                     .multilineTextAlignment(.center)

@@ -165,7 +165,7 @@ private struct TabChip: View {
             .allowsHitTesting(isHovering)
             .help("Close tab")
             .accessibilityLabel("Close tab")
-            .plumeID(AccessibilityID.tabChipClose)
+            .plumeID(AccessibilityID.tabChipClose, invoke: close)
         }
         .foregroundStyle(themeForeground ?? .primary)
         .padding(.horizontal, 8)
@@ -197,7 +197,7 @@ private struct TabChip: View {
             Button("Start Fresh", role: .destructive) { tab.agentSessionID = nil }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+            Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
         .confirmationDialog(
             "Switch how this agent runs?",
@@ -206,7 +206,7 @@ private struct TabChip: View {
             Button("Switch", role: .destructive) { AgentLauncher.switchTransport(task: task, tab: tab) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This ends the running agent and starts it again on the other transport. Plume will resume the same conversation if it can.")
+            Text("This ends the running agent and starts it again on the other transport. \(AppIdentity.displayName) will resume the same conversation if it can.")
         }
     }
 

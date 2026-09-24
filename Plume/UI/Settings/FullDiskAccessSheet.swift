@@ -21,22 +21,22 @@ struct FullDiskAccessSheet: View {
             .font(.title2.weight(.semibold))
 
             Text(
-                "Agents running inside of Plume may ask for permission to read files inside " +
+                "Agents running inside of \(AppIdentity.displayName) may ask for permission to read files inside " +
                 "protected folders like Desktop, Documents, Downloads, Music, and iCloud Drive."
             )
 
             Text(LocalizedStringKey(
-                "**Giving Plume Full Disk Access gives your agents full access to all of your " +
+                "**Giving \(AppIdentity.displayName) Full Disk Access gives your agents full access to all of your " +
                 "files**, including sensitive ones, without permission prompts."
             ))
 
             Text(LocalizedStringKey(
-                "**Plume works with or without this, and you can change it at any time** in " +
+                "**\(AppIdentity.displayName) works with or without this, and you can change it at any time** in " +
                 "System Settings › Privacy & Security › Full Disk Access, or via the link in " +
-                "Plume's settings."
+                "\(AppIdentity.displayName)'s settings."
             ))
 
-            Text("You will need to restart Plume after granting access.")
+            Text("You will need to restart \(AppIdentity.displayName) after granting access.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

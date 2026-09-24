@@ -43,11 +43,18 @@ final class CodexRemoteControl {
     private(set) var environmentID: String?
     private(set) var serverName: String?
     private(set) var operationError: String?
+    private enum ErrorSource: Equatable {
+        case status, toggle, pairing, pairingStatus, clients, revoke(String), connection
+    }
+    private var errorSource: ErrorSource?
     private(set) var pairing: Pairing?
     private(set) var pairingClaimed = false
     private(set) var clients: [Client] = []
     private(set) var isLoadingPairing = false
     private(set) var isLoadingClients = false
+    private(set) var clientsUnavailable = false
+    private(set) var revokeUnavailable = false
+    private(set) var hasLoadedClients = false
     private var generation = 0
     private var statusRevision = 0
     private var pairingRevision = 0
@@ -75,16 +82,17 @@ final class CodexRemoteControl {
             let result = try await request("remoteControl/status/read", .null)
             guard isCurrent(generation), statusRevision == revision else { return }
             apply(result)
+            clearError(from: .status)
         } catch {
             guard isCurrent(generation), statusRevision == revision else { return }
-            operationError = errorMessage(error)
+            recordError(errorMessage(error), from: .status)
         }
     }
 
     func setEnabled(_ enabled: Bool) async {
         guard !stopped else { return }
         if enabled, !lease.acquire(self) {
-            operationError = "Another Plume Codex chat is serving Remote Control. Disconnect it first."
+            recordError("Another \(AppIdentity.displayName) Codex chat is serving Remote Control. Disconnect it first.", from: .toggle)
             return
         }
         errorCleanup?.cancel()
@@ -95,6 +103,7 @@ final class CodexRemoteControl {
         let revision = statusRevision
         operation = enabled ? .enabling : .disabling
         operationError = nil
+        errorSource = nil
         clientsRevision += 1
         isLoadingClients = false
         clearPairing()
@@ -105,10 +114,14 @@ final class CodexRemoteControl {
             // Notifications received while awaiting the reply are newer than
             // its snapshot. In particular, a late enable must not undo off.
             if statusRevision == revision { apply(result) }
+            // A disabled notification may have arrived while enable was in
+            // flight. It deliberately retained ownership until this reply;
+            // release now even when that newer notification won the race.
+            if status == .disabled { lease.release(self) }
         } catch {
             guard isCurrent(generation) else { return }
             operation = nil
-            operationError = errorMessage(error)
+            recordError(errorMessage(error), from: .toggle)
             if enabled, status != .connected, status != .connecting { lease.release(self) }
         }
     }
@@ -123,7 +136,7 @@ final class CodexRemoteControl {
         statusRevision += 1
         if (status == .connected || status == .connecting), !lease.acquire(self) {
             self.status = .errored
-            operationError = "Another Plume Codex chat is serving Remote Control. Disconnect it first."
+            recordError("Another \(AppIdentity.displayName) Codex chat is serving Remote Control. Disconnect it first.", from: .connection)
             clearPairing()
             cleanUpFailedConnection()
             return
@@ -135,6 +148,7 @@ final class CodexRemoteControl {
             clearPairing()
             clientsRevision += 1
             clients = []
+            hasLoadedClients = false
             isLoadingClients = false
         }
         environmentID = newEnvironment
@@ -148,7 +162,9 @@ final class CodexRemoteControl {
     private func cleanUpFailedConnection() {
         guard !preservesConnectionError else { return }
         preservesConnectionError = true
-        operationError = operationError ?? "Codex Remote Control could not connect. Another Codex server may already be using this installation."
+        if errorSource != .connection {
+            recordError("Codex Remote Control could not connect. Another Codex server may already be using this installation.", from: .connection)
+        }
         generation += 1
         let generation = generation
         operation = .disabling
@@ -165,7 +181,7 @@ final class CodexRemoteControl {
             } catch {
                 guard isCurrent(generation), !Task.isCancelled else { return }
                 operation = nil
-                operationError = "Remote Control failed, and stopping its retries failed: \(errorMessage(error))"
+                recordError("Remote Control failed, and stopping its retries failed: \(errorMessage(error))", from: .connection)
             }
             errorCleanup = nil
         }
@@ -178,7 +194,8 @@ final class CodexRemoteControl {
         let revision = pairingRevision
         let environment = environmentID
         isLoadingPairing = true
-        operationError = nil
+        clearError(from: .pairing)
+        clearError(from: .pairingStatus)
         do {
             let result = try await request("remoteControl/pairing/start", .object(["manualCode": .bool(true)]))
             guard isCurrent(generation), revision == pairingRevision, environment == environmentID else { return }
@@ -186,14 +203,14 @@ final class CodexRemoteControl {
             guard let code = result["pairingCode"]?.stringValue,
                   let expiry = result["expiresAt"]?.doubleValue,
                   result["environmentId"]?.stringValue == environmentID else {
-                operationError = "Codex returned an incomplete pairing code."
+                recordError("Codex returned an incomplete pairing code.", from: .pairing)
                 return
             }
             pairing = Pairing(manualCode: result["manualPairingCode"]?.stringValue, pairingCode: code, expiresAt: Self.timestamp(expiry))
         } catch {
             guard isCurrent(generation), revision == pairingRevision else { return }
             isLoadingPairing = false
-            operationError = errorMessage(error)
+            recordError(errorMessage(error), from: .pairing)
         }
     }
 
@@ -204,15 +221,16 @@ final class CodexRemoteControl {
         do {
             let result = try await request("remoteControl/pairing/status", .object(["pairingCode": .string(pairing.pairingCode)]))
             guard isCurrent(generation), revision == pairingRevision, pairing.isUsable else { return }
+            clearError(from: .pairingStatus)
             pairingClaimed = result["claimed"]?.boolValue == true
         } catch {
             guard isCurrent(generation), revision == pairingRevision else { return }
-            operationError = errorMessage(error)
+            recordError(errorMessage(error), from: .pairingStatus)
         }
     }
 
     func refreshClients() async {
-        guard !stopped, let environmentID, status == .connected else { return }
+        guard !stopped, !clientsUnavailable, let environmentID, status == .connected else { return }
         clientsRevision += 1
         let revision = clientsRevision
         let generation = generation
@@ -224,7 +242,7 @@ final class CodexRemoteControl {
             repeat {
                 var params: [String: JSONValue] = ["environmentId": .string(environmentID), "limit": .number(100)]
                 if let cursor { params["cursor"] = .string(cursor) }
-                let result = try await request("remoteControl/clients/list", .object(params))
+                let result = try await request("remoteControl/client/list", .object(params))
                 guard isCurrent(generation), revision == clientsRevision, self.environmentID == environmentID else { return }
                 resultClients += result["data"]?.arrayValue?.compactMap { value in
                     guard let id = value["clientId"]?.stringValue else { return nil }
@@ -234,27 +252,42 @@ final class CodexRemoteControl {
                 if let cursor, !seen.insert(cursor).inserted { throw ControllerError.repeatedCursor }
             } while cursor != nil
             var ids = Set<String>()
+            clearError(from: .clients)
             clients = resultClients.filter { ids.insert($0.id).inserted }
+            hasLoadedClients = true
             isLoadingClients = false
         } catch {
             guard isCurrent(generation), revision == clientsRevision else { return }
             isLoadingClients = false
-            operationError = errorMessage(error)
+            if unsupported(error, method: "remoteControl/client/list") {
+                clientsUnavailable = true
+                hasLoadedClients = false
+                clients = []
+                clearError(from: .clients)
+            } else {
+                recordError(errorMessage(error), from: .clients)
+            }
         }
     }
 
     func revokeClient(_ id: String) async {
-        guard !stopped, let environmentID else { return }
+        guard !stopped, !revokeUnavailable, let environmentID else { return }
         let generation = generation
         do {
-            _ = try await request("remoteControl/clients/revoke", .object(["environmentId": .string(environmentID), "clientId": .string(id)]))
+            _ = try await request("remoteControl/client/revoke", .object(["environmentId": .string(environmentID), "clientId": .string(id)]))
             guard isCurrent(generation), self.environmentID == environmentID else { return }
             clientsRevision += 1
             isLoadingClients = false
+            clearError(from: .revoke(id))
             clients.removeAll { $0.id == id }
         } catch {
             guard isCurrent(generation) else { return }
-            operationError = errorMessage(error)
+            if unsupported(error, method: "remoteControl/client/revoke") {
+                revokeUnavailable = true
+                clearError(from: .revoke(id))
+            } else {
+                recordError(errorMessage(error), from: .revoke(id))
+            }
         }
     }
 
@@ -285,6 +318,25 @@ final class CodexRemoteControl {
         pairingClaimed = false
         isLoadingPairing = false
     }
+    /// Background status polling must not erase a pairing/revoke failure,
+    /// nor replace the connection failure retained after retry cleanup.
+    private func recordError(_ message: String, from source: ErrorSource) {
+        guard !preservesConnectionError || source == .connection else { return }
+        operationError = String(message.prefix(400)) + (message.count > 400 ? "…" : "")
+        errorSource = source
+    }
+
+    private func clearError(from source: ErrorSource) {
+        guard !preservesConnectionError, errorSource == source else { return }
+        operationError = nil
+        errorSource = nil
+    }
+
+    private func unsupported(_ error: Error, method: String) -> Bool {
+        guard case CodexAppServerClient.Failure.server(let code, let message) = error else { return false }
+        return code == -32601 || (message.contains("unknown variant") && message.contains(method))
+    }
+
     private func errorMessage(_ error: Error) -> String {
         if let failure = error as? CodexAppServerClient.Failure {
             switch failure {

@@ -39,6 +39,7 @@ nonisolated struct ImportTabPlan: Sendable, Hashable {
     let agentSessionID: String?
     let sessionJSONLPath: String?
     let permissionMode: PermissionMode?
+    var provider: AgentProviderKind = .claudeCode
 }
 
 /// How the task's folder relates to git, resolved before the import writes

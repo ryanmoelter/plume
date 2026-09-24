@@ -14,11 +14,25 @@ final class CodexAppServerClient {
         case server(code: Int, message: String)
     }
 
+    private let sharedServer: CodexSharedAppServer?
+    var usesSharedServer: Bool { sharedServer != nil }
+    var sharedRemoteControl: CodexRemoteControl? { sharedServer?.remoteControl }
+
+    static func sharedSessionClient() -> CodexAppServerClient {
+        CodexAppServerClient(sharedServer: .shared)
+    }
+
+    init(sharedServer: CodexSharedAppServer) {
+        self.sharedServer = sharedServer
+        launchesProcess = false
+    }
+
     private var process: AgentProcess?
     private let launchesProcess: Bool
     /// Where outgoing lines go, reporting false once the transport is gone.
     /// Set when the process starts.
     private(set) var writeLine: ((String) -> Bool)?
+    private var lifecycleGeneration = 0
     private var nextRequestNumber = 0
     private var pending: [CodexRPC.RequestID: CheckedContinuation<JSONValue, Error>] = [:]
 
@@ -27,8 +41,10 @@ final class CodexAppServerClient {
     /// including a turn notification overtaking the response that started it.
     private lazy var incomingEvents = OrderedCodexEvents { [weak self] event in
         switch event {
-        case .line(let line): self?.receive(line)
-        case .exit(let status, let message): self?.handleExit(status: status, message: message)
+        case .line(let line, let generation):
+            if self?.lifecycleGeneration == generation { self?.receive(line) }
+        case .exit(let status, let message, let generation):
+            if self?.lifecycleGeneration == generation { self?.handleExit(status: status, message: message) }
         }
     }
 
@@ -40,23 +56,30 @@ final class CodexAppServerClient {
     /// test driving the protocol directly. `start` sets it otherwise.
     init(writeLine: ((String) -> Bool)? = nil) {
         self.writeLine = writeLine
+        sharedServer = nil
         launchesProcess = writeLine == nil
     }
 
     func start(workingDirectory: String?, environment: [String: String]) throws {
+        if let sharedServer {
+            try sharedServer.attach(self, workingDirectory: workingDirectory, environment: environment)
+            return
+        }
         // An injected transport already is the running connection. This lets
         // tests drive the complete handshake without launching or paying for
         // a real Codex process.
         guard launchesProcess else { return }
         guard process == nil else { return }
+        lifecycleGeneration += 1
+        let generation = lifecycleGeneration
         let incomingEvents = incomingEvents
         let handler = AgentProcess(
             label: "codex",
             onLine: { line in
-                incomingEvents.enqueue(.line(line))
+                incomingEvents.enqueue(.line(line, generation))
             },
             onExit: { status, errorLine in
-                incomingEvents.enqueue(.exit(status, errorLine))
+                incomingEvents.enqueue(.exit(status, errorLine, generation))
             }
         )
         try handler.start(
@@ -68,9 +91,15 @@ final class CodexAppServerClient {
         writeLine = { [weak handler] line in handler?.send(line: line) ?? false }
     }
 
-    var processIdentifier: pid_t? { process?.processIdentifier }
+    var processIdentifier: pid_t? { sharedServer?.processIdentifier ?? process?.processIdentifier }
+
+    func releaseThread(threadID: String, turnID: String?) {
+        sharedServer?.releaseThread(threadID: threadID, turnID: turnID)
+    }
 
     func stop() {
+        lifecycleGeneration += 1
+        sharedServer?.detach(self)
         process?.terminate()
         process = nil
         writeLine = nil
@@ -82,6 +111,21 @@ final class CodexAppServerClient {
     func send(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
         nextRequestNumber += 1
         let id = CodexRPC.RequestID.number(nextRequestNumber)
+        if let sharedServer {
+            let generation = lifecycleGeneration
+            return try await withCheckedThrowingContinuation { continuation in
+                pending[id] = continuation
+                Task { [weak self] in
+                    do {
+                        guard let self, self.lifecycleGeneration == generation else { throw Failure.notRunning }
+                        let result = try await sharedServer.send(from: self, method: method, params: params)
+                        self.pending.removeValue(forKey: id)?.resume(returning: result)
+                    } catch {
+                        self?.pending.removeValue(forKey: id)?.resume(throwing: error)
+                    }
+                }
+            }
+        }
         let line = encode(["id": id.json, "method": .string(method), "params": params])
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation
@@ -94,6 +138,7 @@ final class CodexAppServerClient {
     }
 
     func notify(_ method: String, _ params: JSONValue? = nil) {
+        if let sharedServer { sharedServer.notify(from: self, method: method, params: params); return }
         var fields: [String: JSONValue] = ["method": .string(method)]
         if let params { fields["params"] = params }
         guard let line = encode(fields) else { return }
@@ -101,6 +146,7 @@ final class CodexAppServerClient {
     }
 
     func respond(to id: CodexRPC.RequestID, result: JSONValue) {
+        if let sharedServer { sharedServer.respond(from: self, id: id, result: result); return }
         guard let line = encode(["id": id.json, "result": result]) else { return }
         writeLine?(line)
     }
@@ -109,6 +155,7 @@ final class CodexAppServerClient {
     /// turn exactly the way an unanswered `can_use_tool` does, so anything
     /// Plume does not implement gets an error rather than silence.
     func respondUnsupported(to id: CodexRPC.RequestID, method: String) {
+        if let sharedServer { sharedServer.respondUnsupported(from: self, id: id, method: method); return }
         let error = JSONValue.object([
             "code": .number(-32601),
             "message": .string("Plume does not implement \(method)")
@@ -141,7 +188,7 @@ final class CodexAppServerClient {
 
     /// Exercises the same ordered actor hop as subprocess output.
     func enqueueForTesting(_ line: String) {
-        incomingEvents.enqueue(.line(line))
+        incomingEvents.enqueue(.line(line, lifecycleGeneration))
     }
 
     func handleExit(status: Int32, message: String?) {
@@ -170,8 +217,8 @@ final class CodexAppServerClient {
 }
 
 private enum CodexTransportEvent: Sendable {
-    case line(String)
-    case exit(Int32, String?)
+    case line(String, Int)
+    case exit(Int32, String?, Int)
 }
 
 /// A lock protects the tiny synchronous producer side; one consumer Task

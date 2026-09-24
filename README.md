@@ -6,7 +6,7 @@
 
 A delightful Mac-native AI coding interface.
 
-Designed for people who jump between Claude Code sessions and do many things in parallel. It aims for clarity, reliability, and ease of use.
+Designed for people who jump between Claude Code and Codex sessions and do many things in parallel. It aims for clarity, reliability, and ease of use.
 
 ## Why should I use it?
 
@@ -22,8 +22,9 @@ Designed for people who jump between Claude Code sessions and do many things in 
 ## Requirements
 
 - macOS 26.2 or later
-- [Claude Code](https://claude.com/claude-code) installed and logged in on your login shell's PATH
-  - Codex and ACP support coming soon!
+- At least one supported CLI installed and logged in on your login shell’s PATH:
+  - [Claude Code](https://claude.com/claude-code) (`claude`)
+  - Codex (`codex`) — **beta**, tested with CLI 0.153.4. See [compatibility and limitations](docs/codex-beta.md).
 - For GitHub PR features, [`gh` cli](https://cli.github.com/) installed and logged in on your shell's PATH
 
 ## Installing

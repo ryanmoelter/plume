@@ -42,11 +42,26 @@ final class CodexBackgroundTaskTracker {
                 dirty.remove(threadID)
                 await readInventory(threadID: threadID)
             } while !stopped && !Task.isCancelled && dirty.contains(threadID)
+            // An unload can cancel this read and immediately reload the
+            // same thread. The canceled read must not remove its replacement.
+            guard !Task.isCancelled else { return }
             refreshes.removeValue(forKey: threadID)
             schedulePoll(threadID: threadID)
         }
         refreshes[threadID] = task
         return task
+    }
+
+    /// A terminal observer's loaded-thread inventory is authoritative. A
+    /// thread unloaded by the TUI no longer owns a live background process.
+    func retainThreads(_ ids: Set<String>) {
+        for id in Set(entriesByThread.keys).union(refreshes.keys).union(polls.keys).subtracting(ids) {
+            refreshes.removeValue(forKey: id)?.cancel()
+            polls.removeValue(forKey: id)?.cancel()
+            entriesByThread.removeValue(forKey: id)
+            dirty.remove(id)
+        }
+        publish()
     }
 
     func stop() {

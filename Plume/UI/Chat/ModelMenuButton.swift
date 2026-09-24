@@ -4,6 +4,7 @@ import SwiftUI
 /// Keep native menu keyboard/navigation behavior, with explicit header image
 /// visibility: macOS 27's automatic policy normally hides menu images.
 struct ModelMenuButton: NSViewRepresentable {
+    @Environment(\.openSettings) private var openSettings
     let state: ComposerSettings
     let label: String
     let onCustomModel: (AgentProviderKind) -> Void
@@ -21,7 +22,7 @@ struct ModelMenuButton: NSViewRepresentable {
         button.setAccessibilityLabel("Model")
         button.setAccessibilityValue(label)
         button.setAccessibilityIdentifier(AccessibilityID.composerModelControl)
-        button.makeMenu = { installed in ModelMenu.make(state: state, installed: installed, onCustomModel: onCustomModel) }
+        button.makeMenu = { installed in ModelMenu.make(state: state, installed: installed, onOpenSettings: { openSettings() }, onCustomModel: onCustomModel) }
     }
 }
 
@@ -38,10 +39,7 @@ final class ModelPopupButton: NSButton {
         checking = true
         Task { [weak self] in
             let installed = await Task.detached(priority: .userInitiated) {
-                var installed = Set<AgentProviderKind>()
-                if ClaudeCLILocator.isAvailable(commandName: "claude", refresh: true) { installed.insert(.claudeCode) }
-                if ClaudeCLILocator.isAvailable(commandName: "codex", refresh: true) { installed.insert(.codex) }
-                return installed
+                AgentCLIInstallation.installedProviders()
             }.value
             guard let self else { return }
             checking = false
@@ -52,13 +50,16 @@ final class ModelPopupButton: NSButton {
 }
 
 @MainActor enum ModelMenu {
-    static func make(state: ComposerSettings, installed: Set<AgentProviderKind>, openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }, onCustomModel: @escaping (AgentProviderKind) -> Void) -> NSMenu {
+    static func make(state: ComposerSettings, installed: Set<AgentProviderKind>, settings: AppSettings? = nil, openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }, onOpenSettings: @escaping () -> Void = {}, onCustomModel: @escaping (AgentProviderKind) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Model")
         menu.autoenablesItems = false
-        let providers: [AgentProviderKind] = state.canChangeProvider ? [.claudeCode, .codex] : [state.provider]
+        let settings = settings ?? .shared
+        settings.reconcileInstalledProviders(installed)
+        let candidates: [AgentProviderKind] = state.canChangeProvider ? [.claudeCode, .codex] : [state.provider]
+        let providers = candidates.filter { installed.contains($0) || !settings.dismissedMissingProviders.contains($0) }
         for (index, provider) in providers.enumerated() {
             if index > 0 { menu.addItem(.separator()) }
-            let header = NSMenuItem.sectionHeader(title: provider == .claudeCode ? "Claude" : "Codex")
+            let header = NSMenuItem.sectionHeader(title: provider == .claudeCode ? "Claude" : "Codex (Beta)")
             header.image = NSImage(named: provider.assetName)?.copy() as? NSImage
             header.image?.size = NSSize(width: 14, height: 14)
             header.image?.isTemplate = true
@@ -66,11 +67,10 @@ final class ModelPopupButton: NSButton {
             menu.addItem(header)
 
             guard installed.contains(provider) else {
-                let name = provider == .claudeCode ? "Claude Code" : "Codex"
-                let url = URL(string: provider == .claudeCode
-                    ? "https://code.claude.com/docs/en/overview"
-                    : "https://learn.chatgpt.com/docs/codex/cli")!
-                menu.addItem(ModelActionItem(title: "Download \(name)…") { openURL(url) })
+                menu.addItem(ModelActionItem(title: AgentCLIInstallation.downloadTitle(for: provider)) {
+                    openURL(AgentCLIInstallation.downloadURL(for: provider))
+                })
+                menu.addItem(ModelActionItem(title: "Dismiss") { settings.dismissMissingProvider(provider) })
                 continue
             }
             let defaultTitle = state.defaultModel(for: provider).map { "Default (\($0.label))" } ?? "Default"
@@ -89,6 +89,9 @@ final class ModelPopupButton: NSButton {
             let moreItem = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
             moreItem.submenu = more
             menu.addItem(moreItem)
+        }
+        if menu.items.isEmpty {
+            menu.addItem(ModelActionItem(title: "Install a CLI in Settings…", perform: onOpenSettings))
         }
         return menu
     }

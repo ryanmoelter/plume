@@ -70,6 +70,7 @@ final class KeepAwakeCoordinator {
 
     init(
         engine: StatusEngine = .shared,
+        commandRuns: CommandModeRuns = .shared,
         sessions: AgentSessionManager = .shared,
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
@@ -78,6 +79,7 @@ final class KeepAwakeCoordinator {
         thermal: (any ThermalStateSource)? = nil
     ) {
         self.engine = engine
+        self.commandRuns = commandRuns
         self.sessions = sessions
         self.settings = settings
         self.assertion = assertion ?? IOKitSleepAssertion()
@@ -87,6 +89,8 @@ final class KeepAwakeCoordinator {
     }
 
     // MARK: - Lifecycle
+
+    private let commandRuns: CommandModeRuns
 
     func start() {
         guard !hasStarted else { return }
@@ -151,6 +155,10 @@ final class KeepAwakeCoordinator {
             activeTabs: engine.activeTabs,
             remoteControlledTabs: sessions.remoteControlledTabs,
             backgroundTaskTabs: engine.backgroundTaskTabs,
+            commandTabs: commandRuns.activeCommands.compactMap { entry in
+                guard let taskID = engine.taskID(forTab: entry.tabID) ?? entry.taskID else { return nil }
+                return (taskID, entry.tabID, entry.command)
+            },
             allowsRemoteControl: settings.keepsAwakeForRemoteControl
         )
         if derived != reasons {
@@ -222,6 +230,7 @@ final class KeepAwakeCoordinator {
             _ = engine.activeTabs
             _ = sessions.remoteControlledTabs
             _ = engine.backgroundTaskTabs
+            _ = commandRuns.activeCommands
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
@@ -256,6 +265,7 @@ final class KeepAwakeCoordinator {
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
         remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
         backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] = [],
+        commandTabs: [(taskID: UUID, tabID: UUID, command: String)] = [],
         allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
         let counted = allowsRemoteControl ? remoteControlledTabs : []
@@ -267,6 +277,10 @@ final class KeepAwakeCoordinator {
         let remote = counted
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .remoteControl) }
 
+        let runningCommands = commandTabs.map {
+            KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID,
+                            kind: .backgroundTask(.backgroundCommand, description: $0.command))
+        }
         let background = backgroundTaskTabs
             .map {
                 KeepAwakeReason(
@@ -278,7 +292,9 @@ final class KeepAwakeCoordinator {
 
         // Dictionary order is arbitrary; sorting keeps the panel from
         // reshuffling every time an unrelated tab changes status.
-        return (working + remote + background).sorted { $0.id < $1.id }
+        let all = working + remote + background + runningCommands
+        return Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            .values.sorted { $0.id < $1.id }
     }
 
     /// Whether to hold the Mac awake, or why not.

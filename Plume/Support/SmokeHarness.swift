@@ -24,7 +24,10 @@ enum SmokeHarness {
         // provider/session flags corrupt conversations from earlier runs.
         var tasks: [WorkTask] = []
         while tasks.count < count {
-            tasks.append(TaskStore.createTask(in: context, title: "Task \(tasks.count + 1)", siblings: existing + tasks))
+            // Generated-title smoke tests need an unnamed task; ordinary
+            // seeds keep their stable labels for multi-task UI tests.
+            let title = environment["PLUME_SEED_UNNAMED"] == "1" ? "" : "Task \(tasks.count + 1)"
+            tasks.append(TaskStore.createTask(in: context, title: title, siblings: existing + tasks))
         }
 
         // PLUME_SEED_TABS gives every task extra terminal tabs, so several
@@ -88,6 +91,9 @@ enum SmokeHarness {
             for task in tasks {
                 for agentTab in task.orderedTabs where agentTab.kind == .agent {
                     agentTab.provider = provider
+                    if let raw = environment["PLUME_SEED_TRANSPORT"], let transport = AgentTransport(rawValue: raw) {
+                        agentTab.transport = transport
+                    }
                     if let model = environment["PLUME_SEED_MODEL"] {
                         agentTab.model = AgentModel.recognizing(model, provider: provider)
                         agentTab.isModelUserChosen = true
@@ -109,6 +115,17 @@ enum SmokeHarness {
            let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
             AgentLauncher.launch(message: message, task: first, tab: agentTab)
             Log.app.info("Smoke harness sent first message to agent tab")
+        }
+
+        // Exercise two independent conversations on a shared provider host.
+        if let message = environment["PLUME_SEND_MESSAGE_NEW_TAB"],
+           let first = tasks.first,
+           let original = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            let tab = TaskStore.addTab(to: first, kind: .agent, provider: original.provider, in: context)
+            tab.transport = original.transport
+            tab.model = original.model
+            tab.isModelUserChosen = original.isModelUserChosen
+            AgentLauncher.launch(message: message, task: first, tab: tab)
         }
 
         // PLUME_SEND_MESSAGE_2 sends a second turn after a delay, so multi-turn
