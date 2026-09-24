@@ -151,6 +151,39 @@ struct ChatRevealLengthTests {
 /// arrives after the first update, per message.
 @MainActor
 struct ChatRevealModelTests {
+    @Test func aZeroLengthPieceAtTheRevealBoundaryIsVisibleWhenReached() {
+        let reveal = MessageReveal(position: 0, target: 0)
+        guard case .shown = reveal.state(across: 0, 0) else {
+            Issue.record("A zero-length boundary piece should be shown when reached")
+            return
+        }
+    }
+
+    @Test func aFutureZeroLengthPieceStaysHiddenUntilItsBoundary() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.update(targets: [(messageID: "a", length: 40)])
+        let reveal = try #require(model.reveal(for: "a"))
+        guard case .hidden = reveal.state(across: 40, 40) else {
+            Issue.record("A future zero-length boundary piece should stay hidden")
+            return
+        }
+        for _ in 0..<600 where !reveal.isSettled { model.advance(by: 1.0 / 60) }
+        guard case .shown = reveal.state(across: 40, 40) else {
+            Issue.record("A zero-length boundary piece should show once reached")
+            return
+        }
+    }
+
+    @Test func aNormalSpanBeyondTheTargetRemainsHidden() {
+        let reveal = MessageReveal(position: 10, target: 10)
+        guard case .hidden = reveal.state(across: 20, 21) else {
+            Issue.record("A normal future span should remain hidden")
+            return
+        }
+    }
+
     @Test func theFirstUpdateSettlesEverythingAtItsTarget() {
         let model = ChatRevealModel()
         model.update(targets: [(messageID: "a", length: 40)])

@@ -71,7 +71,7 @@ private struct AgentTabContent: View {
 
 /// A headless agent tab: always chat, auto-resuming its session the first
 /// time it becomes visible — mirrors `AutoResumingAgentTabView`'s timing, but
-/// against `HeadlessSessionManager` instead of `SurfaceManager`.
+/// against `AgentSessionManager` instead of `SurfaceManager`.
 private struct HeadlessAgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -80,7 +80,7 @@ private struct HeadlessAgentTabContent: View {
     @State private var hasResumed = false
 
     /// Only the visible tab builds its chat. Nothing here owns a process —
-    /// `HeadlessSessionManager` does — so unmounting costs a rebuild on the
+    /// `AgentSessionManager` does — so unmounting costs a rebuild on the
     /// way back, where staying mounted costs a live `ScrollView` per hidden
     /// tab, each still laying out against a zero-height viewport.
     var body: some View {
@@ -107,9 +107,10 @@ private struct HeadlessAgentTabContent: View {
         guard !hasResumed else { return }
         guard AgentAutoResume.shouldResume(
             agentSessionID: tab.agentSessionID,
-            workingDirectoryPath: task.workingDirectoryPath,
-            hasExistingSurfaceSession: HeadlessSessionManager.shared.existingSession(for: tab.id) != nil,
+            workingDirectoryPath: TabDirectoryStore.shared.directory(for: tab),
+            hasExistingSurfaceSession: AgentSessionManager.shared.existingSession(for: tab.id) != nil,
             isSessionWrittenElsewhere: isSessionWrittenElsewhere(),
+
             directoryExists: { FileManager.default.fileExists(atPath: $0) }
         ) else { return }
 
@@ -121,9 +122,12 @@ private struct HeadlessAgentTabContent: View {
     /// this tab's transcript. Resuming on top of one forks the transcript and
     /// leaves both sides blind to the other's turns.
     private func isSessionWrittenElsewhere() -> Bool {
+        if tab.provider == .codex {
+            return AgentSessionManager.shared.isCodexThreadOwnedElsewhere(tab.agentSessionID, by: tab.id)
+        }
         guard
             let sessionID = tab.agentSessionID,
-            let workingDirectory = task.workingDirectoryPath
+            let workingDirectory = TabDirectoryStore.shared.directory(for: tab)
         else { return false }
 
         let transcript = SessionJSONLReader.transcriptPath(
@@ -137,7 +141,7 @@ private struct HeadlessAgentTabContent: View {
             transcriptModifiedAt: modified ?? nil,
             now: Date(),
             candidatePIDs: ClaudeProcessScanner.plumeLaunchedProcessIDs(),
-            ownedPIDs: HeadlessSessionManager.shared.ownedProcessIdentifiers
+            ownedPIDs: AgentSessionManager.shared.ownedProcessIdentifiers
         )
     }
 }

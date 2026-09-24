@@ -28,7 +28,7 @@ enum Importer {
         return tasks.contains { task in
             task.tabs.contains { tab in
                 SurfaceManager.shared.existingSession(for: tab.id) != nil
-                    || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+                    || AgentSessionManager.shared.existingSession(for: tab.id) != nil
             }
         }
     }
@@ -129,6 +129,7 @@ enum Importer {
         let kind: TabKind = plan.kind == .agent && sessionID != nil ? .agent : .terminal
 
         let tab = TaskTab(kind: kind, orderIndex: index, task: task)
+        tab.provider = plan.provider
         tab.title = plan.title
         tab.workingDirectoryPath = plan.workingDirectoryPath
 

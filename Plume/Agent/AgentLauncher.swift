@@ -26,16 +26,9 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String? = nil
     ) {
-        launch(
-            blocks: message.map { [.text($0)] } ?? [],
-            task: task,
-            tab: tab,
-            resumeSessionID: resumeSessionID
-        )
+        launch(blocks: message.map { [.text($0)] } ?? [], task: task, tab: tab, resumeSessionID: resumeSessionID)
     }
 
-    /// The first turn of a tab, which may carry images. A terminal tab takes
-    /// only the text of it — its input is a paste into a real TUI.
     static func launch(
         blocks: [UserContentBlock],
         task: WorkTask,
@@ -43,17 +36,17 @@ enum AgentLauncher {
         resumeSessionID: String? = nil
     ) {
         let normalized = blocks.normalized
-        switch tab.transport {
-        case .headless:
-            launchHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
-        case .terminal:
-            let text = normalized.plainText
-            launchTerminal(
-                message: text.isEmpty ? nil : text,
-                task: task,
-                tab: tab,
-                resumeSessionID: resumeSessionID
-            )
+        let text = normalized.plainText
+        switch (tab.provider, tab.transport) {
+        case (.claudeCode, .headless):
+            launchClaudeHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.claudeCode, .terminal):
+            launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.codex, .headless):
+            launchCodexHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
+        case (.codex, .terminal):
+            launchCodexTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
+
         }
     }
 
@@ -68,7 +61,7 @@ enum AgentLauncher {
         let newTransport = AgentTabMenu.targetTransport(switchingFrom: tab.transport)
         switch tab.transport {
         case .headless:
-            HeadlessSessionManager.shared.closeSession(for: tab.id)
+            AgentSessionManager.shared.closeSession(for: tab.id)
         case .terminal:
             SurfaceManager.shared.closeSession(for: tab.id)
         }
@@ -76,8 +69,9 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 
-    private static func launchHeadless(
+    private static func launchClaudeHeadless(
         blocks: [UserContentBlock],
+
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?
@@ -87,19 +81,19 @@ enum AgentLauncher {
         // unasked. Refuse instead, and point at the terminal transport, where
         // the prompt can actually be answered. Never write the trust flag
         // here — that would grant the very trust the prompt exists to ask for.
-        guard let workingDirectory = task.workingDirectoryPath else { return }
+        guard let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
+
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
             // Also reported through the session, so a refusal that follows a
             // sent message lands in the conversation beside it. The full-pane
             // state only shows while the conversation is empty, which a
             // just-sent message it never spawned for is not.
-            HeadlessSessionManager.shared.session(
-                for: tab.id,
-                taskID: task.id,
+            let session = AgentSessionManager.shared.session(
+                for: tab.id, taskID: task.id, provider: .claudeCode,
                 initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
-            )
-            .failToLaunch(failure: .untrustedDirectory(path: workingDirectory))
+            ) as? HeadlessSession
+            session?.failToLaunch(failure: .untrustedDirectory(path: workingDirectory))
             return
         }
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
@@ -109,11 +103,12 @@ enum AgentLauncher {
         // Reporting it before the process exists says the same thing with the
         // remedy attached.
         guard ClaudeCLILocator.isAvailable() else {
-            let session = HeadlessSessionManager.shared.session(
+            let existing = AgentSessionManager.shared.session(
                 for: tab.id,
                 taskID: task.id,
                 initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
             )
+            guard let session = existing as? HeadlessSession else { return }
             session.failToLaunch(reason: "claude: command not found")
             return
         }
@@ -127,13 +122,18 @@ enum AgentLauncher {
 
         StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
 
-        let session = HeadlessSessionManager.shared.session(
+        let existing = AgentSessionManager.shared.session(
             for: tab.id,
             taskID: task.id,
+            provider: .claudeCode,
             initialEffort: tab.effort ?? AppSettings.shared.defaultEffort
         )
+        guard let session = existing as? HeadlessSession else {
+            Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
+            return
+        }
         session.start(
-            workingDirectory: task.workingDirectoryPath,
+            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
             permissionMode: resolvedPermissionMode(
                 tab: tab.permissionMode,
                 task: task.permissionMode,
@@ -150,7 +150,88 @@ enum AgentLauncher {
         }
     }
 
-    private static func launchTerminal(
+    /// Codex reports over its own protocol, so this launch carries none of
+    /// Claude Code's hook instrumentation or folder-trust check.
+    private static func launchCodexTerminal(
+        message: String?,
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String?
+    ) {
+        guard SurfaceManager.shared.existingSession(for: tab.id) == nil else { return }
+        guard !AgentSessionManager.shared.isCodexThreadOwnedElsewhere(resumeSessionID, by: tab.id) else {
+            Log.agent.error("Refusing to resume a Codex thread already open in another Plume tab")
+            StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
+            return
+        }
+        let socket: String
+        do {
+            socket = try CodexTerminalMonitor.shared.start(
+                tabID: tab.id, taskID: task.id, directory: TabDirectoryStore.shared.directory(for: tab),
+                resumeThreadID: resumeSessionID
+            ) { [tabID = tab.id] id in
+                AgentEventMonitor.shared.onSessionIDDiscovered?(tabID, id)
+            }
+        } catch {
+            StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
+            return
+        }
+        let provider = CodexProvider(remoteSocket: socket)
+        let launch = provider.launchCommand(
+            firstMessage: message,
+            resumeSessionID: resumeSessionID,
+            taskID: nil,
+            tabID: nil,
+            permissionMode: nil
+        )
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .notStarted)
+        SurfaceManager.shared.session(
+            for: tab.id,
+            options: TerminalSurfaceOptions(
+                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+                envVars: launch.environment,
+                command: launch.command
+            )
+        )
+    }
+
+    private static func launchCodexHeadless(
+        blocks: [UserContentBlock],
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String?
+    ) {
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+
+        let existing = AgentSessionManager.shared.session(
+            for: tab.id,
+            taskID: task.id,
+            provider: .codex,
+            initialEffort: tab.isEffortUserChosen ? tab.effort : nil
+        )
+        guard let session = existing as? CodexSession else {
+            Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
+            return
+        }
+        guard AgentSessionManager.shared.claimCodexThread(resumeSessionID, for: tab.id) else {
+            session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
+            return
+        }
+        session.start(
+            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+            resumeThreadID: resumeSessionID,
+            model: resumeSessionID == nil || tab.isModelUserChosen ? tab.model : nil,
+            collaborationMode: tab.codexCollaborationMode,
+            permissionProfile: tab.permissionModeRaw,
+            defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
+            environment: LoginShellCommand.plumeEnvironment
+        )
+        if blocks.hasContent {
+            session.submit(blocks: blocks)
+        }
+    }
+
+    private static func launchClaudeTerminal(
         message: String?,
         task: WorkTask,
         tab: TaskTab,
@@ -163,16 +244,13 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = AgentProviderRegistry.provider(
-            for: AppSettings.shared.providerID,
-            settingsPath: settingsPath
-        )
+        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: settingsPath)
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,
             taskID: settingsPath == nil ? nil : task.id,
             tabID: settingsPath == nil ? nil : tab.id,
-            permissionMode: task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode
+            permissionMode: (task.permissionMode ?? AppSettings.shared.resolvedDefaultPermissionMode)?.token
         )
 
         if settingsPath != nil {
@@ -183,7 +261,7 @@ enum AgentLauncher {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: task.workingDirectoryPath,
+                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
                 envVars: launch.environment,
                 command: launch.command
             )

@@ -55,7 +55,10 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var transcript: Transcript? {
-        TranscriptStore.shared.transcript(forTab: tab.id)
+        switch tab.provider {
+        case .claudeCode: TranscriptStore.shared.transcript(forTab: tab.id)
+        case .codex: CodexItemStore.shared.transcript(forTab: tab.id)
+        }
     }
 
     private var transcriptMessages: [ChatMessage] {
@@ -82,6 +85,13 @@ struct ChatTabView: View, ThemedView {
         return PlanFileExistence.exists(path) ? path : nil
     }
 
+    private var codexPlan: CodexItemStore.PlanProposal? {
+        (headlessSession as? CodexSession)?.planProposal
+    }
+
+    private var displayedPlanMarkdown: String? { codexPlan?.markdown ?? planFile.content }
+    private var hasPlan: Bool { planFilePath != nil || codexPlan != nil }
+
     /// The live `ExitPlanMode` request, when the agent is waiting on one.
     private var pendingPlan: PendingPermission? {
         headlessSession?.pendingPermissions.first { permission in
@@ -94,6 +104,7 @@ struct ChatTabView: View, ThemedView {
     /// outranks a remembered answer: a fresh proposal after an approval puts
     /// the footer back to awaiting a decision.
     private var planApproval: PlanApprovalState {
+        if codexPlan != nil { return .awaitingDecision }
         if let pendingPlan {
             return .derive(latestProposal: .init(toolUseID: pendingPlan.id))
         }
@@ -109,7 +120,10 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var subagents: [SubagentTranscript] {
-        TranscriptStore.shared.subagents(forTab: tab.id)
+        switch tab.provider {
+        case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+        case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+        }
     }
 
     private var openSubagent: SubagentTranscript? {
@@ -121,7 +135,7 @@ struct ChatTabView: View, ThemedView {
     /// `EnterWorktree`; the task's path only covers the window before any
     /// transcript exists.
     private var gitDirectory: String? {
-        transcript?.cwd ?? task.workingDirectoryPath
+        transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
     /// The main agent's own status, ignoring its subagents — what the chat's
@@ -132,9 +146,25 @@ struct ChatTabView: View, ThemedView {
         StatusEngine.shared.ownStatus(forTab: tab.id)
     }
 
-    private var headlessSession: HeadlessSession? {
+    private var displayedContextUsedTokens: Int? {
+        headlessSession?.contextUsedTokens ?? transcript?.latestUsage?.contextUsedTokens
+    }
+
+    private var displayedContextWindow: Int? {
+        headlessSession?.contextWindow
+            ?? tab.contextWindowTokens
+            ?? headlessSession?.nominalContextWindow
+            ?? tab.model?.nominalContextWindow
+    }
+
+    private var displayedSessionCost: Double? {
+        guard let cost = headlessSession?.sessionCostUSD, cost > 0 else { return nil }
+        return cost
+    }
+
+    private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
-        return HeadlessSessionManager.shared.existingSession(for: tab.id)
+        return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
     /// Which of the tab's states is on screen. An optimistic first message is
@@ -142,18 +172,20 @@ struct ChatTabView: View, ThemedView {
     /// it — `conversationMessages` is.
     @ViewBuilder
     private var content: some View {
-        if !conversationMessages.isEmpty {
+        if !conversationMessages.isEmpty || hasPlan {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
         } else if let startFailure = headlessSession?.startFailure {
             startFailureState(startFailure)
+        } else if let error = headlessSession?.lastError, !error.isEmpty {
+            agentErrorState(error)
         } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
-            || HeadlessSessionManager.shared.existingSession(for: tab.id) != nil
+            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
             || (tab.agentSessionID?.isEmpty == false) {
             // A process (or a resumable session) exists but has written no
             // transcript content yet — nothing to show but a quiet wait.
-            emptyState(isComposerEnabled: false)
+            emptyState(isComposerEnabled: tab.transport == .headless)
         } else {
             emptyState(isComposerEnabled: true)
         }
@@ -182,13 +214,18 @@ struct ChatTabView: View, ThemedView {
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .task(id: tab.agentSessionID) {
+            guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
+            await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
+            await CodexSubagentStore.shared.restore(tabID: tab.id, taskID: task.id, parentThreadID: threadID)
+        }
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
             if let current { GitStateStore.shared.watch(current) }
             TabDirectoryStore.shared.setDirectory(current, forTab: tab)
         }
         .onDisappear {
-            if let gitDirectory { GitStateStore.shared.release(gitDirectory) }
+            releaseGitDirectory()
         }
         .onChange(of: planFilePath, initial: true) { _, path in
             if let path { planFile.watch(path: path) } else { planFile.stop() }
@@ -204,23 +241,16 @@ struct ChatTabView: View, ThemedView {
         // Only fires once per completed turn, not per stream event, so this
         // is already the debounced write the rest of the app requires.
         .onChange(of: headlessSession?.contextWindow) { _, window in
-            guard let window, tab.contextWindowTokens != window else { return }
-            tab.contextWindowTokens = window
+            persistContextWindow(window)
         }
         .onChange(of: headlessSession?.permissionMode) { _, mode in
-            guard let mode, tab.permissionMode != mode else { return }
-            tab.permissionMode = mode
+            persistPermissionMode(mode)
         }
         .onChange(of: headlessSession?.model) { _, model in
-            guard let model, tab.model != model else { return }
-            tab.model = model
-            // The conversation reported this, so it is a snapshot again: a
-            // resume should let the conversation restore it rather than pin it.
-            tab.isModelUserChosen = false
+            persistModel(model)
         }
         .onChange(of: headlessSession?.effort) { _, effort in
-            guard let effort, tab.effort != effort else { return }
-            tab.effort = effort
+            persistEffort(effort)
         }
         .onChange(of: planFilePath) { _, newPath in
             if newPath == nil { planPresentation = .hidden(.closed) }
@@ -241,11 +271,14 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: planApproval, initial: true) { _, approval in
             planPresentation = planPresentation.reconciled(with: approval)
         }
+        .onChange(of: codexPlan?.id) { _, id in
+            presentPendingPlan(id)
+        }
         .onChange(of: headlessSession?.sessionID, initial: true) { _, sessionID in
             persistHeadlessSessionID(sessionID)
         }
         .overlay {
-            if planPresentation.isExpanded, let planFilePath {
+            if planPresentation.isExpanded, hasPlan {
                 planPanel(path: planFilePath)
                     // The bar is the source whenever it exists, so the panel
                     // grows out of it; opened straight from the Plan button
@@ -266,11 +299,23 @@ struct ChatTabView: View, ThemedView {
         }
         .animation(.snappy(duration: 0.22), value: planPresentation)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
+        .onChange(of: planPresentation) { _, presentation in
+            guard presentation == .expanded, planApproval.showsApprovalOptions else {
+                planFeedbackFocused = false
+                return
+            }
+            // The feedback editor wraps NSTextView. Claim first responder on
+            // the next run-loop turn, after the overlay's view has joined its
+            // window; an accessibility press does not reliably perform the
+            // native mouse-down focus handoff for that wrapper.
+            DispatchQueue.main.async { planFeedbackFocused = true }
+        }
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
                     workingDirectory: path,
                     repoPath: task.repoPath,
+                    provider: tab.provider,
                     onSelect: resume
                 )
             }
@@ -287,6 +332,25 @@ struct ChatTabView: View, ThemedView {
     /// is what keeps the measurement from feeding back into itself.
     private func bottomChrome(transcript: Transcript) -> some View {
         VStack(spacing: dimensions.panelContentInset) {
+            if let error = headlessSession?.lastError, !error.isEmpty {
+                HStack(alignment: .top) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .textSelection(.enabled)
+                    if headlessSession?.hasExited == true {
+                        Button("Reconnect") { reconnectAgent() }
+                    }
+                }
+                .font(.callout)
+                .padding(10)
+                .background(.regularMaterial, in: .rect(cornerRadius: 10))
+                .listItemPadding(vertical: false)
+            }
+            if tab.provider == .codex, CodexItemStore.shared.isSavedCopy(forTab: tab.id) {
+                Label("Saved conversation — reconnect to refresh history.", systemImage: "clock.arrow.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .listItemPadding(vertical: false)
+            }
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
             if !commandRuns.isEmpty {
@@ -312,7 +376,7 @@ struct ChatTabView: View, ThemedView {
     /// it, rather than the transcript's wider bleed column a sent bubble
     /// sits in. Sharing the panel's edge instead of a sent message's is part
     /// of what says "not sent yet".
-    private func queuedMessagesView(_ session: HeadlessSession) -> some View {
+    private func queuedMessagesView(_ session: any AgentSession) -> some View {
         VStack(spacing: 6) {
             ForEach(queuedProse(session), id: \.offset) { index, message in
                 QueuedMessageChip(
@@ -330,7 +394,7 @@ struct ChatTabView: View, ThemedView {
     /// is queued as the tagged wire format, which reads as markup rather
     /// than as the command that produced it — its own chip says it better.
     private func queuedProse(
-        _ session: HeadlessSession
+        _ session: any AgentSession
     ) -> [(offset: Int, element: [UserContentBlock])] {
         Self.prose(
             in: session.queuedMessages,
@@ -357,7 +421,7 @@ struct ChatTabView: View, ThemedView {
         VStack(spacing: 6) {
             ForEach(commandRuns) { run in
                 CommandRunChip(run: run) {
-                    CommandModeRuns.shared.cancel(run.id, tabID: tab.id)
+                    CommandModeRuns.shared.cancel(run.id, tabID: tab.id, session: headlessSession)
                 }
             }
         }
@@ -379,7 +443,7 @@ struct ChatTabView: View, ThemedView {
     private func composerPanel(transcript: Transcript) -> some View {
         let isDocked = planPresentation.hiddenForm == .dockBar
         return VStack(spacing: 0) {
-            if let planFilePath, isDocked {
+            if hasPlan, isDocked {
                 planDockBar(path: planFilePath)
                     .transition(.opacity)
                 Divider()
@@ -387,10 +451,10 @@ struct ChatTabView: View, ThemedView {
             ChatComposer(
                 task: task,
                 tab: tab,
-                isVisible: isVisible,
+                isVisible: isVisible && !planPresentation.isExpanded,
                 hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
-                showsPlanButton: planFilePath != nil && planPresentation.hiddenForm == .closed,
+                showsPlanButton: hasPlan && planPresentation.hiddenForm == .closed,
                 onOpenPlan: { planPresentation = .expanded }
             )
             Divider()
@@ -450,6 +514,7 @@ struct ChatTabView: View, ThemedView {
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 StatuslineStripView(
                     layout: meters,
+                    provider: tab.provider,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.
@@ -461,8 +526,12 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    sessionCostUSD: headlessSession.flatMap { $0.sessionCostUSD > 0 ? $0.sessionCostUSD : nil }
+                    sessionCostUSD: displayedSessionCost
                 )
+                if tab.provider == .codex,
+                   CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
+                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows, layout: meters == .stacked ? .stacked : .wide)
+                }
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
@@ -492,17 +561,17 @@ struct ChatTabView: View, ThemedView {
         ThemeChrome.background(for: colorScheme)?.opacity(0.5)
     }
 
-    private func planPanel(path: String) -> some View {
+    private func planPanel(path: String?) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text((path as NSString).lastPathComponent)
+                Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                     .font(.headline)
                 Spacer()
                 hidePlanButton
             }
             .padding(12)
             Divider()
-            MarkdownContentView(content: planFile.content)
+            MarkdownContentView(content: displayedPlanMarkdown)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -569,17 +638,21 @@ struct ChatTabView: View, ThemedView {
             HStack(alignment: .bottom, spacing: DecisionCard.nestedPadding) {
                 feedbackField
                 ReservedWidthButton(
-                    title: PlanRejectionLabel.label(forReason: planRejectionReason),
-                    labels: PlanRejectionLabel.allLabels
+                    title: codexPlan == nil
+                        ? PlanRejectionLabel.label(forReason: planRejectionReason)
+                        : "Request changes",
+                    labels: codexPlan == nil ? PlanRejectionLabel.allLabels : ["Request changes"]
                 ) {
                     answerPlan(.reject)
                 }
+                .disabled(codexPlan != nil && headlessSession?.isWorking == true)
                 .plumeID(AccessibilityID.planRejectButton)
-                Button("Approve") { answerPlan(.approve) }
+                Button(codexPlan == nil ? "Approve" : "Implement plan") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
+                    .disabled(codexPlan != nil && headlessSession?.isWorking == true)
                     .plumeID(AccessibilityID.planApproveButton)
             }
-            Text("⌥↩ approves with this feedback")
+            Text(codexPlan == nil ? "⌥↩ approves with this feedback" : "Return requests changes")
                 .font(typography.caption.font)
                 .emphasis(.subtle)
         }
@@ -594,17 +667,17 @@ struct ChatTabView: View, ThemedView {
             isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
-            onOptionReturn: { answerPlan(.approveWithFeedback) }
+            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) }
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
         .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
-        .plumeID(
-            AccessibilityID.planFeedbackField,
-            value: planRejectionReason,
-            setValue: { planRejectionReason = $0 }
-        )
+        .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
+        .onAppear {
+            guard planApproval.showsApprovalOptions else { return }
+            DispatchQueue.main.async { planFeedbackFocused = true }
+        }
     }
 
     /// `NSTextView` draws its first glyph one line-fragment padding in from
@@ -621,7 +694,23 @@ struct ChatTabView: View, ThemedView {
     /// Answers the live proposal and remembers where it landed, so the footer
     /// keeps saying so once the request is gone.
     private func answerPlan(_ decision: PlanDecision) {
-        guard let session = headlessSession, let pendingPlan else { return }
+        guard let session = headlessSession else { return }
+        if let codex = session as? CodexSession, let codexPlan {
+            switch decision {
+            case .approve, .approveWithFeedback:
+                guard codex.implementPlan(feedback: planRejectionReason) else { return }
+                tab.codexCollaborationMode = .default
+                settledPlan = .init(toolUseID: codexPlan.id, decision: .approved)
+            case .reject:
+                guard codex.requestPlanChanges(planRejectionReason) else { return }
+                tab.codexCollaborationMode = .plan
+                settledPlan = .init(toolUseID: codexPlan.id, decision: .rejected)
+            }
+            planRejectionReason = ""
+            planPresentation = .hidden(.closed)
+            return
+        }
+        guard let pendingPlan else { return }
         switch decision {
         case .approve:
             session.approvePlan(pendingPlan)
@@ -640,7 +729,7 @@ struct ChatTabView: View, ThemedView {
         planPresentation = .hidden(.closed)
     }
 
-    private func planDockBar(path: String) -> some View {
+    private func planDockBar(path: String?) -> some View {
         HStack(spacing: 8) {
             // The whole row expands, so the target is the bar rather than just
             // the chevron; close stays a sibling so it isn't a nested button.
@@ -650,18 +739,18 @@ struct ChatTabView: View, ThemedView {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text")
                         .emphasis(.secondary)
-                    if let title = planFile.content.flatMap(PlanSummary.title(of:)) {
+                    if let title = displayedPlanMarkdown.flatMap(PlanSummary.title(of:)) {
                         Text(title)
                             .lineLimit(1)
                         // Same size as the title, so the bar is the same
                         // height with or without one and the conversation
                         // above it never shifts. It yields its width first.
-                        Text((path as NSString).lastPathComponent)
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                             .lineLimit(1)
                             .emphasis(.secondary)
                             .layoutPriority(-1)
                     } else {
-                        Text((path as NSString).lastPathComponent)
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -791,6 +880,43 @@ struct ChatTabView: View, ThemedView {
         .plumeID(AccessibilityID.composerWorkspacePicker)
     }
 
+    private func reconnectAgent() {
+        let queued = headlessSession?.queuedMessages ?? []
+        AgentSessionManager.shared.closeSession(for: tab.id)
+        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        if let session = headlessSession {
+            for message in queued { session.submit(blocks: message) }
+        }
+    }
+
+    private func agentErrorState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 28))
+                .foregroundStyle(colors.danger)
+            Text("\(tab.provider.displayName) couldn't start")
+                .font(.headline)
+            Text(message)
+                .font(.callout)
+                .emphasis(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .frame(maxWidth: 480)
+            Button("Retry") {
+                reconnectAgent()
+            }
+            .accessibilityIdentifier("agent-retry-button")
+            Button("New \(tab.provider.displayName) Tab") {
+                TaskStore.addTab(to: task, kind: .agent, provider: tab.provider, in: modelContext)
+            }
+            .help("Start a separate conversation and keep this tab available to retry")
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     /// Shown instead of the composer when `AgentLauncher` refused to spawn
     /// because Claude Code has not been told to trust this directory. The
     /// headless transport can't surface the real folder-trust prompt, so the
@@ -835,7 +961,7 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 420)
             }
             if failure.remedy == .installCLI {
-                Text("Plume runs `claude` through your login shell. Install Claude Code, or make sure it's on the PATH your shell profile sets.")
+                Text("\(AppIdentity.displayName) runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
                     .font(.callout)
                     .emphasis(.secondary)
                     .multilineTextAlignment(.center)
@@ -872,9 +998,7 @@ struct ChatTabView: View, ThemedView {
     /// installing the CLI is the fix this offers.
     private func retryAfterStartFailure() {
         ClaudeCLILocator.invalidate()
-        HeadlessSessionManager.shared.closeSession(for: tab.id)
-        // Trust is re-read on the next launch, and answering the prompt in a
-        // terminal tab is what this retry is offered after.
+        AgentSessionManager.shared.closeSession(for: tab.id)
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         StatusEngine.shared.setStatus(.notStarted, taskID: task.id, tabID: tab.id)
     }
@@ -888,11 +1012,52 @@ struct ChatTabView: View, ThemedView {
         AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
     }
 
+    private func releaseGitDirectory() {
+        guard let gitDirectory else { return }
+        GitStateStore.shared.release(gitDirectory)
+    }
+
+    private func updateGitWatch(previous: String?, current: String?) {
+        if let previous { GitStateStore.shared.release(previous) }
+        if let current { GitStateStore.shared.watch(current) }
+    }
+
+    private func persistContextWindow(_ window: Int?) {
+        guard let window, tab.contextWindowTokens != window else { return }
+        tab.contextWindowTokens = window
+    }
+
+    private func persistPermissionMode(_ mode: PermissionMode?) {
+        guard let mode, tab.permissionMode != mode else { return }
+        tab.permissionMode = mode
+    }
+
+    private func persistModel(_ model: AgentModel?) {
+        guard let model, tab.model != model else { return }
+        tab.model = model
+        tab.isModelUserChosen = false
+    }
+
+    private func persistEffort(_ effort: AgentEffort?) {
+        guard let effort, tab.effort != effort else { return }
+        tab.effort = effort
+    }
+
+    private func handlePlanPathChange(_ path: String?) {
+        if path == nil { planPresentation = .hidden(.closed) }
+    }
+
+    private func presentPendingPlan(_ id: String?) {
+        guard id != nil else { return }
+        settledPlan = nil
+        if planPresentation != .expanded { planPresentation = .expanded }
+    }
+
     /// Storing the ID is the whole resume: both transports watch
     /// `tab.agentSessionID` and launch `claude --resume` from it.
     private func resume(_ session: StoredSession) {
         tab.agentSessionID = session.sessionID
-        tab.sessionJSONLPath = session.transcriptPath
+        tab.sessionJSONLPath = tab.provider == .claudeCode ? session.transcriptPath : nil
     }
 
     /// The TUI path learns these from hook events; headless has no hooks, so
@@ -901,6 +1066,9 @@ struct ChatTabView: View, ThemedView {
     private func persistHeadlessSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
         tab.agentSessionID = sessionID
+        // Only Claude Code keeps a transcript on disk; Codex serves its
+        // history over the protocol, so a Codex tab has no path to derive.
+        guard tab.provider == .claudeCode else { return }
         guard let workingDirectory = task.workingDirectoryPath else { return }
         tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,

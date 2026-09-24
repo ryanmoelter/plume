@@ -13,6 +13,7 @@ struct PermissionRequestRow: View, ThemedView {
     let permission: PendingPermission
     let allow: () -> Void
     let deny: (String) -> Void
+    let choose: (PermissionDecisionOption) -> Void
 
     @State private var denialReason = ""
 
@@ -33,16 +34,32 @@ struct PermissionRequestRow: View, ThemedView {
                     .chatTextColumn()
             }
             inputFields
-            denialReasonField
-            HStack(spacing: DecisionCard.nestedPadding) {
-                Spacer()
-                Button("Deny") { deny(denialReason) }
-                Button("Allow", action: allow)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+            if permission.decisions.isEmpty {
+                denialReasonField
+                HStack(spacing: DecisionCard.nestedPadding) {
+                    Spacer()
+                    Button("Deny") { deny(denialReason) }
+                    Button("Allow", action: allow)
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
+                .font(typography.caption.font)
+                .chatTextColumn()
+            } else {
+                HStack(spacing: DecisionCard.nestedPadding) {
+                    Spacer()
+                    ForEach(permission.decisions) { option in
+                        Button(option.label) { choose(option) }
+                            .keyboardShortcut(option.allowsAction ? .defaultAction : nil)
+                    }
+                }
+                .font(typography.caption.font)
+                .chatTextColumn()
+                Text("Codex decisions do not support a denial reason.")
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .chatTextColumn()
             }
-            .font(typography.caption.font)
-            .chatTextColumn()
         }
         .decisionCard(subject: .consequential, colors: colors)
     }

@@ -137,7 +137,7 @@ struct MainWindow: View {
             }
             Button("Cancel", role: .cancel) { tabPendingStartFresh = nil }
         } message: {
-            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+            Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
         .modifier(worktreeRemovalDialog)
         .onChange(of: selection) { _, id in
@@ -176,7 +176,7 @@ struct MainWindow: View {
         statusNotifier = StatusNotifier { tabID in
             TitleStore.shared.title(forTab: tabID)
                 ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
-                ?? "Plume"
+                ?? AppIdentity.displayName
         }
     }
 
@@ -295,6 +295,9 @@ struct MainWindow: View {
     /// to `notStarted` — nothing is running yet this launch, whatever the
     /// last event said, and claiming a turn ended would overstate that.
     private func restoreStatusMonitoring() {
+        CodexSharedAppServer.shared.adoptRemoteThread = { thread in
+            await CodexRemoteThreadAdopter.adopt(thread: thread, in: context)
+        }
         AgentEventMonitor.shared.onSessionIDDiscovered = { tabID, sessionID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
                   tab.agentSessionID != sessionID
@@ -327,7 +330,7 @@ struct MainWindow: View {
         AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title in
             TitleStore.shared.setTitle(title, forTab: tabID)
         }
-        HeadlessSessionManager.shared.titleContextProvider = { tabID in
+        AgentSessionManager.shared.titleContextProvider = { tabID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID })
             else { return nil }
             return (tab.transport, tab.task?.title)
@@ -341,12 +344,13 @@ struct MainWindow: View {
 
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
-                switch tab.transport {
-                case .terminal:
+                switch (tab.provider, tab.transport) {
+                case (.claudeCode, .terminal):
                     AgentEventMonitor.shared.watch(taskID: task.id, tabID: tab.id)
-                case .headless:
+                case (.claudeCode, .headless), (.codex, _):
                     // The stream carries status directly once resumed; hook
-                    // events are a TUI-only concern.
+                    // events are a Claude Code TUI concern, and Codex has no
+                    // hook mechanism to watch at all.
                     break
                 }
                 StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)

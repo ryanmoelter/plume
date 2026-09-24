@@ -16,6 +16,28 @@ enum ChatStreamHandoff {
         var text: String = ""
 
         var isEmpty: Bool { thinking.isEmpty && text.isEmpty }
+
+        init(id: String? = nil, thinking: String = "", text: String = "") {
+            self.id = id
+            self.thinking = thinking
+            self.text = text
+        }
+
+        /// Claude exposes the in-flight reply as a trailing text overlay.
+        /// Other agent transports (currently Codex) publish their in-flight
+        /// items through their own transcript store and therefore contribute
+        /// an empty overlay here.
+        init(session: (any AgentSession)?) {
+            guard let session, session is HeadlessSession else {
+                self.init(id: nil)
+                return
+            }
+            self.init(
+                id: (session as? HeadlessSession)?.streamingMessageID,
+                thinking: session.streamingThinking,
+                text: session.streamingText
+            )
+        }
     }
 
     /// Stands in for a stream that never said which message it is writing.

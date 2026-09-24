@@ -38,11 +38,11 @@ struct ComposerSettings {
         }
     }
 
-    private let session: HeadlessSession?
+    private let session: (any AgentSession)?
     private let tab: TaskTab
     private let defaults: Defaults
 
-    init(session: HeadlessSession?, tab: TaskTab, defaults: Defaults) {
+    init(session: (any AgentSession)?, tab: TaskTab, defaults: Defaults) {
         self.session = session
         self.tab = tab
         self.defaults = defaults
@@ -52,10 +52,64 @@ struct ComposerSettings {
     /// a running conversation's own state.
     var isPreLaunch: Bool { session == nil }
 
-    var model: AgentModel? { session?.model ?? tab.model ?? defaults.model }
-    var effort: AgentEffort { session?.effort ?? tab.effort ?? defaults.effort }
+    /// A provider defines the conversation protocol and can only be chosen
+    /// before anything has started or been persisted for this tab.
+    var canChangeProvider: Bool {
+        session?.hasExited != false
+            && AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited != false
+            && SurfaceManager.shared.existingSession(for: tab.id) == nil
+            && tab.agentSessionID?.isEmpty != false
+            && tab.sessionJSONLPath?.isEmpty != false
+    }
+
+    var model: AgentModel? { session?.model ?? tab.model ?? defaultModel }
+    var effort: AgentEffort {
+        let selected = session?.effort ?? tab.effort
+        guard provider == .codex else { return selected ?? defaults.effort }
+        if let selected, efforts.contains(selected) { return selected }
+        return CodexCatalogStore.shared.defaultEffort(for: tab.id, modelID: model?.id)
+            ?? selected ?? .medium
+    }
     var permissionMode: PermissionMode? {
         session.map(\.permissionMode) ?? tab.permissionMode ?? defaults.permissionMode
+    }
+
+    var provider: AgentProviderKind { tab.provider }
+    var collaborationMode: CodexCollaborationMode {
+        (session as? CodexSession)?.collaborationMode ?? tab.codexCollaborationMode
+    }
+
+    func setCollaborationMode(_ mode: CodexCollaborationMode) {
+        tab.codexCollaborationMode = mode
+        (session as? CodexSession)?.setCollaborationMode(mode)
+    }
+    var models: [AgentModel] {
+        models(for: provider)
+    }
+    func models(for provider: AgentProviderKind) -> [AgentModel] {
+        provider == .codex ? CodexCatalogStore.shared.models(for: tab.id) : provider.models
+    }
+    var efforts: [AgentEffort] {
+        provider == .codex
+            ? CodexCatalogStore.shared.efforts(for: tab.id, modelID: model?.id)
+            : provider.efforts
+    }
+    var permissionPresets: [AgentPermissionPreset] {
+        if provider == .codex {
+            return AgentPermissionPreset.offeredCodexProfiles(CodexCatalogStore.shared.profiles(for: tab.id),
+                showsFullAccess: AppSettings.shared.showsBypassPermissions)
+        }
+        return PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)
+            .map { AgentPermissionPreset(id: $0.rawValue, label: $0.label) }
+    }
+    var permissionPreset: AgentPermissionPreset? {
+        if provider == .claudeCode {
+            return permissionMode.map { .init(id: $0.rawValue, label: $0.label) }
+        }
+        return CodexCatalogStore.shared.resolvedProfile(
+            for: tab.id,
+            requestedID: tab.permissionModeRaw
+        )
     }
 
     /// True when the displayed value is a resolved default rather than a
@@ -64,7 +118,13 @@ struct ComposerSettings {
 
     /// What a launch passing no `--model` lands on, for the menu's Default
     /// item to name.
-    var defaultModel: AgentModel? { defaults.model }
+    var defaultModel: AgentModel? {
+        defaultModel(for: provider)
+    }
+    func defaultModel(for provider: AgentProviderKind) -> AgentModel? {
+        if provider == .codex { return CodexCatalogStore.shared.defaultModel(for: tab.id) }
+        return defaults.model
+    }
 
     /// Mode and model are both corrected by the `init` event, so until it
     /// lands the displayed pair is a guess: the tab's snapshot before launch,
@@ -82,13 +142,63 @@ struct ComposerSettings {
     }
 
     func modeAndModelHelp(_ label: String) -> String {
-        isModeAndModelUnconfirmed ? "\(label) (not yet confirmed by Claude Code)" : label
+        isModeAndModelUnconfirmed ? "\(label) (not yet confirmed by \(provider.displayName))" : label
     }
 
     func setModel(_ model: AgentModel) {
         tab.model = model
         tab.isModelUserChosen = true
         session?.setModel(model)
+    }
+
+    /// Selects a model and its provider as one pre-launch choice.
+    @discardableResult
+    func setModel(_ model: AgentModel, provider: AgentProviderKind) -> Bool {
+        let changesProvider = provider != tab.provider
+        guard setProvider(provider) else { return false }
+        if changesProvider {
+            tab.model = model
+            tab.isModelUserChosen = true
+        } else {
+            setModel(model)
+        }
+        return true
+    }
+
+    /// Changes the protocol used for a conversation that has not started.
+    /// Provider-specific launch settings cannot safely cross that boundary.
+    @discardableResult
+    func setProvider(_ provider: AgentProviderKind) -> Bool {
+        guard provider != tab.provider else { return true }
+        guard canChangeProvider else { return false }
+
+        if AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited == true {
+            AgentSessionManager.shared.closeSession(for: tab.id)
+        }
+        tab.provider = provider
+        tab.transport = provider.resolvedTransport(preferring: tab.transport)
+        tab.model = nil
+        tab.isModelUserChosen = false
+        tab.effort = nil
+        tab.isEffortUserChosen = false
+        tab.permissionModeRaw = nil
+        tab.codexCollaborationMode = .default
+        UntrustedDirectoryStore.shared.clear(tabID: tab.id)
+        return true
+    }
+
+    /// Chooses this provider while leaving model resolution to its CLI.
+    @discardableResult
+    func clearModel(for provider: AgentProviderKind) -> Bool {
+        let changesProvider = provider != tab.provider
+        guard setProvider(provider) else { return false }
+        if changesProvider {
+            tab.model = nil
+            tab.isModelUserChosen = false
+        } else {
+            clearModel()
+        }
+        return true
     }
 
     /// Returns the tab to running on whatever the CLI resolves for itself, so
@@ -98,18 +208,28 @@ struct ComposerSettings {
     func clearModel() {
         tab.model = nil
         tab.isModelUserChosen = false
-        if let session, let fallback = defaults.model {
+        if let session, let fallback = defaultModel {
             session.setModel(fallback)
         }
     }
 
     func setEffort(_ effort: AgentEffort) {
         tab.effort = effort
+        tab.isEffortUserChosen = true
         session?.setEffort(effort)
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
         tab.permissionMode = mode
         session?.setPermissionMode(mode)
+    }
+
+    func setPermissionPreset(_ preset: AgentPermissionPreset) {
+        tab.permissionPreset = preset
+        if provider == .claudeCode, let mode = PermissionMode(rawValue: preset.id) {
+            session?.setPermissionMode(mode)
+        } else if let session = session as? CodexSession {
+            session.setPermissionProfile(preset)
+        }
     }
 }

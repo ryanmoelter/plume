@@ -14,15 +14,15 @@ nonisolated enum ClaudeCLILocator {
     /// failure UI's retry calls.
     private static let cache = Cache()
 
-    static func isAvailable(commandName: String = "claude") -> Bool {
-        if let cached = cache.value { return cached }
+    static func isAvailable(commandName: String = "claude", refresh: Bool = false) -> Bool {
+        if !refresh, let cached = cache.value(for: commandName) { return cached }
         let found = probe(commandName: commandName)
-        cache.value = found
+        cache.set(found, for: commandName)
         return found
     }
 
     static func invalidate() {
-        cache.value = nil
+        cache.clear()
     }
 
     /// `command -v` rather than `which`: it is a shell builtin, so it answers
@@ -31,7 +31,7 @@ nonisolated enum ClaudeCLILocator {
     private static func probe(commandName: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", LoginShellCommand.wrap("command -v \(commandName)")]
+        process.arguments = ["-c", LoginShellCommand.wrap("command -v \(shellQuoted(commandName))")]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -47,11 +47,10 @@ nonisolated enum ClaudeCLILocator {
 
     private final class Cache: @unchecked Sendable {
         private let lock = NSLock()
-        private var stored: Bool?
+        private var stored: [String: Bool] = [:]
 
-        var value: Bool? {
-            get { lock.withLock { stored } }
-            set { lock.withLock { stored = newValue } }
-        }
+        func value(for command: String) -> Bool? { lock.withLock { stored[command] } }
+        func set(_ value: Bool, for command: String) { lock.withLock { stored[command] = value } }
+        func clear() { lock.withLock { stored.removeAll() } }
     }
 }

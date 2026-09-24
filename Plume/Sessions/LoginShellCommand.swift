@@ -30,6 +30,12 @@ enum LoginShellCommand {
         return "\(resolvedShell) -lic \(shellQuoted(command))"
     }
 
+    /// Renders argv as one login-shell command line, quoting each argument so
+    /// spaces and JSON punctuation survive the trip through the shell.
+    static func wrap(arguments: [String]) -> String {
+        wrap(arguments.map(shellQuoted).joined(separator: " "))
+    }
+
     /// Builds `<shell> -lc '<command>'` — a login shell that is *not*
     /// interactive, for a command whose output is captured rather than shown
     /// in a terminal.
@@ -46,6 +52,7 @@ enum LoginShellCommand {
         let resolvedShell = shell?.isEmpty == false ? shell! : "/bin/zsh"
         return "\(resolvedShell) -lc \(shellQuoted(command))"
     }
+
 
     /// A bare login, interactive shell with no inner command — for plain
     /// terminal tabs, where the "command" is just an interactive prompt.

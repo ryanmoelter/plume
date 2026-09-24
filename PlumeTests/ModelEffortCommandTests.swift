@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Plume
 
@@ -171,8 +172,22 @@ struct ModelEffortCommandTests {
     }
 
     @Test
-    func recognizingReturnsNilForAnUnrecognizedEffortString() {
-        #expect(AgentEffort.recognizing("ultra") == nil)
+    func recognizingIncludesCodexUltraEffort() {
+        #expect(AgentEffort.recognizing("ultra") == .ultra)
+    }
+
+    @Test func recognizingPreservesAnUnknownProviderEffort() throws {
+        let effort = try #require(AgentEffort.recognizing("deliberate"))
+        #expect(effort.rawValue == "deliberate")
+        #expect(effort.label == "deliberate")
+        #expect(effort.id == "deliberate")
+        #expect(ModelEffortCommand.setEffort(effort) == "/effort deliberate")
+    }
+
+    @Test func effortCodableUsesTheRawStringShape() throws {
+        let data = try JSONEncoder().encode(AgentEffort(rawValue: "deliberate"))
+        #expect(String(data: data, encoding: .utf8) == #""deliberate""#)
+        #expect(try JSONDecoder().decode(AgentEffort.self, from: data).rawValue == "deliberate")
     }
 
     /// The top-level entries show bare family names, since the CLI — not

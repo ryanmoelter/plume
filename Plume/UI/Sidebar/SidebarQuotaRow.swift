@@ -29,8 +29,7 @@ struct SidebarQuotaRow: View, ThemedView {
         } ?? false
 
         HStack(spacing: 8) {
-            icon(snapshot)
-                .frame(width: 16)
+            AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
                 .opacity(isStale || snapshot == nil ? colors.emphasis[.secondary] : 1)
             if let snapshot {
@@ -47,24 +46,14 @@ struct SidebarQuotaRow: View, ThemedView {
         .padding(.vertical, 5)
         .padding(.horizontal, SidebarFooterMetrics.inset)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Account quota")
+        .accessibilityLabel("Claude account quota")
         .plumeID(AccessibilityID.sidebarQuotaRow)
-    }
-
-    /// The ring fills with the five-hour window, the one that moves fast
-    /// enough to be worth a glance. A gauge would read as effort, which is
-    /// what it means everywhere else in the app.
-    private func icon(_ snapshot: QuotaSnapshot?) -> some View {
-        Image(
-            systemName: "ring.dashed",
-            variableValue: snapshot?.rateLimit.fiveHour?.utilization ?? 0
-        )
     }
 
     @ViewBuilder
     private func meters(_ snapshot: QuotaSnapshot, isStale: Bool) -> some View {
         Group {
-            if let fiveHour = snapshot.rateLimit.fiveHour {
+            if let fiveHour = snapshot.rateLimit.fiveHour, fiveHour.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -76,7 +65,7 @@ struct SidebarQuotaRow: View, ThemedView {
                     readingAlignment: .leading
                 )
             }
-            if let sevenDay = snapshot.rateLimit.sevenDay {
+            if let sevenDay = snapshot.rateLimit.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,
@@ -89,5 +78,37 @@ struct SidebarQuotaRow: View, ThemedView {
                 )
             }
         }
+    }
+}
+
+
+/// Keep the Codex row visible while installed, even before its first reading.
+struct SidebarCodexQuotaRow: View, ThemedView {
+    @Environment(\.theme) var theme
+    @State private var quota = CodexQuotaStore.shared
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AgentProviderIcon(provider: .codex, size: 16)
+                .opacity(quota.windows.isEmpty ? colors.emphasis[.secondary] : 1)
+            if quota.windows.contains(where: { $0.usedPercent > 0 }) {
+                ViewThatFits(in: .horizontal) {
+                    CodexQuotaStrip(windows: quota.windows, sidebar: true)
+                    CodexQuotaStrip(windows: quota.windows, layout: .stacked, sidebar: true)
+                }
+            } else {
+                Text("—")
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .accessibilityLabel(quota.windows.isEmpty ? "No quota reading yet" : "No quota usage")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(typography.caption.font)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .padding(.horizontal, SidebarFooterMetrics.inset)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Codex account quota")
+        .plumeID("sidebar-codex-quota-row")
     }
 }

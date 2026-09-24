@@ -1,5 +1,11 @@
 import Foundation
 
+/// A provider-owned permission vocabulary persisted by its raw id.
+nonisolated struct AgentPermissionPreset: Identifiable, Hashable, Sendable {
+    let id: String
+    let label: String
+}
+
 /// A permission mode this UI can start a session in, per `claude --help`.
 ///
 /// The CLI also accepts `dontAsk`, which is deliberately absent from this
@@ -41,6 +47,17 @@ nonisolated enum PermissionMode: String, CaseIterable, Identifiable {
     /// for a mode this UI does not offer.
     static func recognizing(_ reported: String) -> PermissionMode? {
         PermissionMode(rawValue: reported)
+    }
+}
+
+nonisolated extension AgentPermissionPreset {
+    static let codexReadOnly = AgentPermissionPreset(id: ":read-only", label: "Read Only")
+    static let codexWorkspace = AgentPermissionPreset(id: ":workspace", label: "Workspace")
+    static let codexDangerFullAccess = AgentPermissionPreset(id: ":danger-full-access", label: "Full Access")
+    static let codexPresets = [codexReadOnly, codexWorkspace, codexDangerFullAccess]
+
+    static func offeredCodexProfiles(_ profiles: [AgentPermissionPreset], showsFullAccess: Bool) -> [AgentPermissionPreset] {
+        profiles.filter { $0.id != codexDangerFullAccess.id || showsFullAccess }
     }
 }
 

@@ -74,7 +74,8 @@ nonisolated enum CmuxCandidateBuilder {
             // What cmux recorded. Validation prefers it, then falls back to
             // deriving one, since the file it names may be gone.
             sessionJSONLPath: session.transcriptPath,
-            permissionMode: session.lastPermissionMode.flatMap(PermissionMode.init(rawValue:))
+            permissionMode: panel.provider == .claudeCode ? session.lastPermissionMode.flatMap(PermissionMode.init(rawValue:)) : nil,
+            provider: panel.provider
         )
     }
 

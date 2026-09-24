@@ -41,24 +41,26 @@ nonisolated struct ChatStartFailure: Equatable {
     ///
     /// `exitStatus` is nil for a launch that threw before the process ran,
     /// which is still a failure — the thrown error is in `error`.
-    static func classify(error: String?, exitStatus: Int32?) -> ChatStartFailure? {
+    static func classify(error: String?, exitStatus: Int32?, provider: AgentProviderKind = .claudeCode) -> ChatStartFailure? {
+        let name = provider == .codex ? "Codex" : "Claude Code"
+        let command = provider == .codex ? "codex" : "claude"
         if let exitStatus, exitStatus == 0 { return nil }
         guard let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty else {
             guard let exitStatus else { return nil }
             return ChatStartFailure(
-                title: "Claude Code exited unexpectedly",
+                title: "\(name) exited unexpectedly",
                 detail: "Exit status \(exitStatus).",
                 remedy: .retry
             )
         }
-        if isCommandNotFound(error) {
+        if isCommandNotFound(error, command: command) {
             return ChatStartFailure(
-                title: "Claude Code isn't on PATH",
+                title: "\(name) isn't on PATH",
                 detail: error,
                 remedy: .installCLI
             )
         }
-        return ChatStartFailure(title: "Claude Code couldn't start", detail: error, remedy: .retry)
+        return ChatStartFailure(title: "\(name) couldn't start", detail: error, remedy: .retry)
     }
 
     /// The shell's own wording, which differs per shell and per locale of
@@ -66,9 +68,9 @@ nonisolated struct ChatStartFailure: Equatable {
     /// found`, `… : No such file or directory`. Matching the command name
     /// alongside the phrase keeps an unrelated missing binary from claiming
     /// the CLI is the thing that's absent.
-    private static func isCommandNotFound(_ error: String) -> Bool {
+    private static func isCommandNotFound(_ error: String, command: String) -> Bool {
         let lowered = error.lowercased()
-        guard lowered.contains("claude") else { return false }
+        guard lowered.contains(command) else { return false }
         return lowered.contains("command not found")
             || lowered.contains("no such file or directory")
             || lowered.contains("not found")

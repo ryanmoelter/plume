@@ -7,6 +7,7 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var cliRefresh = 0
     #if DEBUG
     @State private var revealTuning = RevealTuning.shared
     #endif
@@ -15,6 +16,10 @@ struct SettingsView: View {
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
+
+    private var displayedProviders: Set<AgentProviderKind>? {
+        AgentCLIAvailability.shared.providers.map { AgentCLIInstallation.displayedProviders($0) }
+    }
 
     var body: some View {
         Form {
@@ -35,12 +40,38 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("Provider", selection: $settings.providerID) {
-                    Text("Claude Code").tag(ClaudeCodeProviderID)
+                Picker("New agent tabs run", selection: $settings.defaultProvider) {
+                    ForEach(AgentProviderKind.allCases) { provider in
+                        Label {
+                            Text(provider == .codex ? "Codex (Beta)" : provider.displayName)
+                        } icon: {
+                            AgentProviderIcon(provider: provider)
+                        }
+                        .tag(provider)
+                    }
                 }
             } footer: {
-                Text("Claude Code is the only provider available in v1.")
+                Text("A tab records the CLI it was created with, so changing this never moves an existing conversation. Codex support is in beta; tested with Codex CLI 0.153.4.")
                     .foregroundStyle(.secondary)
+            }
+
+            #if DEBUG
+            AgentInstallationDebugSection()
+            #endif
+
+            if let installedProviders = displayedProviders, installedProviders.count < AgentProviderKind.allCases.count {
+                Section("Install agents") {
+                    ForEach(AgentProviderKind.allCases.filter { !installedProviders.contains($0) }) { provider in
+                        Link(destination: AgentCLIInstallation.downloadURL(for: provider)) {
+                            Label {
+                                Text(AgentCLIInstallation.downloadTitle(for: provider))
+                            } icon: {
+                                AgentProviderIcon(provider: provider)
+                            }
+                        }
+                        .plumeID("settings-install-cli", label: provider.rawValue)
+                    }
+                }
             }
 
             Section {
@@ -52,34 +83,44 @@ struct SettingsView: View {
             } header: {
                 Text("Agent Transport")
             } footer: {
-                Text("Headless drives claude directly and can answer permission prompts and questions from the chat. Terminal keeps the classic PTY-backed session as a fallback.")
+                Text("Headless drives the selected agent directly and can answer permission prompts and questions from the chat. Terminal keeps the CLI's PTY-backed interface as a fallback.")
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
-                    ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
-                        Text(mode.label).tag(mode)
+                if settings.defaultProvider == .claudeCode {
+                    Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
+                        ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                } else {
+                    Picker("New agent tabs start in", selection: $settings.defaultCodexPermissionProfileRaw) {
+                        ForEach(AgentPermissionPreset.offeredCodexProfiles(AgentPermissionPreset.codexPresets, showsFullAccess: settings.showsBypassPermissions)) { profile in
+                            Text(profile.label).tag(profile.id)
+                        }
                     }
                 }
-                Toggle("Show Bypass Permissions", isOn: $settings.showsBypassPermissions)
+                Toggle("Show Bypass Permissions / Full Access", isOn: $settings.showsBypassPermissions)
             } header: {
-                Text("Default Permission Mode")
+                Text("Default Permissions")
             } footer: {
-                Text("Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json. A task's own permission mode, set from its chat, always overrides this. Bypass Permissions skips every prompt, so it stays out of the pickers unless shown here.")
+                Text(settings.defaultProvider == .claudeCode
+                    ? "Follow Claude Code reads permissions.defaultMode from ~/.claude/settings.json."
+                    : "Codex permission profiles control filesystem and network access for new threads.")
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 Picker("New agent tabs think at", selection: $settings.defaultEffort) {
-                    ForEach(AgentEffort.allCases) { effort in
+                    ForEach(settings.defaultProvider.efforts) { effort in
                         Text(effort.label).tag(effort)
                     }
                 }
             } header: {
                 Text("Default Effort")
             } footer: {
-                Text("A tab's own effort, set from its chat, overrides this. Claude Code never reports effort back, so this is also what the composer shows until the tab sets one.")
+                Text("A tab's own effort, set from its chat, overrides this. Available levels follow the selected provider.")
                     .foregroundStyle(.secondary)
             }
 
@@ -352,7 +393,7 @@ struct SettingsView: View {
             } header: {
                 Text("Permissions")
             } footer: {
-                Text("A change here applies after Plume restarts.")
+                Text("A change here applies after \(AppIdentity.displayName) restarts.")
                     .foregroundStyle(.secondary)
             }
 
@@ -383,7 +424,7 @@ struct SettingsView: View {
                 Text("Integrations")
             } footer: {
                 Text(
-                    "Names a check whose PENDING state Plume ignores while folding a PR's CI " +
+                    "Names a check whose PENDING state \(AppIdentity.displayName) ignores while folding a PR's CI " +
                     "result — a real pass or fail from it still counts, only a check stuck " +
                     "pending forever stops masking the rest. Matching is an exact, " +
                     "case-sensitive name; a mismatch silently won't apply. The repository's " +
@@ -392,6 +433,12 @@ struct SettingsView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+        }
+        .task(id: cliRefresh) {
+            await AgentCLIAvailability.shared.refresh()
+        }
+        .onChange(of: displayedProviders, initial: true) { _, installed in
+            if let installed { settings.reconcileInstalledProviders(installed) }
         }
         .formStyle(.grouped)
         .frame(width: 460)
@@ -402,6 +449,7 @@ struct SettingsView: View {
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            cliRefresh += 1
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
     }

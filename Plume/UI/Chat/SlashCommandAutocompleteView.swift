@@ -17,6 +17,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     /// True while these names come from the last session rather than this
     /// one, so the list says so instead of presenting a guess as fact.
     var isRemembered = false
+    var tokenPrefix = "/"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -77,14 +78,14 @@ struct SlashCommandAutocompleteView: View, ThemedView {
 
     private func row(_ command: SlashCommand, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
-            Text("/\(command.name)")
+            Text("\(tokenPrefix)\(command.name)")
                 .font(typography.caption.monoMedium)
             if command.isPlumeProvided {
                 // Plume runs this one itself; the CLI has never heard of it.
                 Image(systemName: "apple.terminal.fill")
                     .imageScale(.small)
                     .emphasis(.secondary)
-                    .help("Handled by Plume")
+                    .help("Handled by \(AppIdentity.displayName)")
             }
             if !command.description.isEmpty {
                 Text(command.description)

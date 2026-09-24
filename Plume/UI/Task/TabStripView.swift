@@ -35,7 +35,9 @@ struct TabStripView: View {
             }
 
             Menu {
-                Button("Agent Tab") { TaskStore.addTab(to: task, kind: .agent, in: context) }
+                Button("Chat Tab") {
+                    TaskStore.addTab(to: task, kind: .agent, in: context)
+                }
                 Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, in: context) }
             } label: {
                 Image(systemName: "plus")
@@ -115,13 +117,30 @@ private struct TabChip: View {
     /// The live title wins over the snapshot on the tab, which is only there
     /// to label the chip before anything reconnects.
     private var chipTitle: String {
-        TitleStore.shared.title(forTab: tab.id) ?? tab.displayTitle
+        TitleStore.shared.title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
+    }
+
+    private var hasConversation: Bool {
+        tab.agentSessionID?.isEmpty == false || tab.sessionJSONLPath?.isEmpty == false
+            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
+            || SurfaceManager.shared.existingSession(for: tab.id) != nil
     }
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: tab.kind == .agent ? "sparkles" : "terminal")
-                .font(.caption)
+            if tab.kind == .agent {
+                if hasConversation {
+                    AgentProviderIcon(provider: tab.provider, size: 12)
+                } else {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.caption)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Image(systemName: "terminal")
+                    .font(.caption)
+                    .accessibilityHidden(true)
+            }
             Text(chipTitle)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -146,7 +165,7 @@ private struct TabChip: View {
             .allowsHitTesting(isHovering)
             .help("Close tab")
             .accessibilityLabel("Close tab")
-            .plumeID(AccessibilityID.tabChipClose)
+            .plumeID(AccessibilityID.tabChipClose, invoke: close)
         }
         .foregroundStyle(themeForeground ?? .primary)
         .padding(.horizontal, 8)
@@ -160,7 +179,7 @@ private struct TabChip: View {
         .plumeID(AccessibilityID.tabChip, label: chipTitle, value: isSelected ? "selected" : nil, invoke: select)
         .contextMenu {
             if tab.kind == .agent {
-                Button(AgentTabMenu.transportSwitchLabel(for: tab.transport)) {
+                Button(AgentTabMenu.transportSwitchLabel(for: tab.transport, provider: tab.provider)) {
                     isConfirmingTransportSwitch = true
                 }
                 if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
@@ -178,7 +197,7 @@ private struct TabChip: View {
             Button("Start Fresh", role: .destructive) { tab.agentSessionID = nil }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This discards Plume's link to the previous conversation. The transcript stays on disk, but Plume won't be able to resume it.")
+            Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
         .confirmationDialog(
             "Switch how this agent runs?",
@@ -187,7 +206,7 @@ private struct TabChip: View {
             Button("Switch", role: .destructive) { AgentLauncher.switchTransport(task: task, tab: tab) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This ends the running agent and starts it again on the other transport. Plume will resume the same conversation if it can.")
+            Text("This ends the running agent and starts it again on the other transport. \(AppIdentity.displayName) will resume the same conversation if it can.")
         }
     }
 

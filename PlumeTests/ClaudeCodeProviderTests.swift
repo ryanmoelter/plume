@@ -56,14 +56,14 @@ struct ClaudeCodeProviderTests {
     }
 
     @Test func providerIdentifiesItself() {
-        #expect(provider.id == ClaudeCodeProviderID)
+        #expect(provider.kind == .claudeCode)
     }
 
     @Test func taskAndTabIDsInjectEnvironment() {
         let taskID = UUID()
         let tabID = UUID()
         let launch = provider.launchCommand(
-            firstMessage: nil, resumeSessionID: nil, taskID: taskID, tabID: tabID
+            firstMessage: nil, resumeSessionID: nil, taskID: taskID, tabID: tabID, permissionMode: nil
         )
         #expect(launch.environment["PLUME_TASK_ID"] == taskID.uuidString)
         #expect(launch.environment["PLUME_TAB_ID"] == tabID.uuidString)
@@ -72,7 +72,7 @@ struct ClaudeCodeProviderTests {
 
     @Test func missingTaskOrTabIDOmitsHookEnvironment() {
         let launch = provider.launchCommand(
-            firstMessage: nil, resumeSessionID: nil, taskID: nil, tabID: UUID()
+            firstMessage: nil, resumeSessionID: nil, taskID: nil, tabID: UUID(), permissionMode: nil
         )
         #expect(launch.environment["PLUME_TASK_ID"] == nil)
         #expect(launch.environment["PLUME_TAB_ID"] == nil)
@@ -84,9 +84,9 @@ struct ClaudeCodeProviderTests {
         #expect(launch.environment["PLUME"] == "1")
     }
 
-    @Test func resumeViaTheFourArgumentOverloadStillQuotesTheSessionID() {
+    @Test func resumeQuotesTheSessionID() {
         let launch = provider.launchCommand(
-            firstMessage: nil, resumeSessionID: "abc-123", taskID: nil, tabID: nil
+            firstMessage: nil, resumeSessionID: "abc-123", taskID: nil, tabID: nil, permissionMode: nil
         )
         #expect(launch.command == loginWrapped("claude --resume 'abc-123'"))
     }
@@ -97,7 +97,7 @@ struct ClaudeCodeProviderTests {
             resumeSessionID: "abc-123",
             taskID: nil,
             tabID: nil,
-            permissionMode: .plan
+            permissionMode: PermissionMode.plan.token
         )
         #expect(launch.command == loginWrapped("claude --permission-mode plan --resume 'abc-123' 'go'"))
     }

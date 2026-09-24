@@ -24,7 +24,8 @@ final class TaskTab {
     /// relaunch. Nil until the tab reports, so a new tab starts at its task's
     /// folder. `TabDirectoryStore` owns the live value and writes through here.
     var workingDirectoryPath: String?
-    /// Passed to `claude --resume` when the user resumes this tab.
+    /// The CLI's own identifier for this conversation, passed back to it to
+    /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?
     var sessionJSONLPath: String?
     /// The model's context window, as reported by the last completed turn.
@@ -36,10 +37,14 @@ final class TaskTab {
     /// starts back where the user left it rather than at the task or app
     /// default. Nil until a headless session reports one.
     var permissionModeRaw: String?
+    /// Codex collaboration mode is independent of its permissions profile.
+    var codexCollaborationModeRaw: String = "default"
     /// Snapshot of the session's last-seen effort. There is no way to read a
     /// running session's effort back from the CLI, so this is the only record
     /// of it across a relaunch.
     var effortRaw: String?
+    /// Only explicit effort choices override a Codex resume response.
+    var isEffortUserChosen: Bool = false
     /// The model to launch with, chosen before the tab has a session. Nil
     /// leaves `--model` off, so the CLI picks its own default. A running
     /// session overwrites this with whatever it reports, so on its own it
@@ -59,6 +64,7 @@ final class TaskTab {
         self.orderIndex = orderIndex
         self.task = task
         self.providerID = kind == .agent ? ClaudeCodeProviderID : nil
+
     }
 
     var kind: TabKind {
@@ -75,19 +81,44 @@ final class TaskTab {
         set { transportRaw = newValue.rawValue }
     }
 
+    /// Only meaningful for an agent tab. A nil or unrecognized `providerID`
+    /// reads as Claude Code, which is what carries tabs written before this
+    /// field meant anything.
+    var provider: AgentProviderKind {
+        get { providerID.flatMap(AgentProviderKind.init(rawValue:)) ?? .claudeCode }
+        set { providerID = newValue.rawValue }
+    }
+
     var permissionMode: PermissionMode? {
         get { permissionModeRaw.flatMap(PermissionMode.init(rawValue:)) }
         set { permissionModeRaw = newValue?.rawValue }
     }
 
     var effort: AgentEffort? {
-        get { effortRaw.flatMap(AgentEffort.init(rawValue:)) }
+        get {
+            guard let raw = effortRaw, let effort = AgentEffort.recognizing(raw) else { return nil }
+            return provider == .codex || provider.efforts.contains(effort) ? effort : nil
+        }
         set { effortRaw = newValue?.rawValue }
     }
 
     var model: AgentModel? {
-        get { modelRaw.flatMap(AgentModel.recognizing) }
+        get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var codexCollaborationMode: CodexCollaborationMode {
+        get { CodexCollaborationMode(rawValue: codexCollaborationModeRaw) ?? .default }
+        set { codexCollaborationModeRaw = newValue.rawValue }
+    }
+
+    var permissionPreset: AgentPermissionPreset? {
+        get {
+            guard let raw = permissionModeRaw else { return nil }
+            return provider.permissionPresets.first { $0.id == raw }
+                ?? AgentPermissionPreset(id: raw, label: raw)
+        }
+        set { permissionModeRaw = newValue?.id }
     }
 
     var displayTitle: String {
@@ -96,4 +127,4 @@ final class TaskTab {
     }
 }
 
-let ClaudeCodeProviderID = "claude-code"
+let ClaudeCodeProviderID = AgentProviderKind.claudeCode.rawValue

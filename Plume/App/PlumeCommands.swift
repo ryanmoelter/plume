@@ -118,7 +118,7 @@ struct PlumeCommands: Commands {
                 .keyboardShortcut(PlumeShortcuts.newTerminalTab)
                 .disabled(task == nil)
 
-            Button("New Agent Tab") { task?.addTab(.agent) }
+            Button("New Chat Tab") { task?.addTab(.agent) }
                 .keyboardShortcut(PlumeShortcuts.newAgentTab)
                 .disabled(task == nil)
         }

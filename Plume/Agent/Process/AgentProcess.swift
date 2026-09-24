@@ -1,16 +1,17 @@
 import Foundation
 import os
 
-/// Owns one `claude -p` subprocess and frames NDJSON in both directions.
+/// Owns one agent subprocess and frames NDJSON in both directions.
 ///
-/// Deliberately knows nothing about chat, status, or permissions: it delivers
-/// decoded messages and writes lines back. `HeadlessSession` supplies meaning.
-final class HeadlessProcess: @unchecked Sendable {
+/// Deliberately knows nothing about chat, status, permissions, or which CLI it
+/// is running: it delivers whole lines and writes lines back. The session that
+/// owns it supplies meaning.
+final class AgentProcess: @unchecked Sendable {
     private let process = Process()
     private let inPipe = Pipe()
     private let outPipe = Pipe()
     private let errPipe = Pipe()
-    private let queue = DispatchQueue(label: "com.ryanmoelter.Plume.headless")
+    private let queue = DispatchQueue(label: "com.ryanmoelter.Plume.agent-process")
 
     /// Partial trailing line carried between reads: a pipe read can split a
     /// JSON line anywhere, and a half line decodes to nothing.
@@ -18,36 +19,42 @@ final class HeadlessProcess: @unchecked Sendable {
     private var isRunning = false
 
     /// Last stderr line, kept so a nonzero exit can say why it failed. A
-    /// launch that dies before any stream-json arrives (`claude` not on PATH,
-    /// say) has nothing else to report.
+    /// launch that dies before any output arrives (the CLI not on PATH, say)
+    /// has nothing else to report.
     private var lastErrorLine: String?
 
-    /// Whether any stream-json message arrived. Separates a launch that never
-    /// started from a session that ran and later exited.
-    private var didReceiveMessage = false
+    /// Whether any output arrived. Separates a launch that never started from
+    /// a session that ran and later exited.
+    private var didReceiveLine = false
 
-    private let onMessage: @Sendable (StreamJSONMessage) -> Void
+    /// Names the CLI in log lines.
+    private let label: String
+    private let onLine: @Sendable (String) -> Void
     private let onExit: @Sendable (Int32, String?) -> Void
 
     init(
-        onMessage: @escaping @Sendable (StreamJSONMessage) -> Void,
+        label: String,
+        onLine: @escaping @Sendable (String) -> Void,
         onExit: @escaping @Sendable (Int32, String?) -> Void
     ) {
-        self.onMessage = onMessage
+        self.label = label
+        self.onLine = onLine
         self.onExit = onExit
     }
 
     func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
-        // `claude` reaches PATH only through the user's shell profile, which a
+        // The agent reaches PATH only through the user's shell profile, which a
         // GUI-launched app does not inherit, so the command runs inside a
         // login shell exactly as terminal tabs do.
         //
         // `-m` (job control) puts the child in its own process group, so
         // `kill(-pid)` reaps the whole tree rather than one process — see
         // `terminate()`. Each shell is handed a single trailing command and
-        // execs it away, so the pid is `claude` itself.
+        // execs it away, so the pid is the agent itself.
+
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-mc", HeadlessCommand.loginShellCommand(arguments: arguments)]
+        process.arguments = ["-mc", LoginShellCommand.wrap(arguments: arguments)]
+
         if let workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
         }
@@ -70,7 +77,7 @@ final class HeadlessProcess: @unchecked Sendable {
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
-            Log.agent.error("claude stderr: \(text, privacy: .public)")
+            Log.agent.error("\(self?.label ?? "agent", privacy: .public) stderr: \(text, privacy: .public)")
             self?.queue.async { self?.lastErrorLine = text }
         }
         process.terminationHandler = { [weak self] process in
@@ -98,7 +105,7 @@ final class HeadlessProcess: @unchecked Sendable {
                 try inPipe.fileHandleForWriting.write(contentsOf: data)
                 return true
             } catch {
-                Log.agent.error("Headless write failed: \(error.localizedDescription, privacy: .public)")
+                Log.agent.error("Agent write failed: \(error.localizedDescription, privacy: .public)")
                 return false
             }
         }
@@ -114,10 +121,12 @@ final class HeadlessProcess: @unchecked Sendable {
     /// `SIGTERM` then `SIGKILL` go to the process *group*, so the agent's own
     /// children go with it rather than outliving their parent.
     func terminate() {
-        queue.sync {
-            guard isRunning else { return }
+        let wasRunning = queue.sync {
+            guard isRunning else { return false }
             isRunning = false
+            return true
         }
+        guard wasRunning else { return }
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
         try? inPipe.fileHandleForWriting.close()
@@ -162,14 +171,10 @@ final class HeadlessProcess: @unchecked Sendable {
                 let lineData = self.buffer[self.buffer.startIndex..<newline]
                 self.buffer.removeSubrange(self.buffer.startIndex...newline)
                 let line = String(decoding: lineData, as: UTF8.self)
-                guard let message = StreamJSONDecoder.decode(line: line) else { continue }
-                self.didReceiveMessage = true
-                // Quota is an account-wide fact, so it is recorded once here
-                // rather than per session. Everything else is the session's.
-                if case .rateLimit(let info) = message {
-                    Task { @MainActor in QuotaStore.shared.record(info) }
-                }
-                self.onMessage(message)
+                guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+                self.didReceiveLine = true
+                self.onLine(line)
+
             }
         }
     }
@@ -178,10 +183,10 @@ final class HeadlessProcess: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self, self.isRunning else { return }
             self.isRunning = false
-            // A run that never produced a message failed to launch, so its
+            // A run that never produced a line failed to launch, so its
             // stderr explains why. Once the stream has started, stderr is
             // just the login shell's own chatter and explains nothing.
-            self.onExit(status, self.didReceiveMessage ? nil : self.lastErrorLine)
+            self.onExit(status, self.didReceiveLine ? nil : self.lastErrorLine)
         }
     }
 }

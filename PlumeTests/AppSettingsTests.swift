@@ -13,7 +13,7 @@ struct AppSettingsTests {
 
     @Test func defaultsToClaudeCodeAndNoBasePathOverride() {
         let settings = AppSettings(defaults: makeDefaults())
-        #expect(settings.providerID == ClaudeCodeProviderID)
+        #expect(settings.defaultProvider == .claudeCode)
         #expect(settings.worktreeBasePath == nil)
     }
 
@@ -26,13 +26,13 @@ struct AppSettingsTests {
         #expect(reloaded.worktreeBasePath == "/custom/base")
     }
 
-    @Test func providerIDPersists() {
+    @Test func defaultProviderPersists() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
-        settings.providerID = "codex"
+        settings.defaultProvider = .codex
 
         let reloaded = AppSettings(defaults: defaults)
-        #expect(reloaded.providerID == "codex")
+        #expect(reloaded.defaultProvider == .codex)
     }
 
     @Test func bothChatAnimationsDefaultOnAndPersistSeparately() {
@@ -74,6 +74,16 @@ struct AppSettingsTests {
 
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.defaultPermissionMode == .plan)
+    }
+
+    @Test func codexPermissionProfileDefaultsToWorkspaceAndPersists() {
+        let suite = "AppSettingsTests.codexPermissions.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.defaultCodexPermissionProfile == .codexWorkspace)
+        settings.defaultCodexPermissionProfileRaw = AgentPermissionPreset.codexReadOnly.id
+        #expect(AppSettings(defaults: defaults).defaultCodexPermissionProfile == .codexReadOnly)
     }
 
     @Test func resolvedDefaultPermissionModeReturnsThePinnedModeDirectly() {
@@ -154,18 +164,13 @@ struct AppSettingsTests {
 
 @MainActor
 struct AgentProviderRegistryTests {
-    @Test func resolvesTheClaudeCodeID() {
-        let provider = AgentProviderRegistry.provider(for: ClaudeCodeProviderID, settingsPath: nil)
-        #expect(provider.id == ClaudeCodeProviderID)
-    }
-
-    @Test func unknownIDFallsBackToClaudeCode() {
-        let provider = AgentProviderRegistry.provider(for: "not-a-real-provider", settingsPath: nil)
-        #expect(provider.id == ClaudeCodeProviderID)
+    @Test func resolvesEachProviderToItsOwnImplementation() {
+        #expect(AgentProviderRegistry.provider(for: .claudeCode, settingsPath: nil).kind == .claudeCode)
+        #expect(AgentProviderRegistry.provider(for: .codex, settingsPath: nil).kind == .codex)
     }
 
     @Test func settingsPathIsForwardedToTheResolvedProvider() {
-        let provider = AgentProviderRegistry.provider(for: ClaudeCodeProviderID, settingsPath: "/settings.json")
-        #expect(provider.settingsPath == "/settings.json")
+        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: "/settings.json")
+        #expect((provider as? ClaudeCodeProvider)?.settingsPath == "/settings.json")
     }
 }

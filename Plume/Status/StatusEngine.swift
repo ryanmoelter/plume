@@ -96,6 +96,10 @@ final class StatusEngine {
         }
     }
 
+    func taskID(forTab id: UUID) -> UUID? {
+        tabsByTask.first(where: { $0.value.contains(id) })?.key
+    }
+
     func status(forTask id: UUID) -> TaskStatus {
         guard let tabs = tabsByTask[id] else { return .notStarted }
         return TaskStatus.aggregate(tabs.map { status(forTab: $0) })
@@ -113,7 +117,11 @@ final class StatusEngine {
     var activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)] {
         tabsByTask.flatMap { taskID, tabs in
             tabs.compactMap { tabID -> (UUID, UUID, TaskStatus)? in
-                let status = status(forTab: tabID)
+                // Attention still wins in the sidebar, but a parent waiting
+                // for permission does not stop its other children working.
+                // Stay Awake must see that independent live activity.
+                let childWorking = tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+                let status: TaskStatus = childWorking ? .working : status(forTab: tabID)
                 guard status == .working || status.wantsAttention else { return nil }
                 return (taskID, tabID, status)
             }
@@ -158,6 +166,8 @@ final class StatusEngine {
     /// produced this status. The status still stands — the sidebar and the
     /// chat both show it — but no system notification goes out for it.
     func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID, notifiable: Bool = true) {
+        // Terminal hooks carry the task at launch even after a tab moves.
+        let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key ?? taskID
         tabsByTask[taskID, default: []].insert(tabID)
         dormantTabs.remove(tabID)
         guard tabStatuses[tabID] != status else { return }
@@ -240,6 +250,24 @@ final class StatusEngine {
         if tabStatuses[tabID] == nil {
             tabStatuses[tabID] = status
         }
+    }
+
+    /// Moves only ownership; live status, elapsed time, and background work
+    /// stay attached to the same tab and no turn notification is emitted.
+    func reparent(tabID: UUID, taskID: UUID) {
+        let previousOwners = tabsByTask.keys.filter { tabsByTask[$0]?.contains(tabID) == true && $0 != taskID }
+        guard !previousOwners.isEmpty else { return }
+        let oldDestinationStatus = status(forTask: taskID)
+        for previous in previousOwners {
+            let oldStatus = status(forTask: previous)
+            tabsByTask[previous]?.remove(tabID)
+            if tabsByTask[previous]?.isEmpty == true { tabsByTask.removeValue(forKey: previous) }
+            let newStatus = status(forTask: previous)
+            if newStatus != oldStatus { onTaskStatusChanged?(previous, newStatus) }
+        }
+        tabsByTask[taskID, default: []].insert(tabID)
+        let newDestinationStatus = status(forTask: taskID)
+        if newDestinationStatus != oldDestinationStatus { onTaskStatusChanged?(taskID, newDestinationStatus) }
     }
 
     func forget(tabID: UUID, taskID: UUID) {

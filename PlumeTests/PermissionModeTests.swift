@@ -4,6 +4,13 @@ import Testing
 @testable import Plume
 
 struct PermissionModeTests {
+    @Test func codexFullAccessUsesTheSameVisibilityPreferenceWithoutHidingCustomProfiles() {
+        let custom = AgentPermissionPreset(id: "custom", label: "Custom")
+        let profiles = AgentPermissionPreset.codexPresets + [custom]
+        #expect(AgentPermissionPreset.offeredCodexProfiles(profiles, showsFullAccess: false) == [.codexReadOnly, .codexWorkspace, custom])
+        #expect(AgentPermissionPreset.offeredCodexProfiles(profiles, showsFullAccess: true) == profiles)
+    }
+
     @Test func recognizesEveryOfferedMode() {
         for mode in PermissionMode.allCases {
             #expect(PermissionMode.recognizing(mode.token) == mode)

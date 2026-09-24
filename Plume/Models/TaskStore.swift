@@ -41,7 +41,8 @@ enum TaskStore {
             Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
-        tab.transport = AppSettings.shared.defaultAgentTransport
+        tab.provider = AppSettings.shared.defaultProvider
+        tab.transport = tab.provider.resolvedTransport(preferring: AppSettings.shared.defaultAgentTransport)
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -61,10 +62,19 @@ enum TaskStore {
     }
 
     @discardableResult
-    static func addTab(to task: WorkTask, kind: TabKind, in context: ModelContext) -> TaskTab {
+    static func addTab(
+        to task: WorkTask,
+        kind: TabKind,
+        provider: AgentProviderKind? = nil,
+        in context: ModelContext
+    ) -> TaskTab {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs), task: task)
         if kind == .agent {
-            tab.transport = AppSettings.shared.defaultAgentTransport
+            let provider = provider ?? AppSettings.shared.defaultProvider
+            tab.provider = provider
+            tab.transport = provider.resolvedTransport(
+                preferring: AppSettings.shared.defaultAgentTransport
+            )
         }
         context.insert(tab)
         task.tabs.append(tab)
@@ -186,7 +196,7 @@ enum TaskStore {
         AgentEventMonitor.shared.stopWatching(tabID: tabID)
         AgentTitleMonitor.shared.stopWatching(tabID: tabID)
         SurfaceManager.shared.closeSession(for: tabID)
-        HeadlessSessionManager.shared.closeSession(for: tabID)
+        AgentSessionManager.shared.closeSession(for: tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
@@ -195,6 +205,9 @@ enum TaskStore {
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
+        CodexSubagentStore.shared.forget(tabID: tabID)
+        CodexItemStore.shared.forget(tabID: tabID)
+        CodexCatalogStore.shared.forget(tabID: tabID)
         UntrustedDirectoryStore.shared.clear(tabID: tabID)
     }
 
@@ -260,7 +273,7 @@ enum TaskStore {
     /// Reassigns `tab.task` and appends it to the end of `destination`'s
     /// tabs, reindexing both tasks. Only the SwiftData relationship and
     /// ordering change — the tab's `id` is untouched, so `SurfaceManager` and
-    /// `HeadlessSessionManager` (both keyed by tab id) keep serving the same
+    /// `AgentSessionManager` (both keyed by tab id) keep serving the same
     /// running process across the move. Selects the tab in its new task by
     /// default so the drop reads as "the tab landed here."
     ///
@@ -281,6 +294,10 @@ enum TaskStore {
         reindex(remainingInSource)
 
         tab.task = destination
+        CodexTerminalMonitor.shared.reparent(tabID: tab.id, taskID: destination.id)
+        CommandModeRuns.shared.reparent(tabID: tab.id, taskID: destination.id)
+        AgentSessionManager.shared.reparent(tabID: tab.id, taskID: destination.id)
+        StatusEngine.shared.reparent(tabID: tab.id, taskID: destination.id)
         tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id })
         if selectAfterMove {
             selectTab(tab, in: destination)

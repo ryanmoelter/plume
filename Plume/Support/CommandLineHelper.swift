@@ -71,7 +71,7 @@ enum CommandLineHelper {
         var errorDescription: String? {
             switch self {
             case .notBundled:
-                "This build of Plume does not carry the \(commandName) helper."
+                "This build of \(AppIdentity.displayName) does not carry the \(commandName) helper."
             case .occupied(let destination):
                 if let destination {
                     "\(installedURL.path) already points at \(destination.path)."

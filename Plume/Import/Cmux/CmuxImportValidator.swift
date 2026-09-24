@@ -24,7 +24,7 @@ nonisolated enum CmuxImportValidator {
         validated.tabs = resolvingTranscripts(candidate.tabs, fallbackDirectory: directory)
 
         if let unresolved = validated.tabs.first(where: {
-            $0.kind == .agent && $0.sessionJSONLPath == nil
+            $0.kind == .agent && $0.provider == .claudeCode && $0.sessionJSONLPath == nil
         }) {
             validated.rejection = .unresolvableSession(unresolved.agentSessionID ?? "")
         }
@@ -54,6 +54,12 @@ nonisolated enum CmuxImportValidator {
     ) -> [ImportTabPlan] {
         tabs.map { tab in
             guard tab.kind == .agent, let sessionID = tab.agentSessionID else { return tab }
+            if tab.provider == .codex {
+                let valid = CmuxCodexSessions.validRollout(path: tab.sessionJSONLPath, sessionID: sessionID, cwd: tab.workingDirectoryPath)
+                return ImportTabPlan(kind: valid ? .agent : .terminal, title: tab.title,
+                    workingDirectoryPath: tab.workingDirectoryPath, agentSessionID: valid ? sessionID : nil,
+                    sessionJSONLPath: nil, permissionMode: nil, provider: .codex)
+            }
             let directory = tab.workingDirectoryPath ?? fallbackDirectory
             guard let path = transcriptPath(sessionID: sessionID, directory: directory, recorded: tab.sessionJSONLPath)
             else { return tab }

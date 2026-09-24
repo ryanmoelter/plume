@@ -163,7 +163,7 @@ struct HeadlessCommandModelTests {
 /// with "No such file or directory" even though a terminal finds it.
 struct HeadlessLoginShellCommandTests {
     @Test func argumentsRunThroughALoginShell() {
-        let command = HeadlessCommand.loginShellCommand(arguments: ["claude", "-p"])
+        let command = LoginShellCommand.wrap(arguments: ["claude", "-p"])
         #expect(command.contains("-lic"))
     }
 
@@ -179,7 +179,7 @@ struct HeadlessLoginShellCommandTests {
         ]
         // `printf` stands in for `claude`, so what gets asserted is the real
         // wrap's word splitting rather than a stubbed command string.
-        let command = HeadlessCommand.loginShellCommand(
+        let command = LoginShellCommand.wrap(
             arguments: ["printf", "%s\\n"] + arguments
         )
 

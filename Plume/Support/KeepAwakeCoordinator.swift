@@ -5,7 +5,7 @@ import Observation
 /// Holds the Mac awake while agents are working or a session is being driven
 /// remotely.
 ///
-/// The reason set is *derived* from `StatusEngine` and `HeadlessSessionManager`
+/// The reason set is *derived* from `StatusEngine` and `AgentSessionManager`
 /// rather than registered by their call sites. Those two already hold the
 /// authoritative state, and a tab stops working from half a dozen places — a
 /// counter kept in step by hand would eventually miss one, and a leaked reason
@@ -48,7 +48,7 @@ final class KeepAwakeCoordinator {
     private(set) var lidOverridePausedForHeat = false
 
     @ObservationIgnored private let engine: StatusEngine
-    @ObservationIgnored private let sessions: HeadlessSessionManager
+    @ObservationIgnored private let sessions: AgentSessionManager
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let assertion: any SleepAssertion
     @ObservationIgnored private let powerSnapshotReader: () -> PowerSnapshot
@@ -70,7 +70,8 @@ final class KeepAwakeCoordinator {
 
     init(
         engine: StatusEngine = .shared,
-        sessions: HeadlessSessionManager = .shared,
+        commandRuns: CommandModeRuns = .shared,
+        sessions: AgentSessionManager = .shared,
         settings: AppSettings = .shared,
         assertion: (any SleepAssertion)? = nil,
         powerSnapshot: @escaping () -> PowerSnapshot = KeepAwakeCoordinator.systemPowerSnapshot,
@@ -78,6 +79,7 @@ final class KeepAwakeCoordinator {
         thermal: (any ThermalStateSource)? = nil
     ) {
         self.engine = engine
+        self.commandRuns = commandRuns
         self.sessions = sessions
         self.settings = settings
         self.assertion = assertion ?? IOKitSleepAssertion()
@@ -87,6 +89,8 @@ final class KeepAwakeCoordinator {
     }
 
     // MARK: - Lifecycle
+
+    private let commandRuns: CommandModeRuns
 
     func start() {
         guard !hasStarted else { return }
@@ -151,6 +155,10 @@ final class KeepAwakeCoordinator {
             activeTabs: engine.activeTabs,
             remoteControlledTabs: sessions.remoteControlledTabs,
             backgroundTaskTabs: engine.backgroundTaskTabs,
+            commandTabs: commandRuns.activeCommands.compactMap { entry in
+                guard let taskID = engine.taskID(forTab: entry.tabID) ?? entry.taskID else { return nil }
+                return (taskID, entry.tabID, entry.command)
+            },
             allowsRemoteControl: settings.keepsAwakeForRemoteControl
         )
         if derived != reasons {
@@ -222,6 +230,7 @@ final class KeepAwakeCoordinator {
             _ = engine.activeTabs
             _ = sessions.remoteControlledTabs
             _ = engine.backgroundTaskTabs
+            _ = commandRuns.activeCommands
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
@@ -242,9 +251,9 @@ final class KeepAwakeCoordinator {
 
     // MARK: - Deciding
 
-    /// A tab is a reason when it is working, when it is remotely controlled,
-    /// when it wants the user *and* is remotely controlled, or when it has a
-    /// background task still running.
+    /// Running work, remote access, and background tasks each provide a
+    /// reason. A waiting remote tab is covered by its remote-access reason;
+    /// it must not also inflate the working count.
     ///
     /// A tab waiting for an answer with no Remote Control is not a reason: no
     /// work is happening, and nobody is coming to answer it.
@@ -256,18 +265,22 @@ final class KeepAwakeCoordinator {
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
         remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
         backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] = [],
+        commandTabs: [(taskID: UUID, tabID: UUID, command: String)] = [],
         allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
         let counted = allowsRemoteControl ? remoteControlledTabs : []
-        let remoteTabIDs = Set(counted.map(\.tabID))
 
         let working = activeTabs
-            .filter { $0.status == .working || remoteTabIDs.contains($0.tabID) }
+            .filter { $0.status == .working }
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .working($0.status)) }
 
         let remote = counted
             .map { KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID, kind: .remoteControl) }
 
+        let runningCommands = commandTabs.map {
+            KeepAwakeReason(taskID: $0.taskID, tabID: $0.tabID,
+                            kind: .backgroundTask(.backgroundCommand, description: $0.command))
+        }
         let background = backgroundTaskTabs
             .map {
                 KeepAwakeReason(
@@ -279,7 +292,9 @@ final class KeepAwakeCoordinator {
 
         // Dictionary order is arbitrary; sorting keeps the panel from
         // reshuffling every time an unrelated tab changes status.
-        return (working + remote + background).sorted { $0.id < $1.id }
+        let all = working + remote + background + runningCommands
+        return Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            .values.sorted { $0.id < $1.id }
     }
 
     /// Whether to hold the Mac awake, or why not.

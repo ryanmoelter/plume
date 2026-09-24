@@ -55,9 +55,9 @@ Plume/
 
 ## Agent transports
 
-An agent tab runs over one of two transports, chosen by `TaskTab.transport` and defaulted by a setting. This is a separate axis from `renderMode`, which only picks a view.
+An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProviderKind`), over one of two transports, chosen by `TaskTab.transport` and defaulted by a setting. Provider and transport are independent axes, and `AgentLauncher.launch` branches on the pair — which is what keeps Claude Code's hook instrumentation, `~/.claude.json` trust check and event watching off the Codex path. The chat renders against the `AgentSession` protocol, so both CLIs share every view.
 
-**Headless (`.headless`, the default).** `claude -p` speaking stream-json over pipes, owned by `HeadlessSession` and keyed by tab ID in `HeadlessSessionManager` — the same shape as `SurfaceManager`, and no PTY at all. **`docs/headless-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Headless/`.
+**Headless (`.headless`, the default).** `claude -p` speaking stream-json over pipes, owned by `HeadlessSession` and keyed by tab ID in `AgentSessionManager` — the same shape as `SurfaceManager`, and no PTY at all. **`docs/headless-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Headless/`.
 
 - **`--permission-prompt-tool stdio` plus an `initialize` control request** is what makes permission requests reach the host. Without both, anything needing approval is auto-denied and the turn ends having done nothing.
 - Answering a running prompt, approving a plan, denying a tool with a reason, setting mode and model, and interrupting all ride the control plane. Interrupt is a control request — **never a signal**, which abandons the turn.
@@ -65,6 +65,8 @@ An agent tab runs over one of two transports, chosen by `TaskTab.transport` and 
 - **A control response is correlated by `request_id`**, through `pendingControlRequests`. Sniffing replies for a field you recognize works only while one request matters; add a request by recording its kind when you send it.
 - **`/rc` is served by Plume, not the CLI.** `remote-control` is an interactive TUI command with no non-interactive variant, so it never reaches the headless `commands` list. `PlumeSlashCommand` supplies it and `ChatComposer.send()` intercepts it — only on this transport, since a terminal tab's real TUI already has a working `/rc`.
 - Status, quota and cost arrive as events, so headless tabs start no hook watch. `total_cost_usd` is per turn and accumulates; stream `utilization` is 0–1 where the retired statusline capture used 0–100.
+
+**Codex.** `codex app-server` speaking JSON-RPC over pipes, owned by `CodexAppServerClient`. **`docs/codex-protocol.md` is the wire reference.** Read it before touching `Plume/Agent/Codex/`. The envelope carries no `jsonrpc` field, every server request must be answered or the turn stalls, and history comes from `thread/items/list` rather than the rollout files on disk.
 
 **Terminal (`.terminal`).** The Claude Code TUI hosted in a real PTY, kept as an escape hatch. Input reaches it as a paste plus a synthetic Enter, so it cannot answer a running `AskUserQuestion` — that ceiling is why the headless transport exists. `docs/agent-transport.md` records it.
 

@@ -39,6 +39,18 @@ nonisolated enum JSONValue: Decodable, Encodable, Equatable {
         }
     }
 
+    /// Reads a field of an object, so a decoder can walk a payload without
+    /// unwrapping at every level.
+    subscript(key: String) -> JSONValue? {
+        guard case .object(let fields) = self else { return nil }
+        return fields[key]
+    }
+
+    var intValue: Int? {
+        if case .number(let value) = self { return Int(value) }
+        return nil
+    }
+
     /// Convenience accessor for table-driven tool summaries.
     var stringValue: String? {
         if case .string(let value) = self { return value }

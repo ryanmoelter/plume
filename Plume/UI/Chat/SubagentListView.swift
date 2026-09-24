@@ -43,7 +43,14 @@ struct SubagentListView: View, ThemedView {
         SubagentRow(
             subagent: subagent,
             onOpen: { onOpen(subagent) },
-            onOverride: { TranscriptStore.shared.setOverride($0, tabID: tabID, subagentID: subagent.id) },
+            onOverride: { override in
+                switch subagent.provider {
+                case .claudeCode:
+                    TranscriptStore.shared.setOverride(override, tabID: tabID, subagentID: subagent.id)
+                case .codex:
+                    CodexSubagentStore.shared.setOverride(override, tabID: tabID, subagentID: subagent.id)
+                }
+            },
             currentOverride: overrides.override(tabID: tabID, subagentID: subagent.id)
         )
     }

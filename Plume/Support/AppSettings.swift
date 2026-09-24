@@ -4,8 +4,8 @@ import Foundation
 ///
 /// This is the seam WP4.2 asks for: a worktree base path override (read by
 /// `WorkspaceProvisioner`) and a provider choice (read by `AgentLauncher`).
-/// Only Claude Code exists today, so the provider field is a stub that
-/// already round-trips end to end.
+/// Provider-specific defaults stay separate so one CLI never interprets the
+/// other's persisted vocabulary.
 @MainActor
 @Observable
 final class AppSettings {
@@ -14,6 +14,7 @@ final class AppSettings {
     private enum Key {
         static let worktreeBasePath = "worktreeBasePath"
         static let providerID = "providerID"
+        static let dismissedMissingProviders = "dismissedMissingProviders"
         static let chatFontSize = "chatFontSize"
         static let codeFontSizeMultiplier = "codeFontSizeMultiplier"
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
@@ -21,6 +22,7 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
+        static let defaultCodexPermissionProfileRaw = "defaultCodexPermissionProfileRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
         /// Stored under its original name, from when the setting covered
         /// only row heights, so an existing preference still reads.
@@ -63,8 +65,10 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
-        self.providerID = defaults.string(forKey: Key.providerID) ?? ClaudeCodeProviderID
+        self.defaultProvider = defaults.string(forKey: Key.providerID)
+            .flatMap(AgentProviderKind.init(rawValue:)) ?? .claudeCode
 
         // `double(forKey:)` returns 0 for an unset key, so 0 (and anything
         // outside the clamped range) falls back to the default.
@@ -99,8 +103,12 @@ final class AppSettings {
         self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
             .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
 
+        self.defaultCodexPermissionProfileRaw = defaults.string(
+            forKey: Key.defaultCodexPermissionProfileRaw
+        ) ?? AgentPermissionPreset.codexWorkspace.id
+
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
-            .flatMap(AgentEffort.init(rawValue:)) ?? Self.defaultEffort
+            .flatMap { raw in AgentProviderKind.claudeCode.efforts.first { $0.rawValue == raw } } ?? Self.defaultEffort
 
         // Unset must read as true, which `bool(forKey:)` cannot express.
         self.animateChatMotion = defaults.object(forKey: Key.animateChatMotion) == nil
@@ -167,11 +175,30 @@ final class AppSettings {
         }
     }
 
-    /// The agent provider to launch. Only `claude-code` is implemented in v1;
-    /// this persists and is read by `AgentLauncher`, ready for more providers.
-    var providerID: String {
+    /// Hide install offers in the model menu, but always retain them in Settings.
+    private(set) var dismissedMissingProviders: Set<AgentProviderKind> {
+        didSet { defaults.set(dismissedMissingProviders.map(\.rawValue).sorted(), forKey: Key.dismissedMissingProviders) }
+    }
+
+    func dismissMissingProvider(_ provider: AgentProviderKind) {
+        dismissedMissingProviders.insert(provider)
+    }
+
+    #if DEBUG
+    func resetMissingProviderDismissal(_ provider: AgentProviderKind) {
+        dismissedMissingProviders.remove(provider)
+    }
+    #endif
+
+    func reconcileInstalledProviders(_ installed: Set<AgentProviderKind>) {
+        dismissedMissingProviders.subtract(installed)
+    }
+
+    /// Which CLI a new agent tab runs. A tab records its own provider at
+    /// creation, so changing this never moves an existing conversation.
+    var defaultProvider: AgentProviderKind {
         didSet {
-            defaults.set(providerID, forKey: Key.providerID)
+            defaults.set(defaultProvider.rawValue, forKey: Key.providerID)
         }
     }
 
@@ -246,6 +273,17 @@ final class AppSettings {
         didSet {
             defaults.set(defaultPermissionMode.rawValue, forKey: Key.defaultPermissionModeRaw)
         }
+    }
+
+    var defaultCodexPermissionProfileRaw: String {
+        didSet {
+            defaults.set(defaultCodexPermissionProfileRaw, forKey: Key.defaultCodexPermissionProfileRaw)
+        }
+    }
+
+    var defaultCodexPermissionProfile: AgentPermissionPreset {
+        AgentPermissionPreset.codexPresets.first { $0.id == defaultCodexPermissionProfileRaw }
+            ?? .codexWorkspace
     }
 
     /// Effort a new agent tab starts at. There is no launch flag for effort,

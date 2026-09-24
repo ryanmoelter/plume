@@ -49,6 +49,7 @@ enum AccessibilityID {
     static let composerField = "composer-field"
     static let composerSendButton = "composer-send-button"
     static let composerStopButton = "composer-stop-button"
+    static let composerSteerButton = "composer-steer-button"
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"

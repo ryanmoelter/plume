@@ -74,7 +74,7 @@ struct KeepAwakeTests {
 
     private func makeCoordinator(
         engine: StatusEngine,
-        sessions: HeadlessSessionManager? = nil,
+        sessions: AgentSessionManager? = nil,
         settings: AppSettings? = nil,
         assertion: FakeSleepAssertion? = nil,
         power: KeepAwakeCoordinator.PowerSnapshot = KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false),
@@ -85,7 +85,7 @@ struct KeepAwakeTests {
         let assertion = assertion ?? FakeSleepAssertion()
         let coordinator = KeepAwakeCoordinator(
             engine: engine,
-            sessions: sessions ?? HeadlessSessionManager(),
+            sessions: sessions ?? AgentSessionManager(),
             settings: settings,
             assertion: assertion,
             powerSnapshot: { power },
@@ -117,12 +117,13 @@ struct KeepAwakeTests {
         }
     }
 
-    /// A waiting tab is a reason only when someone can answer it from away.
-    @Test func waitingCountsOnlyWhileRemotelyControlled() {
+    /// Idle and waiting states stay reachable remotely without becoming
+    /// fictional work or duplicating the Remote Control reason.
+    @Test func nonworkingRemoteTabsHaveOnlyOneRemoteReason() {
         let taskID = UUID()
         let tabID = UUID()
 
-        for status in TaskStatus.allCases where status.wantsAttention {
+        for status in TaskStatus.allCases where status != .working {
             let alone = KeepAwakeCoordinator.deriveReasons(
                 activeTabs: [(taskID: taskID, tabID: tabID, status: status)],
                 remoteControlledTabs: []
@@ -133,7 +134,7 @@ struct KeepAwakeTests {
                 activeTabs: [(taskID: taskID, tabID: tabID, status: status)],
                 remoteControlledTabs: [(taskID: taskID, tabID: tabID)]
             )
-            #expect(remote.contains { $0.kind == .working(status) }, "\(status) with remote control")
+            #expect(remote.map(\.kind) == [.remoteControl], "\(status) with remote control")
         }
     }
 
@@ -524,7 +525,7 @@ struct KeepAwakeTests {
         let engine = StatusEngine()
         let coordinator = KeepAwakeCoordinator(
             engine: engine,
-            sessions: HeadlessSessionManager(),
+            sessions: AgentSessionManager(),
             settings: makeSettings(),
             assertion: RefusingSleepAssertion(),
             powerSnapshot: { KeepAwakeCoordinator.PowerSnapshot(source: .ac, percent: nil, isCharging: false) },
@@ -933,6 +934,20 @@ struct KeepAwakeTests {
         engine.setSubagentActivity(tabID: tabID, working: true)
 
         #expect(engine.activeTabs.isEmpty)
+    }
+
+    @Test func subagentsKeepWorkingWhileTheirParentNeedsApproval() {
+        let engine = StatusEngine()
+        let taskID = UUID()
+        let tabID = UUID()
+        engine.setStatus(.permissionNeeded, taskID: taskID, tabID: tabID)
+        engine.setSubagentActivity(tabID: tabID, working: true)
+        #expect(engine.status(forTab: tabID) == .permissionNeeded)
+        #expect(engine.activeTabs.first?.status == .working)
+        let reasons = KeepAwakeCoordinator.deriveReasons(activeTabs: engine.activeTabs, remoteControlledTabs: [])
+        #expect(reasons.count == 1)
+        engine.setSubagentActivity(tabID: tabID, working: false)
+        #expect(KeepAwakeCoordinator.deriveReasons(activeTabs: engine.activeTabs, remoteControlledTabs: []).isEmpty)
     }
 
     @Test func workingSubagentsKeepTheMacAwake() {

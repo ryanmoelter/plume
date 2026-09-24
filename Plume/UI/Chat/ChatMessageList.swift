@@ -63,9 +63,9 @@ struct ChatMessageList: View, ThemedView {
     /// each is headed. The working indicator stays until they get there.
     @State private var heldTurnTargets: [String: Double] = [:]
 
-    private var session: HeadlessSession? {
+    private var session: (any AgentSession)? {
         guard let tabID else { return nil }
-        return HeadlessSessionManager.shared.existingSession(for: tabID)
+        return AgentSessionManager.shared.existingSession(for: tabID)
     }
 
     /// Exact, when the headless session knows which calls are stalled.
@@ -253,19 +253,17 @@ private struct LiveMessageObserver: View {
     let onChange: () -> Void
 
     var body: some View {
-        let session = tabID.flatMap { HeadlessSessionManager.shared.existingSession(for: $0) }
+        let session = tabID.flatMap { AgentSessionManager.shared.existingSession(for: $0) }
+        // Codex streams directly into CodexItemStore rather than exposing a
+        // trailing `streamingText` value. Reading its revision here keeps
+        // this tiny observer invalidated without making ChatMessageList
+        // depend on the store or duplicating its transcript rows.
+        let codexRevision = if let tabID, session is CodexSession {
+            CodexItemStore.shared.revision(forTab: tabID)
+        } else { -1 }
         Color.clear
             .onChange(of: ChatStreamHandoff.LiveMessage(session: session)) { onChange() }
-    }
-}
-
-private extension ChatStreamHandoff.LiveMessage {
-    init(session: HeadlessSession?) {
-        self.init(
-            id: session?.streamingMessageID,
-            thinking: session?.streamingThinking ?? "",
-            text: session?.streamingText ?? ""
-        )
+            .onChange(of: codexRevision) { onChange() }
     }
 }
 

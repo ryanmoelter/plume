@@ -126,6 +126,15 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// Everything the menu can offer, top-level items first.
     static let selectable: [AgentModel] = [fable, opus, sonnet, haiku] + more
 
+    static let codexSelectable: [AgentModel] = [
+        AgentModel(id: "gpt-6-astra", label: "Astra"),
+        AgentModel(id: "gpt-5.6-sol", label: "Sol"),
+        AgentModel(id: "gpt-5.6-terra", label: "Terra"),
+        AgentModel(id: "gpt-5.6-luna", label: "Luna"),
+        AgentModel(id: "gpt-5.5", label: "GPT-5.5"),
+        AgentModel(id: "gpt-5.4-mini", label: "GPT-5.4 mini")
+    ]
+
     // MARK: - Recognition
 
     /// Maps a transcript- or statusline-reported model string onto a
@@ -148,6 +157,16 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
             return isOneMillion ? alias.oneMillionVariant : alias
         }
         return AgentModel(unrecognizedID: trimmed)
+    }
+
+    static func recognizing(_ reported: String, provider: AgentProviderKind) -> AgentModel? {
+        let trimmed = reported.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if provider == .codex {
+            return codexSelectable.first { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }
+                ?? AgentModel(unrecognizedID: trimmed)
+        }
+        return recognizing(trimmed)
     }
 
     /// Short names and display strings the CLI or a statusline may report in
@@ -175,33 +194,63 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     }
 }
 
-/// An effort level this UI can switch a running session to, per
-/// `claude --help`.
-nonisolated enum AgentEffort: String, CaseIterable, Identifiable {
-    case low
-    case medium
-    case high
-    case xhigh
-    case max
+/// A reasoning effort value advertised by an agent.
+///
+/// Claude currently uses the six values in `allCases`, while Codex's schema
+/// deliberately leaves the vocabulary open and advertises values per model.
+/// Keep the familiar static presets for Claude and let a live provider carry
+/// a value this build has never seen without dropping it or substituting a
+/// different effort.
+nonisolated struct AgentEffort: RawRepresentable, CaseIterable, Identifiable, Codable, Hashable, Sendable {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    static let low = AgentEffort(rawValue: "low")
+    static let medium = AgentEffort(rawValue: "medium")
+    static let high = AgentEffort(rawValue: "high")
+    static let xhigh = AgentEffort(rawValue: "xhigh")
+    static let max = AgentEffort(rawValue: "max")
+    static let ultra = AgentEffort(rawValue: "ultra")
+
+    static let allCases: [AgentEffort] = [.low, .medium, .high, .xhigh, .max, .ultra]
 
     var id: String { rawValue }
 
     var token: String { rawValue }
 
     var label: String {
-        switch self {
-        case .low: return "Low"
-        case .medium: return "Medium"
-        case .high: return "High"
-        case .xhigh: return "X-High"
-        case .max: return "Max"
+        switch rawValue {
+        case "low": return "Low"
+        case "medium": return "Medium"
+        case "high": return "High"
+        case "xhigh": return "X-High"
+        case "max": return "Max"
+        case "ultra": return "Ultra"
+        default: return rawValue
         }
     }
 
+    /// Raw-string Codable keeps persistence compatible with a raw enum.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.init(rawValue: try container.decode(String.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
     /// Maps a transcript- or statusline-reported effort string back to an
-    /// option, or nil when it doesn't match one of the five levels.
+    /// option. Codex may report a value outside Claude's known presets, so an
+    /// unfamiliar non-empty value remains selectable instead of becoming nil.
     static func recognizing(_ reported: String) -> AgentEffort? {
-        AgentEffort(rawValue: reported)
+        let value = reported.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return AgentEffort(rawValue: value)
     }
 }
 

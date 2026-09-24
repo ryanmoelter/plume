@@ -14,6 +14,7 @@ struct SubagentTranscript: Identifiable, Equatable {
     /// can be re-derived without re-reading the parent.
     var parentSignal: SubagentParentSignal?
     var status: TaskStatus = .notStarted
+    var provider: AgentProviderKind = .claudeCode
 
     /// What to call this subagent in the list. Falls back to the raw id only
     /// when nothing describes it.
@@ -83,7 +84,7 @@ final class TranscriptStore {
 
     private static func hasLiveSession(tabID: UUID) -> Bool {
         SurfaceManager.shared.existingSession(for: tabID) != nil
-            || HeadlessSessionManager.shared.existingSession(for: tabID) != nil
+            || AgentSessionManager.shared.existingSession(for: tabID) != nil
     }
 
     /// Starts watching a tab's transcript and parses whatever it already

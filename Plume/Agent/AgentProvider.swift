@@ -7,14 +7,26 @@ struct AgentLaunch {
     let environment: [String: String]
 }
 
-/// A coding agent Plume can run in a terminal tab. Claude Code is the only
-/// provider in v1; the protocol is the seam for Codex and local models later.
+/// A coding agent Plume can run in a terminal tab.
+///
+/// This covers the terminal transport only. The headless transport talks its
+/// provider's own JSON protocol and is dispatched by `AgentLauncher` instead.
 protocol AgentProvider {
-    var id: String { get }
+    var kind: AgentProviderKind { get }
 
     /// `firstMessage` starts a new conversation; `resumeSessionID` continues a
     /// prior one. Passing both resumes and then sends the message.
-    func launchCommand(firstMessage: String?, resumeSessionID: String?) -> AgentLaunch
+    ///
+    /// `permissionMode` is the provider's own token, not a shared vocabulary —
+    /// Claude Code's `--permission-mode` names and Codex's permission profiles
+    /// have no values in common.
+    func launchCommand(
+        firstMessage: String?,
+        resumeSessionID: String?,
+        taskID: UUID?,
+        tabID: UUID?,
+        permissionMode: String?
+    ) -> AgentLaunch
 }
 
 /// Quotes a string for safe use as a single shell word.
@@ -22,17 +34,14 @@ func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
 }
 
-/// Resolves a provider ID (from Settings) to its implementation. Only
-/// `claude-code` exists in v1; anything else falls back to it rather than
-/// failing to launch.
+/// Resolves a provider to its implementation.
 enum AgentProviderRegistry {
-    static func provider(for id: String, settingsPath: String?) -> ClaudeCodeProvider {
-        switch id {
-        case ClaudeCodeProviderID:
+    static func provider(for kind: AgentProviderKind, settingsPath: String?) -> any AgentProvider {
+        switch kind {
+        case .claudeCode:
             return ClaudeCodeProvider(settingsPath: settingsPath)
-        default:
-            Log.agent.error("Unknown provider id \"\(id, privacy: .public)\"; falling back to Claude Code")
-            return ClaudeCodeProvider(settingsPath: settingsPath)
+        case .codex:
+            return CodexProvider()
         }
     }
 }

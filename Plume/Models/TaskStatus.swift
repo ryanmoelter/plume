@@ -114,9 +114,60 @@ enum TabKind: String, CaseIterable, Sendable {
     case terminal
 }
 
-/// How an agent tab talks to `claude`. `headless` drives `claude -p` over
-/// stream-json and always renders as chat; `terminal` keeps the PTY/TUI as
-/// the escape hatch and always renders as a terminal.
+/// Which coding-agent CLI an agent tab runs. Orthogonal to `AgentTransport`,
+/// which picks how Plume talks to it.
+enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
+    case claudeCode = "claude-code"
+    case codex
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    var assetName: String {
+        switch self {
+        case .claudeCode: "ClaudeLogo"
+        case .codex: "ChatGPTLogo"
+        }
+    }
+
+    var models: [AgentModel] {
+        switch self {
+        case .claudeCode: AgentModel.selectable
+        case .codex: AgentModel.codexSelectable
+        }
+    }
+
+    var efforts: [AgentEffort] {
+        switch self {
+        case .claudeCode: AgentEffort.allCases.filter { $0 != .ultra }
+        case .codex: AgentEffort.allCases
+        }
+    }
+
+    var permissionPresets: [AgentPermissionPreset] {
+        switch self {
+        case .claudeCode: PermissionMode.allCases.map { .init(id: $0.rawValue, label: $0.label) }
+        case .codex: AgentPermissionPreset.codexPresets
+        }
+    }
+
+    /// Transports this CLI can run on.
+    var supportedTransports: [AgentTransport] { AgentTransport.allCases }
+
+    func resolvedTransport(preferring preferred: AgentTransport) -> AgentTransport {
+        supportedTransports.contains(preferred) ? preferred : supportedTransports[0]
+    }
+}
+
+/// How an agent tab talks to its CLI. `headless` drives it over a JSON
+/// protocol on pipes and always renders as chat; `terminal` keeps the PTY/TUI
+/// as the escape hatch and always renders as a terminal.
 enum AgentTransport: String, CaseIterable, Sendable {
     case headless
     case terminal

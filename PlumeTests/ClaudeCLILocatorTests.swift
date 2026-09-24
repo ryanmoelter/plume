@@ -22,15 +22,14 @@ struct ClaudeCLILocatorTests {
         #expect(ClaudeCLILocator.isAvailable(commandName: "cd"))
     }
 
-    /// The cache is what keeps a login shell off the launch path, so a second
-    /// call must not re-probe — even under a name that would answer
-    /// differently.
-    @Test func theSecondCallAnswersFromTheCache() {
+    /// Each provider must have its own cached availability result.
+    @Test func differentCommandsHaveIndependentCacheEntries() {
         ClaudeCLILocator.invalidate()
         defer { ClaudeCLILocator.invalidate() }
 
         #expect(ClaudeCLILocator.isAvailable(commandName: "cd"))
-        #expect(ClaudeCLILocator.isAvailable(commandName: "plume-definitely-not-a-command-x9f2"))
+        #expect(!ClaudeCLILocator.isAvailable(commandName: "plume-definitely-not-a-command-x9f2"))
+        #expect(ClaudeCLILocator.isAvailable(commandName: "cd"))
     }
 
     @Test func invalidatingRestoresTheProbe() {

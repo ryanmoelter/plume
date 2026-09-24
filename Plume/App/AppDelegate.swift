@@ -124,8 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // this path when the process is signalled rather than quit, and an
         // agent that outlives the app goes on writing a transcript the next
         // run resumes from.
-        Log.app.info("Terminating, closing \(HeadlessSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
-        HeadlessSessionManager.shared.closeAll()
+        Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
+        CodexTerminalMonitor.shared.stopAll()
+        AgentSessionManager.shared.closeAll()
+
         KeepAwakeCoordinator.shared.releaseForTermination()
         #if DEBUG
         ControlServer.shared.stop()

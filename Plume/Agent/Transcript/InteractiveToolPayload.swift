@@ -13,12 +13,19 @@ nonisolated enum InteractiveToolPayload: Equatable {
 
     /// One question from an `AskUserQuestion` call.
     struct AskedQuestion: Equatable, Identifiable {
+        let id: String
         let header: String
         let question: String
         let multiSelect: Bool
         let options: [Option]
 
-        var id: String { header + question }
+        init(id: String? = nil, header: String, question: String, multiSelect: Bool, options: [Option]) {
+            self.id = id ?? header + question
+            self.header = header
+            self.question = question
+            self.multiSelect = multiSelect
+            self.options = options
+        }
 
         struct Option: Equatable, Identifiable {
             let label: String
@@ -121,6 +128,7 @@ nonisolated enum InteractiveToolPayload: Equatable {
         if case .bool(let flag)? = fields["multiSelect"] { multiSelect = flag }
 
         return AskedQuestion(
+            id: fields["id"]?.stringValue,
             header: fields["header"]?.stringValue ?? "",
             question: question,
             multiSelect: multiSelect,

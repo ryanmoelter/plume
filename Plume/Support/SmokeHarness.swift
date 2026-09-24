@@ -20,9 +20,14 @@ enum SmokeHarness {
         else { return }
 
         let existing = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
-        var tasks = existing
+        // Seed into newly created tasks only. Reusing the user's tasks lets
+        // provider/session flags corrupt conversations from earlier runs.
+        var tasks: [WorkTask] = []
         while tasks.count < count {
-            tasks.append(TaskStore.createTask(in: context, title: "Task \(tasks.count + 1)", siblings: tasks))
+            // Generated-title smoke tests need an unnamed task; ordinary
+            // seeds keep their stable labels for multi-task UI tests.
+            let title = environment["PLUME_SEED_UNNAMED"] == "1" ? "" : "Task \(tasks.count + 1)"
+            tasks.append(TaskStore.createTask(in: context, title: title, siblings: existing + tasks))
         }
 
         // PLUME_SEED_TABS gives every task extra terminal tabs, so several
@@ -79,6 +84,27 @@ enum SmokeHarness {
             }
         }
 
+        // PLUME_SEED_PROVIDER puts newly seeded agent tabs on one CLI, so a seeded
+        // run can exercise Codex instead of Claude Code.
+        if let raw = environment["PLUME_SEED_PROVIDER"],
+           let provider = AgentProviderKind(rawValue: raw) {
+            for task in tasks {
+                for agentTab in task.orderedTabs where agentTab.kind == .agent {
+                    agentTab.provider = provider
+                    if let raw = environment["PLUME_SEED_TRANSPORT"], let transport = AgentTransport(rawValue: raw) {
+                        agentTab.transport = transport
+                    }
+                    if let model = environment["PLUME_SEED_MODEL"] {
+                        agentTab.model = AgentModel.recognizing(model, provider: provider)
+                        agentTab.isModelUserChosen = true
+                    }
+                    if let mode = environment["PLUME_SEED_CODEX_MODE"].flatMap(CodexCollaborationMode.init(rawValue:)) {
+                        agentTab.codexCollaborationMode = mode
+                    }
+                }
+            }
+        }
+
         selection.wrappedValue = tasks.first?.id
         Log.app.info("Smoke harness seeded \(tasks.count) task(s)")
 
@@ -91,6 +117,17 @@ enum SmokeHarness {
             Log.app.info("Smoke harness sent first message to agent tab")
         }
 
+        // Exercise two independent conversations on a shared provider host.
+        if let message = environment["PLUME_SEND_MESSAGE_NEW_TAB"],
+           let first = tasks.first,
+           let original = first.orderedTabs.first(where: { $0.kind == .agent }) {
+            let tab = TaskStore.addTab(to: first, kind: .agent, provider: original.provider, in: context)
+            tab.transport = original.transport
+            tab.model = original.model
+            tab.isModelUserChosen = original.isModelUserChosen
+            AgentLauncher.launch(message: message, task: first, tab: tab)
+        }
+
         // PLUME_SEND_MESSAGE_2 sends a second turn after a delay, so multi-turn
         // continuity over one process can be observed.
         if let second = environment["PLUME_SEND_MESSAGE_2"],
@@ -98,7 +135,7 @@ enum SmokeHarness {
            let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(Double(environment["PLUME_SEND_MESSAGE_2_DELAY"] ?? "") ?? 25))
-                HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id).submit(text: second)
+                AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id).submit(text: second)
                 Log.app.info("Smoke harness sent second message")
             }
         }
@@ -114,7 +151,7 @@ enum SmokeHarness {
            let first = tasks.first,
            let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
             Task { @MainActor in
-                let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+                let session = AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id)
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     guard let permission = session.pendingPermissions.first else { continue }
@@ -131,8 +168,8 @@ enum SmokeHarness {
         if let tickValue = environment["PLUME_FAKE_STREAM"],
            let tick = Double(tickValue), tick > 0,
            let first = tasks.first,
-           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }) {
-            let session = HeadlessSessionManager.shared.session(for: agentTab.id, taskID: first.id)
+           let agentTab = first.orderedTabs.first(where: { $0.kind == .agent }),
+           let session = AgentSessionManager.shared.session(for: agentTab.id, taskID: first.id) as? HeadlessSession {
             Task { @MainActor in
                 let chunks = ["Streaming ", "some **bold** ", "text, ", "with `code` ", "and a\n\n", "new paragraph. ", "- a list item\n", "- another\n\n"]
                 var index = 0
@@ -171,7 +208,7 @@ enum SmokeHarness {
     /// anything else as-is — whatever answers the specific pending request so
     /// the turn can proceed, since the point is exercising the resume path,
     /// not the choice made.
-    private static func autoAnswer(_ permission: PendingPermission, in session: HeadlessSession) {
+    private static func autoAnswer(_ permission: PendingPermission, in session: any AgentSession) {
         switch permission.interactive {
         case .questions(let questions):
             var answers: [String: String] = [:]

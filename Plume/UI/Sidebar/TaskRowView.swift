@@ -78,7 +78,7 @@ struct TaskRowView: View {
     /// headless transport carries the bridge; a terminal tab's own TUI serves
     /// `/rc` itself.
     private var isRemoteControlled: Bool {
-        agentTabIDs.contains { HeadlessSessionManager.shared.existingSession(for: $0)?.remoteControl.link != nil }
+        agentTabIDs.contains { AgentSessionManager.shared.existingSession(for: $0)?.isRemotelyControlled == true }
     }
 
     var body: some View {

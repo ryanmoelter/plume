@@ -4,6 +4,23 @@ import Testing
 
 @MainActor
 struct CommandModeRunsTests {
+    @Test func discardingQueuedOutputRemovesItsImagesAndLeavesOtherMessages() async throws {
+        let runs = CommandModeRuns()
+        let tabID = UUID()
+        let session = CodexSession(tabID: tabID, taskID: UUID())
+        session.submit(text: "Keep this")
+        let runID: UUID = await withCheckedContinuation { continuation in
+            runs.start("printf hello", in: nil, tabID: tabID) { id, result in
+                session.submit(blocks: [.text(result.transcriptText), .image(ChatImage(mediaType: "image/png", base64: "pixel"))])
+                continuation.resume(returning: id)
+            }
+        }
+        #expect(session.queuedMessages.count == 2)
+        runs.cancel(runID, tabID: tabID, session: session)
+        #expect(session.queuedMessages.map(\.plainText) == ["Keep this"])
+        #expect(runs.runs(forTab: tabID).isEmpty)
+    }
+
     @Test func aFinishedRunWaitsToBeRetired() async throws {
         let runs = CommandModeRuns()
         let tabID = UUID()

@@ -3,7 +3,7 @@ import Foundation
 /// Runs the `claude` CLI inside the tab's terminal, instrumented with hooks
 /// that report status back to Plume.
 struct ClaudeCodeProvider: AgentProvider {
-    let id = ClaudeCodeProviderID
+    let kind = AgentProviderKind.claudeCode
 
     /// Nil disables instrumentation, which degrades to a plain `claude`
     /// session rather than failing to launch.
@@ -13,16 +13,12 @@ struct ClaudeCodeProvider: AgentProvider {
         self.settingsPath = settingsPath
     }
 
-    func launchCommand(firstMessage: String?, resumeSessionID: String?) -> AgentLaunch {
-        launchCommand(firstMessage: firstMessage, resumeSessionID: resumeSessionID, taskID: nil, tabID: nil)
-    }
-
     func launchCommand(
         firstMessage: String?,
         resumeSessionID: String?,
         taskID: UUID?,
         tabID: UUID?,
-        permissionMode: PermissionMode? = nil
+        permissionMode: String?
     ) -> AgentLaunch {
         var arguments = ["claude"]
 
@@ -33,7 +29,7 @@ struct ClaudeCodeProvider: AgentProvider {
 
         if let permissionMode {
             arguments.append("--permission-mode")
-            arguments.append(permissionMode.token)
+            arguments.append(permissionMode)
         }
 
         if let resumeSessionID, !resumeSessionID.isEmpty {

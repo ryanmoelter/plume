@@ -15,8 +15,17 @@ struct PendingPermission: Identifiable, Equatable {
     /// The structured face of an `AskUserQuestion` or `ExitPlanMode`, so the
     /// UI can offer options or a plan instead of raw JSON.
     let interactive: InteractiveToolPayload?
+    /// Empty for Claude, whose control protocol always exposes Allow/Deny.
+    /// Codex supplies the exact closed decision vocabulary per request.
+    var decisions: [PermissionDecisionOption] = []
 
     static func == (lhs: PendingPermission, rhs: PendingPermission) -> Bool { lhs.id == rhs.id }
+}
+
+struct PermissionDecisionOption: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let allowsAction: Bool
 }
 
 /// One headless `claude` conversation, driving a tab.
@@ -27,9 +36,9 @@ struct PendingPermission: Identifiable, Equatable {
 /// streaming text, and quota pushed as events.
 @MainActor
 @Observable
-final class HeadlessSession {
+final class HeadlessSession: AgentSession {
     let tabID: UUID
-    let taskID: UUID
+    var taskID: UUID
 
     /// Where the process was launched, so a reported command list can be
     /// remembered against a directory even before the tab reports its own.
@@ -59,7 +68,7 @@ final class HeadlessSession {
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
     /// that also keeps the figure correct across a `--resume`.
-    private(set) var sessionCostUSD: Double = 0
+    private(set) var sessionCostUSD: Double?
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
     /// `model`'s assumed window, so the meter has a denominator as soon as a
@@ -104,7 +113,10 @@ final class HeadlessSession {
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [[UserContentBlock]] = []
 
-    private var process: HeadlessProcess?
+    /// Claude Code proposes plans through `ExitPlanMode`.
+    let supportsPlanApproval = true
+
+    private var process: AgentProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var nextRequestNumber = 0
 
@@ -183,8 +195,10 @@ final class HeadlessSession {
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen
         )
-        let handler = HeadlessProcess(
-            onMessage: { [weak self] message in
+        let handler = AgentProcess(
+            label: "claude",
+            onLine: { [weak self] line in
+                guard let message = StreamJSONDecoder.decode(line: line) else { return }
                 Task { @MainActor in self?.handle(message) }
             },
             onExit: { [weak self] status, errorLine in
@@ -257,10 +271,7 @@ final class HeadlessSession {
     /// Whether the text went to the agent now or is waiting its turn. A
     /// caller cannot tell by reading `isWorking` afterwards, because sending
     /// starts a turn and so always leaves it true.
-    enum Delivery {
-        case sent
-        case queued
-    }
+    typealias Delivery = AgentDelivery
 
     @discardableResult
     func submit(blocks: [UserContentBlock]) -> Delivery {

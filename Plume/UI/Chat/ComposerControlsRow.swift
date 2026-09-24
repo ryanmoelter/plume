@@ -21,7 +21,7 @@ struct ComposerControlsRow: View, ThemedView {
 
     @Bindable var task: WorkTask
     @Bindable var tab: TaskTab
-    let headlessSession: HeadlessSession?
+    let headlessSession: (any AgentSession)?
     /// The plan a conversation has produced, when it's closed rather than
     /// docked or expanded — `ChatTabView` owns `PlanPresentation` and decides
     /// when that's true. A docked plan keeps its own bar above the composer;
@@ -46,6 +46,9 @@ struct ComposerControlsRow: View, ThemedView {
             Spacer(minLength: 0)
             ModelControl(state: settings, form: form)
             EffortControl(state: settings, form: form)
+            if tab.provider == .codex {
+                CodexCollaborationControl(state: settings, form: form)
+            }
             PermissionModeControl(state: settings, form: form)
         }
         .font(typography.caption.font)
@@ -83,7 +86,9 @@ struct ComposerControlsRow: View, ThemedView {
 enum ComposerControlLabels {
     @MainActor
     static func all(state: ComposerSettings) -> [String] {
-        [model(state), state.effort.label, state.permissionMode?.label].compactMap { $0 }
+        [model(state), state.effort.label,
+         state.provider == .codex ? state.collaborationMode.label : nil,
+         state.permissionPreset?.label].compactMap { $0 }
     }
 
     /// A tab that has never chosen one launches without `--model` and runs on
@@ -225,33 +230,33 @@ private struct PermissionModeControl: View, ThemedView {
     let form: ComposerControlsForm
 
     var body: some View {
-        if let mode = state.permissionMode {
+        if let preset = state.permissionPreset {
             Menu {
-                ForEach(PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)) { option in
-                    Button(option.label, systemImage: option.symbol) { state.setPermissionMode(option) }
+                ForEach(state.permissionPresets) { option in
+                    Button(option.label) { state.setPermissionPreset(option) }
                 }
             } label: {
                 ComposerSegmentLabel(
-                    systemImage: mode.symbol,
-                    text: mode.label,
+                    systemImage: PermissionMode(rawValue: preset.id)?.symbol ?? "lock.shield",
+                    text: preset.label,
                     showsText: form.showsLabels,
-                    foreground: foreground(for: attention(mode)),
+                    foreground: foreground(for: attention(preset)),
                     height: dimensions.composerControlHeight
                 )
                 .unconfirmed(state.isModeAndModelUnconfirmed)
             }
             .menuStyle(.borderlessButton)
-            .help(state.modeAndModelHelp("Permission mode: \(mode.label)"))
+            .help(state.modeAndModelHelp("Permission mode: \(preset.label)"))
             .accessibilityLabel("Permission mode")
-            .accessibilityValue(mode.label)
+            .accessibilityValue(preset.label)
             .plumeID(AccessibilityID.composerPermissionModeControl)
         }
     }
 
     /// Bypassing every permission check is worth flagging; the rest are
     /// ordinary working modes.
-    private func attention(_ mode: PermissionMode) -> StatuslineAttention {
-        mode == .bypassPermissions ? .red : .neutral
+    private func attention(_ preset: AgentPermissionPreset) -> StatuslineAttention {
+        preset.id == PermissionMode.bypassPermissions.rawValue || preset == .codexDangerFullAccess ? .red : .neutral
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
@@ -266,46 +271,60 @@ private struct ModelControl: View, ThemedView {
 
     @State private var isAskingForCustomID = false
     @State private var customID = ""
+    @State private var customProvider: AgentProviderKind = .claudeCode
 
     var body: some View {
-        Menu {
-            if let resolved = state.defaultModel {
-                Button("Default (\(resolved.label))") { state.clearModel() }
-                Divider()
+        ModelSegmentLabel(
+            provider: state.provider,
+            text: label,
+            showsText: form.showsLabels,
+            foreground: colors.foreground,
+            height: dimensions.composerControlHeight
+        )
+        .unconfirmed(state.isModelAwaitingConfirmation)
+        .overlay {
+            ModelMenuButton(state: state, label: label) { provider in
+                customProvider = provider
+                isAskingForCustomID = true
             }
-            ForEach([AgentModel.fable, .opus, .sonnet, .haiku]) { option in
-                Button(option.label) { state.setModel(option) }
-            }
-            Menu("More") {
-                ForEach(AgentModel.more) { option in
-                    Button(option.label) { state.setModel(option) }
-                }
-                Divider()
-                Button("Other…") { isAskingForCustomID = true }
-            }
-        } label: {
-            ComposerSegmentLabel(
-                systemImage: "brain",
-                text: label,
-                showsText: form.showsLabels,
-                foreground: colors.foreground,
-                height: dimensions.composerControlHeight
-            )
-            .unconfirmed(state.isModelAwaitingConfirmation)
         }
-        .menuStyle(.borderlessButton)
         .help(state.modeAndModelHelp("Model: \(label)"))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
         .plumeID(AccessibilityID.composerModelControl)
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
-                state.setModel(AgentModel(unrecognizedID: $0))
+                state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)
             }
         }
     }
 
     private var label: String { ComposerControlLabels.model(state) }
+
+
+}
+
+private struct ModelSegmentLabel: View, ThemedView {
+    @Environment(\.theme) var theme
+    let provider: AgentProviderKind
+    let text: String
+    let showsText: Bool
+    let foreground: Color
+    let height: CGFloat
+
+    var body: some View {
+        HStack(spacing: 6) {
+            AgentProviderIcon(provider: provider, size: 12)
+            if showsText { Text(text) }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(foreground)
+        .lineLimit(1)
+        .frame(height: typography.caption.lineHeight, alignment: .center)
+        .frame(height: height)
+    }
 }
 
 /// Takes a model ID the menu has no item for. Free text, because the CLI
@@ -318,7 +337,7 @@ private struct CustomModelIDField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Model ID").font(.caption)
-            TextField("claude-…", text: $id)
+            TextField("Model ID", text: $id)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 240)
                 .onSubmit(submit)
@@ -347,7 +366,7 @@ private struct EffortControl: View, ThemedView {
 
     var body: some View {
         Menu {
-            ForEach(AgentEffort.allCases) { option in
+            ForEach(state.efforts) { option in
                 Button(option.label, systemImage: option.symbol) { state.setEffort(option) }
             }
         } label: {
@@ -365,7 +384,9 @@ private struct EffortControl: View, ThemedView {
         .menuStyle(.borderlessButton)
         // Changing effort has no control request, so it sends an ordinary
         // chat turn — that turn appearing in the transcript is expected.
-        .help("Effort: \(state.effort.label) (changing it sends a message)")
+        .help(state.provider == .codex
+            ? "Effort: \(state.effort.label) (applies to the next turn)"
+            : "Effort: \(state.effort.label) (changing it sends a message)")
         .accessibilityLabel("Effort")
         .accessibilityValue(state.effort.label)
         .plumeID(AccessibilityID.composerEffortControl)
@@ -374,7 +395,7 @@ private struct EffortControl: View, ThemedView {
     /// Matches `statusline.sh`'s `effort_seg`: `xhigh`/`max` need attention.
     private func attention(_ level: AgentEffort) -> StatuslineAttention {
         switch level {
-        case .xhigh, .max: return .yellow
+        case .xhigh, .max, .ultra: return .yellow
         default: return .neutral
         }
     }
@@ -409,6 +430,8 @@ extension AgentEffort {
         case .high: return "gauge.with.dots.needle.50percent"
         case .xhigh: return "gauge.with.dots.needle.67percent"
         case .max: return "gauge.with.dots.needle.100percent"
+        case .ultra: return "bolt.circle"
+        default: return "gauge.with.dots.needle.50percent"
         }
     }
 }
