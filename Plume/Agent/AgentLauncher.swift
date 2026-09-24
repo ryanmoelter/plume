@@ -66,6 +66,15 @@ enum AgentLauncher {
             SurfaceManager.shared.closeSession(for: tab.id)
         }
         tab.transport = newTransport
+        if newTransport == .terminal {
+            // A `.reply` only ever comes from the headless control plane,
+            // which switching off means for good — left in place, it would
+            // outrank and block every `ai-title` the TUI writes from here on.
+            TitleStore.shared.demoteSource(forTab: tab.id, to: .transcript)
+            if let source = tab.titleSource, source > .transcript {
+                tab.titleSource = .transcript
+            }
+        }
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 

@@ -15,8 +15,24 @@ final class AgentTitleMonitor {
     private var pending: [UUID: Task<Void, Never>] = [:]
     private let debounce: Duration
 
-    /// Reports the title a tab's transcript carries.
-    var onTitleDiscovered: ((UUID, String) -> Void)?
+    /// The last title reported for each tab, so a re-read that finds the
+    /// same value again stays quiet. A transcript is written many times over
+    /// one turn, and its title does not change nearly as often; this is
+    /// dedup within one continuous watch, cleared on `stopWatching`/`stopAll`.
+    /// It is not what keeps a stale re-read from overwriting a newer title —
+    /// that guard is `TitleStore`'s source ranking.
+    private var lastReported: [UUID: DiscoveredTitle] = [:]
+
+    private struct DiscoveredTitle: Equatable {
+        let title: String
+        let source: TitleSource
+    }
+
+    /// Reports the title a tab's transcript carries, and its `TitleSource` —
+    /// `.transcript` for a real `ai-title` line, `.fallback` for the
+    /// first-message guess. `TitleStore.setTitle(_:forTab:source:)` uses the
+    /// source to decide whether to accept it.
+    var onTitleDiscovered: ((UUID, String, TitleSource) -> Void)?
 
     init(debounce: Duration = .seconds(1)) {
         self.debounce = debounce
@@ -45,6 +61,7 @@ final class AgentTitleMonitor {
         watchers.removeValue(forKey: tabID)?.stop()
         pending.removeValue(forKey: tabID)?.cancel()
         paths.removeValue(forKey: tabID)
+        lastReported.removeValue(forKey: tabID)
     }
 
     func stopAll() {
@@ -53,6 +70,7 @@ final class AgentTitleMonitor {
         watchers.removeAll()
         pending.removeAll()
         paths.removeAll()
+        lastReported.removeAll()
     }
 
     private func scheduleRead(tabID: UUID) {
@@ -65,9 +83,18 @@ final class AgentTitleMonitor {
     }
 
     private func read(tabID: UUID) {
-        guard let path = paths[tabID],
-              let title = SessionJSONLReader.bestAvailableTitle(atPath: path)
-        else { return }
-        onTitleDiscovered?(tabID, title)
+        guard let onTitleDiscovered else { return }
+        guard let path = paths[tabID], let data = FileManager.default.contents(atPath: path) else { return }
+        let discovered: DiscoveredTitle
+        if let title = SessionJSONLReader.latestAITitle(in: data) {
+            discovered = DiscoveredTitle(title: title, source: .transcript)
+        } else if let title = SessionJSONLReader.firstUserMessage(in: data) {
+            discovered = DiscoveredTitle(title: title, source: .fallback)
+        } else {
+            return
+        }
+        guard lastReported[tabID] != discovered else { return }
+        lastReported[tabID] = discovered
+        onTitleDiscovered(tabID, discovered.title, discovered.source)
     }
 }

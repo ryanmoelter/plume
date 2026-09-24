@@ -83,8 +83,7 @@ nonisolated enum CodexThreadTitle {
 
     static func preview(_ value: String?) -> String? {
         guard let value = name(value) else { return nil }
-        let line = value.split(whereSeparator: \.isNewline).joined(separator: " ")
-        return line.count > 120 ? String(line.prefix(120)) + "…" : line
+        return SessionJSONLReader.shortenedOpeningLine(value)
     }
 
     static func title(thread: JSONValue) -> String? {

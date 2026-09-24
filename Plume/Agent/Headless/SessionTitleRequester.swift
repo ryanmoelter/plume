@@ -3,25 +3,28 @@ import Foundation
 /// Decides when a headless conversation should be titled, and what text the
 /// title is drawn from.
 ///
-/// Claude Code auto-titles only the interactive TUI, so a headless tab never
-/// gets an `ai-title` line unless Plume asks for one. Asking costs a model
-/// call, so this is deliberately stingy: once when the conversation has
-/// something to describe, and again when a plan names the work better than the
-/// opening message did.
+/// Claude Code auto-titles the interactive TUI; a headless tab may not get an
+/// `ai-title` line unless Plume asks for one. Asking costs a model call, so
+/// this is deliberately stingy: once when the conversation has something to
+/// describe, and again when a plan names the work better than the opening
+/// message did.
+///
+/// The initial ask fires as soon as the opening message is sent, over the
+/// control plane, so it does not wait on the turn in flight —
+/// `docs/headless-protocol.md` has the evidence.
 ///
 /// Pure state, no I/O — the caller supplies the world and sends the request.
 struct SessionTitleRequester {
     private var hasRequestedInitialTitle = false
     private var lastTitledPlanPath: String?
 
-    /// What the caller knows at the end of a turn.
+    /// What the caller knows when a title might be due.
     struct Context {
         var transport: AgentTransport
         /// The name the user gave the task, if any. A user-named task shows
         /// that name instead of the tab's title, so titling it would be
         /// inference nobody sees.
         var userTaskName: String?
-        var isWorking: Bool
         /// The text to title from: the opening user message, or whatever the
         /// caller considers the conversation's subject.
         var openingMessage: String?
@@ -38,7 +41,7 @@ struct SessionTitleRequester {
     /// Mutating because a request that is handed out is also recorded; asking
     /// twice for the same turn would fire twice.
     mutating func descriptionForTitleRequest(_ context: Context) -> String? {
-        guard context.transport == .headless, !context.isWorking else { return nil }
+        guard context.transport == .headless else { return nil }
 
         let taskName = context.userTaskName?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard taskName?.isEmpty ?? true else { return nil }

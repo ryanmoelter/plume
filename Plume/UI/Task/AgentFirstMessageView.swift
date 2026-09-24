@@ -99,6 +99,9 @@ struct AgentFirstMessageView: View {
     /// Storing the ID is the whole resume: `TabContentView` swaps this view
     /// for `AutoResumingAgentTabView`, which launches `claude --resume`.
     private func resume(_ session: StoredSession) {
+        if tab.agentSessionID != session.sessionID {
+            TitleStore.shared.beginNewConversation(forTab: tab.id)
+        }
         tab.agentSessionID = session.sessionID
         tab.sessionJSONLPath = tab.provider == .claudeCode ? session.transcriptPath : nil
     }

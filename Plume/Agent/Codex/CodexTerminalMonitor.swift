@@ -237,7 +237,11 @@ final class CodexTerminalMonitor {
             if let root, let id = root["id"]?.stringValue {
                 hadThread = true
                 if rootID != id { rootID = id; onThread(id) }
-                if let title = CodexThreadTitle.title(thread: root) { TitleStore.shared.setTitle(title, forTab: tabID) }
+                if let name = CodexThreadTitle.name(root["name"]?.stringValue) {
+                    TitleStore.shared.setTitle(name, forTab: tabID, source: .reply)
+                } else if let preview = CodexThreadTitle.preview(root["preview"]?.stringValue) {
+                    TitleStore.shared.setTitle(preview, forTab: tabID, source: .fallback)
+                }
             }
             StatusEngine.shared.setStatus(CodexTerminalMonitor.aggregateStatus(threads),
                                          taskID: taskID, tabID: tabID, notifiable: !threads.isEmpty)

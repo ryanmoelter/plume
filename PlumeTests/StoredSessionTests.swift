@@ -81,9 +81,15 @@ struct StoredSessionTests {
     @Test func aLongOpeningMessageIsCondensedToOneLine() throws {
         let text = String(repeating: "word ", count: 100) + "\nsecond line"
         let message = try #require(SessionJSONLReader.firstUserMessage(in: Data(userLine(text).utf8)))
-        #expect(message.count <= 121)
+        #expect(message.count <= 61)
         #expect(!message.contains("\n"))
         #expect(message.hasSuffix("…"))
+    }
+
+    @Test func onlyTheFirstLineOfAMultiLineOpenerIsUsed() throws {
+        let text = "Fix the crash on launch\n\nIt happens every time on an M1 Mac."
+        let message = try #require(SessionJSONLReader.firstUserMessage(in: Data(userLine(text).utf8)))
+        #expect(message == "Fix the crash on launch")
     }
 
     /// The scan is capped so labelling a directory does not read megabytes
@@ -166,5 +172,53 @@ struct StoredSessionTests {
         #expect(SessionJSONLReader.storedSession(
             atTranscriptPath: "/tmp/\(UUID().uuidString).jsonl", workingDirectory: "/tmp"
         ) == nil)
+    }
+}
+
+/// The fallback used wherever a first user message stands in for a title,
+/// including the resume picker (`StoredSession.displayTitle` reads the same
+/// `firstUserMessage`).
+struct ShortenedOpeningLineTests {
+    @Test func shortTextPassesThroughUnchanged() {
+        #expect(SessionJSONLReader.shortenedOpeningLine("Fix the login bug") == "Fix the login bug")
+    }
+
+    @Test func onlyTheFirstNonEmptyLineIsKept() {
+        let text = "\n\nFix the login bug\nSteps to reproduce: ..."
+        #expect(SessionJSONLReader.shortenedOpeningLine(text) == "Fix the login bug")
+    }
+
+    @Test func internalWhitespaceIsCollapsed() {
+        #expect(SessionJSONLReader.shortenedOpeningLine("Fix   the\tlogin  bug") == "Fix the login bug")
+    }
+
+    @Test func longTextTruncatesAtAWordBoundary() {
+        let text = "Investigate why the sidebar collapses when a task has more than nine tabs open"
+        let shortened = SessionJSONLReader.shortenedOpeningLine(text, maximum: 30)
+        #expect(shortened == "Investigate why the sidebar…")
+        #expect(shortened.count <= 31)
+    }
+
+    /// A single word past the limit has no space to cut at, so the ellipsis
+    /// still lands rather than the helper returning nothing.
+    @Test func aSingleLongWordIsHardTruncated() {
+        let shortened = SessionJSONLReader.shortenedOpeningLine(String(repeating: "a", count: 80), maximum: 10)
+        #expect(shortened == String(repeating: "a", count: 10) + "…")
+    }
+
+    @Test func emptyTextYieldsEmptyText() {
+        #expect(SessionJSONLReader.shortenedOpeningLine("") == "")
+    }
+
+    @Test func aWordEndingExactlyAtTheLimitIsKeptWhole() {
+        let shortened = SessionJSONLReader.shortenedOpeningLine("aaaa bbbb cccc", maximum: 9)
+        #expect(shortened == "aaaa bbbb…")
+    }
+
+    /// The nearest space is two words back, which would throw away most of
+    /// the 9-character prefix — a hard cut keeps more of it than that would.
+    @Test func aWordBoundaryFarFromTheLimitHardTruncatesInstead() {
+        let shortened = SessionJSONLReader.shortenedOpeningLine("I https://example.com/a/b/c/d/e/f/g", maximum: 9)
+        #expect(shortened == "I https:/…")
     }
 }

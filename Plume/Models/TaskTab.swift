@@ -6,6 +6,10 @@ final class TaskTab {
     var id: UUID = UUID()
     var kindRaw: String = TabKind.agent.rawValue
     var title: String?
+    /// Where `title` came from, carried across a relaunch so `TitleStore` can
+    /// restore each tab's rank before anything re-reads a transcript — see
+    /// `TitleSource` and `TitleStore.setTitle(_:forTab:source:)`.
+    var titleSourceRaw: String?
     var orderIndex: Int = 0
     var task: WorkTask?
 
@@ -70,6 +74,11 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
+    }
+
+    var titleSource: TitleSource? {
+        get { titleSourceRaw.flatMap(TitleSource.init(rawValue:)) }
+        set { titleSourceRaw = newValue?.rawValue }
     }
 
     /// Only meaningful for an agent tab. Nil means the tab predates this

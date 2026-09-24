@@ -2,15 +2,13 @@ import Testing
 import Foundation
 @testable import Plume
 
-/// The policy that decides when a headless conversation is titled: once when
-/// it has something to describe, again when a plan describes it better, and
-/// rarely after that. Never on a terminal tab, a user-named task, or a turn
-/// still in flight.
+/// The policy that decides when a headless conversation is titled: as soon as
+/// it has something to describe, and again when a plan describes it better.
+/// Never on a terminal tab or a user-named task.
 struct SessionTitleRequesterTests {
     private func context(
         transport: AgentTransport = .headless,
         userTaskName: String? = nil,
-        isWorking: Bool = false,
         openingMessage: String? = "Add OAuth2 login with Google to my Flask app",
         planFilePath: String? = nil,
         planTitle: String? = nil,
@@ -19,7 +17,6 @@ struct SessionTitleRequesterTests {
         SessionTitleRequester.Context(
             transport: transport,
             userTaskName: userTaskName,
-            isWorking: isWorking,
             openingMessage: openingMessage,
             planFilePath: planFilePath,
             planTitle: planTitle,
@@ -108,12 +105,6 @@ struct SessionTitleRequesterTests {
     func aWhitespaceOnlyTaskNameDoesNotCountAsNamed() {
         var requester = SessionTitleRequester()
         #expect(requester.descriptionForTitleRequest(context(userTaskName: "   ")) != nil)
-    }
-
-    @Test
-    func neverTitlesMidTurn() {
-        var requester = SessionTitleRequester()
-        #expect(requester.descriptionForTitleRequest(context(isWorking: true)) == nil)
     }
 
     /// A resumed conversation the TUI already named keeps that name.

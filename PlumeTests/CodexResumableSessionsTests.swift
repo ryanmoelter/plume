@@ -23,7 +23,7 @@ struct CodexResumableSessionsTests {
         }
         #expect(result.map(\.id) == ["newer", "older"])
         #expect(result[0].displayTitle == "Named conversation")
-        #expect(result[1].displayTitle == "First message with more detail")
+        #expect(result[1].displayTitle == "First message")
         #expect(calls[0]["cwd"] == .array([.string("/repo"), .string("/worktree")]))
         #expect(calls[1]["cursor"] == .string("page2"))
         #expect(result.allSatisfy { $0.transcriptPath.isEmpty })
@@ -45,10 +45,10 @@ struct CodexResumableSessionsTests {
         #expect(CodexResumableSessions.storedSession(thread: child) == nil)
     }
 
-    @Test func titleUsesNameThenCondensedPreview() {
+    @Test func titleUsesNameThenPreviewsFirstLine() {
         #expect(CodexThreadTitle.title(thread: thread("id", name: "  A title  ")) == "A title")
-        #expect(CodexThreadTitle.title(thread: thread("id", name: "\n ")) == "First message with more detail")
-        #expect(CodexThreadTitle.preview(String(repeating: "x", count: 200))?.count == 121)
+        #expect(CodexThreadTitle.title(thread: thread("id", name: "\n ")) == "First message")
+        #expect(CodexThreadTitle.preview(String(repeating: "x", count: 200))?.count == 61)
         #expect(CodexThreadTitle.name(" \n") == nil)
     }
 }

@@ -194,7 +194,9 @@ private struct TabChip: View {
             "Start a fresh conversation?",
             isPresented: $isConfirmingStartFresh
         ) {
-            Button("Start Fresh", role: .destructive) { tab.agentSessionID = nil }
+            Button("Start Fresh", role: .destructive) {
+                TaskStore.startFresh(tab)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")

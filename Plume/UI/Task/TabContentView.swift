@@ -165,7 +165,10 @@ private struct TerminalTabHost: View {
             if let session {
                 TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible)
                     .onChange(of: session.title, initial: true) { _, title in
-                        TitleStore.shared.setTitle(title, forTab: tab.id)
+                        // A shell tab's own escape-sequence title is as
+                        // authoritative as a source gets, so it ranks the
+                        // same as a control-plane reply.
+                        TitleStore.shared.setTitle(title, forTab: tab.id, source: .reply)
                     }
                     .onChange(of: session.workingDirectory, initial: true) { _, directory in
                         TabDirectoryStore.shared.setDirectory(directory, forTab: tab)

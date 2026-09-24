@@ -17,9 +17,11 @@ final class AgentEventMonitor {
     /// Reports the session ID a tab's events carry, for `--resume`.
     var onSessionIDDiscovered: ((UUID, String) -> Void)?
 
-    /// Reports that a tab's conversation was cleared, so the discarded
-    /// session ID can be dropped before the replacement arrives.
-    var onSessionCleared: ((UUID) -> Void)?
+    /// Reports that a tab's conversation was cleared, and the discarded
+    /// session's own ID. Never fires for a clear read during the initial
+    /// backlog drain `watch` does on every launch — only for one read live,
+    /// off a running watch.
+    var onSessionCleared: ((UUID, String?) -> Void)?
 
     /// Reports the tab's transcript file, cached for the future chat renderer.
     var onTranscriptPathDiscovered: ((UUID, String) -> Void)?
@@ -31,11 +33,11 @@ final class AgentEventMonitor {
     /// Starts watching a tab's events file and drains anything already in it.
     func watch(taskID: UUID, tabID: UUID) {
         let url = AppPaths.eventsFile(taskID: taskID, tabID: tabID)
-        drain(url: url, taskID: taskID, tabID: tabID)
+        drain(url: url, taskID: taskID, tabID: tabID, isReplay: true)
 
         guard watchers[tabID] == nil else { return }
         let watcher = FileWatcher(url: url) { [weak self] in
-            self?.drain(url: url, taskID: taskID, tabID: tabID)
+            self?.drain(url: url, taskID: taskID, tabID: tabID, isReplay: false)
         }
         watcher.start()
         watchers[tabID] = watcher
@@ -50,17 +52,23 @@ final class AgentEventMonitor {
         watchers.removeAll()
     }
 
-    private func drain(url: URL, taskID: UUID, tabID: UUID) {
+    private func drain(url: URL, taskID: UUID, tabID: UUID, isReplay: Bool) {
         let events = ingester.readNewEvents(at: url)
         guard !events.isEmpty else { return }
 
         for event in events {
             statusEngine.apply(event, taskID: taskID, tabID: tabID)
             if event.endsClearedSession {
-                // This event carries the discarded session's ID, so reporting
-                // it would put back exactly what the clear threw away. The
-                // `SessionStart` that follows brings the replacement.
-                onSessionCleared?(tabID)
+                // A launch replays a tab's whole unread backlog in one drain,
+                // which can include a `/clear` from long before this process
+                // started. Reporting that here would apply it against
+                // whatever session the tab is on now rather than the one it
+                // was for — so only a clear read live, off a running watch,
+                // is ever reported. Either way the `SessionStart` that
+                // follows brings the replacement session ID on its own.
+                if !isReplay {
+                    onSessionCleared?(tabID, event.sessionID)
+                }
                 continue
             }
             if let sessionID = event.sessionID, !sessionID.isEmpty {

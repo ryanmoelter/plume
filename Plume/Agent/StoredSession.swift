@@ -93,9 +93,9 @@ extension SessionJSONLReader {
 
             switch InjectedContent.classify(text: text, isMeta: entry.isMeta) {
             case .userMessage:
-                return condensed(text)
+                return shortenedOpeningLine(text)
             case .pastedContent:
-                return condensed(InjectedContent.pastedContent.bodyText(text))
+                return shortenedOpeningLine(InjectedContent.pastedContent.bodyText(text))
             case .slashCommand(let name, _) where slashCommand == nil:
                 slashCommand = name
             default:
@@ -114,9 +114,32 @@ extension SessionJSONLReader {
     /// transcript on this machine, the largest of which is 28 MB.
     nonisolated static let titleScanLimit = 256 * 1024
 
-    nonisolated private static func condensed(_ text: String, maximum: Int = 120) -> String {
-        let oneLine = text.split(whereSeparator: \.isNewline).joined(separator: " ")
-        guard oneLine.count > maximum else { return oneLine }
-        return oneLine.prefix(maximum).trimmingCharacters(in: .whitespaces) + "…"
+    /// Shortens an opening user message for use as a fallback title: the
+    /// first non-empty line, whitespace collapsed, truncated at a word
+    /// boundary. A title names a conversation at a glance; a multi-paragraph
+    /// opener read in full is a wall of text everywhere this stands in for
+    /// one, whether that's a tab waiting on its real title or a past session
+    /// in the resume picker.
+    nonisolated static func shortenedOpeningLine(_ text: String, maximum: Int = 60) -> String {
+        let firstLine = text.components(separatedBy: .newlines)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+        let collapsed = firstLine
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard collapsed.count > maximum else { return collapsed }
+
+        let cutIndex = collapsed.index(collapsed.startIndex, offsetBy: maximum)
+        let truncated = String(collapsed[..<cutIndex])
+        // A word that ends exactly at the limit needs no further cutting.
+        guard !collapsed[cutIndex].isWhitespace else { return truncated + "…" }
+
+        // A word boundary far from the limit would throw away most of the
+        // prefix, so a short word ahead of one long unbroken run hard-cuts
+        // instead of shrinking to almost nothing.
+        guard let lastSpace = truncated.lastIndex(of: " "),
+              truncated.distance(from: truncated.startIndex, to: lastSpace) * 2 >= maximum
+        else { return truncated + "…" }
+        return String(truncated[..<lastSpace]) + "…"
     }
 }
