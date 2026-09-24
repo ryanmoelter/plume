@@ -7,7 +7,6 @@ import SwiftUI
 /// `AgentLauncher` via `AgentProviderRegistry`.
 struct SettingsView: View {
     @State private var settings = AppSettings.shared
-    @State private var installedProviders: Set<AgentProviderKind>?
     @State private var cliRefresh = 0
     #if DEBUG
     @State private var revealTuning = RevealTuning.shared
@@ -19,7 +18,7 @@ struct SettingsView: View {
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
     private var displayedProviders: Set<AgentProviderKind>? {
-        installedProviders.map { AgentCLIInstallation.displayedProviders($0) }
+        AgentCLIAvailability.shared.providers.map { AgentCLIInstallation.displayedProviders($0) }
     }
 
     var body: some View {
@@ -436,11 +435,9 @@ struct SettingsView: View {
             }
         }
         .task(id: cliRefresh) {
-            let installed = await Task.detached(priority: .utility) { AgentCLIInstallation.installedProviders() }.value
-            guard !Task.isCancelled else { return }
-            installedProviders = installed
+            await AgentCLIAvailability.shared.refresh()
         }
-        .onChange(of: displayedProviders) { _, installed in
+        .onChange(of: displayedProviders, initial: true) { _, installed in
             if let installed { settings.reconcileInstalledProviders(installed) }
         }
         .formStyle(.grouped)

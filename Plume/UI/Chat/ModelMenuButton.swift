@@ -15,6 +15,7 @@ struct ModelMenuButton: NSViewRepresentable {
         button.title = ""
         button.target = button
         button.action = #selector(ModelPopupButton.showModels)
+        Task { await AgentCLIAvailability.shared.load() }
         return button
     }
 
@@ -35,17 +36,23 @@ final class ModelPopupButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {}
 
     @objc func showModels() {
+        if let installed = AgentCLIAvailability.shared.providers {
+            showMenu(installed: installed)
+            return
+        }
         guard !checking else { return }
         checking = true
         Task { [weak self] in
-            let installed = await Task.detached(priority: .userInitiated) {
-                AgentCLIInstallation.installedProviders()
-            }.value
+            let installed = await AgentCLIAvailability.shared.load()
             guard let self else { return }
             checking = false
-            guard window != nil, let menu = makeMenu?(AgentCLIInstallation.displayedProviders(installed)) else { return }
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.minY), in: self)
+            showMenu(installed: installed)
         }
+    }
+
+    private func showMenu(installed: Set<AgentProviderKind>) {
+        guard window != nil, let menu = makeMenu?(AgentCLIInstallation.displayedProviders(installed)) else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.minY), in: self)
     }
 }
 
