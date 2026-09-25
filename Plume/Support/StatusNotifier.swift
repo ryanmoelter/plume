@@ -26,7 +26,11 @@ final class StatusNotifier {
     }
 
     private func handle(taskID: UUID, tabID: UUID, status: TaskStatus) {
-        guard let body = Self.body(for: status, notifiesOnTurnEnd: AppSettings.shared.notifiesOnTurnEnd) else { return }
+        guard let body = Self.body(
+            for: status,
+            notifiesOnTurnEnd: AppSettings.shared.notifiesOnTurnEnd,
+            notifiesWhenNeeded: AppSettings.shared.notifiesWhenNeeded
+        ) else { return }
         notifier.notifyIfUnseen(.init(
             taskID: taskID,
             tabID: tabID,
@@ -45,8 +49,13 @@ final class StatusNotifier {
     /// A finished turn is the one judgement call: it happens every time the
     /// agent stops talking, which is far too often to interrupt over by
     /// default, so it notifies only when asked to.
-    nonisolated static func body(for status: TaskStatus, notifiesOnTurnEnd: Bool) -> String? {
-        switch status {
+    nonisolated static func body(
+        for status: TaskStatus,
+        notifiesOnTurnEnd: Bool,
+        notifiesWhenNeeded: Bool = true
+    ) -> String? {
+        if status != .awaitingReply, !notifiesWhenNeeded { return nil }
+        return switch status {
         case .planApproval: "A plan is waiting for your approval."
         case .questionAsked: "The agent asked you a question."
         case .permissionNeeded: "A tool is waiting for your approval."

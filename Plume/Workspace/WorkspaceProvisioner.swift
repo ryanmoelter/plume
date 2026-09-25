@@ -73,9 +73,11 @@ nonisolated enum WorkspaceProvisioner {
 
     // MARK: - Provisioning
 
-    /// Worktrees live under `<repo>/.plume/worktrees` by default, or under
-    /// `basePath` when Settings overrides it — still namespaced by a
-    /// repository-derived folder so worktrees from different repos can't collide.
+    /// Worktrees live under `<repo>/.plume/worktrees` by default. A relative
+    /// `basePath` from Settings replaces `.plume/worktrees` inside the
+    /// repository. An absolute one is shared by every repository, so it is
+    /// namespaced by a repository-derived folder to keep worktrees from
+    /// different repos from colliding.
     ///
     /// `explicitPath` is the sheet's own override, which the user typed in
     /// full and which therefore bypasses both derivations.
@@ -98,8 +100,16 @@ nonisolated enum WorkspaceProvisioner {
                 .appending(path: directoryName)
                 .path
         }
+        let expanded = (basePath as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else {
+            return URL(fileURLWithPath: repository)
+                .appending(path: expanded)
+                .appending(path: directoryName)
+                .standardizedFileURL
+                .path
+        }
         let repositoryName = URL(fileURLWithPath: repository).lastPathComponent
-        return URL(fileURLWithPath: basePath)
+        return URL(fileURLWithPath: expanded)
             .appending(path: repositoryName)
             .appending(path: directoryName)
             .path

@@ -31,6 +31,7 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
+        static let notifiesWhenNeeded = "notifiesWhenNeeded"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
@@ -127,6 +128,9 @@ final class AppSettings {
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
+        self.notifiesWhenNeeded = defaults.object(forKey: Key.notifiesWhenNeeded) == nil
+            ? true
+            : defaults.bool(forKey: Key.notifiesWhenNeeded)
 
         self.keepAwakeMode = defaults.string(forKey: Key.keepAwakeModeRaw)
             .flatMap(KeepAwakeMode.init(rawValue:)) ?? .auto
@@ -408,11 +412,18 @@ final class AppSettings {
 
     /// Whether a tab finishing its turn posts a notification. Off by default:
     /// a turn ends every time the agent stops talking, so notifying on each
-    /// one is far chattier than the states that actually need an answer,
-    /// which notify regardless of this setting.
+    /// one is far chattier than the states that actually need an answer.
     var notifiesOnTurnEnd: Bool {
         didSet {
             defaults.set(notifiesOnTurnEnd, forKey: Key.notifiesOnTurnEnd)
+        }
+    }
+
+    /// Whether a tab that needs the user — a question, a permission, a plan
+    /// to approve, an error — posts a notification. On by default.
+    var notifiesWhenNeeded: Bool {
+        didSet {
+            defaults.set(notifiesWhenNeeded, forKey: Key.notifiesWhenNeeded)
         }
     }
 

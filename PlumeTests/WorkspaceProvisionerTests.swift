@@ -47,6 +47,22 @@ struct BranchNamingTests {
         #expect(path == "/elsewhere/repo/plume-x-0001")
     }
 
+    @Test func aTrailingSlashOnTheBasePathIsOptional() {
+        for basePath in ["/elsewhere", "/elsewhere/"] {
+            #expect(WorkspaceProvisioner.worktreePath(
+                repository: "/repo", branch: "plume/x-0001", basePath: basePath
+            ) == "/elsewhere/repo/plume-x-0001")
+        }
+    }
+
+    @Test func aRelativeBasePathStaysInsideTheRepository() {
+        for basePath in [".worktrees", ".worktrees/"] {
+            #expect(WorkspaceProvisioner.worktreePath(
+                repository: "/repo", branch: "plume/x-0001", basePath: basePath
+            ) == "/repo/.worktrees/plume-x-0001")
+        }
+    }
+
     @Test func emptyBasePathFallsBackToTheDefaultLocation() {
         let path = WorkspaceProvisioner.worktreePath(
             repository: "/repo", branch: "plume/x-0001", basePath: ""

@@ -1,4 +1,3 @@
-import ServiceManagement
 import SwiftUI
 
 struct KeepAwakeSettingsPane: View {
@@ -51,7 +50,6 @@ struct KeepAwakeSettingsPane: View {
                         setValue: { settings.keepsAwakeWithLidClosed = ($0 == "true" || $0 == "1") }
                     )
                     .disabled(!keepAwake.lidOverrideStatus.canEngage)
-                sleepHelperRow
                 LabeledContent("Allow sleep when temperature is") {
                     ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                 }
@@ -59,41 +57,13 @@ struct KeepAwakeSettingsPane: View {
             } header: {
                 Text("Lid closed")
             } footer: {
-                Text("This needs the sleep helper, approved in Login Items. The Mac sleeps anyway if it gets too hot.")
+                Text("This needs the keep awake helper, in General. The Mac sleeps anyway if it gets too hot.")
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .onAppear {
             keepAwake.refreshLidOverride()
-        }
-    }
-
-    @ViewBuilder
-    private var sleepHelperRow: some View {
-        switch keepAwake.lidOverrideStatus {
-        case .notRegistered:
-            LabeledContent("Sleep helper") {
-                Button("Install…") { keepAwake.installLidHelper() }
-                    .plumeID(AccessibilityID.keepAwakeLidInstallButton)
-            }
-        case .needsApproval:
-            LabeledContent("Sleep helper") {
-                Button("Approve in Login Items…") { SMAppService.openSystemSettingsLoginItems() }
-                    .plumeID(AccessibilityID.keepAwakeLidApprovalButton)
-            }
-        case .unavailable(let reason):
-            LabeledContent("Sleep helper") {
-                Text(reason).foregroundStyle(.red)
-            }
-        case .ready, .engaged:
-            LabeledContent("Sleep helper") {
-                HStack {
-                    Text("Installed").foregroundStyle(.secondary)
-                    Button("Uninstall") { keepAwake.uninstallLidHelper() }
-                        .plumeID(AccessibilityID.keepAwakeLidUninstallButton)
-                }
-            }
         }
     }
 

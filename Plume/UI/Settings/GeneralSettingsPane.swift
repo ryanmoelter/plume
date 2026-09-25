@@ -11,29 +11,10 @@ struct GeneralSettingsPane: View {
         Form {
             Section {
                 fullDiskAccessRow
+                commandLineHelperRow
+                KeepAwakeHelperRow()
             } header: {
-                Text("Permissions")
-            } footer: {
-                Text("Restart \(AppIdentity.displayName) after you change this.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                HStack {
-                    Text(helperStatusText)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button(helperButtonTitle, action: toggleHelperInstall)
-                }
-                if let helperError {
-                    Text(helperError)
-                        .foregroundStyle(.red)
-                }
-            } header: {
-                Text("Command line")
-            } footer: {
-                Text("Links plume-notify into ~/.local/bin. Run `plume-notify \"Build finished\"` in a terminal tab to post a notification from that tab.")
-                    .foregroundStyle(.secondary)
+                Text("Permissions + helpers")
             }
 
             Section {
@@ -41,24 +22,20 @@ struct GeneralSettingsPane: View {
                 Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {
                 Text("Quit confirmation")
-            } footer: {
-                Text("Quitting stops every running agent. A confirmation on logout, restart, or shutdown holds the Mac until you answer it.")
-                    .foregroundStyle(.secondary)
             }
 
             Section {
+                Toggle("Notify when an agent needs you, like for a question or a permission", isOn: $settings.notifiesWhenNeeded)
                 Toggle("Notify when an agent finishes its turn", isOn: $settings.notifiesOnTurnEnd)
             } header: {
                 Text("Notifications")
-            } footer: {
-                Text("An agent that needs your answer notifies you unless you are looking at its tab.")
-                    .foregroundStyle(.secondary)
             }
 
             Section {
                 HStack {
-                    TextField("Default (inside each repo)", text: worktreeBasePathBinding)
+                    TextField("Worktree base path", text: worktreeBasePathBinding, prompt: Text(".plume/worktrees/"))
                         .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
                     Button("Choose…", action: chooseBasePath)
                     if settings.worktreeBasePath != nil {
                         Button("Reset") { settings.worktreeBasePath = nil }
@@ -66,9 +43,15 @@ struct GeneralSettingsPane: View {
                 }
             } header: {
                 Text("Worktree base path")
-            } footer: {
-                Text("By default, a new worktree goes in the repository's .plume/worktrees folder.")
-                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                LabeledContent("Import from cmux") {
+                    Button("Import…", action: requestImport)
+                        .plumeID(AccessibilityID.settingsImportCmuxButton, invoke: requestImport)
+                }
+            } header: {
+                Text("Import")
             }
         }
         .formStyle(.grouped)
@@ -94,9 +77,32 @@ struct GeneralSettingsPane: View {
         }
     }
 
+    private var commandLineHelperRow: some View {
+        LabeledContent {
+            VStack(alignment: .trailing) {
+                HStack {
+                    Text(helperStatusText)
+                        .foregroundStyle(.secondary)
+                    Button(helperButtonTitle, action: toggleHelperInstall)
+                }
+                if let helperError {
+                    Text(helperError)
+                        .foregroundStyle(.red)
+                }
+            }
+        } label: {
+            Text("Command line helper")
+            Text("Currently just `plume-notify`, links into `~/.local/bin`")
+        }
+    }
+
+    private func requestImport() {
+        ImportRequest.shared.isPending = true
+    }
+
     private var helperStatusText: String {
         switch helperState {
-        case .installed: "Installed at \(CommandLineHelper.installedURL.path)"
+        case .installed: "Installed"
         case .notInstalled: "Not installed"
         case .occupiedByOther: "Another file owns that name"
         case .brokenLink: "Installed, but pointing at a bundle that is gone"
