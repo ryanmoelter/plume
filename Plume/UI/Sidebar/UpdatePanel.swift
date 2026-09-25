@@ -1,20 +1,30 @@
 import AppKit
 import SwiftUI
 
-/// Popover content for a Homebrew install's "Update Available" row.
-///
-/// A Homebrew install can't be updated in place by Sparkle, so this is
+/// Content for `UpdatePanelWindow`. A Homebrew install can't be updated in place by Sparkle, so this is
 /// informational only: what changed, and the `brew upgrade` command to run.
 struct UpdatePanel: View {
+    let update: AvailableUpdate
+
+    var body: some View {
+        ScrollView {
+            UpdatePanelContent(update: update)
+        }
+        .plumeID(AccessibilityID.updatePanel)
+    }
+}
+
+/// The panel's content, apart from the scrolling: `UpdatePanelWindow` also
+/// measures this on its own, unscrolled, to size the window to it.
+struct UpdatePanelContent: View, ThemedView {
+    @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
     let update: AvailableUpdate
     @State private var didCopyCommand = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Plume \(update.displayVersion) is available")
-                .font(.headline)
-
-            releaseNotes
+        VStack(alignment: .leading, spacing: 16) {
+            notes
 
             if let fullReleaseNotesURL = update.fullReleaseNotesURL {
                 Link("Full release notes", destination: fullReleaseNotesURL)
@@ -22,56 +32,88 @@ struct UpdatePanel: View {
                     .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
             }
 
-            Divider()
+            homebrewCallout
+        }
+        .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(UpdatePanelMetrics.padding)
+    }
 
-            Text("Update with Homebrew in your terminal:")
+    private var versionHeading: String {
+        "# Plume \(update.displayVersion)"
+    }
+
+    @ViewBuilder
+    private var notes: some View {
+        switch update.releaseNotesFormat {
+        case .markdown:
+            MarkdownView("\(versionHeading)\n\n\(trimmedReleaseNotes ?? "")", isAgentVoice: false)
+        case .plainText:
+            VStack(alignment: .leading, spacing: 12) {
+                MarkdownView(versionHeading, isAgentVoice: false)
+                if let trimmedReleaseNotes {
+                    Text(trimmedReleaseNotes)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        case .html:
+            VStack(alignment: .leading, spacing: 12) {
+                MarkdownView(versionHeading, isAgentVoice: false)
+                if let trimmedReleaseNotes {
+                    Text(HTMLReleaseNotes.render(trimmedReleaseNotes))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var trimmedReleaseNotes: String? {
+        guard let releaseNotes = update.releaseNotes else { return nil }
+        let trimmed = releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var homebrewCallout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Update with Homebrew. Plume quits during the upgrade and reopens when it's done.")
                 .font(.callout)
 
             HStack(spacing: 6) {
                 Text(UpdateController.homebrewUpgradeCommand)
                     .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(ChatRole.attention(for: colorScheme))
                     .textSelection(.enabled)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Spacer(minLength: 0)
-
                 Button {
                     copyCommand()
                 } label: {
-                    Text(didCopyCommand ? "Copied" : "Copy")
+                    Image(systemName: didCopyCommand ? "checkmark" : "doc.on.doc")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .help("Copy command")
                 .plumeID(AccessibilityID.updatePanelCopyBrewCommandButton)
+
+                Spacer(minLength: 0)
+
+                Button("Run in Terminal") {
+                    HomebrewUpgrade.runInTerminal(homebrewPrefix: UpdateController.shared.homebrewPrefix)
+                }
+                .buttonStyle(.borderedProminent)
+                .plumeID(AccessibilityID.updatePanelRunInTerminalButton)
             }
         }
         .padding(12)
-        .frame(width: 340)
-        .plumeID(AccessibilityID.updatePanel)
-    }
-
-    @ViewBuilder
-    private var releaseNotes: some View {
-        if let releaseNotes = update.releaseNotes, !releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            switch update.releaseNotesFormat {
-            case .markdown:
-                MarkdownContentView(content: releaseNotes)
-                    .frame(maxHeight: 300)
-            case .plainText:
-                ScrollView {
-                    Text(releaseNotes)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 300)
-            case .html:
-                ScrollView {
-                    Text(HTMLReleaseNotes.render(releaseNotes))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 300)
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: UpdatePanelMetrics.calloutCornerRadius)
+                .fill(ChatRole.attention(for: colorScheme).emphasized(.backgroundTint, colorScheme: colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: UpdatePanelMetrics.calloutCornerRadius)
+                .stroke(ChatRole.attention(for: colorScheme).emphasized(.divider, colorScheme: colorScheme))
+        )
     }
 
     private func copyCommand() {
@@ -85,6 +127,11 @@ struct UpdatePanel: View {
             didCopyCommand = false
         }
     }
+}
+
+enum UpdatePanelMetrics {
+    static let padding: CGFloat = 20
+    static let calloutCornerRadius: CGFloat = 10
 }
 
 /// Renders `html`-formatted release notes. `NSAttributedString(html:)` is

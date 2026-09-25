@@ -18,10 +18,11 @@ final class UpdateController: NSObject {
     private static let feedURLOverrideKey = "PlumeUpdateFeedURLOverride"
     static let homebrewUpgradeCommand = "brew upgrade --cask ryanmoelter/tap/plume"
 
-    /// Detected once at launch: whether this bundle lives under a Homebrew
-    /// Caskroom. `installSource` prefers an explicit `AppSettings` override
-    /// over this.
-    let isHomebrewInstall: Bool
+    /// Detected once at launch: the Homebrew prefix whose Caskroom holds
+    /// Plume, if any. `installSource` prefers an explicit `AppSettings`
+    /// override over this.
+    let homebrewPrefix: URL?
+    var isHomebrewInstall: Bool { homebrewPrefix != nil }
 
     private var controller: SPUStandardUpdaterController!
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
@@ -59,7 +60,7 @@ final class UpdateController: NSObject {
     }
 
     private override init() {
-        isHomebrewInstall = HomebrewCaskDetector.isCaskInstall()
+        homebrewPrefix = HomebrewCaskDetector.caskPrefix()
         automaticallyChecksForUpdates = true
         super.init()
 
@@ -118,17 +119,15 @@ final class UpdateController: NSObject {
 
     /// Opens details on an already-known update, for the sidebar row (which
     /// only shows while `availableUpdate` is set). A Plume-managed install
-    /// opens Sparkle's own window directly; a Homebrew install has nothing
-    /// of its own to open, so this returns `true` and leaves showing the
-    /// popover to the caller, which is the one that knows where to anchor it.
-    @discardableResult
-    func showAvailableUpdate() -> Bool {
+    /// opens Sparkle's own window; a Homebrew install opens `UpdatePanelWindow`.
+    func showAvailableUpdate() {
         switch installSource {
         case .plume:
             controller.updater.checkForUpdates()
-            return false
         case .homebrew:
-            return true
+            if let availableUpdate {
+                UpdatePanelWindow.show(update: availableUpdate)
+            }
         }
     }
 
@@ -164,6 +163,13 @@ final class UpdateController: NSObject {
         let alert = NSAlert()
         alert.messageText = "Plume is up to date"
         alert.informativeText = "You have the latest version, \(version)."
+        alert.runModal()
+    }
+
+    private func presentCheckFailedAlert(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Can't check for updates right now"
+        alert.informativeText = error.localizedDescription
         alert.runModal()
     }
 
@@ -267,8 +273,13 @@ extension UpdateController: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         // A safety net for a check that failed outright (e.g. no network):
         // neither `didFindValidUpdate` nor `updaterDidNotFindUpdate` fires to
-        // clear the flag in that case, and `lastUpdateCheckDate` is kept in
-        // sync by its own KVO publisher, not here.
+        // clear the flag in that case. `updaterDidNotFindUpdate` already
+        // answered a `SUNoUpdateError`.
+        if pendingUserBrewCheck, installSource == .homebrew, let error,
+           (error as NSError).code != Int(SUError.noUpdateError.rawValue) {
+            presentCheckFailedAlert(error)
+        }
+        // `lastUpdateCheckDate` is kept in sync by its own KVO publisher, not here.
         pendingUserBrewCheck = false
     }
 }
@@ -365,7 +376,11 @@ enum HomebrewCaskDetector {
     ]
 
     static func isCaskInstall(prefixes: [URL] = defaultPrefixes, fileManager: FileManager = .default) -> Bool {
-        prefixes.contains { prefix in
+        caskPrefix(prefixes: prefixes, fileManager: fileManager) != nil
+    }
+
+    static func caskPrefix(prefixes: [URL] = defaultPrefixes, fileManager: FileManager = .default) -> URL? {
+        prefixes.first { prefix in
             var isDirectory: ObjCBool = false
             let path = prefix.appendingPathComponent("Caskroom/plume").path
             return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue

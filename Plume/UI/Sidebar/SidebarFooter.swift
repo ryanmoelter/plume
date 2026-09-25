@@ -17,9 +17,6 @@ struct SidebarFooter: View, ThemedView {
     }
     @State private var cliRefresh = 0
     @State private var keepAwakeShown = false
-    /// The row's own popover state, not shared: a shared flag on
-    /// `UpdateController` would pop this open in every window at once.
-    @State private var brewPanelShown = false
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
     @State private var updates = UpdateController.shared
@@ -41,9 +38,7 @@ struct SidebarFooter: View, ThemedView {
 #endif
                 if let availableUpdate = updates.availableUpdate {
                     Button {
-                        if updates.showAvailableUpdate() {
-                            brewPanelShown = true
-                        }
+                        updates.showAvailableUpdate()
                     } label: {
                         SidebarFooterRow(
                             icon: "arrow.down.circle",
@@ -55,9 +50,6 @@ struct SidebarFooter: View, ThemedView {
                     .help("Plume \(availableUpdate.displayVersion) is available")
                     .plumeID(AccessibilityID.sidebarUpdateButton)
                     .buttonStyle(SidebarFooterButtonStyle())
-                    .popover(isPresented: $brewPanelShown, arrowEdge: .trailing) {
-                        UpdatePanel(update: availableUpdate)
-                    }
                 }
 
                 if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }

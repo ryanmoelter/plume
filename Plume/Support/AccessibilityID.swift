@@ -31,6 +31,7 @@ enum AccessibilityID {
     static let sidebarUpdateButton = "sidebar-update-button"
     static let updatePanel = "update-panel"
     static let updatePanelCopyBrewCommandButton = "update-panel-copy-brew-command-button"
+    static let updatePanelRunInTerminalButton = "update-panel-run-in-terminal-button"
     static let updatePanelFullReleaseNotesLink = "update-panel-full-release-notes-link"
 
     // MARK: Settings

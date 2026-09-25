@@ -96,4 +96,19 @@ struct UpdateControllerTests {
         let stripped = HTMLReleaseNotes.plainText("<p>Fixed &amp; improved <b>Ryan&#39;s</b> &quot;thing&quot;.</p>")
         #expect(stripped == "Fixed & improved Ryan's \"thing\".")
     }
+
+    @Test func homebrewUpgradeScriptUpgradesThenReopensPlume() {
+        let script = HomebrewUpgrade.script(brewPath: "/opt/homebrew/bin/brew", bundleID: "com.ryanmoelter.Plume")
+        #expect(script.hasPrefix("#!/bin/sh\n"))
+        #expect(script.contains("'/opt/homebrew/bin/brew' upgrade --cask ryanmoelter/tap/plume && open -b 'com.ryanmoelter.Plume'"))
+    }
+
+    @Test func homebrewBrewPathUsesTheDetectedPrefix() {
+        #expect(HomebrewUpgrade.brewPath(homebrewPrefix: URL(fileURLWithPath: "/usr/local")) == "/usr/local/bin/brew")
+        #expect(HomebrewUpgrade.brewPath(homebrewPrefix: nil) == "brew")
+    }
+
+    @Test func shellQuotingEscapesSingleQuotes() {
+        #expect(HomebrewUpgrade.shellQuoted("it's") == "'it'\\''s'")
+    }
 }

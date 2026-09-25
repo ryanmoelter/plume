@@ -334,7 +334,7 @@ Existing DMG installs have no updater yet, so the release that adds Sparkle reac
 
 `ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask ryanmoelter/tap/plume`. Casks and formulae coexist in that one repo.
 
-The cask carries no `auto_updates` and doesn't need one: Sparkle only tells a Homebrew install that an update exists (detected via a `Caskroom/plume` directory) and shows the `brew upgrade --cask ryanmoelter/tap/plume` command to run, rather than installing anything itself. Brew stays the actual update path for cask users.
+The cask carries no `auto_updates` and doesn't need one: Sparkle only tells a Homebrew install that an update exists (detected via a `Caskroom/plume` directory) and offers to run `brew upgrade --cask ryanmoelter/tap/plume` in Terminal.app, rather than installing anything itself. The script reopens Plume afterwards, because the cask's `uninstall quit:` quits it during the upgrade. Brew stays the actual update path for cask users.
 
 After a release is public (not a draft), bump the cask:
 
