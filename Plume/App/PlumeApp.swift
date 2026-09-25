@@ -85,5 +85,6 @@ struct PlumeApp: App {
             SettingsView()
         }
         .modelContainer(modelContainer)
+        .windowResizability(.contentMinSize)
     }
 }

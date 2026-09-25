@@ -21,15 +21,20 @@ struct SettingsView: View {
             List(selection: selectedPane) {
                 ForEach(SettingsPane.allCases) { pane in
                     Label(pane.title, systemImage: pane.symbol)
-                        .tag(pane)
                         .plumeID(AccessibilityID.settingsPane, label: pane.rawValue, invoke: { selectedPaneRaw = pane.rawValue })
+                        // Outermost: a List reads the tag only from the row's top-level view.
+                        .tag(pane)
                 }
             }
             .navigationSplitViewColumnWidth(180)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             detailView
         }
-        .toolbar(removing: .sidebarToggle)
+        .toolbarVisibility(.hidden, for: .windowToolbar)
+        #if DEBUG
+        .modifier(SettingsThemeModifier())
+        #endif
         .frame(minWidth: 680, minHeight: 460)
         .task(id: cliRefresh) {
             await AgentCLIAvailability.shared.refresh()
