@@ -19,14 +19,13 @@
 #
 # Release notes come from CHANGELOG.md. Its top section must be this release
 # (`## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`); it becomes the
-# GitHub release body, and the top ten sections the appcast's notes
-# (scripts/lib/cumulative-notes.sh).
+# GitHub release body and, unchanged, the appcast's markdown notes.
 set -uo pipefail
 
 # shellcheck source=lib/sign-bundle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
-# shellcheck source=lib/cumulative-notes.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/cumulative-notes.sh"
+# shellcheck source=lib/changelog.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/changelog.sh"
 
 LOG="${LOG:-/tmp/plume-package.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
@@ -267,9 +266,8 @@ DMG_LENGTH="$(sed -n 's/.* length="\([0-9]*\)".*/\1/p' <<<"$sig_line")"
 echo "--- building appcast ---"
 NOTES_DIR="$OUT/notes"
 mkdir -p "$NOTES_DIR"
-DESCRIPTION_FILE="$OUT/appcast-notes.html"
-cumulative_notes "$CHANGELOG" "$NOTES_DIR" >"$DESCRIPTION_FILE" \
-  || fail "could not build the appcast notes from $CHANGELOG"
+changelog_split "$CHANGELOG" "$NOTES_DIR" >/dev/null \
+  || fail "could not read the release notes from $CHANGELOG"
 # changelog_split numbers sections from 1, newest first.
 NOTES_FILE="$NOTES_DIR/1.md"
 
@@ -287,8 +285,8 @@ ENCLOSURE_URL="https://github.com/ryanmoelter/plume/releases/download/$TAG/$(bas
 NOTES_LINK="https://github.com/ryanmoelter/plume/releases/tag/$TAG"
 APPCAST="$OUT/appcast.xml"
 
-# Plain CDATA (not xml_escape) so the HTML reaches Sparkle unescaped — only a
-# literal "]]>" inside the notes needs guarding.
+# Plain CDATA (not xml_escape) so the markdown reaches Sparkle unescaped —
+# only a literal "]]>" inside the notes needs guarding.
 {
   printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>'
   printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
@@ -301,8 +299,8 @@ APPCAST="$OUT/appcast.xml"
   printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$CFBUNDLE_SHORT_VERSION"
   printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
   printf '      <sparkle:fullReleaseNotesLink>%s</sparkle:fullReleaseNotesLink>\n' "$NOTES_LINK"
-  printf '      <description sparkle:format="html"><![CDATA[\n'
-  cdata_escape <"$DESCRIPTION_FILE"
+  printf '      <description sparkle:format="markdown"><![CDATA[\n'
+  cdata_escape <"$NOTES_FILE"
   printf '\n]]></description>\n'
   printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
     "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$DMG_LENGTH"

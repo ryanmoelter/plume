@@ -1,6 +1,6 @@
 # Changelog
 
-Release notes for Plume, newest first. Each heading is `## <version> (<build>)`, where the build is `CURRENT_PROJECT_VERSION`. `scripts/package-release.sh` publishes the top section as the GitHub release notes, and the top ten in the Sparkle appcast.
+Release notes for Plume, newest first. Each heading is `## <version> (<build>)`, where the build is `CURRENT_PROJECT_VERSION`. `scripts/package-release.sh` publishes the top section as both the GitHub release notes and the Sparkle appcast's notes. From 0.13.0 on, each section ends with a `### Recently` list of highlights from the releases before it.
 
 ## 0.12.0 (27)
 

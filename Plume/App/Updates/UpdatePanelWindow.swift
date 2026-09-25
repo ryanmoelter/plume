@@ -57,11 +57,14 @@ private final class UpdatePanelNSWindow: NSWindow {
 
 /// `UpdatePanel`, themed by hand: a plain `NSHostingController` root
 /// inherits none of the SwiftUI environment a normally mounted view gets.
+/// Follows `availableUpdate` so a refresh behind the open window shows the
+/// newest release, and keeps what it opened with if a refresh clears it.
 private struct UpdatePanelWindowContent: View {
     let update: AvailableUpdate
+    @State private var updates = UpdateController.shared
 
     var body: some View {
-        UpdatePanel(update: update)
+        UpdatePanel(update: updates.availableUpdate ?? update)
             .plumeTheme(bodySize: CGFloat(AppSettings.defaultChatFontSize), setsAmbientFont: false)
     }
 }

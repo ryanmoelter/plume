@@ -45,6 +45,7 @@ final class AppSettings {
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
+        static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -185,6 +186,10 @@ final class AppSettings {
 
         self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
             .flatMap(UpdateInstallSource.init(rawValue:))
+
+        self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
+            ? true
+            : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -517,6 +522,12 @@ final class AppSettings {
     var updateInstallSourceOverride: UpdateInstallSource? {
         didSet {
             defaults.set(updateInstallSourceOverride?.rawValue, forKey: Key.updateInstallSourceOverrideRaw)
+        }
+    }
+
+    var automaticallyChecksForUpdates: Bool {
+        didSet {
+            defaults.set(automaticallyChecksForUpdates, forKey: Key.automaticallyChecksForUpdates)
         }
     }
 }

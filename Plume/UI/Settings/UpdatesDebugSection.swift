@@ -2,8 +2,8 @@
 import SwiftUI
 
 /// Debug-only Settings section for exercising both update paths — the
-/// installer swap and the scheduled background check — without reinstalling
-/// or waiting on Sparkle's own schedule. `#if DEBUG` end to end; compiles to
+/// installer swap and the background check — without reinstalling or
+/// waiting a day for the next scheduled check. `#if DEBUG` end to end; compiles to
 /// nothing in Release. `scripts/debug/serve-test-appcast.sh` builds the test
 /// feed this section points at.
 struct UpdatesDebugSection: View {
@@ -59,9 +59,8 @@ struct UpdatesDebugSection: View {
 
     private var footerText: String {
         var notes = [
-            "Check in background now exercises the gentle scheduled path — a sidebar row only, never a window. " +
-                "Reset clears Sparkle's skipped-version and last-check state; an open gentle-reminder session " +
-                "can't be closed this way and needs a relaunch to fully reset.",
+            "Check in background now runs the scheduled check now — a sidebar row only, never a window. " +
+                "Reset clears the skipped version and the last-check date.",
         ]
         if feedURLText.isEmpty, updates.isRunning {
             notes.append("Clearing the feed while the updater is running only takes effect on relaunch — Sparkle can't be stopped.")

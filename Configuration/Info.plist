@@ -39,7 +39,7 @@
     <key>SUAllowsAutomaticUpdates</key>
     <false/>
     <key>SUEnableAutomaticChecks</key>
-    <true/>
+    <false/>
     <key>SUFeedURL</key>
     <string>https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
