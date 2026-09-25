@@ -7,10 +7,6 @@ struct DebugSettingsPane: View {
 
     var body: some View {
         Form {
-            AgentInstallationDebugSection()
-            RevealTuningDebugSection()
-            UpdatesDebugSection()
-
             Section {
                 Button("Seed Fixtures") {
                     let existingGroups = (try? context.fetch(FetchDescriptor<TaskGroup>(sortBy: [SortDescriptor(\.orderIndex)]))) ?? []
@@ -21,6 +17,10 @@ struct DebugSettingsPane: View {
             } header: {
                 Text("Fixtures")
             }
+
+            AgentInstallationDebugSection()
+            RevealTuningDebugSection()
+            UpdatesDebugSection()
         }
         .formStyle(.grouped)
     }

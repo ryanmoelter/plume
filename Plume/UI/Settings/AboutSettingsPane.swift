@@ -13,9 +13,36 @@ struct AboutSettingsPane: View {
                         .font(.title2)
                     Text("Version \(shortVersion) (\(buildVersion))")
                         .foregroundStyle(.secondary)
+                    Text("Made by Ryan Moelter")
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
+            }
+
+            Section {
+                Link(destination: URL(string: "https://heypenny.money")!) {
+                    HStack(spacing: 10) {
+                        Image("HeypennyIcon")
+                            .resizable()
+                            .frame(width: 32, height: 32)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Heypenny")
+                                .foregroundStyle(.primary)
+                            Text("heypenny.money")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "arrow.up.right.square")
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .plumeID(AccessibilityID.settingsAboutHeypennyLink)
+            } header: {
+                Text("More from Ryan")
             }
 
             Section {

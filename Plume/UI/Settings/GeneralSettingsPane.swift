@@ -30,7 +30,7 @@ struct GeneralSettingsPane: View {
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("An agent that needs your answer always notifies you.")
+                Text("An agent that needs your answer notifies you unless you are looking at its tab.")
                     .foregroundStyle(.secondary)
             }
 
@@ -58,7 +58,7 @@ struct GeneralSettingsPane: View {
             } header: {
                 Text("Command Line")
             } footer: {
-                Text("Links plume-notify into ~/.local/bin. Run `plume-notify \"Build finished\"` in any tab to post a notification from that tab.")
+                Text("Links plume-notify into ~/.local/bin. Run `plume-notify \"Build finished\"` in a terminal tab to post a notification from that tab.")
                     .foregroundStyle(.secondary)
             }
 

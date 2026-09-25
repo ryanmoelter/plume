@@ -40,7 +40,7 @@ struct ShortcutsSettingsPane: View {
             } header: {
                 Text("Keyboard Shortcuts")
             } footer: {
-                Text("Click a shortcut, then press the new keys. A shortcut takes its keys from any command that had them. A shortcut with Command or Option works even when a terminal has focus, so the terminal no longer receives it.")
+                Text("Click a shortcut, then press the new keys. If another command in this list has the same keys, that command becomes unassigned. A shortcut with Command or Option works even when a terminal has focus, so the terminal no longer receives it.")
                     .foregroundStyle(.secondary)
             }
         }

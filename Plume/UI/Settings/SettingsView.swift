@@ -81,7 +81,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .agents: "Agents"
         case .chat: "Chat"
         case .keepAwake: "Keep Awake"
-        case .shortcuts: "Keyboard Shortcuts"
+        case .shortcuts: "Shortcuts"
         case .integrations: "Integrations"
         case .updates: "Updates"
         case .about: "About"

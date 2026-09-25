@@ -16,7 +16,7 @@ struct KeepAwakeSettingsPane: View {
                 .pickerStyle(.radioGroup)
                 Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
             } footer: {
-                Text("Auto keeps the Mac awake while an agent works or a session is under remote control.")
+                Text("Auto keeps the Mac awake while an agent or its background task works, or while a session is under remote control.")
                     .foregroundStyle(.secondary)
             }
 
