@@ -23,16 +23,19 @@ struct UpdatePanel: View, ThemedView {
                     }
                 }
                 .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
                 .padding(UpdatePanelMetrics.padding)
             }
 
             Divider()
 
+            // Wider than the notes by its own inset, so its text lines up
+            // with theirs.
             homebrewCallout
-                .frame(maxWidth: dimensions.contentWidth)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(UpdatePanelMetrics.padding)
+                .frame(maxWidth: dimensions.contentWidth + UpdatePanelMetrics.calloutInset * 2)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, UpdatePanelMetrics.padding - UpdatePanelMetrics.calloutInset)
+                .padding(.vertical, UpdatePanelMetrics.padding)
         }
         .plumeID(AccessibilityID.updatePanel)
     }
@@ -68,7 +71,7 @@ struct UpdatePanel: View, ThemedView {
                 .plumeID(AccessibilityID.updatePanelRunInTerminalButton)
             }
         }
-        .padding(12)
+        .padding(UpdatePanelMetrics.calloutInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: UpdatePanelMetrics.calloutCornerRadius)
@@ -134,6 +137,7 @@ private struct ReleaseNotesSection: View {
 enum UpdatePanelMetrics {
     static let padding: CGFloat = 20
     static let calloutCornerRadius: CGFloat = 10
+    static let calloutInset: CGFloat = 12
 }
 
 /// Renders `html`-formatted release notes. `NSAttributedString(html:)` is
