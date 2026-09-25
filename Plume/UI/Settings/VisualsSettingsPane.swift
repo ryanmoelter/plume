@@ -8,41 +8,50 @@ struct VisualsSettingsPane: View {
             ThemeSettingsSection()
 
             Section {
-                HStack {
+                LabeledContent {
+                    HStack {
+                        Slider(
+                            value: $settings.chatFontSize,
+                            in: AppSettings.chatFontSizeRange,
+                            step: 1
+                        )
+                        Text("\(Int(settings.chatFontSize)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                } label: {
                     Text("Text size")
-                    Slider(
-                        value: $settings.chatFontSize,
-                        in: AppSettings.chatFontSizeRange,
-                        step: 1
-                    )
-                    Text("\(Int(settings.chatFontSize)) pt")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, alignment: .trailing)
                 }
 
-                HStack {
+                LabeledContent {
+                    HStack {
+                        Slider(
+                            value: $settings.codeFontSizeMultiplier,
+                            in: AppSettings.codeFontSizeMultiplierRange,
+                            step: 0.05
+                        )
+                        Text("\(Int(settings.codeFontSizeMultiplier * 100))%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                } label: {
                     Text("Code size")
-                    Slider(
-                        value: $settings.codeFontSizeMultiplier,
-                        in: AppSettings.codeFontSizeMultiplierRange,
-                        step: 0.05
-                    )
-                    Text("\(Int(settings.codeFontSizeMultiplier * 100))%")
-                        .monospacedDigit()
+                    Text("Relative to text size")
                         .foregroundStyle(.secondary)
-                        .frame(width: 44, alignment: .trailing)
                 }
 
-                Picker("Send message with", selection: $settings.composerSendKey) {
+                Picker(selection: $settings.composerSendKey) {
                     Text("⌘Return").tag(ComposerSendKey.commandReturn)
                     Text("Return").tag(ComposerSendKey.returnKey)
+                } label: {
+                    Text("Send message with")
+                    Text("⇧Return always enters a new line")
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Chat")
-            } footer: {
-                Text("Code size scales code relative to the text size. The other key inserts a new line.")
-                    .foregroundStyle(.secondary)
             }
 
             Section {

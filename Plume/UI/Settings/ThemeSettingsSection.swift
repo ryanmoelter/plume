@@ -1,18 +1,25 @@
 import SwiftUI
 
-/// Where the app's colors come from. The theme is read once at launch, so
-/// this reports what `GhosttyRuntime` resolved then.
+/// Where the app's colors come from, as `GhosttyRuntime` last resolved them.
 struct ThemeSettingsSection: View {
     private let runtime = GhosttyRuntime.shared
 
     var body: some View {
         Section {
-            LabeledContent("Theme") {
-                Text(themeDescription)
+            LabeledContent {
+                HStack {
+                    Text(themeDescription)
+                        .foregroundStyle(.secondary)
+                    Button("Reload", action: runtime.reloadTheme)
+                        .plumeID(AccessibilityID.settingsThemeReloadButton, invoke: runtime.reloadTheme)
+                }
+            } label: {
+                Text("Theme")
+                Text("Read from Ghostty config")
                     .foregroundStyle(.secondary)
             }
             if let path = runtime.loadedConfigPath {
-                LabeledContent("Ghostty config") {
+                LabeledContent("Ghostty config path") {
                     Text((path as NSString).abbreviatingWithTildeInPath)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -20,9 +27,6 @@ struct ThemeSettingsSection: View {
             }
         } header: {
             Text("Theme")
-        } footer: {
-            Text("\(AppIdentity.displayName) takes its theme from your Ghostty config. Restart \(AppIdentity.displayName) after you change it.")
-                .foregroundStyle(.secondary)
         }
     }
 

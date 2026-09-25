@@ -7,16 +7,19 @@ struct KeepAwakeSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                Picker("Keep the Mac awake", selection: $settings.keepAwakeMode) {
+                Picker(selection: $settings.keepAwakeMode) {
                     ForEach(KeepAwakeMode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
+                } label: {
+                    Text("Keep the Mac awake")
+                    if let caption = settings.keepAwakeMode.caption {
+                        Text(caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .pickerStyle(.radioGroup)
+                .pickerStyle(.menu)
                 Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
-            } footer: {
-                Text("Auto keeps the Mac awake while an agent or its background task works, or while a session is under remote control.")
-                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -28,18 +31,12 @@ struct KeepAwakeSettingsPane: View {
                     step: 5
                 )
                 .disabled(!settings.keepsAwakeOnBattery)
+                Button("Open battery settings…") {
+                    SystemSettingsLink.battery.open()
+                }
+                .buttonStyle(.link)
             } header: {
                 Text("Battery")
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("The cutoff does not apply while the Mac charges.")
-                        .foregroundStyle(.secondary)
-                    Button("Open battery settings…") {
-                        SystemSettingsLink.battery.open()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                }
             }
 
             Section {
@@ -50,15 +47,13 @@ struct KeepAwakeSettingsPane: View {
                         setValue: { settings.keepsAwakeWithLidClosed = ($0 == "true" || $0 == "1") }
                     )
                     .disabled(!keepAwake.lidOverrideStatus.canEngage)
+                KeepAwakeHelperRow()
                 LabeledContent("Allow sleep when temperature is") {
                     ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                 }
                 .disabled(!settings.keepsAwakeWithLidClosed)
             } header: {
                 Text("Lid closed")
-            } footer: {
-                Text("This needs the keep awake helper, in General. The Mac sleeps anyway if it gets too hot.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

@@ -39,9 +39,6 @@ struct ShortcutsSettingsPane: View {
                     .plumeID(AccessibilityID.shortcutResetAllButton)
             } header: {
                 Text("Keyboard shortcuts")
-            } footer: {
-                Text("Click a shortcut, then press the new keys. If another command in this list has the same keys, that command becomes unassigned. A shortcut with Command or Option works even when a terminal has focus, so the terminal no longer receives it.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

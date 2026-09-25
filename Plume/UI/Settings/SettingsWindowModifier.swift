@@ -25,6 +25,7 @@ struct SettingsWindowModifier: ViewModifier {
                 .allowsHitTesting(false)
             }
             .onChange(of: window) { configure() }
+            .onChange(of: GhosttyRuntime.shared.resolvedThemeDefinitions) { configure() }
     }
 
     private func configure() {

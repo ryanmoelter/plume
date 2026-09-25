@@ -18,6 +18,14 @@ enum KeepAwakeMode: String, CaseIterable, Identifiable, Sendable {
         case .never: "Never"
         }
     }
+
+    var caption: String? {
+        switch self {
+        case .auto: "While agents are working"
+        case .always: "Except for battery and lid closed exceptions below"
+        case .never: nil
+        }
+    }
 }
 
 /// One answer to "why is this Mac still awake".

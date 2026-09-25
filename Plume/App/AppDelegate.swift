@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import os
 
 /// Confirms quitting while an agent is still working, since terminating kills
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// belt-and-suspenders alongside the Apple Event's quit reason, which is
     /// the primary signal.
     private var isPoweringOff = false
+    private weak var tintedWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -48,12 +50,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ControlServer.shared.startIfEnabled()
         #endif
 
-        AppAppearance.apply(AppAppearance.decision())
-
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
-        guard let window = NSApp.windows.first else { return }
-        tintTitlebar(of: window)
+        tintedWindow = NSApp.windows.first
+        startApplyingTheme()
+    }
+
+    /// Applies the theme at launch and again whenever Settings reloads it.
+    private func startApplyingTheme() {
+        Task { @MainActor in
+            for await _ in Observations({ GhosttyRuntime.shared.resolvedThemeDefinitions }) {
+                AppAppearance.apply(AppAppearance.decision())
+                if let tintedWindow { tintTitlebar(of: tintedWindow) }
+            }
+        }
     }
 
     @objc private func handleWillPowerOff() {
@@ -83,7 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// strip. SwiftUI already gives this window `.fullSizeContentView`, so
     /// content runs under the titlebar whether or not it is tinted.
     ///
-    /// Applied once: the tint resolves its own light/dark variant per draw.
+    /// The tint resolves its own light/dark variant per draw, so only a
+    /// theme reload needs to set it again.
     private func tintTitlebar(of window: NSWindow) {
         guard let tint = ThemeChrome.titlebarBackground() else {
             window.titlebarAppearsTransparent = false

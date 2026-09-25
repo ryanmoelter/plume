@@ -33,14 +33,14 @@ struct IntegrationsSettingsPane: View {
                     Button("Add", action: addIgnoredCheck)
                         .disabled(newIgnoredCheckName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+
+                GitConfigIgnoredChecksRow()
             } header: {
                 Text("Ignored pending checks")
             } footer: {
-                Text("While a check listed here is pending, it does not hold back the CI status of a PR. A pass or fail still counts. Names must match exactly, including case.")
+                Text("These checks don't count towards a pending state, e.g. if they're waiting for approval to run. They only count if they're a pass or fail.")
                     .foregroundStyle(.secondary)
             }
-
-            GitConfigIgnoredChecksSection()
         }
         .formStyle(.grouped)
     }

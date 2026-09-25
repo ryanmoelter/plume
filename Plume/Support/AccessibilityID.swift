@@ -37,6 +37,7 @@ enum AccessibilityID {
     // MARK: Settings
 
     static let settingsPane = "settings-pane"
+    static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"

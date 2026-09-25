@@ -46,17 +46,26 @@ struct AboutSettingsPane: View {
             }
 
             Section {
-                Link("Ghostty", destination: URL(string: "https://ghostty.org")!)
-                Link("libghostty-spm", destination: URL(string: "https://github.com/Lakr233/libghostty-spm")!)
-                Link("Sparkle", destination: URL(string: "https://sparkle-project.org")!)
+                creditLink("Ghostty", destination: URL(string: "https://ghostty.org")!)
+                creditLink("libghostty-spm", destination: URL(string: "https://github.com/Lakr233/libghostty-spm")!)
+                creditLink("Sparkle", destination: URL(string: "https://sparkle-project.org")!)
             } header: {
                 Text("Credits")
-            } footer: {
-                Text("Terminals run on Ghostty, through libghostty-spm. Updates use Sparkle.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func creditLink(_ title: String, destination: URL) -> some View {
+        Link(destination: destination) {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.up.right.square")
+            }
+            .contentShape(.rect)
+        }
+        .foregroundStyle(.tint)
     }
 
     private var shortVersion: String {

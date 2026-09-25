@@ -13,13 +13,18 @@ struct KeepAwakePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Keep Awake", selection: $settings.keepAwakeMode) {
+            Picker(selection: $settings.keepAwakeMode) {
                 ForEach(KeepAwakeMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
+            } label: {
+                Text("Keep Awake")
+                if let caption = settings.keepAwakeMode.caption {
+                    Text(caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            .pickerStyle(.menu)
             .plumeID(
                 AccessibilityID.keepAwakeModePicker,
                 value: settings.keepAwakeMode.rawValue,

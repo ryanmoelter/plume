@@ -82,7 +82,10 @@ struct AgentsSettingsPane: View {
                     .foregroundStyle(.secondary)
             case .some:
                 Link(destination: AgentCLIInstallation.downloadURL(for: provider)) {
-                    Label("Install", systemImage: "arrow.up.right.square")
+                    HStack(spacing: 4) {
+                        Text("Install")
+                        Image(systemName: "arrow.up.right.square")
+                    }
                 }
                 .buttonStyle(.bordered)
                 .plumeID("settings-install-cli", label: provider.rawValue)

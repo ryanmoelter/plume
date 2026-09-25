@@ -25,7 +25,7 @@ struct KeepAwakeHelperRow: View {
         } label: {
             Text("Keep awake helper")
             Text("Allows staying awake while your Mac's lid is closed")
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .onAppear { keepAwake.refreshLidOverride() }
     }
