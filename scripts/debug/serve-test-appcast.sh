@@ -8,6 +8,10 @@
 #   scripts/debug/serve-test-appcast.sh 1.2.3 42
 #
 # version defaults to 99.0.0, build to 9999. PORT overrides the default 8765.
+# OLDER_RELEASES adds appcast items between the running build and the update,
+# as space-separated version:build pairs (default "98.0.0:9998"; set it empty
+# for a single item). They share the update's enclosure, since Sparkle only
+# ever downloads the newest; they exist to exercise multi-release notes.
 #
 # Requires a Debug build already on disk
 # (xcodebuild -scheme Plume -destination 'platform=macOS' build) and the
@@ -36,6 +40,7 @@ set -euo pipefail
 VERSION="${1:-99.0.0}"
 BUILD="${2:-9999}"
 PORT="${PORT:-8765}"
+OLDER_RELEASES="${OLDER_RELEASES-98.0.0:9998}"
 BUNDLE_ID="com.ryanmoelter.Plume.debug"
 FEED_KEY="PlumeUpdateFeedURLOverride"
 
@@ -140,23 +145,19 @@ PUB_DATE="$(LC_ALL=C date -u +'%a, %d %b %Y %H:%M:%S %z')"
 ENCLOSURE_URL="http://localhost:$PORT/$(basename "$ZIP")"
 APPCAST="$TMP/appcast.xml"
 
-echo "--- building appcast ---"
-{
-  printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>'
-  printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
-  printf '  <channel>\n'
-  printf '    <title>Plume</title>\n'
+print_item() {
+  local version="$1" build="$2"
   printf '    <item>\n'
-  printf '      <title>%s</title>\n' "$(xml_escape <<<"Plume $VERSION (test)")"
+  printf '      <title>%s</title>\n' "$(xml_escape <<<"Plume $version (test)")"
   printf '      <pubDate>%s</pubDate>\n' "$PUB_DATE"
-  printf '      <sparkle:version>%s</sparkle:version>\n' "$BUILD"
-  printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$VERSION"
+  printf '      <sparkle:version>%s</sparkle:version>\n' "$build"
+  printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$version"
   printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
   printf '      <description sparkle:format="markdown"><![CDATA[\n'
-  cdata_escape <<'NOTES'
+  cdata_escape <<NOTES
 ### Test update
 
-This is a **local test build** served by `scripts/debug/serve-test-appcast.sh`.
+This is **local test build $version** served by \`scripts/debug/serve-test-appcast.sh\`.
 - Not a real release — the version and build number are made up.
 - Confirms Sparkle can find, verify, and install an update end to end.
 NOTES
@@ -164,6 +165,18 @@ NOTES
   printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
     "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$ZIP_LENGTH"
   printf '    </item>\n'
+}
+
+echo "--- building appcast ---"
+{
+  printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>'
+  printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+  printf '  <channel>\n'
+  printf '    <title>Plume</title>\n'
+  print_item "$VERSION" "$BUILD"
+  for release in $OLDER_RELEASES; do
+    print_item "${release%%:*}" "${release##*:}"
+  done
   printf '  </channel>\n'
   printf '</rss>\n'
 } >"$APPCAST"

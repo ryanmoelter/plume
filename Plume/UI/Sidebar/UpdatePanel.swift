@@ -1,76 +1,42 @@
 import AppKit
 import SwiftUI
 
-/// Content for `UpdatePanelWindow`. A Homebrew install can't be updated in place by Sparkle, so this is
-/// informational only: what changed, and the `brew upgrade` command to run.
-struct UpdatePanel: View {
-    let update: AvailableUpdate
-
-    var body: some View {
-        ScrollView {
-            UpdatePanelContent(update: update)
-        }
-        .plumeID(AccessibilityID.updatePanel)
-    }
-}
-
-/// The panel's content, apart from the scrolling: `UpdatePanelWindow` also
-/// measures this on its own, unscrolled, to size the window to it.
-struct UpdatePanelContent: View, ThemedView {
+/// Content for `UpdatePanelWindow`. A Homebrew install can't be updated in
+/// place by Sparkle, so the notes scroll above a pinned `brew upgrade` call
+/// to action.
+struct UpdatePanel: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     let update: AvailableUpdate
     @State private var didCopyCommand = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            notes
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    ForEach(update.releases) { release in
+                        ReleaseNotesSection(release: release)
+                    }
 
-            if let fullReleaseNotesURL = update.fullReleaseNotesURL {
-                Link("Full release notes", destination: fullReleaseNotesURL)
-                    .font(.callout)
-                    .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
+                    if let fullReleaseNotesURL = update.fullReleaseNotesURL {
+                        Link("Full release notes", destination: fullReleaseNotesURL)
+                            .font(.callout)
+                            .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
+                    }
+                }
+                .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(UpdatePanelMetrics.padding)
             }
+
+            Divider()
 
             homebrewCallout
+                .frame(maxWidth: dimensions.contentWidth)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(UpdatePanelMetrics.padding)
         }
-        .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(UpdatePanelMetrics.padding)
-    }
-
-    private var versionHeading: String {
-        "# Plume \(update.displayVersion)"
-    }
-
-    @ViewBuilder
-    private var notes: some View {
-        switch update.releaseNotesFormat {
-        case .markdown:
-            MarkdownView("\(versionHeading)\n\n\(trimmedReleaseNotes ?? "")", isAgentVoice: false)
-        case .plainText:
-            VStack(alignment: .leading, spacing: 12) {
-                MarkdownView(versionHeading, isAgentVoice: false)
-                if let trimmedReleaseNotes {
-                    Text(trimmedReleaseNotes)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        case .html:
-            VStack(alignment: .leading, spacing: 12) {
-                MarkdownView(versionHeading, isAgentVoice: false)
-                if let trimmedReleaseNotes {
-                    Text(HTMLReleaseNotes.render(trimmedReleaseNotes))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
-    private var trimmedReleaseNotes: String? {
-        guard let releaseNotes = update.releaseNotes else { return nil }
-        let trimmed = releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        .plumeID(AccessibilityID.updatePanel)
     }
 
     private var homebrewCallout: some View {
@@ -126,6 +92,44 @@ struct UpdatePanelContent: View, ThemedView {
             try? await Task.sleep(for: .seconds(1.5))
             didCopyCommand = false
         }
+    }
+}
+
+/// One release's notes, under a synthetic h1 naming its version.
+private struct ReleaseNotesSection: View {
+    let release: UpdateRelease
+
+    var body: some View {
+        switch release.releaseNotesFormat {
+        case .markdown:
+            MarkdownView("\(heading)\n\n\(trimmedNotes ?? "")", isAgentVoice: false)
+        case .plainText:
+            VStack(alignment: .leading, spacing: 12) {
+                MarkdownView(heading, isAgentVoice: false)
+                if let trimmedNotes {
+                    Text(trimmedNotes)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        case .html:
+            VStack(alignment: .leading, spacing: 12) {
+                MarkdownView(heading, isAgentVoice: false)
+                if let trimmedNotes {
+                    Text(HTMLReleaseNotes.render(trimmedNotes))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var heading: String {
+        "# Plume \(release.displayVersion)"
+    }
+
+    private var trimmedNotes: String? {
+        guard let notes = release.releaseNotes else { return nil }
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

@@ -31,6 +31,7 @@ final class UpdateController: NSObject {
     /// known, so the completing callback knows to surface a result instead
     /// of staying silent like a background check.
     private var pendingUserBrewCheck = false
+    @ObservationIgnored private var appcastItems: [SUAppcastItem] = []
 
     private(set) var isRunning = false
     /// The last update Sparkle found, or nil. In Homebrew mode this is not
@@ -239,8 +240,12 @@ extension UpdateController: SPUUpdaterDelegate {
         feedURLOverride
     }
 
+    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        appcastItems = appcast.items
+    }
+
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let update = AvailableUpdate(item: item)
+        let update = AvailableUpdate(item: item, appcastItems: appcastItems)
         availableUpdate = update
         if pendingUserBrewCheck, installSource == .homebrew {
             UpdatePanelWindow.show(update: update)
@@ -308,7 +313,7 @@ extension UpdateController: SPUStandardUserDriverDelegate {
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
-        availableUpdate = AvailableUpdate(item: update)
+        availableUpdate = AvailableUpdate(item: update, appcastItems: appcastItems)
     }
 }
 
@@ -316,15 +321,48 @@ extension UpdateController: SPUStandardUserDriverDelegate {
 /// `UpdatePanel` need.
 struct AvailableUpdate: Equatable {
     let displayVersion: String
+    let fullReleaseNotesURL: URL?
+    /// Every release between the running build and this update, newest
+    /// first, so skipping versions still shows what each one changed.
+    let releases: [UpdateRelease]
+
+    init(item: SUAppcastItem, appcastItems: [SUAppcastItem]) {
+        displayVersion = item.displayVersionString
+        fullReleaseNotesURL = item.fullReleaseNotesURL
+        let hostVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        let pending = Self.pendingItems(appcastItems, version: \.versionString, hostVersion: hostVersion, latestVersion: item.versionString)
+        releases = (pending.isEmpty ? [item] : pending).map { UpdateRelease(item: $0) }
+    }
+
+    /// Items newer than `hostVersion` and no newer than `latestVersion`,
+    /// newest first.
+    static func pendingItems<Item>(
+        _ items: [Item],
+        version: (Item) -> String,
+        hostVersion: String,
+        latestVersion: String
+    ) -> [Item] {
+        let comparator = SUStandardVersionComparator.default
+        return items
+            .filter {
+                comparator.compareVersion(version($0), toVersion: hostVersion) == .orderedDescending
+                    && comparator.compareVersion(version($0), toVersion: latestVersion) != .orderedDescending
+            }
+            .sorted { comparator.compareVersion(version($0), toVersion: version($1)) == .orderedDescending }
+    }
+}
+
+struct UpdateRelease: Equatable, Identifiable {
+    let displayVersion: String
     let releaseNotes: String?
     let releaseNotesFormat: ReleaseNotesFormat
-    let fullReleaseNotesURL: URL?
+
+    var id: String { displayVersion }
 
     init(item: SUAppcastItem) {
         displayVersion = item.displayVersionString
         releaseNotes = item.itemDescription
         releaseNotesFormat = ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
-        fullReleaseNotesURL = item.fullReleaseNotesURL
     }
 }
 

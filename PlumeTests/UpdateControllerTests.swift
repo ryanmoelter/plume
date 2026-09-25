@@ -111,4 +111,14 @@ struct UpdateControllerTests {
     @Test func shellQuotingEscapesSingleQuotes() {
         #expect(HomebrewUpgrade.shellQuoted("it's") == "'it'\\''s'")
     }
+
+    @Test func pendingItemsSpanTheHostToTheLatestNewestFirst() {
+        let pending = AvailableUpdate.pendingItems(
+            ["97", "100", "98", "99", "96"],
+            version: { $0 },
+            hostVersion: "97",
+            latestVersion: "99"
+        )
+        #expect(pending == ["99", "98"])
+    }
 }
