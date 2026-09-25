@@ -98,11 +98,11 @@ Tell the user the app is running and give a per-package checklist of what to try
 
 Only after the user approves. Follow `docs/releasing.md`; do not duplicate it here.
 
-- **Draft the release notes, and get the user's approval before bumping anything.** The notes are the new top section of `CHANGELOG.md`, headed `## <version> (<build>)`. That section becomes the GitHub release body, and it appears in every update window from then on, so it needs the user's own sign-off.
+- **Draft the release notes as an unreleasable section.** Write a new top section in `CHANGELOG.md` headed `## Draft: <version> (<build>)`. That section becomes the GitHub release body, and it appears in every update window from then on, so the user reviews and finishes it by hand. `package-release.sh` refuses to package while the top heading says `Draft:`.
   - Draft from what shipped: this cycle's Done issues, plus `git log <last-tag>..HEAD --no-merges --format='%s'` for work that had no issue.
   - Match the existing sections' voice. Use user-facing bullets that lead with the change ("Send images in chat", "Fix …"), with sub-bullets for detail. Leave out internal work (refactors, test-only changes, tooling) unless a user would notice it.
-  - Show the draft in chat and ask the user to edit or approve it. Apply their edits, and repeat until they approve. Only then write it into `CHANGELOG.md`.
-- Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only. Commit the bump and the approved `CHANGELOG.md` section together on the release branch. `package-release.sh` refuses to build unless the top section matches both numbers.
+- Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only, to the numbers in the draft heading. Commit the bump and the draft section together on the release branch.
+- Tell the user the draft is ready for review, and wait. They edit the section and remove `Draft: ` from the heading to approve it. Before going on, confirm the top heading is exactly `## <version> (<build>)` and that the change is committed.
 - Merge the release branch into `main` (`--no-ff`).
 - Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
 - **Check whether you are running inside the installed Plume before installing anything.** `echo $PLUME` says you are in *a* Plume; walking your own ancestry (`ps -o ppid=` up the chain) says *which*. If it is `/Applications/Plume.app`, that bundle is the one about to be replaced — the next bullet covers what that means. Tell the user what you found before running the install, so a surprise restart is not a surprise.

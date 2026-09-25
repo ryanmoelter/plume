@@ -40,7 +40,7 @@ Verifying the Debug build before merging is the real gate; the Release verificat
 - `MARKETING_VERSION` is the human version (`0.1.0`) and becomes `CFBundleShortVersionString`.
 - `CURRENT_PROJECT_VERSION` is the build number and becomes `CFBundleVersion`. Bump it when you want to tell two installs of the same version apart, and **always bump it for a release** — it's the value Sparkle compares to decide an update exists, so a release that doesn't increase it never reaches anyone.
 
-Then add a section at the top of `CHANGELOG.md` headed `## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`, and commit it with the bump. `package-release.sh` refuses to build without it.
+Then add a section at the top of `CHANGELOG.md` headed `## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`, and commit it with the bump. `package-release.sh` refuses to build without it. A drafted section is headed `## Draft: <version> (<build>)`. The script refuses to package that too, until you review the notes and remove `Draft: `.
 
 ### 2. Build, test, install
 

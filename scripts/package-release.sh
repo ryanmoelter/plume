@@ -105,6 +105,10 @@ BUILD_NUMBER="$(awk '
 # Checked before the build, so missing notes don't cost a build and a
 # notarization round trip.
 changelog_top="$(grep -m1 '^## ' "$CHANGELOG" 2>/dev/null)"
+case "$changelog_top" in
+  "## Draft: "*) fail "$CHANGELOG's top section is still a draft (\"$changelog_top\") — review
+  the notes, then remove \"Draft: \" from the heading and commit" ;;
+esac
 [ "$changelog_top" = "## $VERSION ($BUILD_NUMBER)" ] \
   || fail "$CHANGELOG must start with a \"## $VERSION ($BUILD_NUMBER)\" section for this
   release (found \"${changelog_top:-nothing}\")"
