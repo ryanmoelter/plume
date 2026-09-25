@@ -14,11 +14,10 @@ struct UpdatesSettingsPane: View {
                         setValue: { updates.automaticallyChecksForUpdates = ($0 == "true" || $0 == "1") }
                     )
 
-                HStack {
+                LabeledContent(lastCheckedText) {
                     Button("Check now", action: updates.checkForUpdates)
                         .plumeID(AccessibilityID.updatesCheckNowButton)
                         .disabled(!updates.canCheckForUpdates)
-                    Spacer()
                 }
 
                 if updates.isHomebrewInstall || settings.updateInstallSourceOverride != nil {
@@ -37,8 +36,10 @@ struct UpdatesSettingsPane: View {
             } header: {
                 Text("Updates")
             } footer: {
-                Text(updatesFooterText)
-                    .foregroundStyle(.secondary)
+                if !updates.isRunning {
+                    Text(notRunningText)
+                        .foregroundStyle(.secondary)
+                }
             }
             .disabled(!updates.isRunning)
         }
@@ -69,19 +70,16 @@ struct UpdatesSettingsPane: View {
         )
     }
 
-    private var updatesFooterText: String {
-        guard updates.isRunning else {
-            #if DEBUG
-            return "Updates are off in debug builds until you set a test feed in Settings ▸ Debug."
-            #else
-            return "Updates could not start."
-            #endif
-        }
-        let lastChecked = updates.lastUpdateCheckDate.map { "Last checked \($0.formatted(.relative(presentation: .named)))." }
-            ?? "Never checked."
-        guard updates.isHomebrewInstall || settings.updateInstallSourceOverride != nil else {
-            return lastChecked
-        }
-        return lastChecked + " A Homebrew install updates through brew upgrade."
+    private var lastCheckedText: String {
+        updates.lastUpdateCheckDate.map { "Last checked \($0.formatted(.relative(presentation: .named)))" }
+            ?? "Never checked"
+    }
+
+    private var notRunningText: String {
+        #if DEBUG
+        "Updates are off in debug builds until you set a test feed in Settings ▸ Debug."
+        #else
+        "Updates could not start."
+        #endif
     }
 }

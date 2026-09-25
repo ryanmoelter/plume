@@ -31,7 +31,8 @@ struct SettingsView: View {
         } detail: {
             detailView
         }
-        .toolbarVisibility(.hidden, for: .windowToolbar)
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .modifier(SettingsWindowModifier())
         .frame(minWidth: 680, minHeight: 460)
         .task(id: cliRefresh) {

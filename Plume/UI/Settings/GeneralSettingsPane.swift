@@ -80,11 +80,9 @@ struct GeneralSettingsPane: View {
     private var commandLineHelperRow: some View {
         LabeledContent {
             VStack(alignment: .trailing) {
-                HStack {
-                    Text(helperStatusText)
-                        .foregroundStyle(.secondary)
-                    Button(helperButtonTitle, action: toggleHelperInstall)
-                }
+                Text(helperStatusText)
+                    .foregroundStyle(.secondary)
+                Button(helperButtonTitle, action: toggleHelperInstall)
                 if let helperError {
                     Text(helperError)
                         .foregroundStyle(.red)
