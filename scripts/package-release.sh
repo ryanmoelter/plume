@@ -19,11 +19,14 @@
 #   RELEASE_NOTES_FILE=notes.md scripts/package-release.sh
 #
 # RELEASE_NOTES_FILE points at markdown notes used for both the GitHub
-# release body and the appcast.
+# release body and the appcast. The appcast also carries the notes of up to
+# nine earlier published releases (scripts/lib/cumulative-notes.sh).
 set -uo pipefail
 
 # shellcheck source=lib/sign-bundle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
+# shellcheck source=lib/cumulative-notes.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cumulative-notes.sh"
 
 LOG="${LOG:-/tmp/plume-package.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
@@ -274,9 +277,37 @@ ENCLOSURE_URL="https://github.com/ryanmoelter/plume/releases/download/$TAG/$(bas
 NOTES_LINK="https://github.com/ryanmoelter/plume/releases/tag/$TAG"
 APPCAST="$OUT/appcast.xml"
 
-# sparkle:format="markdown" needs Sparkle 2.9+; this pin is 2.10.0. Plain
-# CDATA (not xml_escape) so markdown syntax reaches Sparkle unescaped — only
-# a literal "]]>" inside the notes needs guarding.
+# This release plus the published ones before it. A past release's build
+# number comes from its tag's project file, since Sparkle matches sections
+# on CFBundleVersion.
+DESCRIPTION_FILE="$OUT/appcast-notes.html"
+{
+  cumulative_notes_header
+  cumulative_notes_section "$CFBUNDLE_VERSION" "$CFBUNDLE_SHORT_VERSION" \
+    "Plume $CFBUNDLE_SHORT_VERSION" "$NOTES_FILE"
+  count=1
+  while read -r past_tag; do
+    [ "$count" -lt "$CUMULATIVE_NOTES_LIMIT" ] || break
+    [ "$past_tag" != "$TAG" ] || continue
+    past_build="$(git show "$past_tag:Plume.xcodeproj/project.pbxproj" 2>/dev/null \
+      | sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9]*\);.*/\1/p' | head -1)"
+    if [ -z "$past_build" ]; then
+      echo "note: no build number at $past_tag — leaving it out of the appcast notes" >&2
+      continue
+    fi
+    past_notes="$OUT/notes-$past_tag.md"
+    if ! gh release view "$past_tag" --json body --jq .body >"$past_notes"; then
+      echo "note: could not read the $past_tag release notes — leaving them out" >&2
+      continue
+    fi
+    cumulative_notes_section "$past_build" "${past_tag#v}" "${past_tag#v}" "$past_notes"
+    count=$((count + 1))
+  done < <(gh release list --exclude-drafts --exclude-pre-releases --limit 30 \
+    --json tagName --jq '.[].tagName')
+} >"$DESCRIPTION_FILE" || fail "could not build the appcast notes"
+
+# Plain CDATA (not xml_escape) so the HTML reaches Sparkle unescaped — only a
+# literal "]]>" inside the notes needs guarding.
 {
   printf '%s\n' '<?xml version="1.0" encoding="utf-8"?>'
   printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
@@ -289,8 +320,8 @@ APPCAST="$OUT/appcast.xml"
   printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$CFBUNDLE_SHORT_VERSION"
   printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
   printf '      <sparkle:fullReleaseNotesLink>%s</sparkle:fullReleaseNotesLink>\n' "$NOTES_LINK"
-  printf '      <description sparkle:format="markdown"><![CDATA[\n'
-  cdata_escape <"$NOTES_FILE"
+  printf '      <description sparkle:format="html"><![CDATA[\n'
+  cdata_escape <"$DESCRIPTION_FILE"
   printf '\n]]></description>\n'
   printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
     "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$DMG_LENGTH"

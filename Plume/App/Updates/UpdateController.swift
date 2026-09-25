@@ -31,7 +31,6 @@ final class UpdateController: NSObject {
     /// known, so the completing callback knows to surface a result instead
     /// of staying silent like a background check.
     private var pendingUserBrewCheck = false
-    @ObservationIgnored private var appcastItems: [SUAppcastItem] = []
 
     private(set) var isRunning = false
     /// The last update Sparkle found, or nil. In Homebrew mode this is not
@@ -240,12 +239,8 @@ extension UpdateController: SPUUpdaterDelegate {
         feedURLOverride
     }
 
-    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
-        appcastItems = appcast.items
-    }
-
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let update = AvailableUpdate(item: item, appcastItems: appcastItems)
+        let update = AvailableUpdate(item: item)
         availableUpdate = update
         if pendingUserBrewCheck, installSource == .homebrew {
             UpdatePanelWindow.show(update: update)
@@ -313,7 +308,7 @@ extension UpdateController: SPUStandardUserDriverDelegate {
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
-        availableUpdate = AvailableUpdate(item: update, appcastItems: appcastItems)
+        availableUpdate = AvailableUpdate(item: update)
     }
 }
 
@@ -322,33 +317,20 @@ extension UpdateController: SPUStandardUserDriverDelegate {
 struct AvailableUpdate: Equatable {
     let displayVersion: String
     let fullReleaseNotesURL: URL?
-    /// Every release between the running build and this update, newest
-    /// first, so skipping versions still shows what each one changed.
+    /// Every release since the running build, newest first, when the notes
+    /// are cumulative; otherwise just this update's.
     let releases: [UpdateRelease]
 
-    init(item: SUAppcastItem, appcastItems: [SUAppcastItem]) {
+    init(item: SUAppcastItem) {
         displayVersion = item.displayVersionString
         fullReleaseNotesURL = item.fullReleaseNotesURL
-        let hostVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        let pending = Self.pendingItems(appcastItems, version: \.versionString, hostVersion: hostVersion, latestVersion: item.versionString)
-        releases = (pending.isEmpty ? [item] : pending).map { UpdateRelease(item: $0) }
-    }
-
-    /// Items newer than `hostVersion` and no newer than `latestVersion`,
-    /// newest first.
-    static func pendingItems<Item>(
-        _ items: [Item],
-        version: (Item) -> String,
-        hostVersion: String,
-        latestVersion: String
-    ) -> [Item] {
-        let comparator = SUStandardVersionComparator.default
-        return items
-            .filter {
-                comparator.compareVersion(version($0), toVersion: hostVersion) == .orderedDescending
-                    && comparator.compareVersion(version($0), toVersion: latestVersion) != .orderedDescending
-            }
-            .sorted { comparator.compareVersion(version($0), toVersion: version($1)) == .orderedDescending }
+        let hostBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        releases = item.itemDescription.flatMap { CumulativeReleaseNotes.releases(in: $0, hostBuild: hostBuild) }
+            ?? [UpdateRelease(
+                displayVersion: item.displayVersionString,
+                releaseNotes: item.itemDescription,
+                releaseNotesFormat: ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
+            )]
     }
 }
 
@@ -358,11 +340,34 @@ struct UpdateRelease: Equatable, Identifiable {
     let releaseNotesFormat: ReleaseNotesFormat
 
     var id: String { displayVersion }
+}
 
-    init(item: SUAppcastItem) {
-        displayVersion = item.displayVersionString
-        releaseNotes = item.itemDescription
-        releaseNotesFormat = ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
+/// Reads the cumulative appcast notes `scripts/lib/cumulative-notes.sh`
+/// writes: one `<section data-sparkle-version>` per release, each carrying
+/// its markdown source in a `<script type="text/markdown">` block.
+enum CumulativeReleaseNotes {
+    /// The sections newer than `hostBuild`, newest first, or nil when the
+    /// notes aren't cumulative. Keeps the newest section even if the host
+    /// somehow outruns it, so the window never shows no notes at all.
+    static func releases(in html: String, hostBuild: String) -> [UpdateRelease]? {
+        let pattern = /<section data-sparkle-version="([^"]*)">.*?<script type="text\/markdown" data-plume-version="([^"]*)">\n?(.*?)\n?<\/script>/
+            .dotMatchesNewlines()
+        let sections = html.matches(of: pattern).map { match in
+            (
+                build: String(match.1),
+                release: UpdateRelease(
+                    displayVersion: String(match.2),
+                    releaseNotes: String(match.3).replacingOccurrences(of: "<\\/", with: "</"),
+                    releaseNotesFormat: .markdown
+                )
+            )
+        }
+        guard let newest = sections.first else { return nil }
+        let comparator = SUStandardVersionComparator.default
+        let unseen = sections
+            .filter { comparator.compareVersion($0.build, toVersion: hostBuild) == .orderedDescending }
+            .map(\.release)
+        return unseen.isEmpty ? [newest.release] : unseen
     }
 }
 

@@ -8,10 +8,10 @@
 #   scripts/debug/serve-test-appcast.sh 1.2.3 42
 #
 # version defaults to 99.0.0, build to 9999. PORT overrides the default 8765.
-# OLDER_RELEASES adds appcast items between the running build and the update,
-# as space-separated version:build pairs (default "98.0.0:9998"; set it empty
-# for a single item). They share the update's enclosure, since Sparkle only
-# ever downloads the newest; they exist to exercise multi-release notes.
+# OLDER_RELEASES adds notes sections for releases between the running build
+# and the update, as space-separated version:build pairs (default
+# "98.0.0:9998"; set it empty for none). The notes also get a section for the
+# running build itself, which both Sparkle and Plume should hide.
 #
 # Requires a Debug build already on disk
 # (xcodebuild -scheme Plume -destination 'platform=macOS' build) and the
@@ -49,6 +49,9 @@ FEED_KEY="PlumeUpdateFeedURLOverride"
 SPARKLE_KEY_REF="${SPARKLE_KEY_REF:-op://Plume/Plume Sparkle EdDSA/private key}"
 
 fail() { echo "FAILED: $*" >&2; exit 1; }
+
+# shellcheck source=../lib/cumulative-notes.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/cumulative-notes.sh"
 
 # A "]]>" inside the notes would close the CDATA section early, so split any
 # occurrence across two sections — the standard CDATA-escaping trick.
@@ -145,27 +148,27 @@ PUB_DATE="$(LC_ALL=C date -u +'%a, %d %b %Y %H:%M:%S %z')"
 ENCLOSURE_URL="http://localhost:$PORT/$(basename "$ZIP")"
 APPCAST="$TMP/appcast.xml"
 
-print_item() {
-  local version="$1" build="$2"
-  printf '    <item>\n'
-  printf '      <title>%s</title>\n' "$(xml_escape <<<"Plume $version (test)")"
-  printf '      <pubDate>%s</pubDate>\n' "$PUB_DATE"
-  printf '      <sparkle:version>%s</sparkle:version>\n' "$build"
-  printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$version"
-  printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
-  printf '      <description sparkle:format="markdown"><![CDATA[\n'
-  cdata_escape <<NOTES
-### Test update
-
+test_notes() {
+  local version="$1" file="$TMP/notes-$1.md"
+  cat >"$file" <<NOTES
 This is **local test build $version** served by \`scripts/debug/serve-test-appcast.sh\`.
 - Not a real release — the version and build number are made up.
 - Confirms Sparkle can find, verify, and install an update end to end.
 NOTES
-  printf '\n]]></description>\n'
-  printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
-    "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$ZIP_LENGTH"
-  printf '    </item>\n'
+  printf '%s' "$file"
 }
+
+HOST_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$SRC/Contents/Info.plist")"
+HOST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$SRC/Contents/Info.plist")"
+DESCRIPTION_FILE="$TMP/appcast-notes.html"
+{
+  cumulative_notes_header
+  cumulative_notes_section "$BUILD" "$VERSION" "Plume $VERSION" "$(test_notes "$VERSION")"
+  for release in $OLDER_RELEASES; do
+    cumulative_notes_section "${release##*:}" "${release%%:*}" "${release%%:*}" "$(test_notes "${release%%:*}")"
+  done
+  cumulative_notes_section "$HOST_BUILD" "$HOST_VERSION" "$HOST_VERSION" "$(test_notes "$HOST_VERSION")"
+} >"$DESCRIPTION_FILE" || fail "could not build the appcast notes"
 
 echo "--- building appcast ---"
 {
@@ -173,10 +176,18 @@ echo "--- building appcast ---"
   printf '%s\n' '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
   printf '  <channel>\n'
   printf '    <title>Plume</title>\n'
-  print_item "$VERSION" "$BUILD"
-  for release in $OLDER_RELEASES; do
-    print_item "${release%%:*}" "${release##*:}"
-  done
+  printf '    <item>\n'
+  printf '      <title>%s</title>\n' "$(xml_escape <<<"Plume $VERSION (test)")"
+  printf '      <pubDate>%s</pubDate>\n' "$PUB_DATE"
+  printf '      <sparkle:version>%s</sparkle:version>\n' "$BUILD"
+  printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$VERSION"
+  printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
+  printf '      <description sparkle:format="html"><![CDATA[\n'
+  cdata_escape <"$DESCRIPTION_FILE"
+  printf '\n]]></description>\n'
+  printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
+    "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$ZIP_LENGTH"
+  printf '    </item>\n'
   printf '  </channel>\n'
   printf '</rss>\n'
 } >"$APPCAST"
