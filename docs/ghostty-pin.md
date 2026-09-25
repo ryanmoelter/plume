@@ -7,14 +7,16 @@ Plume embeds Ghostty's terminal via a prebuilt `GhosttyKit.xcframework`. libghos
 | | |
 |---|---|
 | Package | [`Lakr233/libghostty-spm`](https://github.com/Lakr233/libghostty-spm) |
-| Requirement | `.exact("1.5.0")` |
-| Package revision | `df208c1b228da8f879317993680c7d6e39f5a69a` |
+| Requirement | `.exact("1.5.2")` |
+| Package revision | `4a92e0102ba134b7f4bdd7a2d1c3b9cfa9614edd` |
 | Product used | `GhosttyTerminal` (the Swift wrapper, not raw `GhosttyKit`) |
 | Underlying Ghostty | **1.3.1**, ref `332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28` |
 | Binary artifact | `GhosttyKit.xcframework.zip` from the package's `upstream.1.3.1-2` release |
 | Transitive dep | `Lakr233/MSDisplayLink` 2.2.0 |
 
-The package version and the Ghostty version are **different numbers** — package 1.5.0 wraps Ghostty 1.3.1. Always record both.
+The package version and the Ghostty version are **different numbers** — package 1.5.2 wraps Ghostty 1.3.1. Always record both.
+
+Upstream deleted the `1.5.0` tag this pin originally used (PLUME-186); `1.5.2` is the nearest surviving tag with the same underlying Ghostty commit. **`1.6.20260922`, the newest tag as of 2026-09-25, was tried and rejected**: the package's `GhosttyKit` target is missing `linkerSettings` for `IOSurface`/`CoreVideo`/`Metal`/`QuartzCore`, so building for *testing* — where SwiftPM builds each library product as a standalone dynamic framework — fails with `Undefined symbol` for `CVDisplayLink*`, `IOSurface*`, `MTLCopyAllDevices`, and `kCAGravityTopLeft`. A plain `xcodebuild build` links fine because those symbols happen to already be pulled in elsewhere in that link step; only the test bundle's separate link of `GhosttyKit.framework` exposes the gap. Reproduced twice against a fully cleaned build. Re-check this when a newer tag appears.
 
 ## Why the wrapper
 
