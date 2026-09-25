@@ -42,14 +42,10 @@ final class GhosttyRuntime {
     /// family, which is how a variable font's named instances are reached.
     private(set) var resolvedCodeFontStyle: String?
 
-    /// The theme names the user's config resolved to. Nil when the bundled
-    /// default is in use instead, because there was no config, it named no
-    /// theme, or the theme failed to load.
-    var configThemeNames: GhosttyThemeResolver.ThemeNames? {
-        guard let definitions = resolvedThemeDefinitions,
-              definitions != Self.bundledLumDefinitions else { return nil }
-        return GhosttyThemeResolver.ThemeNames(light: definitions.light?.name, dark: definitions.dark?.name)
-    }
+    /// The theme names the user's config declares and resolved to. Nil when
+    /// the config names no theme or its theme failed to load, so the bundled
+    /// default is in use.
+    private(set) var configThemeNames: GhosttyThemeResolver.ThemeNames?
 
     private init() {}
 
@@ -65,6 +61,13 @@ final class GhosttyRuntime {
         if let loadedConfigPath,
            let expanded = GhosttyConfigLoader.expandConfig(rootPath: loadedConfigPath) {
             resolvedThemeDefinitions = resolveThemeDefinitions(in: expanded)
+            if GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil,
+               let definitions = resolvedThemeDefinitions {
+                configThemeNames = GhosttyThemeResolver.ThemeNames(
+                    light: definitions.light?.name,
+                    dark: definitions.dark?.name
+                )
+            }
             if let definitions = resolvedThemeDefinitions {
                 resolvedTheme = TerminalTheme(
                     light: definitions.light?.toTerminalConfiguration() ?? .init(),
