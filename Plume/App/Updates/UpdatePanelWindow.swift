@@ -42,7 +42,7 @@ enum UpdatePanelWindow {
 
     private static var initialWidth: CGFloat {
         let dimensions = Dimensions(bodySize: CGFloat(AppSettings.defaultChatFontSize))
-        return dimensions.contentWidth + dimensions.horizontalEdgePadding * 2
+        return dimensions.contentWidth + (dimensions.horizontalEdgePadding + 16) * 2
     }
 }
 
