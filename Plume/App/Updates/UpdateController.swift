@@ -25,11 +25,11 @@ final class UpdateController: NSObject {
     private static let lastUpdateCheckDateKey = "PlumeLastUpdateCheckDate"
     static let homebrewUpgradeCommand = "brew upgrade --cask ryanmoelter/tap/plume"
 
-    static let checkInterval: TimeInterval = 24 * 60 * 60
+    static let checkInterval: TimeInterval = 3 * 60 * 60
     /// How often the timer asks whether a check is due. Much shorter than
     /// `checkInterval` so a Mac that slept through the due time checks soon
     /// after waking.
-    private static let dueCheckInterval: TimeInterval = 60 * 60
+    private static let dueCheckInterval: TimeInterval = 15 * 60
 
     /// Detected once at launch: the Homebrew prefix whose Caskroom holds
     /// Plume, if any. `installSource` prefers an explicit `AppSettings`
@@ -159,7 +159,7 @@ final class UpdateController: NSObject {
         }
     }
 
-    /// Refreshes behind the window, since the update it shows may be a day
+    /// Refreshes behind the window, since the update it shows may be hours
     /// old. The window follows `availableUpdate`, so a newer release
     /// replaces it in place.
     private func showHomebrewWindow(update: AvailableUpdate) {

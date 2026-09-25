@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Debug-only Settings section for exercising both update paths — the
 /// installer swap and the background check — without reinstalling or
-/// waiting a day for the next scheduled check. `#if DEBUG` end to end; compiles to
+/// waiting for the next scheduled check. `#if DEBUG` end to end; compiles to
 /// nothing in Release. `scripts/debug/serve-test-appcast.sh` builds the test
 /// feed this section points at.
 struct UpdatesDebugSection: View {
