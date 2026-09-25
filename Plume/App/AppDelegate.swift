@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyTheme() {
         AppAppearance.apply(AppAppearance.decision())
-        if let tintedWindow { tintTitlebar(of: tintedWindow) }
+        if let tintedWindow { Self.tintTitlebar(of: tintedWindow) }
     }
 
     @objc private func handleWillPowerOff() {
@@ -95,12 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Transparent titlebar plus an explicit background color makes the
     /// titlebar read as part of the tinted window instead of a separate gray
-    /// strip. SwiftUI already gives this window `.fullSizeContentView`, so
+    /// strip. SwiftUI gives the main window `.fullSizeContentView`, so its
     /// content runs under the titlebar whether or not it is tinted.
     ///
     /// The tint resolves its own light/dark variant per draw, so only a
     /// theme reload needs to set it again.
-    private func tintTitlebar(of window: NSWindow) {
+    static func tintTitlebar(of window: NSWindow) {
         guard let tint = ThemeChrome.titlebarBackground() else {
             window.titlebarAppearsTransparent = false
             window.backgroundColor = nil

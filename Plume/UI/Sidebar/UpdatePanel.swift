@@ -14,34 +14,31 @@ struct UpdatePanel: View, ThemedView {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    ForEach(update.releases) { release in
-                        ReleaseNotesSection(release: release, isLatest: release.id == update.releases.first?.id)
-                    }
+                    ReleaseNotesSection(update: update)
 
                     if let fullReleaseNotesURL = update.fullReleaseNotesURL {
                         Link("Full release notes", destination: fullReleaseNotesURL)
                             .font(.callout)
                             .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
+                            .listItemPadding(vertical: false)
                     }
                 }
-                .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(UpdatePanelMetrics.padding)
+                .padding(.vertical, UpdatePanelMetrics.padding)
             }
 
             Divider()
 
             homebrewCallout
-                .frame(maxWidth: dimensions.contentWidth)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(UpdatePanelMetrics.padding)
+                .listItemPadding(vertical: false)
+                .padding(.vertical, UpdatePanelMetrics.padding)
         }
+        .foregroundStyle(colors.foreground)
         .plumeID(AccessibilityID.updatePanel)
     }
 
     private var homebrewCallout: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Update with Homebrew. Plume quits during the upgrade and reopens when it's done.")
+            Text("Update with Homebrew. Plume quits during the upgrade and reopens when it's done. **Do not** run this in a Plume terminal.")
                 .font(.callout)
 
             HStack(spacing: 6) {
@@ -70,7 +67,7 @@ struct UpdatePanel: View, ThemedView {
                 .plumeID(AccessibilityID.updatePanelRunInTerminalButton)
             }
         }
-        .padding(12)
+        .padding(UpdatePanelMetrics.calloutInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: UpdatePanelMetrics.calloutCornerRadius)
@@ -95,14 +92,12 @@ struct UpdatePanel: View, ThemedView {
     }
 }
 
-/// One release's notes, under a synthetic h1: "Plume <version>" for the
-/// update itself, the bare version for the releases it rolls up.
+/// The update's notes under a synthetic "Plume <version>" h1.
 private struct ReleaseNotesSection: View {
-    let release: UpdateRelease
-    let isLatest: Bool
+    let update: AvailableUpdate
 
     var body: some View {
-        switch release.releaseNotesFormat {
+        switch update.releaseNotesFormat {
         case .markdown:
             MarkdownView("\(heading)\n\n\(trimmedNotes ?? "")", isAgentVoice: false)
         case .plainText:
@@ -125,11 +120,11 @@ private struct ReleaseNotesSection: View {
     }
 
     private var heading: String {
-        isLatest ? "# Plume \(release.displayVersion)" : "# \(release.displayVersion)"
+        "# Plume \(update.displayVersion)"
     }
 
     private var trimmedNotes: String? {
-        guard let notes = release.releaseNotes else { return nil }
+        guard let notes = update.releaseNotes else { return nil }
         let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -138,6 +133,7 @@ private struct ReleaseNotesSection: View {
 enum UpdatePanelMetrics {
     static let padding: CGFloat = 20
     static let calloutCornerRadius: CGFloat = 10
+    static let calloutInset: CGFloat = 12
 }
 
 /// Renders `html`-formatted release notes. `NSAttributedString(html:)` is

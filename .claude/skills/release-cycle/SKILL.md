@@ -98,8 +98,9 @@ Tell the user the app is running and give a per-package checklist of what to try
 
 Only after the user approves. Follow `docs/releasing.md`; do not duplicate it here.
 
-- **Draft the release notes as an unreleasable section.** Write a new top section in `CHANGELOG.md` headed `## Draft: <version> (<build>)`. That section becomes the GitHub release body, and it appears in every update window from then on, so the user reviews and finishes it by hand. `package-release.sh` refuses to package while the top heading says `Draft:`.
+- **Draft the release notes as an unreleasable section.** Write a new top section in `CHANGELOG.md` headed `## Draft: <version> (<build>)`. That section becomes the GitHub release body, and the update window shows it, so the user reviews and finishes it by hand. `package-release.sh` refuses to package while the top heading says `Draft:`.
   - Draft from what shipped: this cycle's Done issues, plus `git log <last-tag>..HEAD --no-merges --format='%s'` for work that had no issue.
+  - End it with a `### Recently` list of a few highlights from the previous three or so releases. The update window shows only the newest section, so this is what reaches a user who skipped releases.
   - Match the existing sections' voice. Use user-facing bullets that lead with the change ("Send images in chat", "Fix …"), with sub-bullets for detail. Leave out internal work (refactors, test-only changes, tooling) unless a user would notice it.
   - Leave the draft **uncommitted**, so no draft ever reaches the history.
 - Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only, to the numbers in the draft heading. Commit the bump alone (`git add Plume.xcodeproj/project.pbxproj`), leaving `CHANGELOG.md` out of the commit.

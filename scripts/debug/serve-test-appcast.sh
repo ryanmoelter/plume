@@ -1,17 +1,13 @@
 #!/bin/bash
 # Serves a local Sparkle appcast pointing at a version-bumped copy of the
 # built Debug app, so both update paths — the installer swap and the
-# scheduled background check — are testable without cutting a real release.
+# background check — are testable without cutting a real release.
 #
 # Usage:
 #   scripts/debug/serve-test-appcast.sh [version] [build]
 #   scripts/debug/serve-test-appcast.sh 1.2.3 42
 #
 # version defaults to 99.0.0, build to 9999. PORT overrides the default 8765.
-# OLDER_RELEASES adds notes sections for releases between the running build
-# and the update, as space-separated version:build pairs (default
-# "98.0.0:9998"; set it empty for none). The notes also get a section for the
-# running build itself, which both Sparkle and Plume should hide.
 #
 # Requires a Debug build already on disk
 # (xcodebuild -scheme Plume -destination 'platform=macOS' build) and the
@@ -27,8 +23,8 @@
 #   4. Points the Debug build's PlumeUpdateFeedURLOverride default at that
 #      appcast, and serves the temp dir over http://localhost:$PORT.
 #
-# Launch the Debug build and use Settings ▸ Debug — "Check in
-# background now", or wait for Sparkle's own scheduled check. Installing the
+# Launch the Debug build: it checks at launch and hourly, or use
+# Settings ▸ Debug ▸ "Check in background now". Installing the
 # update replaces the DerivedData Debug app with this bumped copy; rebuild to
 # restore the real one.
 #
@@ -40,7 +36,6 @@ set -euo pipefail
 VERSION="${1:-99.0.0}"
 BUILD="${2:-9999}"
 PORT="${PORT:-8765}"
-OLDER_RELEASES="${OLDER_RELEASES-98.0.0:9998}"
 BUNDLE_ID="com.ryanmoelter.Plume.debug"
 FEED_KEY="PlumeUpdateFeedURLOverride"
 
@@ -50,8 +45,8 @@ SPARKLE_KEY_REF="${SPARKLE_KEY_REF:-op://Plume/Plume Sparkle EdDSA/private key}"
 
 fail() { echo "FAILED: $*" >&2; exit 1; }
 
-# shellcheck source=../lib/cumulative-notes.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/cumulative-notes.sh"
+# shellcheck source=../lib/changelog.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/changelog.sh"
 
 # A "]]>" inside the notes would close the CDATA section early, so split any
 # occurrence across two sections — the standard CDATA-escaping trick.
@@ -148,34 +143,28 @@ PUB_DATE="$(LC_ALL=C date -u +'%a, %d %b %Y %H:%M:%S %z')"
 ENCLOSURE_URL="http://localhost:$PORT/$(basename "$ZIP")"
 APPCAST="$TMP/appcast.xml"
 
-HOST_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$SRC/Contents/Info.plist")"
 HOST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$SRC/Contents/Info.plist")"
 
 # A synthetic CHANGELOG.md, run through the same path a real release takes.
-test_section() {
-  cat <<NOTES
+CHANGELOG="$TMP/CHANGELOG.md"
+cat >"$CHANGELOG" <<NOTES
+# Changelog
 
-## $1 ($2)
+## $VERSION ($BUILD)
 
-This is **local test build $1** served by \`scripts/debug/serve-test-appcast.sh\`.
+This is **local test build $VERSION** served by \`scripts/debug/serve-test-appcast.sh\`.
 - Not a real release — the version and build number are made up.
 - Confirms Sparkle can find, verify, and install an update end to end.
+
+### Recently
+
+- $HOST_VERSION: whatever the running build shipped.
+- Highlights from the few releases before this one, for anyone who skipped them.
 NOTES
-}
-CHANGELOG="$TMP/CHANGELOG.md"
-{
-  printf '# Changelog\n'
-  test_section "$VERSION" "$BUILD"
-  for release in $OLDER_RELEASES; do
-    test_section "${release%%:*}" "${release##*:}"
-  done
-  test_section "$HOST_VERSION" "$HOST_BUILD"
-} >"$CHANGELOG"
 
 mkdir -p "$TMP/notes"
-DESCRIPTION_FILE="$TMP/appcast-notes.html"
-cumulative_notes "$CHANGELOG" "$TMP/notes" >"$DESCRIPTION_FILE" \
-  || fail "could not build the appcast notes"
+changelog_split "$CHANGELOG" "$TMP/notes" >/dev/null || fail "could not read the test release notes"
+NOTES_FILE="$TMP/notes/1.md"
 
 echo "--- building appcast ---"
 {
@@ -189,8 +178,8 @@ echo "--- building appcast ---"
   printf '      <sparkle:version>%s</sparkle:version>\n' "$BUILD"
   printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$VERSION"
   printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$MIN_SYSTEM_VERSION"
-  printf '      <description sparkle:format="html"><![CDATA[\n'
-  cdata_escape <"$DESCRIPTION_FILE"
+  printf '      <description sparkle:format="markdown"><![CDATA[\n'
+  cdata_escape <"$NOTES_FILE"
   printf '\n]]></description>\n'
   printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
     "$(xml_escape <<<"$ENCLOSURE_URL")" "$ED_SIGNATURE" "$ZIP_LENGTH"
@@ -210,8 +199,8 @@ echo "appcast: http://localhost:$PORT/appcast.xml"
 echo "update:  $ENCLOSURE_URL"
 echo
 echo "Launch the Debug build, then Settings ▸ Debug:"
-echo "  - \"Check in background now\" exercises the scheduled/gentle path."
-echo "  - Or wait for Sparkle's own scheduled check."
+echo "  - \"Check in background now\" runs the scheduled check now."
+echo "  - Or relaunch: every launch checks."
 echo
 echo "Installing the update replaces the DerivedData Debug app"
 echo "  ($SRC)"

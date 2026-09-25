@@ -13,7 +13,7 @@ enum HomebrewUpgrade {
     /// behind Terminal while brew waits. Expires in case the upgrade fails
     /// before it quits Plume, so a later ⌘Q still asks.
     @MainActor private static var quitConfirmedAt: Date?
-    private static let quitConfirmationLifetime: TimeInterval = 10 * 60
+    private static let quitConfirmationLifetime: TimeInterval = 5 * 60
 
     @MainActor
     static var isQuitConfirmed: Bool {
@@ -21,13 +21,15 @@ enum HomebrewUpgrade {
         return Date().timeIntervalSince(quitConfirmedAt) < quitConfirmationLifetime
     }
 
-    /// The `.command` script: upgrade, then reopen Plume, since brew quits
-    /// it and nothing else relaunches it.
+    /// The `.command` script: update brew's taps, upgrade, then reopen Plume,
+    /// since brew quits it and nothing else relaunches it. The explicit
+    /// `brew update` matters because brew skips its own auto-update when one
+    /// ran recently, which can leave the tap behind the appcast.
     static func script(brewPath: String, bundleID: String) -> String {
         """
         #!/bin/sh
         rm -f "$0"
-        \(shellQuoted(brewPath)) upgrade --cask ryanmoelter/tap/plume && open -b \(shellQuoted(bundleID))
+        \(shellQuoted(brewPath)) update && \(shellQuoted(brewPath)) upgrade --cask ryanmoelter/tap/plume && open -b \(shellQuoted(bundleID))
 
         """
     }

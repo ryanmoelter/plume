@@ -10,13 +10,22 @@ import Sparkle
 /// dismissed. It only ever shows as a row in the sidebar footer, and the
 /// user opens details — Sparkle's install window, or the Homebrew panel —
 /// only when they choose to.
+///
+/// Plume schedules its own background checks with
+/// `checkForUpdateInformation()` rather than letting Sparkle schedule them.
+/// Sparkle's scheduled check opens a session that holds the first update it
+/// found until relaunch, so a newer release would never replace it in the
+/// row; an information check holds no session and reports afresh each time.
 @MainActor
 @Observable
 final class UpdateController: NSObject {
     static let shared = UpdateController()
 
     private static let feedURLOverrideKey = "PlumeUpdateFeedURLOverride"
+    private static let lastUpdateCheckDateKey = "PlumeLastUpdateCheckDate"
     static let homebrewUpgradeCommand = "brew upgrade --cask ryanmoelter/tap/plume"
+
+    private static let checkInterval: TimeInterval = 60 * 60
 
     /// Detected once at launch: the Homebrew prefix whose Caskroom holds
     /// Plume, if any. `installSource` prefers an explicit `AppSettings`
@@ -26,6 +35,7 @@ final class UpdateController: NSObject {
 
     private var controller: SPUStandardUpdaterController!
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var checkTimer: Timer?
 
     /// Set before a user-initiated Homebrew check with no update already
     /// known, so the completing callback knows to surface a result instead
@@ -33,20 +43,17 @@ final class UpdateController: NSObject {
     private var pendingUserBrewCheck = false
 
     private(set) var isRunning = false
-    /// The last update Sparkle found, or nil. In Homebrew mode this is not
-    /// re-verified by a later check: Sparkle's own session stays on the
-    /// first update it found until the app relaunches, so a newer release
-    /// isn't seen until then.
     var availableUpdate: AvailableUpdate?
     private(set) var canCheckForUpdates = false
-    private(set) var lastUpdateCheckDate: Date?
+    private(set) var lastUpdateCheckDate: Date? {
+        didSet { UserDefaults.standard.set(lastUpdateCheckDate, forKey: Self.lastUpdateCheckDateKey) }
+    }
 
-    /// Forwards to `SPUUpdater.automaticallyChecksForUpdates`, mirrored into
-    /// a stored property so reading it in a view registers as an Observation
-    /// dependency.
     var automaticallyChecksForUpdates: Bool {
-        didSet {
-            controller.updater.automaticallyChecksForUpdates = automaticallyChecksForUpdates
+        get { AppSettings.shared.automaticallyChecksForUpdates }
+        set {
+            AppSettings.shared.automaticallyChecksForUpdates = newValue
+            checkAutomatically()
         }
     }
 
@@ -61,17 +68,15 @@ final class UpdateController: NSObject {
 
     private override init() {
         homebrewPrefix = HomebrewCaskDetector.caskPrefix()
-        automaticallyChecksForUpdates = true
+        lastUpdateCheckDate = UserDefaults.standard.object(forKey: Self.lastUpdateCheckDateKey) as? Date
         super.init()
 
         controller = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: self,
-            userDriverDelegate: self
+            userDriverDelegate: nil
         )
-        automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
         observeCanCheckForUpdates()
-        observeLastUpdateCheckDate()
     }
 
     private func observeCanCheckForUpdates() {
@@ -79,14 +84,6 @@ final class UpdateController: NSObject {
         controller.updater
             .publisher(for: \.canCheckForUpdates)
             .sink { [weak self] in self?.canCheckForUpdates = $0 }
-            .store(in: &cancellables)
-    }
-
-    private func observeLastUpdateCheckDate() {
-        lastUpdateCheckDate = controller.updater.lastUpdateCheckDate
-        controller.updater
-            .publisher(for: \.lastUpdateCheckDate)
-            .sink { [weak self] in self?.lastUpdateCheckDate = $0 }
             .store(in: &cancellables)
     }
 
@@ -98,6 +95,9 @@ final class UpdateController: NSObject {
         #if DEBUG
         guard feedURLOverride != nil else { return }
         #endif
+        // Sparkle persists this in user defaults, which outrank the
+        // Info.plist value, so the plist alone can't keep it off.
+        controller.updater.automaticallyChecksForUpdates = false
         do {
             try controller.updater.start()
             isRunning = true
@@ -107,7 +107,16 @@ final class UpdateController: NSObject {
             // which breaks the no-interruption rule at launch — go through
             // `SPUUpdater.start()` directly instead, which only throws.
             Log.app.error("UpdateController failed to start: \(error.localizedDescription, privacy: .public)")
+            return
         }
+        // A timer never wakes a sleeping Mac; one that came due during sleep
+        // fires once on wake.
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { _ in
+            MainActor.assumeIsolated { UpdateController.shared.checkAutomatically() }
+        }
+        timer.tolerance = 5 * 60
+        checkTimer = timer
+        checkAutomatically()
     }
 
     private var feedURLOverride: String? {
@@ -115,6 +124,19 @@ final class UpdateController: NSObject {
             return nil
         }
         return value
+    }
+
+    private func checkAutomatically() {
+        guard automaticallyChecksForUpdates else { return }
+        checkInBackground()
+    }
+
+    /// A silent check: it updates the sidebar row and nothing else.
+    private func checkInBackground() {
+        // While a session is open — Sparkle's window, say —
+        // checkForUpdateInformation() does nothing and never calls back.
+        guard isRunning, canCheckForUpdates else { return }
+        controller.updater.checkForUpdateInformation()
     }
 
     /// Opens details on an already-known update, for the sidebar row (which
@@ -126,9 +148,17 @@ final class UpdateController: NSObject {
             controller.updater.checkForUpdates()
         case .homebrew:
             if let availableUpdate {
-                UpdatePanelWindow.show(update: availableUpdate)
+                showHomebrewWindow(update: availableUpdate)
             }
         }
+    }
+
+    /// Refreshes behind the window, since the update it shows may be hours
+    /// old. The window follows `availableUpdate`, so a newer release
+    /// replaces it in place.
+    private func showHomebrewWindow(update: AvailableUpdate) {
+        UpdatePanelWindow.show(update: update)
+        checkInBackground()
     }
 
     /// A user-initiated check, from the menu or Settings. Unlike a
@@ -147,7 +177,7 @@ final class UpdateController: NSObject {
             controller.updater.checkForUpdates()
         case .homebrew:
             if let availableUpdate {
-                UpdatePanelWindow.show(update: availableUpdate)
+                showHomebrewWindow(update: availableUpdate)
             } else if canCheckForUpdates {
                 pendingUserBrewCheck = true
                 controller.updater.checkForUpdateInformation()
@@ -185,8 +215,8 @@ final class UpdateController: NSObject {
 
 #if DEBUG
 /// Backs the "Updates (Debug)" Settings section (`UpdatesDebugSection`), so
-/// both update paths — the installer swap and the scheduled background check
-/// — are exercisable without reinstalling.
+/// both update paths — the installer swap and the background check — are
+/// exercisable without reinstalling.
 extension UpdateController {
     /// The raw `PlumeUpdateFeedURLOverride` user default. Empty when unset.
     var debugFeedURLOverride: String {
@@ -210,23 +240,21 @@ extension UpdateController {
         }
     }
 
-    /// The scheduled/gentle path: a row-only background check, with no
-    /// window even when an update is found — unlike `checkForUpdates()`,
-    /// which a user-initiated action is allowed to surface a window for.
+    /// Runs the scheduled check now, ignoring whether it's due.
     func debugCheckForUpdatesInBackground() {
-        controller.updater.checkForUpdatesInBackground()
+        checkInBackground()
     }
 
-    /// Clears Sparkle's own skipped-version and last-check state, plus
+    /// Clears Sparkle's skipped-version state and the last-check date, plus
     /// Plume's own record of a found update, so the next check behaves like
-    /// the very first one. Sparkle has no API to close a gentle-reminder
-    /// session it already has open — that needs a relaunch to fully reset.
+    /// the very first one.
     func debugResetUpdateState() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: "SUSkippedVersion")
         defaults.removeObject(forKey: "SUSkippedMajorVersion")
         defaults.removeObject(forKey: "SUSkippedMajorSubreleaseVersion")
         defaults.removeObject(forKey: "SULastCheckTime")
+        lastUpdateCheckDate = nil
         availableUpdate = nil
     }
 }
@@ -271,44 +299,17 @@ extension UpdateController: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        let foundNoUpdate = (error as NSError?)?.code == Int(SUError.noUpdateError.rawValue)
+        if error == nil || foundNoUpdate {
+            lastUpdateCheckDate = .now
+        }
         // A safety net for a check that failed outright (e.g. no network):
         // neither `didFindValidUpdate` nor `updaterDidNotFindUpdate` fires to
-        // clear the flag in that case. `updaterDidNotFindUpdate` already
-        // answered a `SUNoUpdateError`.
-        if pendingUserBrewCheck, installSource == .homebrew, let error,
-           (error as NSError).code != Int(SUError.noUpdateError.rawValue) {
+        // clear the flag in that case.
+        if pendingUserBrewCheck, installSource == .homebrew, let error, !foundNoUpdate {
             presentCheckFailedAlert(error)
         }
-        // `lastUpdateCheckDate` is kept in sync by its own KVO publisher, not here.
         pendingUserBrewCheck = false
-    }
-}
-
-// MARK: - SPUStandardUserDriverDelegate
-
-extension UpdateController: SPUStandardUserDriverDelegate {
-    var supportsGentleScheduledUpdateReminders: Bool { true }
-
-    /// Always `false`: nothing about a scheduled check ever shows Sparkle's
-    /// own UI. `didFindValidUpdate` already recorded `availableUpdate`,
-    /// which is Plume's own gentle reminder — the sidebar row.
-    func standardUserDriverShouldHandleShowingScheduledUpdate(
-        _ update: SUAppcastItem,
-        andInImmediateFocus immediateFocus: Bool
-    ) -> Bool {
-        false
-    }
-
-    /// Required once the method above can return `false`: Sparkle's header
-    /// says the delegate must record the update here when it declines to let
-    /// the standard driver show it. `didFindValidUpdate` still does the same
-    /// for `checkForUpdateInformation`, which never reaches the user driver.
-    func standardUserDriverWillHandleShowingUpdate(
-        _ handleShowingUpdate: Bool,
-        forUpdate update: SUAppcastItem,
-        state: SPUUserUpdateState
-    ) {
-        availableUpdate = AvailableUpdate(item: update)
     }
 }
 
@@ -317,60 +318,14 @@ extension UpdateController: SPUStandardUserDriverDelegate {
 struct AvailableUpdate: Equatable {
     let displayVersion: String
     let fullReleaseNotesURL: URL?
-    /// Every release since the running build, newest first, when the notes
-    /// are cumulative; otherwise just this update's.
-    let releases: [UpdateRelease]
+    let releaseNotes: String?
+    let releaseNotesFormat: ReleaseNotesFormat
 
     init(item: SUAppcastItem) {
         displayVersion = item.displayVersionString
         fullReleaseNotesURL = item.fullReleaseNotesURL
-        let hostBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        releases = item.itemDescription.flatMap { CumulativeReleaseNotes.releases(in: $0, hostBuild: hostBuild) }
-            ?? [UpdateRelease(
-                build: item.versionString,
-                displayVersion: item.displayVersionString,
-                releaseNotes: item.itemDescription,
-                releaseNotesFormat: ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
-            )]
-    }
-}
-
-struct UpdateRelease: Equatable, Identifiable {
-    let build: String
-    let displayVersion: String
-    let releaseNotes: String?
-    let releaseNotesFormat: ReleaseNotesFormat
-
-    var id: String { build }
-}
-
-/// Reads the cumulative appcast notes `scripts/lib/cumulative-notes.sh`
-/// writes: one `<section data-sparkle-version>` per release, each carrying
-/// its markdown source in a `<script type="text/markdown">` block.
-enum CumulativeReleaseNotes {
-    /// The sections newer than `hostBuild`, newest first, or nil when the
-    /// notes aren't cumulative. Keeps the newest section even if the host
-    /// somehow outruns it, so the window never shows no notes at all.
-    static func releases(in html: String, hostBuild: String) -> [UpdateRelease]? {
-        let pattern = /<section data-sparkle-version="([^"]*)">.*?<script type="text\/markdown" data-plume-version="([^"]*)">\n?(.*?)\n?<\/script>/
-            .dotMatchesNewlines()
-        let sections = html.matches(of: pattern).map { match in
-            (
-                build: String(match.1),
-                release: UpdateRelease(
-                    build: String(match.1),
-                    displayVersion: String(match.2),
-                    releaseNotes: String(match.3).replacingOccurrences(of: "<\\/", with: "</"),
-                    releaseNotesFormat: .markdown
-                )
-            )
-        }
-        guard let newest = sections.first else { return nil }
-        let comparator = SUStandardVersionComparator.default
-        let unseen = sections
-            .filter { comparator.compareVersion($0.build, toVersion: hostBuild) == .orderedDescending }
-            .map(\.release)
-        return unseen.isEmpty ? [newest.release] : unseen
+        releaseNotes = item.itemDescription
+        releaseNotesFormat = ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
     }
 }
 

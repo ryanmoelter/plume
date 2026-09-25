@@ -42,6 +42,8 @@ Verifying the Debug build before merging is the real gate; the Release verificat
 
 Then add a section at the top of `CHANGELOG.md` headed `## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`. `package-release.sh` refuses to build without it. A drafted section is headed `## Draft: <version> (<build>)`, and the script refuses to package that too. Leave a draft uncommitted. Once you've reviewed the notes and removed `Draft: `, commit the section.
 
+End the section with a `### Recently` list: a few highlights from the releases before this one. The update window shows only the newest section, so this list is all a user who skipped releases learns about them.
+
 ### 2. Build, test, install
 
 Merge to `main` first — see the note above the steps. The Release build and everything after it happen on `main`, so the tag names a commit that stays reachable.
@@ -242,6 +244,8 @@ scripts/package-release.sh
 
 The second run reuses nothing — it rebuilds and re-notarizes, which takes the same few minutes. It also refuses if the tag points anywhere but `HEAD`, so the DMG and the tagged source always agree.
 
+**Before publishing, update a real install to the candidate.** On a second Mac or a VM, install the previous release's DMG. Serve the new DMG and `out/appcast.xml` locally, point that install at the feed (step 4 of *Testing an update end-to-end*), and install the update through Sparkle. Plume must relaunch as the new version. This is the only check of the Developer ID signature, the EdDSA signature and the installer together; a failure here strands every DMG user on the old version.
+
 Then review the draft on GitHub and publish it:
 
 ```
@@ -296,11 +300,7 @@ The private key that signs each update lives only in 1Password, at `op://Plume/P
 
 `SUFeedURL`, set in `Configuration/Info.plist`, is fixed: `https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml`. Every release has to publish an `appcast.xml` describing itself, as a release asset next to the DMG. `package-release.sh` signs the DMG with `sign_update` and writes the file.
 
-The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body. The appcast's description is **cumulative**: it holds the top ten sections, built by `scripts/lib/cumulative-notes.sh`.
-
-- Each release is a `<section data-sparkle-version="<CFBundleVersion>">`, rendered to HTML through GitHub's markdown API. Sparkle marks the section matching the running build `sparkle-installed-version`, and a stylesheet hides it and every older one. A user who skipped releases sees what they missed.
-- Each section also embeds its markdown source in a `<script type="text/markdown">` block. The Homebrew update window renders that (`CumulativeReleaseNotes`) instead of the HTML.
-- Sparkle's `markdown` format can't do this. It parses with `NSAttributedString`, which drops HTML, so the description is HTML.
+The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body and, unchanged, the appcast's description in Sparkle's `markdown` format. Its `### Recently` list covers the releases a user may have skipped.
 
 ### Signing
 
@@ -318,7 +318,7 @@ scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by
 scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
 ```
 
-It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, exercise the scheduled/gentle background check on its own, or reset Sparkle's skipped-version and last-check state. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, run the scheduled background check now, or reset the skipped version and the last-check date. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
 
 For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
 
