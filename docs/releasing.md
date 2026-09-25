@@ -40,6 +40,8 @@ Verifying the Debug build before merging is the real gate; the Release verificat
 - `MARKETING_VERSION` is the human version (`0.1.0`) and becomes `CFBundleShortVersionString`.
 - `CURRENT_PROJECT_VERSION` is the build number and becomes `CFBundleVersion`. Bump it when you want to tell two installs of the same version apart, and **always bump it for a release** — it's the value Sparkle compares to decide an update exists, so a release that doesn't increase it never reaches anyone.
 
+Then add a section at the top of `CHANGELOG.md` headed `## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`, and commit it with the bump. `package-release.sh` refuses to build without it.
+
 ### 2. Build, test, install
 
 Merge to `main` first — see the note above the steps. The Release build and everything after it happen on `main`, so the tag names a commit that stays reachable.
@@ -294,13 +296,11 @@ The private key that signs each update lives only in 1Password, at `op://Plume/P
 
 `SUFeedURL`, set in `Configuration/Info.plist`, is fixed: `https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml`. Every release has to publish an `appcast.xml` describing itself, as a release asset next to the DMG. `package-release.sh` signs the DMG with `sign_update` and writes the file.
 
-The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. `RELEASE_NOTES_FILE` (markdown) feeds both the GitHub release body and the appcast, so release notes are written once.
-
-The appcast's description is **cumulative**. It holds this release's notes plus those of up to nine earlier published releases, newest first, built by `scripts/lib/cumulative-notes.sh`:
+The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body. The appcast's description is **cumulative**: it holds the top ten sections, built by `scripts/lib/cumulative-notes.sh`.
 
 - Each release is a `<section data-sparkle-version="<CFBundleVersion>">`, rendered to HTML through GitHub's markdown API. Sparkle marks the section matching the running build `sparkle-installed-version`, and a stylesheet hides it and every older one. A user who skipped releases sees what they missed.
 - Each section also embeds its markdown source in a `<script type="text/markdown">` block. The Homebrew update window renders that (`CumulativeReleaseNotes`) instead of the HTML.
-- A past release's build number comes from `CURRENT_PROJECT_VERSION` in its tag's `project.pbxproj`, and its notes from the GitHub release body. A release whose tag isn't fetched locally is left out, with a note.
+- Sparkle's `markdown` format can't do this. It parses with `NSAttributedString`, which drops HTML, so the description is HTML.
 
 ### Signing
 

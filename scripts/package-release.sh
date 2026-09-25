@@ -16,11 +16,11 @@
 #     signed in (op signin)
 #
 # Usage: scripts/package-release.sh
-#   RELEASE_NOTES_FILE=notes.md scripts/package-release.sh
 #
-# RELEASE_NOTES_FILE points at markdown notes used for both the GitHub
-# release body and the appcast. The appcast also carries the notes of up to
-# nine earlier published releases (scripts/lib/cumulative-notes.sh).
+# Release notes come from CHANGELOG.md. Its top section must be this release
+# (`## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`); it becomes the
+# GitHub release body, and the top ten sections the appcast's notes
+# (scripts/lib/cumulative-notes.sh).
 set -uo pipefail
 
 # shellcheck source=lib/sign-bundle.sh
@@ -35,7 +35,7 @@ OUT="${OUT:-$PWD/out}"
 # The EdDSA private key used to sign updates for Sparkle's appcast. Lives in
 # 1Password, never in the keychain and never on disk — read on stdin only.
 SPARKLE_KEY_REF="${SPARKLE_KEY_REF:-op://Plume/Plume Sparkle EdDSA/private key}"
-RELEASE_NOTES_FILE="${RELEASE_NOTES_FILE:-}"
+CHANGELOG="CHANGELOG.md"
 
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $(date) packaging ==="
@@ -96,6 +96,18 @@ VERSION="$(awk '
   /PRODUCT_BUNDLE_IDENTIFIER = com\.ryanmoelter\.Plume;/ { print v; exit }
 ' Plume.xcodeproj/project.pbxproj)"
 [ -n "$VERSION" ] || fail "could not read MARKETING_VERSION"
+BUILD_NUMBER="$(awk '
+  /CURRENT_PROJECT_VERSION/ { v=$3; gsub(/;/,"",v) }
+  /PRODUCT_BUNDLE_IDENTIFIER = com\.ryanmoelter\.Plume;/ { print v; exit }
+' Plume.xcodeproj/project.pbxproj)"
+[ -n "$BUILD_NUMBER" ] || fail "could not read CURRENT_PROJECT_VERSION"
+
+# Checked before the build, so missing notes don't cost a build and a
+# notarization round trip.
+changelog_top="$(grep -m1 '^## ' "$CHANGELOG" 2>/dev/null)"
+[ "$changelog_top" = "## $VERSION ($BUILD_NUMBER)" ] \
+  || fail "$CHANGELOG must start with a \"## $VERSION ($BUILD_NUMBER)\" section for this
+  release (found \"${changelog_top:-nothing}\")"
 
 TAG="v$VERSION"
 DMG="$OUT/Plume-$VERSION.dmg"
@@ -247,21 +259,13 @@ DMG_LENGTH="$(sed -n 's/.* length="\([0-9]*\)".*/\1/p' <<<"$sig_line")"
   || fail "could not parse sign_update output: $sig_line"
 
 echo "--- building appcast ---"
-if [ -n "$RELEASE_NOTES_FILE" ]; then
-  [ -f "$RELEASE_NOTES_FILE" ] || fail "RELEASE_NOTES_FILE not found: $RELEASE_NOTES_FILE"
-  NOTES_FILE="$RELEASE_NOTES_FILE"
-else
-  NOTES_FILE="$OUT/release-notes.md"
-  cat >"$NOTES_FILE" <<NOTES
-Plume $VERSION for macOS.
-
-Open the DMG and drag Plume to Applications. Signed and notarized, so it opens
-normally — no right-click needed.
-
-On first launch macOS asks for a few permissions, since Plume spawns terminals
-and reads your Claude Code sessions.
-NOTES
-fi
+NOTES_DIR="$OUT/notes"
+mkdir -p "$NOTES_DIR"
+DESCRIPTION_FILE="$OUT/appcast-notes.html"
+cumulative_notes "$CHANGELOG" "$NOTES_DIR" >"$DESCRIPTION_FILE" \
+  || fail "could not build the appcast notes from $CHANGELOG"
+# changelog_split numbers sections from 1, newest first.
+NOTES_FILE="$NOTES_DIR/1.md"
 
 # The version in the appcast comes from the built app's own Info.plist, not
 # MARKETING_VERSION, so it agrees with what the running app reports.
@@ -276,35 +280,6 @@ PUB_DATE="$(LC_ALL=C date -u +'%a, %d %b %Y %H:%M:%S %z')"
 ENCLOSURE_URL="https://github.com/ryanmoelter/plume/releases/download/$TAG/$(basename "$DMG")"
 NOTES_LINK="https://github.com/ryanmoelter/plume/releases/tag/$TAG"
 APPCAST="$OUT/appcast.xml"
-
-# This release plus the published ones before it. A past release's build
-# number comes from its tag's project file, since Sparkle matches sections
-# on CFBundleVersion.
-DESCRIPTION_FILE="$OUT/appcast-notes.html"
-{
-  cumulative_notes_header
-  cumulative_notes_section "$CFBUNDLE_VERSION" "$CFBUNDLE_SHORT_VERSION" \
-    "Plume $CFBUNDLE_SHORT_VERSION" "$NOTES_FILE"
-  count=1
-  while read -r past_tag; do
-    [ "$count" -lt "$CUMULATIVE_NOTES_LIMIT" ] || break
-    [ "$past_tag" != "$TAG" ] || continue
-    past_build="$(git show "$past_tag:Plume.xcodeproj/project.pbxproj" 2>/dev/null \
-      | sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9]*\);.*/\1/p' | head -1)"
-    if [ -z "$past_build" ]; then
-      echo "note: no build number at $past_tag — leaving it out of the appcast notes" >&2
-      continue
-    fi
-    past_notes="$OUT/notes-$past_tag.md"
-    if ! gh release view "$past_tag" --json body --jq .body >"$past_notes"; then
-      echo "note: could not read the $past_tag release notes — leaving them out" >&2
-      continue
-    fi
-    cumulative_notes_section "$past_build" "${past_tag#v}" "${past_tag#v}" "$past_notes"
-    count=$((count + 1))
-  done < <(gh release list --exclude-drafts --exclude-pre-releases --limit 30 \
-    --json tagName --jq '.[].tagName')
-} >"$DESCRIPTION_FILE" || fail "could not build the appcast notes"
 
 # Plain CDATA (not xml_escape) so the HTML reaches Sparkle unescaped — only a
 # literal "]]>" inside the notes needs guarding.
