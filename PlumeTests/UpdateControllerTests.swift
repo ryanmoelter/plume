@@ -111,19 +111,4 @@ struct UpdateControllerTests {
     @Test func shellQuotingEscapesSingleQuotes() {
         #expect(HomebrewUpgrade.shellQuoted("it's") == "'it'\\''s'")
     }
-
-    @Test func aCheckIsDueWithNoPreviousCheck() {
-        #expect(UpdateController.isCheckDue(lastCheck: nil, now: .now))
-    }
-
-    @Test func aCheckIsDueOnceTheIntervalHasPassed() {
-        let now = Date.now
-        #expect(!UpdateController.isCheckDue(lastCheck: now.addingTimeInterval(-60), now: now))
-        #expect(UpdateController.isCheckDue(lastCheck: now.addingTimeInterval(-UpdateController.checkInterval), now: now))
-    }
-
-    @Test func aLastCheckInTheFutureIsDue() {
-        let now = Date.now
-        #expect(UpdateController.isCheckDue(lastCheck: now.addingTimeInterval(60), now: now))
-    }
 }

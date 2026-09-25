@@ -39,7 +39,7 @@ struct UpdatePanel: View, ThemedView {
 
     private var homebrewCallout: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Update with Homebrew. Plume quits during the upgrade and reopens when it's done.")
+            Text("Update with Homebrew. Plume quits during the upgrade and reopens when it's done. **Do not** run this in a Plume terminal.")
                 .font(.callout)
 
             HStack(spacing: 6) {

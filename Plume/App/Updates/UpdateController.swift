@@ -25,11 +25,7 @@ final class UpdateController: NSObject {
     private static let lastUpdateCheckDateKey = "PlumeLastUpdateCheckDate"
     static let homebrewUpgradeCommand = "brew upgrade --cask ryanmoelter/tap/plume"
 
-    static let checkInterval: TimeInterval = 3 * 60 * 60
-    /// How often the timer asks whether a check is due. Much shorter than
-    /// `checkInterval` so a Mac that slept through the due time checks soon
-    /// after waking.
-    private static let dueCheckInterval: TimeInterval = 15 * 60
+    private static let checkInterval: TimeInterval = 60 * 60
 
     /// Detected once at launch: the Homebrew prefix whose Caskroom holds
     /// Plume, if any. `installSource` prefers an explicit `AppSettings`
@@ -57,7 +53,7 @@ final class UpdateController: NSObject {
         get { AppSettings.shared.automaticallyChecksForUpdates }
         set {
             AppSettings.shared.automaticallyChecksForUpdates = newValue
-            checkIfDue()
+            checkAutomatically()
         }
     }
 
@@ -113,10 +109,14 @@ final class UpdateController: NSObject {
             Log.app.error("UpdateController failed to start: \(error.localizedDescription, privacy: .public)")
             return
         }
-        checkTimer = Timer.scheduledTimer(withTimeInterval: Self.dueCheckInterval, repeats: true) { _ in
-            MainActor.assumeIsolated { UpdateController.shared.checkIfDue() }
+        // A timer never wakes a sleeping Mac; one that came due during sleep
+        // fires once on wake.
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { _ in
+            MainActor.assumeIsolated { UpdateController.shared.checkAutomatically() }
         }
-        checkIfDue()
+        timer.tolerance = 5 * 60
+        checkTimer = timer
+        checkAutomatically()
     }
 
     private var feedURLOverride: String? {
@@ -126,14 +126,8 @@ final class UpdateController: NSObject {
         return value
     }
 
-    static func isCheckDue(lastCheck: Date?, now: Date) -> Bool {
-        guard let lastCheck else { return true }
-        // A last check in the future means the clock moved back.
-        return now < lastCheck || now.timeIntervalSince(lastCheck) >= checkInterval
-    }
-
-    private func checkIfDue() {
-        guard automaticallyChecksForUpdates, Self.isCheckDue(lastCheck: lastUpdateCheckDate, now: .now) else { return }
+    private func checkAutomatically() {
+        guard automaticallyChecksForUpdates else { return }
         checkInBackground()
     }
 
