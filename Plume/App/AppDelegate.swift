@@ -95,6 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if HomebrewUpgrade.isQuitConfirmed {
+            return .terminateNow
+        }
         let shouldConfirm = Self.shouldConfirmQuit(
             statuses: statusEngine.tabStatuses.values,
             isSystemInitiated: isSystemInitiatedQuit,
@@ -167,6 +170,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) -> Bool {
         let confirmationEnabled = isSystemInitiated ? confirmSystemQuit : confirmUserQuit
         guard confirmationEnabled else { return false }
-        return statuses.contains { $0 == .working || $0.wantsAttention }
+        return interruptedTabCount(statuses: statuses) > 0
+    }
+
+    /// Tabs a quit would interrupt: still working, or waiting on the user.
+    static func interruptedTabCount(statuses: some Sequence<TaskStatus>) -> Int {
+        statuses.filter { $0 == .working || $0.wantsAttention }.count
     }
 }
