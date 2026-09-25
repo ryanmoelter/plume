@@ -38,8 +38,16 @@ nonisolated enum IgnoredChecksResolver {
         configGetAll(toolKey, in: repository) + configGetAll(sharedKey, in: repository)
     }
 
-    private static func configGetAll(_ key: String, in repository: String) -> [String] {
-        (try? GitRunner.run(["config", "--get-all", key], in: repository))
+    /// Both keys from the system and global config only. Blocks on
+    /// `git config`, so call this off the main actor.
+    static func globalGitConfigNames() -> [String] {
+        ["--system", "--global"].flatMap { scope in
+            configGetAll(toolKey, in: nil, scope: scope) + configGetAll(sharedKey, in: nil, scope: scope)
+        }
+    }
+
+    private static func configGetAll(_ key: String, in repository: String?, scope: String? = nil) -> [String] {
+        (try? GitRunner.run(["config"] + (scope.map { [$0] } ?? []) + ["--get-all", key], in: repository))
             .map { $0.split(separator: "\n").map(String.init) } ?? []
     }
 }

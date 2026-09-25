@@ -318,7 +318,7 @@ scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by
 scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
 ```
 
-It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Updates (Debug)** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, exercise the scheduled/gentle background check on its own, or reset Sparkle's skipped-version and last-check state. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, exercise the scheduled/gentle background check on its own, or reset Sparkle's skipped-version and last-check state. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
 
 For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
 

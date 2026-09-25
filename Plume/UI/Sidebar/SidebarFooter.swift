@@ -1,8 +1,5 @@
 import SwiftUI
 import AppKit
-#if DEBUG
-import SwiftData
-#endif
 
 /// Pinned to the bottom of the sidebar, below the task list rather than
 /// after its last row — it stays put whether the list is empty or
@@ -20,11 +17,6 @@ struct SidebarFooter: View, ThemedView {
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
     @State private var updates = UpdateController.shared
-
-#if DEBUG
-    @Environment(\.modelContext) private var context
-    @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
-#endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,16 +46,6 @@ struct SidebarFooter: View, ThemedView {
 
                 if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }
                 if installedProviders.contains(.codex) { SidebarCodexQuotaRow() }
-
-#if DEBUG
-                Button {
-                    SidebarFixtures.seed(in: context, existingGroups: groups)
-                } label: {
-                    SidebarFooterRow(icon: "ladybug", title: "Seed Fixtures")
-                }
-                .help("Seed a \"\(SidebarFixtures.groupName)\" group covering every sidebar state")
-                .buttonStyle(SidebarFooterButtonStyle())
-#endif
 
                 Button {
                     keepAwakeShown = true

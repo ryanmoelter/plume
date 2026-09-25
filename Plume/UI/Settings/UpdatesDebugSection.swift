@@ -34,13 +34,13 @@ struct UpdatesDebugSection: View {
             }
 
             HStack {
-                Button("Check in Background Now") { updates.debugCheckForUpdatesInBackground() }
+                Button("Check in background now") { updates.debugCheckForUpdatesInBackground() }
                     .plumeID(AccessibilityID.debugUpdatesCheckBackgroundButton)
                     .disabled(!updates.isRunning || !updates.canCheckForUpdates)
                 Spacer()
             }
 
-            Button("Reset Update State") { updates.debugResetUpdateState() }
+            Button("Reset update state") { updates.debugResetUpdateState() }
                 .plumeID(AccessibilityID.debugUpdatesResetStateButton)
         } header: {
             Text("Updates (Debug)")
@@ -59,7 +59,7 @@ struct UpdatesDebugSection: View {
 
     private var footerText: String {
         var notes = [
-            "Check in Background exercises the gentle scheduled path — a sidebar row only, never a window. " +
+            "Check in background now exercises the gentle scheduled path — a sidebar row only, never a window. " +
                 "Reset clears Sparkle's skipped-version and last-check state; an open gentle-reminder session " +
                 "can't be closed this way and needs a relaunch to fully reset.",
         ]

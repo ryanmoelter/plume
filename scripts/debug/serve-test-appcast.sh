@@ -27,8 +27,8 @@
 #   4. Points the Debug build's PlumeUpdateFeedURLOverride default at that
 #      appcast, and serves the temp dir over http://localhost:$PORT.
 #
-# Launch the Debug build and use Settings ▸ Updates (Debug) — "Check in
-# Background Now", or wait for Sparkle's own scheduled check. Installing the
+# Launch the Debug build and use Settings ▸ Debug — "Check in
+# background now", or wait for Sparkle's own scheduled check. Installing the
 # update replaces the DerivedData Debug app with this bumped copy; rebuild to
 # restore the real one.
 #
@@ -209,8 +209,8 @@ echo "=== serving on http://localhost:$PORT ==="
 echo "appcast: http://localhost:$PORT/appcast.xml"
 echo "update:  $ENCLOSURE_URL"
 echo
-echo "Launch the Debug build, then Settings ▸ Updates (Debug):"
-echo "  - \"Check in Background Now\" exercises the scheduled/gentle path."
+echo "Launch the Debug build, then Settings ▸ Debug:"
+echo "  - \"Check in background now\" exercises the scheduled/gentle path."
 echo "  - Or wait for Sparkle's own scheduled check."
 echo
 echo "Installing the update replaces the DerivedData Debug app"

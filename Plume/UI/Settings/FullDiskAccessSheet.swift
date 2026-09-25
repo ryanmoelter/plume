@@ -42,7 +42,7 @@ struct FullDiskAccessSheet: View {
 
             HStack {
                 Spacer()
-                Button("Don't Ask Again", action: onDismiss)
+                Button("Don't ask again", action: onDismiss)
                     .keyboardShortcut(.cancelAction)
                     .plumeID(AccessibilityID.fullDiskAccessDismissButton)
 

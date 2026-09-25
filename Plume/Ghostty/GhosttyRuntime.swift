@@ -42,6 +42,11 @@ final class GhosttyRuntime {
     /// family, which is how a variable font's named instances are reached.
     private(set) var resolvedCodeFontStyle: String?
 
+    /// The theme names the user's config declares and resolved to. Nil when
+    /// the config names no theme or its theme failed to load, so the bundled
+    /// default is in use.
+    private(set) var configThemeNames: GhosttyThemeResolver.ThemeNames?
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
@@ -50,18 +55,11 @@ final class GhosttyRuntime {
 
         loadedConfigPath = GhosttyConfigLoader.userConfigPath()
 
-        var resolvedTheme = TerminalTheme()
+        let expanded = loadedConfigPath.flatMap { GhosttyConfigLoader.expandConfig(rootPath: $0) }
+        let resolvedTheme = resolveTheme(in: expanded)
         var configSource: TerminalController.ConfigSource = .none
 
-        if let loadedConfigPath,
-           let expanded = GhosttyConfigLoader.expandConfig(rootPath: loadedConfigPath) {
-            resolvedThemeDefinitions = resolveThemeDefinitions(in: expanded)
-            if let definitions = resolvedThemeDefinitions {
-                resolvedTheme = TerminalTheme(
-                    light: definitions.light?.toTerminalConfiguration() ?? .init(),
-                    dark: definitions.dark?.toTerminalConfiguration() ?? .init()
-                )
-            }
+        if let expanded {
             resolvedCodeFontFamily = GhosttyConfigLoader.resolvedFontFamily(in: expanded)
             resolvedCodeFontWeight = GhosttyConfigLoader.resolvedFontWeight(in: expanded)
             resolvedCodeFontStyle = GhosttyConfigLoader.resolvedFontStyle(in: expanded)
@@ -81,6 +79,35 @@ final class GhosttyRuntime {
         }
 
         Log.ghostty.info("Ghostty runtime started (config: \(self.loadedConfigPath ?? "built-in defaults", privacy: .public))")
+    }
+
+    /// Re-reads the theme from the user's config and applies it to every
+    /// terminal and to the app's chrome. The rest of the config still needs a
+    /// relaunch: the wrapper takes it only when the controller is created.
+    func reloadTheme() {
+        guard let controller else { return }
+        loadedConfigPath = GhosttyConfigLoader.userConfigPath()
+        let expanded = loadedConfigPath.flatMap { GhosttyConfigLoader.expandConfig(rootPath: $0) }
+        controller.setTheme(resolveTheme(in: expanded))
+        Log.ghostty.info("Ghostty theme reloaded")
+    }
+
+    /// Sets `resolvedThemeDefinitions` and `configThemeNames` from the config,
+    /// returning the theme to hand the controller.
+    private func resolveTheme(in expanded: GhosttyConfigLoader.ExpandedConfig?) -> TerminalTheme {
+        resolvedThemeDefinitions = expanded.flatMap { resolveThemeDefinitions(in: $0) }
+        configThemeNames = nil
+        guard let expanded, let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
+        if GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {
+            configThemeNames = GhosttyThemeResolver.ThemeNames(
+                light: definitions.light?.name,
+                dark: definitions.dark?.name
+            )
+        }
+        return TerminalTheme(
+            light: definitions.light?.toTerminalConfiguration() ?? .init(),
+            dark: definitions.dark?.toTerminalConfiguration() ?? .init()
+        )
     }
 
     /// The wrapper never resolves a config file's `theme = name` directive

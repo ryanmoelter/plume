@@ -112,6 +112,13 @@ struct StatusNotifierBodyTests {
         #expect(StatusNotifier.body(for: .awaitingReply, notifiesOnTurnEnd: true) != nil)
     }
 
+    @Test func statesThatNeedTheUserNotifyOnlyWhenAskedTo() {
+        for status in [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput, .error] {
+            #expect(StatusNotifier.body(for: status, notifiesOnTurnEnd: true, notifiesWhenNeeded: false) == nil, "\(status)")
+        }
+        #expect(StatusNotifier.body(for: .awaitingReply, notifiesOnTurnEnd: true, notifiesWhenNeeded: false) != nil)
+    }
+
     /// The setting covers the finished turn alone — a state that wants an
     /// answer notifies either way.
     @Test func theTurnEndSettingLeavesTheOtherStatusesAlone() {

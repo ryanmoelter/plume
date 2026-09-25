@@ -84,5 +84,7 @@ struct PlumeApp: App {
         Settings {
             SettingsView()
         }
+        .modelContainer(modelContainer)
+        .defaultSize(width: 796, height: 492)
     }
 }

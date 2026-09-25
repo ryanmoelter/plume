@@ -97,7 +97,7 @@ struct ComposerSettings {
     var permissionPresets: [AgentPermissionPreset] {
         if provider == .codex {
             return AgentPermissionPreset.offeredCodexProfiles(CodexCatalogStore.shared.profiles(for: tab.id),
-                showsFullAccess: AppSettings.shared.showsBypassPermissions)
+                showsFullAccess: AppSettings.shared.showsCodexFullAccess)
         }
         return PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)
             .map { AgentPermissionPreset(id: $0.rawValue, label: $0.label) }
@@ -182,7 +182,7 @@ struct ComposerSettings {
         tab.effort = nil
         tab.isEffortUserChosen = false
         tab.permissionModeRaw = nil
-        tab.codexCollaborationMode = .default
+        tab.codexCollaborationMode = provider == .codex ? AppSettings.shared.defaultCodexCollaborationMode : .default
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         return true
     }

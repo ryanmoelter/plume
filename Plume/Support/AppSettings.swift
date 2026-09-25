@@ -31,6 +31,7 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
+        static let notifiesWhenNeeded = "notifiesWhenNeeded"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
@@ -39,6 +40,8 @@ final class AppSettings {
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
+        static let showsCodexFullAccess = "showsCodexFullAccess"
+        static let defaultCodexCollaborationModeRaw = "defaultCodexCollaborationModeRaw"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
@@ -108,6 +111,9 @@ final class AppSettings {
             forKey: Key.defaultCodexPermissionProfileRaw
         ) ?? AgentPermissionPreset.codexWorkspace.id
 
+        self.defaultCodexCollaborationMode = defaults.string(forKey: Key.defaultCodexCollaborationModeRaw)
+            .flatMap(CodexCollaborationMode.init(rawValue:)) ?? .default
+
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
             .flatMap { raw in AgentProviderKind.claudeCode.efforts.first { $0.rawValue == raw } } ?? Self.defaultEffort
 
@@ -127,6 +133,9 @@ final class AppSettings {
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
+        self.notifiesWhenNeeded = defaults.object(forKey: Key.notifiesWhenNeeded) == nil
+            ? true
+            : defaults.bool(forKey: Key.notifiesWhenNeeded)
 
         self.keepAwakeMode = defaults.string(forKey: Key.keepAwakeModeRaw)
             .flatMap(KeepAwakeMode.init(rawValue:)) ?? .auto
@@ -158,6 +167,13 @@ final class AppSettings {
         // Unset reads as false: bypassing every permission check is worth
         // opting into, not stumbling onto.
         self.showsBypassPermissions = defaults.bool(forKey: Key.showsBypassPermissions)
+        // Unset inherits the bypass setting, so someone who already opted
+        // into bypass keeps seeing full access. Written back so the two stop
+        // tracking each other from here on.
+        if defaults.object(forKey: Key.showsCodexFullAccess) == nil {
+            defaults.set(defaults.bool(forKey: Key.showsBypassPermissions), forKey: Key.showsCodexFullAccess)
+        }
+        self.showsCodexFullAccess = defaults.bool(forKey: Key.showsCodexFullAccess)
 
         // A binding blob that no longer decodes falls back to the defaults
         // rather than failing the launch.
@@ -285,6 +301,12 @@ final class AppSettings {
         }
     }
 
+    var defaultCodexCollaborationMode: CodexCollaborationMode {
+        didSet {
+            defaults.set(defaultCodexCollaborationMode.rawValue, forKey: Key.defaultCodexCollaborationModeRaw)
+        }
+    }
+
     var defaultCodexPermissionProfile: AgentPermissionPreset {
         AgentPermissionPreset.codexPresets.first { $0.id == defaultCodexPermissionProfileRaw }
             ?? .codexWorkspace
@@ -408,11 +430,18 @@ final class AppSettings {
 
     /// Whether a tab finishing its turn posts a notification. Off by default:
     /// a turn ends every time the agent stops talking, so notifying on each
-    /// one is far chattier than the states that actually need an answer,
-    /// which notify regardless of this setting.
+    /// one is far chattier than the states that actually need an answer.
     var notifiesOnTurnEnd: Bool {
         didSet {
             defaults.set(notifiesOnTurnEnd, forKey: Key.notifiesOnTurnEnd)
+        }
+    }
+
+    /// Whether a tab that needs the user — a question, a permission, a plan
+    /// to approve, an error — posts a notification. On by default.
+    var notifiesWhenNeeded: Bool {
+        didSet {
+            defaults.set(notifiesWhenNeeded, forKey: Key.notifiesWhenNeeded)
         }
     }
 
@@ -473,6 +502,13 @@ final class AppSettings {
     var showsBypassPermissions: Bool {
         didSet {
             defaults.set(showsBypassPermissions, forKey: Key.showsBypassPermissions)
+        }
+    }
+
+    /// Whether the Codex permission pickers offer full access.
+    var showsCodexFullAccess: Bool {
+        didSet {
+            defaults.set(showsCodexFullAccess, forKey: Key.showsCodexFullAccess)
         }
     }
 

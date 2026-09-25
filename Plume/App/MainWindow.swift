@@ -11,6 +11,8 @@ struct MainWindow: View {
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
     @State private var importShown = false
+    @State private var importRequest = ImportRequest.shared
+    @State private var hostWindow: NSWindow?
     @State private var fullDiskAccessShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -74,6 +76,19 @@ struct MainWindow: View {
         }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
         .focusedSceneValue(\.showImportAction) { importShown = true }
+        .background {
+            WindowProbe { window in
+                guard hostWindow !== window else { return }
+                hostWindow = window
+                if let window { importRequest.register(window) }
+            }
+            .allowsHitTesting(false)
+        }
+        .onChange(of: importRequest.targetWindowNumber) {
+            guard importRequest.take(for: hostWindow) else { return }
+            hostWindow?.makeKeyAndOrderFront(nil)
+            importShown = true
+        }
         .focusedSceneValue(\.selectAdjacentTask) { offset in
             let destination = SidebarKeyboardNavigation.destination(
                 from: selection,

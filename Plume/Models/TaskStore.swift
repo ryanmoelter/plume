@@ -43,6 +43,9 @@ enum TaskStore {
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         tab.provider = AppSettings.shared.defaultProvider
         tab.transport = tab.provider.resolvedTransport(preferring: AppSettings.shared.defaultAgentTransport)
+        if tab.provider == .codex {
+            tab.codexCollaborationMode = AppSettings.shared.defaultCodexCollaborationMode
+        }
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -75,6 +78,9 @@ enum TaskStore {
             tab.transport = provider.resolvedTransport(
                 preferring: AppSettings.shared.defaultAgentTransport
             )
+            if provider == .codex {
+                tab.codexCollaborationMode = AppSettings.shared.defaultCodexCollaborationMode
+            }
         }
         context.insert(tab)
         task.tabs.append(tab)
