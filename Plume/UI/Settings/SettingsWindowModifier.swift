@@ -1,18 +1,15 @@
-#if DEBUG
 import AppKit
 import SwiftUI
 
 /// Tints the Settings window with the terminal theme, the way `ThemeChrome`
-/// tints the main window. Debug-only while it is tried out.
-struct SettingsThemeModifier: ViewModifier {
-    static let key = "debugThemesSettingsWindow"
-
-    @AppStorage(Self.key) private var isEnabled = false
+/// tints the main window, and makes it resizable — the `Settings` scene
+/// builds a fixed-size window whatever its `windowResizability`.
+struct SettingsWindowModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @State private var window: NSWindow?
 
     func body(content: Content) -> some View {
-        let background = isEnabled ? ThemeChrome.background(for: colorScheme) : nil
+        let background = ThemeChrome.background(for: colorScheme)
         let foreground = ThemeChrome.foreground(for: colorScheme)
         content
             .scrollContentBackground(background == nil ? .automatic : .hidden)
@@ -24,15 +21,14 @@ struct SettingsThemeModifier: ViewModifier {
                 }
                 .allowsHitTesting(false)
             }
-            .onChange(of: window) { tintTitlebar() }
-            .onChange(of: isEnabled) { tintTitlebar() }
+            .onChange(of: window) { configure() }
     }
 
-    private func tintTitlebar() {
+    private func configure() {
         guard let window else { return }
-        let tint = isEnabled ? ThemeChrome.titlebarBackground() : nil
+        window.styleMask.insert(.resizable)
+        let tint = ThemeChrome.titlebarBackground()
         window.titlebarAppearsTransparent = tint != nil
         window.backgroundColor = tint
     }
 }
-#endif

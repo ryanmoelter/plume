@@ -38,6 +38,13 @@ nonisolated enum IgnoredChecksResolver {
         configGetAll(toolKey, in: repository) + configGetAll(sharedKey, in: repository)
     }
 
+    /// Both keys outside any repository, which is the global and system
+    /// config. Blocks on `git config`, so call this off the main actor.
+    static func globalGitConfigNames() -> [String] {
+        let home = NSHomeDirectory()
+        return configGetAll(toolKey, in: home) + configGetAll(sharedKey, in: home)
+    }
+
     private static func configGetAll(_ key: String, in repository: String) -> [String] {
         (try? GitRunner.run(["config", "--get-all", key], in: repository))
             .map { $0.split(separator: "\n").map(String.init) } ?? []

@@ -10,37 +10,11 @@ struct GeneralSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    TextField("Default (inside each repo)", text: worktreeBasePathBinding)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Choose…", action: chooseBasePath)
-                    if settings.worktreeBasePath != nil {
-                        Button("Reset") { settings.worktreeBasePath = nil }
-                    }
-                }
+                fullDiskAccessRow
             } header: {
-                Text("Worktree Base Path")
+                Text("Permissions")
             } footer: {
-                Text("By default, a new worktree goes in the repository's .plume/worktrees folder.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Notify when an agent finishes its turn", isOn: $settings.notifiesOnTurnEnd)
-            } header: {
-                Text("Notifications")
-            } footer: {
-                Text("An agent that needs your answer notifies you unless you are looking at its tab.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
-                Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
-            } header: {
-                Text("Quit Confirmation")
-            } footer: {
-                Text("Quitting stops every running agent. A confirmation on logout, restart, or shutdown holds the Mac until you answer it.")
+                Text("Restart \(AppIdentity.displayName) after you change this.")
                     .foregroundStyle(.secondary)
             }
 
@@ -56,18 +30,44 @@ struct GeneralSettingsPane: View {
                         .foregroundStyle(.red)
                 }
             } header: {
-                Text("Command Line")
+                Text("Command line")
             } footer: {
                 Text("Links plume-notify into ~/.local/bin. Run `plume-notify \"Build finished\"` in a terminal tab to post a notification from that tab.")
                     .foregroundStyle(.secondary)
             }
 
             Section {
-                fullDiskAccessRow
+                Toggle("Confirm before quitting while an agent is working", isOn: $settings.confirmQuitWhileWorking)
+                Toggle("Also confirm on logout, restart, or shutdown", isOn: $settings.confirmSystemInitiatedQuit)
             } header: {
-                Text("Permissions")
+                Text("Quit confirmation")
             } footer: {
-                Text("Restart \(AppIdentity.displayName) after you change this.")
+                Text("Quitting stops every running agent. A confirmation on logout, restart, or shutdown holds the Mac until you answer it.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Notify when an agent finishes its turn", isOn: $settings.notifiesOnTurnEnd)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text("An agent that needs your answer notifies you unless you are looking at its tab.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    TextField("Default (inside each repo)", text: worktreeBasePathBinding)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…", action: chooseBasePath)
+                    if settings.worktreeBasePath != nil {
+                        Button("Reset") { settings.worktreeBasePath = nil }
+                    }
+                }
+            } header: {
+                Text("Worktree base path")
+            } footer: {
+                Text("By default, a new worktree goes in the repository's .plume/worktrees folder.")
                     .foregroundStyle(.secondary)
             }
         }

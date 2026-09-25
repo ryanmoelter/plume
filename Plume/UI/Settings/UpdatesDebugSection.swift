@@ -34,13 +34,13 @@ struct UpdatesDebugSection: View {
             }
 
             HStack {
-                Button("Check in Background Now") { updates.debugCheckForUpdatesInBackground() }
+                Button("Check in background now") { updates.debugCheckForUpdatesInBackground() }
                     .plumeID(AccessibilityID.debugUpdatesCheckBackgroundButton)
                     .disabled(!updates.isRunning || !updates.canCheckForUpdates)
                 Spacer()
             }
 
-            Button("Reset Update State") { updates.debugResetUpdateState() }
+            Button("Reset update state") { updates.debugResetUpdateState() }
                 .plumeID(AccessibilityID.debugUpdatesResetStateButton)
         } header: {
             Text("Updates (Debug)")

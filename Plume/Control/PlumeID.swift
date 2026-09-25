@@ -96,6 +96,7 @@ final class ViewRegistration {
     weak var window: NSWindow?
     var isMounted = false
 }
+#endif
 
 /// Reports the window a SwiftUI view landed in, which nothing in SwiftUI
 /// exposes. Inert: it draws nothing and takes no hits.
@@ -123,4 +124,3 @@ struct WindowProbe: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
-#endif

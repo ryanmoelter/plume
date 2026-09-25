@@ -15,7 +15,7 @@ struct UpdatesSettingsPane: View {
                     )
 
                 HStack {
-                    Button("Check Now", action: updates.checkForUpdates)
+                    Button("Check now", action: updates.checkForUpdates)
                         .plumeID(AccessibilityID.updatesCheckNowButton)
                         .disabled(!updates.canCheckForUpdates)
                     Spacer()
@@ -24,9 +24,10 @@ struct UpdatesSettingsPane: View {
                 if updates.isHomebrewInstall || settings.updateInstallSourceOverride != nil {
                     Picker("Install updates with", selection: installSourceBinding) {
                         ForEach(UpdateInstallSource.allCases) { source in
-                            Text(source.label).tag(source)
+                            installSourceLabel(for: source).tag(source)
                         }
                     }
+                    .pickerStyle(.radioGroup)
                     .plumeID(
                         AccessibilityID.updatesInstallSourcePicker,
                         value: updates.installSource.rawValue,
@@ -42,6 +43,20 @@ struct UpdatesSettingsPane: View {
             .disabled(!updates.isRunning)
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func installSourceLabel(for source: UpdateInstallSource) -> some View {
+        if source == .homebrew, updates.isHomebrewInstall {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.label)
+                Text("Detected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Text(source.label)
+        }
     }
 
     /// Explicit rather than following `updates.installSource`: choosing a

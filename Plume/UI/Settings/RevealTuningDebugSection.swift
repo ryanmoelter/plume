@@ -48,10 +48,10 @@ struct RevealTuningDebugSection: View {
                 step: 10,
                 format: { "\(Int($0)) fps" }
             )
-            Button("Reset to Defaults") { revealTuning.reset() }
+            Button("Reset to defaults") { revealTuning.reset() }
                 .disabled(revealTuning.values == .defaults)
         } header: {
-            Text("Reveal Tuning")
+            Text("Reveal tuning")
         } footer: {
             Text(
                 "The reveal is a character index on a spring pulled toward the newest " +

@@ -1,10 +1,12 @@
 import SwiftUI
 
-struct ChatSettingsPane: View {
+struct VisualsSettingsPane: View {
     @State private var settings = AppSettings.shared
 
     var body: some View {
         Form {
+            ThemeSettingsSection()
+
             Section {
                 HStack {
                     Text("Text size")

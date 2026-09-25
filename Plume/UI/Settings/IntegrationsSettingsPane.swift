@@ -27,18 +27,20 @@ struct IntegrationsSettingsPane: View {
                 }
 
                 HStack {
-                    TextField("Check name", text: $newIgnoredCheckName)
+                    TextField("Ignored pending check name(s)", text: $newIgnoredCheckName)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(addIgnoredCheck)
                     Button("Add", action: addIgnoredCheck)
                         .disabled(newIgnoredCheckName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } header: {
-                Text("Ignored Pending Checks")
+                Text("Ignored pending checks")
             } footer: {
-                Text("While a check listed here is pending, it does not hold back the CI status of a PR. A pass or fail still counts. Names must match exactly, including case. The ryanmoelter-cli-tools.ignoredPendingChecks git config of a repository adds to this list.")
+                Text("While a check listed here is pending, it does not hold back the CI status of a PR. A pass or fail still counts. Names must match exactly, including case.")
                     .foregroundStyle(.secondary)
             }
+
+            GitConfigIgnoredChecksSection()
         }
         .formStyle(.grouped)
     }

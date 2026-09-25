@@ -32,9 +32,7 @@ struct SettingsView: View {
             detailView
         }
         .toolbarVisibility(.hidden, for: .windowToolbar)
-        #if DEBUG
-        .modifier(SettingsThemeModifier())
-        #endif
+        .modifier(SettingsWindowModifier())
         .frame(minWidth: 680, minHeight: 460)
         .task(id: cliRefresh) {
             await AgentCLIAvailability.shared.refresh()
@@ -52,7 +50,7 @@ struct SettingsView: View {
         switch SettingsPane(rawValue: selectedPaneRaw) ?? .general {
         case .general: GeneralSettingsPane()
         case .agents: AgentsSettingsPane()
-        case .chat: ChatSettingsPane()
+        case .visuals: VisualsSettingsPane()
         case .keepAwake: KeepAwakeSettingsPane()
         case .shortcuts: ShortcutsSettingsPane()
         case .integrations: IntegrationsSettingsPane()
@@ -68,7 +66,7 @@ struct SettingsView: View {
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case agents
-    case chat
+    case visuals
     case keepAwake
     case shortcuts
     case integrations
@@ -84,8 +82,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .agents: "Agents"
-        case .chat: "Chat"
-        case .keepAwake: "Keep Awake"
+        case .visuals: "Visuals"
+        case .keepAwake: "Keep awake"
         case .shortcuts: "Shortcuts"
         case .integrations: "Integrations"
         case .updates: "Updates"
@@ -100,7 +98,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .agents: "person.2"
-        case .chat: "bubble.left.and.bubble.right"
+        case .visuals: "paintpalette"
         case .keepAwake: "cup.and.saucer"
         case .shortcuts: "keyboard"
         case .integrations: "puzzlepiece.extension"

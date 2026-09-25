@@ -28,7 +28,7 @@ struct AgentInstallationDebugSection: View {
                     Text(settings.dismissedMissingProviders.contains(provider) ? "Install section dismissed" : "Install section not dismissed")
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Reset Dismiss") {
+                    Button("Reset dismiss") {
                         settings.resetMissingProviderDismissal(provider)
                     }
                     .plumeID("debug-cli-reset-dismiss", label: provider.rawValue, invoke: {
@@ -37,10 +37,10 @@ struct AgentInstallationDebugSection: View {
                     .disabled(!settings.dismissedMissingProviders.contains(provider))
                 }
             }
-            Button("Reset Installation Overrides") { debug.overrides = [:] }
+            Button("Reset installation overrides") { debug.overrides = [:] }
                 .plumeID("debug-cli-reset-overrides", invoke: { debug.overrides = [:] })
         } header: {
-            Text("Agent Installation (Debug)")
+            Text("Agent installation (Debug)")
         } footer: {
             Text("Preview the model menu, install links, and quota visibility. Overrides reset when Plume quits and do not install a CLI or change running sessions.")
                 .foregroundStyle(.secondary)

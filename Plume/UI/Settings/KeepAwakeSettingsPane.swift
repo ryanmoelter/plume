@@ -22,21 +22,20 @@ struct KeepAwakeSettingsPane: View {
 
             Section {
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
-                if settings.keepsAwakeOnBattery {
-                    Stepper(
-                        batteryCutoffLabel,
-                        value: $settings.keepAwakeBatteryCutoffPercent,
-                        in: 0...100,
-                        step: 5
-                    )
-                }
+                Stepper(
+                    batteryCutoffLabel,
+                    value: $settings.keepAwakeBatteryCutoffPercent,
+                    in: 0...100,
+                    step: 5
+                )
+                .disabled(!settings.keepsAwakeOnBattery)
             } header: {
                 Text("Battery")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("The cutoff does not apply while the Mac charges.")
                         .foregroundStyle(.secondary)
-                    Button("Open Battery Settings…") {
+                    Button("Open battery settings…") {
                         SystemSettingsLink.battery.open()
                     }
                     .buttonStyle(.link)
@@ -53,13 +52,12 @@ struct KeepAwakeSettingsPane: View {
                     )
                     .disabled(!keepAwake.lidOverrideStatus.canEngage)
                 sleepHelperRow
-                if settings.keepsAwakeWithLidClosed {
-                    LabeledContent("Allow sleep when temperature is") {
-                        ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
-                    }
+                LabeledContent("Allow sleep when temperature is") {
+                    ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                 }
+                .disabled(!settings.keepsAwakeWithLidClosed)
             } header: {
-                Text("Lid Closed")
+                Text("Lid closed")
             } footer: {
                 Text("This needs the sleep helper, approved in Login Items. The Mac sleeps anyway if it gets too hot.")
                     .foregroundStyle(.secondary)

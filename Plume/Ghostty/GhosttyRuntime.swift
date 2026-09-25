@@ -42,6 +42,15 @@ final class GhosttyRuntime {
     /// family, which is how a variable font's named instances are reached.
     private(set) var resolvedCodeFontStyle: String?
 
+    /// The theme names the user's config resolved to. Nil when the bundled
+    /// default is in use instead, because there was no config, it named no
+    /// theme, or the theme failed to load.
+    var configThemeNames: GhosttyThemeResolver.ThemeNames? {
+        guard let definitions = resolvedThemeDefinitions,
+              definitions != Self.bundledLumDefinitions else { return nil }
+        return GhosttyThemeResolver.ThemeNames(light: definitions.light?.name, dark: definitions.dark?.name)
+    }
+
     private init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
