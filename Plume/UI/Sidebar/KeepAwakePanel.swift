@@ -13,23 +13,9 @@ struct KeepAwakePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker(selection: $settings.keepAwakeMode) {
-                ForEach(KeepAwakeMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            } label: {
-                Text("Keep Awake")
-                if let caption = settings.keepAwakeMode.caption {
-                    Text(caption)
-                        .foregroundStyle(.secondary)
-                }
+            LabeledContent("Keep awake") {
+                KeepAwakeModeMenu(selection: $settings.keepAwakeMode)
             }
-            .pickerStyle(.menu)
-            .plumeID(
-                AccessibilityID.keepAwakeModePicker,
-                value: settings.keepAwakeMode.rawValue,
-                setValue: { if let mode = KeepAwakeMode(rawValue: $0) { settings.keepAwakeMode = mode } }
-            )
 
             summary
                 .font(.callout)

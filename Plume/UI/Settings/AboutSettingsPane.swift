@@ -21,25 +21,19 @@ struct AboutSettingsPane: View {
             }
 
             Section {
-                Link(destination: URL(string: "https://heypenny.money")!) {
-                    HStack(spacing: 10) {
-                        Image("HeypennyIcon")
-                            .resizable()
-                            .frame(width: 32, height: 32)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("Heypenny")
-                                .foregroundStyle(.primary)
-                            Text("heypenny.money")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "arrow.up.right.square")
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
+                appLink(
+                    "Notability",
+                    tagline: "Notes that help you think (my day job)",
+                    icon: "NotabilityIcon",
+                    destination: URL(string: "https://notability.com")!
+                )
+                .plumeID(AccessibilityID.settingsAboutNotabilityLink)
+                appLink(
+                    "Heypenny",
+                    tagline: "Split bills fairly (my side project)",
+                    icon: "HeypennyIcon",
+                    destination: URL(string: "https://heypenny.money")!
+                )
                 .plumeID(AccessibilityID.settingsAboutHeypennyLink)
             } header: {
                 Text("More from Ryan")
@@ -54,6 +48,28 @@ struct AboutSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func appLink(_ name: String, tagline: String, icon: String, destination: URL) -> some View {
+        Link(destination: destination) {
+            HStack(spacing: 10) {
+                Image(icon)
+                    .resizable()
+                    .frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name)
+                        .foregroundStyle(.primary)
+                    Text(tagline)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.up.right.square")
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     private func creditLink(_ title: String, destination: URL) -> some View {

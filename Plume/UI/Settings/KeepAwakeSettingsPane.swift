@@ -7,18 +7,9 @@ struct KeepAwakeSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                Picker(selection: $settings.keepAwakeMode) {
-                    ForEach(KeepAwakeMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                } label: {
-                    Text("Keep the Mac awake")
-                    if let caption = settings.keepAwakeMode.caption {
-                        Text(caption)
-                            .foregroundStyle(.secondary)
-                    }
+                LabeledContent("Keep the Mac awake") {
+                    KeepAwakeModeMenu(selection: $settings.keepAwakeMode)
                 }
-                .pickerStyle(.menu)
                 Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
             }
 
