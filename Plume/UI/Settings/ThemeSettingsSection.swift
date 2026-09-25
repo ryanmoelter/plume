@@ -7,9 +7,10 @@ struct ThemeSettingsSection: View {
     var body: some View {
         Section {
             LabeledContent {
-                HStack {
+                VStack(alignment: .trailing) {
                     Text(themeDescription)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
                     Button("Reload", action: runtime.reloadTheme)
                         .plumeID(AccessibilityID.settingsThemeReloadButton, invoke: runtime.reloadTheme)
                 }
@@ -42,6 +43,6 @@ struct ThemeSettingsSection: View {
         if light == dark, let light { return light }
         return [light.map { "\($0) (light)" }, dark.map { "\($0) (dark)" }]
             .compactMap { $0 }
-            .joined(separator: ", ")
+            .joined(separator: "\n")
     }
 }

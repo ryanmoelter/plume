@@ -71,7 +71,11 @@ struct UpdatesSettingsPane: View {
 
     private var updatesFooterText: String {
         guard updates.isRunning else {
-            return "Updates are off in debug builds."
+            #if DEBUG
+            return "Updates are off in debug builds until you set a test feed in Settings ▸ Debug."
+            #else
+            return "Updates could not start."
+            #endif
         }
         let lastChecked = updates.lastUpdateCheckDate.map { "Last checked \($0.formatted(.relative(presentation: .named)))." }
             ?? "Never checked."
