@@ -327,6 +327,7 @@ struct AvailableUpdate: Equatable {
         let hostBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         releases = item.itemDescription.flatMap { CumulativeReleaseNotes.releases(in: $0, hostBuild: hostBuild) }
             ?? [UpdateRelease(
+                build: item.versionString,
                 displayVersion: item.displayVersionString,
                 releaseNotes: item.itemDescription,
                 releaseNotesFormat: ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
@@ -335,11 +336,12 @@ struct AvailableUpdate: Equatable {
 }
 
 struct UpdateRelease: Equatable, Identifiable {
+    let build: String
     let displayVersion: String
     let releaseNotes: String?
     let releaseNotesFormat: ReleaseNotesFormat
 
-    var id: String { displayVersion }
+    var id: String { build }
 }
 
 /// Reads the cumulative appcast notes `scripts/lib/cumulative-notes.sh`
@@ -356,6 +358,7 @@ enum CumulativeReleaseNotes {
             (
                 build: String(match.1),
                 release: UpdateRelease(
+                    build: String(match.1),
                     displayVersion: String(match.2),
                     releaseNotes: String(match.3).replacingOccurrences(of: "<\\/", with: "</"),
                     releaseNotesFormat: .markdown

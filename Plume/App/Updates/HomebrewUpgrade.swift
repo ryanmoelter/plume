@@ -45,7 +45,7 @@ enum HomebrewUpgrade {
                 presentFailure("Terminal.app wasn't found.")
                 return
             }
-            NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: NSWorkspace.OpenConfiguration()) { @Sendable _, error in
                 guard let error else { return }
                 Task { @MainActor in presentFailure(error.localizedDescription) }
             }

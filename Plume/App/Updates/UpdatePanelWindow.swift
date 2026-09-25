@@ -22,7 +22,7 @@ enum UpdatePanelWindow {
         let hosting = NSHostingController(rootView: UpdatePanelWindowContent(update: update))
         hosting.sizingOptions = []
 
-        let panel = NSWindow(contentViewController: hosting)
+        let panel = UpdatePanelNSWindow(contentViewController: hosting)
         panel.title = "Plume Update"
         panel.styleMask = [.titled, .closable, .resizable]
         panel.isReleasedWhenClosed = false
@@ -39,6 +39,19 @@ enum UpdatePanelWindow {
 
     private static var initialWidth: CGFloat {
         Dimensions(bodySize: CGFloat(AppSettings.defaultChatFontSize)).contentWidth + UpdatePanelMetrics.padding * 2
+    }
+}
+
+/// Handles ⌘W itself, which the window sees before the menu does. The
+/// menu's ⌘W is Close Tab, which acts on the main window's selected tab.
+private final class UpdatePanelNSWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "w" {
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 

@@ -109,6 +109,8 @@ case "$changelog_top" in
   "## Draft: "*) fail "$CHANGELOG's top section is still a draft (\"$changelog_top\") — review
   the notes, then remove \"Draft: \" from the heading and commit" ;;
 esac
+changelog_split "$CHANGELOG" "$(mktemp -d)" >/dev/null \
+  || fail "$CHANGELOG has a malformed \"## \" heading — each must be \"## <version> (<build>)\""
 [ "$changelog_top" = "## $VERSION ($BUILD_NUMBER)" ] \
   || fail "$CHANGELOG must start with a \"## $VERSION ($BUILD_NUMBER)\" section for this
   release (found \"${changelog_top:-nothing}\")"
