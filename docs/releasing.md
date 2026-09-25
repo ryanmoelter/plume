@@ -17,7 +17,7 @@ The build itself still signs automatically with the Apple Development identity. 
 
 **A release is per-machine.** Plume is developed on more than one Mac, and a build never leaves the one that made it. Tag the version once and push it, then build and install separately on each Mac that wants it. The two installs share nothing — separate bundles, separate stores, separate signatures — so `/Applications/Plume.app` can sit at different versions on each, and the tag says nothing about what is installed anywhere. Check the installed version on the machine in front of you rather than inferring it from the latest tag.
 
-**Release links Ghostty statically.** The Release binary is one self-contained ~19 MB executable: there is no `Contents/Frameworks`, and `otool -L` reports no non-system dylibs. Nothing needs embedding, re-signing, or bundling. If you ever find yourself hunting for a framework to copy, something has changed — check that first.
+**Release links Ghostty statically.** Sparkle is the one embedded framework: `Contents/Frameworks/Sparkle.framework`, which Xcode embeds and signs automatically at build time — there's no hand-written "Embed Frameworks" phase for it, and adding one breaks the build ("Sparkle-product couldn't be opened"). `otool -L` on the binary reports exactly `@rpath/Sparkle.framework` and nothing else non-system; `install-release.sh` fails if that's not true. If you find yourself hunting for a framework to copy in by hand, something has changed — check that first.
 
 This is a Release-only property. In Debug the real code lives in `Plume.debug.dylib` beside a small launcher stub, which is why `nm` on a Debug binary looks empty.
 
@@ -38,7 +38,9 @@ Verifying the Debug build before merging is the real gate; the Release verificat
 `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `Plume.xcodeproj/project.pbxproj`. Each appears once per build configuration, for **all three targets** — only the app target's own Debug and Release blocks matter (their bundle identifiers are `com.ryanmoelter.Plume.debug` and `com.ryanmoelter.Plume`). Leave the `PlumeTests` and `PlumeUITests` copies alone; they never reach the shipped bundle.
 
 - `MARKETING_VERSION` is the human version (`0.1.0`) and becomes `CFBundleShortVersionString`.
-- `CURRENT_PROJECT_VERSION` is the build number and becomes `CFBundleVersion`. Bump it when you want to tell two installs of the same version apart.
+- `CURRENT_PROJECT_VERSION` is the build number and becomes `CFBundleVersion`. Bump it when you want to tell two installs of the same version apart, and **always bump it for a release** — it's the value Sparkle compares to decide an update exists, so a release that doesn't increase it never reaches anyone.
+
+Then add a section at the top of `CHANGELOG.md` headed `## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`. `package-release.sh` refuses to build without it. A drafted section is headed `## Draft: <version> (<build>)`, and the script refuses to package that too. Leave a draft uncommitted. Once you've reviewed the notes and removed `Draft: `, commit the section.
 
 ### 2. Build, test, install
 
@@ -99,7 +101,7 @@ codesign -d --verbose=2 /Applications/Plume.app/Contents/MacOS/PlumeSleepHelper 
 otool -L /Applications/Plume.app/Contents/MacOS/Plume | grep -v '/usr/lib\|/System/Library'
 ```
 
-Expect the version you just set, a silent `codesign` (it only speaks up on failure), `source=Notarized Developer ID` from `spctl`, a `Developer ID Application` authority on the helper, and no dylibs beyond the binary's own path. An `Apple Development` authority anywhere means a re-sign did not take, and the lid-closed toggle will fail to register.
+Expect the version you just set, a silent `codesign` (it only speaks up on failure), `source=Notarized Developer ID` from `spctl`, a `Developer ID Application` authority on the helper, and exactly one non-system dylib: `@rpath/Sparkle.framework`. An `Apple Development` authority anywhere means a re-sign did not take, and the lid-closed toggle will fail to register.
 
 Then launch it and open a terminal tab. Verify the processes rather than a screenshot — surfaces are real PTYs, so the process tree is the better evidence:
 
@@ -205,6 +207,21 @@ An app signed only with an Apple Development identity runs on the machine that s
      --apple-id <apple id> --team-id U6J478KTGV --password <app-specific password>
    ```
 
+4. **The Sparkle EdDSA key**, once, ever — see *The EdDSA key* below for what it's for. Generate it with the tool that ships inside the resolved Sparkle package:
+
+   ```
+   <DerivedData>/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x /tmp/sparkle-key
+   ```
+
+   This prints the public key and saves the private key to your login keychain and to `/tmp/sparkle-key`. Store the private key in 1Password at `op://Plume/Plume Sparkle EdDSA/private key` (field "private key"), then remove both copies the tool left behind — the keychain is not where `package-release.sh` reads it from, and a private key on disk defeats the point:
+
+   ```
+   security delete-generic-password -s https://sparkle-project.org
+   rm /tmp/sparkle-key
+   ```
+
+   Paste the printed public key into `Configuration/Info.plist`'s `SUPublicEDKey`. The key pair already exists; regenerating it strands every shipped install, which can only verify updates signed with the old key.
+
 Both scripts check for the identity and the profile before building and name the fix for whichever is missing.
 
 ### Running it
@@ -265,11 +282,65 @@ Open the DMG, drag Plume to Applications. A correctly notarized build opens norm
 
 First launch prompts for permissions this machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
 
+## Sparkle auto-updates
+
+A DMG install updates itself through Sparkle 2.10.0, pinned exactly. `package-release.sh` builds the appcast that drives it, on top of the DMG steps above.
+
+### The EdDSA key
+
+The private key that signs each update lives only in 1Password, at `op://Plume/Plume Sparkle EdDSA/private key` (override with `SPARKLE_KEY_REF`). `package-release.sh` reads it with `op read "$SPARKLE_KEY_REF" | sign_update --ed-key-file -`, so the key never touches disk or the keychain. `op` must be signed in; the script preflights that and fails early if not.
+
+**Losing this key means every shipped app can never verify another update.** There's no way to reissue trust after the fact, so keep it backed up in 1Password beyond the one entry.
+
+### The appcast
+
+`SUFeedURL`, set in `Configuration/Info.plist`, is fixed: `https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml`. Every release has to publish an `appcast.xml` describing itself, as a release asset next to the DMG. `package-release.sh` signs the DMG with `sign_update` and writes the file.
+
+The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body. The appcast's description is **cumulative**: it holds the top ten sections, built by `scripts/lib/cumulative-notes.sh`.
+
+- Each release is a `<section data-sparkle-version="<CFBundleVersion>">`, rendered to HTML through GitHub's markdown API. Sparkle marks the section matching the running build `sparkle-installed-version`, and a stylesheet hides it and every older one. A user who skipped releases sees what they missed.
+- Each section also embeds its markdown source in a `<script type="text/markdown">` block. The Homebrew update window renders that (`CumulativeReleaseNotes`) instead of the HTML.
+- Sparkle's `markdown` format can't do this. It parses with `NSAttributedString`, which drops HTML, so the description is HTML.
+
+### Signing
+
+`scripts/lib/sign-bundle.sh` signs a bundle inside out: Sparkle's `Installer.xpc`, `Downloader.xpc` (with entitlements preserved), `Autoupdate`, `Updater.app`, and `Sparkle.framework`, then `PlumeSleepHelper`, then the app — still no `--deep`. Both `install-release.sh` and `package-release.sh` call it. `install-release.sh` fails unless the only non-system dylib left in the signed binary is `@rpath/Sparkle.framework`.
+
+Xcode embeds and signs `Sparkle.framework` into `Contents/Frameworks` on its own. Don't add a manual "Embed Frameworks" build phase for it — a hand-written one breaks the build with "Sparkle-product couldn't be opened".
+
+### Testing an update end-to-end
+
+There's no way to point Sparkle at a real feed without publishing a release, so test locally instead. For iterating on the update UI or flow, a Debug build needs no publish step at all:
+
+```
+xcodebuild -scheme Plume -destination 'platform=macOS' build   # build Debug first
+scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by default
+scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
+```
+
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Updates (Debug)** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, exercise the scheduled/gentle background check on its own, or reset Sparkle's skipped-version and last-check state. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+
+For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
+
+1. Install an older Release build (`scripts/install-release.sh`).
+2. Bump the version and build a higher-version signed DMG (`scripts/package-release.sh`, or the DMG steps above by hand).
+3. Serve the DMG and the `appcast.xml` that `package-release.sh` wrote — e.g. `python3 -m http.server 8000` from the `out/` directory.
+4. Point the installed app at that local feed:
+   ```
+   defaults write com.ryanmoelter.Plume PlumeUpdateFeedURLOverride http://localhost:8000/appcast.xml
+   ```
+5. Launch the app and use Check for Updates….
+6. `defaults delete com.ryanmoelter.Plume PlumeUpdateFeedURLOverride` afterward, so the installed app goes back to the real feed.
+
+### The first Sparkle-enabled release
+
+Existing DMG installs have no updater yet, so the release that adds Sparkle reaches them only by a manual download from the releases page. Homebrew installs get it the normal way, through `brew upgrade --cask ryanmoelter/tap/plume`.
+
 ## Publishing to Homebrew
 
-`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask plume`. Casks and formulae coexist in that one repo.
+`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask ryanmoelter/tap/plume`. Casks and formulae coexist in that one repo.
 
-There is no `auto_updates` — Plume has no self-updater, so `brew upgrade --cask plume` is the only update path for cask users.
+The cask carries no `auto_updates` and doesn't need one: Sparkle only tells a Homebrew install that an update exists (detected via a `Caskroom/plume` directory) and offers to run `brew upgrade --cask ryanmoelter/tap/plume` in Terminal.app, rather than installing anything itself. The script reopens Plume afterwards, because the cask's `uninstall quit:` quits it during the upgrade. Brew stays the actual update path for cask users.
 
 After a release is public (not a draft), bump the cask:
 

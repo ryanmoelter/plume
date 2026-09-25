@@ -14,6 +14,7 @@
 		PL0000000000000000020 /* SleepHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL0000000000000000011 /* SleepHelperProtocol.swift */; };
 		PL0000000000000000021 /* PlumeSleepHelper in Embed Sleep Helper */ = {isa = PBXBuildFile; fileRef = PL0000000000000000010 /* PlumeSleepHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		PL0000000000000000022 /* com.ryanmoelter.Plume.SleepHelper.plist in Embed Sleep Helper Daemon */ = {isa = PBXBuildFile; fileRef = PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */; };
+		PL0000000000000000032 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000031 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -104,6 +105,7 @@
 			files = (
 				PL0000000000000000002 /* GhosttyTerminal in Frameworks */,
 				PL0000000000000000005 /* GhosttyTheme in Frameworks */,
+				PL0000000000000000032 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -175,6 +177,7 @@
 			packageProductDependencies = (
 				PL0000000000000000001 /* GhosttyTerminal */,
 				PL0000000000000000004 /* GhosttyTheme */,
+				PL0000000000000000031 /* Sparkle */,
 			);
 			productName = Plume;
 			productReference = C6A1E5D830464812003EAFC1 /* Plume.app */;
@@ -285,6 +288,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */,
+				PL0000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C6A1E5D930464812003EAFC1 /* Products */;
@@ -741,6 +745,14 @@
 				version = 1.5.0;
 			};
 		};
+		PL0000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -763,6 +775,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */;
 			productName = GhosttyTheme;
+		};
+		PL0000000000000000031 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PL0000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

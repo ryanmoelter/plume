@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var revealTuning = RevealTuning.shared
     #endif
     @State private var keepAwake = KeepAwakeCoordinator.shared
+    @State private var updates = UpdateController.shared
     @State private var newIgnoredCheckName = ""
     @State private var helperState = CommandLineHelper.state()
     @State private var helperError: String?
@@ -257,6 +258,45 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Automatically check for updates", isOn: $updates.automaticallyChecksForUpdates)
+                    .plumeID(
+                        AccessibilityID.updatesAutoCheckToggle,
+                        value: String(updates.automaticallyChecksForUpdates),
+                        setValue: { updates.automaticallyChecksForUpdates = ($0 == "true" || $0 == "1") }
+                    )
+
+                HStack {
+                    Button("Check Now", action: updates.checkForUpdates)
+                        .plumeID(AccessibilityID.updatesCheckNowButton)
+                        .disabled(!updates.canCheckForUpdates)
+                    Spacer()
+                }
+
+                if updates.isHomebrewInstall || settings.updateInstallSourceOverride != nil {
+                    Picker("Install updates with", selection: installSourceBinding) {
+                        ForEach(UpdateInstallSource.allCases) { source in
+                            Text(source.label).tag(source)
+                        }
+                    }
+                    .plumeID(
+                        AccessibilityID.updatesInstallSourcePicker,
+                        value: updates.installSource.rawValue,
+                        setValue: { if let source = UpdateInstallSource(rawValue: $0) { installSourceBinding.wrappedValue = source } }
+                    )
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text(updatesFooterText)
+                    .foregroundStyle(.secondary)
+            }
+            .disabled(!updates.isRunning)
+
+            #if DEBUG
+            UpdatesDebugSection()
+            #endif
+
+            Section {
                 HStack {
                     Text(helperStatusText)
                         .foregroundStyle(.secondary)
@@ -499,6 +539,28 @@ struct SettingsView: View {
         settings.keepAwakeBatteryCutoffPercent == 0
             ? "No battery cutoff"
             : "Allow sleep below \(settings.keepAwakeBatteryCutoffPercent)%"
+    }
+
+    /// Explicit rather than following `updates.installSource`: choosing a
+    /// value here always sets the override, even when it matches what
+    /// detection would already have picked.
+    private var installSourceBinding: Binding<UpdateInstallSource> {
+        Binding(
+            get: { updates.installSource },
+            set: { settings.updateInstallSourceOverride = $0 }
+        )
+    }
+
+    private var updatesFooterText: String {
+        guard updates.isRunning else {
+            return "Updates are off in debug builds."
+        }
+        let lastChecked = updates.lastUpdateCheckDate.map { "Last checked \($0.formatted(.relative(presentation: .named)))." }
+            ?? "Never checked."
+        guard updates.isHomebrewInstall || settings.updateInstallSourceOverride != nil else {
+            return lastChecked
+        }
+        return lastChecked + " A Homebrew install updates with brew upgrade rather than in place."
     }
 
     private var helperStatusText: String {

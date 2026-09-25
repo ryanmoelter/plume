@@ -21,7 +21,7 @@ Every change ends with a clean build and a manual run. `PlumeUITests` launches t
 
 Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build registers too in practice, so the flow is testable without a release). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
-Release links Ghostty **statically** into a single self-contained binary — there is no `Contents/Frameworks`, and `otool -L` shows no non-system dylibs. The one exception is `PlumeSleepHelper`, a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`; the install script signs it before the outer bundle, since `codesign` without `--deep` leaves nested code alone.
+Release links Ghostty **statically**, so the only embedded framework is Sparkle's — `otool -L` on the binary shows exactly `@rpath/Sparkle.framework` and nothing else non-system. `install-release.sh` fails the build if that's not true. `PlumeSleepHelper` is the other exception: a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`. `scripts/lib/sign-bundle.sh` signs everything inside out — Sparkle's nested code, then the helper, then the outer bundle — since `codesign` without `--deep` leaves nested code alone.
 
 ## Layout
 
@@ -30,6 +30,7 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 ```
 Plume/
   App/        PlumeApp, MainWindow, PlumeCommands, AppDelegate
+  App/Updates/  UpdateController (Sparkle wiring, Homebrew-vs-DMG detection)
   Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
   Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
   Sessions/   SurfaceManager, LoginShellCommand
@@ -115,6 +116,15 @@ The wrapper does not call `ghostty_config_load_default_files`, so `GhosttyConfig
 **The discovered file is only the entry point.** `expandConfig` follows `config-file` includes recursively, and that is load-bearing: a config that only redirects (`config-file = "~/.config/ghostty/ghostty-config"`) is a supported setup that otherwise loads nothing. An include applies *after* the file that named it, and a relative path is relative to that file. Resolve themes against `winningThemeSourcePath(in:)`, not the root config — the theme is often declared in an included file whose directory is where `themes/` lives.
 
 The config reaches libghostty as **generated contents with every `theme` directive stripped**, never as a file path. `GhosttyThemeResolver` applies the theme in Swift instead. Passing `theme` through breaks terminal launching outright — surfaces silently spawn a login shell instead of their command, with no diagnostic. `GhosttyConfigLoader.configContentsForGhostty` documents the mechanism.
+
+## Updates
+
+Sparkle checks for updates in the background, and **an available update never interrupts** — no launch dialog, no system notification, nothing modal. It shows only as an "Update Available" row in the sidebar footer. Clicking it opens Sparkle's window on a DMG install, or Plume's own update window on a Homebrew install (detected via a `Caskroom/plume` directory; Settings can override). `UpdateController` (`Plume/App/Updates/`) owns this, and Sparkle's scheduled checks use gentle reminders so Sparkle itself never shows UI unprompted. A Debug build doesn't start the updater unless the `PlumeUpdateFeedURLOverride` user default is set.
+
+- **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass both the Homebrew path and the no-interruption rule.
+- **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password. `HomebrewUpgrade` opens a temporary `.command` script in Terminal.app instead, which upgrades and then reopens Plume.
+- **Never add a manual "Embed Frameworks" phase for Sparkle.** Xcode already auto-embeds and signs its XCFramework into `Contents/Frameworks`; a hand-written phase breaks the build with "Sparkle-product couldn't be opened".
+- **Test both update paths without reinstalling** via Settings ▸ Updates (Debug) (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
 
 ## Conventions
 

@@ -128,6 +128,12 @@ struct PlumeCommands: Commands {
                 .disabled(showImport == nil)
         }
 
+        // No `@FocusedValue`/`disabled`: a `Commands` body never re-evaluates
+        // for a changed `@Observable`, so a stale enabled state would stick.
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { UpdateController.shared.checkForUpdates() }
+        }
+
         CommandGroup(after: .toolbar) {
             Button("Show Archive…") { showArchive?() }
                 .keyboardShortcut(PlumeShortcuts.showArchive)

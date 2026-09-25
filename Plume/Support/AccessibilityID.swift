@@ -28,6 +28,11 @@ enum AccessibilityID {
     static let keepAwakeLidInstallButton = "keep-awake-lid-install-button"
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
+    static let sidebarUpdateButton = "sidebar-update-button"
+    static let updatePanel = "update-panel"
+    static let updatePanelCopyBrewCommandButton = "update-panel-copy-brew-command-button"
+    static let updatePanelRunInTerminalButton = "update-panel-run-in-terminal-button"
+    static let updatePanelFullReleaseNotesLink = "update-panel-full-release-notes-link"
 
     // MARK: Settings
 
@@ -38,6 +43,13 @@ enum AccessibilityID {
     static let fullDiskAccessDismissButton = "full-disk-access-dismiss-button"
     static let fullDiskAccessStatus = "full-disk-access-status"
     static let fullDiskAccessManageButton = "full-disk-access-manage-button"
+    static let updatesAutoCheckToggle = "updates-auto-check-toggle"
+    static let updatesCheckNowButton = "updates-check-now-button"
+    static let updatesInstallSourcePicker = "updates-install-source-picker"
+    static let debugUpdatesInstallSourcePicker = "debug-updates-install-source-picker"
+    static let debugUpdatesFeedURLField = "debug-updates-feed-url-field"
+    static let debugUpdatesCheckBackgroundButton = "debug-updates-check-background-button"
+    static let debugUpdatesResetStateButton = "debug-updates-reset-state-button"
 
     // MARK: Tab strip
 

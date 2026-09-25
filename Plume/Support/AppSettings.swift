@@ -41,6 +41,7 @@ final class AppSettings {
         static let showsBypassPermissions = "showsBypassPermissions"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
+        static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -165,6 +166,9 @@ final class AppSettings {
             ?? ShortcutBindings()
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
+
+        self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
+            .flatMap(UpdateInstallSource.init(rawValue:))
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -469,6 +473,14 @@ final class AppSettings {
     var showsBypassPermissions: Bool {
         didSet {
             defaults.set(showsBypassPermissions, forKey: Key.showsBypassPermissions)
+        }
+    }
+
+    /// Overrides `UpdateController.isHomebrewInstall` detection. Nil (the
+    /// default) means "use whatever was detected".
+    var updateInstallSourceOverride: UpdateInstallSource? {
+        didSet {
+            defaults.set(updateInstallSourceOverride?.rawValue, forKey: Key.updateInstallSourceOverrideRaw)
         }
     }
 }

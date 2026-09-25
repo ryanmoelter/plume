@@ -92,4 +92,10 @@ struct AppDelegateTests {
             confirmSystemQuit: false
         ) == true)
     }
+
+    @Test func interruptedTabsCountWorkingAndAttention() {
+        #expect(AppDelegate.interruptedTabCount(
+            statuses: [.working, .awaitingReply, .permissionNeeded, .notStarted]
+        ) == 2)
+    }
 }
