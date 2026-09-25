@@ -73,11 +73,11 @@ nonisolated enum WorkspaceProvisioner {
 
     // MARK: - Provisioning
 
-    /// Worktrees live under `<repo>/.plume/worktrees` by default. A relative
-    /// `basePath` from Settings replaces `.plume/worktrees` inside the
-    /// repository. An absolute one is shared by every repository, so it is
-    /// namespaced by a repository-derived folder to keep worktrees from
-    /// different repos from colliding.
+    /// Worktrees live under `<repo>/.plume/worktrees` by default. A `basePath`
+    /// from Settings resolves relative to the repository. Inside it, the base
+    /// replaces `.plume/worktrees`; outside it, the base is shared by every
+    /// repository, so it is namespaced by a repository-derived folder to keep
+    /// worktrees from different repos from colliding.
     ///
     /// `explicitPath` is the sheet's own override, which the user typed in
     /// full and which therefore bypasses both derivations.
@@ -101,18 +101,45 @@ nonisolated enum WorkspaceProvisioner {
                 .path
         }
         let expanded = (basePath as NSString).expandingTildeInPath
-        guard expanded.hasPrefix("/") else {
-            return URL(fileURLWithPath: repository)
-                .appending(path: expanded)
-                .appending(path: directoryName)
-                .standardizedFileURL
-                .path
+        let repositoryURL = URL(fileURLWithPath: repository).standardizedFileURL
+        let base = expanded.hasPrefix("/")
+            ? URL(fileURLWithPath: expanded).standardizedFileURL
+            : repositoryURL.appending(path: expanded).standardizedFileURL
+        guard !isInside(base.path, repositoryURL.path) else {
+            return base.appending(path: directoryName).path
         }
-        let repositoryName = URL(fileURLWithPath: repository).lastPathComponent
-        return URL(fileURLWithPath: expanded)
-            .appending(path: repositoryName)
+        return base
+            .appending(path: repositoryURL.lastPathComponent)
             .appending(path: directoryName)
             .path
+    }
+
+    private static func isInside(_ path: String, _ directory: String) -> Bool {
+        path == directory || path.hasPrefix(directory + "/")
+    }
+
+    /// Keeps a worktree folder inside the repository out of its
+    /// `git status` through `info/exclude`, which lives in the git directory
+    /// rather than the user's tree.
+    static func ensureExcluded(path: String, in repository: String) throws {
+        let repositoryPath = URL(fileURLWithPath: repository).standardizedFileURL.path
+        let parent = URL(fileURLWithPath: path).standardizedFileURL.deletingLastPathComponent().path
+        guard parent.hasPrefix(repositoryPath + "/") else { return }
+        let pattern = "/" + parent.dropFirst(repositoryPath.count + 1) + "/"
+
+        let excludePath = try GitRunner.run(["rev-parse", "--git-path", "info/exclude"], in: repository)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let excludeURL = excludePath.hasPrefix("/")
+            ? URL(fileURLWithPath: excludePath)
+            : URL(fileURLWithPath: repository).appending(path: excludePath)
+        let existing = (try? String(contentsOf: excludeURL, encoding: .utf8)) ?? ""
+        guard !existing.split(separator: "\n").contains(Substring(pattern)) else { return }
+        try FileManager.default.createDirectory(
+            at: excludeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+        try (existing + separator + pattern + "\n").write(to: excludeURL, atomically: true, encoding: .utf8)
     }
 
     /// Creates `<repo>/.plume/.gitignore` containing `*` so the worktrees the
@@ -164,6 +191,7 @@ nonisolated enum WorkspaceProvisioner {
                 at: URL(fileURLWithPath: path).deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
+            try ensureExcluded(path: path, in: repository)
         }
         try GitRunner.run(["worktree", "add", "-b", branch, path], in: repository)
         return path

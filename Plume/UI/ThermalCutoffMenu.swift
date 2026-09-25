@@ -1,25 +1,24 @@
 import SwiftUI
 
-/// The thermal cutoff picker. A `Menu` of check items rather than a `Picker`
-/// so each level can carry its description as a subtitle, which only matters
-/// while choosing.
 struct ThermalCutoffMenu: View {
     @Binding var selection: ThermalCutoffLevel
 
     var body: some View {
-        Menu {
+        Picker(selection: $selection) {
             ForEach(ThermalCutoffLevel.allCases) { level in
-                Toggle(isOn: Binding(
-                    get: { selection == level },
-                    set: { if $0 { selection = level } }
-                )) {
+                VStack(alignment: .leading) {
                     Text(level.label)
                     Text(level.detail)
                 }
+                .tag(level)
             }
         } label: {
+            Text("Allow sleep when temperature is")
+        } currentValueLabel: {
             Text(selection.label)
         }
+        .pickerStyle(.menu)
+        .labelsHidden()
         .fixedSize()
         .plumeID(
             AccessibilityID.keepAwakeThermalPicker,

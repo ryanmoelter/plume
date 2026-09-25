@@ -78,13 +78,14 @@ struct MainWindow: View {
         .focusedSceneValue(\.showImportAction) { importShown = true }
         .background {
             WindowProbe { window in
-                if hostWindow !== window { hostWindow = window }
+                guard hostWindow !== window else { return }
+                hostWindow = window
+                if let window { importRequest.register(window) }
             }
             .allowsHitTesting(false)
         }
-        .onChange(of: importRequest.isPending, initial: true) {
-            guard importRequest.isPending else { return }
-            importRequest.isPending = false
+        .onChange(of: importRequest.targetWindowNumber) {
+            guard importRequest.take(for: hostWindow) else { return }
             hostWindow?.makeKeyAndOrderFront(nil)
             importShown = true
         }

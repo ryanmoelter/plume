@@ -182,7 +182,7 @@ struct ComposerSettings {
         tab.effort = nil
         tab.isEffortUserChosen = false
         tab.permissionModeRaw = nil
-        tab.codexCollaborationMode = .default
+        tab.codexCollaborationMode = provider == .codex ? AppSettings.shared.defaultCodexCollaborationMode : .default
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)
         return true
     }

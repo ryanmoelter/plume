@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
         // it's up by the time launch finishes.
         tintedWindow = NSApp.windows.first
+        applyTheme()
         startApplyingTheme()
     }
 
@@ -60,10 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startApplyingTheme() {
         Task { @MainActor in
             for await _ in Observations({ GhosttyRuntime.shared.resolvedThemeDefinitions }) {
-                AppAppearance.apply(AppAppearance.decision())
-                if let tintedWindow { tintTitlebar(of: tintedWindow) }
+                applyTheme()
             }
         }
+    }
+
+    private func applyTheme() {
+        AppAppearance.apply(AppAppearance.decision())
+        if let tintedWindow { tintTitlebar(of: tintedWindow) }
     }
 
     @objc private func handleWillPowerOff() {

@@ -167,10 +167,13 @@ final class AppSettings {
         // Unset reads as false: bypassing every permission check is worth
         // opting into, not stumbling onto.
         self.showsBypassPermissions = defaults.bool(forKey: Key.showsBypassPermissions)
-        // Unset follows the bypass setting, which used to cover Codex too.
-        self.showsCodexFullAccess = defaults.object(forKey: Key.showsCodexFullAccess) == nil
-            ? defaults.bool(forKey: Key.showsBypassPermissions)
-            : defaults.bool(forKey: Key.showsCodexFullAccess)
+        // Unset inherits the bypass setting, so someone who already opted
+        // into bypass keeps seeing full access. Written back so the two stop
+        // tracking each other from here on.
+        if defaults.object(forKey: Key.showsCodexFullAccess) == nil {
+            defaults.set(defaults.bool(forKey: Key.showsBypassPermissions), forKey: Key.showsCodexFullAccess)
+        }
+        self.showsCodexFullAccess = defaults.bool(forKey: Key.showsCodexFullAccess)
 
         // A binding blob that no longer decodes falls back to the defaults
         // rather than failing the launch.

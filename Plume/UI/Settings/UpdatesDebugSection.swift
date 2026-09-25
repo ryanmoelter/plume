@@ -59,7 +59,7 @@ struct UpdatesDebugSection: View {
 
     private var footerText: String {
         var notes = [
-            "Check in Background exercises the gentle scheduled path — a sidebar row only, never a window. " +
+            "Check in background now exercises the gentle scheduled path — a sidebar row only, never a window. " +
                 "Reset clears Sparkle's skipped-version and last-check state; an open gentle-reminder session " +
                 "can't be closed this way and needs a relaunch to fully reset.",
         ]

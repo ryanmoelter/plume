@@ -63,6 +63,12 @@ struct BranchNamingTests {
         }
     }
 
+    @Test func aRelativeBasePathOutsideTheRepositoryIsNamespaced() {
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/code/repo", branch: "plume/x-0001", basePath: "../wt"
+        ) == "/code/wt/repo/plume-x-0001")
+    }
+
     @Test func emptyBasePathFallsBackToTheDefaultLocation() {
         let path = WorkspaceProvisioner.worktreePath(
             repository: "/repo", branch: "plume/x-0001", basePath: ""
@@ -203,6 +209,23 @@ struct WorktreeProvisioningTests {
 
         let status = try GitRunner.run(["status", "--porcelain"], in: repository)
         #expect(status.isEmpty)
+    }
+
+    @Test func aRelativeBasePathInsideTheRepositoryStaysOutOfItsStatus() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+
+        let path = try WorkspaceProvisioner.createWorktree(
+            repository: repository, branch: "plume/feature-0003", basePath: "trees/"
+        )
+        try WorkspaceProvisioner.createWorktree(
+            repository: repository, branch: "plume/feature-0004", basePath: "trees"
+        )
+
+        #expect(path == "\(repository)/trees/plume-feature-0003")
+        #expect(try GitRunner.run(["status", "--porcelain"], in: repository).isEmpty)
+        let exclude = try String(contentsOfFile: "\(repository)/.git/info/exclude", encoding: .utf8)
+        #expect(exclude.components(separatedBy: "\n").filter { $0 == "/trees/" }.count == 1)
     }
 
     @Test func gitignoreIsWrittenOnceAndNotOverwritten() throws {

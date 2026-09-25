@@ -72,9 +72,11 @@ struct IntegrationsSettingsPane: View {
     }
 
     private func addIgnoredCheck() {
-        let trimmed = newIgnoredCheckName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        settings.ignoredPendingChecks.append(trimmed)
+        let names = newIgnoredCheckName
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !settings.ignoredPendingChecks.contains($0) }
+        settings.ignoredPendingChecks.append(contentsOf: names)
         newIgnoredCheckName = ""
     }
 }

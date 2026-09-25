@@ -96,7 +96,7 @@ struct GeneralSettingsPane: View {
     }
 
     private func requestImport() {
-        ImportRequest.shared.isPending = true
+        if !ImportRequest.shared.request() { NSSound.beep() }
     }
 
     private var helperStatusText: String {
