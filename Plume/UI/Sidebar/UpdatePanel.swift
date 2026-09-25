@@ -22,20 +22,18 @@ struct UpdatePanel: View, ThemedView {
                             .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
                     }
                 }
-                .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: dimensions.contentWidth)
                 .frame(maxWidth: .infinity)
                 .padding(UpdatePanelMetrics.padding)
             }
 
             Divider()
 
-            // Wider than the notes by its own inset, so its text lines up
-            // with theirs.
             homebrewCallout
-                .frame(maxWidth: dimensions.contentWidth + UpdatePanelMetrics.calloutInset * 2)
+                .frame(maxWidth: dimensions.contentWidth)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, UpdatePanelMetrics.padding - UpdatePanelMetrics.calloutInset)
-                .padding(.vertical, UpdatePanelMetrics.padding)
+                .padding(UpdatePanelMetrics.padding)
         }
         .plumeID(AccessibilityID.updatePanel)
     }
