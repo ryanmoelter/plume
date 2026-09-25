@@ -144,6 +144,7 @@ final class HeadlessSession: AgentSession {
     private var hasUserSubmitted = false
 
     @ObservationIgnored private let statusEngine: StatusEngine
+    @ObservationIgnored private let quotaStore: QuotaStore
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
     /// effort, so a resumed session's control shows it immediately instead of
@@ -153,12 +154,14 @@ final class HeadlessSession: AgentSession {
         tabID: UUID,
         taskID: UUID,
         initialEffort: AgentEffort? = nil,
-        statusEngine: StatusEngine = .shared
+        statusEngine: StatusEngine = .shared,
+        quotaStore: QuotaStore = .shared
     ) {
         self.tabID = tabID
         self.taskID = taskID
         self.effort = initialEffort
         self.statusEngine = statusEngine
+        self.quotaStore = quotaStore
     }
 
     #if DEBUG
@@ -447,8 +450,8 @@ final class HeadlessSession: AgentSession {
     /// message directly, without a real process.
     func handle(_ message: StreamJSONMessage) {
         switch message {
-        case .rateLimit:
-            break  // QuotaStore records it; the quota is account-wide, not per session.
+        case .rateLimit(let info):
+            quotaStore.record(info)
 
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
