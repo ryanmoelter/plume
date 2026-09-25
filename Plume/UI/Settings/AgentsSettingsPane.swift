@@ -15,7 +15,7 @@ struct AgentsSettingsPane: View {
                 }
             }
 
-            Section {
+            Section("Defaults") {
                 Picker("New agent tabs run", selection: $settings.defaultProvider) {
                     ForEach(AgentProviderKind.allCases) { provider in
                         Label {
@@ -28,36 +28,43 @@ struct AgentsSettingsPane: View {
                 }
 
                 Picker("New agent tabs use", selection: $settings.defaultAgentTransport) {
-                    Text("Headless").tag(AgentTransport.headless)
+                    Text("Pretty").tag(AgentTransport.headless)
                     Text("Terminal (TUI)").tag(AgentTransport.terminal)
                 }
                 .pickerStyle(.radioGroup)
-
-                if settings.defaultProvider == .claudeCode {
-                    Picker("New agent tabs start in", selection: $settings.defaultPermissionMode) {
-                        ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                } else {
-                    Picker("New agent tabs start in", selection: $settings.defaultCodexPermissionProfileRaw) {
-                        ForEach(AgentPermissionPreset.offeredCodexProfiles(AgentPermissionPreset.codexPresets, showsFullAccess: settings.showsBypassPermissions)) { profile in
-                            Text(profile.label).tag(profile.id)
-                        }
-                    }
-                }
-                Toggle("Show bypass permissions / full access", isOn: $settings.showsBypassPermissions)
 
                 Picker("New agent tabs think at", selection: $settings.defaultEffort) {
                     ForEach(settings.defaultProvider.efforts) { effort in
                         Text(effort.label).tag(effort)
                     }
                 }
-            } header: {
-                Text("Defaults")
-            } footer: {
-                Text(defaultsFooterText)
-                    .foregroundStyle(.secondary)
+            }
+
+            if isInstalled(.claudeCode) {
+                Section(AgentProviderKind.claudeCode.displayName) {
+                    Picker("New tabs start in", selection: $settings.defaultPermissionMode) {
+                        ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
+                }
+            }
+
+            if isInstalled(.codex) {
+                Section("Codex") {
+                    Picker("New tabs start in", selection: $settings.defaultCodexCollaborationMode) {
+                        ForEach(CodexCollaborationMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    Picker("Permissions", selection: $settings.defaultCodexPermissionProfileRaw) {
+                        ForEach(AgentPermissionPreset.offeredCodexProfiles(AgentPermissionPreset.codexPresets, showsFullAccess: settings.showsCodexFullAccess)) { profile in
+                            Text(profile.label).tag(profile.id)
+                        }
+                    }
+                    Toggle("Show full access", isOn: $settings.showsCodexFullAccess)
+                }
             }
         }
         .formStyle(.grouped)
@@ -74,8 +81,11 @@ struct AgentsSettingsPane: View {
                 Text("Installed")
                     .foregroundStyle(.secondary)
             case .some:
-                Link("Install…", destination: AgentCLIInstallation.downloadURL(for: provider))
-                    .plumeID("settings-install-cli", label: provider.rawValue)
+                Link(destination: AgentCLIInstallation.downloadURL(for: provider)) {
+                    Label("Install", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(.bordered)
+                .plumeID("settings-install-cli", label: provider.rawValue)
             }
         } label: {
             Label {
@@ -86,15 +96,7 @@ struct AgentsSettingsPane: View {
         }
     }
 
-    private var defaultsFooterText: String {
-        let permissionsFootnote = settings.defaultProvider == .claudeCode
-            ? "Follow Claude Code uses permissions.defaultMode from ~/.claude/settings.json."
-            : "A Codex profile sets the file and network access of a new tab."
-        return [
-            "Existing tabs keep their agent. Codex support is in beta, tested with Codex CLI 0.153.4.",
-            "Headless shows the agent as a chat, where you can answer its questions and permission prompts. Terminal runs the agent's own terminal interface.",
-            permissionsFootnote,
-            "You can change the effort of a tab from its chat.",
-        ].joined(separator: " ")
+    private func isInstalled(_ provider: AgentProviderKind) -> Bool {
+        displayedProviders?.contains(provider) ?? false
     }
 }

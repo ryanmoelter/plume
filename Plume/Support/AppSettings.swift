@@ -40,6 +40,8 @@ final class AppSettings {
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
+        static let showsCodexFullAccess = "showsCodexFullAccess"
+        static let defaultCodexCollaborationModeRaw = "defaultCodexCollaborationModeRaw"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
@@ -109,6 +111,9 @@ final class AppSettings {
             forKey: Key.defaultCodexPermissionProfileRaw
         ) ?? AgentPermissionPreset.codexWorkspace.id
 
+        self.defaultCodexCollaborationMode = defaults.string(forKey: Key.defaultCodexCollaborationModeRaw)
+            .flatMap(CodexCollaborationMode.init(rawValue:)) ?? .default
+
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
             .flatMap { raw in AgentProviderKind.claudeCode.efforts.first { $0.rawValue == raw } } ?? Self.defaultEffort
 
@@ -162,6 +167,10 @@ final class AppSettings {
         // Unset reads as false: bypassing every permission check is worth
         // opting into, not stumbling onto.
         self.showsBypassPermissions = defaults.bool(forKey: Key.showsBypassPermissions)
+        // Unset follows the bypass setting, which used to cover Codex too.
+        self.showsCodexFullAccess = defaults.object(forKey: Key.showsCodexFullAccess) == nil
+            ? defaults.bool(forKey: Key.showsBypassPermissions)
+            : defaults.bool(forKey: Key.showsCodexFullAccess)
 
         // A binding blob that no longer decodes falls back to the defaults
         // rather than failing the launch.
@@ -286,6 +295,12 @@ final class AppSettings {
     var defaultCodexPermissionProfileRaw: String {
         didSet {
             defaults.set(defaultCodexPermissionProfileRaw, forKey: Key.defaultCodexPermissionProfileRaw)
+        }
+    }
+
+    var defaultCodexCollaborationMode: CodexCollaborationMode {
+        didSet {
+            defaults.set(defaultCodexCollaborationMode.rawValue, forKey: Key.defaultCodexCollaborationModeRaw)
         }
     }
 
@@ -484,6 +499,13 @@ final class AppSettings {
     var showsBypassPermissions: Bool {
         didSet {
             defaults.set(showsBypassPermissions, forKey: Key.showsBypassPermissions)
+        }
+    }
+
+    /// Whether the Codex permission pickers offer full access.
+    var showsCodexFullAccess: Bool {
+        didSet {
+            defaults.set(showsCodexFullAccess, forKey: Key.showsCodexFullAccess)
         }
     }
 

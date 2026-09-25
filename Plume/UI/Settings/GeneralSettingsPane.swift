@@ -93,6 +93,7 @@ struct GeneralSettingsPane: View {
         } label: {
             Text("Command line helper")
             Text("Currently just `plume-notify`, links into `~/.local/bin`")
+                .foregroundStyle(.tertiary)
         }
     }
 
