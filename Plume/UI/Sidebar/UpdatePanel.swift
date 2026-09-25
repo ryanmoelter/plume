@@ -20,21 +20,19 @@ struct UpdatePanel: View, ThemedView {
                         Link("Full release notes", destination: fullReleaseNotesURL)
                             .font(.callout)
                             .plumeID(AccessibilityID.updatePanelFullReleaseNotesLink)
+                            .listItemPadding(vertical: false)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(maxWidth: dimensions.contentWidth)
-                .frame(maxWidth: .infinity)
-                .padding(UpdatePanelMetrics.padding)
+                .padding(.vertical, UpdatePanelMetrics.padding)
             }
 
             Divider()
 
             homebrewCallout
-                .frame(maxWidth: dimensions.contentWidth)
-                .frame(maxWidth: .infinity)
-                .padding(UpdatePanelMetrics.padding)
+                .listItemPadding(vertical: false)
+                .padding(.vertical, UpdatePanelMetrics.padding)
         }
+        .foregroundStyle(colors.foreground)
         .plumeID(AccessibilityID.updatePanel)
     }
 

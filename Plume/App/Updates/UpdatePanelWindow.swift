@@ -14,6 +14,8 @@ enum UpdatePanelWindow {
     static func show(update: AvailableUpdate) {
         if let window, let hostingController {
             hostingController.rootView = UpdatePanelWindowContent(update: update)
+            // The theme may have been reloaded since the window was built.
+            AppDelegate.tintTitlebar(of: window)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -27,6 +29,7 @@ enum UpdatePanelWindow {
         panel.styleMask = [.titled, .closable, .resizable]
         panel.isReleasedWhenClosed = false
         panel.contentMinSize = minSize
+        AppDelegate.tintTitlebar(of: panel)
         panel.setContentSize(NSSize(width: initialWidth, height: initialHeight))
         panel.center()
 
@@ -38,7 +41,8 @@ enum UpdatePanelWindow {
     }
 
     private static var initialWidth: CGFloat {
-        Dimensions(bodySize: CGFloat(AppSettings.defaultChatFontSize)).contentWidth + UpdatePanelMetrics.padding * 2
+        let dimensions = Dimensions(bodySize: CGFloat(AppSettings.defaultChatFontSize))
+        return dimensions.contentWidth + dimensions.horizontalEdgePadding * 2
     }
 }
 
