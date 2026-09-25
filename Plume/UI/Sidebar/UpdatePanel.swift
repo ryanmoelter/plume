@@ -15,7 +15,7 @@ struct UpdatePanel: View, ThemedView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                     ForEach(update.releases) { release in
-                        ReleaseNotesSection(release: release)
+                        ReleaseNotesSection(release: release, isLatest: release.id == update.releases.first?.id)
                     }
 
                     if let fullReleaseNotesURL = update.fullReleaseNotesURL {
@@ -95,9 +95,11 @@ struct UpdatePanel: View, ThemedView {
     }
 }
 
-/// One release's notes, under a synthetic h1 naming its version.
+/// One release's notes, under a synthetic h1: "Plume <version>" for the
+/// update itself, the bare version for the releases it rolls up.
 private struct ReleaseNotesSection: View {
     let release: UpdateRelease
+    let isLatest: Bool
 
     var body: some View {
         switch release.releaseNotesFormat {
@@ -123,7 +125,7 @@ private struct ReleaseNotesSection: View {
     }
 
     private var heading: String {
-        "# Plume \(release.displayVersion)"
+        isLatest ? "# Plume \(release.displayVersion)" : "# \(release.displayVersion)"
     }
 
     private var trimmedNotes: String? {
