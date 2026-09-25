@@ -84,5 +84,6 @@ struct PlumeApp: App {
         Settings {
             SettingsView()
         }
+        .modelContainer(modelContainer)
     }
 }

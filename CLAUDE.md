@@ -124,7 +124,7 @@ Sparkle checks for updates in the background, and **an available update never in
 - **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass both the Homebrew path and the no-interruption rule.
 - **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password. `HomebrewUpgrade` opens a temporary `.command` script in Terminal.app instead, which upgrades and then reopens Plume.
 - **Never add a manual "Embed Frameworks" phase for Sparkle.** Xcode already auto-embeds and signs its XCFramework into `Contents/Frameworks`; a hand-written phase breaks the build with "Sparkle-product couldn't be opened".
-- **Test both update paths without reinstalling** via Settings ▸ Updates (Debug) (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
+- **Test both update paths without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
 
 ## Conventions
 

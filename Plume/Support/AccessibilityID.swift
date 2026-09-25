@@ -36,6 +36,8 @@ enum AccessibilityID {
 
     // MARK: Settings
 
+    static let settingsPane = "settings-pane"
+    static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
     static let shortcutRecorder = "shortcut-recorder"
     static let shortcutResetButton = "shortcut-reset-button"
     static let shortcutResetAllButton = "shortcut-reset-all-button"
