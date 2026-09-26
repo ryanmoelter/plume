@@ -204,7 +204,51 @@ struct LaunchctlHelperJobTests {
 
     @Test func anSMAppServiceJobIsFoundThroughItsPid() {
         let job = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: Self.smAppServiceJob)
-        #expect(job == .init(program: nil, pid: 61748))
+        #expect(job == .init(program: nil, pid: 61748, parentBundleIdentifier: "com.ryanmoelter.Plume"))
+    }
+
+    @Test func anOldHelperStillOnDiskNamesItsOwnBundle() {
+        let bundle = SleepHelperVersionQuery.legacyHelperBundle(
+            job: .init(pid: 1, parentBundleIdentifier: "com.ryanmoelter.Plume"),
+            executable: URL(fileURLWithPath: "/Users/me/Other/Plume.app/Contents/MacOS/PlumeSleepHelper"),
+            executableExists: true,
+            appBundlePath: "/Applications/Plume.app",
+            appBundleIdentifier: "com.ryanmoelter.Plume"
+        )
+        #expect(bundle == "/Users/me/Other/Plume.app")
+    }
+
+    /// Sparkle moves the old bundle aside and deletes it, so the running
+    /// helper's path points somewhere that no longer exists.
+    @Test func anOldHelperWhoseBundleWasReplacedBelongsToTheAppWithItsIdentifier() {
+        let executable = URL(fileURLWithPath: "/private/var/folders/x/Plume.app/Contents/MacOS/PlumeSleepHelper")
+        let own = SleepHelperVersionQuery.legacyHelperBundle(
+            job: .init(pid: 1, parentBundleIdentifier: "com.ryanmoelter.Plume"),
+            executable: executable,
+            executableExists: false,
+            appBundlePath: "/Applications/Plume.app",
+            appBundleIdentifier: "com.ryanmoelter.Plume"
+        )
+        let debug = SleepHelperVersionQuery.legacyHelperBundle(
+            job: .init(pid: 1, parentBundleIdentifier: "com.ryanmoelter.Plume"),
+            executable: executable,
+            executableExists: false,
+            appBundlePath: "/Users/me/DerivedData/Plume.app",
+            appBundleIdentifier: "com.ryanmoelter.Plume.debug"
+        )
+        #expect(own == "/Applications/Plume.app")
+        #expect(debug == "/private/var/folders/x/Plume.app")
+    }
+
+    @Test func anOldHelperWithNoExecutableHasNoBundle() {
+        let bundle = SleepHelperVersionQuery.legacyHelperBundle(
+            job: .init(parentBundleIdentifier: "com.ryanmoelter.Plume"),
+            executable: nil,
+            executableExists: false,
+            appBundlePath: "/Applications/Plume.app",
+            appBundleIdentifier: "com.ryanmoelter.Plume"
+        )
+        #expect(bundle == nil)
     }
 
     @Test func anAbsoluteProgramIsTakenAsIs() {
@@ -220,7 +264,7 @@ struct LaunchctlHelperJobTests {
     }
 
     @Test func aPidResolvesToItsExecutable() {
-        let job = SleepHelperVersionQuery.LaunchctlJob(program: nil, pid: getpid())
+        let job = SleepHelperVersionQuery.LaunchctlJob(pid: getpid())
         #expect(job.executable?.path == executableURL(ofProcess: getpid())?.path)
         #expect(job.executable != nil)
     }

@@ -38,6 +38,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     )
     @ObservationIgnored private var deferredCheckTimer: Timer?
     @ObservationIgnored private var lastRelease: Date?
+    @ObservationIgnored private var lastReadingSawOverride = false
 
     /// The daemon's designated identity, so a process squatting on the Mach
     /// service name cannot impersonate it.
@@ -323,8 +324,15 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// report it.
     private nonisolated static func runningHelperBundlePath() async -> String? {
         guard let job = await printHelperJob(), job.loaded else { return nil }
-        let executable = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: job.output).executable
-        return executable.map { appBundle(containingExecutable: $0).path }
+        let parsed = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: job.output)
+        let executable = parsed.executable
+        return SleepHelperVersionQuery.legacyHelperBundle(
+            job: parsed,
+            executable: executable,
+            executableExists: executable.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
+            appBundlePath: Bundle.main.bundlePath,
+            appBundleIdentifier: Bundle.main.bundleIdentifier
+        )
     }
 
     /// `launchctl print` needs no root. Nil when it cannot run.
@@ -383,7 +391,10 @@ final class DaemonLidSleepOverride: LidSleepOverride {
                 return
             }
             // Another install's hold counts too: launchd has one job for all.
-            let holdActive = isLocalHoldActive || releasedRecently || reading.overrideEngaged
+            // A hold seen last time and gone now may have been released within
+            // the helper's sleep-request window, so wait that out once too.
+            let holdActive = isLocalHoldActive || releasedRecently || reading.overrideEngaged || lastReadingSawOverride
+            lastReadingSawOverride = reading.overrideEngaged
             let described = "\(reading.answer) at \(reading.helperBundlePath ?? "an unknown bundle"), "
                 + "app build \(versionPolicy.appBuild) at \(versionPolicy.appBundlePath)"
             switch versionPolicy.record(reading.answer, helperBundlePath: reading.helperBundlePath, holdActive: holdActive) {

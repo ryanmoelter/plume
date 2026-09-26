@@ -153,7 +153,8 @@ nonisolated enum SleepHelperVersionQuery {
         /// Nil when unknown: an unreachable helper, or an old one whose
         /// process could not be found.
         var helperBundlePath: String?
-        /// Whether `SleepDisabled` is set, by this app or another install.
+        /// Whether `SleepDisabled` is set, by this app or another install, as
+        /// of the end of the query. True when that last read failed.
         var overrideEngaged: Bool
     }
 
@@ -162,6 +163,8 @@ nonisolated enum SleepHelperVersionQuery {
     /// comes first to tell unreachable from refused, and a failed
     /// `helperBuild` is asked once more before it counts as refused. An old
     /// helper cannot report its bundle, so `legacyBundlePath` finds it.
+    /// `currentState` is read again last, so a hold taken or released while
+    /// the helper was being asked is seen before any reinstall.
     static func ask(
         timeout: TimeInterval,
         connect: @escaping @Sendable () -> NSXPCConnection,
@@ -173,19 +176,25 @@ nonisolated enum SleepHelperVersionQuery {
         guard let state else {
             return Reading(answer: .unreachable, helperBundlePath: nil, overrideEngaged: false)
         }
+        var reading = Reading(answer: .refused, helperBundlePath: nil, overrideEngaged: state)
         for _ in 0..<2 {
             let identity: HelperIdentity? = await request(timeout: timeout, connect: connect) { helper, reply in
                 helper.helperBuild { reply(HelperIdentity(build: $0, bundlePath: $1)) }
             }
             if let identity {
-                return Reading(
-                    answer: .build(identity.build),
-                    helperBundlePath: identity.bundlePath.isEmpty ? nil : identity.bundlePath,
-                    overrideEngaged: state
-                )
+                reading.answer = .build(identity.build)
+                reading.helperBundlePath = identity.bundlePath.isEmpty ? nil : identity.bundlePath
+                break
             }
         }
-        return Reading(answer: .refused, helperBundlePath: await legacyBundlePath(), overrideEngaged: state)
+        if reading.answer == .refused {
+            reading.helperBundlePath = await legacyBundlePath()
+        }
+        let finalState: Bool? = await request(timeout: timeout, connect: connect) { helper, reply in
+            helper.currentState { reply($0) }
+        }
+        reading.overrideEngaged = finalState ?? true
+        return reading
     }
 
     private struct HelperIdentity: Sendable {
@@ -230,6 +239,7 @@ nonisolated enum SleepHelperVersionQuery {
             switch key {
             case "program" where value.hasPrefix("/"): job.program = value
             case "pid": job.pid = pid_t(value)
+            case "parent bundle identifier": job.parentBundleIdentifier = value
             default: break
             }
         }
@@ -239,11 +249,32 @@ nonisolated enum SleepHelperVersionQuery {
     struct LaunchctlJob: Equatable, Sendable {
         var program: String?
         var pid: pid_t?
+        var parentBundleIdentifier: String?
 
         var executable: URL? {
             if let program { return URL(fileURLWithPath: program) }
             return pid.flatMap(executableURL(ofProcess:))
         }
+    }
+
+    /// The bundle an old helper runs from. An in-place update moves or
+    /// deletes the running executable, so `proc_pidpath` then names a path
+    /// that is gone; a job registered under this app's bundle identifier
+    /// whose executable is gone was replaced by this app, not another live
+    /// install. A Debug build's identifier differs from the release's.
+    static func legacyHelperBundle(
+        job: LaunchctlJob,
+        executable: URL?,
+        executableExists: Bool,
+        appBundlePath: String,
+        appBundleIdentifier: String?
+    ) -> String? {
+        guard let executable else { return nil }
+        if executableExists { return appBundle(containingExecutable: executable).path }
+        guard let appBundleIdentifier, job.parentBundleIdentifier == appBundleIdentifier else {
+            return appBundle(containingExecutable: executable).path
+        }
+        return appBundlePath
     }
 }
 
