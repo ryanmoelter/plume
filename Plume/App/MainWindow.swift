@@ -18,6 +18,7 @@ struct MainWindow: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var pendingWorktreeRemoval: WorktreeRemovalPrompt.PendingRemoval?
     @State private var worktreeRemovalError: String?
+    @State private var pendingLiveAgentRemoval: PendingLiveAgentRemoval?
     /// Starts generous so the sidebar's max width is unclamped until the
     /// first real measurement lands.
     @State private var windowWidth: CGFloat = .infinity
@@ -157,6 +158,7 @@ struct MainWindow: View {
             Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
         .modifier(worktreeRemovalDialog)
+        .modifier(liveAgentRemovalDialog)
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
@@ -237,6 +239,13 @@ struct MainWindow: View {
         )
     }
 
+    private var liveAgentRemovalDialog: LiveAgentRemovalDialogModifier {
+        LiveAgentRemovalDialogModifier(
+            pendingRemoval: $pendingLiveAgentRemoval,
+            onConfirm: requestWorktreeRemoval
+        )
+    }
+
     /// Every task in the order the sidebar shows them, matching
     /// `SidebarView.navigableTasks` so ⌘] / ⌘[ walk the same order as the
     /// arrow keys do inside the sidebar.
@@ -252,12 +261,20 @@ struct MainWindow: View {
         selection = tasks.first { $0.id == id }?.id
     }
 
-    /// Entry point for both the sidebar's context menu and ⌘⌃A: a task that
-    /// owns a Plume-created worktree asks before either deleting or archiving
-    /// touches it, since both would otherwise silently orphan the directory.
-    /// A task without one skips straight to `finishRemoval`, exactly as
-    /// today.
+    /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with a
+    /// live agent asks first, since either action would kill it outright; a
+    /// task that also owns a Plume-created worktree then asks again, once
+    /// the live-agent risk (if any) is cleared, since removing the worktree
+    /// is a second, separate risk.
     private func requestRemoval(of task: WorkTask, verb: WorktreeRemovalVerb) {
+        guard !TaskRemovalSafety.hasLiveAgent(task) else {
+            pendingLiveAgentRemoval = .init(task: task, verb: verb)
+            return
+        }
+        requestWorktreeRemoval(of: task, verb: verb)
+    }
+
+    private func requestWorktreeRemoval(of task: WorkTask, verb: WorktreeRemovalVerb) {
         guard WorktreeRemovalPrompt.needsConfirmation(for: task) else {
             finishRemoval(task, verb: verb, removeWorktree: false, deleteBranch: false)
             return
