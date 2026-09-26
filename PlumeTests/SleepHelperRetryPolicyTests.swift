@@ -3,7 +3,7 @@ import Foundation
 @testable import Plume
 
 /// Covers the back-off after the sleep helper stops answering: delays double
-/// up to a cap, the helper reads unavailable after a few failures, and an
+/// up to a cap, the helper reads unresponsive after a few failures, and an
 /// unloaded helper is re-registered once until it answers again.
 struct SleepHelperRetryPolicyTests {
     @Test func delaysDoubleUpToTheCap() {
@@ -17,20 +17,20 @@ struct SleepHelperRetryPolicyTests {
         #expect(SleepHelperRetryPolicy.delay(afterFailures: 0) == 0)
     }
 
-    @Test func readsUnavailableOnlyAfterRepeatedFailures() {
+    @Test func readsUnresponsiveOnlyAfterRepeatedFailures() {
         var policy = SleepHelperRetryPolicy()
         _ = policy.recordFailure()
         _ = policy.recordFailure()
-        #expect(!policy.isUnavailable)
+        #expect(!policy.isUnresponsive)
         _ = policy.recordFailure()
-        #expect(policy.isUnavailable)
+        #expect(policy.isUnresponsive)
     }
 
     @Test func aSuccessResetsTheStreak() {
         var policy = SleepHelperRetryPolicy()
         for _ in 0..<5 { _ = policy.recordFailure() }
         policy.recordSuccess()
-        #expect(!policy.isUnavailable)
+        #expect(!policy.isUnresponsive)
         let delay = policy.recordFailure()
         #expect(delay == 1)
     }
@@ -39,7 +39,7 @@ struct SleepHelperRetryPolicyTests {
         var policy = SleepHelperRetryPolicy()
         let claimed = policy.claimReregister(helperLoaded: true)
         #expect(!claimed)
-        #expect(!policy.hasReregistered)
+        #expect(policy.hasCheckedLoad)
     }
 
     @Test func anUnloadedHelperIsReregisteredOnce() {

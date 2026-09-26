@@ -12,6 +12,12 @@ enum LidSleepOverrideStatus: Equatable, Sendable {
     case engaged
     /// Registration or the helper itself failed, with the reason to show.
     case unavailable(String)
+    /// Approved, but the helper has stopped answering, so reinstalling is the
+    /// fix to offer.
+    case unresponsive
+
+    static let unresponsiveReason =
+        "The sleep helper isn't responding. Reinstall it from Settings → Keep Awake."
 
     /// Whether an `apply(true)` can take effect right now.
     var canEngage: Bool { self == .ready || self == .engaged }

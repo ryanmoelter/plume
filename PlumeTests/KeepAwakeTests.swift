@@ -719,9 +719,9 @@ struct KeepAwakeTests {
         #expect(assertion.held != nil, "the plain hold is untouched")
     }
 
-    @Test func reinstallingAnUnavailableHelperKeepsTheSettingOn() {
+    @Test func reinstallingAnUnresponsiveHelperKeepsTheSettingOn() {
         let lid = FakeLidSleepOverride()
-        lid.status = .unavailable("not responding")
+        lid.status = .unresponsive
         let (coordinator, _, settings) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
         settings.keepsAwakeWithLidClosed = true
 
@@ -1119,6 +1119,12 @@ struct LidCloseGuidanceTests {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unavailable("nope"))
         #expect(guidance == .helperUnavailable("nope"))
         #expect(guidance.note == "nope")
+    }
+
+    @Test func anUnresponsiveHelperPointsAtReinstall() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unresponsive)
+        #expect(guidance.note?.contains("Reinstall") == true)
+        #expect(!LidSleepOverrideStatus.unresponsive.canEngage)
     }
 
     /// Never mode means the user declined Plume's say over sleep, so lid

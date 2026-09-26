@@ -6,15 +6,16 @@ import Foundation
 /// not what launchd has loaded. A Homebrew upgrade boots the job out of
 /// launchd while the approval stands, so the service reads `.enabled` and
 /// every connection fails at lookup. Retrying at once turns that into a hot
-/// loop, so failed attempts back off, the helper is re-registered at most once
-/// per success, and after a few failures it reads as unavailable.
+/// loop, so failed attempts back off, launchd is asked whether the job is
+/// loaded once per failure streak, and after a few failures the helper reads
+/// as unresponsive.
 nonisolated struct SleepHelperRetryPolicy: Equatable, Sendable {
     static let baseDelay: TimeInterval = 1
     static let maxDelay: TimeInterval = 60
-    static let failuresBeforeUnavailable = 3
+    static let failuresBeforeUnresponsive = 3
 
     private(set) var consecutiveFailures = 0
-    private(set) var hasReregistered = false
+    private(set) var hasCheckedLoad = false
 
     /// Records a failed attempt and returns how long to wait before the next.
     mutating func recordFailure() -> TimeInterval {
@@ -24,19 +25,19 @@ nonisolated struct SleepHelperRetryPolicy: Equatable, Sendable {
 
     mutating func recordSuccess() {
         consecutiveFailures = 0
-        hasReregistered = false
+        hasCheckedLoad = false
     }
 
-    /// Whether to re-register a helper launchd has not loaded. True at most
-    /// once until the helper answers again, because a re-register that did not
-    /// help will not help the second time either.
+    /// Records the one load check of this streak, and whether to re-register.
+    /// A re-register that did not help, or a helper launchd already has
+    /// loaded, will not change on a second look.
     mutating func claimReregister(helperLoaded: Bool) -> Bool {
-        guard !helperLoaded, !hasReregistered else { return false }
-        hasReregistered = true
-        return true
+        guard !hasCheckedLoad else { return false }
+        hasCheckedLoad = true
+        return !helperLoaded
     }
 
-    var isUnavailable: Bool { consecutiveFailures >= Self.failuresBeforeUnavailable }
+    var isUnresponsive: Bool { consecutiveFailures >= Self.failuresBeforeUnresponsive }
 
     static func delay(afterFailures failures: Int) -> TimeInterval {
         guard failures > 0 else { return 0 }

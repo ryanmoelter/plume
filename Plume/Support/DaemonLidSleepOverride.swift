@@ -22,11 +22,16 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     @ObservationIgnored private var wantsEngaged = false
     @ObservationIgnored private var isEngaged = false
     @ObservationIgnored private var engagePending = false
+    @ObservationIgnored private var probePending = false
     @ObservationIgnored private var retryPolicy = SleepHelperRetryPolicy()
     @ObservationIgnored private var retryTimer: Timer?
-    /// Set from a failed engage until its retry is scheduled, so nothing
-    /// re-engages while the launchd probe or a re-register is in flight.
+    /// Set from a failed engage until its retry is scheduled, and through a
+    /// reinstall, so nothing engages while launchd is being asked or changed.
     @ObservationIgnored private var isRecovering = false
+    /// Bumped by uninstall and reinstall. Recovery work that suspended across
+    /// one checks it on resuming, so it never re-registers a helper the user
+    /// removed or races a reinstall.
+    @ObservationIgnored private var generation = 0
 
     /// The daemon's designated identity, so a process squatting on the Mach
     /// service name cannot impersonate it.
@@ -35,9 +40,10 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         + " and identifier \"\(sleepHelperServiceName)\""
 
     init() {
-        refreshStatus()
-        if service.status == .enabled {
-            Task { await reregisterIfNotLoaded() }
+        readStatus()
+        if status == .ready {
+            let generation = generation
+            Task { await reregisterIfNotLoaded(generation: generation) }
         }
         // Approval happens in System Settings, so coming back to Plume is the
         // moment the status is most likely to have changed.
@@ -52,27 +58,11 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     // MARK: - LidSleepOverride
 
+    /// With no hold wanting the helper, nothing else retries it, so an
+    /// unresponsive helper is asked again here, on the user's return.
     func refreshStatus() {
-        switch service.status {
-        // A daemon that has never been registered reads `.notFound`; `.notRegistered`
-        // only appears after an unregister. Both mean "register me".
-        case .notRegistered, .notFound:
-            set(.notRegistered)
-            stopApprovalPoll()
-        case .requiresApproval:
-            set(.needsApproval)
-            startApprovalPoll()
-        case .enabled:
-            if retryPolicy.isUnavailable {
-                set(.unavailable(Self.unresponsiveReason))
-            } else {
-                set(isEngaged ? .engaged : .ready)
-            }
-            stopApprovalPoll()
-            if wantsEngaged, !isEngaged { engage() }
-        @unknown default:
-            set(.unavailable("Unknown helper state \(service.status.rawValue)."))
-        }
+        readStatus()
+        if status == .unresponsive, !wantsEngaged { checkResponsive() }
     }
 
     func ensureRegistered() {
@@ -86,7 +76,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             // failure. Anything else surfaces through the status read below.
             Log.app.notice("Sleep helper registration: \(error.localizedDescription, privacy: .public)")
         }
-        refreshStatus()
+        readStatus()
         if status == .notRegistered {
             set(.unavailable("macOS refused to register the sleep helper."))
         }
@@ -95,10 +85,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     func unregister() {
         guard status != .notRegistered else { return }
         apply(false)
-        stopRetry()
-        retryPolicy = SleepHelperRetryPolicy()
-        connection?.invalidate()
-        connection = nil
+        resetRecovery()
         do {
             try service.unregister()
             Log.app.notice("Sleep helper unregistered")
@@ -107,22 +94,21 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             Log.app.error("Sleep helper unregister failed: \(error.localizedDescription, privacy: .public)")
             return
         }
-        refreshStatus()
+        readStatus()
     }
 
     func reinstall() {
-        stopRetry()
-        retryPolicy = SleepHelperRetryPolicy()
-        connection?.invalidate()
-        connection = nil
+        resetRecovery()
         isEngaged = false
         engagePending = false
         stopHeartbeat()
         isRecovering = true
+        let generation = generation
         Task {
-            await reregister()
+            await reregister(generation: generation)
+            guard generation == self.generation else { return }
             isRecovering = false
-            refreshStatus()
+            readStatus()
         }
     }
 
@@ -130,7 +116,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         wantsEngaged = engaged
         if engaged {
             guard service.status == .enabled else {
-                refreshStatus()
+                readStatus()
                 return
             }
             engage()
@@ -139,13 +125,37 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         }
     }
 
+    private func readStatus() {
+        switch service.status {
+        // A daemon that has never been registered reads `.notFound`; `.notRegistered`
+        // only appears after an unregister. Both mean "register me".
+        case .notRegistered, .notFound:
+            set(.notRegistered)
+            stopApprovalPoll()
+        case .requiresApproval:
+            set(.needsApproval)
+            startApprovalPoll()
+        case .enabled:
+            if retryPolicy.isUnresponsive {
+                set(.unresponsive)
+            } else {
+                set(isEngaged ? .engaged : .ready)
+            }
+            stopApprovalPoll()
+            if wantsEngaged, !isEngaged { engage() }
+        @unknown default:
+            set(.unavailable("Unknown helper state \(service.status.rawValue)."))
+        }
+    }
+
     // MARK: - Engaging
 
     private func engage() {
         guard !isEngaged, !engagePending, !isRecovering, retryTimer == nil else { return }
         engagePending = true
+        let generation = generation
         let helper = proxy { [weak self] in
-            Task { @MainActor in self?.engageFailed() }
+            Task { @MainActor in self?.engageFailed(generation: generation) }
         }
         helper?.setSleepDisabled(true) { [weak self] now, error in
             Task { @MainActor in self?.didEngage(now: now, error: error) }
@@ -154,12 +164,12 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     private func didEngage(now: Bool, error: String?) {
         engagePending = false
-        let wasUnavailable = retryPolicy.isUnavailable
+        let wasUnresponsive = retryPolicy.isUnresponsive
         retryPolicy.recordSuccess()
-        if wasUnavailable { refreshStatus() }
         guard wantsEngaged else {
             // The hold ended while the request was in flight.
             if now { proxy()?.setSleepDisabled(false) { _, _ in } }
+            if wasUnresponsive { readStatus() }
             return
         }
         if now {
@@ -181,26 +191,27 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         let sleepIfLidClosed = !ExternalDisplay.isConnected
         proxy()?.releaseOverride(sleepIfLidClosed: sleepIfLidClosed) { _, _ in }
         Log.app.notice("Lid-closed override released (sleepIfLidClosed=\(sleepIfLidClosed))")
-        refreshStatus()
+        readStatus()
     }
 
     // MARK: - Recovery
 
-    private static let unresponsiveReason =
-        "The sleep helper isn't responding. Reinstall it from Settings → Keep Awake."
-
     /// XPC calls exactly one of a message's reply or its error handler, so
-    /// this runs once per failed engage, however the connection died.
-    private func engageFailed() {
+    /// this runs once per failed engage, however the connection died. An
+    /// engage from before an uninstall or reinstall was torn down on purpose,
+    /// so its failure says nothing about the helper.
+    private func engageFailed(generation: Int) {
+        guard generation == self.generation else { return }
         engagePending = false
         isRecovering = true
         let delay = retryPolicy.recordFailure()
         Log.app.error(
             "Sleep helper unreachable (\(self.retryPolicy.consecutiveFailures) in a row); retrying in \(delay, privacy: .public)s"
         )
-        refreshStatus()
+        readStatus()
         Task {
-            await reregisterIfNotLoaded()
+            await reregisterIfNotLoaded(generation: generation)
+            guard generation == self.generation else { return }
             isRecovering = false
             scheduleRetry(after: delay)
         }
@@ -212,7 +223,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.retryTimer = nil
-                self.refreshStatus()
+                self.readStatus()
             }
         }
     }
@@ -222,31 +233,65 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         retryTimer = nil
     }
 
+    /// Drops the connection, the back-off, and any recovery still suspended.
+    private func resetRecovery() {
+        generation += 1
+        stopRetry()
+        retryPolicy = SleepHelperRetryPolicy()
+        isRecovering = false
+        connection?.invalidate()
+        connection = nil
+    }
+
+    /// Asks an unresponsive helper for its state; any answer means it is back.
+    /// A failure only drops the connection, which does not come back here.
+    private func checkResponsive() {
+        guard !probePending else { return }
+        probePending = true
+        let generation = generation
+        let helper = proxy { [weak self] in
+            Task { @MainActor in self?.probePending = false }
+        }
+        helper?.currentState { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.probePending = false
+                guard generation == self.generation else { return }
+                self.retryPolicy.recordSuccess()
+                self.readStatus()
+            }
+        }
+    }
+
     /// A Homebrew upgrade's `launchctl` uninstall step leaves the helper
     /// approved but unloaded, and launchd will not load it again by itself.
-    private func reregisterIfNotLoaded() async {
-        guard !retryPolicy.hasReregistered else { return }
+    private func reregisterIfNotLoaded(generation: Int) async {
+        guard !retryPolicy.hasCheckedLoad else { return }
         let loaded = await Self.isHelperLoaded()
-        guard retryPolicy.claimReregister(helperLoaded: loaded) else { return }
+        guard generation == self.generation,
+              service.status == .enabled,
+              retryPolicy.claimReregister(helperLoaded: loaded)
+        else { return }
         Log.app.notice("Sleep helper is approved but not loaded; re-registering")
-        await reregister()
+        await reregister(generation: generation)
     }
 
     /// Unregister-then-register is what reloaded an unloaded job by hand, and
     /// macOS keeps the approval across it, so it does not prompt.
-    private func reregister() async {
+    private func reregister(generation: Int) async {
         do {
             try await service.unregister()
         } catch {
             Log.app.notice("Sleep helper unregister before re-register: \(error.localizedDescription, privacy: .public)")
         }
+        guard generation == self.generation else { return }
         do {
             try service.register()
             Log.app.notice("Re-registered the sleep helper")
         } catch {
             Log.app.error("Sleep helper re-register failed: \(error.localizedDescription, privacy: .public)")
         }
-        refreshStatus()
+        readStatus()
     }
 
     /// Reports loaded when `launchctl` itself cannot run, so nothing is
@@ -299,7 +344,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     // MARK: - Connection
 
-    private func proxy(onError: (@Sendable () -> Void)? = nil) -> (any SleepHelperProtocol)? {
+    private func proxy(onError: (() -> Void)? = nil) -> (any SleepHelperProtocol)? {
         if connection == nil {
             let connection = NSXPCConnection(machServiceName: sleepHelperServiceName, options: .privileged)
             connection.remoteObjectInterface = NSXPCInterface(with: SleepHelperProtocol.self)
@@ -330,7 +375,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         connection = nil
         isEngaged = false
         stopHeartbeat()
-        refreshStatus()
+        readStatus()
     }
 
     // MARK: - Approval
@@ -340,7 +385,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     private func startApprovalPoll() {
         guard approvalPoll == nil else { return }
         approvalPoll = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshStatus() }
+            MainActor.assumeIsolated { self?.readStatus() }
         }
     }
 
