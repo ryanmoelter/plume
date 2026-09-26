@@ -1,6 +1,6 @@
 import Foundation
 
-/// A live-agent removal awaiting confirmation.
+/// A removal of a task whose agent is mid-turn, awaiting confirmation.
 struct PendingLiveAgentRemoval: Identifiable {
     let task: WorkTask
     let verb: WorktreeRemovalVerb
@@ -13,38 +13,35 @@ struct PendingLiveAgentRemoval: Identifiable {
 
     var message: String {
         switch verb {
-        case .archive: "This task has a live agent running. Archiving it now stops that agent."
-        case .delete: "This task has a live agent running. Deleting it now stops that agent, and cannot be undone."
+        case .archive: "An agent in this task is still working. Archiving it now stops that agent mid-turn."
+        case .delete: "An agent in this task is still working. Deleting it now stops that agent mid-turn, and cannot be undone."
         }
     }
 }
 
-/// Whether a task has a tab running a live agent, so removing (archiving or
-/// deleting) it needs confirmation first — otherwise the action silently
-/// kills whatever that agent was doing.
-///
-/// Kept out of the views, and split from the session lookup below, so the
-/// decision itself (`isLive`) is testable without a running session.
+/// Whether removing (archiving or deleting) a task needs confirmation because
+/// one of its agents is mid-turn. An agent at rest has nothing in flight to
+/// lose, so its task archives silently.
 enum TaskRemovalSafety {
-    static func hasLiveAgent(_ task: WorkTask) -> Bool {
-        // `&&` short-circuits before the session lookup below, so a plain
-        // terminal tab never pays for one.
-        task.orderedTabs.contains { $0.kind == .agent && isLive(kind: $0.kind, hasExited: hasExited($0)) }
+    static func hasActiveAgent(_ task: WorkTask) -> Bool {
+        let statuses = task.orderedTabs
+            .filter { $0.kind == .agent }
+            .map { StatusEngine.shared.status(forTab: $0.id) }
+        return needsConfirmation(tabStatuses: statuses)
     }
 
-    static func isLive(kind: TabKind, hasExited: Bool) -> Bool {
-        kind == .agent && !hasExited
+    static func needsConfirmation(tabStatuses: [TaskStatus]) -> Bool {
+        tabStatuses.contains(where: isMidTurn)
     }
 
-    /// The headless transport's session lives in `AgentSessionManager`; the
-    /// terminal transport's PTY lives in `SurfaceManager`. Neither having a
-    /// session at all (never launched) reads as exited.
-    private static func hasExited(_ tab: TaskTab) -> Bool {
-        switch tab.transport {
-        case .headless:
-            return AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited ?? true
-        case .terminal:
-            return SurfaceManager.shared.existingSession(for: tab.id)?.hasExited ?? true
+    /// A tab blocked on the user counts: its turn resumes once answered.
+    static func isMidTurn(_ status: TaskStatus) -> Bool {
+        switch status {
+        case .working, .waitingOnSubagents,
+             .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
+            true
+        case .notStarted, .awaitingReply, .done, .interrupted, .error:
+            false
         }
     }
 }
