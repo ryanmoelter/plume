@@ -5,8 +5,10 @@ import Foundation
 /// The two columns have independent minimums, so collapsing the sidebar lets
 /// the window shrink by exactly what the sidebar was holding.
 enum WindowMetrics {
-    /// Enough for the add button, its menu, and the sidebar toggle.
-    static let sidebarMinimumWidth: CGFloat = 221
+    /// Enough for the add button, its menu, and the sidebar toggle — macOS
+    /// 27's taller toolbar chrome needs more room for the same three
+    /// controls than earlier macOS versions did.
+    static let sidebarMinimumWidth: CGFloat = 235
     static let sidebarIdealWidth: CGFloat = 240
 
     static let detailMinimumWidth: CGFloat = 360
