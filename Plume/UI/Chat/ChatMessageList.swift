@@ -234,11 +234,14 @@ struct ChatMessageList: View, ThemedView {
     /// Only a message appended to a conversation already showing: the first
     /// build is a transcript loading, and a resume replaces the whole list.
     ///
-    /// Only pins to something that also earns a bookmark on the minimap —
-    /// `entry.kind.isUserInput`, the same test `ChatMinimap` uses to decide
-    /// what to draw as one. A system note or another agent's message can
-    /// land under the user's role without being anything the user said, and
-    /// isn't worth scrolling to.
+    /// Only pins to something the user themselves sent —
+    /// `entry.kind.isSentByUser`. A minimap bookmark alone
+    /// (`entry.kind.isUserInput`) is not enough: it also covers a question
+    /// or a plan, which the agent produced and only the user's *next* turn
+    /// answers. Pinning to either of those would re-anchor a reader who
+    /// scrolled away, on a turn nobody just sent. A system note or another
+    /// agent's message can also land under the user's role without being
+    /// anything the user said, and isn't worth scrolling to either.
     private func pinSentPrompt() {
         let ids = messages.map(\.id)
         defer { previousMessageIDs = ids }
@@ -246,7 +249,7 @@ struct ChatMessageList: View, ThemedView {
               ids.count > previousMessageIDs.count,
               ids.starts(with: previousMessageIDs) else { return }
         let appendedIDs = Set(ids[previousMessageIDs.count...])
-        guard let entry = outline.entries.last(where: { $0.kind.isUserInput && appendedIDs.contains($0.messageID) })
+        guard let entry = outline.entries.last(where: { $0.kind.isSentByUser && appendedIDs.contains($0.messageID) })
         else { return }
         commands.pin(pieceID: entry.id)
     }
