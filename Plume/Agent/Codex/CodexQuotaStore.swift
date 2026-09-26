@@ -57,6 +57,10 @@ final class CodexQuotaStore {
         guard let date = receivedAt[window.id] else { return false }
         return QuotaFreshness.isStale(receivedAt: date, now: now)
     }
+
+    func receivedAt(for window: CodexQuotaWindow) -> Date? {
+        receivedAt[window.id]
+    }
 }
 
 /// The persisted form of `CodexQuotaStore`, keyed by `CodexQuotaWindow.id`.

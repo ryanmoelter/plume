@@ -70,6 +70,7 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: snapshot.receivedAt,
                     barWidth: StatuslineMeterWidth.sidebarShortQuota,
                     windowLength: QuotaWindowLength.fiveHour,
                     readingAlignment: .leading
@@ -83,6 +84,7 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: snapshot.receivedAt,
                     barWidth: StatuslineMeterWidth.sidebarQuota,
                     windowLength: QuotaWindowLength.sevenDay,
                     readingAlignment: .leading

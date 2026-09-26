@@ -74,7 +74,7 @@ struct CodexQuotaStrip: View, ThemedView {
             utilization: window.utilization,
             resetsAt: window.resetsAt,
             windowLength: window.windowLength,
-            isStale: quota.isStale(window, now: clock.now),
+            receivedAt: quota.receivedAt(for: window),
             now: clock.now
         )
     }
