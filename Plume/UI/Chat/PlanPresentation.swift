@@ -38,10 +38,3 @@ nonisolated enum PlanPresentation: Equatable {
         isExpanded ? self : .hidden(for: approval)
     }
 }
-
-/// The transcript row a plan was opened from. Every row opens the tab's plan
-/// panel, which shows the latest version of the plan.
-struct ProposedPlan: Equatable, Identifiable {
-    /// The `ExitPlanMode` tool use id.
-    let id: String
-}

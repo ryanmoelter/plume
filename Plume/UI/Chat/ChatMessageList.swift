@@ -24,7 +24,9 @@ struct ChatMessageList: View, ThemedView {
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    var onOpenPlan: (ProposedPlan) -> Void = { _ in }
+    /// Nil where there is no plan to open, which leaves a plan row a
+    /// non-interactive summary.
+    var onOpenPlan: (() -> Void)? = nil
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///

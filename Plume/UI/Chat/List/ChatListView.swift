@@ -10,7 +10,7 @@ struct ChatListView: NSViewRepresentable {
     var revealModel: ChatRevealModel?
     var commands: ChatListCommands
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    var onOpenPlan: (ProposedPlan) -> Void = { _ in }
+    var onOpenPlan: (() -> Void)?
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
 

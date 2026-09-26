@@ -20,8 +20,9 @@ struct ChatPieceView: View, ThemedView {
     var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
     /// Opens the plan panel from a plan row. Nil where there is no panel to
-    /// open, as inside a subagent's own transcript.
-    var onOpenPlan: ((ProposedPlan) -> Void)? = nil
+    /// open, as inside a subagent's own transcript, or where there is no
+    /// plan to show.
+    var onOpenPlan: (() -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel

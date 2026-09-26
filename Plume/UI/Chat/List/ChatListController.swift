@@ -55,7 +55,18 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    var onOpenPlan: (ProposedPlan) -> Void = { _ in }
+    /// Whether a plan row is clickable, not just what it does — `apply(to:)`
+    /// sets this unconditionally on every update, outside the `inputs` diff
+    /// `update(_:)` runs, so a flip from nil to non-nil (or back) would
+    /// otherwise sit uncaptured until some other change happened to rebuild
+    /// the row.
+    var onOpenPlan: (() -> Void)? {
+        didSet {
+            guard (oldValue == nil) != (onOpenPlan == nil) else { return }
+            refreshRoots(Set(hosts.keys))
+            documentView.needsLayout = true
+        }
+    }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?

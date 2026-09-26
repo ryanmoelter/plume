@@ -585,8 +585,7 @@ struct ChatTabView: View, ThemedView {
 
     /// Every plan row opens the same panel, on the plan's latest version
     /// rather than the one that row proposed.
-    private func openPlan(_: ProposedPlan) {
-        guard hasPlan else { return }
+    private func openPlan() {
         planPresentation = .expanded
     }
 
@@ -837,7 +836,7 @@ struct ChatTabView: View, ThemedView {
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
             onOpenSubagent: { openSubagentID = $0.id },
-            onOpenPlan: openPlan
+            onOpenPlan: hasPlan ? { openPlan() } : nil
         )
         .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
     }
