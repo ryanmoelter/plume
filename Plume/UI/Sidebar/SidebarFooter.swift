@@ -44,8 +44,7 @@ struct SidebarFooter: View, ThemedView {
                     .buttonStyle(SidebarFooterButtonStyle())
                 }
 
-                if installedProviders.contains(.claudeCode) { SidebarQuotaRow() }
-                if installedProviders.contains(.codex) { SidebarCodexQuotaRow() }
+                quotaRows
 
                 Button {
                     keepAwakeShown = true
@@ -90,6 +89,29 @@ struct SidebarFooter: View, ThemedView {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             cliRefresh += 1
+        }
+    }
+
+    /// Side by side when the footer is wide enough for both, stacked
+    /// otherwise — the same "fits or drops to the next candidate" idiom
+    /// `SidebarFooterRow` uses for its own title/detail line.
+    @ViewBuilder
+    private var quotaRows: some View {
+        if installedProviders.contains(.claudeCode), installedProviders.contains(.codex) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    SidebarQuotaRow()
+                    SidebarCodexQuotaRow()
+                }
+                VStack(spacing: 0) {
+                    SidebarQuotaRow()
+                    SidebarCodexQuotaRow()
+                }
+            }
+        } else if installedProviders.contains(.claudeCode) {
+            SidebarQuotaRow()
+        } else if installedProviders.contains(.codex) {
+            SidebarCodexQuotaRow()
         }
     }
 
