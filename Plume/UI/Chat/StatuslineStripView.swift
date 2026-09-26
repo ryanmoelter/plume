@@ -303,8 +303,8 @@ struct StackedMeter: View, ThemedView {
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                     .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
-                    .contentTransition(.numericText(value: fraction))
-                    .animation(QuotaTransition.animation, value: fraction)
+                    .contentTransition(.numericText())
+                    .animation(QuotaTransition.animation, value: reading)
                 bar
             }
         } else {
@@ -361,48 +361,51 @@ struct StatuslineMeterSegment: View, ThemedView {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
-        .help(helpText)
+        .help(summary.text)
         .accessibilityLabel("\(label) quota")
-        .accessibilityValue("\(Int(percent.rounded()))% used, \(resetDescription)")
+        .accessibilityValue(summary.lines.joined(separator: ", "))
         .popover(isPresented: $showingDetails) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(label) quota")
-                    .font(.headline)
-                Text("Used: \(Int(percent.rounded()))%")
-                Text("Resets: \(resetDescription)")
-            }
-            .font(typography.caption.font)
-            .padding(12)
-            .frame(minWidth: 160, alignment: .leading)
-            .environment(\.theme, theme)
+            QuotaDetailsPopover(title: "Claude quota", summaries: [summary])
+                .environment(\.theme, theme)
         }
     }
 
-    /// Two lines: what has been spent against how much of the window has
-    /// gone, then when it refills. The elapsed share is what the pacing mark
-    /// draws, said in words — the mark shows the comparison but not the
-    /// number behind it.
-    private var helpText: String {
-        var first = "\(Int((utilization * 100).rounded()))% of \(label) quota used"
-        if let windowLength,
-           let elapsed = QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: windowLength) {
-            first += ", \(Int((elapsed * 100).rounded()))% of time elapsed"
-        }
-        if isStale { first += " (last heard over 30 minutes ago)" }
-        guard let resetsAt else { return first }
-        let reset = QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now)
-        return "\(first)\nResetting at \(reset)"
+    private var summary: QuotaWindowSummary {
+        QuotaDescription.summary(
+            timeframe: label,
+            utilization: utilization,
+            resetsAt: resetsAt,
+            windowLength: windowLength,
+            isStale: isStale,
+            now: now
+        )
     }
 
     private var resetLabel: String {
         QuotaFreshness.resetLabel(resetsAt: resetsAt, now: now, fallback: label)
     }
+}
 
-    private var resetDescription: String {
-        guard let resetsAt else { return "Unavailable" }
-        let seconds = resetsAt.timeIntervalSinceNow
-        guard seconds > 0 else { return "now" }
-        return "in \(resetLabel)"
+/// A quota meter's click-through, in the same words as its tooltip.
+struct QuotaDetailsPopover: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let title: String
+    let summaries: [QuotaWindowSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline)
+            ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
+                if index > 0 { Divider() }
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(summary.lines, id: \.self) { Text($0) }
+                }
+            }
+        }
+        .font(typography.caption.font)
+        .padding(12)
+        .frame(minWidth: 200, alignment: .leading)
     }
 }
 
