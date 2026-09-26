@@ -466,9 +466,12 @@ struct WorkspacePickerView: View, ThemedView {
         return worktrees.contains { standardized($0.path) == path }
     }
 
-    /// A worktree goes by its own name — "main" for the repository's own
-    /// checkout, the directory name for a linked one. The branch it has out is
-    /// a separate fact, said below it rather than in place of it.
+    /// A worktree goes by its own name — its checked-out branch for the
+    /// repository's own checkout, the directory name for a linked one. A
+    /// linked worktree's directory is already effectively its branch (that is
+    /// how `NewWorktreeSheet` names it), but the main checkout can be on any
+    /// branch, so naming it "main" regardless would lie about where the agent
+    /// is actually running.
     private var worktreeName: String {
         if let worktree = selectedWorktree {
             return name(for: worktree)
@@ -488,7 +491,8 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     private func name(for worktree: GitWorktree) -> String {
-        worktree.isMain ? "main" : (worktree.path as NSString).lastPathComponent
+        guard worktree.isMain else { return (worktree.path as NSString).lastPathComponent }
+        return worktree.branch ?? "main"
     }
 
     /// The branch under the worktree's name. A detached HEAD has none, and

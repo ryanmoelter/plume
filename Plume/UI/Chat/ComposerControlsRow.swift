@@ -233,11 +233,11 @@ private struct PermissionModeControl: View, ThemedView {
         if let preset = state.permissionPreset {
             Menu {
                 ForEach(state.permissionPresets) { option in
-                    Button(option.label) { state.setPermissionPreset(option) }
+                    Button(option.label, systemImage: symbol(for: option)) { state.setPermissionPreset(option) }
                 }
             } label: {
                 ComposerSegmentLabel(
-                    systemImage: PermissionMode(rawValue: preset.id)?.symbol ?? "lock.shield",
+                    systemImage: symbol(for: preset),
                     text: preset.label,
                     showsText: form.showsLabels,
                     foreground: foreground(for: attention(preset)),
@@ -257,6 +257,18 @@ private struct PermissionModeControl: View, ThemedView {
     /// ordinary working modes.
     private func attention(_ preset: AgentPermissionPreset) -> StatuslineAttention {
         preset.id == PermissionMode.bypassPermissions.rawValue || preset == .codexDangerFullAccess ? .red : .neutral
+    }
+
+    /// Claude's own modes carry a symbol per case; Codex's danger-level
+    /// presets have no such enum, so they're matched by id instead.
+    private func symbol(for preset: AgentPermissionPreset) -> String {
+        if let mode = PermissionMode(rawValue: preset.id) { return mode.symbol }
+        switch preset {
+        case .codexReadOnly: return "eye"
+        case .codexWorkspace: return "folder"
+        case .codexDangerFullAccess: return "exclamationmark.triangle.fill"
+        default: return "lock.shield"
+        }
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {

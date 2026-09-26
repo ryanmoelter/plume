@@ -19,6 +19,9 @@ struct ChatPieceView: View, ThemedView {
     /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
     var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
+    /// Opens the plan overlay, for a proposed-plan piece's row. Nil where
+    /// there is no overlay to open, as inside a subagent's own transcript.
+    var onOpenPlan: (() -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel
@@ -137,7 +140,7 @@ struct ChatPieceView: View, ThemedView {
         case let .thinking(text):
             ThinkingRow(text: text)
         case let .toolCall(call, isPending):
-            ToolCallRow(call: call, isPending: isPending)
+            ToolCallRow(call: call, isPending: isPending, onOpenPlan: onOpenPlan)
         case let .injected(kind, text):
             // A `!` command is shown in full rather than behind a marker's
             // disclosure — see `ShellCommandRow`.

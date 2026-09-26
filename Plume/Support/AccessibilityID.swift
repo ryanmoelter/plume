@@ -112,6 +112,9 @@ enum AccessibilityID {
     static let planCloseButton = "plan-close-button"
     static let planExpandButton = "plan-expand-button"
     static let planLinkButton = "plan-link-button"
+    static let planTitleRow = "plan-title-row"
+    static let planBackgroundDismiss = "plan-background-dismiss"
+    static let planReviewButton = "plan-review-button"
 
     // MARK: AskUserQuestion
 
