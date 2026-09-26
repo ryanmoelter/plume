@@ -26,8 +26,8 @@ struct ChatTabView: View, ThemedView {
     /// the overlay is up: the dock bar is what shows when it is not.
     @State private var planFile = MarkdownFileStore()
     @State private var planFeedbackFocused = false
-    /// A settled proposal opened from its own transcript row, shown read-only
-    /// in the plan panel's place.
+    /// A proposal opened from its own transcript row, shown read-only in the
+    /// plan panel's place.
     @State private var viewedPlan: ProposedPlan?
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
@@ -309,6 +309,9 @@ struct ChatTabView: View, ThemedView {
         .animation(.snappy(duration: 0.22), value: viewedPlan?.id)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
         .onChange(of: planPresentation) { _, presentation in
+            // Otherwise a row's plan opened earlier would reappear once the
+            // live panel is dismissed.
+            if presentation.isExpanded { viewedPlan = nil }
             guard presentation == .expanded, planApproval.showsApprovalOptions else {
                 planFeedbackFocused = false
                 return
@@ -614,8 +617,8 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    /// The plan a transcript row proposed, read-only: whatever it was
-    /// answered with is already on the wire.
+    /// The plan a transcript row proposed. It offers no decision: the live
+    /// panel owns the only one.
     private func viewedPlanPanel(_ plan: ProposedPlan) -> some View {
         planPanelChrome(
             title: plan.filePath.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan",

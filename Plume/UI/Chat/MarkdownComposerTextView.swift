@@ -542,6 +542,7 @@ final class ScrollableComposerTextView: NSView {
         let width: CGFloat
         let text: String
         let fontSize: CGFloat
+        let verticalInset: CGFloat
     }
 
     /// The height for `width`, clamped between `minLines` and `maxLines`.
@@ -562,7 +563,7 @@ final class ScrollableComposerTextView: NSView {
 
         guard let storage = composerTextView.textStorage else { return minHeight }
 
-        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize)
+        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize, verticalInset: inset.height)
         if key == cachedKey, let cachedHeight { return cachedHeight }
 
         if measuringLayoutManager.textContainers.isEmpty {

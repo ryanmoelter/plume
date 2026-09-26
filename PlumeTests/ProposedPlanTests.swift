@@ -49,6 +49,20 @@ struct ProposedPlanTests {
         #expect(settled("User has approved your plan.").settledLabel == "Approved")
     }
 
+    @Test func aFailedResultWithoutPlumesMarkerIsNotApproved() {
+        let plan = ProposedPlan(
+            id: "p", markdown: "", filePath: nil, isPending: false,
+            resultText: "[Request interrupted by user]", didFail: true
+        )
+        #expect(plan.settledLabel == "Not approved")
+    }
+
+    @Test func carriesTheCallsFailure() throws {
+        var failed = call(interactive: .plan(markdown: "# Plan", filePath: nil), result: "denied")
+        failed.didFail = true
+        #expect(try #require(ProposedPlan(call: failed, isPending: false)).didFail)
+    }
+
     @Test func aRejectionCarriesItsReason() {
         #expect(settled(PlanResolution.denialMessage(reason: "too broad")).settledLabel == "Rejected: too broad")
         #expect(settled(PlanResolution.denialMessage(reason: "")).settledLabel == "Rejected")

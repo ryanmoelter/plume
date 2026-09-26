@@ -27,7 +27,7 @@ import Testing
         #expect(chosen == ["high"])
     }
 
-    @Test func everyComposerSymbolResolves() {
+    @Test func effortAndPermissionModeSymbolsResolve() {
         let symbols = AgentEffort.allCases.map(\.symbol)
             + PermissionMode.allCases.map(\.symbol)
         for symbol in symbols {

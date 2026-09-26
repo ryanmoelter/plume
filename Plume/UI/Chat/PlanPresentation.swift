@@ -49,25 +49,31 @@ struct ProposedPlan: Equatable, Identifiable {
     let isPending: Bool
     /// The approval or denial message; nil while pending.
     let resultText: String?
-
-    init(id: String, markdown: String, filePath: String?, isPending: Bool, resultText: String?) {
-        self.id = id
-        self.markdown = markdown
-        self.filePath = filePath
-        self.isPending = isPending
-        self.resultText = resultText
-    }
-
-    init?(call: ToolCall, isPending: Bool) {
-        guard case .plan(let markdown, let filePath)? = call.interactive else { return nil }
-        self.init(id: call.id, markdown: markdown, filePath: filePath, isPending: isPending, resultText: call.result)
-    }
+    var didFail = false
 
     /// Where the proposal landed, for a read-only view's footer. Nil while
-    /// pending, and for a proposal that was never answered.
+    /// pending, and for a proposal that was never answered. A failed result
+    /// without Plume's own rejection marker — a denial from the TUI, an
+    /// interrupt — carries no reason worth quoting.
     var settledLabel: String? {
         guard !isPending, let resultText else { return nil }
-        guard PlanResolution.isRejection(resultText) else { return "Approved" }
-        return PlanResolution.rejectionReason(from: resultText).map { "Rejected: \($0)" } ?? "Rejected"
+        if PlanResolution.isRejection(resultText) {
+            return PlanResolution.rejectionReason(from: resultText).map { "Rejected: \($0)" } ?? "Rejected"
+        }
+        return didFail ? "Not approved" : "Approved"
+    }
+}
+
+extension ProposedPlan {
+    init?(call: ToolCall, isPending: Bool) {
+        guard case .plan(let markdown, let filePath)? = call.interactive else { return nil }
+        self.init(
+            id: call.id,
+            markdown: markdown,
+            filePath: filePath,
+            isPending: isPending,
+            resultText: call.result,
+            didFail: call.didFail
+        )
     }
 }

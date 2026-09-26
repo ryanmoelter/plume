@@ -16,6 +16,7 @@ struct SymbolMenuOption {
 /// macOS 27 resolves to hidden, and offers no way to ask otherwise.
 struct SymbolMenuButton: NSViewRepresentable {
     let title: String
+    let value: String
     let options: [SymbolMenuOption]
 
     func makeNSView(context: Context) -> SymbolMenuPopupButton {
@@ -28,6 +29,8 @@ struct SymbolMenuButton: NSViewRepresentable {
     }
 
     func updateNSView(_ button: SymbolMenuPopupButton, context: Context) {
+        button.setAccessibilityLabel(title)
+        button.setAccessibilityValue(value)
         button.makeMenu = { [title, options] in SymbolMenu.make(title: title, options: options) }
     }
 }

@@ -16,7 +16,7 @@ struct CodexCollaborationControl: View, ThemedView {
             height: dimensions.composerControlHeight
         )
         .overlay {
-            SymbolMenuButton(title: "Collaboration mode", options: CodexCollaborationMode.allCases.map { mode in
+            SymbolMenuButton(title: "Collaboration mode", value: state.collaborationMode.label, options: CodexCollaborationMode.allCases.map { mode in
                 SymbolMenuOption(title: mode.label, systemImage: mode.symbol, isSelected: mode == state.collaborationMode) {
                     state.setCollaborationMode(mode)
                 }

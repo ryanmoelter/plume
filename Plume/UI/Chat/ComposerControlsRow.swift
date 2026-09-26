@@ -119,7 +119,7 @@ enum ComposerControlsMetrics {
     /// Average advance of the caption font, rounded up.
     static let glyphWidth: CGFloat = 6.5
     static let iconWidth: CGFloat = 15
-    /// The chevron every segment draws after its label.
+    /// The chevron a segment draws after its label.
     static let chevronWidth: CGFloat = 13
     static let iconToLabelGap: CGFloat = 4
 
@@ -254,7 +254,7 @@ private struct PermissionModeControl: View, ThemedView {
             )
             .unconfirmed(state.isModeAndModelUnconfirmed)
             .overlay {
-                SymbolMenuButton(title: "Permission mode", options: state.permissionPresets.map { option in
+                SymbolMenuButton(title: "Permission mode", value: preset.label, options: state.permissionPresets.map { option in
                     SymbolMenuOption(title: option.label, systemImage: symbol(for: option), isSelected: option == preset) {
                         state.setPermissionPreset(option)
                     }
@@ -403,7 +403,7 @@ private struct EffortControl: View, ThemedView {
             height: dimensions.composerControlHeight
         )
         .overlay {
-            SymbolMenuButton(title: "Effort", options: state.efforts.map { option in
+            SymbolMenuButton(title: "Effort", value: state.effort.label, options: state.efforts.map { option in
                 SymbolMenuOption(title: option.label, systemImage: option.symbol, isSelected: option == state.effort) {
                     state.setEffort(option)
                 }
