@@ -34,6 +34,10 @@ protocol LidSleepOverride: AnyObject {
     /// Removes the helper from launchd, releasing the override first.
     func unregister()
 
+    /// Unregisters and registers again, keeping the approval. For a helper
+    /// launchd has stopped serving.
+    func reinstall()
+
     /// Sets or clears the override. Idempotent, like `SleepAssertion.apply`.
     func apply(_ engaged: Bool)
 

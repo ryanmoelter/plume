@@ -60,6 +60,13 @@ struct KeepAwakeTests {
             isEngaged = false
             status = .notRegistered
         }
+
+        private(set) var reinstallCalls = 0
+
+        func reinstall() {
+            reinstallCalls += 1
+            status = .ready
+        }
     }
 
     /// Stands in for `ThermalStateMonitor`, settable so a test can play a
@@ -710,6 +717,19 @@ struct KeepAwakeTests {
         #expect(settings.keepsAwakeWithLidClosed == false)
         #expect(coordinator.lidOverrideStatus == .notRegistered)
         #expect(assertion.held != nil, "the plain hold is untouched")
+    }
+
+    @Test func reinstallingAnUnavailableHelperKeepsTheSettingOn() {
+        let lid = FakeLidSleepOverride()
+        lid.status = .unavailable("not responding")
+        let (coordinator, _, settings) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        coordinator.reinstallLidHelper()
+        #expect(lid.reinstallCalls == 1)
+        #expect(lid.unregisterCalls == 0)
+        #expect(settings.keepsAwakeWithLidClosed)
+        #expect(coordinator.lidOverrideStatus == .ready)
     }
 
     @Test func installingRegistersAndMirrorsTheApprovalState() {
