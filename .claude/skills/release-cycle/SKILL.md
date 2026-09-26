@@ -1,6 +1,6 @@
 ---
 name: release-cycle
-description: Turn the roadmap's Todo queue in Linear into a shipped local release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
+description: Turn the roadmap's Todo queue in Linear into a shipped release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
 ---
 
 # Release cycle
@@ -64,7 +64,7 @@ git merge --no-ff ryanm/<slug>     # smallest package first, largest last
 
 If an agent used the auto-generated `worktree-agent-*` branch instead of creating `ryanm/<slug>`, merge that branch by name; the worktree list shows which is which. A trivial conflict you resolve yourself. A non-trivial one goes to a Sonnet agent with both sides and the two package summaries. Build after the last merge before moving on.
 
-Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `main`, not from your current branch**, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
+Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent does not fork from your current branch** — it has forked from `main` and, in the 0.13.0 run, from an older commit still, so tell it to start with `git checkout -B ryanm/<slug> ryanm/release-<version>` before editing (a plain `git checkout ryanm/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
 Move every shipped issue to Done through the `roadmap` skill.
 
@@ -107,13 +107,10 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Tell the user the draft is ready for review, and wait. They edit the section and remove `Draft: ` from the heading to approve it. Then confirm the top heading is exactly `## <version> (<build>)`, and commit `CHANGELOG.md` on its own.
 - Merge the release branch into `main` (`--no-ff`).
 - Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
-- **Check whether you are running inside the installed Plume before installing anything.** `echo $PLUME` says you are in *a* Plume; walking your own ancestry (`ps -o ppid=` up the chain) says *which*. If it is `/Applications/Plume.app`, that bundle is the one about to be replaced — the next bullet covers what that means. Tell the user what you found before running the install, so a surprise restart is not a surprise.
-- **The install may be blocked by the permission classifier**, since it quits an app and writes into `/Applications`. Do not work around that. Say what you were trying to run and hand the user the command; they can approve it or run it themselves.
-- Install with `scripts/install-release.sh`. It quits the installed app, replaces the bundle, verifies it, and logs everything to `/tmp/plume-install.log`. With `PLUME` set it re-execs detached so it survives the app it is replacing, and reopens the app afterwards so the session comes back; run from anywhere else it leaves the app closed for you to open.
-- **A session hosted inside Plume survives the install.** The app reopens, restores the session, and you resume with your context intact — so carry on afterwards rather than treating the install as the end of the run. The install itself returns no output, so read `/tmp/plume-install.log` once you are back, then confirm the version in `/Applications/Plume.app/Contents/Info.plist` and that your own ancestry points at the relaunched PID.
-- Do the tag and push **before** the install anyway. The resume is reliable but the install is the one step that replaces the app underneath you, so land anything you would hate to redo first.
-- **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders first (`git rebase --force-rebase --rebase-merges <base>` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit).
-- Tag `v<version>` on the bump commit and push `main` with the tag.
+- **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders on the release branch before merging it (`git rebase --force-rebase --rebase-merges main` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit, and confirm with `git diff <old-tip> HEAD --quiet` that the tree is unchanged).
+- Tag `v<version>` on `main`'s HEAD — the release merge — and push `main` with the tag. `package-release.sh` refuses unless the tag points at `HEAD`.
+- Publish through Sparkle and Homebrew, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, appcast, draft GitHub release), then the user publishes the draft, then `scripts/update-tap.sh <version>`. Ask before publishing and before bumping the tap; both are outward-facing.
+- **Do not install.** Every install, including this machine's, updates through Sparkle or Homebrew now, so never run `scripts/install-release.sh` as part of a release.
 - Clean up anything step 3 left: `git worktree list` and `git branch --list 'ryanm/*'` should hold nothing from this cycle.
 
 ## Gotchas
@@ -121,12 +118,11 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - `git stash` is shared across worktrees. In the first run, three agents stashed to measure a test baseline and popped each other's work; one recovered from `git fsck --unreachable`. The rule block now forbids it. If it happens anyway, `git stash list` labels usually say whose work an entry holds; restore with `git checkout <stash> -- <paths>`.
 
 - `-only-testing` with a name matching nothing prints `** TEST SUCCEEDED **` having run nothing. Confirm names scrolled past.
-- Overwriting a running `/Applications/Plume.app` corrupts the process. Quit first. `scripts/install-release.sh` waits for a real exit and aborts rather than replacing a live bundle, so prefer it over a bare `cp -R`.
 
 - **Tell every agent to run its verification in the foreground.** Three agents in the 0.3.3 run handed a build or test to a background watcher and ended their turn waiting for a notification that never came — one of them left finished work uncommitted. They resume fine with a message saying to poll in the foreground instead, but it costs a round trip each time. Say it in the prompt.
 
 - **A failed push is not a failed commit.** `git push` signs with the SSH agent, so a locked 1Password fails with `sign_and_send_pubkey: signing failed` and `Permission denied (publickey)`. There is no `--no-gpg-sign` equivalent — the only fix is unlocking, so ask. This is unrelated to the commit-signing fallback in CLAUDE.md, and the commits themselves may all be signed while the push still fails.
-- A schema change meets the installed store for the first time on the release launch. Watch the log for a `Plume.store.<timestamp>.bak` move.
+- A schema change meets the installed store for the first time on the first launch after updating. Watch the log for a `Plume.store.<timestamp>.bak` move.
 - Roadmap edits: only the coordinator writes to Linear. An issue is Done when its work is on the release branch, not when an agent's turn ends.
 - The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
 - Six parallel `xcodebuild`s are slow but each worktree gets its own DerivedData. Do not try to share one.
