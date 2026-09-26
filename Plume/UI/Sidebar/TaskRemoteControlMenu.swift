@@ -4,8 +4,8 @@ import SwiftUI
 /// which tab it would act on.
 ///
 /// Only the headless transport qualifies — a terminal tab runs its CLI's own
-/// TUI, which offers remote control itself. A task with more than one agent tab has no
-/// single tab for the toggle to mean, so it needs exactly one.
+/// TUI, which offers remote control itself. A task with more than one agent
+/// tab has no single tab for the toggle to mean, so it needs exactly one.
 enum TaskRemoteControl {
     static func toggleableTab(in task: WorkTask) -> TaskTab? {
         let agentTabs = task.orderedTabs.filter { $0.kind == .agent }
@@ -47,7 +47,8 @@ struct TaskRemoteControlToggle: View {
     var body: some View {
         Toggle("Remote Control", isOn: Binding(get: { isOn }, set: setEnabled))
             .plumeID(AccessibilityID.taskRemoteControlToggle)
-            // Nothing to toggle before the tab's agent has run, or once it's exited.
+            // Nothing to toggle before the tab's agent has run, once it's
+            // exited, or while Codex is still turning the host off.
             .disabled(session == nil || session?.hasExited == true || codexRemote?.operation == .disabling)
     }
 }

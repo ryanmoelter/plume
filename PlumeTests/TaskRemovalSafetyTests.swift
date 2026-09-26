@@ -23,17 +23,36 @@ struct TaskRemovalSafetyTests {
     ])
     func aMidTurnStatusNeedsConfirmation(status: TaskStatus) {
         #expect(TaskRemovalSafety.isMidTurn(status))
-        #expect(TaskRemovalSafety.needsConfirmation(tabStatuses: [.awaitingReply, status]))
+        #expect(TaskRemovalSafety.needsConfirmation([
+            .init(status: .awaitingReply, hasExited: false),
+            .init(status: status, hasExited: false),
+        ]))
     }
 
     @Test(arguments: [TaskStatus.notStarted, .awaitingReply, .done, .interrupted, .error])
     func aRestingStatusRemovesSilently(status: TaskStatus) {
         #expect(!TaskRemovalSafety.isMidTurn(status))
-        #expect(!TaskRemovalSafety.needsConfirmation(tabStatuses: [status]))
+        #expect(!TaskRemovalSafety.needsConfirmation([.init(status: status, hasExited: false)]))
+    }
+
+    @Test(arguments: [TaskStatus.working, .waitingOnSubagents, .permissionNeeded])
+    func anExitedAgentRemovesSilentlyWhateverItsLastStatus(status: TaskStatus) {
+        #expect(!TaskRemovalSafety.needsConfirmation([.init(status: status, hasExited: true)]))
     }
 
     @Test func aTaskWithNoAgentTabsNeedsNoConfirmation() {
-        #expect(!TaskRemovalSafety.needsConfirmation(tabStatuses: []))
+        #expect(!TaskRemovalSafety.needsConfirmation([]))
+    }
+
+    /// A status left at `working` by a process that has gone reads as exited,
+    /// since no session exists for the tab.
+    @Test(arguments: [AgentTransport.headless, .terminal])
+    func aWorkingStatusWithNoSessionRemovesSilently(transport: AgentTransport) throws {
+        let task = makeTask(tabs: [(.agent, transport)])
+        let tab = try #require(task.orderedTabs.first)
+        StatusEngine.shared.setStatus(.working, taskID: task.id, tabID: tab.id, notifiable: false)
+        defer { StatusEngine.shared.setStatus(.awaitingReply, taskID: task.id, tabID: tab.id, notifiable: false) }
+        #expect(!TaskRemovalSafety.hasActiveAgent(task))
     }
 
     /// No status has ever been reported for these tabs, so they read as

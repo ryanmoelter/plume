@@ -13,8 +13,8 @@ struct PendingLiveAgentRemoval: Identifiable {
 
     var message: String {
         switch verb {
-        case .archive: "An agent in this task is still working. Archiving it now stops that agent mid-turn."
-        case .delete: "An agent in this task is still working. Deleting it now stops that agent mid-turn, and cannot be undone."
+        case .archive: "An agent in this task is mid-turn. Archiving it now stops that turn."
+        case .delete: "An agent in this task is mid-turn. Deleting it now stops that turn, and cannot be undone."
         }
     }
 }
@@ -23,15 +23,23 @@ struct PendingLiveAgentRemoval: Identifiable {
 /// one of its agents is mid-turn. An agent at rest has nothing in flight to
 /// lose, so its task archives silently.
 enum TaskRemovalSafety {
-    static func hasActiveAgent(_ task: WorkTask) -> Bool {
-        let statuses = task.orderedTabs
-            .filter { $0.kind == .agent }
-            .map { StatusEngine.shared.status(forTab: $0.id) }
-        return needsConfirmation(tabStatuses: statuses)
+    struct AgentTabState: Equatable {
+        let status: TaskStatus
+        let hasExited: Bool
     }
 
-    static func needsConfirmation(tabStatuses: [TaskStatus]) -> Bool {
-        tabStatuses.contains(where: isMidTurn)
+    static func hasActiveAgent(_ task: WorkTask) -> Bool {
+        let states = task.orderedTabs
+            .filter { $0.kind == .agent }
+            .map { AgentTabState(status: StatusEngine.shared.status(forTab: $0.id), hasExited: hasExited($0)) }
+        return needsConfirmation(states)
+    }
+
+    /// An exited process has no turn left to stop, whatever its last status
+    /// said: a terminal tab's status is only as fresh as its last hook, and
+    /// subagent activity comes from a transcript that outlives the process.
+    static func needsConfirmation(_ states: [AgentTabState]) -> Bool {
+        states.contains { !$0.hasExited && isMidTurn($0.status) }
     }
 
     /// A tab blocked on the user counts: its turn resumes once answered.
@@ -42,6 +50,16 @@ enum TaskRemovalSafety {
             true
         case .notStarted, .awaitingReply, .done, .interrupted, .error:
             false
+        }
+    }
+
+    /// Having no session at all (never launched) reads as exited.
+    private static func hasExited(_ tab: TaskTab) -> Bool {
+        switch tab.transport {
+        case .headless:
+            AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited ?? true
+        case .terminal:
+            SurfaceManager.shared.existingSession(for: tab.id)?.hasExited ?? true
         }
     }
 }
