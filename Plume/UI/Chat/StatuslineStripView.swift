@@ -301,9 +301,6 @@ struct StackedMeter: View, ThemedView {
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                     .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
-                    // Without this, a tight proposal truncates the text instead of
-                    // being rejected by the enclosing `ViewThatFits`.
-                    .fixedSize(horizontal: true, vertical: false)
                     .contentTransition(.numericText())
                     .animation(QuotaTransition.animation, value: reading)
                 bar
