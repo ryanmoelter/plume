@@ -153,18 +153,15 @@ private struct SubagentRow: View, ThemedView {
 
     @State private var isHovering = false
 
-    /// What the row leads with — the ask, not the agent type, which now
-    /// lives in the caption below. Falls back to the id, matching the help
+    /// What the row leads with — the ask, not the agent type, which the
+    /// caption below states instead. Falls back to the id, matching the help
     /// text below it.
     private var title: String {
         subagent.descriptor?.description ?? subagent.id
     }
 
-    private var caption: SubagentCaption {
-        SubagentCaption(subagent: subagent)
-    }
-
     var body: some View {
+        let caption = SubagentCaption(subagent: subagent)
         Button(action: onOpen) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 StatusBadge(status: subagent.status)
