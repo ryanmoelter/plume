@@ -463,7 +463,7 @@ final class ChatListController: NSObject {
     private func startDepartures(from previous: [ChatPiece], staying next: [String: Item]) {
         guard inputs.animate, model.viewportHeight > 0, documentView.window != nil else { return }
         for (index, piece) in previous.enumerated()
-        where piece.content == .working && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
+        where piece.content.isActivityIndicator && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
             departing[piece.id] = Departure(piece: piece, after: index > 0 ? previous[index - 1].id : nil)
         }
     }

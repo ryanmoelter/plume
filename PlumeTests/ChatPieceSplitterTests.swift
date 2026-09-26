@@ -400,6 +400,19 @@ struct ChatPieceSplitterTests {
         #expect(alone[0].topInset == dimensions.verticalPadding)
     }
 
+    /// A finished reply keeps its copy footer while only subagents work, and
+    /// the indicator under it says the main agent is waiting rather than
+    /// working.
+    @Test func waitingOnSubagentsClosesAFinishedReply() {
+        let result = pieces(
+            [message("m", .assistant, [.markdown("Launched.")])],
+            status: .waitingOnSubagents
+        )
+        #expect(result.map(\.id) == ["m/0/0", "working"])
+        #expect(result.last?.content == .waitingOnSubagents)
+        #expect(result.first?.messageCopySource == "Launched.")
+    }
+
     /// An empty lazy item is exactly the near-zero height the ceiling exists
     /// to keep away from, and real transcripts carry thinking blocks with no
     /// text.

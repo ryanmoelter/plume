@@ -98,4 +98,9 @@ struct AppDelegateTests {
             statuses: [.working, .awaitingReply, .permissionNeeded, .notStarted]
         ) == 2)
     }
+
+    /// Quitting kills background subagents along with their parent.
+    @Test func aTabWaitingOnSubagentsCounts() {
+        #expect(AppDelegate.interruptedTabCount(statuses: [.waitingOnSubagents, .awaitingReply]) == 1)
+    }
 }

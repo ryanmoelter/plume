@@ -3,8 +3,9 @@ import Testing
 @testable import Plume
 
 /// A tab whose main agent finished but whose subagents are still running
-/// should read `working`, so the sidebar never invites the user back to a
-/// task that is still moving. `needsInput` and `error` outrank that.
+/// should read `waitingOnSubagents`, so the sidebar never calls a task that
+/// is still moving settled, and never claims the main agent is working.
+/// `needsInput` and `error` outrank that.
 @MainActor
 struct StatusEngineSubagentTests {
     private func engineWithTab() -> (StatusEngine, UUID, UUID) {
@@ -15,9 +16,9 @@ struct StatusEngineSubagentTests {
     }
 
     @Test(arguments: [
-        (TaskStatus.awaitingReply, TaskStatus.working),
-        (.awaitingReply, .working),
-        (.notStarted, .working),
+        (TaskStatus.awaitingReply, TaskStatus.waitingOnSubagents),
+        (.notStarted, .waitingOnSubagents),
+        (.waitingOnSubagents, .waitingOnSubagents),
         (.working, .working),
         (.permissionNeeded, .permissionNeeded),
         (.error, .error),
@@ -32,14 +33,14 @@ struct StatusEngineSubagentTests {
         #expect(StatusEngine.effectiveStatus(own: own, subagentsWorking: false) == own)
     }
 
-    @Test func aFinishedTurnStaysWorkingUntilItsSubagentsStop() {
+    @Test func aFinishedTurnWaitsUntilItsSubagentsStop() {
         let (engine, task, tab) = engineWithTab()
 
         engine.setSubagentActivity(tabID: tab, working: true)
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
 
-        #expect(engine.status(forTab: tab) == .working)
-        #expect(engine.status(forTask: task) == .working)
+        #expect(engine.status(forTab: tab) == .waitingOnSubagents)
+        #expect(engine.status(forTask: task) == .waitingOnSubagents)
         #expect(engine.ownStatus(forTab: tab) == .awaitingReply)
 
         engine.setSubagentActivity(tabID: tab, working: false)
@@ -144,7 +145,36 @@ struct StatusEngineSubagentTests {
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: false)
 
-        #expect(seen == [.working, .awaitingReply])
+        #expect(seen == [.waitingOnSubagents, .awaitingReply])
+    }
+
+    /// A tab working alongside one that waits is the one the task shows.
+    @Test func aWorkingTabOutranksAWaitingSibling() {
+        let engine = StatusEngine()
+        let (task, a, b) = (UUID(), UUID(), UUID())
+        engine.setStatus(.awaitingReply, taskID: task, tabID: a)
+        engine.setStatus(.working, taskID: task, tabID: b)
+
+        engine.setSubagentActivity(tabID: a, working: true)
+
+        #expect(engine.status(forTask: task) == .working)
+    }
+
+    /// Handing the work to subagents and back is one stretch of work.
+    @Test func theClockRunsOnWhileWaitingOnSubagents() {
+        let (engine, task, tab) = engineWithTab()
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        let started = engine.workStarted(forTab: tab)
+        engine.setSubagentActivity(tabID: tab, working: true)
+
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+        #expect(engine.workStarted(forTab: tab) == started)
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        #expect(engine.workStarted(forTab: tab) == started)
+
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+        engine.setSubagentActivity(tabID: tab, working: false)
+        #expect(engine.workStarted(forTab: tab) == nil)
     }
 
     /// One tab's subagents must not hold a sibling tab at working.
@@ -156,7 +186,7 @@ struct StatusEngineSubagentTests {
 
         engine.setSubagentActivity(tabID: a, working: true)
 
-        #expect(engine.status(forTab: a) == .working)
+        #expect(engine.status(forTab: a) == .waitingOnSubagents)
         #expect(engine.status(forTab: b) == .awaitingReply)
     }
 }

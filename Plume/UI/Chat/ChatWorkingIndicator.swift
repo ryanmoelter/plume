@@ -3,13 +3,22 @@ import SwiftUI
 /// The working ellipsis with a caption beside it, for inline use next to prose
 /// rather than in a status list.
 struct ChatWorkingIndicator: View, ThemedView {
+    /// The main agent's turn is over and only its subagents are working.
+    var isWaitingOnSubagents = false
+
     @Environment(\.theme) var theme
     @Environment(\.workStartedAt) private var workStartedAt
 
     var body: some View {
         HStack(spacing: 6) {
-            WorkingEllipsis(color: colors.activity)
-                .font(typography.caption.font)
+            if isWaitingOnSubagents {
+                Image(systemName: StatusSymbol.subagents.filled)
+                    .font(typography.caption.font)
+                    .foregroundStyle(colors.activity)
+            } else {
+                WorkingEllipsis(color: colors.activity)
+                    .font(typography.caption.font)
+            }
             if let workStartedAt {
                 // Its own timeline, slower than the dots': the text changes
                 // once a second at most. The digits change without an
@@ -28,7 +37,7 @@ struct ChatWorkingIndicator: View, ThemedView {
                         .monospacedDigit()
                 }
             } else {
-                Text("Working…")
+                Text(isWaitingOnSubagents ? Self.waitingCaption : "Working…")
                     .font(typography.caption.font)
                     .emphasis(.secondary)
             }
@@ -36,8 +45,11 @@ struct ChatWorkingIndicator: View, ThemedView {
         .listItemPadding(vertical: false)
     }
 
+    private static let waitingCaption = "Waiting on subagents…"
+
     private func caption(at now: Date, startedAt: Date) -> String {
         let elapsed = now.timeIntervalSince(startedAt)
+        if isWaitingOnSubagents { return "\(Self.waitingCaption) \(ElapsedTime.formatted(elapsed))" }
         let verb = WorkingVerb.forTurn(startedAt: startedAt, elapsed: elapsed)
         return "\(verb)… \(ElapsedTime.formatted(elapsed))"
     }

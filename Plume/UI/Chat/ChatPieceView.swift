@@ -157,13 +157,15 @@ struct ChatPieceView: View, ThemedView {
             ChatImageView(image: image)
         case .working:
             ChatWorkingIndicator()
+        case .waitingOnSubagents:
+            ChatWorkingIndicator(isWaitingOnSubagents: true)
         }
     }
 
     /// Where this piece sits along its message's reveal. Nil for the
     /// working indicator, which is not part of the message.
     private var reveal: ChatRevealContext? {
-        guard piece.role == .assistant, piece.content != .working,
+        guard piece.role == .assistant, !piece.content.isActivityIndicator,
               let messageReveal = revealModel?.reveal(for: piece.messageID) else { return nil }
         return ChatRevealContext(reveal: messageReveal, offset: piece.revealOffset)
     }

@@ -310,10 +310,24 @@ final class HeadlessSession: AgentSession {
     }
 
     /// Ends the turn in flight but keeps the session alive, unlike a signal.
+    ///
+    /// Between turns it stops background subagents instead. The CLI answers
+    /// that with no `result`, since no turn was running to end.
     func interrupt() {
-        guard isWorking else { return }
-        wasInterrupted = true
-        send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
+        if isWorking {
+            wasInterrupted = true
+            send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
+            return
+        }
+        guard hasWorkingSubagents,
+              send(StreamJSONEncoder.interrupt(requestID: nextRequestID())) else { return }
+        // The user stopped the work in progress, so the subagents settling
+        // afterwards is no turn ending worth announcing.
+        statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+    }
+
+    var hasWorkingSubagents: Bool {
+        statusEngine.hasWorkingSubagents(tabID: tabID)
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
@@ -463,8 +477,11 @@ final class HeadlessSession: AgentSession {
                 permissionMode = recognized
             }
 
-        case .status:
-            break
+        case .status(let status):
+            // Only the main thread reports this, and a notification-woken
+            // turn reports it seconds before its first envelope — long enough
+            // for its subagent's finish to read as the task settling.
+            if status == "requesting", !isWorking, !hasExited { beginUnpromptedTurn() }
 
         case .bridgeState(let bridge):
             updateRemoteControl(remoteControl.applying(bridge))
@@ -482,11 +499,15 @@ final class HeadlessSession: AgentSession {
             if let delta = event.textDelta { streamingText += delta }
             if let delta = event.thinkingDelta { streamingThinking += delta }
 
-        case .assistant:
+        case .assistant(let envelope):
             // History comes from the transcript file, which the parser already
             // renders. The envelope only marks that the turn is producing
             // content — but a task notification starts a turn with no host
             // input, so this is the only thing that reports one at all.
+            //
+            // A background subagent streams its own envelopes between the
+            // main agent's turns, and no `result` follows them.
+            guard envelope.parentToolUseID == nil else { break }
             if !isWorking, !hasExited { beginUnpromptedTurn() }
 
         case .user:

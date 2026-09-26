@@ -2,14 +2,14 @@ import SwiftUI
 
 struct StatusBadge: View {
     let status: TaskStatus
-    /// When the current stretch of work began. A working badge counts up from
+    /// When the current stretch of work began. An active badge counts up from
     /// it; every other status ignores it.
     var workStartedAt: Date?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
-            if status == .working, let workStartedAt {
+            if status.isActive, let workStartedAt {
                 HStack(spacing: 4) {
                     ElapsedLabel(since: workStartedAt)
                     symbol
@@ -30,6 +30,10 @@ struct StatusBadge: View {
             EmptyView()
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
+        case .waitingOnSubagents:
+            Image(systemName: StatusSymbol.subagents.filled)
+                .foregroundStyle(ChatRole.activity(for: colorScheme))
+                .transition(.symbolEffect)
         case .awaitingReply:
             Image(systemName: StatusSymbol.awaitingReply.filled)
                 .foregroundStyle(Emphasis.secondary.textHierarchy)

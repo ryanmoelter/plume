@@ -231,7 +231,7 @@ final class ChatRevealModel: NSObject {
     /// Whether the reveal has reached where `piece` starts. The working
     /// indicator and anything outside an assistant message always has.
     func hasReached(_ piece: ChatPiece) -> Bool {
-        guard piece.role == .assistant, piece.content != .working, piece.revealOffset > 0,
+        guard piece.role == .assistant, !piece.content.isActivityIndicator, piece.revealOffset > 0,
               let reveal = reveals[piece.messageID] else { return true }
         return reveal.position >= Double(piece.revealOffset)
     }
@@ -630,7 +630,8 @@ enum ChatReveal {
         case let .markdown(block, _): length(of: block)
         case let .codeSegment(segment): segment.isMermaid ? 0 : segment.code.utf16.count
         case let .listSegment(segment): segment.items.reduce(0) { $0 + length(of: $1.text) }
-        case .thinking, .toolCall, .injected, .agentMessageTitle, .notice, .image, .working: 0
+        case .thinking, .toolCall, .injected, .agentMessageTitle, .notice, .image, .working,
+             .waitingOnSubagents: 0
         }
     }
 

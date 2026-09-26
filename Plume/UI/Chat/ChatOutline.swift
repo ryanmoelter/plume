@@ -305,7 +305,7 @@ enum ChatOutlineBuilder {
             proseWeight(of: notice.title, block: nil)
         case .image:
             imageWeight
-        case .working:
+        case .working, .waitingOnSubagents:
             0
         }
     }

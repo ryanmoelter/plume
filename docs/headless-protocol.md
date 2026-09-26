@@ -181,6 +181,17 @@ The user turn is queued while the approved turn runs and is sent when that turn'
 
 Answered with `{"still_queued":[…]}`, and the in-flight turn stops and emits its `result`. Verified mid-count: output truncated and the process stayed healthy for the next turn. **Prefer this to signals** — it keeps the process alive, where SIGTERM exits 143 and abandons the turn. Add `cancel_queued: true` to also drop queued messages.
 
+Sent between turns while a background subagent runs, it kills that subagent instead: `task_updated` (`status: "killed"`), a `task_notification` with `status: "stopped"`, the reply, and the subagent's `[Request interrupted by user for tool use]` line. **No `result` follows**, because no turn was running. Verified on 2.1.280.
+
+## Background subagents between turns
+
+An `Agent` call with `run_in_background: true` returns at once, and the main turn ends with its `result` while the subagent works on. The subagent keeps streaming on the same stdout:
+
+- `assistant` and `user` envelopes carrying `parent_tool_use_id` (the spawning call's id). No `stream_event` deltas and no `result` of their own.
+- `system` events: `task_started`, `task_progress`, `background_tasks_changed` (the live list), `task_updated` and `task_notification`.
+
+When the subagent finishes, its `task_notification` wakes the main agent: a fresh `system/init`, then a main-thread turn (envelopes with `parent_tool_use_id: null`) that ends in its own `result`. So only an envelope with no parent may mark a main turn as started. `HeadlessSession` reads it that way; a subagent's envelope opening one would never see a `result` close it. The woken turn's `system/status` `requesting` arrives about 0.1 s after the notification and seconds before its first envelope, and in the recorded runs only the main thread sent that event. `HeadlessSession` starts the turn there too.
+
 ## Other host-to-CLI control requests
 
 Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_model` were exercised, the rest are listed as available:
