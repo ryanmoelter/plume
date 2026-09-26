@@ -200,7 +200,7 @@ struct ChatMessageList: View, ThemedView {
         pieces = rebuilt
         showRevealedPieces()
         outline = ChatOutlineBuilder.outline(from: rebuilt)
-        pinSentPrompt(in: rebuilt)
+        pinSentPrompt()
     }
 
     /// Hands the list every piece the reveal has reached, and asks the reveal
@@ -233,16 +233,22 @@ struct ChatMessageList: View, ThemedView {
     ///
     /// Only a message appended to a conversation already showing: the first
     /// build is a transcript loading, and a resume replaces the whole list.
-    private func pinSentPrompt(in pieces: [ChatPiece]) {
+    ///
+    /// Only pins to something that also earns a bookmark on the minimap —
+    /// `entry.kind.isUserInput`, the same test `ChatMinimap` uses to decide
+    /// what to draw as one. A system note or another agent's message can
+    /// land under the user's role without being anything the user said, and
+    /// isn't worth scrolling to.
+    private func pinSentPrompt() {
         let ids = messages.map(\.id)
         defer { previousMessageIDs = ids }
         guard !previousMessageIDs.isEmpty,
               ids.count > previousMessageIDs.count,
               ids.starts(with: previousMessageIDs) else { return }
-        let appended = messages[previousMessageIDs.count...]
-        guard let prompt = appended.last(where: { $0.role == .user }),
-              let piece = pieces.first(where: { $0.messageID == prompt.id }) else { return }
-        commands.pin(pieceID: piece.id)
+        let appendedIDs = Set(ids[previousMessageIDs.count...])
+        guard let entry = outline.entries.last(where: { $0.kind.isUserInput && appendedIDs.contains($0.messageID) })
+        else { return }
+        commands.pin(pieceID: entry.id)
     }
 }
 
