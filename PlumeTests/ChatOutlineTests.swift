@@ -321,6 +321,10 @@ struct ChatOutlineTests {
         #expect(abs(ratio - 2) < 0.001)
     }
 
+    @Test func aHugeResponseIsCapped() {
+        #expect(ChatOutlineBuilder.compress(1_000_000) == ChatOutlineBuilder.maximumResponseWeight)
+    }
+
     @Test func alongerReplyOutweighsAShorterOne() throws {
         let brief = outline([message("a", .assistant, [.markdown("Brief.")])])
         let long = outline([

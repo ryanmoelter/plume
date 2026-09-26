@@ -158,6 +158,10 @@ enum ChatOutlineBuilder {
     /// Makes every tenfold increase in length double a response's height.
     static let responseExponent: CGFloat = log10(2)
 
+    /// About 1.5× a 99th-percentile run: tall enough to read as huge without
+    /// a single pathological run owning the map.
+    static let maximumResponseWeight: CGFloat = 45
+
     /// Compresses a run of agent output into the room it gets on the map.
     ///
     /// Response lengths run to orders of magnitude — a one-line answer
@@ -167,7 +171,7 @@ enum ChatOutlineBuilder {
     /// per order of magnitude, so long runs still stand out.
     static func compress(_ weight: CGFloat) -> CGFloat {
         guard weight > 0 else { return minimumWeight }
-        return max(minimumWeight, responseScale * pow(weight, responseExponent))
+        return min(maximumResponseWeight, max(minimumWeight, responseScale * pow(weight, responseExponent)))
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
