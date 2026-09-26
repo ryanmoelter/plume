@@ -227,6 +227,21 @@ struct ChatLayoutModelTests {
         #expect(model.slack > 0)
     }
 
+    /// `topInset` holds the anchor's effective top back by a fixed amount,
+    /// so the pin settles with that much of the previous message still
+    /// showing above it instead of flush with the viewport's top edge.
+    @Test func topInsetLeavesRoomAboveThePinnedAnchor() {
+        var model = ChatLayoutModel()
+        model.viewportHeight = 100
+        model.setItems([item("prev", 20), item("p", 20)])
+        model.setAnchor("p")
+        #expect(model.followOffset == 20)
+
+        model.topInset = 15
+        #expect(model.followOffset == 5)
+        #expect(model.slack == 65)
+    }
+
     // MARK: - The fold
 
     @Test func followingRestsWithTheFoldBehindTheComposerAndScrollingRevealsIt() {

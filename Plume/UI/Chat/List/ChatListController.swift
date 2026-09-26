@@ -102,6 +102,9 @@ final class ChatListController: NSObject {
     private static let subagentsHeaderID = "plume.trailing.subagents.header"
     private static let subagentRowsID = "plume.trailing.subagents.rows"
     private static let insetEaseKey = "plume.trailingInset"
+    /// A naive fixed point rather than a measured one — about a line or two
+    /// of body text left showing above a freshly pinned prompt.
+    private static let pinTopInset: CGFloat = 40
     private static let poolLimit = 40
 
     private enum Item {
@@ -347,6 +350,7 @@ final class ChatListController: NSObject {
 
     func pin(pieceID: String) {
         pendingPin = pieceID
+        model.topInset = Self.pinTopInset
         model.setAnchor(pieceID)
         scroll(to: .bottom, animated: true)
     }

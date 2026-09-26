@@ -53,6 +53,13 @@ struct ChatLayoutModel {
         didSet { recomputeSlack() }
     }
 
+    /// Held back from the anchor's own top when computing slack, so a
+    /// pinned prompt settles with this much of the previous message still
+    /// showing above it instead of exactly at the viewport's edge.
+    var topInset: CGFloat = 0 {
+        didSet { recomputeSlack() }
+    }
+
     private(set) var anchorID: String?
     private(set) var slack: CGFloat = 0
     /// The trailing run of folding items, insets included.
@@ -214,7 +221,7 @@ struct ChatLayoutModel {
             slack = 0
             return
         }
-        let anchorTop = prefixSums[index]
+        let anchorTop = max(0, prefixSums[index] - topInset)
         let formula = max(0, viewportHeight - (heldHeight - anchorTop) - trailingInset)
         // Below the fill line the formula rules outright, so a streaming
         // block that re-wraps a line taller for a frame takes nothing away.
