@@ -129,16 +129,12 @@ struct ComposerSettings {
     /// Mode and model are both corrected by the `init` event, so until it
     /// lands the displayed pair is a guess: the tab's snapshot before launch,
     /// and the value the launch asked for until the CLI answers. Effort is
-    /// excluded — nothing ever reports it back, so it would dim forever.
+    /// excluded — nothing ever reports it back, so it would never confirm.
+    ///
+    /// Surfaced only in the controls' help. Dimming them read as disabled,
+    /// and a resumed session reports nothing until its first turn.
     var isModeAndModelUnconfirmed: Bool {
         session?.hasReportedModeAndModel != true
-    }
-
-    /// True only while a *running* session has yet to report. Before launch
-    /// there is nothing to disagree with the displayed value, so dimming it
-    /// would read as a disabled control rather than a pending one.
-    var isModelAwaitingConfirmation: Bool {
-        session != nil && isModeAndModelUnconfirmed
     }
 
     func modeAndModelHelp(_ label: String) -> String {
