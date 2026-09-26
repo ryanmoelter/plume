@@ -8,7 +8,7 @@ struct PendingLiveAgentRemoval: Identifiable {
     var id: UUID { task.id }
 
     var dialogTitle: String {
-        "\(verb.title) “\(task.title)”?"
+        verb.dialogTitle(for: task.title)
     }
 
     var message: String {
@@ -27,11 +27,11 @@ struct PendingLiveAgentRemoval: Identifiable {
 /// decision itself (`isLive`) is testable without a running session.
 enum TaskRemovalSafety {
     static func hasLiveAgent(_ task: WorkTask) -> Bool {
-        task.orderedTabs.contains { isLive(kind: $0.kind, hasExited: hasExited($0)) }
+        // `&&` short-circuits before the session lookup below, so a plain
+        // terminal tab never pays for one.
+        task.orderedTabs.contains { $0.kind == .agent && isLive(kind: $0.kind, hasExited: hasExited($0)) }
     }
 
-    /// A plain terminal tab is never in scope: only an agent tab whose
-    /// process hasn't exited counts as live.
     static func isLive(kind: TabKind, hasExited: Bool) -> Bool {
         kind == .agent && !hasExited
     }

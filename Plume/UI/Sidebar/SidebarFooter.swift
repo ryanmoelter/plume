@@ -93,8 +93,7 @@ struct SidebarFooter: View, ThemedView {
     }
 
     /// Side by side when the footer is wide enough for both, stacked
-    /// otherwise — the same "fits or drops to the next candidate" idiom
-    /// `SidebarFooterRow` uses for its own title/detail line.
+    /// otherwise, so a narrow window never clips one provider's row.
     @ViewBuilder
     private var quotaRows: some View {
         if installedProviders.contains(.claudeCode), installedProviders.contains(.codex) {

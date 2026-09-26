@@ -280,7 +280,13 @@ struct MainWindow: View {
             return
         }
         guard let path = task.workingDirectoryPath else {
-            pendingWorktreeRemoval = .init(task: task, verb: verb, dirtySummary: nil)
+            // Deferred a tick: `requestRemoval` can call this from inside the
+            // live-agent dialog's own confirm button, and presenting this
+            // dialog in the same run loop turn as that one dismisses drops
+            // the presentation.
+            DispatchQueue.main.async {
+                pendingWorktreeRemoval = .init(task: task, verb: verb, dirtySummary: nil)
+            }
             return
         }
         // Checks for uncommitted work before presenting the confirmation, so

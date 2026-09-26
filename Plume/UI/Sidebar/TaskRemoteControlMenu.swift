@@ -32,8 +32,8 @@ struct TaskRemoteControlToggle: View {
             get: { session?.isRemotelyControlled ?? false },
             set: { session?.setRemoteControl(enabled: $0) }
         ))
-        // Nothing to toggle before the tab's agent has ever run.
-        .disabled(session == nil)
+        // Nothing to toggle before the tab's agent has run, or once it's exited.
         .plumeID(AccessibilityID.taskRemoteControlToggle)
+        .disabled(session == nil || session?.hasExited == true)
     }
 }

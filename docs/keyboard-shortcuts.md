@@ -33,7 +33,7 @@ What an Option chord does cost is the terminal. `MenuShortcut.isClaimable` lets 
 
 ## AppKit's own menu items need claiming too
 
-Settings (⌘,), Hide (⌘H) and Quit (⌘Q) come from AppKit's standard app menu, not from a button in `PlumeCommands`, so they are absent from `PlumeShortcuts.all`. A focused terminal's `performKeyEquivalent` still runs before the main menu's, so without a separate claim these three do nothing while a terminal has focus — ⌘, was the first one found broken. `TerminalShortcutMonitor.systemMenuShortcuts` lists them and `isClaimed` always adds it on top of whatever `shortcuts` it was given.
+Settings (⌘,), Hide (⌘H) and Quit (⌘Q) come from AppKit's standard app menu, not from a button in `PlumeCommands`, so they are absent from `PlumeShortcuts.all`. A focused terminal's `performKeyEquivalent` still runs before the main menu's, so without a separate claim these three do nothing while a terminal has focus. `TerminalShortcutMonitor.systemMenuShortcuts` lists them and `isClaimed` always adds it on top of whatever `shortcuts` it was given.
 
 Undo/Cut/Copy/Paste/Select All (⌘Z/X/C/V/A) are the same kind of automatic item and are deliberately *not* in that list: a terminal needs them for its own editing and clipboard, and claiming them back would break that.
 

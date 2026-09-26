@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Confirms a delete or archive that would stop a task's live agent. Its own
-/// `ViewModifier` for the same reason as `WorktreeRemovalDialogModifier`:
-/// inlining another dialog into `MainWindow.body` tips the type checker past
-/// its time budget.
+/// `ViewModifier` so `MainWindow.body` attaches it with one `.modifier(_:)`
+/// rather than inlining another dialog, which tips the type checker past its
+/// time budget alongside everything else already in that view.
 struct LiveAgentRemovalDialogModifier: ViewModifier {
     @Binding var pendingRemoval: PendingLiveAgentRemoval?
     let onConfirm: (WorkTask, WorktreeRemovalVerb) -> Void
