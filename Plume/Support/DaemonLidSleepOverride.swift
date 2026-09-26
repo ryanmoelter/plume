@@ -33,7 +33,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// removed or races a reinstall.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var versionPolicy = SleepHelperVersionPolicy(
-        appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+        appBundlePath: Bundle.main.bundlePath
     )
     @ObservationIgnored private var deferredCheckTimer: Timer?
     @ObservationIgnored private var lastRelease: Date?
@@ -315,19 +316,37 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// Reports loaded when `launchctl` itself cannot run, so nothing is
     /// re-registered on a guess.
     private nonisolated static func isHelperLoaded() async -> Bool {
+        await printHelperJob()?.loaded ?? true
+    }
+
+    /// The bundle of the helper launchd is running, for a helper too old to
+    /// report it.
+    private nonisolated static func runningHelperBundlePath() async -> String? {
+        guard let job = await printHelperJob(), job.loaded else { return nil }
+        let executable = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: job.output).executable
+        return executable.map { appBundle(containingExecutable: $0).path }
+    }
+
+    /// `launchctl print` needs no root. Nil when it cannot run.
+    private nonisolated static func printHelperJob() async -> (loaded: Bool, output: String)? {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
+                let stdout = Pipe()
                 process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
                 process.arguments = ["print", "system/\(sleepHelperServiceName)"]
-                process.standardOutput = FileHandle.nullDevice
+                process.standardOutput = stdout
                 process.standardError = FileHandle.nullDevice
                 do {
                     try process.run()
+                    let data = stdout.fileHandleForReading.readDataToEndOfFile()
                     process.waitUntilExit()
-                    continuation.resume(returning: process.terminationStatus == 0)
+                    continuation.resume(returning: (
+                        process.terminationStatus == 0,
+                        String(decoding: data, as: UTF8.self)
+                    ))
                 } catch {
-                    continuation.resume(returning: true)
+                    continuation.resume(returning: nil)
                 }
             }
         }
@@ -354,15 +373,20 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         guard Self.changesRegistrationOnItsOwn, !isRecovering, versionPolicy.beginCheck() else { return }
         let generation = generation
         Task {
-            let reading = await SleepHelperVersionQuery.ask(timeout: 5) { Self.makeConnection() }
+            let reading = await SleepHelperVersionQuery.ask(
+                timeout: 5,
+                connect: { Self.makeConnection() },
+                legacyBundlePath: { await Self.runningHelperBundlePath() }
+            )
             guard generation == self.generation else {
                 versionPolicy.abandonCheck()
                 return
             }
             // Another install's hold counts too: launchd has one job for all.
             let holdActive = isLocalHoldActive || releasedRecently || reading.overrideEngaged
-            let described = "\(reading.answer), app build \(versionPolicy.appBuild)"
-            switch versionPolicy.record(reading.answer, holdActive: holdActive) {
+            let described = "\(reading.answer) at \(reading.helperBundlePath ?? "an unknown bundle"), "
+                + "app build \(versionPolicy.appBuild) at \(versionPolicy.appBundlePath)"
+            switch versionPolicy.record(reading.answer, helperBundlePath: reading.helperBundlePath, holdActive: holdActive) {
             case .current:
                 Log.app.notice("Sleep helper version: \(described, privacy: .public)")
             case .reinstall:
@@ -374,6 +398,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
                 if !isLocalHoldActive {
                     scheduleDeferredCheck(after: reading.overrideEngaged ? Self.remoteHoldRecheckDelay : Self.releaseSettleDelay)
                 }
+            case .notOwnBundle:
+                Log.app.notice("Sleep helper is outdated (\(described, privacy: .public)), but another install registered it; leaving it")
             case .stillOutdated:
                 Log.app.error("Sleep helper is still outdated after reinstalling (\(described, privacy: .public)); leaving it")
             case .retryLater:

@@ -3,37 +3,62 @@ import Foundation
 @testable import Plume
 
 /// Covers when the app reinstalls an outdated sleep helper: only an older or
-/// silent helper, at most once per launch, never under a hold, and never for
-/// a helper that cannot be reached at all.
+/// silent helper running from the app's own bundle, at most once per launch,
+/// never under a hold, and never for a helper that cannot be reached at all.
 struct SleepHelperVersionPolicyTests {
+    private static let ownBundle = "/Applications/Plume.app"
+
     @Test func anOlderHelperIsReinstalled() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         #expect(check(&policy, .build("28")) == .reinstall)
     }
 
     @Test func anEqualOrNewerHelperIsLeftAlone() {
-        var equal = SleepHelperVersionPolicy(appBuild: "29")
+        var equal = makePolicy()
         #expect(check(&equal, .build("29")) == .current)
         #expect(check(&equal, .build("1")) == nil)
 
-        var newer = SleepHelperVersionPolicy(appBuild: "28")
+        var newer = makePolicy(appBuild: "28")
         #expect(check(&newer, .build("29")) == .current)
     }
 
     @Test func aHelperThatRefusesTheRequestIsReinstalled() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         #expect(check(&policy, .refused) == .reinstall)
     }
 
+    @Test func anotherInstallsHelperIsNeverReinstalled() {
+        var older = makePolicy()
+        #expect(check(&older, .build("28"), helperBundle: "/Users/me/DerivedData/Build/Products/Debug/Plume.app") == .notOwnBundle)
+        #expect(check(&older, .build("28")) == nil)
+
+        var refused = makePolicy()
+        #expect(check(&refused, .refused, helperBundle: "/Applications/Other.app") == .notOwnBundle)
+        #expect(!refused.hasReinstalled)
+    }
+
+    @Test func aHelperWhoseBundleIsUnknownIsNeverReinstalled() {
+        var unknown = makePolicy()
+        #expect(check(&unknown, .refused, helperBundle: nil) == .notOwnBundle)
+
+        var empty = makePolicy()
+        #expect(check(&empty, .build("28"), helperBundle: "") == .notOwnBundle)
+    }
+
+    @Test func anotherInstallsCurrentHelperStillReadsCurrent() {
+        var policy = makePolicy()
+        #expect(check(&policy, .build("30"), helperBundle: "/Applications/Other.app") == .current)
+    }
+
     @Test func reinstallsAtMostOncePerLaunch() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         #expect(check(&policy, .refused) == .reinstall)
         #expect(check(&policy, .refused) == .stillOutdated)
         #expect(check(&policy, .refused) == nil)
     }
 
     @Test func anUnreachableHelperIsNeverReinstalled() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         for _ in 1..<SleepHelperVersionPolicy.maxUnreachableChecks {
             #expect(check(&policy, .unreachable) == .retryLater)
         }
@@ -43,7 +68,7 @@ struct SleepHelperVersionPolicyTests {
     }
 
     @Test func aCheckInFlightBlocksAnother() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         let first = policy.beginCheck()
         let second = policy.beginCheck()
         policy.abandonCheck()
@@ -54,7 +79,7 @@ struct SleepHelperVersionPolicyTests {
     }
 
     @Test func aHoldDefersTheReinstallUntilACheckFindsItReleased() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         #expect(check(&policy, .build("28"), holdActive: true) == .deferReinstall)
         #expect(check(&policy, .build("28")) == nil)
         policy.resumeDeferred()
@@ -65,20 +90,10 @@ struct SleepHelperVersionPolicyTests {
     }
 
     @Test func aManualReinstallCountsAsTheOne() {
-        var policy = SleepHelperVersionPolicy(appBuild: "29")
+        var policy = makePolicy()
         #expect(check(&policy, .refused, holdActive: true) == .deferReinstall)
         policy.recordManualReinstall()
         #expect(check(&policy, .build("28")) == .stillOutdated)
-    }
-
-    /// Nil when the policy declines to start the check.
-    private func check(
-        _ policy: inout SleepHelperVersionPolicy,
-        _ answer: SleepHelperVersionPolicy.Answer,
-        holdActive: Bool = false
-    ) -> SleepHelperVersionPolicy.Decision? {
-        guard policy.beginCheck() else { return nil }
-        return policy.record(answer, holdActive: holdActive)
     }
 
     @Test func buildsCompareNumerically() {
@@ -90,8 +105,39 @@ struct SleepHelperVersionPolicyTests {
         #expect(!SleepHelperVersionPolicy.isBuild("28", olderThan: ""))
     }
 
-    @Test func readsTheBuildOfTheEnclosingAppBundle() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    @Test func bundlePathsCompareAfterNormalizing() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("Plume.app")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("Linked.app")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: bundle)
+
+        #expect(SleepHelperVersionPolicy.isSameBundle(bundle.path, bundle.path + "/"))
+        #expect(SleepHelperVersionPolicy.isSameBundle(link.path, bundle.path))
+        #expect(SleepHelperVersionPolicy.isSameBundle(bundle.path + "/./", bundle.path))
+        #expect(!SleepHelperVersionPolicy.isSameBundle(root.appendingPathComponent("Other.app").path, bundle.path))
+        #expect(!SleepHelperVersionPolicy.isSameBundle("", bundle.path))
+    }
+
+    /// `/tmp` is a symlink to `/private/tmp`, and a helper's path can come
+    /// back in either form.
+    @Test func aPrivatePrefixDoesNotMakeADifferentBundle() throws {
+        let name = "plume-bundle-\(UUID().uuidString).app"
+        let tmp = URL(fileURLWithPath: "/tmp").appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        #expect(SleepHelperVersionPolicy.isSameBundle("/tmp/\(name)", "/private/tmp/\(name)/"))
+    }
+
+    @Test func pathsThatNoLongerExistStillCompare() {
+        #expect(SleepHelperVersionPolicy.isSameBundle("/nowhere/Plume.app/", "/nowhere/Plume.app"))
+        #expect(SleepHelperVersionPolicy.isSameBundle("/nowhere/x/../Plume.app", "/nowhere/Plume.app"))
+        #expect(!SleepHelperVersionPolicy.isSameBundle("/nowhere/Plume.app", "/nowhere/Other.app"))
+    }
+
+    @Test func readsTheBuildAndBundleOfTheEnclosingApp() throws {
+        let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let contents = root.appendingPathComponent("Plume.app/Contents")
         try FileManager.default.createDirectory(
@@ -101,46 +147,128 @@ struct SleepHelperVersionPolicyTests {
         try plist.write(to: contents.appendingPathComponent("Info.plist"))
         let executable = contents.appendingPathComponent("MacOS/PlumeSleepHelper")
         #expect(appBundleBuild(containingExecutable: executable) == "42")
+        #expect(SleepHelperVersionPolicy.isSameBundle(
+            appBundle(containingExecutable: executable).path, root.appendingPathComponent("Plume.app").path
+        ))
         #expect(appBundleBuild(containingExecutable: root.appendingPathComponent("nowhere/x")) == nil)
+    }
+
+    private func makePolicy(appBuild: String = "29") -> SleepHelperVersionPolicy {
+        SleepHelperVersionPolicy(appBuild: appBuild, appBundlePath: Self.ownBundle)
+    }
+
+    /// Nil when the policy declines to start the check.
+    private func check(
+        _ policy: inout SleepHelperVersionPolicy,
+        _ answer: SleepHelperVersionPolicy.Answer,
+        helperBundle: String? = ownBundle,
+        holdActive: Bool = false
+    ) -> SleepHelperVersionPolicy.Decision? {
+        guard policy.beginCheck() else { return nil }
+        return policy.record(answer, helperBundlePath: helperBundle, holdActive: holdActive)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+/// Reads the running helper's executable out of `launchctl print`, for a
+/// helper too old to report its own bundle.
+struct LaunchctlHelperJobTests {
+    /// Trimmed from a real `launchctl print` of an `SMAppService` daemon: the
+    /// program is bundle-relative, so only the pid leads to the executable.
+    private static let smAppServiceJob = """
+    system/com.ryanmoelter.Plume.SleepHelper = {
+    \tactive count = 1
+    \tpath = (submitted by smd.534)
+    \ttype = LaunchDaemon
+    \tstate = running
+
+    \tprogram identifier = Contents/MacOS/PlumeSleepHelper (mode: 2)
+    \tparent bundle identifier = com.ryanmoelter.Plume
+    \tparent bundle version = 28
+
+    \tendpoints = {
+    \t\t"com.ryanmoelter.Plume.SleepHelper" = {
+    \t\t\tport = 0x1234
+    \t\t\tactive = 1
+    \t\t}
+    \t}
+    \tpid = 61748
+    \tjob state = running
+    }
+    """
+
+    @Test func anSMAppServiceJobIsFoundThroughItsPid() {
+        let job = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: Self.smAppServiceJob)
+        #expect(job == .init(program: nil, pid: 61748))
+    }
+
+    @Test func anAbsoluteProgramIsTakenAsIs() {
+        let output = "system/x = {\n\tprogram = /Applications/Plume.app/Contents/MacOS/PlumeSleepHelper\n\tpid = 7\n}\n"
+        let job = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: output)
+        #expect(job.executable?.path == "/Applications/Plume.app/Contents/MacOS/PlumeSleepHelper")
+    }
+
+    @Test func aStoppedJobHasNoExecutable() {
+        let output = "system/x = {\n\tprogram identifier = Contents/MacOS/PlumeSleepHelper (mode: 2)\n\tstate = not running\n}\n"
+        let job = SleepHelperVersionQuery.helperExecutable(inLaunchctlPrint: output)
+        #expect(job.executable == nil)
+    }
+
+    @Test func aPidResolvesToItsExecutable() {
+        let job = SleepHelperVersionQuery.LaunchctlJob(program: nil, pid: getpid())
+        #expect(job.executable?.path == executableURL(ofProcess: getpid())?.path)
+        #expect(job.executable != nil)
     }
 }
 
 /// Runs the version query against real anonymous XPC listeners, so what an old
 /// helper does with the unknown selector is observed rather than assumed.
 struct SleepHelperVersionQueryTests {
-    @Test func aCurrentHelperReportsItsBuild() async {
+    private static let legacyBundle = "/Applications/Plume.app"
+
+    @Test func aCurrentHelperReportsItsBuildAndBundle() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: SleepHelperProtocol.self), exported: CurrentHelper())
-        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
-        withExtendedLifetime(server) {}
-        #expect(reading == .init(answer: .build("29"), overrideEngaged: false))
+        let reading = await ask(server)
+        #expect(reading == .init(answer: .build("29"), helperBundlePath: "/Users/me/Plume.app", overrideEngaged: false))
     }
 
-    @Test func aHelperWithoutTheMethodReadsAsRefused() async {
+    @Test func aHelperWithoutTheMethodReadsAsRefusedWithTheLegacyPath() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: LegacySleepHelperProtocol.self), exported: LegacyHelper())
-        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
-        withExtendedLifetime(server) {}
-        #expect(reading == .init(answer: .refused, overrideEngaged: false))
+        let reading = await ask(server)
+        #expect(reading == .init(answer: .refused, helperBundlePath: Self.legacyBundle, overrideEngaged: false))
     }
 
     @Test func aHelperThatNeverAnswersTheVersionReadsAsRefused() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: SleepHelperProtocol.self), exported: SilentVersionHelper())
-        let reading = await SleepHelperVersionQuery.ask(timeout: 0.5, connect: server.connect)
-        withExtendedLifetime(server) {}
-        #expect(reading == .init(answer: .refused, overrideEngaged: false))
+        let reading = await ask(server, timeout: 0.5)
+        #expect(reading == .init(answer: .refused, helperBundlePath: Self.legacyBundle, overrideEngaged: false))
     }
 
     @Test func reportsAnOverrideHeldByAnyClient() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: LegacySleepHelperProtocol.self), exported: LegacyHelper(engaged: true))
-        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
-        withExtendedLifetime(server) {}
-        #expect(reading == .init(answer: .refused, overrideEngaged: true))
+        let reading = await ask(server)
+        #expect(reading == .init(answer: .refused, helperBundlePath: Self.legacyBundle, overrideEngaged: true))
     }
 
     @Test func aHelperThatRejectsConnectionsReadsAsUnreachable() async {
         let server = FakeHelperServer(interface: nil, exported: nil)
-        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
+        let reading = await ask(server)
+        #expect(reading == .init(answer: .unreachable, helperBundlePath: nil, overrideEngaged: false))
+    }
+
+    private func ask(_ server: FakeHelperServer, timeout: TimeInterval = 5) async -> SleepHelperVersionQuery.Reading {
+        let reading = await SleepHelperVersionQuery.ask(
+            timeout: timeout,
+            connect: server.connect,
+            legacyBundlePath: { Self.legacyBundle }
+        )
         withExtendedLifetime(server) {}
-        #expect(reading == .init(answer: .unreachable, overrideEngaged: false))
+        return reading
     }
 }
 
@@ -166,11 +294,11 @@ private class LegacyHelper: NSObject, LegacySleepHelperProtocol {
 }
 
 private class CurrentHelper: LegacyHelper, SleepHelperProtocol {
-    func helperBuild(reply: @escaping (String) -> Void) { reply("29") }
+    func helperBuild(reply: @escaping (String, String) -> Void) { reply("29", "/Users/me/Plume.app") }
 }
 
 private final class SilentVersionHelper: CurrentHelper {
-    override func helperBuild(reply: @escaping (String) -> Void) {}
+    override func helperBuild(reply: @escaping (String, String) -> Void) {}
 }
 
 private final class FakeHelperServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable {

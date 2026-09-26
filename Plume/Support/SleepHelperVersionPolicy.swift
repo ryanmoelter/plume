@@ -5,10 +5,11 @@ import Foundation
 /// An in-place update replaces the bundle but not the running helper, which
 /// keeps serving while any client stays connected. So the app asks the helper
 /// for its build, and reinstalls one that is older or that cannot answer. A
-/// newer or equal helper is left alone, so a debug build and the installed app
-/// never take the job back and forth. At most one reinstall per launch, never
-/// while any client holds the override, and a helper that cannot be reached at
-/// all is left to the not-loaded check and the back-off.
+/// newer or equal helper is left alone, and so is one running from another
+/// install's bundle: launchd has one job for every Plume install, and only
+/// the install that registered it should replace it. At most one reinstall
+/// per launch, never while any client holds the override, and a helper that
+/// cannot be reached at all is left to the not-loaded check and the back-off.
 nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
     enum Answer: Equatable, Sendable {
         case build(String)
@@ -22,6 +23,9 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
         case current
         case reinstall
         case deferReinstall
+        /// Outdated, but running from another install's bundle, or from one
+        /// that could not be found.
+        case notOwnBundle
         /// Still outdated after this launch's reinstall; left as it is.
         case stillOutdated
         case retryLater
@@ -31,14 +35,16 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
     static let maxUnreachableChecks = 3
 
     let appBuild: String
+    let appBundlePath: String
     private(set) var isChecking = false
     private(set) var isSettled = false
     private(set) var hasReinstalled = false
     private(set) var isReinstallDeferred = false
     private(set) var unreachableChecks = 0
 
-    init(appBuild: String) {
+    init(appBuild: String, appBundlePath: String) {
         self.appBuild = appBuild
+        self.appBundlePath = appBundlePath
     }
 
     mutating func beginCheck() -> Bool {
@@ -54,7 +60,8 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
         isChecking = false
     }
 
-    mutating func record(_ answer: Answer, holdActive: Bool) -> Decision {
+    /// `helperBundlePath` is nil when the helper's bundle could not be found.
+    mutating func record(_ answer: Answer, helperBundlePath: String?, holdActive: Bool) -> Decision {
         isChecking = false
         switch answer {
         case .unreachable:
@@ -66,6 +73,10 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
             isSettled = true
             return .current
         case .build, .refused:
+            guard let helperBundlePath, Self.isSameBundle(helperBundlePath, appBundlePath) else {
+                isSettled = true
+                return .notOwnBundle
+            }
             if hasReinstalled {
                 isSettled = true
                 return .stillOutdated
@@ -110,6 +121,28 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
         guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
         return parts.compactMap { $0 }
     }
+
+    /// An empty path is never the same bundle, so an unreadable one is never
+    /// reinstalled.
+    static func isSameBundle(_ lhs: String, _ rhs: String) -> Bool {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return canonicalPath(lhs) == canonicalPath(rhs)
+    }
+
+    /// `realpath` resolves symlinks, including `/tmp` and `/var` into
+    /// `/private`, where Foundation's `resolvingSymlinksInPath` strips
+    /// `/private` instead. A path that no longer exists falls back to plain
+    /// standardizing.
+    static func canonicalPath(_ path: String) -> String {
+        if let resolved = realpath(path, nil) {
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return standardized.count > 1 && standardized.hasSuffix("/")
+            ? String(standardized.dropLast())
+            : standardized
+    }
 }
 
 /// Asks a helper for its build over connections of its own, so a helper that
@@ -117,6 +150,9 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
 nonisolated enum SleepHelperVersionQuery {
     struct Reading: Equatable, Sendable {
         var answer: SleepHelperVersionPolicy.Answer
+        /// Nil when unknown: an unreachable helper, or an old one whose
+        /// process could not be found.
+        var helperBundlePath: String?
         /// Whether `SleepDisabled` is set, by this app or another install.
         var overrideEngaged: Bool
     }
@@ -124,22 +160,37 @@ nonisolated enum SleepHelperVersionQuery {
     /// An old helper drops the connection on the unknown selector, which reads
     /// the same as a crash. So `currentState`, which every helper answers,
     /// comes first to tell unreachable from refused, and a failed
-    /// `helperBuild` is asked once more before it counts as refused.
+    /// `helperBuild` is asked once more before it counts as refused. An old
+    /// helper cannot report its bundle, so `legacyBundlePath` finds it.
     static func ask(
         timeout: TimeInterval,
-        connect: @escaping @Sendable () -> NSXPCConnection
+        connect: @escaping @Sendable () -> NSXPCConnection,
+        legacyBundlePath: @Sendable () async -> String?
     ) async -> Reading {
         let state: Bool? = await request(timeout: timeout, connect: connect) { helper, reply in
             helper.currentState { reply($0) }
         }
-        guard let state else { return Reading(answer: .unreachable, overrideEngaged: false) }
-        for _ in 0..<2 {
-            let build: String? = await request(timeout: timeout, connect: connect) { helper, reply in
-                helper.helperBuild { reply($0) }
-            }
-            if let build { return Reading(answer: .build(build), overrideEngaged: state) }
+        guard let state else {
+            return Reading(answer: .unreachable, helperBundlePath: nil, overrideEngaged: false)
         }
-        return Reading(answer: .refused, overrideEngaged: state)
+        for _ in 0..<2 {
+            let identity: HelperIdentity? = await request(timeout: timeout, connect: connect) { helper, reply in
+                helper.helperBuild { reply(HelperIdentity(build: $0, bundlePath: $1)) }
+            }
+            if let identity {
+                return Reading(
+                    answer: .build(identity.build),
+                    helperBundlePath: identity.bundlePath.isEmpty ? nil : identity.bundlePath,
+                    overrideEngaged: state
+                )
+            }
+        }
+        return Reading(answer: .refused, helperBundlePath: await legacyBundlePath(), overrideEngaged: state)
+    }
+
+    private struct HelperIdentity: Sendable {
+        let build: String
+        let bundlePath: String
     }
 
     /// Nil on an XPC error or no reply within `timeout`.
@@ -160,6 +211,38 @@ nonisolated enum SleepHelperVersionQuery {
                 return
             }
             send(helper) { once.resume($0) }
+        }
+    }
+
+    /// The running helper's executable, from `launchctl print`. An
+    /// `SMAppService` job lists only a bundle-relative `program identifier`,
+    /// so the absolute path comes from its `pid`; a job that does list an
+    /// absolute `program` is taken at its word.
+    static func helperExecutable(inLaunchctlPrint output: String) -> LaunchctlJob {
+        var job = LaunchctlJob()
+        for line in output.split(separator: "\n") {
+            // Top-level fields sit one tab in; deeper ones belong to nested blocks.
+            guard line.hasPrefix("\t"), !line.hasPrefix("\t\t") else { continue }
+            let parts = line.dropFirst().split(separator: "=", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "program" where value.hasPrefix("/"): job.program = value
+            case "pid": job.pid = pid_t(value)
+            default: break
+            }
+        }
+        return job
+    }
+
+    struct LaunchctlJob: Equatable, Sendable {
+        var program: String?
+        var pid: pid_t?
+
+        var executable: URL? {
+            if let program { return URL(fileURLWithPath: program) }
+            return pid.flatMap(executableURL(ofProcess:))
         }
     }
 }
