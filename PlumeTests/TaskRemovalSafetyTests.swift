@@ -2,9 +2,9 @@ import Testing
 import Foundation
 @testable import Plume
 
-/// The decision of whether delete or archive needs to confirm a live agent
-/// first — kept separate from the session lookup so it's testable without a
-/// running process.
+/// Delete and archive confirm first only while an agent is mid-turn — working,
+/// waiting on its subagents, or blocked on the user. An agent at rest removes
+/// silently.
 @MainActor
 struct TaskRemovalSafetyTests {
     private func makeTask(tabs: [(kind: TabKind, transport: AgentTransport)]) -> WorkTask {
@@ -17,23 +17,49 @@ struct TaskRemovalSafetyTests {
         return task
     }
 
-    @Test func aLiveAgentTabIsLive() {
-        #expect(TaskRemovalSafety.isLive(kind: .agent, hasExited: false))
+    @Test(arguments: [
+        TaskStatus.working, .waitingOnSubagents,
+        .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
+    ])
+    func aMidTurnStatusNeedsConfirmation(status: TaskStatus) {
+        #expect(TaskRemovalSafety.isMidTurn(status))
+        #expect(TaskRemovalSafety.needsConfirmation([
+            .init(status: .awaitingReply, hasExited: false),
+            .init(status: status, hasExited: false),
+        ]))
     }
 
-    @Test func anExitedAgentTabIsNotLive() {
-        #expect(!TaskRemovalSafety.isLive(kind: .agent, hasExited: true))
+    @Test(arguments: [TaskStatus.notStarted, .awaitingReply, .done, .interrupted, .error])
+    func aRestingStatusRemovesSilently(status: TaskStatus) {
+        #expect(!TaskRemovalSafety.isMidTurn(status))
+        #expect(!TaskRemovalSafety.needsConfirmation([.init(status: status, hasExited: false)]))
     }
 
-    @Test func aTerminalTabIsNeverLive() {
-        #expect(!TaskRemovalSafety.isLive(kind: .terminal, hasExited: false))
+    @Test(arguments: [TaskStatus.working, .waitingOnSubagents, .permissionNeeded])
+    func anExitedAgentRemovesSilentlyWhateverItsLastStatus(status: TaskStatus) {
+        #expect(!TaskRemovalSafety.needsConfirmation([.init(status: status, hasExited: true)]))
     }
 
-    /// No session has ever run for these tabs, so the lookup reads them as
-    /// exited and the task needs no confirmation.
-    @Test func aTaskWithNoRunningSessionHasNoLiveAgent() {
+    @Test func aTaskWithNoAgentTabsNeedsNoConfirmation() {
+        #expect(!TaskRemovalSafety.needsConfirmation([]))
+    }
+
+    /// A status left at `working` by a process that has gone reads as exited,
+    /// since no session exists for the tab.
+    @Test(arguments: [AgentTransport.headless, .terminal])
+    func aWorkingStatusWithNoSessionRemovesSilently(transport: AgentTransport) throws {
+        let task = makeTask(tabs: [(.agent, transport)])
+        let tab = try #require(task.orderedTabs.first)
+        StatusEngine.shared.setStatus(.working, taskID: task.id, tabID: tab.id, notifiable: false)
+        defer { StatusEngine.shared.setStatus(.awaitingReply, taskID: task.id, tabID: tab.id, notifiable: false) }
+        #expect(!TaskRemovalSafety.hasActiveAgent(task))
+    }
+
+    /// No status has ever been reported for these tabs, so they read as
+    /// `notStarted`.
+    @Test func aTaskWithNoReportedStatusHasNoActiveAgent() {
         let task = makeTask(tabs: [(.agent, .headless), (.agent, .terminal), (.terminal, .headless)])
-        #expect(!TaskRemovalSafety.hasLiveAgent(task))
+        #expect(!TaskRemovalSafety.hasActiveAgent(task))
     }
 
     @Test func archiveAndDeleteWordTheMessageDifferently() {

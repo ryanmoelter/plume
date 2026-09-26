@@ -261,13 +261,13 @@ struct MainWindow: View {
         selection = tasks.first { $0.id == id }?.id
     }
 
-    /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with a
-    /// live agent asks first, since either action would kill it outright; a
-    /// task that also owns a Plume-created worktree then asks again, once
-    /// the live-agent risk (if any) is cleared, since removing the worktree
-    /// is a second, separate risk.
+    /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with an
+    /// agent mid-turn asks first, since either action would cut that turn
+    /// off; a task that also owns a Plume-created worktree then asks again,
+    /// once that risk (if any) is cleared, since removing the worktree is a
+    /// second, separate risk.
     private func requestRemoval(of task: WorkTask, verb: WorktreeRemovalVerb) {
-        guard !TaskRemovalSafety.hasLiveAgent(task) else {
+        guard !TaskRemovalSafety.hasActiveAgent(task) else {
             pendingLiveAgentRemoval = .init(task: task, verb: verb)
             return
         }

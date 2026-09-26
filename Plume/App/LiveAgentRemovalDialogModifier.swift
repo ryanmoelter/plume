@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Confirms a delete or archive that would stop a task's live agent. Its own
+/// Confirms a delete or archive that would stop a task's agent mid-turn. Its own
 /// `ViewModifier` so `MainWindow.body` attaches it with one `.modifier(_:)`
 /// rather than inlining another dialog, which tips the type checker past its
 /// time budget alongside everything else already in that view.
