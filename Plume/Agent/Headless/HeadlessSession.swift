@@ -316,10 +316,14 @@ final class HeadlessSession: AgentSession {
     func interrupt() {
         if isWorking {
             wasInterrupted = true
-        } else {
-            guard hasWorkingSubagents else { return }
+            send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
+            return
         }
-        send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
+        guard hasWorkingSubagents,
+              send(StreamJSONEncoder.interrupt(requestID: nextRequestID())) else { return }
+        // The user stopped the work in progress, so the subagents settling
+        // afterwards is no turn ending worth announcing.
+        statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
     }
 
     var hasWorkingSubagents: Bool {
@@ -473,8 +477,11 @@ final class HeadlessSession: AgentSession {
                 permissionMode = recognized
             }
 
-        case .status:
-            break
+        case .status(let status):
+            // Only the main thread reports this, and a notification-woken
+            // turn reports it seconds before its first envelope — long enough
+            // for its subagent's finish to read as the task settling.
+            if status == "requesting", !isWorking, !hasExited { beginUnpromptedTurn() }
 
         case .bridgeState(let bridge):
             updateRemoteControl(remoteControl.applying(bridge))

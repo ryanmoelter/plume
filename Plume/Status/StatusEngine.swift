@@ -37,9 +37,9 @@ final class StatusEngine {
     /// worth showing but not worth interrupting over.
     @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus, _ notifiable: Bool) -> Void)?
 
-    /// When each working tab started working, for the elapsed time the
+    /// When each active tab started working, for the elapsed time the
     /// sidebar shows. Kept here rather than on the session so it covers both
-    /// transports, and dropped as soon as a tab stops working so a stale
+    /// transports, and dropped as soon as a tab stops being active so a stale
     /// start can never be read.
     private var workStartedAt: [UUID: Date] = [:]
 
@@ -72,6 +72,11 @@ final class StatusEngine {
 
     func hasWorkingSubagents(tabID: UUID) -> Bool {
         tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+    }
+
+    /// Every tab's status as the user sees it.
+    var effectiveTabStatuses: [TaskStatus] {
+        tabStatuses.keys.map { status(forTab: $0) }
     }
 
     /// The tab's own status, ignoring its subagents.
@@ -211,8 +216,9 @@ final class StatusEngine {
     }
 
     /// When the tab started the work it is doing now, or nil if it is not
-    /// working. Reset every time work starts, so the clock times this stretch
-    /// rather than the tab's whole life.
+    /// active. Reset every time work starts after a rest, so the clock times
+    /// this stretch rather than the tab's whole life; a turn ending while its
+    /// subagents carry on is not a rest.
     func workStarted(forTab id: UUID) -> Date? {
         workStartedAt[id]
     }

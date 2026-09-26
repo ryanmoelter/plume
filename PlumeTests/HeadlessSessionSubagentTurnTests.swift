@@ -82,6 +82,18 @@ struct HeadlessSessionSubagentTurnTests {
         #expect(engine.status(forTab: session.tabID) == .awaitingReply)
     }
 
+    /// A notification-woken turn announces its request well before its first
+    /// envelope, and that is when the tab starts working.
+    @Test func aRequestBetweenTurnsStartsTheWokenTurn() throws {
+        let (session, engine) = makeSession()
+        try endMainTurn(session)
+
+        session.handle(try decode(#"{"type":"system","subtype":"status","status":"requesting"}"#))
+
+        #expect(session.isWorking)
+        #expect(engine.ownStatus(forTab: session.tabID) == .working)
+    }
+
     /// A task notification still wakes the main agent, and its envelopes
     /// carry no parent.
     @Test func theMainAgentsOwnEnvelopeStillStartsATurn() throws {

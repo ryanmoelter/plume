@@ -197,7 +197,7 @@ struct ChatMessageList: View, ThemedView {
         revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt))
         let turnEnded = status == .awaitingReply || status == .waitingOnSubagents
         heldTurnTargets = turnEnded ? revealModel?.unsettledTargets ?? [:] : [:]
-        if !heldTurnTargets.isEmpty { rebuilt = split(.working) }
+        if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }
         pieces = rebuilt
         showRevealedPieces()
         outline = ChatOutlineBuilder.outline(from: rebuilt)

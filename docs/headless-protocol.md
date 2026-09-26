@@ -190,7 +190,7 @@ An `Agent` call with `run_in_background: true` returns at once, and the main tur
 - `assistant` and `user` envelopes carrying `parent_tool_use_id` (the spawning call's id). No `stream_event` deltas and no `result` of their own.
 - `system` events: `task_started`, `task_progress`, `background_tasks_changed` (the live list), `task_updated` and `task_notification`.
 
-When the subagent finishes, its `task_notification` wakes the main agent: a fresh `system/init`, then a main-thread turn (envelopes with `parent_tool_use_id: null`) that ends in its own `result`. So only an envelope with no parent may mark a main turn as started. `HeadlessSession` reads it that way; a subagent's envelope opening one would never see a `result` close it.
+When the subagent finishes, its `task_notification` wakes the main agent: a fresh `system/init`, then a main-thread turn (envelopes with `parent_tool_use_id: null`) that ends in its own `result`. So only an envelope with no parent may mark a main turn as started. `HeadlessSession` reads it that way; a subagent's envelope opening one would never see a `result` close it. The woken turn's `system/status` `requesting` arrives about 0.1 s after the notification and seconds before its first envelope, and in the recorded runs only the main thread sent that event. `HeadlessSession` starts the turn there too.
 
 ## Other host-to-CLI control requests
 
