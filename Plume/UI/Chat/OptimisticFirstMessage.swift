@@ -74,9 +74,17 @@ nonisolated struct OptimisticFirstMessage: Equatable {
         guard !wanted.isEmpty else { return true }
         return messages.contains { message in
             guard message.role == .user else { return false }
-            return message.prose == wanted || message.injectedText == wanted
-                || message.slashCommandText == wanted
+            if message.prose == wanted || message.injectedText == wanted { return true }
+            guard let slashCommandText = message.slashCommandText else { return false }
+            // Collapsed rather than exact: the reconstruction always joins
+            // the command and its arguments with one space, but what was
+            // typed may have run several together.
+            return Self.collapsedWhitespace(slashCommandText) == Self.collapsedWhitespace(wanted)
         }
+    }
+
+    private static func collapsedWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 
@@ -111,12 +119,10 @@ extension ChatMessage {
     /// text its marker shows, and what the user typed before Claude Code
     /// expanded it into `<command-name>`/`<command-args>`.
     var slashCommandText: String? {
-        for block in blocks {
-            if case .injected(let kind, _) = block, case .slashCommand = kind {
-                return kind.markerLabel
-            }
-        }
-        return nil
+        blocks.compactMap { block -> String? in
+            guard case .injected(let kind, _) = block, case .slashCommand = kind else { return nil }
+            return kind.markerLabel
+        }.first
     }
 }
 
