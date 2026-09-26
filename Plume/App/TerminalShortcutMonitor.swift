@@ -55,22 +55,34 @@ final class TerminalShortcutMonitor {
         return handled
     }
 
-    /// Whether this chord is one `PlumeCommands` binds, and so one the menu
-    /// should be offered ahead of the terminal.
+    /// Whether this chord belongs to the menu bar — either one `PlumeCommands`
+    /// binds or one of AppKit's own reserved chords — and so should be offered
+    /// to the menu ahead of the terminal.
     ///
-    /// Derived from `PlumeShortcuts.all` rather than a list of its own, and
-    /// narrowed to Command-bearing chords by `MenuShortcut.isClaimable` — the
+    /// Narrowed to Command-bearing chords by `MenuShortcut.isClaimable` — the
     /// terminal keeps every bare key, every Control chord, and every Option
     /// chord that Command does not also cover.
     ///
-    /// `shortcuts` defaults to what is bound now. A test passes its own set
-    /// rather than the live one, whose rebindable half is whatever the
-    /// developer running the test last chose.
+    /// `shortcuts` defaults to what `PlumeCommands` binds now. A test passes
+    /// its own set rather than the live one, whose rebindable half is
+    /// whatever the developer running the test last chose.
+    /// `systemMenuShortcuts` is always added on top, live or in a test, since
+    /// those chords are neither bound by `PlumeCommands` nor rebindable.
     static func isClaimed(
         shortcuts: [MenuShortcut] = PlumeShortcuts.all,
         characters: String?,
         flags: NSEvent.ModifierFlags
     ) -> Bool {
-        shortcuts.contains { $0.matches(characters: characters, flags: flags) }
+        (shortcuts + systemMenuShortcuts).contains { $0.matches(characters: characters, flags: flags) }
     }
+
+    /// Chords AppKit adds to the app menu on its own — Settings, Hide, Quit —
+    /// with no button in `PlumeCommands` behind them, so they never appear in
+    /// `PlumeShortcuts.all`. Without this list, ⌘, opens no Settings window
+    /// and ⌘Q/⌘H do nothing while a terminal has focus.
+    private static let systemMenuShortcuts: [MenuShortcut] = [
+        MenuShortcut(","), // Settings…
+        MenuShortcut("h"), // Hide Plume
+        MenuShortcut("q"), // Quit Plume
+    ]
 }

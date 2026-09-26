@@ -212,6 +212,9 @@ struct SidebarView: View {
             Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
         }
+        if let tab = TaskRemoteControl.toggleableTab(in: task) {
+            TaskRemoteControlToggle(tabID: tab.id)
+        }
         Divider()
         Button("Delete", role: .destructive) { requestDelete(task) }
     }
