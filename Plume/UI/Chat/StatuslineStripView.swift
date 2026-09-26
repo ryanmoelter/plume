@@ -303,6 +303,8 @@ struct StackedMeter: View, ThemedView {
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                     .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
+                    .contentTransition(.numericText(value: fraction))
+                    .animation(QuotaTransition.animation, value: fraction)
                 bar
             }
         } else {
@@ -606,13 +608,19 @@ struct MeterView: View, ThemedView {
     /// Dims the fill alone. The track stays put — see `StackedMeter.isStale`.
     var isStale: Bool = false
 
+    /// Tracks `fraction` through an explicit animation rather than an
+    /// `.animation(value:)` modifier, so a bar that has just mounted — the
+    /// meter's first reading — grows from empty instead of appearing already
+    /// full: a freshly inserted view has no prior `fraction` to diff against.
+    @State private var animatedFraction: Double = 0
+
     private var trackOpacity: Double {
         colors.emphasis[.divider]
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let fillWidth = StatuslineMeterMath.fillWidth(trackWidth: geometry.size.width, fraction: fraction)
+            let fillWidth = StatuslineMeterMath.fillWidth(trackWidth: geometry.size.width, fraction: animatedFraction)
             let mark = pacing.map {
                 PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
             }
@@ -649,6 +657,12 @@ struct MeterView: View, ThemedView {
             .clipShape(Capsule())
         }
         .frame(height: PacingMark.barHeight)
+        .onAppear { animateToCurrentFraction() }
+        .onChange(of: fraction) { animateToCurrentFraction() }
+    }
+
+    private func animateToCurrentFraction() {
+        withAnimation(QuotaTransition.animation) { animatedFraction = fraction }
     }
 
     /// One copy of the dot, colored for the ground it lands on. Over the
