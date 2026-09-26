@@ -252,7 +252,6 @@ private struct PermissionModeControl: View, ThemedView {
                 foreground: foreground(for: attention(preset)),
                 height: dimensions.composerControlHeight
             )
-            .unconfirmed(state.isModeAndModelUnconfirmed)
             .overlay {
                 SymbolMenuButton(title: "Permission mode", value: preset.label, options: state.permissionPresets.map { option in
                     SymbolMenuOption(title: option.label, systemImage: symbol(for: option), isSelected: option == preset) {
@@ -307,7 +306,6 @@ private struct ModelControl: View, ThemedView {
             foreground: colors.foreground,
             height: dimensions.composerControlHeight
         )
-        .unconfirmed(state.isModelAwaitingConfirmation)
         .overlay {
             ModelMenuButton(state: state, label: label) { provider in
                 customProvider = provider
@@ -460,14 +458,6 @@ extension AgentEffort {
         case .ultra: return "bolt.circle"
         default: return "gauge.with.dots.needle.50percent"
         }
-    }
-}
-
-extension View {
-    /// Dims a label whose value is Plume's own guess rather than something the
-    /// conversation has reported.
-    func unconfirmed(_ isUnconfirmed: Bool) -> some View {
-        opacity(isUnconfirmed ? 0.55 : 1)
     }
 }
 

@@ -25,7 +25,7 @@ struct InteractiveToolRow: View, ThemedView {
     var resultText: String?
     /// Non-nil only while a live request backs this row.
     var answer: ((Answer) -> Void)?
-    /// Opens this row's own plan. Nil leaves the row a plain summary.
+    /// Opens the plan panel. Nil leaves the row a plain summary.
     var openPlan: (() -> Void)?
 
     @State private var answerState = PermissionAnswerState()
