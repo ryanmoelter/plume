@@ -38,9 +38,8 @@ nonisolated struct SubagentCaption: Equatable {
         contextWindow = model?.nominalContextWindow
     }
 
-    /// Model, agent type, then the raw context spent — "150k/200k" rather
-    /// than a percentage, since a count says something on its own and a
-    /// percentage needs the window to mean anything.
+    /// Model, agent type, then the raw context spent as "150k/200k": a count
+    /// says something on its own without the window to divide it by.
     var text: String {
         var parts: [String] = []
         if let modelLabel { parts.append(modelLabel) }
@@ -60,12 +59,6 @@ nonisolated struct SubagentCaption: Equatable {
     }
 
     static func formatted(tokens count: Int) -> String {
-        if count >= 1_000_000 {
-            let value = Double(count) / 1_000_000
-            return value.truncatingRemainder(dividingBy: 1) == 0
-                ? "\(Int(value))M" : String(format: "%.1fM", value)
-        }
-        if count >= 1_000 { return "\(count / 1_000)k" }
-        return "\(count)"
+        TokenCount.formatted(count)
     }
 }
