@@ -38,9 +38,11 @@ struct SidebarQuotaRow: View, ThemedView {
                 Text("\u{2014}")
                     .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                     .accessibilityLabel("No quota reading yet")
+                    .transition(.opacity)
             }
             Spacer(minLength: 0)
         }
+        .animation(QuotaTransition.animation, value: presence(snapshot))
         .font(typography.caption.font)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -48,6 +50,14 @@ struct SidebarQuotaRow: View, ThemedView {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Claude account quota")
         .plumeID(AccessibilityID.sidebarQuotaRow)
+    }
+
+    private func presence(_ snapshot: QuotaSnapshot?) -> [Bool] {
+        [
+            snapshot != nil,
+            (snapshot?.rateLimit.fiveHour?.utilization ?? 0) > 0,
+            (snapshot?.rateLimit.sevenDay?.utilization ?? 0) > 0,
+        ]
     }
 
     @ViewBuilder
@@ -60,10 +70,12 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: snapshot.receivedAt,
                     barWidth: StatuslineMeterWidth.sidebarShortQuota,
                     windowLength: QuotaWindowLength.fiveHour,
                     readingAlignment: .leading
                 )
+                .transition(.opacity)
             }
             if let sevenDay = snapshot.rateLimit.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
@@ -72,10 +84,12 @@ struct SidebarQuotaRow: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: snapshot.receivedAt,
                     barWidth: StatuslineMeterWidth.sidebarQuota,
                     windowLength: QuotaWindowLength.sevenDay,
                     readingAlignment: .leading
                 )
+                .transition(.opacity)
             }
         }
     }
@@ -96,13 +110,16 @@ struct SidebarCodexQuotaRow: View, ThemedView {
                     CodexQuotaStrip(windows: quota.windows, sidebar: true)
                     CodexQuotaStrip(windows: quota.windows, layout: .stacked, sidebar: true)
                 }
+                .transition(.opacity)
             } else {
                 Text("—")
                     .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                     .accessibilityLabel(quota.windows.isEmpty ? "No quota reading yet" : "No quota usage")
+                    .transition(.opacity)
             }
             Spacer(minLength: 0)
         }
+        .animation(QuotaTransition.animation, value: quota.windows.filter { $0.usedPercent > 0 }.map(\.id))
         .font(typography.caption.font)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)

@@ -1,6 +1,31 @@
 # Changelog
 
-Release notes for Plume, newest first. Each heading is `## <version> (<build>)`, where the build is `CURRENT_PROJECT_VERSION`. `scripts/package-release.sh` publishes the top section as both the GitHub release notes and the Sparkle appcast's notes. From 0.13.0 on, each section ends with a `### Recently` list of highlights from the releases before it.
+## 0.13.0 (28)
+
+### New
+
+- Run Codex agents (beta), eventually with full parity to Claude Code
+  - This is beta because while a lot of the functionality is there, it hasn't been comprehensively tested yet
+- Auto-update Plume
+  - Plume never interrupts you, instead putting an unobtrusive banner in the sidebar
+  - Respects whether you installed it through the DMG or `brew`
+- Overhaul settings pages
+  - Massively improve organization and clarity
+  - Remove slop comments and instructions
+  - Add an about page with the current version
+- Show the task title in the window's title bar
+- Fix new chats not getting a nice title
+- Polish
+  - Improve response animation in the chat (it feels much nicer now)
+  - Animate quota usage changes
+
+### Recently
+
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+- Install with Homebrew: `brew install ryanmoelter/tap/plume`
+- Send images in chat
+- Import your workspaces and tabs from cmux
 
 ## 0.12.0 (27)
 

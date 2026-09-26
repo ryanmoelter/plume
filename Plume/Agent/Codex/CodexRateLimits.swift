@@ -5,8 +5,8 @@ import Foundation
 /// Codex exposes windows by bucket and slot, rather than promising a fixed
 /// five-hour/seven-day pair. Keep the provider's identity and duration here so
 /// the UI can show what the server actually returned.
-struct CodexQuotaWindow: Identifiable, Equatable, Sendable {
-    enum Slot: String, CaseIterable, Sendable {
+struct CodexQuotaWindow: Identifiable, Equatable, Codable, Sendable {
+    enum Slot: String, CaseIterable, Codable, Sendable {
         case primary
         case secondary
 
@@ -16,8 +16,6 @@ struct CodexQuotaWindow: Identifiable, Equatable, Sendable {
             case .secondary: 1
             }
         }
-
-        var label: String { rawValue.capitalized }
     }
 
     /// The metered limit bucket, such as `codex`. Nil means the server sent
@@ -71,6 +69,21 @@ struct CodexRateLimits: Equatable {
 
     private static let unlabeledBucketKey = "\u{0}"
     private var buckets: [String: Bucket] = [:]
+
+    init() {}
+
+    /// Rebuilds the snapshot `windows` was read from.
+    init(windows: [CodexQuotaWindow]) {
+        for window in windows {
+            let key = key(for: window.bucketID)
+            var bucket = buckets[key] ?? Bucket(bucketID: window.bucketID, bucketName: window.bucketName)
+            switch window.slot {
+            case .primary: bucket.primary = window
+            case .secondary: bucket.secondary = window
+            }
+            buckets[key] = bucket
+        }
+    }
 
     /// Applies a full account response or a sparse account notification.
     /// Returns the old Claude-shaped view for the short compatibility period
@@ -192,9 +205,12 @@ struct CodexRateLimits: Equatable {
             old: existing?.durationMinutes,
             sparse: sparse
         )
+        // A slot whose duration changed now holds a different window, so the
+        // reset time it held belonged to the old one.
+        let sameWindow = existing?.durationMinutes == durationMinutes
         let resetsAt = date(
             object["resetsAt"],
-            old: existing?.resetsAt,
+            old: sameWindow ? existing?.resetsAt : nil,
             sparse: sparse
         )
         return CodexQuotaWindow(

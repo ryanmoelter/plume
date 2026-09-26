@@ -21,46 +21,30 @@ struct CodexQuotaStrip: View, ThemedView {
                 switch layout {
                 case .wide:
                     HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: true) }
+                        ForEach(visibleWindows) { window in meter(window, showsReading: true).transition(.opacity) }
                     }
                     .fixedSize()
                 case .stacked:
                     VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: false) }
+                        ForEach(visibleWindows) { window in meter(window, showsReading: false).transition(.opacity) }
                     }
                     .frame(minHeight: 22)
                 }
             }
             .contentShape(Rectangle())
+            .animation(QuotaTransition.animation, value: visibleWindows.map(\.id))
         }
         .buttonStyle(.plain)
         .font(typography.caption.font)
-        .help(visibleWindows.map { tooltip($0) }.joined(separator: "\n"))
+        .help(QuotaDescription.tooltip(visibleWindows.map(summary)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Codex account quota")
-        .accessibilityValue(visibleWindows.map { tooltip($0) }.joined(separator: "; "))
+        .accessibilityValue(visibleWindows.flatMap { summary($0).lines }.joined(separator: "; "))
         .plumeID(sidebar ? "sidebar.codex-quota" : "statusline.codex-quota")
         .onAppear { clock.startTicking() }
         .popover(isPresented: $showingDetails) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Codex quota").font(.headline)
-                ForEach(visibleWindows) { window in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(window.quotaTitle).font(.subheadline)
-                        Text("Used: \(window.usedPercent)%")
-                        Text("Window: \(window.durationLabel) (\(window.slot.label))")
-                        Text(resetDescription(window))
-                        if quota.isStale(window, now: clock.now) {
-                            Text("Reading may be out of date").foregroundStyle(.secondary)
-                        }
-                    }
-                    if window.id != visibleWindows.last?.id { Divider() }
-                }
-            }
-            .font(typography.caption.font)
-            .padding(12)
-            .frame(minWidth: 220, alignment: .leading)
-            .environment(\.theme, theme)
+            QuotaDetailsPopover(title: "Codex quota", summaries: visibleWindows.map(summary))
+                .environment(\.theme, theme)
         }
     }
 
@@ -75,36 +59,36 @@ struct CodexQuotaStrip: View, ThemedView {
             barWidth: width,
             attention: StatuslineAttention.attention(percent: Double(window.usedPercent)),
             showsReading: showsReading,
-            pacing: window.durationMinutes.flatMap {
-                QuotaFreshness.pacing(resetsAt: window.resetsAt, now: clock.now, window: Double($0) * 60)
+            pacing: window.windowLength.flatMap {
+                QuotaFreshness.pacing(resetsAt: window.resetsAt, now: clock.now, window: $0)
             },
             readingAlignment: sidebar ? .leading : .center,
             isStale: quota.isStale(window, now: clock.now)
         )
-        .help(tooltip(window))
+        .help(summary(window).text)
     }
 
-    private func resetDescription(_ window: CodexQuotaWindow) -> String {
-        guard let reset = window.resetsAt else { return "Reset time unavailable" }
-        return "Resets \(QuotaFreshness.absoluteResetLabel(resetsAt: reset, now: clock.now))"
-    }
-
-    private func tooltip(_ window: CodexQuotaWindow) -> String {
-        let stale = quota.isStale(window, now: clock.now) ? "; reading may be out of date" : ""
-        return "\(window.quotaTitle): \(window.usedPercent)% used; \(resetDescription(window))\(stale)"
+    private func summary(_ window: CodexQuotaWindow) -> QuotaWindowSummary {
+        QuotaDescription.summary(
+            timeframe: window.timeframe,
+            utilization: window.utilization,
+            resetsAt: window.resetsAt,
+            windowLength: window.windowLength,
+            receivedAt: quota.receivedAt(for: window),
+            now: clock.now
+        )
     }
 }
 
 extension CodexQuotaWindow {
-    var durationLabel: String {
-        guard let minutes = durationMinutes else { return "Duration unavailable" }
-        if minutes > 0 && minutes % 1440 == 0 { return "\(minutes / 1440)d" }
-        if minutes > 0 && minutes % 60 == 0 { return "\(minutes / 60)h" }
-        return "\(minutes)m"
-    }
+    var windowLength: TimeInterval? { durationMinutes.map { TimeInterval($0) * 60 } }
 
-    var quotaTitle: String {
-        let bucket = bucketName ?? bucketID ?? "Codex"
-        return "\(bucket) · \(durationMinutes == nil ? slot.label : durationLabel)"
+    /// Named by duration, never by slot: the server moves a window between
+    /// slots when the account's limits change. The `codex` bucket goes
+    /// unnamed, since it is the only one most accounts have.
+    var timeframe: String? {
+        let duration = durationMinutes.map(QuotaDescription.timeframe(minutes:))
+        guard let bucket = bucketName ?? bucketID, bucket != "codex" else { return duration }
+        return [bucket, duration].compactMap { $0 }.joined(separator: " ")
     }
 }
