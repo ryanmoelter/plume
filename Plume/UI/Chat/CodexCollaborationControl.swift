@@ -9,11 +9,10 @@ struct CodexCollaborationControl: View, ThemedView {
     var body: some View {
         Menu {
             ForEach(CodexCollaborationMode.allCases) { mode in
-                Button(mode.label) { state.setCollaborationMode(mode) }
+                Button(mode.label, systemImage: mode.symbol) { state.setCollaborationMode(mode) }
             }
         } label: {
-            Label(state.collaborationMode.label,
-                  systemImage: state.collaborationMode == .plan ? "list.bullet.clipboard" : "chevron.left.forwardslash.chevron.right")
+            Label(state.collaborationMode.label, systemImage: state.collaborationMode.symbol)
                 .labelStyle(CollaborationLabelStyle(showsTitle: form.showsLabels))
         }
         .menuStyle(.borderlessButton)
@@ -21,6 +20,15 @@ struct CodexCollaborationControl: View, ThemedView {
         .accessibilityLabel("Collaboration mode")
         .accessibilityValue(state.collaborationMode.label)
         .accessibilityIdentifier("composerCodexCollaborationMode")
+    }
+}
+
+private extension CodexCollaborationMode {
+    var symbol: String {
+        switch self {
+        case .default: "chevron.left.forwardslash.chevron.right"
+        case .plan: "list.bullet.clipboard"
+        }
     }
 }
 
