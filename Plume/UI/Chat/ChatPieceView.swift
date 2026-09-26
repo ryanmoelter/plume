@@ -19,8 +19,8 @@ struct ChatPieceView: View, ThemedView {
     /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
     var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
-    /// Opens a proposed-plan piece's own plan. Nil where there is nowhere to
-    /// open it, as inside a subagent's own transcript.
+    /// Opens the plan panel from a plan row. Nil where there is no panel to
+    /// open, as inside a subagent's own transcript.
     var onOpenPlan: ((ProposedPlan) -> Void)? = nil
 
     @State private var isHovered = false

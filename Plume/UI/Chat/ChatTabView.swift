@@ -26,9 +26,6 @@ struct ChatTabView: View, ThemedView {
     /// the overlay is up: the dock bar is what shows when it is not.
     @State private var planFile = MarkdownFileStore()
     @State private var planFeedbackFocused = false
-    /// A proposal opened from its own transcript row, shown read-only in the
-    /// plan panel's place.
-    @State private var viewedPlan: ProposedPlan?
     @State private var resumeSheetShown = false
     /// The subagent whose transcript is open over the chat, by id — held as an
     /// id rather than the value so the overlay follows the subagent's live
@@ -263,7 +260,6 @@ struct ChatTabView: View, ThemedView {
         .onChange(of: pendingPlan?.id) { _, id in
             guard id != nil else { return }
             settledPlan = nil
-            viewedPlan = nil
             planPresentation = .expanded
         }
         // `initial` so a tab returned to mid-proposal finds its way back to a
@@ -289,10 +285,6 @@ struct ChatTabView: View, ThemedView {
                         // there is none, and the effect is a no-op.
                         .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
                 }
-            } else if let viewedPlan {
-                planOverlay(dismiss: closeViewedPlan) {
-                    viewedPlanPanel(viewedPlan)
-                }
             }
         }
         .overlay {
@@ -306,12 +298,8 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .animation(.snappy(duration: 0.22), value: planPresentation)
-        .animation(.snappy(duration: 0.22), value: viewedPlan?.id)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
         .onChange(of: planPresentation) { _, presentation in
-            // Otherwise a row's plan opened earlier would reappear once the
-            // live panel is dismissed.
-            if presentation.isExpanded { viewedPlan = nil }
             guard presentation == .expanded, planApproval.showsApprovalOptions else {
                 planFeedbackFocused = false
                 return
@@ -595,70 +583,21 @@ struct ChatTabView: View, ThemedView {
         .transition(.opacity)
     }
 
-    private func openPlan(_ plan: ProposedPlan) {
-        if plan.isPending, hasPlan {
-            viewedPlan = nil
-            planPresentation = .expanded
-        } else {
-            viewedPlan = plan
-        }
-    }
-
-    private func closeViewedPlan() {
-        viewedPlan = nil
+    /// Every plan row opens the same panel, on the plan's latest version
+    /// rather than the one that row proposed.
+    private func openPlan(_: ProposedPlan) {
+        guard hasPlan else { return }
+        planPresentation = .expanded
     }
 
     private func planPanel(path: String?) -> some View {
-        planPanelChrome(
-            title: path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan",
-            markdown: displayedPlanMarkdown,
-            dismiss: dismissPlanPanel,
-            hideButton: { hidePlanButton },
-            footer: { planFooter }
-        )
-    }
-
-    /// The plan a transcript row proposed. It offers no decision: the live
-    /// panel owns the only one.
-    private func viewedPlanPanel(_ plan: ProposedPlan) -> some View {
-        planPanelChrome(
-            title: plan.filePath.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan",
-            markdown: plan.markdown,
-            dismiss: closeViewedPlan,
-            hideButton: {
-                Button(action: closeViewedPlan) {
-                    Image(systemName: "xmark.circle.fill")
-                        .emphasis(.secondary)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .help("Close")
-                .accessibilityLabel("Close")
-                .plumeID(AccessibilityID.planCloseButton)
-            },
-            footer: {
-                if let label = plan.settledLabel {
-                    Divider()
-                    planFooterColumn { planFooterLabel(label) }
-                }
-            }
-        )
-    }
-
-    private func planPanelChrome(
-        title: String,
-        markdown: String?,
-        dismiss: @escaping () -> Void,
-        @ViewBuilder hideButton: () -> some View,
-        @ViewBuilder footer: () -> some View
-    ) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 // The whole row dismisses, not just the trailing chevron;
                 // close stays a sibling so it isn't a nested button.
-                Button(action: dismiss) {
+                Button(action: dismissPlanPanel) {
                     HStack(spacing: 12) {
-                        Text(title)
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
                             .font(.headline)
                         Spacer()
                     }
@@ -666,12 +605,12 @@ struct ChatTabView: View, ThemedView {
                 }
                 .buttonStyle(.plain)
                 .plumeID(AccessibilityID.planTitleRow)
-                hideButton()
+                hidePlanButton
             }
             .padding(12)
             Divider()
-            MarkdownContentView(content: markdown)
-            footer()
+            MarkdownContentView(content: displayedPlanMarkdown)
+            planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
@@ -711,28 +650,20 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var planFooter: some View {
         Divider()
-        planFooterColumn {
+        Group {
             if planApproval.showsApprovalOptions {
                 planApprovalOptions
             } else if let label = planApproval.footerLabel {
-                planFooterLabel(label)
+                Text(label)
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    private func planFooterColumn(@ViewBuilder content: () -> some View) -> some View {
-        content()
-            .chatTextColumn()
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-            .padding(.horizontal, 12)
-    }
-
-    private func planFooterLabel(_ label: String) -> some View {
-        Text(label)
-            .font(typography.caption.font)
-            .emphasis(.subtle)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        .chatTextColumn()
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+        .padding(.horizontal, 12)
     }
 
     /// Feedback and the two decisions, right-aligned with Approve last —
