@@ -161,11 +161,8 @@ enum ChatOutlineBuilder {
     /// How tall a run one knee-width long draws. The whole curve scales with
     /// this, so it sets the size of responses against a prompt's fixed
     /// `promptWeight` without changing their shape relative to each other.
-    /// Tuned down alongside the smaller knee: with the knee closer to the
-    /// origin, `1 + weight / compressionKnee` — and so the raw logarithm —
-    /// is larger at every weight, and this is what keeps a typical response
-    /// close to its old size while a huge one still compresses harder than
-    /// before.
+    /// A smaller knee raises the raw logarithm at every weight, so this has
+    /// to shrink alongside it to keep a typical response's height in place.
     static let responseScale: CGFloat = 4.2
 
     /// Compresses a run of agent output into the room it gets on the map.
