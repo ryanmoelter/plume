@@ -176,7 +176,7 @@ nonisolated enum TranscriptParser {
                         pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)
                     case .image(let image):
                         pendingAssistantBlocks.append(.image(image))
-                    case .toolResult, .ignored:
+                    case .toolResult, .toolReference, .ignored:
                         continue
                     }
                 }
@@ -208,7 +208,7 @@ nonisolated enum TranscriptParser {
                         otherBlocks.append(.thinking(text))
                     case .image(let image):
                         otherBlocks.append(.image(image))
-                    case .toolUse, .ignored:
+                    case .toolUse, .toolReference, .ignored:
                         continue
                     }
                 }
