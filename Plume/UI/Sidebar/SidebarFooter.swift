@@ -99,10 +99,9 @@ struct SidebarFooter: View, ThemedView {
         if installedProviders.contains(.claudeCode), installedProviders.contains(.codex) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 0) {
-                    // Without `fixedSize`, a plain HStack splits the width
-                    // evenly between the rows once the pair fits, squeezing
-                    // whichever needs more even though the total has room.
-                    // The trailing spacer, not the rows, absorbs the slack.
+                    // Without `fixedSize`, the HStack treats both rows as
+                    // equally flexible and squeezes whichever needs more
+                    // below its own ideal width, even once the pair fits.
                     SidebarQuotaRow()
                         .fixedSize(horizontal: true, vertical: false)
                     SidebarCodexQuotaRow()
