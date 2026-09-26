@@ -6,7 +6,7 @@ import Observation
 /// The latest reading persists across launches.
 @MainActor @Observable
 final class CodexQuotaStore {
-    static let shared = CodexQuotaStore(defaults: .standard)
+    static let shared = CodexQuotaStore(defaults: QuotaPersistence.sharedDefaults())
     private var limits = CodexRateLimits()
     private var receivedAt: [String: Date] = [:]
     var windows: [CodexQuotaWindow] { limits.windows }

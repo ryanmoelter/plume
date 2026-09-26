@@ -17,7 +17,7 @@ import Observation
 @MainActor
 @Observable
 final class QuotaStore {
-    static let shared = QuotaStore(defaults: .standard)
+    static let shared = QuotaStore(defaults: QuotaPersistence.sharedDefaults())
 
     private(set) var snapshot: QuotaSnapshot?
 
@@ -105,6 +105,18 @@ final class QuotaStore {
         let date = Date()
         guard date.timeIntervalSince(now) >= QuotaFreshness.focusRefreshInterval else { return }
         now = date
+    }
+}
+
+enum QuotaPersistence {
+    /// None under a test run: the test host is the Debug app, so `.standard`
+    /// is the running Debug build's own defaults, and a test that feeds a
+    /// session a quota would overwrite the reading it restores at launch.
+    static func sharedDefaults(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isTestHost: Bool = NSClassFromString("XCTestCase") != nil
+    ) -> UserDefaults? {
+        environment["XCTestConfigurationFilePath"] == nil && !isTestHost ? .standard : nil
     }
 }
 

@@ -16,8 +16,6 @@ struct CodexQuotaWindow: Identifiable, Equatable, Codable, Sendable {
             case .secondary: 1
             }
         }
-
-        var label: String { rawValue.capitalized }
     }
 
     /// The metered limit bucket, such as `codex`. Nil means the server sent
@@ -207,9 +205,12 @@ struct CodexRateLimits: Equatable {
             old: existing?.durationMinutes,
             sparse: sparse
         )
+        // A slot whose duration changed now holds a different window, so the
+        // reset time it held belonged to the old one.
+        let sameWindow = existing?.durationMinutes == durationMinutes
         let resetsAt = date(
             object["resetsAt"],
-            old: existing?.resetsAt,
+            old: sameWindow ? existing?.resetsAt : nil,
             sparse: sparse
         )
         return CodexQuotaWindow(
