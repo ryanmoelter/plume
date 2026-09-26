@@ -15,13 +15,13 @@ struct QuotaWindowSummary: Equatable {
     /// Only set once the reading is stale — see `QuotaFreshness.staleAfter`.
     /// A fresh reading needs no disclaimer about its age.
     let lastHeard: String?
-    /// The absolute reset time or date, e.g. "3:45 PM" — unprefixed, so a
-    /// caller can bold it inside "Resets at …" without reparsing the string.
+    /// The absolute reset time or date, e.g. "at 3:45 PM" — unprefixed, so a
+    /// caller can bold it inside "Resets …" without reparsing the string.
     let reset: String?
 
     var lines: [String] {
         [title, "\(usagePercent)% used"]
-            + [elapsedPercent.map { "\($0)% of time elapsed" }, lastHeard, reset.map { "Resets at \($0)" }]
+            + [elapsedPercent.map { "\($0)% of time elapsed" }, lastHeard, reset.map { "Resets \($0)" }]
                 .compactMap { $0 }
     }
 

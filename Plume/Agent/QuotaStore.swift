@@ -204,13 +204,14 @@ enum QuotaFreshness {
     /// relative countdown is already the visible reading. A reset on a later
     /// day is named by weekday: only the 7d window ever spans days, and it
     /// never reaches a week out, so the day name is unambiguous and reads
-    /// faster than a date.
+    /// faster than a date. Either form carries its own "at", so it follows
+    /// "Resets " directly.
     static func absoluteResetLabel(resetsAt: Date, now: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = .current
         formatter.timeStyle = .short
         guard !Calendar.current.isDate(resetsAt, inSameDayAs: now) else {
-            return formatter.string(from: resetsAt)
+            return "at \(formatter.string(from: resetsAt))"
         }
         let weekday = DateFormatter()
         weekday.locale = .current

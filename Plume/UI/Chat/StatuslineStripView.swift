@@ -411,7 +411,7 @@ struct QuotaDetailsPopover: View, ThemedView {
                         Text(lastHeard)
                     }
                     if let reset = summary.reset {
-                        Text("Resets at ") + Text(reset).bold()
+                        Text("Resets ") + Text(reset).bold()
                     }
                 }
             }

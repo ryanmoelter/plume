@@ -79,6 +79,7 @@ struct QuotaStoreTests {
         thursday.setLocalizedDateFormatFromTemplate("EEEE")
         let expected = thursday.string(from: nextDay)
 
+        #expect(sameDayLabel.hasPrefix("at "))
         #expect(!sameDayLabel.contains(expected))
         #expect(nextDayLabel.contains(expected))
         #expect(!nextDayLabel.contains("/"))

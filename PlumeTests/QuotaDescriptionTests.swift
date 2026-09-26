@@ -34,7 +34,7 @@ struct QuotaDescriptionTests {
             "45% used",
             "80% of time elapsed",
             lastHeardLine(secondsAgo: 45 * 60),
-            "Resets at \(QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now))",
+            "Resets \(QuotaFreshness.absoluteResetLabel(resetsAt: resetsAt, now: now))",
         ])
     }
 
@@ -89,7 +89,7 @@ struct QuotaDescriptionTests {
     }
 
     @Test func tooltipJoinsWindowsLineByLine() {
-        let a = QuotaWindowSummary(title: "Claude 5h quota", usagePercent: 3, elapsedPercent: nil, lastHeard: nil, reset: "3:45 PM")
+        let a = QuotaWindowSummary(title: "Claude 5h quota", usagePercent: 3, elapsedPercent: nil, lastHeard: nil, reset: "at 3:45 PM")
         let b = QuotaWindowSummary(title: "Claude 7d quota", usagePercent: 9, elapsedPercent: nil, lastHeard: nil, reset: nil)
         #expect(QuotaDescription.tooltip([a, b]) == "Claude 5h quota\n3% used\nResets at 3:45 PM\nClaude 7d quota\n9% used")
     }
