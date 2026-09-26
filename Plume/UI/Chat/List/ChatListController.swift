@@ -706,6 +706,9 @@ final class ChatListController: NSObject {
         // same id would keep its `@State`, and it holds its own graph.
         host.view.rootView = AnyView(EmptyView())
         host.view.isHidden = true
+        // A departure frees its host faded out; the next piece to dequeue it
+        // would draw nothing yet still take clicks and selection.
+        host.view.alphaValue = 1
         if pool.count < Self.poolLimit {
             pool.append(host.view)
         } else {

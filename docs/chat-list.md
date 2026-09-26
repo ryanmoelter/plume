@@ -63,7 +63,7 @@ Intrinsic sizing never fights an explicit frame the controller sets afterward. A
 
 ## Pooling and state reset
 
-Hosts are pooled. `dequeueHost()` pops a spare `NSHostingView` before creating one, and `free(_:force:)` returns a freed host to the pool (capped at 40) rather than destroying it. A pooled host's `rootView` is reset to `AnyView(EmptyView())` before it goes back, dropped rather than kept, because a pooled root that came back for the same id would keep its `@State`, and it holds its own view graph. A host whose subtree holds first-responder focus is kept in place instead of freed unless `force` is set (item deleted outright), so an editing text field isn't yanked out from under the reader when it scrolls out of the realized window.
+Hosts are pooled. `dequeueHost()` pops a spare `NSHostingView` before creating one, and `free(_:force:)` returns a freed host to the pool (capped at 40) rather than destroying it. A pooled host's `rootView` is reset to `AnyView(EmptyView())` and its `alphaValue` to 1 before it goes back — a departing working indicator frees its host faded to zero, and a reused host still at zero draws nothing yet takes clicks and selection. The root is dropped rather than kept, because a pooled root that came back for the same id would keep its `@State`, and it holds its own view graph. A host whose subtree holds first-responder focus is kept in place instead of freed unless `force` is set (item deleted outright), so an editing text field isn't yanked out from under the reader when it scrolls out of the realized window.
 
 `ChatListItemRoot` carries `.id(id)` on the SwiftUI root, so replacing `rootView` for the *same* id keeps `@State` (a height ease, say); a different id resets it.
 
