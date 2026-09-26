@@ -32,10 +32,14 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// one checks it on resuming, so it never re-registers a helper the user
     /// removed or races a reinstall.
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var versionPolicy = SleepHelperVersionPolicy(
+        appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    )
+    @ObservationIgnored private var deferredReinstallTimer: Timer?
 
     /// The daemon's designated identity, so a process squatting on the Mach
     /// service name cannot impersonate it.
-    private static let helperRequirement =
+    private nonisolated static let helperRequirement =
         "anchor apple generic and certificate leaf[subject.OU] = \"\(sleepHelperTeamID)\""
         + " and identifier \"\(sleepHelperServiceName)\""
 
@@ -69,6 +73,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         guard status == .notRegistered else { return }
         do {
             try service.register()
+            versionPolicy.recordManualReinstall()
             Log.app.notice("Registered the sleep helper")
         } catch {
             // A daemon's first registration reports "Operation not permitted"
@@ -85,6 +90,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     func unregister() {
         guard status != .notRegistered else { return }
         apply(false)
+        stopDeferredReinstall()
         resetRecovery()
         do {
             try service.unregister()
@@ -98,6 +104,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func reinstall() {
+        versionPolicy.recordManualReinstall()
+        stopDeferredReinstall()
         resetRecovery()
         isEngaged = false
         engagePending = false
@@ -143,6 +151,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             }
             stopApprovalPoll()
             if wantsEngaged, !isEngaged { engage() }
+            if !retryPolicy.isUnresponsive { checkVersionIfNeeded() }
         @unknown default:
             set(.unavailable("Unknown helper state \(service.status.rawValue)."))
         }
@@ -185,6 +194,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     private func disengage() {
         stopHeartbeat()
+        if versionPolicy.isReinstallDeferred { scheduleDeferredReinstall() }
         guard isEngaged || engagePending else { return }
         isEngaged = false
         engagePending = false
@@ -315,6 +325,74 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         }
     }
 
+    // MARK: - Version
+
+    private var isHoldActive: Bool { wantsEngaged || isEngaged || engagePending }
+
+    /// The launch sweep's init call and every `.enabled` read land here, so
+    /// the first time the helper is reachable is when this runs.
+    private func checkVersionIfNeeded() {
+        guard !isRecovering, versionPolicy.beginCheck() else { return }
+        let generation = generation
+        Task {
+            let answer = await SleepHelperVersionQuery.ask(timeout: 5) { Self.makeConnection() }
+            guard generation == self.generation else {
+                versionPolicy.abandonCheck()
+                return
+            }
+            let appBuild = versionPolicy.appBuild
+            switch versionPolicy.record(answer, holdActive: isHoldActive) {
+            case .current:
+                Log.app.notice("Sleep helper version: \(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)")
+            case .reinstall:
+                Log.app.notice("Sleep helper is outdated (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); reinstalling")
+                reinstallForVersion()
+            case .deferReinstall:
+                Log.app.notice("Sleep helper is outdated (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); reinstalling once the hold is released")
+            case .stillOutdated:
+                Log.app.error("Sleep helper is still outdated after reinstalling (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); leaving it")
+            case .retryLater:
+                Log.app.notice("Sleep helper did not answer the version check; asking again later")
+            case .giveUp:
+                Log.app.error("Sleep helper did not answer the version check; not asking again this launch")
+            }
+        }
+    }
+
+    /// Waits out the helper's deferred sleep request after a lid-closed
+    /// release, which a reinstall would otherwise kill.
+    private func scheduleDeferredReinstall() {
+        stopDeferredReinstall()
+        deferredReinstallTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.deferredReinstallTimer = nil
+                guard !self.isRecovering,
+                      self.versionPolicy.claimDeferredReinstall(holdActive: self.isHoldActive)
+                else { return }
+                Log.app.notice("Hold released; reinstalling the outdated sleep helper")
+                self.reinstallForVersion()
+            }
+        }
+    }
+
+    private func stopDeferredReinstall() {
+        deferredReinstallTimer?.invalidate()
+        deferredReinstallTimer = nil
+    }
+
+    private func reinstallForVersion() {
+        resetRecovery()
+        isRecovering = true
+        let generation = generation
+        Task {
+            await reregister(generation: generation)
+            guard generation == self.generation else { return }
+            isRecovering = false
+            readStatus()
+        }
+    }
+
     // MARK: - Lease
 
     private func startHeartbeat() {
@@ -346,9 +424,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     private func proxy(onError: (() -> Void)? = nil) -> (any SleepHelperProtocol)? {
         if connection == nil {
-            let connection = NSXPCConnection(machServiceName: sleepHelperServiceName, options: .privileged)
-            connection.remoteObjectInterface = NSXPCInterface(with: SleepHelperProtocol.self)
-            connection.setCodeSigningRequirement(Self.helperRequirement)
+            let connection = Self.makeConnection()
             connection.invalidationHandler = { [weak self, weak connection] in
                 Task { @MainActor in self?.connectionDropped(connection) }
             }
@@ -362,6 +438,13 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             Log.app.error("Sleep helper XPC error: \(error.localizedDescription, privacy: .public)")
             onError?()
         } as? any SleepHelperProtocol
+    }
+
+    private nonisolated static func makeConnection() -> NSXPCConnection {
+        let connection = NSXPCConnection(machServiceName: sleepHelperServiceName, options: .privileged)
+        connection.remoteObjectInterface = NSXPCInterface(with: SleepHelperProtocol.self)
+        connection.setCodeSigningRequirement(helperRequirement)
+        return connection
     }
 
     /// The helper clears the override when a connection dies, so anything

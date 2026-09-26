@@ -33,4 +33,18 @@ nonisolated let sleepHelperLeaseTimeout: TimeInterval = 90
     func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void)
     func currentState(reply: @escaping (Bool) -> Void)
     func heartbeat(reply: @escaping (Bool) -> Void)
+    /// The `CFBundleVersion` of the app bundle the helper launched from, or
+    /// an empty string if it could not be read. Helpers through 0.13.0 lack
+    /// this method and drop the connection that asks.
+    func helperBuild(reply: @escaping (String) -> Void)
+}
+
+/// The `CFBundleVersion` of the app bundle whose `Contents/MacOS` holds
+/// `executable`.
+nonisolated func appBundleBuild(containingExecutable executable: URL) -> String? {
+    let contents = executable.resolvingSymlinksInPath()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let plist = NSDictionary(contentsOf: contents.appendingPathComponent("Info.plist"))
+    return plist?["CFBundleVersion"] as? String
 }
