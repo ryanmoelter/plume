@@ -19,8 +19,9 @@ struct ChatPieceView: View, ThemedView {
     /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
     var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
-    /// Opens the plan overlay, for a proposed-plan piece's row.
-    var onOpenPlan: () -> Void = {}
+    /// Opens the plan overlay, for a proposed-plan piece's row. Nil where
+    /// there is no overlay to open, as inside a subagent's own transcript.
+    var onOpenPlan: (() -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel

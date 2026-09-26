@@ -25,8 +25,10 @@ struct InteractiveToolRow: View, ThemedView {
     var resultText: String?
     /// Non-nil only while a live request backs this row.
     var answer: ((Answer) -> Void)?
-    /// Supplied where the plan overlay is reachable, which is what decides a
-    /// live proposal. Nil leaves the row a summary with nothing to open.
+    /// Supplied where the plan overlay is reachable at all; nil leaves the
+    /// row a plain summary. Even when non-nil, only the pending row opens it
+    /// — the overlay always shows the tab's current plan, and a settled
+    /// row's plan may no longer be that one.
     var openPlan: (() -> Void)?
 
     @State private var answerState = PermissionAnswerState()
@@ -53,10 +55,12 @@ struct InteractiveToolRow: View, ThemedView {
     /// owns the decision, so repeating either here would ask the user to read
     /// the same plan twice and choose in two places. The whole summary opens
     /// the overlay when it can, rather than a small button inside it, so the
-    /// row itself is the click target.
+    /// row itself is the click target. Only while pending, though: the
+    /// overlay shows the tab's current plan, and a settled row is never
+    /// guaranteed to be that one.
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
-        if let openPlan {
+        if isPending, let openPlan {
             Button(action: openPlan) {
                 planSummary(markdown: markdown, filePath: filePath)
                     .contentShape(.rect)

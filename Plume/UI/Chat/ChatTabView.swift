@@ -280,13 +280,16 @@ struct ChatTabView: View, ThemedView {
         .overlay {
             if planPresentation.isExpanded, hasPlan {
                 ZStack {
-                    // A full-size hit target behind the panel, so a click
-                    // anywhere outside it dismisses the same way the close
-                    // control does.
+                    // A hit target behind the panel, so a click anywhere
+                    // outside it dismisses the same way the close control
+                    // does. Clear of the bottom chrome — composer,
+                    // statusline, toasts — so it never swallows a click
+                    // meant for one of those instead.
                     Color.clear
                         .contentShape(.rect)
                         .onTapGesture { dismissPlanPanel() }
                         .plumeID(AccessibilityID.planBackgroundDismiss, invoke: dismissPlanPanel)
+                        .padding(.bottom, panelHeight)
                     planPanel(path: planFilePath)
                         // The bar is the source whenever it exists, so the panel
                         // grows out of it; opened straight from the Plan button
