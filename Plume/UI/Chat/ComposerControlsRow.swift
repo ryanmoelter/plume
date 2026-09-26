@@ -119,8 +119,7 @@ enum ComposerControlsMetrics {
     /// Average advance of the caption font, rounded up.
     static let glyphWidth: CGFloat = 6.5
     static let iconWidth: CGFloat = 15
-    /// The chevron a segment draws — `.menuStyle(.borderlessButton)`'s own
-    /// for the three menus, `PlanButton`'s manual one for the same width.
+    /// The chevron every segment draws after its label.
     static let chevronWidth: CGFloat = 13
     static let iconToLabelGap: CGFloat = 4
 
@@ -151,16 +150,23 @@ enum ComposerControlsMetrics {
 /// The icon is interpolated into the `Text` rather than left as an `Image`:
 /// the popup button `.menuStyle(.borderlessButton)` draws renders a bare
 /// image as a template in its own control color and drops `foregroundStyle`,
-/// so the tint never lands. That style also supplies the one chevron these
-/// labels need, so none of them draws its own — `showsTrailingChevron` is for
-/// `PlanButton`, a plain `Button` with no menu style to draw one for it.
+/// so the tint never lands. That style supplies its own chevron; a label
+/// over a `SymbolMenuButton` has none, so it asks for `.menu`.
 struct ComposerSegmentLabel: View, ThemedView {
     @Environment(\.theme) var theme
+
+    enum Indicator {
+        case none
+        /// Opens something, as `PlanButton` does. Only with the text shown.
+        case disclosure
+        /// Opens a menu, and shows even in the collapsed form.
+        case menu
+    }
 
     let systemImage: String
     let text: String
     var showsText = true
-    var showsTrailingChevron = false
+    var indicator = Indicator.none
     let foreground: Color
     /// The control height the segment centres itself in. Nil sizes it to one
     /// caption line instead, which is what keeps an icon-only statusline
@@ -181,11 +187,20 @@ struct ComposerSegmentLabel: View, ThemedView {
     }
 
     private var label: Text {
-        let icon = Text("\(Image(systemName: systemImage))")
-        guard showsText else { return icon }
-        var result = icon + Text("  ") + Text(text)
-        if showsTrailingChevron {
-            result = result + Text(" \(Image(systemName: "chevron.right"))")
+        var result = Text("\(Image(systemName: systemImage))")
+        if showsText {
+            result = result + Text("  ") + Text(text)
+        }
+        switch indicator {
+        case .none:
+            break
+        case .disclosure:
+            if showsText {
+                result = result + Text(" \(Image(systemName: "chevron.right"))")
+            }
+        case .menu:
+            result = result + Text(" ")
+                + Text(Image(systemName: "chevron.down")).font(.system(size: 9, weight: .semibold))
         }
         return result
     }
@@ -196,9 +211,7 @@ struct ComposerSegmentLabel: View, ThemedView {
 /// controls it shares no subject with — a document the conversation already
 /// wrote, not a setting for the message being composed.
 ///
-/// The chevron marks it clickable the way a disclosure indicator would; a
-/// plain `Button` draws none of its own the way `.menuStyle(.borderlessButton)`
-/// does for the menu segments beside it.
+/// The chevron marks it clickable the way a disclosure indicator would.
 private struct PlanButton: View, ThemedView {
     @Environment(\.theme) var theme
     let form: ComposerControlsForm
@@ -210,7 +223,7 @@ private struct PlanButton: View, ThemedView {
                 systemImage: StatusSymbol.plan.name,
                 text: "Plan",
                 showsText: form.showsLabels,
-                showsTrailingChevron: true,
+                indicator: .disclosure,
                 foreground: colors.foreground,
                 height: dimensions.composerControlHeight
             )
@@ -231,21 +244,22 @@ private struct PermissionModeControl: View, ThemedView {
 
     var body: some View {
         if let preset = state.permissionPreset {
-            Menu {
-                ForEach(state.permissionPresets) { option in
-                    Button(option.label, systemImage: symbol(for: option)) { state.setPermissionPreset(option) }
-                }
-            } label: {
-                ComposerSegmentLabel(
-                    systemImage: symbol(for: preset),
-                    text: preset.label,
-                    showsText: form.showsLabels,
-                    foreground: foreground(for: attention(preset)),
-                    height: dimensions.composerControlHeight
-                )
-                .unconfirmed(state.isModeAndModelUnconfirmed)
+            ComposerSegmentLabel(
+                systemImage: symbol(for: preset),
+                text: preset.label,
+                showsText: form.showsLabels,
+                indicator: .menu,
+                foreground: foreground(for: attention(preset)),
+                height: dimensions.composerControlHeight
+            )
+            .unconfirmed(state.isModeAndModelUnconfirmed)
+            .overlay {
+                SymbolMenuButton(title: "Permission mode", options: state.permissionPresets.map { option in
+                    SymbolMenuOption(title: option.label, systemImage: symbol(for: option), isSelected: option == preset) {
+                        state.setPermissionPreset(option)
+                    }
+                })
             }
-            .menuStyle(.borderlessButton)
             .help(state.modeAndModelHelp("Permission mode: \(preset.label)"))
             .accessibilityLabel("Permission mode")
             .accessibilityValue(preset.label)
@@ -377,23 +391,24 @@ private struct EffortControl: View, ThemedView {
     let form: ComposerControlsForm
 
     var body: some View {
-        Menu {
-            ForEach(state.efforts) { option in
-                Button(option.label, systemImage: option.symbol) { state.setEffort(option) }
-            }
-        } label: {
-            // Nothing reports the CLI's own effort back (see `HeadlessSession.
-            // setEffort`), so an untouched tab shows the app default, which is
-            // also what seeds the session.
-            ComposerSegmentLabel(
-                systemImage: state.effort.symbol,
-                text: state.effort.label,
-                showsText: form.showsLabels,
-                foreground: foreground(for: attention(state.effort)),
-                height: dimensions.composerControlHeight
-            )
+        // Nothing reports the CLI's own effort back (see `HeadlessSession.
+        // setEffort`), so an untouched tab shows the app default, which is
+        // also what seeds the session.
+        ComposerSegmentLabel(
+            systemImage: state.effort.symbol,
+            text: state.effort.label,
+            showsText: form.showsLabels,
+            indicator: .menu,
+            foreground: foreground(for: attention(state.effort)),
+            height: dimensions.composerControlHeight
+        )
+        .overlay {
+            SymbolMenuButton(title: "Effort", options: state.efforts.map { option in
+                SymbolMenuOption(title: option.label, systemImage: option.symbol, isSelected: option == state.effort) {
+                    state.setEffort(option)
+                }
+            })
         }
-        .menuStyle(.borderlessButton)
         // Changing effort has no control request, so it sends an ordinary
         // chat turn — that turn appearing in the transcript is expected.
         .help(state.provider == .codex
