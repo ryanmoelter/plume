@@ -33,4 +33,29 @@ nonisolated let sleepHelperLeaseTimeout: TimeInterval = 90
     func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void)
     func currentState(reply: @escaping (Bool) -> Void)
     func heartbeat(reply: @escaping (Bool) -> Void)
+    /// The `CFBundleVersion` and path of the app bundle the helper launched
+    /// from, each empty if it could not be read. Helpers through 0.13.0 lack
+    /// this method and drop the connection that asks.
+    func helperBuild(reply: @escaping (_ build: String, _ bundlePath: String) -> Void)
+}
+
+/// The app bundle whose `Contents/MacOS` holds `executable`.
+nonisolated func appBundle(containingExecutable executable: URL) -> URL {
+    executable.resolvingSymlinksInPath()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+/// The kernel's absolute path, since launchd passes the helper a
+/// bundle-relative argv[0]. Works on a root process without root.
+nonisolated func executableURL(ofProcess pid: pid_t) -> URL? {
+    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+    return URL(fileURLWithPath: String(cString: buffer))
+}
+
+nonisolated func appBundleBuild(containingExecutable executable: URL) -> String? {
+    let infoPlist = appBundle(containingExecutable: executable).appendingPathComponent("Contents/Info.plist")
+    return NSDictionary(contentsOf: infoPlist)?["CFBundleVersion"] as? String
 }
