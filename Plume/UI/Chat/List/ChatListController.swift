@@ -55,11 +55,8 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    /// Whether a plan row is clickable, not just what it does — `apply(to:)`
-    /// sets this unconditionally on every update, outside the `inputs` diff
-    /// `update(_:)` runs, so a flip from nil to non-nil (or back) would
-    /// otherwise sit uncaptured until some other change happened to rebuild
-    /// the row.
+    /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
+    /// so a change between nil and non-nil refreshes mounted rows itself.
     var onOpenPlan: (() -> Void)? {
         didSet {
             guard (oldValue == nil) != (onOpenPlan == nil) else { return }
