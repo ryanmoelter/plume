@@ -19,6 +19,10 @@ enum DecisionCard {
     /// input-field scroller, a text field.
     static let nestedRadius: CGFloat = 6
     static let nestedPadding: CGFloat = 8
+    /// The composer editor's own inset above and below its text, when it
+    /// serves as a decision field. The field's `nestedPadding` already spaces
+    /// it, so the main composer's roomier inset would double that.
+    static let composerFieldTextInset: CGFloat = 1
 }
 
 /// A card's accent, which says what is being decided.

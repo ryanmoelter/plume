@@ -58,9 +58,11 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on Delete in an empty composer, so command mode can be left the
     /// way it was entered.
     var onDeleteBackwardWhenEmpty: (() -> Void)?
+    var verticalInset: CGFloat = MarkdownComposerTextView.defaultVerticalInset
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
+    static let defaultVerticalInset: CGFloat = 9
 
     func makeNSView(context: Context) -> ScrollableComposerTextView {
         let view = ScrollableComposerTextView()
@@ -72,6 +74,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         context.coordinator.isCommandMode = isCommandMode
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
+        view.setVerticalInset(verticalInset)
         return view
     }
 
@@ -100,6 +103,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
+        view.setVerticalInset(verticalInset)
         if let location = pendingCaretLocation.wrappedValue {
             let clamped = min(location, (textView.string as NSString).length)
             textView.setSelectedRange(NSRange(location: clamped, length: 0))
@@ -480,7 +484,7 @@ final class ScrollableComposerTextView: NSView {
         // `MarkdownComposerStyler`'s per-keystroke pass over the text storage
         // neither carries nor erases them.
         composerTextView.isContinuousSpellCheckingEnabled = true
-        composerTextView.textContainerInset = NSSize(width: 0, height: 9)
+        composerTextView.textContainerInset = NSSize(width: 0, height: MarkdownComposerTextView.defaultVerticalInset)
         composerTextView.drawsBackground = false
         composerTextView.textContainer?.widthTracksTextView = true
         composerTextView.isVerticallyResizable = true
@@ -505,6 +509,12 @@ final class ScrollableComposerTextView: NSView {
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    func setVerticalInset(_ inset: CGFloat) {
+        guard composerTextView.textContainerInset.height != inset else { return }
+        composerTextView.textContainerInset.height = inset
+        invalidateContentHeight()
     }
 
     /// Called when the text changes, since SwiftUI only re-asks
@@ -532,6 +542,7 @@ final class ScrollableComposerTextView: NSView {
         let width: CGFloat
         let text: String
         let fontSize: CGFloat
+        let verticalInset: CGFloat
     }
 
     /// The height for `width`, clamped between `minLines` and `maxLines`.
@@ -552,7 +563,7 @@ final class ScrollableComposerTextView: NSView {
 
         guard let storage = composerTextView.textStorage else { return minHeight }
 
-        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize)
+        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize, verticalInset: inset.height)
         if key == cachedKey, let cachedHeight { return cachedHeight }
 
         if measuringLayoutManager.textContainers.isEmpty {
