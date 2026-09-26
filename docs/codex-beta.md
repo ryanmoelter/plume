@@ -1,5 +1,7 @@
 # Codex support (Beta)
 
+> Sorry, this is an AI generated file. Please don't give it too much weight.
+
 Plume supports Codex alongside Claude Code. Choose a Codex model in the composer
 before starting a conversation. The model menu offers a download link when the
 corresponding CLI is missing. Choose Dismiss to hide that section until the CLI
@@ -9,7 +11,7 @@ is detected. Missing-CLI download links remain available in Settings.
 
 - Requires macOS 26.2 or later and `codex` installed and logged in on your login
   shell’s PATH. Plume uses your local Codex installation and authentication.
-- Tested with **Codex CLI 0.153.4** using ChatGPT authentication. This is the
+- "Tested" with **Codex CLI 0.153.4** using ChatGPT authentication. This is the
   tested version, not a verified minimum; older and newer versions may differ.
 - Codex’s app-server APIs include experimental features. Available models,
   permissions, skills, and remote access depend on the installed CLI and account.
