@@ -784,8 +784,9 @@ final class ChatListController: NSObject {
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
+            let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
-                PendingPermissionDock(tabID: tabID)
+                PendingPermissionDock(tabID: tabID, onOpenPlan: onOpenPlan)
                     .listItemPadding(bleed: true)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))
