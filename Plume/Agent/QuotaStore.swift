@@ -11,10 +11,13 @@ import Observation
 /// every view reads from here.
 ///
 /// There is no key: the quotas are global.
+///
+/// The latest reading persists across launches, so the meters show the
+/// last-known quota before any session has taken a turn.
 @MainActor
 @Observable
 final class QuotaStore {
-    static let shared = QuotaStore()
+    static let shared = QuotaStore(defaults: .standard)
 
     private(set) var snapshot: QuotaSnapshot?
 
@@ -25,15 +28,28 @@ final class QuotaStore {
 
     @ObservationIgnored private var tickTimer: Timer?
     @ObservationIgnored private var focusObservers: [NSObjectProtocol] = []
+    /// Nil keeps the store in memory only, which is what tests want.
+    @ObservationIgnored private let defaults: UserDefaults?
+    static let defaultsKey = "claudeQuotaSnapshot"
 
-    init() {}
+    init(defaults: UserDefaults? = nil, now: Date = Date()) {
+        self.defaults = defaults
+        self.now = now
+        snapshot = defaults?.data(forKey: Self.defaultsKey)
+            .flatMap { try? JSONDecoder().decode(QuotaSnapshot.self, from: $0) }?
+            .restored(now: now)
+    }
 
     func record(_ rateLimit: RateLimitInfo, at date: Date = Date()) {
         // The windows go missing from a payload that reports neither, which is
         // not the same as the account having no quota — keep the last reading.
         guard rateLimit.fiveHour != nil || rateLimit.sevenDay != nil else { return }
-        snapshot = QuotaSnapshot(rateLimit: rateLimit, receivedAt: date)
+        let snapshot = QuotaSnapshot(rateLimit: rateLimit, receivedAt: date)
+        self.snapshot = snapshot
         now = date
+        if let defaults, let data = try? JSONEncoder().encode(snapshot) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
     }
 
     /// Starts the once-a-minute tick that keeps the reset labels, the pacing
@@ -92,9 +108,30 @@ final class QuotaStore {
     }
 }
 
-struct QuotaSnapshot: Equatable {
+struct QuotaSnapshot: Equatable, Codable {
     let rateLimit: RateLimitInfo
     let receivedAt: Date
+
+    /// A persisted reading as it should show at launch: any window that has
+    /// reset since it was saved reads 0%, with no reset time until a live
+    /// reading brings one.
+    func restored(now: Date) -> QuotaSnapshot {
+        func restore(_ window: RateLimitInfo.Window?, length: TimeInterval) -> RateLimitInfo.Window? {
+            guard let window else { return nil }
+            let refilled = QuotaFreshness.hasRefilled(
+                resetsAt: window.resetsAt, receivedAt: receivedAt, windowLength: length, now: now
+            )
+            return refilled ? .init(utilization: 0, resetsAt: nil) : window
+        }
+        return QuotaSnapshot(
+            rateLimit: RateLimitInfo(
+                fiveHour: restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour),
+                sevenDay: restore(rateLimit.sevenDay, length: QuotaWindowLength.sevenDay),
+                isUsingOverage: rateLimit.isUsingOverage
+            ),
+            receivedAt: receivedAt
+        )
+    }
 }
 
 /// How a quota reading ages: the tick that refreshes its labels, and the point
@@ -112,16 +149,26 @@ enum QuotaFreshness {
         now.timeIntervalSince(receivedAt) > staleAfter
     }
 
-    /// A reset time in the past is not a zeroed window — the quota does refill,
-    /// but nothing says so until the next message arrives, and claiming 0%
-    /// would be inventing data. The reading stands and the countdown bottoms
-    /// out at `0m`.
+    /// A live reading whose reset time has passed is not zeroed: the session
+    /// is running, so the next message will report the refill, and until then
+    /// the reading stands and the countdown bottoms out at `0m`. Only a
+    /// reading restored at launch zeroes, through `hasRefilled`, since nothing
+    /// may report for a long while.
     static func resetLabel(resetsAt: Date?, now: Date, fallback: String) -> String {
         guard let resetsAt else { return fallback }
         let seconds = max(resetsAt.timeIntervalSince(now), 0)
         if seconds >= 86400 { return "\(Int((seconds + 43200) / 86400))d" }
         if seconds >= 3600 { return "\(Int((seconds + 1800) / 3600))h" }
         return "\(Int((seconds + 30) / 60))m"
+    }
+
+    /// Whether a window has reset since it was read: its reset time has
+    /// passed, or with none, a whole window length has since `receivedAt`.
+    /// A window with neither is never judged refilled.
+    static func hasRefilled(resetsAt: Date?, receivedAt: Date, windowLength: TimeInterval?, now: Date) -> Bool {
+        if let resetsAt { return resetsAt <= now }
+        guard let windowLength, windowLength > 0 else { return false }
+        return receivedAt.addingTimeInterval(windowLength) <= now
     }
 
     /// How far through the window the clock is, 0–1, or nil when nothing says.

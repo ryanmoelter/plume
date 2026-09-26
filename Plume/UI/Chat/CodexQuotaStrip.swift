@@ -21,17 +21,18 @@ struct CodexQuotaStrip: View, ThemedView {
                 switch layout {
                 case .wide:
                     HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: true) }
+                        ForEach(visibleWindows) { window in meter(window, showsReading: true).transition(.opacity) }
                     }
                     .fixedSize()
                 case .stacked:
                     VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: false) }
+                        ForEach(visibleWindows) { window in meter(window, showsReading: false).transition(.opacity) }
                     }
                     .frame(minHeight: 22)
                 }
             }
             .contentShape(Rectangle())
+            .animation(QuotaTransition.animation, value: visibleWindows.map(\.id))
         }
         .buttonStyle(.plain)
         .font(typography.caption.font)

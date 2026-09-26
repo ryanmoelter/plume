@@ -22,8 +22,8 @@ enum StreamJSONMessage {
     case unknown(type: String)
 }
 
-struct RateLimitInfo: Equatable {
-    struct Window: Equatable {
+struct RateLimitInfo: Equatable, Codable {
+    struct Window: Equatable, Codable {
         /// 0–1, not a percentage. The statusline payload this replaces
         /// reported 0–100, so every display scales it here rather than
         /// assuming the old range.

@@ -76,6 +76,10 @@ struct StatuslineStripView: View, ThemedView {
 
     private var rateLimit: RateLimitInfo? { provider == .claudeCode ? quota.snapshot?.rateLimit : nil }
 
+    private var quotaPresence: [Bool] {
+        [(rateLimit?.fiveHour?.utilization ?? 0) > 0, (rateLimit?.sevenDay?.utilization ?? 0) > 0]
+    }
+
     private var isStale: Bool {
         guard let snapshot = quota.snapshot else { return false }
         return QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
@@ -99,6 +103,7 @@ struct StatuslineStripView: View, ThemedView {
                     windowLength: QuotaWindowLength.fiveHour
                 )
                 .plumeID(AccessibilityID.statuslineFiveHourMeter)
+                .transition(.opacity)
             }
             if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
@@ -111,6 +116,7 @@ struct StatuslineStripView: View, ThemedView {
                     windowLength: QuotaWindowLength.sevenDay
                 )
                 .plumeID(AccessibilityID.statuslineSevenDayMeter)
+                .transition(.opacity)
             }
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
@@ -118,6 +124,7 @@ struct StatuslineStripView: View, ThemedView {
             }
         }
         .fixedSize()
+        .animation(QuotaTransition.animation, value: quotaPresence)
     }
 
     /// Bars only, stacked top to bottom instead of side by side, and no cost
@@ -139,6 +146,7 @@ struct StatuslineStripView: View, ThemedView {
                     windowLength: QuotaWindowLength.fiveHour
                 )
                 .plumeID(AccessibilityID.statuslineFiveHourMeter)
+                .transition(.opacity)
             }
             if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
                 StatuslineMeterSegment(
@@ -152,8 +160,10 @@ struct StatuslineStripView: View, ThemedView {
                     windowLength: QuotaWindowLength.sevenDay
                 )
                 .plumeID(AccessibilityID.statuslineSevenDayMeter)
+                .transition(.opacity)
             }
         }
+        .animation(QuotaTransition.animation, value: quotaPresence)
     }
 
     // MARK: - Segments
@@ -243,6 +253,10 @@ enum StatuslineMeterWidth {
 
 /// How long each quota window runs, for deriving how far through it the clock
 /// is: the stream reports only when a window resets, never when it opened.
+enum QuotaTransition {
+    static let animation: Animation = .easeInOut(duration: 0.25)
+}
+
 enum QuotaWindowLength {
     static let fiveHour: TimeInterval = 5 * 3600
     static let sevenDay: TimeInterval = 7 * 86400
