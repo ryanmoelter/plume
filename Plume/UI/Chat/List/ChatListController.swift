@@ -55,6 +55,7 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    var onOpenPlan: () -> Void = {}
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
@@ -746,11 +747,13 @@ final class ChatListController: NSObject {
         )
         switch item {
         case let .piece(piece):
+            let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 ChatPieceView(
                     piece: piece,
                     containerState: state,
-                    onNaturalHeight: onMeasure
+                    onNaturalHeight: onMeasure,
+                    onOpenPlan: onOpenPlan
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))

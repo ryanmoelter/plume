@@ -24,6 +24,7 @@ struct ChatMessageList: View, ThemedView {
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    var onOpenPlan: () -> Void = {}
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -143,6 +144,7 @@ struct ChatMessageList: View, ThemedView {
             revealModel: revealModel,
             commands: commands,
             onOpenSubagent: onOpenSubagent,
+            onOpenPlan: onOpenPlan,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }
         )

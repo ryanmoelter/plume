@@ -51,24 +51,39 @@ struct InteractiveToolRow: View, ThemedView {
 
     /// A summary, not the plan itself. The overlay renders the document and
     /// owns the decision, so repeating either here would ask the user to read
-    /// the same plan twice and choose in two places.
+    /// the same plan twice and choose in two places. The whole summary opens
+    /// the overlay when it can, rather than a small button inside it, so the
+    /// row itself is the click target.
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
-        header(symbol: StatusSymbol.plan.name, title: "Proposed plan")
-        Text(PlanSummary.firstLine(of: markdown))
-            .font(typography.body.medium)
-            .chatTextColumn()
-        if let filePath {
-            Text((filePath as NSString).lastPathComponent)
-                .font(typography.caption.mono)
-                .emphasis(.subtle)
-                .chatTextColumn()
+        if let openPlan {
+            Button(action: openPlan) {
+                planSummary(markdown: markdown, filePath: filePath)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.planReviewButton)
+            .accessibilityLabel("Proposed plan, review")
+        } else {
+            planSummary(markdown: markdown, filePath: filePath)
         }
-        if isPending, let openPlan {
-            Button("Review plan") { openPlan() }
-                .font(typography.caption.font)
-        } else if !isPending {
+        if !isPending {
             settledPlanState()
+        }
+    }
+
+    private func planSummary(markdown: String, filePath: String?) -> some View {
+        VStack(alignment: .leading, spacing: DecisionCard.sectionSpacing) {
+            header(symbol: StatusSymbol.plan.name, title: "Proposed plan")
+            Text(PlanSummary.firstLine(of: markdown))
+                .font(typography.body.medium)
+                .chatTextColumn()
+            if let filePath {
+                Text((filePath as NSString).lastPathComponent)
+                    .font(typography.caption.mono)
+                    .emphasis(.subtle)
+                    .chatTextColumn()
+            }
         }
     }
 

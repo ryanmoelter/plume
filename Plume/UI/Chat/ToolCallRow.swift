@@ -10,12 +10,14 @@ struct ToolCallRow: View, ThemedView {
     /// Whether the agent is still waiting on this call, passed down so a
     /// pending plan or question reads as live.
     var isPending: Bool = false
+    /// Opens the plan overlay, for the interactive plan row.
+    var onOpenPlan: () -> Void = {}
 
     @State private var expanded = false
 
     var body: some View {
         if let interactive = call.interactive {
-            InteractiveToolRow(payload: interactive, isPending: isPending, resultText: call.result)
+            InteractiveToolRow(payload: interactive, isPending: isPending, resultText: call.result, openPlan: onOpenPlan)
         } else {
             collapsibleBody
         }

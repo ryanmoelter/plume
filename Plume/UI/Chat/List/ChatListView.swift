@@ -10,6 +10,7 @@ struct ChatListView: NSViewRepresentable {
     var revealModel: ChatRevealModel?
     var commands: ChatListCommands
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    var onOpenPlan: () -> Void = {}
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
 
@@ -36,6 +37,7 @@ struct ChatListView: NSViewRepresentable {
         // Callbacks first, unconditionally: they capture state the value
         // comparison below cannot see.
         controller.onOpenSubagent = onOpenSubagent
+        controller.onOpenPlan = onOpenPlan
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
         controller.revealModel = revealModel

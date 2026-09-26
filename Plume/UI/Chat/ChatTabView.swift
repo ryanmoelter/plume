@@ -279,12 +279,21 @@ struct ChatTabView: View, ThemedView {
         }
         .overlay {
             if planPresentation.isExpanded, hasPlan {
-                planPanel(path: planFilePath)
-                    // The bar is the source whenever it exists, so the panel
-                    // grows out of it; opened straight from the Plan button
-                    // there is none, and the effect is a no-op.
-                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
-                    .transition(.opacity)
+                ZStack {
+                    // A full-size hit target behind the panel, so a click
+                    // anywhere outside it dismisses the same way the close
+                    // control does.
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { dismissPlanPanel() }
+                        .plumeID(AccessibilityID.planBackgroundDismiss, invoke: dismissPlanPanel)
+                    planPanel(path: planFilePath)
+                        // The bar is the source whenever it exists, so the panel
+                        // grows out of it; opened straight from the Plan button
+                        // there is none, and the effect is a no-op.
+                        .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
+                }
+                .transition(.opacity)
             }
         }
         .overlay {
@@ -569,9 +578,18 @@ struct ChatTabView: View, ThemedView {
     private func planPanel(path: String?) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
-                    .font(.headline)
-                Spacer()
+                // The whole row dismisses, not just the trailing chevron;
+                // close stays a sibling so it isn't a nested button.
+                Button(action: dismissPlanPanel) {
+                    HStack(spacing: 12) {
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
+                            .font(.headline)
+                        Spacer()
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .plumeID(AccessibilityID.planTitleRow)
                 hidePlanButton
             }
             .padding(12)
@@ -592,9 +610,7 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var hidePlanButton: some View {
         let isDockingOnly = planApproval == .awaitingDecision
-        Button {
-            planPresentation = .hidden(for: planApproval)
-        } label: {
+        Button(action: dismissPlanPanel) {
             Image(systemName: isDockingOnly ? "chevron.down" : "xmark.circle.fill")
                 .emphasis(.secondary)
         }
@@ -603,6 +619,14 @@ struct ChatTabView: View, ThemedView {
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
         .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
+    }
+
+    /// Leaves the plan panel the way `hidePlanButton` does: tucked into the
+    /// dock bar while a proposal is still live, closed outright otherwise.
+    /// Shared by the close button, the title row, and a click outside the
+    /// panel, so all three land on the same state.
+    private func dismissPlanPanel() {
+        planPresentation = .hidden(for: planApproval)
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -796,7 +820,8 @@ struct ChatTabView: View, ThemedView {
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
-            onOpenSubagent: { openSubagentID = $0.id }
+            onOpenSubagent: { openSubagentID = $0.id },
+            onOpenPlan: { planPresentation = .expanded }
         )
         .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
     }
