@@ -151,19 +151,8 @@ enum ChatOutlineBuilder {
     /// two of them.
     static let minimumWeight: CGFloat = 4
 
-    /// The raw weight at which compression starts to bite — the knee of the
-    /// curve. A run well under this draws at close to its true relative size;
-    /// one well over it grows only as fast as the logarithm. Raise it to keep
-    /// more of the realistic range proportional, lower it to even everything
-    /// out sooner.
-    static let compressionKnee: CGFloat = 60
-
-    /// How tall a run one knee-width long draws. The whole curve scales with
-    /// this, so it sets the size of responses against a prompt's fixed
-    /// `promptWeight` without changing their shape relative to each other.
-    /// A smaller knee raises the raw logarithm at every weight, so this has
-    /// to shrink alongside it to keep a typical response's height in place.
-    static let responseScale: CGFloat = 4.2
+    /// Sets the size of responses against a prompt's fixed `promptWeight`.
+    static let responseScale: CGFloat = 1.4
 
     /// Compresses a run of agent output into the room it gets on the map.
     ///
@@ -175,11 +164,10 @@ enum ChatOutlineBuilder {
     ///
     /// The base is fixed at 2 because it is not a free parameter: changing it
     /// only multiplies the result by a constant, which is what
-    /// `responseScale` already does. Shape and size are the two knobs, and
-    /// they are `compressionKnee` and `responseScale`.
+    /// `responseScale` already does.
     static func compress(_ weight: CGFloat) -> CGFloat {
         guard weight > 0 else { return minimumWeight }
-        return max(minimumWeight, responseScale * log2(1 + weight / compressionKnee))
+        return max(minimumWeight, responseScale * log2(1 + weight))
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
