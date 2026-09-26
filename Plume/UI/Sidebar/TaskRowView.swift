@@ -52,12 +52,8 @@ struct TaskRowView: View {
         )
     }
 
-    /// The task's own branch covers the window before git answers. It is the
-    /// right guess for any of the task's directories, not only its own folder:
-    /// a row scrolled into view has no state yet, and showing nothing there
-    /// reads as a task with no branch rather than one still loading.
     private func branch(for directory: String) -> String? {
-        GitStateStore.shared.state(for: directory)?.branch ?? task.branchName
+        GitState.displayedBranch(state: GitStateStore.shared.state(for: directory), taskBranchName: task.branchName)
     }
 
     private var detailLines: [TaskRowDetails.Line] {

@@ -428,8 +428,31 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
+    /// The composer and statusline have no separate branch line the way the
+    /// inline sentence and the sidebar do, so this label names the branch
+    /// itself — the same fact `TaskRowView`'s branch line shows, with the
+    /// tree icon marking a linked worktree exactly as it does there.
     private var worktreeLabel: some View {
-        Label(worktreeName, systemImage: "tree")
+        HStack(spacing: 4) {
+            if isLinkedWorktree {
+                Image(systemName: "tree")
+            }
+            Text(chipBranchName)
+        }
+    }
+
+    /// The branch shown in the composer and statusline: `git`'s answer for
+    /// the directory the agent is actually running in, or the repository's
+    /// own branch while that is still settling.
+    private var chipBranchName: String {
+        GitState.displayedBranch(state: state, taskBranchName: task.branchName)
+            ?? repositoryBranch ?? "Worktree"
+    }
+
+    /// Whether the current checkout is a linked worktree — the same fact
+    /// `CheckoutFacts.isWorktree` gives the sidebar's branch line.
+    private var isLinkedWorktree: Bool {
+        CheckoutFactsStore.shared.facts(for: task.workingDirectoryPath)?.isWorktree ?? false
     }
 
     /// The worktree the task is working in, matched on a standardized path —
@@ -466,18 +489,18 @@ struct WorkspacePickerView: View, ThemedView {
         return worktrees.contains { standardized($0.path) == path }
     }
 
-    /// A worktree goes by its own name — its checked-out branch for the
-    /// repository's own checkout, the directory name for a linked one. A
-    /// linked worktree's directory is already effectively its branch (that is
-    /// how `NewWorktreeSheet` names it), but the main checkout can be on any
-    /// branch, so naming it "main" regardless would lie about where the agent
-    /// is actually running.
+    /// A worktree goes by its own name in this sentence: "main" for the
+    /// repository's own checkout, the directory name for a linked one (which
+    /// is already effectively its branch — that is how `NewWorktreeSheet`
+    /// names it). `worktreeBranchNote` names the actual branch on the line
+    /// beneath, so "main" here never stands alone as a claim about what
+    /// branch is checked out.
     private var worktreeName: String {
         if let worktree = selectedWorktree {
             return name(for: worktree)
         }
         guard isSettled else { return Self.unsettledName }
-        return state?.branch ?? task.branchName ?? repositoryBranch ?? "Worktree"
+        return chipBranchName
     }
 
     /// The folder the name above it stands for — the project's own root, the
@@ -492,7 +515,7 @@ struct WorkspacePickerView: View, ThemedView {
 
     private func name(for worktree: GitWorktree) -> String {
         guard worktree.isMain else { return (worktree.path as NSString).lastPathComponent }
-        return worktree.branch ?? "main"
+        return "main"
     }
 
     /// The branch under the worktree's name. A detached HEAD has none, and
@@ -502,9 +525,12 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     /// The path, since two worktrees of one repository differ only there.
+    /// Named the same as whichever label this prominence shows, so the
+    /// tooltip never disagrees with the chip or sentence it belongs to.
     private var worktreeHelp: String {
-        guard let path = task.workingDirectoryPath else { return "Worktree: \(worktreeName)" }
-        return "Worktree \(worktreeName): \(abbreviate(path))"
+        let name = prominence == .inline ? worktreeName : chipBranchName
+        guard let path = task.workingDirectoryPath else { return "Worktree: \(name)" }
+        return "Worktree \(name): \(abbreviate(path))"
     }
 
     /// How this worktree stands against its upstream, and whether it holds
