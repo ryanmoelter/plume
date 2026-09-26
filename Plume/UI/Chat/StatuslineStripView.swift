@@ -76,8 +76,11 @@ struct StatuslineStripView: View, ThemedView {
 
     private var rateLimit: RateLimitInfo? { provider == .claudeCode ? quota.snapshot?.rateLimit : nil }
 
+    /// Drives the appear/disappear transition on each meter, which is now a
+    /// question of whether the window exists at all — a Claude quota at 0%
+    /// still renders, only a missing window does not.
     private var quotaPresence: [Bool] {
-        [(rateLimit?.fiveHour?.utilization ?? 0) > 0, (rateLimit?.sevenDay?.utilization ?? 0) > 0]
+        [rateLimit?.fiveHour != nil, rateLimit?.sevenDay != nil]
     }
 
     private var isStale: Bool {
@@ -94,7 +97,7 @@ struct StatuslineStripView: View, ThemedView {
         // up along it whether or not a bar follows. The cost opts back out.
         HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
             contextSegment(showsReading: true)
-            if let fiveHour = rateLimit?.fiveHour, fiveHour.utilization > 0 {
+            if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -108,7 +111,7 @@ struct StatuslineStripView: View, ThemedView {
                 .plumeID(AccessibilityID.statuslineFiveHourMeter)
                 .transition(.opacity)
             }
-            if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
+            if let sevenDay = rateLimit?.sevenDay {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,
@@ -138,7 +141,7 @@ struct StatuslineStripView: View, ThemedView {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
             contextSegment(showsReading: false)
-            if let fiveHour = rateLimit?.fiveHour, fiveHour.utilization > 0 {
+            if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -153,7 +156,7 @@ struct StatuslineStripView: View, ThemedView {
                 .plumeID(AccessibilityID.statuslineFiveHourMeter)
                 .transition(.opacity)
             }
-            if let sevenDay = rateLimit?.sevenDay, sevenDay.utilization > 0 {
+            if let sevenDay = rateLimit?.sevenDay {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,
@@ -365,13 +368,14 @@ struct StatuslineMeterSegment: View, ThemedView {
         .accessibilityLabel("\(label) quota")
         .accessibilityValue(summary.lines.joined(separator: ", "))
         .popover(isPresented: $showingDetails) {
-            QuotaDetailsPopover(title: "Claude quota", summaries: [summary])
+            QuotaDetailsPopover(summaries: [summary])
                 .environment(\.theme, theme)
         }
     }
 
     private var summary: QuotaWindowSummary {
         QuotaDescription.summary(
+            provider: "Claude",
             timeframe: label,
             utilization: utilization,
             resetsAt: resetsAt,
@@ -386,20 +390,29 @@ struct StatuslineMeterSegment: View, ThemedView {
     }
 }
 
-/// A quota meter's click-through, in the same words as its tooltip.
+/// A quota meter's click-through, in the same words as its tooltip — except
+/// where a native tooltip cannot bold, this can.
 struct QuotaDetailsPopover: View, ThemedView {
     @Environment(\.theme) var theme
 
-    let title: String
     let summaries: [QuotaWindowSummary]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline)
             ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
                 if index > 0 { Divider() }
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(summary.lines, id: \.self) { Text($0) }
+                    Text(summary.title).font(.headline)
+                    Text("\(summary.usagePercent)%").bold() + Text(" used")
+                    if let elapsedPercent = summary.elapsedPercent {
+                        Text("\(elapsedPercent)%").bold() + Text(" of time elapsed")
+                    }
+                    if let lastHeard = summary.lastHeard {
+                        Text(lastHeard)
+                    }
+                    if let reset = summary.reset {
+                        Text("Resets at ") + Text(reset).bold()
+                    }
                 }
             }
         }
