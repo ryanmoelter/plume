@@ -666,7 +666,7 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .bottom, spacing: DecisionCard.nestedPadding) {
+            HStack(alignment: .center, spacing: DecisionCard.nestedPadding) {
                 feedbackField
                 ReservedWidthButton(
                     title: codexPlan == nil
@@ -698,7 +698,8 @@ struct ChatTabView: View, ThemedView {
             isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
-            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) }
+            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) },
+            verticalInset: DecisionCard.composerFieldTextInset
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
