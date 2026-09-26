@@ -25,10 +25,7 @@ struct InteractiveToolRow: View, ThemedView {
     var resultText: String?
     /// Non-nil only while a live request backs this row.
     var answer: ((Answer) -> Void)?
-    /// Supplied where the plan overlay is reachable at all; nil leaves the
-    /// row a plain summary. Even when non-nil, only the pending row opens it
-    /// — the overlay always shows the tab's current plan, and a settled
-    /// row's plan may no longer be that one.
+    /// Opens this row's own plan. Nil leaves the row a plain summary.
     var openPlan: (() -> Void)?
 
     @State private var answerState = PermissionAnswerState()
@@ -54,20 +51,18 @@ struct InteractiveToolRow: View, ThemedView {
     /// A summary, not the plan itself. The overlay renders the document and
     /// owns the decision, so repeating either here would ask the user to read
     /// the same plan twice and choose in two places. The whole summary opens
-    /// the overlay when it can, rather than a small button inside it, so the
-    /// row itself is the click target. Only while pending, though: the
-    /// overlay shows the tab's current plan, and a settled row is never
-    /// guaranteed to be that one.
+    /// the plan when it can, rather than a small button inside it, so the
+    /// row itself is the click target.
     @ViewBuilder
     private func planBody(markdown: String, filePath: String?) -> some View {
-        if isPending, let openPlan {
+        if let openPlan {
             Button(action: openPlan) {
                 planSummary(markdown: markdown, filePath: filePath)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .plumeID(AccessibilityID.planReviewButton)
-            .accessibilityLabel("Proposed plan, review")
+            .plumeID(AccessibilityID.planReviewButton, label: PlanSummary.firstLine(of: markdown), invoke: openPlan)
+            .accessibilityLabel(isPending ? "Proposed plan, review" : "Proposed plan, view")
         } else {
             planSummary(markdown: markdown, filePath: filePath)
         }

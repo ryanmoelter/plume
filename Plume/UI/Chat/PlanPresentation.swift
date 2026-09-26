@@ -38,3 +38,36 @@ nonisolated enum PlanPresentation: Equatable {
         isExpanded ? self : .hidden(for: approval)
     }
 }
+
+/// A plan proposal as its own transcript row recorded it, so opening a settled
+/// row shows what was proposed then rather than the tab's current plan.
+struct ProposedPlan: Equatable, Identifiable {
+    /// The `ExitPlanMode` tool use id.
+    let id: String
+    let markdown: String
+    let filePath: String?
+    let isPending: Bool
+    /// The approval or denial message; nil while pending.
+    let resultText: String?
+
+    init(id: String, markdown: String, filePath: String?, isPending: Bool, resultText: String?) {
+        self.id = id
+        self.markdown = markdown
+        self.filePath = filePath
+        self.isPending = isPending
+        self.resultText = resultText
+    }
+
+    init?(call: ToolCall, isPending: Bool) {
+        guard case .plan(let markdown, let filePath)? = call.interactive else { return nil }
+        self.init(id: call.id, markdown: markdown, filePath: filePath, isPending: isPending, resultText: call.result)
+    }
+
+    /// Where the proposal landed, for a read-only view's footer. Nil while
+    /// pending, and for a proposal that was never answered.
+    var settledLabel: String? {
+        guard !isPending, let resultText else { return nil }
+        guard PlanResolution.isRejection(resultText) else { return "Approved" }
+        return PlanResolution.rejectionReason(from: resultText).map { "Rejected: \($0)" } ?? "Rejected"
+    }
+}

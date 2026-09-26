@@ -55,7 +55,7 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    var onOpenPlan: () -> Void = {}
+    var onOpenPlan: (ProposedPlan) -> Void = { _ in }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
