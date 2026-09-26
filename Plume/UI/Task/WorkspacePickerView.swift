@@ -29,6 +29,11 @@ struct WorkspacePickerView: View, ThemedView {
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
     var state: GitState?
+    /// The directory `state` describes. Usually `task.workingDirectoryPath`,
+    /// but `EnterWorktree` can move the agent's own directory without
+    /// updating the task's, so the caller passes its own resolved directory
+    /// rather than leaving this view to assume the two agree.
+    var stateDirectory: String?
 
     /// The line the resume affordance sits on, supplied by the empty state.
     /// Nil everywhere else, and the picker draws nothing for it.
@@ -80,6 +85,11 @@ struct WorkspacePickerView: View, ThemedView {
         // The repository answers for the project when the worktree's own
         // facts have not arrived, so it needs loading too.
         .onChange(of: task.repoPath, initial: true) { _, path in
+            if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
+        }
+        // Only needed when it differs from `task.workingDirectoryPath`, but
+        // loading is idempotent, so no need to check.
+        .onChange(of: stateDirectory, initial: true) { _, path in
             if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
         }
         // `git` runs off the main actor and lands in state: a subprocess per
@@ -428,31 +438,35 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
-    /// The composer and statusline have no separate branch line the way the
-    /// inline sentence and the sidebar do, so this label names the branch
-    /// itself — the same fact `TaskRowView`'s branch line shows, with the
-    /// tree icon marking a linked worktree exactly as it does there.
+    /// The composer and statusline have no separate branch line, so this
+    /// label names the branch itself. A plain `Label(_:systemImage:)` rather
+    /// than a custom icon+text row: `.borderlessButton` (below) hands the
+    /// menu to an AppKit popup button, which is only reliable about
+    /// preserving a real `Label`'s icon.
+    @ViewBuilder
     private var worktreeLabel: some View {
-        HStack(spacing: 4) {
-            if isLinkedWorktree {
-                Image(systemName: "tree")
-            }
+        if isLinkedWorktree {
+            Label(chipBranchName, systemImage: "tree")
+        } else {
             Text(chipBranchName)
         }
     }
 
     /// The branch shown in the composer and statusline: `git`'s answer for
-    /// the directory the agent is actually running in, or the repository's
-    /// own branch while that is still settling.
+    /// the directory the agent is actually running in, or the task's stored
+    /// guess before that arrives.
     private var chipBranchName: String {
-        GitState.displayedBranch(state: state, taskBranchName: task.branchName)
+        guard isSettled else { return Self.unsettledName }
+        return GitState.displayedBranch(state: state, taskBranchName: task.branchName)
             ?? repositoryBranch ?? "Worktree"
     }
 
-    /// Whether the current checkout is a linked worktree — the same fact
-    /// `CheckoutFacts.isWorktree` gives the sidebar's branch line.
+    /// Whether the current checkout is a linked worktree. Keyed on
+    /// `stateDirectory` rather than `task.workingDirectoryPath`: they can
+    /// differ, and this must agree with `chipBranchName`, which reads the
+    /// same directory's `state`.
     private var isLinkedWorktree: Bool {
-        CheckoutFactsStore.shared.facts(for: task.workingDirectoryPath)?.isWorktree ?? false
+        CheckoutFactsStore.shared.facts(for: stateDirectory ?? task.workingDirectoryPath)?.isWorktree ?? false
     }
 
     /// The worktree the task is working in, matched on a standardized path —
@@ -524,13 +538,17 @@ struct WorkspacePickerView: View, ThemedView {
         selectedWorktree?.branch ?? state?.branch
     }
 
-    /// The path, since two worktrees of one repository differ only there.
-    /// Named the same as whichever label this prominence shows, so the
-    /// tooltip never disagrees with the chip or sentence it belongs to.
+    /// Named and pathed the same as whichever label this prominence shows —
+    /// a worktree's name and path for the inline sentence, the branch and
+    /// the directory it actually names for the composer and statusline.
     private var worktreeHelp: String {
-        let name = prominence == .inline ? worktreeName : chipBranchName
-        guard let path = task.workingDirectoryPath else { return "Worktree: \(name)" }
-        return "Worktree \(name): \(abbreviate(path))"
+        guard prominence == .inline else {
+            let path = stateDirectory ?? task.workingDirectoryPath
+            guard let path else { return "Branch: \(chipBranchName)" }
+            return "Branch \(chipBranchName): \(abbreviate(path))"
+        }
+        guard let path = task.workingDirectoryPath else { return "Worktree: \(worktreeName)" }
+        return "Worktree \(worktreeName): \(abbreviate(path))"
     }
 
     /// How this worktree stands against its upstream, and whether it holds

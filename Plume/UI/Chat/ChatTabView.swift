@@ -564,7 +564,8 @@ struct ChatTabView: View, ThemedView {
             task: task,
             isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
             branchWidth: branchWidth,
-            state: GitStateStore.shared.state(for: gitDirectory)
+            state: GitStateStore.shared.state(for: gitDirectory),
+            stateDirectory: gitDirectory
         )
         .font(typography.caption.font)
         .plumeID(AccessibilityID.composerWorkspacePicker)
@@ -903,6 +904,7 @@ struct ChatTabView: View, ThemedView {
             branchWidth: .natural,
             prominence: .inline,
             state: GitStateStore.shared.state(for: gitDirectory),
+            stateDirectory: gitDirectory,
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
             resumeAction: canResume ? { resumeSheetShown = true } : nil

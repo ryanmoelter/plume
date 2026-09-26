@@ -53,7 +53,10 @@ struct TaskRowView: View {
     }
 
     private func branch(for directory: String) -> String? {
-        GitState.displayedBranch(state: GitStateStore.shared.state(for: directory), taskBranchName: task.branchName)
+        GitState.displayedBranch(
+            state: GitStateStore.shared.state(for: directory),
+            taskBranchName: task.branchName
+        )
     }
 
     private var detailLines: [TaskRowDetails.Line] {
