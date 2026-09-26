@@ -43,9 +43,15 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         "anchor apple generic and certificate leaf[subject.OU] = \"\(sleepHelperTeamID)\""
         + " and identifier \"\(sleepHelperServiceName)\""
 
+    /// The test host is the Debug app, and launchd has one job for every
+    /// Plume install, so a test run must never re-register it on its own.
+    private static let changesRegistrationOnItsOwn =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+        && NSClassFromString("XCTestCase") == nil
+
     init() {
         readStatus()
-        if status == .ready {
+        if status == .ready, Self.changesRegistrationOnItsOwn {
             let generation = generation
             Task { await reregisterIfNotLoaded(generation: generation) }
         }
@@ -276,7 +282,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// A Homebrew upgrade's `launchctl` uninstall step leaves the helper
     /// approved but unloaded, and launchd will not load it again by itself.
     private func reregisterIfNotLoaded(generation: Int) async {
-        guard !retryPolicy.hasCheckedLoad else { return }
+        guard Self.changesRegistrationOnItsOwn, !retryPolicy.hasCheckedLoad else { return }
         let loaded = await Self.isHelperLoaded()
         guard generation == self.generation,
               service.status == .enabled,
@@ -332,7 +338,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// The launch sweep's init call and every `.enabled` read land here, so
     /// the first time the helper is reachable is when this runs.
     private func checkVersionIfNeeded() {
-        guard !isRecovering, versionPolicy.beginCheck() else { return }
+        guard Self.changesRegistrationOnItsOwn, !isRecovering, versionPolicy.beginCheck() else { return }
         let generation = generation
         Task {
             let answer = await SleepHelperVersionQuery.ask(timeout: 5) { Self.makeConnection() }
