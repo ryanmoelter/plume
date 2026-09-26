@@ -43,7 +43,7 @@ struct CodexQuotaStrip: View, ThemedView {
         .plumeID(sidebar ? "sidebar.codex-quota" : "statusline.codex-quota")
         .onAppear { clock.startTicking() }
         .popover(isPresented: $showingDetails) {
-            QuotaDetailsPopover(title: "Codex quota", summaries: visibleWindows.map(summary))
+            QuotaDetailsPopover(summaries: visibleWindows.map(summary))
                 .environment(\.theme, theme)
         }
     }
@@ -70,6 +70,7 @@ struct CodexQuotaStrip: View, ThemedView {
 
     private func summary(_ window: CodexQuotaWindow) -> QuotaWindowSummary {
         QuotaDescription.summary(
+            provider: "Codex",
             timeframe: window.timeframe,
             utilization: window.utilization,
             resetsAt: window.resetsAt,
