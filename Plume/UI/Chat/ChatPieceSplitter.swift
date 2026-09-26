@@ -32,7 +32,7 @@ enum ChatPieceSplitter {
             let context = MessageContext(
                 message: message,
                 needsInput: isLast && status.wantsAttention,
-                isWorking: isLast && status == .working,
+                activity: isLast ? Self.activity(for: status) : nil,
                 hiddenToolUseIDs: messageHiddenToolUseIDs,
                 previousMessageKind: previousMessageKind,
                 dimensions: dimensions
@@ -50,7 +50,7 @@ enum ChatPieceSplitter {
             ) ?? previousMessageKind
         }
 
-        if !attachesToLastMessage, status == .working {
+        if !attachesToLastMessage, let activity = Self.activity(for: status) {
             // The indicator stands in for the assistant message the turn
             // will become, so it takes that message's gap rather than
             // belonging to the user's bubble above.
@@ -58,7 +58,7 @@ enum ChatPieceSplitter {
                 id: Self.workingID,
                 messageID: Self.workingID,
                 role: .assistant,
-                content: .working,
+                content: activity,
                 wash: .none,
                 topInset: ChatBlockSpacing.rowTopInset(
                     previous: previousMessageKind,
@@ -75,7 +75,9 @@ enum ChatPieceSplitter {
     private struct MessageContext {
         let message: ChatMessage
         let needsInput: Bool
-        let isWorking: Bool
+        /// The indicator closing the message, when it is the newest one and
+        /// the tab is active.
+        let activity: ChatPiece.Content?
         let hiddenToolUseIDs: Set<String>
         let previousMessageKind: ChatBlockSpacing.Kind?
         let dimensions: Dimensions
@@ -114,7 +116,7 @@ enum ChatPieceSplitter {
         /// An assistant message the turn can still add blocks to. A parked
         /// turn counts: answering the prompt resumes it.
         var isInFlight: Bool {
-            message.role == .assistant && (isWorking || needsInput || message.isLive)
+            message.role == .assistant && (activity == .working || needsInput || message.isLive)
         }
 
         /// The gap above the message's first piece, from what the previous
@@ -170,12 +172,12 @@ enum ChatPieceSplitter {
             previousBlockKind = ChatBlockSpacing.kind(of: block)
         }
 
-        if context.isWorking, message.role == .assistant {
+        if let activity = context.activity, message.role == .assistant {
             result.append(ChatPiece(
                 id: Self.workingID,
                 messageID: message.id,
                 role: message.role,
-                content: .working,
+                content: activity,
                 wash: context.wash,
                 topInset: result.isEmpty ? context.leadingInset : context.dimensions.workingIndicatorSpacing
             ))
@@ -384,6 +386,14 @@ enum ChatPieceSplitter {
     /// ellipsis keeps pulsing instead of restarting.
     static let workingID = "working"
 
+    private static func activity(for status: TaskStatus) -> ChatPiece.Content? {
+        switch status {
+        case .working: .working
+        case .waitingOnSubagents: .waitingOnSubagents
+        default: nil
+        }
+    }
+
     /// Lays an assistant message's pieces end to end along its reveal, and
     /// marks them live while the stream is writing the message.
     private static func revealed(_ pieces: [ChatPiece], of message: ChatMessage) -> [ChatPiece] {
@@ -391,7 +401,7 @@ enum ChatPieceSplitter {
         return pieces.map { piece in
             var piece = piece
             piece.isLive = message.isLive
-            guard message.role == .assistant, piece.content != .working else { return piece }
+            guard message.role == .assistant, !piece.content.isActivityIndicator else { return piece }
             piece.revealOffset = offset
             piece.revealLength = ChatReveal.length(of: piece.content)
             offset += piece.revealLength

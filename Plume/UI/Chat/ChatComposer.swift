@@ -251,7 +251,7 @@ struct ChatComposer: View, ThemedView {
                         showsPlanButton: showsPlanButton,
                         onOpenPlan: onOpenPlan
                     )
-                    if headlessSession?.isWorking == true {
+                    if headlessSession?.isWorking == true || stopsSubagents {
                         stopButton
                     }
                     if headlessSession?.supportsSteering == true,
@@ -328,6 +328,13 @@ struct ChatComposer: View, ThemedView {
         .accessibilityLabel(headlessSession?.isWorking == true ? "Queue" : "Send")
     }
 
+    /// Only Claude Code stops background subagents from outside a turn.
+    private var stopsSubagents: Bool {
+        guard headlessSession?.isWorking != true,
+              let claude = headlessSession as? HeadlessSession else { return false }
+        return claude.hasWorkingSubagents
+    }
+
     /// Matches `sendButton`'s size and shape but not its accent-colored fill,
     /// so the pair reads as two related controls with send as the primary.
     private var stopButton: some View {
@@ -340,7 +347,7 @@ struct ChatComposer: View, ThemedView {
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
-        .help("Stop the current turn")
+        .help(stopsSubagents ? "Stop the subagents" : "Stop the current turn")
         .accessibilityLabel("Stop")
         .plumeID(AccessibilityID.composerStopButton)
     }

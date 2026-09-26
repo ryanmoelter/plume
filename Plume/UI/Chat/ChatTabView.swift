@@ -138,12 +138,11 @@ struct ChatTabView: View, ThemedView {
         transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
-    /// The main agent's own status, ignoring its subagents — what the chat's
-    /// working indicator should track. The sidebar shows the aggregated form
-    /// instead: a working subagent alone should not make the conversation
-    /// claim the main agent is still speaking.
+    /// Subagents working alone read as `waitingOnSubagents`, never as
+    /// `working`: the conversation must not claim the main agent is still
+    /// speaking.
     private var status: TaskStatus {
-        StatusEngine.shared.ownStatus(forTab: tab.id)
+        StatusEngine.shared.status(forTab: tab.id)
     }
 
     private var displayedContextUsedTokens: Int? {

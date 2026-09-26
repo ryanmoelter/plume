@@ -310,10 +310,20 @@ final class HeadlessSession: AgentSession {
     }
 
     /// Ends the turn in flight but keeps the session alive, unlike a signal.
+    ///
+    /// Between turns it stops background subagents instead. The CLI answers
+    /// that with no `result`, since no turn was running to end.
     func interrupt() {
-        guard isWorking else { return }
-        wasInterrupted = true
+        if isWorking {
+            wasInterrupted = true
+        } else {
+            guard hasWorkingSubagents else { return }
+        }
         send(StreamJSONEncoder.interrupt(requestID: nextRequestID()))
+    }
+
+    var hasWorkingSubagents: Bool {
+        statusEngine.hasWorkingSubagents(tabID: tabID)
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
@@ -482,11 +492,15 @@ final class HeadlessSession: AgentSession {
             if let delta = event.textDelta { streamingText += delta }
             if let delta = event.thinkingDelta { streamingThinking += delta }
 
-        case .assistant:
+        case .assistant(let envelope):
             // History comes from the transcript file, which the parser already
             // renders. The envelope only marks that the turn is producing
             // content — but a task notification starts a turn with no host
             // input, so this is the only thing that reports one at all.
+            //
+            // A background subagent streams its own envelopes between the
+            // main agent's turns, and no `result` follows them.
+            guard envelope.parentToolUseID == nil else { break }
             if !isWorking, !hasExited { beginUnpromptedTurn() }
 
         case .user:

@@ -251,6 +251,6 @@ struct RelaunchStatusTests {
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         engine.setSubagentActivity(tabID: tab, working: true)
 
-        #expect(engine.status(forTab: tab) == .working)
+        #expect(engine.status(forTab: tab) == .waitingOnSubagents)
     }
 }

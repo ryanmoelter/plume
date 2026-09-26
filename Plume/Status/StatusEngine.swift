@@ -70,14 +70,20 @@ final class StatusEngine {
         dormantTabs.contains(tabID)
     }
 
+    func hasWorkingSubagents(tabID: UUID) -> Bool {
+        tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+    }
+
     /// The tab's own status, ignoring its subagents.
     func ownStatus(forTab id: UUID) -> TaskStatus {
         tabStatuses[id] ?? .notStarted
     }
 
-    /// Working subagents raise a settled tab to `working`. Every state that
-    /// wants the user outranks that, along with `error` and `interrupted`:
-    /// they need the user either way, and a subagent cannot answer for them.
+    /// Working subagents raise a settled tab to `waitingOnSubagents`, so the
+    /// task never reads as finished while it is still moving. Every state
+    /// that wants the user outranks that, along with `error` and
+    /// `interrupted`: they need the user either way, and a subagent cannot
+    /// answer for them.
     ///
     /// A tab never holds `done` — only a subagent reaches it — so it is left
     /// alone rather than raised.
@@ -88,9 +94,9 @@ final class StatusEngine {
         guard !dormant else { return own }
         guard subagentsWorking else { return own }
         switch own {
-        case .notStarted, .awaitingReply, .working:
-            return .working
-        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
+        case .notStarted, .awaitingReply, .waitingOnSubagents:
+            return .waitingOnSubagents
+        case .working, .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
              .error, .interrupted, .done:
             return own
         }
@@ -120,7 +126,7 @@ final class StatusEngine {
                 // Attention still wins in the sidebar, but a parent waiting
                 // for permission does not stop its other children working.
                 // Stay Awake must see that independent live activity.
-                let childWorking = tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+                let childWorking = hasWorkingSubagents(tabID: tabID)
                 let status: TaskStatus = childWorking ? .working : status(forTab: tabID)
                 guard status == .working || status.wantsAttention else { return nil }
                 return (taskID, tabID, status)
@@ -230,10 +236,11 @@ final class StatusEngine {
         if newTabStatus != previousTabStatus {
             // Keyed off the effective status, so working subagents start the
             // clock too and a tab that stops working never keeps a stale one.
-            if newTabStatus == .working {
-                workStartedAt[tabID] = Date()
-            } else {
+            // Handing the work to subagents and back is one stretch.
+            if !newTabStatus.isActive {
                 workStartedAt.removeValue(forKey: tabID)
+            } else if !previousTabStatus.isActive {
+                workStartedAt[tabID] = Date()
             }
             onTabStatusChanged?(taskID, tabID, newTabStatus, notifiable)
         }

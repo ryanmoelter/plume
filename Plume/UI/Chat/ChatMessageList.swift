@@ -195,7 +195,8 @@ struct ChatMessageList: View, ThemedView {
         // Before the pieces reach the list, so a new message's rows mount
         // with its reveal already in place.
         revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt))
-        heldTurnTargets = status == .awaitingReply ? revealModel?.unsettledTargets ?? [:] : [:]
+        let turnEnded = status == .awaitingReply || status == .waitingOnSubagents
+        heldTurnTargets = turnEnded ? revealModel?.unsettledTargets ?? [:] : [:]
         if !heldTurnTargets.isEmpty { rebuilt = split(.working) }
         pieces = rebuilt
         showRevealedPieces()

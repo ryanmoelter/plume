@@ -55,6 +55,13 @@ struct ChatPiece: Identifiable, Equatable {
         case notice(ChatNotice)
         case image(ChatImage)
         case working
+        case waitingOnSubagents
+
+        /// The row standing in for a turn's activity rather than for anything
+        /// the transcript holds.
+        var isActivityIndicator: Bool {
+            self == .working || self == .waitingOnSubagents
+        }
     }
 
     /// The background a message's pieces share, drawn per piece with only the
@@ -101,6 +108,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .notice: "notice"
         case .image: "image"
         case .working: "working"
+        case .waitingOnSubagents: "waitingOnSubagents"
         }
     }
 
