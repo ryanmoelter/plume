@@ -27,6 +27,7 @@ enum AccessibilityID {
     static let keepAwakeLidApprovalButton = "keep-awake-lid-approval-button"
     static let keepAwakeLidInstallButton = "keep-awake-lid-install-button"
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
+    static let keepAwakeLidReinstallButton = "keep-awake-lid-reinstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
     static let sidebarUpdateButton = "sidebar-update-button"
     static let updatePanel = "update-panel"
