@@ -531,12 +531,17 @@ struct ChatTabView: View, ThemedView {
                 if tab.provider == .codex,
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
                     CodexQuotaStrip(windows: CodexQuotaStore.shared.windows, layout: meters == .stacked ? .stacked : .wide)
+                        .transition(.opacity)
                 }
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
             }
             .fixedSize(horizontal: true, vertical: false)
+            .animation(
+                QuotaTransition.animation,
+                value: tab.provider == .codex && CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 })
+            )
         }
     }
 
