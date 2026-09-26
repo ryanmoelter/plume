@@ -301,10 +301,8 @@ struct StackedMeter: View, ThemedView {
                     .foregroundStyle(StatuslineColors.statuslineText(for: attention, colors: colors))
                     .opacity(isStale ? colors.emphasis[.secondary] : 1)
                     .lineLimit(1)
-                    // Forces Text to report its true, un-truncated width even
-                    // under a tight proposal — without this, a `ViewThatFits`
-                    // candidate containing this label can "fit" by silently
-                    // compressing it instead of being rejected.
+                    // Without this, a tight proposal truncates the text instead of
+                    // being rejected by the enclosing `ViewThatFits`.
                     .fixedSize(horizontal: true, vertical: false)
                     .contentTransition(.numericText())
                     .animation(QuotaTransition.animation, value: reading)
