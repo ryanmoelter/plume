@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
-/// The dim second line of a subagent row: model, elapsed time, context spent.
+/// The dim second line of a subagent row: model, agent type, context spent.
 ///
 /// The span is measured from the transcript's own line timestamps, so it
 /// survives a relaunch — the same rule the linger clock follows for the
@@ -49,7 +49,8 @@ struct SubagentCaptionTests {
     }
 
     /// A finished agent's clock stops at its last line, so a settled row does
-    /// not go on counting up.
+    /// not go on counting up. Elapsed time shows beside the chevron rather
+    /// than in `text`, so a caption with nothing else to say is empty.
     @Test func aFinishedAgentIsTimedToItsLastLine() {
         let caption = SubagentCaption(
             subagent: subagent([
@@ -60,7 +61,8 @@ struct SubagentCaptionTests {
         )
 
         #expect(caption.elapsed == 450)
-        #expect(caption.text == "7m")
+        #expect(caption.elapsedText == "7m")
+        #expect(caption.text.isEmpty)
     }
 
     @Test func aWorkingAgentIsTimedToNow() {
@@ -72,7 +74,7 @@ struct SubagentCaptionTests {
         #expect(caption.elapsed == 120)
     }
 
-    @Test func theModelAndItsNominalWindowGiveThePercentage() {
+    @Test func theModelAndItsNominalWindowGiveTheRawCount() {
         let caption = SubagentCaption(
             subagent: subagent([
                 line(at: "2026-09-05T22:00:00.000Z", model: "claude-sonnet-5[1m]", contextTokens: 100_000)
@@ -81,13 +83,14 @@ struct SubagentCaptionTests {
         )
 
         #expect(caption.modelLabel == "Sonnet 5")
-        #expect(caption.contextFraction == 0.1)
-        #expect(caption.text == "Sonnet 5 · 0s · 10% context")
+        #expect(caption.contextUsedTokens == 100_000)
+        #expect(caption.contextWindow == 1_000_000)
+        #expect(caption.text == "Sonnet 5 · 100k/1M")
     }
 
     /// A model this build has never heard of implies no window, so the row
-    /// states the model and drops the percentage rather than inventing one.
-    @Test func anUnrecognizedModelHasNoPercentage() {
+    /// states the model and drops the count rather than inventing a window.
+    @Test func anUnrecognizedModelHasNoContextWindow() {
         let caption = SubagentCaption(
             subagent: subagent([
                 line(at: "2026-09-05T22:00:00.000Z", model: "claude-newthing-9", contextTokens: 100_000)
@@ -96,11 +99,13 @@ struct SubagentCaptionTests {
         )
 
         #expect(caption.modelLabel == "Newthing 9")
-        #expect(caption.contextFraction == nil)
+        #expect(caption.contextWindow == nil)
+        #expect(caption.text == "Newthing 9")
     }
 
     /// The sidecar names a model before the agent has written an assistant
-    /// line to read one from.
+    /// line to read one from, and the agent type it also carries reads on
+    /// the same line, after the model.
     @Test func theSidecarNamesTheModelBeforeTheTranscriptDoes() {
         let caption = SubagentCaption(
             subagent: subagent(
@@ -111,6 +116,8 @@ struct SubagentCaptionTests {
         )
 
         #expect(caption.modelLabel == "Sonnet 5 200K")
+        #expect(caption.agentType == "Explore")
+        #expect(caption.text == "Sonnet 5 200K · Explore")
     }
 
     @Test func aTranscriptWithNothingInItSaysNothing() {
@@ -118,7 +125,8 @@ struct SubagentCaptionTests {
 
         #expect(caption.text.isEmpty)
         #expect(caption.elapsed == nil)
-        #expect(caption.contextFraction == nil)
+        #expect(caption.contextUsedTokens == nil)
+        #expect(caption.contextWindow == nil)
     }
 
     @Test func codexSubagentsUseTheCodexModelCatalog() {
@@ -136,14 +144,24 @@ struct SubagentCaptionTests {
         #expect(SubagentCaption.formatted(elapsed: seconds) == expected)
     }
 
-    /// Usage past the window is a reporting artifact, not 130% of a context.
-    @Test func aPercentageNeverPassesAHundred() {
+    /// A raw count needs no capping the way a percentage would: showing more
+    /// than the window is exactly what happened.
+    @Test func contextCanReadHigherThanTheWindow() {
         let caption = SubagentCaption(
             subagent: subagent([
                 line(at: "2026-09-05T22:00:00.000Z", model: "claude-opus-5", contextTokens: 400_000)
             ])
         )
 
-        #expect(caption.contextFraction == 1)
+        #expect(caption.contextUsedTokens == 400_000)
+        #expect(caption.contextWindow == 200_000)
+        #expect(caption.text == "Opus 5 200K · 400k/200k")
+    }
+
+    @Test(arguments: [
+        (999, "999"), (1_000, "1k"), (150_000, "150k"), (1_000_000, "1M"), (1_500_000, "1.5M"),
+    ])
+    func tokenCountsFormatCoarsely(count: Int, expected: String) {
+        #expect(SubagentCaption.formatted(tokens: count) == expected)
     }
 }
