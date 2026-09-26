@@ -152,22 +152,22 @@ enum ChatOutlineBuilder {
     static let minimumWeight: CGFloat = 4
 
     /// Sets the size of responses against a prompt's fixed `promptWeight`.
-    static let responseScale: CGFloat = 1.4
+    /// At 1.8 a median response run (about 800) comes out near 13.5.
+    static let responseScale: CGFloat = 1.8
+
+    /// Makes every tenfold increase in length double a response's height.
+    static let responseExponent: CGFloat = log10(2)
 
     /// Compresses a run of agent output into the room it gets on the map.
     ///
     /// Response lengths run to orders of magnitude — a one-line answer
     /// against a turn with forty tool calls — so at true scale the longest
-    /// runs own the map entirely. The logarithm pulls that range in while
-    /// staying monotonic, so a longer run is still always taller than a
-    /// shorter one.
-    ///
-    /// The base is fixed at 2 because it is not a free parameter: changing it
-    /// only multiplies the result by a constant, which is what
-    /// `responseScale` already does.
+    /// runs own the map entirely. A fractional power pulls that range in
+    /// while staying monotonic, and unlike a logarithm it keeps a fixed ratio
+    /// per order of magnitude, so long runs still stand out.
     static func compress(_ weight: CGFloat) -> CGFloat {
         guard weight > 0 else { return minimumWeight }
-        return max(minimumWeight, responseScale * log2(1 + weight))
+        return max(minimumWeight, responseScale * pow(weight, responseExponent))
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {

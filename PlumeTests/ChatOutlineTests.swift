@@ -316,6 +316,11 @@ struct ChatOutlineTests {
         #expect(huge / small < 10)
     }
 
+    @Test func tenfoldLengthDoublesHeight() {
+        let ratio = ChatOutlineBuilder.compress(10_000) / ChatOutlineBuilder.compress(1_000)
+        #expect(abs(ratio - 2) < 0.001)
+    }
+
     @Test func alongerReplyOutweighsAShorterOne() throws {
         let brief = outline([message("a", .assistant, [.markdown("Brief.")])])
         let long = outline([
