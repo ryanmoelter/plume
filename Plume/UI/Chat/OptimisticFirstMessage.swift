@@ -63,12 +63,19 @@ nonisolated struct OptimisticFirstMessage: Equatable {
     /// from the transcript's own content blocks rather than echoing what was
     /// sent, and only against user prose, so an assistant quoting the text
     /// back never counts as the line arriving.
+    ///
+    /// A slash command needs its own comparison: Claude Code, not Plume,
+    /// expands what was sent into the `<command-name>`/`<command-args>` the
+    /// transcript records, so the wire text sent optimistically never equals
+    /// what comes back — unlike a `!` command, which Plume itself wraps
+    /// before sending and so already matches its own transcript form.
     func isSettled(by messages: [ChatMessage]) -> Bool {
         let wanted = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !wanted.isEmpty else { return true }
         return messages.contains { message in
             guard message.role == .user else { return false }
             return message.prose == wanted || message.injectedText == wanted
+                || message.slashCommandText == wanted
         }
     }
 }
@@ -98,6 +105,18 @@ extension ChatMessage {
             }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A slash command's line, reconstructed as `/command args` — the same
+    /// text its marker shows, and what the user typed before Claude Code
+    /// expanded it into `<command-name>`/`<command-args>`.
+    var slashCommandText: String? {
+        for block in blocks {
+            if case .injected(let kind, _) = block, case .slashCommand = kind {
+                return kind.markerLabel
+            }
+        }
+        return nil
     }
 }
 

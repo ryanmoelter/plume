@@ -138,4 +138,36 @@ struct OptimisticFirstMessageTests {
         )
         #expect(pending.isSettled(by: [arrived]))
     }
+
+    /// A slash command as the first message is sent as plain typed text —
+    /// "/review DROID-344" — but Claude Code, not Plume, expands it before
+    /// writing the transcript line, so the pending copy never equals what
+    /// comes back unless the settlement check reconstructs it the same way
+    /// `InjectedContent`'s own marker does.
+    @Test func aSlashCommandSettlesOnceTheTranscriptExpandsIt() {
+        let pending = OptimisticFirstMessage(text: "/review DROID-344")
+        let line = """
+        {"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"<command-message>review is running…</command-message>\\n<command-name>/review</command-name>\\n<command-args>DROID-344</command-args>"}}
+        """
+        let arrived = TranscriptParser.parse(Data(line.utf8)).messages
+
+        #expect(pending.isSettled(by: arrived))
+    }
+
+    /// Without the slash-command comparison, this is exactly the hang PLUME-188
+    /// fixed: the expanded line never equals the raw text, so the optimistic
+    /// message would linger even once the real one has landed.
+    @Test func aSlashCommandWithNoArgumentsStillSettles() {
+        let pending = OptimisticFirstMessage(text: "/compact")
+        let arrived = ChatMessage(
+            id: "1",
+            role: .user,
+            blocks: [.injected(
+                .slashCommand(name: "/compact"),
+                text: "<command-name>/compact</command-name>\n<command-args></command-args>"
+            )],
+            timestamp: nil
+        )
+        #expect(pending.isSettled(by: [arrived]))
+    }
 }
