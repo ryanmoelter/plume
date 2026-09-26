@@ -35,7 +35,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     @ObservationIgnored private var versionPolicy = SleepHelperVersionPolicy(
         appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
     )
-    @ObservationIgnored private var deferredReinstallTimer: Timer?
+    @ObservationIgnored private var deferredCheckTimer: Timer?
+    @ObservationIgnored private var lastRelease: Date?
 
     /// The daemon's designated identity, so a process squatting on the Mach
     /// service name cannot impersonate it.
@@ -96,7 +97,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     func unregister() {
         guard status != .notRegistered else { return }
         apply(false)
-        stopDeferredReinstall()
+        stopDeferredCheck()
         resetRecovery()
         do {
             try service.unregister()
@@ -111,7 +112,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     func reinstall() {
         versionPolicy.recordManualReinstall()
-        stopDeferredReinstall()
+        stopDeferredCheck()
         resetRecovery()
         isEngaged = false
         engagePending = false
@@ -200,11 +201,12 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     private func disengage() {
         stopHeartbeat()
-        if versionPolicy.isReinstallDeferred { scheduleDeferredReinstall() }
+        if versionPolicy.isReinstallDeferred { scheduleDeferredCheck(after: Self.releaseSettleDelay) }
         guard isEngaged || engagePending else { return }
         isEngaged = false
         engagePending = false
         let sleepIfLidClosed = !ExternalDisplay.isConnected
+        lastRelease = Date()
         proxy()?.releaseOverride(sleepIfLidClosed: sleepIfLidClosed) { _, _ in }
         Log.app.notice("Lid-closed override released (sleepIfLidClosed=\(sleepIfLidClosed))")
         readStatus()
@@ -333,7 +335,18 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     // MARK: - Version
 
-    private var isHoldActive: Bool { wantsEngaged || isEngaged || engagePending }
+    private var isLocalHoldActive: Bool { wantsEngaged || isEngaged || engagePending }
+
+    /// The helper requests a lid-closed sleep about a second after a release,
+    /// and a reinstall inside that window would kill the request.
+    private var releasedRecently: Bool {
+        guard let lastRelease else { return false }
+        return Date().timeIntervalSince(lastRelease) < Self.releaseSettleDelay
+    }
+
+    private static let releaseSettleDelay: TimeInterval = 3
+    /// How often to look again while another install holds the override.
+    private static let remoteHoldRecheckDelay: TimeInterval = 60
 
     /// The launch sweep's init call and every `.enabled` read land here, so
     /// the first time the helper is reachable is when this runs.
@@ -341,22 +354,28 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         guard Self.changesRegistrationOnItsOwn, !isRecovering, versionPolicy.beginCheck() else { return }
         let generation = generation
         Task {
-            let answer = await SleepHelperVersionQuery.ask(timeout: 5) { Self.makeConnection() }
+            let reading = await SleepHelperVersionQuery.ask(timeout: 5) { Self.makeConnection() }
             guard generation == self.generation else {
                 versionPolicy.abandonCheck()
                 return
             }
-            let appBuild = versionPolicy.appBuild
-            switch versionPolicy.record(answer, holdActive: isHoldActive) {
+            // Another install's hold counts too: launchd has one job for all.
+            let holdActive = isLocalHoldActive || releasedRecently || reading.overrideEngaged
+            let described = "\(reading.answer), app build \(versionPolicy.appBuild)"
+            switch versionPolicy.record(reading.answer, holdActive: holdActive) {
             case .current:
-                Log.app.notice("Sleep helper version: \(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)")
+                Log.app.notice("Sleep helper version: \(described, privacy: .public)")
             case .reinstall:
-                Log.app.notice("Sleep helper is outdated (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); reinstalling")
+                Log.app.notice("Sleep helper is outdated (\(described, privacy: .public)); reinstalling")
                 reinstallForVersion()
             case .deferReinstall:
-                Log.app.notice("Sleep helper is outdated (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); reinstalling once the hold is released")
+                Log.app.notice("Sleep helper is outdated (\(described, privacy: .public)); reinstalling once no hold needs it")
+                // A local hold schedules the recheck when it is released.
+                if !isLocalHoldActive {
+                    scheduleDeferredCheck(after: reading.overrideEngaged ? Self.remoteHoldRecheckDelay : Self.releaseSettleDelay)
+                }
             case .stillOutdated:
-                Log.app.error("Sleep helper is still outdated after reinstalling (\(String(describing: answer), privacy: .public), app build \(appBuild, privacy: .public)); leaving it")
+                Log.app.error("Sleep helper is still outdated after reinstalling (\(described, privacy: .public)); leaving it")
             case .retryLater:
                 Log.app.notice("Sleep helper did not answer the version check; asking again later")
             case .giveUp:
@@ -365,29 +384,25 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         }
     }
 
-    /// Waits out the helper's deferred sleep request after a lid-closed
-    /// release, which a reinstall would otherwise kill.
-    private func scheduleDeferredReinstall() {
-        stopDeferredReinstall()
-        deferredReinstallTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+    private func scheduleDeferredCheck(after delay: TimeInterval) {
+        stopDeferredCheck()
+        deferredCheckTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.deferredReinstallTimer = nil
-                guard !self.isRecovering,
-                      self.versionPolicy.claimDeferredReinstall(holdActive: self.isHoldActive)
-                else { return }
-                Log.app.notice("Hold released; reinstalling the outdated sleep helper")
-                self.reinstallForVersion()
+                self.deferredCheckTimer = nil
+                self.versionPolicy.resumeDeferred()
+                self.readStatus()
             }
         }
     }
 
-    private func stopDeferredReinstall() {
-        deferredReinstallTimer?.invalidate()
-        deferredReinstallTimer = nil
+    private func stopDeferredCheck() {
+        deferredCheckTimer?.invalidate()
+        deferredCheckTimer = nil
     }
 
     private func reinstallForVersion() {
+        guard service.status == .enabled else { return }
         resetRecovery()
         isRecovering = true
         let generation = generation

@@ -53,16 +53,14 @@ struct SleepHelperVersionPolicyTests {
         #expect(afterAbandoning)
     }
 
-    @Test func anActiveHoldDefersTheReinstallUntilReleased() {
+    @Test func aHoldDefersTheReinstallUntilACheckFindsItReleased() {
         var policy = SleepHelperVersionPolicy(appBuild: "29")
         #expect(check(&policy, .build("28"), holdActive: true) == .deferReinstall)
         #expect(check(&policy, .build("28")) == nil)
-        let underHold = policy.claimDeferredReinstall(holdActive: true)
-        let released = policy.claimDeferredReinstall(holdActive: false)
-        let again = policy.claimDeferredReinstall(holdActive: false)
-        #expect(!underHold)
-        #expect(released)
-        #expect(!again)
+        policy.resumeDeferred()
+        #expect(check(&policy, .build("28"), holdActive: true) == .deferReinstall)
+        policy.resumeDeferred()
+        #expect(check(&policy, .build("28")) == .reinstall)
         #expect(check(&policy, .build("28")) == .stillOutdated)
     }
 
@@ -70,8 +68,6 @@ struct SleepHelperVersionPolicyTests {
         var policy = SleepHelperVersionPolicy(appBuild: "29")
         #expect(check(&policy, .refused, holdActive: true) == .deferReinstall)
         policy.recordManualReinstall()
-        let claimed = policy.claimDeferredReinstall(holdActive: false)
-        #expect(!claimed)
         #expect(check(&policy, .build("28")) == .stillOutdated)
     }
 
@@ -114,30 +110,37 @@ struct SleepHelperVersionPolicyTests {
 struct SleepHelperVersionQueryTests {
     @Test func aCurrentHelperReportsItsBuild() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: SleepHelperProtocol.self), exported: CurrentHelper())
-        let answer = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
+        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
         withExtendedLifetime(server) {}
-        #expect(answer == .build("29"))
+        #expect(reading == .init(answer: .build("29"), overrideEngaged: false))
     }
 
     @Test func aHelperWithoutTheMethodReadsAsRefused() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: LegacySleepHelperProtocol.self), exported: LegacyHelper())
-        let answer = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
+        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
         withExtendedLifetime(server) {}
-        #expect(answer == .refused)
+        #expect(reading == .init(answer: .refused, overrideEngaged: false))
     }
 
     @Test func aHelperThatNeverAnswersTheVersionReadsAsRefused() async {
         let server = FakeHelperServer(interface: NSXPCInterface(with: SleepHelperProtocol.self), exported: SilentVersionHelper())
-        let answer = await SleepHelperVersionQuery.ask(timeout: 0.5, connect: server.connect)
+        let reading = await SleepHelperVersionQuery.ask(timeout: 0.5, connect: server.connect)
         withExtendedLifetime(server) {}
-        #expect(answer == .refused)
+        #expect(reading == .init(answer: .refused, overrideEngaged: false))
+    }
+
+    @Test func reportsAnOverrideHeldByAnyClient() async {
+        let server = FakeHelperServer(interface: NSXPCInterface(with: LegacySleepHelperProtocol.self), exported: LegacyHelper(engaged: true))
+        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
+        withExtendedLifetime(server) {}
+        #expect(reading == .init(answer: .refused, overrideEngaged: true))
     }
 
     @Test func aHelperThatRejectsConnectionsReadsAsUnreachable() async {
         let server = FakeHelperServer(interface: nil, exported: nil)
-        let answer = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
+        let reading = await SleepHelperVersionQuery.ask(timeout: 5, connect: server.connect)
         withExtendedLifetime(server) {}
-        #expect(answer == .unreachable)
+        #expect(reading == .init(answer: .unreachable, overrideEngaged: false))
     }
 }
 
@@ -150,9 +153,15 @@ struct SleepHelperVersionQueryTests {
 }
 
 private class LegacyHelper: NSObject, LegacySleepHelperProtocol {
+    private let engaged: Bool
+
+    init(engaged: Bool = false) {
+        self.engaged = engaged
+    }
+
     func setSleepDisabled(_ disabled: Bool, reply: @escaping (Bool, String?) -> Void) { reply(disabled, nil) }
     func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void) { reply(false, nil) }
-    func currentState(reply: @escaping (Bool) -> Void) { reply(false) }
+    func currentState(reply: @escaping (Bool) -> Void) { reply(engaged) }
     func heartbeat(reply: @escaping (Bool) -> Void) { reply(false) }
 }
 

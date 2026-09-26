@@ -7,8 +7,8 @@ import Foundation
 /// for its build, and reinstalls one that is older or that cannot answer. A
 /// newer or equal helper is left alone, so a debug build and the installed app
 /// never take the job back and forth. At most one reinstall per launch, never
-/// under an active hold, and a helper that cannot be reached at all is left to
-/// the not-loaded check and the back-off.
+/// while any client holds the override, and a helper that cannot be reached at
+/// all is left to the not-loaded check and the back-off.
 nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
     enum Answer: Equatable, Sendable {
         case build(String)
@@ -79,11 +79,10 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
         }
     }
 
-    mutating func claimDeferredReinstall(holdActive: Bool) -> Bool {
-        guard isReinstallDeferred, !holdActive, !hasReinstalled else { return false }
+    /// Lets the next check run, which decides afresh whether a hold still
+    /// stands in the way.
+    mutating func resumeDeferred() {
         isReinstallDeferred = false
-        hasReinstalled = true
-        return true
     }
 
     /// A reinstall by hand counts as this launch's one reinstall, and the next
@@ -116,22 +115,31 @@ nonisolated struct SleepHelperVersionPolicy: Equatable, Sendable {
 /// Asks a helper for its build over connections of its own, so a helper that
 /// drops the request never costs the lease connection.
 nonisolated enum SleepHelperVersionQuery {
+    struct Reading: Equatable, Sendable {
+        var answer: SleepHelperVersionPolicy.Answer
+        /// Whether `SleepDisabled` is set, by this app or another install.
+        var overrideEngaged: Bool
+    }
+
     /// An old helper drops the connection on the unknown selector, which reads
-    /// the same as a crash. So any failure is followed by `currentState`, which
-    /// every helper answers: a reply means the helper is up but cannot report
-    /// its build.
+    /// the same as a crash. So `currentState`, which every helper answers,
+    /// comes first to tell unreachable from refused, and a failed
+    /// `helperBuild` is asked once more before it counts as refused.
     static func ask(
         timeout: TimeInterval,
         connect: @escaping @Sendable () -> NSXPCConnection
-    ) async -> SleepHelperVersionPolicy.Answer {
-        let build: String? = await request(timeout: timeout, connect: connect) { helper, reply in
-            helper.helperBuild { reply($0) }
-        }
-        if let build { return .build(build) }
+    ) async -> Reading {
         let state: Bool? = await request(timeout: timeout, connect: connect) { helper, reply in
             helper.currentState { reply($0) }
         }
-        return state == nil ? .unreachable : .refused
+        guard let state else { return Reading(answer: .unreachable, overrideEngaged: false) }
+        for _ in 0..<2 {
+            let build: String? = await request(timeout: timeout, connect: connect) { helper, reply in
+                helper.helperBuild { reply($0) }
+            }
+            if let build { return Reading(answer: .build(build), overrideEngaged: state) }
+        }
+        return Reading(answer: .refused, overrideEngaged: state)
     }
 
     /// Nil on an XPC error or no reply within `timeout`.
