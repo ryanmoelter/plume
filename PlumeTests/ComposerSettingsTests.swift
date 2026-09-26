@@ -188,7 +188,6 @@ struct ComposerSettingsTests {
         #expect(tab.model == .opus)
     }
 
-
     /// The Default menu item names the model the launch will resolve to.
     @Test func theDefaultModelIsTheResolvedOne() {
         #expect(makeSettings(session: nil, tab: makeTab()).defaultModel == defaults.model)
