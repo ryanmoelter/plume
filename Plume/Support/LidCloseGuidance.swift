@@ -47,6 +47,8 @@ enum LidCloseGuidance: Equatable, Sendable {
             return .helperNeedsApproval
         case .unavailable(let reason):
             return .helperUnavailable(reason)
+        case .unresponsive:
+            return .helperUnavailable(LidSleepOverrideStatus.unresponsiveReason)
         case .ready where wantsLidClosed:
             return .staysAwakeWhileHolding
         case .notRegistered:

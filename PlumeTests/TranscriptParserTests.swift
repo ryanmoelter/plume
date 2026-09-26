@@ -108,6 +108,40 @@ struct TranscriptParserTests {
         #expect(call.result == "file contents")
     }
 
+    @Test func aToolSearchResultOfToolReferencesFinishesTheCall() {
+        let transcript = TranscriptParser.parse(data([
+            #"""
+            {"type":"assistant","uuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01DLxc3C6yZ5t8u283k9DJcL","name":"ToolSearch","input":{"query":"select:TaskStop,Monitor","max_results":3},"caller":{"type":"direct"}}]}}
+            """#,
+            #"""
+            {"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01DLxc3C6yZ5t8u283k9DJcL","content":[{"type":"tool_reference","tool_name":"TaskStop"},{"type":"tool_reference","tool_name":"Monitor"}]}]},"toolUseResult":{"matches":["TaskStop","Monitor"],"query":"select:TaskStop,Monitor","total_deferred_tools":98}}
+            """#,
+        ]))
+
+        guard case .toolCall(let call) = transcript.messages[0].blocks.first else {
+            Issue.record("expected a tool call block")
+            return
+        }
+        #expect(call.result == "TaskStop\nMonitor")
+    }
+
+    @Test func aResultWithNothingReadableStillFinishesTheCall() {
+        let transcript = TranscriptParser.parse(data([
+            #"""
+            {"type":"assistant","uuid":"a1","isSidechain":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Future","input":{}}]}}
+            """#,
+            #"""
+            {"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":[{"type":"unmodeled_block"}]}]}}
+            """#,
+        ]))
+
+        guard case .toolCall(let call) = transcript.messages[0].blocks.first else {
+            Issue.record("expected a tool call block")
+            return
+        }
+        #expect(call.result == "")
+    }
+
     @Test func anUnmatchedToolUseKeepsANilResult() {
         let transcript = TranscriptParser.parse(data([
             #"""

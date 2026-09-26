@@ -12,6 +12,10 @@ enum TaskStatus: String, CaseIterable, Sendable {
     /// `awaitingReply`, which claims a turn actually ended.
     case notStarted
     case working
+    /// The agent's own turn is over but subagents it spawned are still
+    /// working. Not `working`, which would tell the user they cannot reply
+    /// yet, and not `awaitingReply`, which would call the task settled.
+    case waitingOnSubagents
     /// The one resting state: the agent's turn is over and it is the user's
     /// move. Covers a finished turn and a cleanly exited process alike, which
     /// read the same to someone scanning the sidebar.
@@ -46,11 +50,12 @@ enum TaskStatus: String, CaseIterable, Sendable {
         case .awaitingReply: 2
         case .interrupted: 3
         case .error: 4
-        case .working: 5
-        case .needsTerminalInput: 6
-        case .permissionNeeded: 7
-        case .questionAsked: 8
-        case .planApproval: 9
+        case .waitingOnSubagents: 5
+        case .working: 6
+        case .needsTerminalInput: 7
+        case .permissionNeeded: 8
+        case .questionAsked: 9
+        case .planApproval: 10
         }
     }
 
@@ -59,7 +64,7 @@ enum TaskStatus: String, CaseIterable, Sendable {
         switch self {
         case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
             true
-        case .notStarted, .working, .awaitingReply, .done, .interrupted, .error:
+        case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted, .error:
             false
         }
     }
@@ -75,14 +80,21 @@ enum TaskStatus: String, CaseIterable, Sendable {
     /// - A tab that was waiting on an answer never got one, and quitting is
     ///   what stopped it. That is an interruption, so it reads as one — the
     ///   question or plan is still there in the transcript, unanswered.
-    /// - `working` and `awaitingReply` claimed a live process and say nothing
-    ///   that outlives it, so they read as `notStarted`.
+    /// - `working`, `waitingOnSubagents` and `awaitingReply` claimed a live
+    ///   process and say nothing that outlives it, so they read as
+    ///   `notStarted`.
     var afterRelaunch: TaskStatus {
         switch self {
         case .interrupted, .error, .done: self
         case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput: .interrupted
-        case .notStarted, .working, .awaitingReply: .notStarted
+        case .notStarted, .working, .waitingOnSubagents, .awaitingReply: .notStarted
         }
+    }
+
+    /// Whether an agent is doing something right now, directly or through
+    /// its subagents.
+    var isActive: Bool {
+        self == .working || self == .waitingOnSubagents
     }
 
     static func aggregate(_ statuses: some Sequence<TaskStatus>) -> TaskStatus {

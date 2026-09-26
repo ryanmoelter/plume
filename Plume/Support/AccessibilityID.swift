@@ -14,6 +14,7 @@ enum AccessibilityID {
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
+    static let taskRemoteControlToggle = "task-remote-control-toggle"
     static let archivedTaskUnarchiveButton = "archived-task-unarchive-button"
     static let sidebarSettingsButton = "sidebar-settings-button"
     static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
@@ -27,6 +28,7 @@ enum AccessibilityID {
     static let keepAwakeLidApprovalButton = "keep-awake-lid-approval-button"
     static let keepAwakeLidInstallButton = "keep-awake-lid-install-button"
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
+    static let keepAwakeLidReinstallButton = "keep-awake-lid-reinstall-button"
     static let keepAwakeThermalPicker = "keep-awake-thermal-picker"
     static let sidebarUpdateButton = "sidebar-update-button"
     static let updatePanel = "update-panel"
@@ -72,6 +74,7 @@ enum AccessibilityID {
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"
+    static let composerCollaborationModeControl = "composer-collaboration-mode-control"
     static let remoteControlToast = "remote-control-toast"
 
     // MARK: Statusline strip
@@ -112,6 +115,9 @@ enum AccessibilityID {
     static let planCloseButton = "plan-close-button"
     static let planExpandButton = "plan-expand-button"
     static let planLinkButton = "plan-link-button"
+    static let planTitleRow = "plan-title-row"
+    static let planBackgroundDismiss = "plan-background-dismiss"
+    static let planReviewButton = "plan-review-button"
 
     // MARK: AskUserQuestion
 

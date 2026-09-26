@@ -138,12 +138,11 @@ struct ChatTabView: View, ThemedView {
         transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
-    /// The main agent's own status, ignoring its subagents — what the chat's
-    /// working indicator should track. The sidebar shows the aggregated form
-    /// instead: a working subagent alone should not make the conversation
-    /// claim the main agent is still speaking.
+    /// Subagents working alone read as `waitingOnSubagents`, never as
+    /// `working`: the conversation must not claim the main agent is still
+    /// speaking.
     private var status: TaskStatus {
-        StatusEngine.shared.ownStatus(forTab: tab.id)
+        StatusEngine.shared.status(forTab: tab.id)
     }
 
     private var displayedContextUsedTokens: Int? {
@@ -279,12 +278,13 @@ struct ChatTabView: View, ThemedView {
         }
         .overlay {
             if planPresentation.isExpanded, hasPlan {
-                planPanel(path: planFilePath)
-                    // The bar is the source whenever it exists, so the panel
-                    // grows out of it; opened straight from the Plan button
-                    // there is none, and the effect is a no-op.
-                    .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
-                    .transition(.opacity)
+                planOverlay(dismiss: dismissPlanPanel) {
+                    planPanel(path: planFilePath)
+                        // The bar is the source whenever it exists, so the panel
+                        // grows out of it; opened straight from the Plan button
+                        // there is none, and the effect is a no-op.
+                        .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
+                }
             }
         }
         .overlay {
@@ -553,7 +553,8 @@ struct ChatTabView: View, ThemedView {
             task: task,
             isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
             branchWidth: branchWidth,
-            state: GitStateStore.shared.state(for: gitDirectory)
+            state: GitStateStore.shared.state(for: gitDirectory),
+            stateDirectory: gitDirectory
         )
         .font(typography.caption.font)
         .plumeID(AccessibilityID.composerWorkspacePicker)
@@ -566,12 +567,43 @@ struct ChatTabView: View, ThemedView {
         ThemeChrome.background(for: colorScheme)?.opacity(0.5)
     }
 
+    /// A plan panel over the conversation, above a hit target that dismisses
+    /// it on a click anywhere outside. The target stops clear of the bottom
+    /// chrome — composer, statusline, toasts — so it never swallows a click
+    /// meant for one of those.
+    private func planOverlay(dismiss: @escaping () -> Void, @ViewBuilder panel: () -> some View) -> some View {
+        ZStack {
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture { dismiss() }
+                .plumeID(AccessibilityID.planBackgroundDismiss, invoke: dismiss)
+                .padding(.bottom, panelHeight)
+            panel()
+        }
+        .transition(.opacity)
+    }
+
+    /// Every plan row opens the same panel, on the plan's latest version
+    /// rather than the one that row proposed.
+    private func openPlan() {
+        planPresentation = .expanded
+    }
+
     private func planPanel(path: String?) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
-                    .font(.headline)
-                Spacer()
+                // The whole row dismisses, not just the trailing chevron;
+                // close stays a sibling so it isn't a nested button.
+                Button(action: dismissPlanPanel) {
+                    HStack(spacing: 12) {
+                        Text(path.map { ($0 as NSString).lastPathComponent } ?? "Proposed plan")
+                            .font(.headline)
+                        Spacer()
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .plumeID(AccessibilityID.planTitleRow)
                 hidePlanButton
             }
             .padding(12)
@@ -592,9 +624,7 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var hidePlanButton: some View {
         let isDockingOnly = planApproval == .awaitingDecision
-        Button {
-            planPresentation = .hidden(for: planApproval)
-        } label: {
+        Button(action: dismissPlanPanel) {
             Image(systemName: isDockingOnly ? "chevron.down" : "xmark.circle.fill")
                 .emphasis(.secondary)
         }
@@ -603,6 +633,14 @@ struct ChatTabView: View, ThemedView {
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
         .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
+    }
+
+    /// Leaves the plan panel the way `hidePlanButton` does: tucked into the
+    /// dock bar while a proposal is still live, closed outright otherwise.
+    /// Shared by the close button, the title row, and a click outside the
+    /// panel, so all three land on the same state.
+    private func dismissPlanPanel() {
+        planPresentation = .hidden(for: planApproval)
     }
 
     /// The approval options while a proposal is live, and where the plan
@@ -640,7 +678,7 @@ struct ChatTabView: View, ThemedView {
     @ViewBuilder
     private var planApprovalOptions: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .bottom, spacing: DecisionCard.nestedPadding) {
+            HStack(alignment: .center, spacing: DecisionCard.nestedPadding) {
                 feedbackField
                 ReservedWidthButton(
                     title: codexPlan == nil
@@ -672,12 +710,13 @@ struct ChatTabView: View, ThemedView {
             isFocused: $planFeedbackFocused,
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
-            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) }
+            onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) },
+            verticalInset: DecisionCard.composerFieldTextInset
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
-        .decisionField(isFilled: !planRejectionReason.isEmpty, colors: colors)
+        .decisionField(isFilled: !planRejectionReason.isEmpty, isFocused: planFeedbackFocused, colors: colors)
         .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
         .onAppear {
             guard planApproval.showsApprovalOptions else { return }
@@ -796,7 +835,8 @@ struct ChatTabView: View, ThemedView {
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
-            onOpenSubagent: { openSubagentID = $0.id }
+            onOpenSubagent: { openSubagentID = $0.id },
+            onOpenPlan: hasPlan ? { openPlan() } : nil
         )
         .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
     }
@@ -876,6 +916,7 @@ struct ChatTabView: View, ThemedView {
             branchWidth: .natural,
             prominence: .inline,
             state: GitStateStore.shared.state(for: gitDirectory),
+            stateDirectory: gitDirectory,
             // Only before the first message: once a session exists, the tab
             // has the conversation it is going to have.
             resumeAction: canResume ? { resumeSheetShown = true } : nil

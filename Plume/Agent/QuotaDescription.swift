@@ -1,21 +1,36 @@
 import Foundation
 
 /// One quota window in words, the form every quota tooltip and popover uses:
-/// how much of which window is spent, how much of it has elapsed, how long
-/// ago the reading arrived, then when it resets — each its own line. A value
+/// a title naming the provider and timeframe, then how much of the window is
+/// spent, how much of it has elapsed, how long ago the reading arrived (once
+/// that reading is stale), then when it resets — each its own line. A value
 /// nothing reports is left out rather than printed as unknown.
 struct QuotaWindowSummary: Equatable {
-    let usage: String
-    let elapsed: String?
+    /// E.g. "Claude 5h quota" or "Codex 7d quota" — the timeframe lives here
+    /// rather than in the usage line, so the usage line can say just the
+    /// percent.
+    let title: String
+    let usagePercent: Int
+    let elapsedPercent: Int?
+    /// Only set once the reading is stale — see `QuotaFreshness.staleAfter`.
+    /// A fresh reading needs no disclaimer about its age.
     let lastHeard: String?
+    /// The absolute reset time or date, e.g. "at 3:45 PM" — unprefixed, so a
+    /// caller can bold it inside "Resets …" without reparsing the string.
     let reset: String?
 
-    var lines: [String] { [usage] + [elapsed, lastHeard, reset].compactMap { $0 } }
+    var lines: [String] {
+        [title, "\(usagePercent)% used"]
+            + [elapsedPercent.map { "\($0)% of time elapsed" }, lastHeard, reset.map { "Resets \($0)" }]
+                .compactMap { $0 }
+    }
+
     var text: String { lines.joined(separator: "\n") }
 }
 
 enum QuotaDescription {
     static func summary(
+        provider: String,
         timeframe: String?,
         utilization: Double,
         resetsAt: Date?,
@@ -23,20 +38,24 @@ enum QuotaDescription {
         receivedAt: Date?,
         now: Date
     ) -> QuotaWindowSummary {
-        let quota = timeframe.map { "\($0) quota" } ?? "quota"
-        let usage = "\(Int((utilization * 100).rounded()))% of \(quota) used"
-        let elapsed = windowLength
+        let title = ([provider] + [timeframe].compactMap { $0 }).joined(separator: " ") + " quota"
+        let usagePercent = Int((utilization * 100).rounded())
+        let elapsedPercent = windowLength
             .flatMap { QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0) }
-            .map { "\(Int(($0 * 100).rounded()))% of time elapsed" }
-        let lastHeard = receivedAt.map { "(last heard \(relativeLastHeard(receivedAt: $0, now: now)))" }
-        let reset = resetsAt.map { "Resets at \(QuotaFreshness.absoluteResetLabel(resetsAt: $0, now: now))" }
-        return QuotaWindowSummary(usage: usage, elapsed: elapsed, lastHeard: lastHeard, reset: reset)
+            .map { Int(($0 * 100).rounded()) }
+        let lastHeard = receivedAt.flatMap { received in
+            QuotaFreshness.isStale(receivedAt: received, now: now)
+                ? "(last heard \(relativeLastHeard(receivedAt: received, now: now)))"
+                : nil
+        }
+        let reset = resetsAt.map { QuotaFreshness.absoluteResetLabel(resetsAt: $0, now: now) }
+        return QuotaWindowSummary(title: title, usagePercent: usagePercent, elapsedPercent: elapsedPercent, lastHeard: lastHeard, reset: reset)
     }
 
-    /// "just now" under a minute, otherwise `RelativeDateTimeFormatter`'s
-    /// short form ("5 min. ago") — a relative reading, not a stale warning.
+    /// `RelativeDateTimeFormatter`'s short form ("35 min. ago"). Only ever
+    /// called once a reading is already past `QuotaFreshness.staleAfter`, so
+    /// there is no "just now" case to special-case here.
     private static func relativeLastHeard(receivedAt: Date, now: Date) -> String {
-        guard now.timeIntervalSince(receivedAt) >= 60 else { return "just now" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         return formatter.localizedString(for: receivedAt, relativeTo: now)

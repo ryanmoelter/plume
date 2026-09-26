@@ -12,6 +12,12 @@ enum LidSleepOverrideStatus: Equatable, Sendable {
     case engaged
     /// Registration or the helper itself failed, with the reason to show.
     case unavailable(String)
+    /// Approved, but the helper has stopped answering, so reinstalling is the
+    /// fix to offer.
+    case unresponsive
+
+    static let unresponsiveReason =
+        "The sleep helper isn't responding. Reinstall it from Settings → Keep Awake."
 
     /// Whether an `apply(true)` can take effect right now.
     var canEngage: Bool { self == .ready || self == .engaged }
@@ -33,6 +39,10 @@ protocol LidSleepOverride: AnyObject {
 
     /// Removes the helper from launchd, releasing the override first.
     func unregister()
+
+    /// Unregisters and registers again, keeping the approval. For a helper
+    /// launchd has stopped serving.
+    func reinstall()
 
     /// Sets or clears the override. Idempotent, like `SleepAssertion.apply`.
     func apply(_ engaged: Bool)

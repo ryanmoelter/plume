@@ -63,13 +63,28 @@ nonisolated struct OptimisticFirstMessage: Equatable {
     /// from the transcript's own content blocks rather than echoing what was
     /// sent, and only against user prose, so an assistant quoting the text
     /// back never counts as the line arriving.
+    ///
+    /// A slash command needs its own comparison: Claude Code, not Plume,
+    /// expands what was sent into the `<command-name>`/`<command-args>` the
+    /// transcript records, so the wire text sent optimistically never equals
+    /// what comes back — unlike a `!` command, which Plume itself wraps
+    /// before sending and so already matches its own transcript form.
     func isSettled(by messages: [ChatMessage]) -> Bool {
         let wanted = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !wanted.isEmpty else { return true }
         return messages.contains { message in
             guard message.role == .user else { return false }
-            return message.prose == wanted || message.injectedText == wanted
+            if message.prose == wanted || message.injectedText == wanted { return true }
+            guard let slashCommandText = message.slashCommandText else { return false }
+            // Collapsed rather than exact: the reconstruction always joins
+            // the command and its arguments with one space, but what was
+            // typed may have run several together.
+            return Self.collapsedWhitespace(slashCommandText) == Self.collapsedWhitespace(wanted)
         }
+    }
+
+    private static func collapsedWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 
@@ -98,6 +113,16 @@ extension ChatMessage {
             }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A slash command's line, reconstructed as `/command args` — the same
+    /// text its marker shows, and what the user typed before Claude Code
+    /// expanded it into `<command-name>`/`<command-args>`.
+    var slashCommandText: String? {
+        blocks.compactMap { block -> String? in
+            guard case .injected(let kind, _) = block, case .slashCommand = kind else { return nil }
+            return kind.markerLabel
+        }.first
     }
 }
 

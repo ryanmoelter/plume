@@ -55,6 +55,15 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
+    /// so a change between nil and non-nil refreshes mounted rows itself.
+    var onOpenPlan: (() -> Void)? {
+        didSet {
+            guard (oldValue == nil) != (onOpenPlan == nil) else { return }
+            refreshRoots(Set(hosts.keys))
+            documentView.needsLayout = true
+        }
+    }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
@@ -103,6 +112,11 @@ final class ChatListController: NSObject {
     private static let subagentRowsID = "plume.trailing.subagents.rows"
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
+
+    /// About a line or two of body text left showing above a freshly pinned
+    /// prompt. Scaled to the chat's own font size rather than a fixed point,
+    /// so it still reads as "a line or two" at a size other than the default.
+    private var pinTopInset: CGFloat { inputs.chatFontSize * 2.5 }
 
     private enum Item {
         case piece(ChatPiece)
@@ -347,7 +361,7 @@ final class ChatListController: NSObject {
 
     func pin(pieceID: String) {
         pendingPin = pieceID
-        model.setAnchor(pieceID)
+        model.setAnchor(pieceID, inset: pinTopInset)
         scroll(to: .bottom, animated: true)
     }
 
@@ -462,7 +476,7 @@ final class ChatListController: NSObject {
     private func startDepartures(from previous: [ChatPiece], staying next: [String: Item]) {
         guard inputs.animate, model.viewportHeight > 0, documentView.window != nil else { return }
         for (index, piece) in previous.enumerated()
-        where piece.content == .working && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
+        where piece.content.isActivityIndicator && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
             departing[piece.id] = Departure(piece: piece, after: index > 0 ? previous[index - 1].id : nil)
         }
     }
@@ -619,7 +633,7 @@ final class ChatListController: NSObject {
     private func notePinMeasurement(_ id: String) {
         guard let pendingPin, let anchorIndex = model.index(of: pendingPin), let index = model.index(of: id),
               index >= anchorIndex else { return }
-        model.setAnchor(pendingPin)
+        model.setAnchor(pendingPin, inset: pinTopInset)
     }
 
     /// Realizes inside the window and frees only well outside it, so an item
@@ -700,6 +714,9 @@ final class ChatListController: NSObject {
         // same id would keep its `@State`, and it holds its own graph.
         host.view.rootView = AnyView(EmptyView())
         host.view.isHidden = true
+        // A departure frees its host faded out; the next piece to dequeue it
+        // would draw nothing yet still take clicks and selection.
+        host.view.alphaValue = 1
         if pool.count < Self.poolLimit {
             pool.append(host.view)
         } else {
@@ -746,11 +763,13 @@ final class ChatListController: NSObject {
         )
         switch item {
         case let .piece(piece):
+            let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 ChatPieceView(
                     piece: piece,
                     containerState: state,
-                    onNaturalHeight: onMeasure
+                    onNaturalHeight: onMeasure,
+                    onOpenPlan: onOpenPlan
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))
@@ -765,8 +784,9 @@ final class ChatListController: NSObject {
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
+            let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
-                PendingPermissionDock(tabID: tabID)
+                PendingPermissionDock(tabID: tabID, onOpenPlan: onOpenPlan)
                     .listItemPadding(bleed: true)
                     .containerHeight(state, onMeasure: onMeasure)
             }.id(id))

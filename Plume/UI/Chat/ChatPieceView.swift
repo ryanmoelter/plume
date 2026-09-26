@@ -19,6 +19,10 @@ struct ChatPieceView: View, ThemedView {
     /// through `onNaturalHeight`. Nil leaves the piece to animate its own.
     var containerState: ChatListItemState?
     var onNaturalHeight: ((CGFloat) -> Void)?
+    /// Opens the plan panel from a plan row. Nil where there is no panel to
+    /// open, as inside a subagent's own transcript, or where there is no
+    /// plan to show.
+    var onOpenPlan: (() -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel
@@ -137,7 +141,7 @@ struct ChatPieceView: View, ThemedView {
         case let .thinking(text):
             ThinkingRow(text: text)
         case let .toolCall(call, isPending):
-            ToolCallRow(call: call, isPending: isPending)
+            ToolCallRow(call: call, isPending: isPending, onOpenPlan: onOpenPlan)
         case let .injected(kind, text):
             // A `!` command is shown in full rather than behind a marker's
             // disclosure — see `ShellCommandRow`.
@@ -154,13 +158,15 @@ struct ChatPieceView: View, ThemedView {
             ChatImageView(image: image)
         case .working:
             ChatWorkingIndicator()
+        case .waitingOnSubagents:
+            ChatWorkingIndicator(isWaitingOnSubagents: true)
         }
     }
 
     /// Where this piece sits along its message's reveal. Nil for the
     /// working indicator, which is not part of the message.
     private var reveal: ChatRevealContext? {
-        guard piece.role == .assistant, piece.content != .working,
+        guard piece.role == .assistant, !piece.content.isActivityIndicator,
               let messageReveal = revealModel?.reveal(for: piece.messageID) else { return nil }
         return ChatRevealContext(reveal: messageReveal, offset: piece.revealOffset)
     }

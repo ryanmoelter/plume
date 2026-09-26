@@ -5,6 +5,7 @@ import SwiftUI
 /// stalls its own call until answered.
 struct PendingPermissionDock: View {
     let tabID: UUID
+    var onOpenPlan: (() -> Void)?
 
     var body: some View {
         if let session = AgentSessionManager.shared.existingSession(for: tabID),
@@ -20,16 +21,21 @@ struct PendingPermissionDock: View {
     @ViewBuilder
     private func row(for permission: PendingPermission, in session: any AgentSession) -> some View {
         if let interactive = permission.interactive {
-            InteractiveToolRow(payload: interactive, isPending: true) { answer in
-                switch answer {
-                case .questions(let answers):
-                    session.answer(permission, answers: answers)
-                case .approvePlan:
-                    session.approvePlan(permission)
-                case .rejectPlan(let reason):
-                    session.resolve(permission, with: .deny(message: denialMessage(reason)))
-                }
-            }
+            InteractiveToolRow(
+                payload: interactive,
+                isPending: true,
+                answer: { answer in
+                    switch answer {
+                    case .questions(let answers):
+                        session.answer(permission, answers: answers)
+                    case .approvePlan:
+                        session.approvePlan(permission)
+                    case .rejectPlan(let reason):
+                        session.resolve(permission, with: .deny(message: denialMessage(reason)))
+                    }
+                },
+                openPlan: onOpenPlan
+            )
         } else {
             PermissionRequestRow(
                 permission: permission,

@@ -61,6 +61,14 @@ nonisolated struct GitState: Equatable {
 
         return GitState(branch: branch, upstream: upstream, ahead: ahead, behind: behind, isDirty: isDirty)
     }
+
+    /// The branch to show for a directory: `git`'s own answer once it has
+    /// one, or the task's stored guess before that. Showing nothing while
+    /// `git` is still answering would read as a directory with no branch
+    /// rather than one still loading.
+    static func displayedBranch(state: GitState?, taskBranchName: String?) -> String? {
+        state?.branch ?? taskBranchName
+    }
 }
 
 extension GitRunner {

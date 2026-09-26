@@ -376,10 +376,13 @@ nonisolated enum TranscriptBlock: Decodable {
     case toolUse(id: String, name: String, input: [String: JSONValue])
     case toolResult(toolUseId: String, content: String?, images: [ChatImage], isError: Bool)
     case image(ChatImage)
+    /// A deferred tool that `ToolSearch` loaded, which is all its result holds.
+    case toolReference(String)
     case ignored
 
     private enum CodingKeys: String, CodingKey {
         case type, text, thinking, id, name, input
+        case toolName = "tool_name"
         case toolUseId = "tool_use_id"
         case content
         case isError = "is_error"
@@ -416,6 +419,8 @@ nonisolated enum TranscriptBlock: Decodable {
                 return
             }
             self = .image(image)
+        case "tool_reference":
+            self = .toolReference(try container.decodeIfPresent(String.self, forKey: .toolName) ?? "")
         default:
             self = .ignored
         }
@@ -435,23 +440,28 @@ nonisolated enum TranscriptBlock: Decodable {
     /// `tool_result.content` is a plain string, an array of blocks, or
     /// absent entirely. Text blocks join into the result body; image blocks
     /// come back alongside it — a screenshot tool returns exactly that.
+    ///
+    /// Never nil: a nil result is what marks a call as still running, and a
+    /// result with nothing readable in it has still arrived.
     private static func decodeResultContent(
         _ container: KeyedDecodingContainer<CodingKeys>
-    ) throws -> (String?, [ChatImage]) {
+    ) throws -> (String, [ChatImage]) {
         if let string = try? container.decodeIfPresent(String.self, forKey: .content) {
             return (string, [])
         }
         guard let blocks = try? container.decodeIfPresent([TranscriptBlock].self, forKey: .content) else {
-            return (nil, [])
+            return ("", [])
         }
         let text = blocks.compactMap { block -> String? in
-            if case .text(let value) = block { return value }
-            return nil
+            switch block {
+            case .text(let value), .toolReference(let value): value
+            default: nil
+            }
         }.joined(separator: "\n")
         let images = blocks.compactMap { block -> ChatImage? in
             if case .image(let image) = block { return image }
             return nil
         }
-        return (text.isEmpty ? nil : text, images)
+        return (text, images)
     }
 }

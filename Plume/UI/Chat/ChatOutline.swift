@@ -41,8 +41,20 @@ struct ChatOutline: Equatable {
         case response
 
         /// Whether the user said this or was asked it, as opposed to the
-        /// agent's own output.
+        /// agent's own output. What earns a bookmark on the minimap.
         var isUserInput: Bool { self != .response }
+
+        /// Whether the user themselves is the one who produced this, as
+        /// opposed to being asked something by the agent. `.question` and
+        /// `.plan` earn a bookmark too (`isUserInput`), but `userInputKind`
+        /// builds both from an assistant tool call, so neither is something
+        /// the user sent — only something the user has yet to answer.
+        var isSentByUser: Bool {
+            switch self {
+            case .prompt, .shellCommand, .interruption: true
+            case .question, .plan, .response: false
+            }
+        }
 
         /// The line this entry carries, empty for a run of agent output.
         var text: String {
@@ -139,33 +151,27 @@ enum ChatOutlineBuilder {
     /// two of them.
     static let minimumWeight: CGFloat = 4
 
-    /// The raw weight at which compression starts to bite — the knee of the
-    /// curve. A run well under this draws at close to its true relative size;
-    /// one well over it grows only as fast as the logarithm. Raise it to keep
-    /// more of the realistic range proportional, lower it to even everything
-    /// out sooner.
-    static let compressionKnee: CGFloat = 120
+    /// Sets the size of responses against a prompt's fixed `promptWeight`.
+    /// At 1.8 a median response run (about 800) comes out near 13.5.
+    static let responseScale: CGFloat = 1.8
 
-    /// How tall a run one knee-width long draws. The whole curve scales with
-    /// this, so it sets the size of responses against a prompt's fixed
-    /// `promptWeight` without changing their shape relative to each other.
-    static let responseScale: CGFloat = 6
+    /// Makes every tenfold increase in length double a response's height.
+    static let responseExponent: CGFloat = log10(2)
+
+    /// About 1.5× a 99th-percentile run: tall enough to read as huge without
+    /// a single pathological run owning the map.
+    static let maximumResponseWeight: CGFloat = 45
 
     /// Compresses a run of agent output into the room it gets on the map.
     ///
     /// Response lengths run to orders of magnitude — a one-line answer
     /// against a turn with forty tool calls — so at true scale the longest
-    /// runs own the map entirely. The logarithm pulls that range in while
-    /// staying monotonic, so a longer run is still always taller than a
-    /// shorter one.
-    ///
-    /// The base is fixed at 2 because it is not a free parameter: changing it
-    /// only multiplies the result by a constant, which is what
-    /// `responseScale` already does. Shape and size are the two knobs, and
-    /// they are `compressionKnee` and `responseScale`.
+    /// runs own the map entirely. A fractional power pulls that range in
+    /// while staying monotonic, and unlike a logarithm it keeps a fixed ratio
+    /// per order of magnitude, so long runs still stand out.
     static func compress(_ weight: CGFloat) -> CGFloat {
         guard weight > 0 else { return minimumWeight }
-        return max(minimumWeight, responseScale * log2(1 + weight / compressionKnee))
+        return min(maximumResponseWeight, max(minimumWeight, responseScale * pow(weight, responseExponent)))
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
@@ -305,7 +311,7 @@ enum ChatOutlineBuilder {
             proseWeight(of: notice.title, block: nil)
         case .image:
             imageWeight
-        case .working:
+        case .working, .waitingOnSubagents:
             0
         }
     }

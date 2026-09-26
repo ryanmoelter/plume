@@ -46,7 +46,7 @@ enum HomebrewUpgrade {
 
     @MainActor
     static func runInTerminal(homebrewPrefix: URL?) {
-        let interrupted = AppDelegate.interruptedTabCount(statuses: StatusEngine.shared.tabStatuses.values)
+        let interrupted = AppDelegate.interruptedTabCount(statuses: StatusEngine.shared.effectiveTabStatuses)
         if interrupted > 0, AppSettings.shared.confirmQuitWhileWorking {
             guard confirmStoppingAgents(count: interrupted) else { return }
             quitConfirmedAt = Date()

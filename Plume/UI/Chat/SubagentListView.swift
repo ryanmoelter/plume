@@ -153,21 +153,21 @@ private struct SubagentRow: View, ThemedView {
 
     @State private var isHovering = false
 
-    private var messageCount: Int {
-        subagent.transcript.messages.count
-    }
-
-    private var caption: SubagentCaption {
-        SubagentCaption(subagent: subagent)
+    /// What the row leads with — the ask, not the agent type, which the
+    /// caption below states instead. Falls back to the id, matching the help
+    /// text below it.
+    private var title: String {
+        subagent.descriptor?.description ?? subagent.id
     }
 
     var body: some View {
+        let caption = SubagentCaption(subagent: subagent)
         Button(action: onOpen) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 StatusBadge(status: subagent.status)
                     .frame(width: 12, alignment: .center)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(subagent.title)
+                    Text(title)
                         .font(typography.body.font)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -179,7 +179,9 @@ private struct SubagentRow: View, ThemedView {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Text("\(messageCount)")
+                // Rendered even while empty, for the same reason the caption
+                // is: a row that gains its start time shouldn't reflow.
+                Text(caption.elapsedText ?? "")
                     .font(typography.caption.mono)
                     .emphasis(.subtle)
                 Image(systemName: "chevron.right")

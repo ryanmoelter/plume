@@ -24,6 +24,9 @@ struct ChatMessageList: View, ThemedView {
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    /// Nil where there is no plan to open, which leaves a plan row a
+    /// non-interactive summary.
+    var onOpenPlan: (() -> Void)? = nil
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -143,6 +146,7 @@ struct ChatMessageList: View, ThemedView {
             revealModel: revealModel,
             commands: commands,
             onOpenSubagent: onOpenSubagent,
+            onOpenPlan: onOpenPlan,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }
         )
@@ -195,12 +199,13 @@ struct ChatMessageList: View, ThemedView {
         // Before the pieces reach the list, so a new message's rows mount
         // with its reveal already in place.
         revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt))
-        heldTurnTargets = status == .awaitingReply ? revealModel?.unsettledTargets ?? [:] : [:]
-        if !heldTurnTargets.isEmpty { rebuilt = split(.working) }
+        let turnEnded = status == .awaitingReply || status == .waitingOnSubagents
+        heldTurnTargets = turnEnded ? revealModel?.unsettledTargets ?? [:] : [:]
+        if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }
         pieces = rebuilt
         showRevealedPieces()
         outline = ChatOutlineBuilder.outline(from: rebuilt)
-        pinSentPrompt(in: rebuilt)
+        pinSentPrompt()
     }
 
     /// Hands the list every piece the reveal has reached, and asks the reveal
@@ -233,16 +238,25 @@ struct ChatMessageList: View, ThemedView {
     ///
     /// Only a message appended to a conversation already showing: the first
     /// build is a transcript loading, and a resume replaces the whole list.
-    private func pinSentPrompt(in pieces: [ChatPiece]) {
+    ///
+    /// Only pins to something the user themselves sent —
+    /// `entry.kind.isSentByUser`. A minimap bookmark alone
+    /// (`entry.kind.isUserInput`) is not enough: it also covers a question
+    /// or a plan, which the agent produced and only the user's *next* turn
+    /// answers. Pinning to either of those would re-anchor a reader who
+    /// scrolled away, on a turn nobody just sent. A system note or another
+    /// agent's message can also land under the user's role without being
+    /// anything the user said, and isn't worth scrolling to either.
+    private func pinSentPrompt() {
         let ids = messages.map(\.id)
         defer { previousMessageIDs = ids }
         guard !previousMessageIDs.isEmpty,
               ids.count > previousMessageIDs.count,
               ids.starts(with: previousMessageIDs) else { return }
-        let appended = messages[previousMessageIDs.count...]
-        guard let prompt = appended.last(where: { $0.role == .user }),
-              let piece = pieces.first(where: { $0.messageID == prompt.id }) else { return }
-        commands.pin(pieceID: piece.id)
+        let appendedIDs = Set(ids[previousMessageIDs.count...])
+        guard let entry = outline.entries.last(where: { $0.kind.isSentByUser && appendedIDs.contains($0.messageID) })
+        else { return }
+        commands.pin(pieceID: entry.id)
     }
 }
 

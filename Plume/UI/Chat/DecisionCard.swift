@@ -19,6 +19,10 @@ enum DecisionCard {
     /// input-field scroller, a text field.
     static let nestedRadius: CGFloat = 6
     static let nestedPadding: CGFloat = 8
+    /// The composer editor's own inset above and below its text, when it
+    /// serves as a decision field. The field's `nestedPadding` already spaces
+    /// it, so the main composer's roomier inset would double that.
+    static let composerFieldTextInset: CGFloat = 1
 }
 
 /// A card's accent, which says what is being decided.
@@ -54,18 +58,20 @@ extension View {
     }
 
     /// The treatment for a field the user types a decision into — a denial
-    /// reason, a typed answer, plan feedback. Bordered in the selection color
-    /// once it holds something, so a typed answer reads as chosen the way a
-    /// picked option does.
-    func decisionField(isFilled: Bool, colors: Palette) -> some View {
-        padding(DecisionCard.nestedPadding)
+    /// reason, a typed answer, plan feedback. An outline rather than a filled
+    /// background, so the field reads as an input rather than another card;
+    /// it takes the selection color once it holds something or has focus, so
+    /// a typed answer or an active field reads as chosen the way a picked
+    /// option does.
+    func decisionField(isFilled: Bool, isFocused: Bool = false, colors: Palette) -> some View {
+        let isAccented = isFilled || isFocused
+        return padding(DecisionCard.nestedPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(colors.surfaceTint, in: .rect(cornerRadius: DecisionCard.nestedRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: DecisionCard.nestedRadius)
                     .strokeBorder(
-                        isFilled ? colors.selection : colors.divider,
-                        lineWidth: isFilled ? 1.5 : 1
+                        isAccented ? colors.selection : colors.divider,
+                        lineWidth: isAccented ? 1.5 : 1
                     )
             }
     }

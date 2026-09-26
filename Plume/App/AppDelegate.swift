@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .terminateNow
         }
         let shouldConfirm = Self.shouldConfirmQuit(
-            statuses: statusEngine.tabStatuses.values,
+            statuses: statusEngine.effectiveTabStatuses,
             isSystemInitiated: isSystemInitiatedQuit,
             confirmUserQuit: settings.confirmQuitWhileWorking,
             confirmSystemQuit: settings.confirmSystemInitiatedQuit
@@ -189,8 +189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return interruptedTabCount(statuses: statuses) > 0
     }
 
-    /// Tabs a quit would interrupt: still working, or waiting on the user.
+    /// Tabs a quit would interrupt: still working, directly or through
+    /// subagents, or waiting on the user.
     static func interruptedTabCount(statuses: some Sequence<TaskStatus>) -> Int {
-        statuses.filter { $0 == .working || $0.wantsAttention }.count
+        statuses.filter { $0.isActive || $0.wantsAttention }.count
     }
 }

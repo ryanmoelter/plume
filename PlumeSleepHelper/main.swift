@@ -179,7 +179,21 @@ final class ClientSession: NSObject, SleepHelperProtocol {
     func heartbeat(reply: @escaping (Bool) -> Void) {
         Lease.shared.heartbeat(from: id, reply: reply)
     }
+
+    func helperBuild(reply: @escaping (String, String) -> Void) {
+        reply(launchedFrom.build, launchedFrom.bundlePath)
+    }
 }
+
+/// Read once at launch: an in-place update replaces the bundle's Info.plist
+/// under a running helper, and the answer must describe the running binary.
+let launchedFrom: (build: String, bundlePath: String) = {
+    guard let executable = executableURL(ofProcess: getpid()) else { return ("", "") }
+    return (
+        appBundleBuild(containingExecutable: executable) ?? "",
+        appBundle(containingExecutable: executable).path
+    )
+}()
 
 final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     private let lock = NSLock()
@@ -220,6 +234,7 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
 // launchd runs this at boot too (RunAtLoad), which is what un-sticks a setting
 // left behind by a crash or a power loss.
 Lease.shared.release(for: nil, reason: "launch sweep")
+log.notice("helper launched from build \(launchedFrom.build, privacy: .public) at \(launchedFrom.bundlePath, privacy: .public)")
 
 let listener = NSXPCListener(machServiceName: sleepHelperServiceName)
 // A malformed requirement raises an Objective-C exception here, which is why

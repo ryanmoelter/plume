@@ -12,6 +12,12 @@ enum WorktreeRemovalVerb {
         case .archive: "Archive"
         }
     }
+
+    /// The confirmation dialog's title, shared by every removal flow that
+    /// confirms against a task by name.
+    func dialogTitle(for taskTitle: String) -> String {
+        "\(title) “\(taskTitle)”?"
+    }
 }
 
 /// Whether removing a task's worktree needs confirmation first, shared by the
@@ -31,7 +37,7 @@ enum WorktreeRemovalPrompt {
         var id: UUID { task.id }
 
         var dialogTitle: String {
-            "\(verb.title) “\(task.title)”?"
+            verb.dialogTitle(for: task.title)
         }
 
         var primaryButtonTitle: String {

@@ -55,15 +55,15 @@ struct SidebarQuotaRow: View, ThemedView {
     private func presence(_ snapshot: QuotaSnapshot?) -> [Bool] {
         [
             snapshot != nil,
-            (snapshot?.rateLimit.fiveHour?.utilization ?? 0) > 0,
-            (snapshot?.rateLimit.sevenDay?.utilization ?? 0) > 0,
+            snapshot?.rateLimit.fiveHour != nil,
+            snapshot?.rateLimit.sevenDay != nil,
         ]
     }
 
     @ViewBuilder
     private func meters(_ snapshot: QuotaSnapshot, isStale: Bool) -> some View {
         Group {
-            if let fiveHour = snapshot.rateLimit.fiveHour, fiveHour.utilization > 0 {
+            if let fiveHour = snapshot.rateLimit.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
                     utilization: fiveHour.utilization,
@@ -77,7 +77,7 @@ struct SidebarQuotaRow: View, ThemedView {
                 )
                 .transition(.opacity)
             }
-            if let sevenDay = snapshot.rateLimit.sevenDay, sevenDay.utilization > 0 {
+            if let sevenDay = snapshot.rateLimit.sevenDay {
                 StatuslineMeterSegment(
                     label: "7d",
                     utilization: sevenDay.utilization,

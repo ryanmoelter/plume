@@ -39,14 +39,36 @@ struct TerminalShortcutMonitorTests {
         #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "n", flags: [.option]))
     }
 
+    /// ⌘H and ⌘Q are absent here on purpose — AppKit's own Hide and Quit
+    /// items claim those, covered by `systemMenuShortcutsAreClaimedEvenWithAnEmptyShortcutList` below.
     @Test func commandChordsPlumeDoesNotBindPassThrough() {
-        for character in "bcdefghijklmopqrsuvxyz" {
+        for character in "bcdefgijklmoprsuvxyz" {
             #expect(
                 !TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: String(character), flags: [.command]),
                 "⌘\(character) is unbound and should pass through"
             )
         }
         #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: defaults, characters: "0", flags: [.command]))
+    }
+
+    /// Settings, Hide and Quit come from AppKit's own app menu, not a button
+    /// in `PlumeCommands`, so no `shortcuts` list carries them — `isClaimed`
+    /// adds them itself.
+    @Test func systemMenuShortcutsAreClaimedEvenWithAnEmptyShortcutList() {
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: ",", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "h", flags: [.command]))
+        #expect(TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "q", flags: [.command]))
+    }
+
+    /// Edit-menu chords are the same kind of automatic AppKit item, but a
+    /// terminal needs them for its own editing and clipboard, so they must
+    /// stay unclaimed.
+    @Test func editMenuChordsStayWithTheTerminal() {
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "z", flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "x", flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "c", flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "v", flags: [.command]))
+        #expect(!TerminalShortcutMonitor.isClaimed(shortcuts: [], characters: "a", flags: [.command]))
     }
 
     /// The modifier set is compared whole, so a chord never matches a

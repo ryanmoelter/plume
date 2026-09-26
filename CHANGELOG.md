@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.13.1 (29)
+
+- Fix the sleep helper breaking and degrading Plume's performance after an upgrade
+- Show a new "waiting" status when only subagents are working
+  - Allow sending messages to the main agent while subagents run, if it's available
+  - Fix the chat getting stuck on "working" after stopping a subagent
+  - Fix tool search rows getting stuck on "working"
+- Polish the sidebar
+  - Lay out quotas side by side when there's room
+  - Keep Claude quotas visible, even at 0% (OpenAI quotas still hide at 0%, since they report multiple quotas that most people don't use)
+  - Clean up quota tooltips and popovers
+  - Add a Remote Control toggle to a task's context menu
+- Confirm before archiving or deleting a task while its agent is mid-turn
+- Fix branch/worktree labels in the statusline
+- Plans
+  - Open the plan by clicking a proposed plan in the chat
+  - Dismiss the plan by clicking outside it or anywhere on its title row
+  - Outline the plan feedback field instead of filling it
+- Composer
+  - Add icons to the effort and mode menus
+  - Stop graying out the mode and model menus in new and restored chats
+- Chat
+  - Leave a little room above a sent message when scrolling to it, and stop scrolling to system notes
+  - Show agent type, context size, and elapsed time on subagent rows
+  - Rebalance the minimap so long responses stand out without taking over
+  - Fix a slash command as the first message in a conversation
+- Keep ⌘, ⌘H, and ⌘Q working while a terminal has focus
+
+### 0.13.0 recap
+
+- Run Codex agents (beta)
+- Auto-update Plume via homebrew or the DMG file
+- Overhaul settings pages
+- Improve chat animations
+
+### Recently
+
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+- Install with Homebrew: `brew install ryanmoelter/tap/plume`
+- Send images in chat
+- Import your workspaces and tabs from cmux
+
 ## 0.13.0 (28)
 
 ### New

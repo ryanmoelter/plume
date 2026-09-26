@@ -60,6 +60,13 @@ struct KeepAwakeTests {
             isEngaged = false
             status = .notRegistered
         }
+
+        private(set) var reinstallCalls = 0
+
+        func reinstall() {
+            reinstallCalls += 1
+            status = .ready
+        }
     }
 
     /// Stands in for `ThermalStateMonitor`, settable so a test can play a
@@ -712,6 +719,19 @@ struct KeepAwakeTests {
         #expect(assertion.held != nil, "the plain hold is untouched")
     }
 
+    @Test func reinstallingAnUnresponsiveHelperKeepsTheSettingOn() {
+        let lid = FakeLidSleepOverride()
+        lid.status = .unresponsive
+        let (coordinator, _, settings) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
+        settings.keepsAwakeWithLidClosed = true
+
+        coordinator.reinstallLidHelper()
+        #expect(lid.reinstallCalls == 1)
+        #expect(lid.unregisterCalls == 0)
+        #expect(settings.keepsAwakeWithLidClosed)
+        #expect(coordinator.lidOverrideStatus == .ready)
+    }
+
     @Test func installingRegistersAndMirrorsTheApprovalState() {
         let lid = FakeLidSleepOverride()
         let (coordinator, _, _) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
@@ -1099,6 +1119,12 @@ struct LidCloseGuidanceTests {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unavailable("nope"))
         #expect(guidance == .helperUnavailable("nope"))
         #expect(guidance.note == "nope")
+    }
+
+    @Test func anUnresponsiveHelperPointsAtReinstall() {
+        let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unresponsive)
+        #expect(guidance.note?.contains("Reinstall") == true)
+        #expect(!LidSleepOverrideStatus.unresponsive.canEngage)
     }
 
     /// Never mode means the user declined Plume's say over sleep, so lid

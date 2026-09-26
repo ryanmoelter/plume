@@ -66,7 +66,7 @@ final class StatusNotifier {
         // interruption is the user's own doing, so it needs no telling. A
         // subagent finishing is one step inside a turn the chat already shows,
         // and several can land in a row.
-        case .working, .notStarted, .interrupted, .done: nil
+        case .working, .waitingOnSubagents, .notStarted, .interrupted, .done: nil
         }
     }
 }
