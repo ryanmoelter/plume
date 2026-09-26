@@ -31,6 +31,12 @@ What an Option chord does cost is the terminal. `MenuShortcut.isClaimable` lets 
 
 **A scratch instance cannot prove the action ran.** Every command gated on a `focusedSceneValue` — the whole Tab menu, most of the File menu — reads disabled unless the app's scene is active, and a hidden instance's never is. `handledByEnabled` reports that, so a no-op there is not evidence of a bug. Confirming the action itself still needs a frontmost app.
 
+## AppKit's own menu items need claiming too
+
+Settings (⌘,), Hide (⌘H) and Quit (⌘Q) come from AppKit's standard app menu, not from a button in `PlumeCommands`, so they are absent from `PlumeShortcuts.all`. A focused terminal's `performKeyEquivalent` still runs before the main menu's, so without a separate claim these three do nothing while a terminal has focus — ⌘, was the first one found broken. `TerminalShortcutMonitor.systemMenuShortcuts` lists them and `isClaimed` always adds it on top of whatever `shortcuts` it was given.
+
+Undo/Cut/Copy/Paste/Select All (⌘Z/X/C/V/A) are the same kind of automatic item and are deliberately *not* in that list: a terminal needs them for its own editing and clipboard, and claiming them back would break that.
+
 ## Tests must not read the live bindings
 
 `PlumeShortcuts.all` reads `AppSettings.shared`, so a test asserting against the shipped chords fails on any machine whose owner has rebound one. Pass an explicit set instead: `PlumeShortcuts.all(with: ShortcutBindings())` for the defaults, and `TerminalShortcutMonitor.isClaimed(shortcuts:characters:flags:)` to match against it. Never assign to `AppSettings.shared.shortcutBindings` from a test — it writes the developer's real preferences.

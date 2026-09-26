@@ -65,12 +65,28 @@ final class TerminalShortcutMonitor {
     ///
     /// `shortcuts` defaults to what is bound now. A test passes its own set
     /// rather than the live one, whose rebindable half is whatever the
-    /// developer running the test last chose.
+    /// developer running the test last chose. `systemMenuShortcuts` is always
+    /// added on top, live or in a test, since those chords are neither bound
+    /// by `PlumeCommands` nor rebindable.
     static func isClaimed(
         shortcuts: [MenuShortcut] = PlumeShortcuts.all,
         characters: String?,
         flags: NSEvent.ModifierFlags
     ) -> Bool {
-        shortcuts.contains { $0.matches(characters: characters, flags: flags) }
+        (shortcuts + systemMenuShortcuts).contains { $0.matches(characters: characters, flags: flags) }
     }
+
+    /// Chords AppKit adds to the app menu on its own — Settings, Hide, Quit —
+    /// with no button in `PlumeCommands` behind them, so they never appear in
+    /// `PlumeShortcuts.all`. The same first-refusal problem applies: a
+    /// focused terminal's `performKeyEquivalent` runs before the menu's, so
+    /// without this list ⌘, opens no Settings window and ⌘Q/⌘H do nothing
+    /// while a terminal has focus. Kept separate from `PlumeShortcuts` rather
+    /// than folded in, since none of these are rebindable and `PlumeShortcuts`
+    /// documents itself as what `PlumeCommands` binds.
+    private static let systemMenuShortcuts: [MenuShortcut] = [
+        MenuShortcut(","), // Settings…
+        MenuShortcut("h"), // Hide Plume
+        MenuShortcut("q"), // Quit Plume
+    ]
 }
