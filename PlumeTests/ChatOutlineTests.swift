@@ -202,6 +202,19 @@ struct ChatOutlineTests {
         #expect(result.entries.map(\.kind) == [.plan("Rework the minimap")])
     }
 
+    /// A question or a plan earns a bookmark (`isUserInput`) but comes from
+    /// an assistant tool call, not from the user, so pinning a just-sent
+    /// message to one of these would be wrong — that is the user's next
+    /// turn, not something already sent.
+    @Test func onlyWhatTheUserSentCountsAsSentByThem() {
+        #expect(ChatOutline.Kind.prompt("Hi").isSentByUser)
+        #expect(ChatOutline.Kind.shellCommand("ls").isSentByUser)
+        #expect(ChatOutline.Kind.interruption.isSentByUser)
+        #expect(!ChatOutline.Kind.question("Which?").isSentByUser)
+        #expect(!ChatOutline.Kind.plan("A plan").isSentByUser)
+        #expect(!ChatOutline.Kind.response.isSentByUser)
+    }
+
     @Test func onlyWhatTheUserDidNotWriteIsMarked() {
         // A mark against every one of the user's own messages would be
         // noise; the icons are there to pick out what is not one.

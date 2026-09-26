@@ -41,8 +41,20 @@ struct ChatOutline: Equatable {
         case response
 
         /// Whether the user said this or was asked it, as opposed to the
-        /// agent's own output.
+        /// agent's own output. What earns a bookmark on the minimap.
         var isUserInput: Bool { self != .response }
+
+        /// Whether the user themselves is the one who produced this, as
+        /// opposed to being asked something by the agent. `.question` and
+        /// `.plan` earn a bookmark too (`isUserInput`), but `userInputKind`
+        /// builds both from an assistant tool call, so neither is something
+        /// the user sent — only something the user has yet to answer.
+        var isSentByUser: Bool {
+            switch self {
+            case .prompt, .shellCommand, .interruption: true
+            case .question, .plan, .response: false
+            }
+        }
 
         /// The line this entry carries, empty for a run of agent output.
         var text: String {
@@ -144,12 +156,14 @@ enum ChatOutlineBuilder {
     /// one well over it grows only as fast as the logarithm. Raise it to keep
     /// more of the realistic range proportional, lower it to even everything
     /// out sooner.
-    static let compressionKnee: CGFloat = 120
+    static let compressionKnee: CGFloat = 60
 
     /// How tall a run one knee-width long draws. The whole curve scales with
     /// this, so it sets the size of responses against a prompt's fixed
     /// `promptWeight` without changing their shape relative to each other.
-    static let responseScale: CGFloat = 6
+    /// A smaller knee raises the raw logarithm at every weight, so this has
+    /// to shrink alongside it to keep a typical response's height in place.
+    static let responseScale: CGFloat = 4.2
 
     /// Compresses a run of agent output into the room it gets on the map.
     ///

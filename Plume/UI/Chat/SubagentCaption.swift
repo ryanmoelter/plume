@@ -1,7 +1,9 @@
 import Foundation
 
-/// The dim second line of a subagent row: what it runs on, how long it has
-/// been going, and how much of its context it has spent.
+/// The dim second line of a subagent row: what it runs on, what kind of
+/// agent it is, and how much of its context it has spent. How long it has
+/// been going is kept here too, but shown elsewhere on the row, beside the
+/// chevron.
 ///
 /// Every part is optional and the caption drops whatever it cannot state, so a
 /// row that has only just appeared says less rather than something wrong.
@@ -12,9 +14,10 @@ import Foundation
 /// same reason.
 nonisolated struct SubagentCaption: Equatable {
     var modelLabel: String?
+    var agentType: String?
     var elapsed: TimeInterval?
-    /// Context spent, 0–1. Nil when the model implies no window.
-    var contextFraction: Double?
+    var contextUsedTokens: Int?
+    var contextWindow: Int?
 
     init(subagent: SubagentTranscript, now: Date = .now) {
         let transcript = subagent.transcript
@@ -22,6 +25,7 @@ nonisolated struct SubagentCaption: Equatable {
             AgentModel.recognizing($0, provider: subagent.provider)
         }
         modelLabel = model?.label
+        agentType = subagent.descriptor?.agentType
 
         if let startedAt = transcript.startedAt {
             // A working agent's clock runs to now; a finished one stops at its
@@ -30,23 +34,31 @@ nonisolated struct SubagentCaption: Equatable {
             elapsed = end.timeIntervalSince(startedAt)
         }
 
-        if let used = transcript.latestUsage?.contextUsedTokens,
-           let window = model?.nominalContextWindow, window > 0 {
-            contextFraction = min(Double(used) / Double(window), 1)
-        }
+        contextUsedTokens = transcript.latestUsage?.contextUsedTokens
+        contextWindow = model?.nominalContextWindow
     }
 
+    /// Model, agent type, then the raw context spent as "150k/200k": a count
+    /// says something on its own without the window to divide it by.
     var text: String {
         var parts: [String] = []
         if let modelLabel { parts.append(modelLabel) }
-        if let elapsed { parts.append(Self.formatted(elapsed: elapsed)) }
-        if let contextFraction {
-            parts.append("\(Int((contextFraction * 100).rounded()))% context")
+        if let agentType { parts.append(agentType) }
+        if let contextUsedTokens, let contextWindow, contextWindow > 0 {
+            parts.append("\(Self.formatted(tokens: contextUsedTokens))/\(Self.formatted(tokens: contextWindow))")
         }
         return parts.joined(separator: " · ")
     }
 
+    var elapsedText: String? {
+        elapsed.map(Self.formatted(elapsed:))
+    }
+
     static func formatted(elapsed: TimeInterval) -> String {
         ElapsedTime.formatted(elapsed)
+    }
+
+    static func formatted(tokens count: Int) -> String {
+        TokenCount.formatted(count)
     }
 }

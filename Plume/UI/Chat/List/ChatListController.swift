@@ -105,6 +105,11 @@ final class ChatListController: NSObject {
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
 
+    /// About a line or two of body text left showing above a freshly pinned
+    /// prompt. Scaled to the chat's own font size rather than a fixed point,
+    /// so it still reads as "a line or two" at a size other than the default.
+    private var pinTopInset: CGFloat { inputs.chatFontSize * 2.5 }
+
     private enum Item {
         case piece(ChatPiece)
         case dock
@@ -348,7 +353,7 @@ final class ChatListController: NSObject {
 
     func pin(pieceID: String) {
         pendingPin = pieceID
-        model.setAnchor(pieceID)
+        model.setAnchor(pieceID, inset: pinTopInset)
         scroll(to: .bottom, animated: true)
     }
 
@@ -620,7 +625,7 @@ final class ChatListController: NSObject {
     private func notePinMeasurement(_ id: String) {
         guard let pendingPin, let anchorIndex = model.index(of: pendingPin), let index = model.index(of: id),
               index >= anchorIndex else { return }
-        model.setAnchor(pendingPin)
+        model.setAnchor(pendingPin, inset: pinTopInset)
     }
 
     /// Realizes inside the window and frees only well outside it, so an item
