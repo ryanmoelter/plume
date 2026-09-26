@@ -85,6 +85,8 @@ struct StatuslineStripView: View, ThemedView {
         return QuotaFreshness.isStale(receivedAt: snapshot.receivedAt, now: quota.now)
     }
 
+    private var receivedAt: Date? { quota.snapshot?.receivedAt }
+
     // MARK: - Layouts
 
     private var wideLayout: some View {
@@ -99,6 +101,7 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: receivedAt,
                     barWidth: StatuslineMeterWidth.shortQuota,
                     windowLength: QuotaWindowLength.fiveHour
                 )
@@ -112,6 +115,7 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: receivedAt,
                     barWidth: StatuslineMeterWidth.quota,
                     windowLength: QuotaWindowLength.sevenDay
                 )
@@ -141,6 +145,7 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: fiveHour.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: receivedAt,
                     barWidth: StatuslineMeterWidth.shortQuota,
                     showsReading: false,
                     windowLength: QuotaWindowLength.fiveHour
@@ -155,6 +160,7 @@ struct StatuslineStripView: View, ThemedView {
                     resetsAt: sevenDay.resetsAt,
                     now: quota.now,
                     isStale: isStale,
+                    receivedAt: receivedAt,
                     barWidth: StatuslineMeterWidth.quota,
                     showsReading: false,
                     windowLength: QuotaWindowLength.sevenDay
@@ -331,6 +337,8 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// Dims the whole meter once the reading is old enough that presenting it
     /// at full strength would overstate what is known.
     var isStale: Bool = false
+    /// When the current reading arrived, for the tooltip's "last heard" line.
+    var receivedAt: Date?
     /// Bar length carries how finely the number is worth reading. Context
     /// deserves the most precision, then the seven-day window; the five-hour
     /// quota moves fast enough that its exact percent matters least.
@@ -376,7 +384,7 @@ struct StatuslineMeterSegment: View, ThemedView {
             utilization: utilization,
             resetsAt: resetsAt,
             windowLength: windowLength,
-            isStale: isStale,
+            receivedAt: receivedAt,
             now: now
         )
     }
