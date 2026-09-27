@@ -25,7 +25,7 @@ An issue states the item and any real blocker. It does not describe what the cod
 
 ## What should I work on
 
-Call `list_issues` with `team: "Plume"`, `state: "Todo"`, and `fields: ["identifier", "title", "priority", "estimate", "project", "description"]`.
+Call `list_issues` with `team: "Plume"`, `state: "Todo"`, and `fields: ["id", "title", "priority", "estimate", "project", "description"]`.
 
 Sort by `priority` ascending. Priority is the queue order.
 
