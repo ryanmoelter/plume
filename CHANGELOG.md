@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.2 (30)
+
+- Fix the sleep helper not coming back after a Homebrew upgrade, for real this time
+  - If you upgraded to 0.13.1 with `brew`, reinstall the helper once from Settings → Keep Awake
+
+### 0.13.x recap
+
+- Run Codex agents (beta)
+- Auto-update Plume via homebrew or the DMG file
+- Overhaul settings pages
+- Improve chat animations
+- Show a new "waiting" status when only subagents are working
+- Polish the sidebar, plans, and composer
+
+### Recently
+
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+- Install with Homebrew: `brew install ryanmoelter/tap/plume`
+- Send images in chat
+- Import your workspaces and tabs from cmux
+
 ## 0.13.1 (29)
 
 - Fix the sleep helper breaking and degrading Plume's performance after an upgrade

@@ -37,6 +37,11 @@ nonisolated struct SleepHelperRetryPolicy: Equatable, Sendable {
         return !helperLoaded
     }
 
+    /// For a re-register that failed, so the panel offers Reinstall at once.
+    mutating func markUnresponsive() {
+        consecutiveFailures = max(consecutiveFailures, Self.failuresBeforeUnresponsive)
+    }
+
     var isUnresponsive: Bool { consecutiveFailures >= Self.failuresBeforeUnresponsive }
 
     static func delay(afterFailures failures: Int) -> TimeInterval {
