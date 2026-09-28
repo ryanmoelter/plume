@@ -35,6 +35,14 @@ struct SleepHelperRetryPolicyTests {
         #expect(delay == 1)
     }
 
+    @Test func aFailedReregisterReadsUnresponsiveUntilASuccess() {
+        var policy = SleepHelperRetryPolicy()
+        policy.markUnresponsive()
+        #expect(policy.isUnresponsive)
+        policy.recordSuccess()
+        #expect(!policy.isUnresponsive)
+    }
+
     @Test func aLoadedHelperIsNeverReregistered() {
         var policy = SleepHelperRetryPolicy()
         let claimed = policy.claimReregister(helperLoaded: true)

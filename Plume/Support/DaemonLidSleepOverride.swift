@@ -15,6 +15,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     private(set) var status: LidSleepOverrideStatus = .notRegistered
 
     @ObservationIgnored private let service = SMAppService.daemon(plistName: sleepHelperPlistName)
+    @ObservationIgnored private lazy var registrar = ServiceRegistrar(service: service)
     @ObservationIgnored private var connection: NSXPCConnection?
     @ObservationIgnored private var heartbeat: Timer?
     @ObservationIgnored private var approvalPoll: Timer?
@@ -79,7 +80,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func ensureRegistered() {
-        guard status == .notRegistered else { return }
+        // A re-register passes through notRegistered and owns the registration until it ends.
+        guard status == .notRegistered, !isRecovering else { return }
         do {
             try service.register()
             versionPolicy.recordManualReinstall()
@@ -293,23 +295,33 @@ final class DaemonLidSleepOverride: LidSleepOverride {
               retryPolicy.claimReregister(helperLoaded: loaded)
         else { return }
         Log.app.notice("Sleep helper is approved but not loaded; re-registering")
+        let wasRecovering = isRecovering
+        isRecovering = true
         await reregister(generation: generation)
+        guard generation == self.generation, !wasRecovering else { return }
+        isRecovering = false
+        readStatus()
     }
 
-    /// Unregister-then-register is what reloaded an unloaded job by hand, and
-    /// macOS keeps the approval across it, so it does not prompt.
+    /// A failure leaves the panel offering Install or Reinstall, never "Installed".
     private func reregister(generation: Int) async {
-        do {
-            try await service.unregister()
-        } catch {
-            Log.app.notice("Sleep helper unregister before re-register: \(error.localizedDescription, privacy: .public)")
-        }
-        guard generation == self.generation else { return }
-        do {
-            try service.register()
-            Log.app.notice("Re-registered the sleep helper")
-        } catch {
-            Log.app.error("Sleep helper re-register failed: \(error.localizedDescription, privacy: .public)")
+        let outcome = await SleepHelperReregistration.run(
+            registrar,
+            isCurrent: { generation == self.generation },
+            log: { Log.app.notice("\($0, privacy: .public)") }
+        )
+        switch outcome {
+        case .loaded(let attempts):
+            Log.app.notice("Re-registered the sleep helper (register attempts after unregistering: \(attempts))")
+        case .needsApproval:
+            Log.app.notice("Re-registering the sleep helper needs approval in Login Items")
+        case .failed(let reason):
+            Log.app.error("Sleep helper re-register failed: \(reason, privacy: .public)")
+            // A notRegistered status already offers Install.
+            if service.status == .enabled { retryPolicy.markUnresponsive() }
+        case .cancelled:
+            Log.app.notice("Sleep helper re-register superseded")
+            return
         }
         readStatus()
     }
@@ -357,6 +369,51 @@ final class DaemonLidSleepOverride: LidSleepOverride {
                     continuation.resume(returning: nil)
                 }
             }
+        }
+    }
+
+    private final class ServiceRegistrar: SleepHelperRegistrar {
+        let service: SMAppService
+
+        init(service: SMAppService) {
+            self.service = service
+        }
+
+        var status: SleepHelperServiceStatus {
+            switch service.status {
+            case .notRegistered, .notFound: .notRegistered
+            case .requiresApproval: .requiresApproval
+            case .enabled: .enabled
+            @unknown default: .unknown
+            }
+        }
+
+        func register() -> SleepHelperRegisterResult {
+            do {
+                try service.register()
+                return .registered
+            } catch let error as NSError {
+                let denied = error.code == Int(EPERM) || error.code == kSMErrorLaunchDeniedByUser
+                let reason = "\(error.localizedDescription) (\(error.domain) \(error.code))"
+                return denied ? .denied(reason) : .failed(reason)
+            }
+        }
+
+        func unregister() async -> String? {
+            do {
+                try await service.unregister()
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
+
+        func isLoaded() async -> Bool? {
+            await DaemonLidSleepOverride.printHelperJob()?.loaded
+        }
+
+        func wait(_ seconds: TimeInterval) async {
+            try? await Task.sleep(for: .seconds(seconds))
         }
     }
 
