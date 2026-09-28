@@ -80,7 +80,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func ensureRegistered() {
-        guard status == .notRegistered else { return }
+        // A re-register passes through notRegistered and owns the registration until it ends.
+        guard status == .notRegistered, !isRecovering else { return }
         do {
             try service.register()
             versionPolicy.recordManualReinstall()
