@@ -8,6 +8,18 @@ A delightful Mac-native AI coding interface.
 
 Designed for people who jump between Claude Code and Codex sessions and do many things in parallel. It aims for clarity, reliability, and ease of use.
 
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```
+brew install ryanmoelter/tap/plume
+```
+
+Or download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases).
+
+Either way, Plume will let you know (unobtrusively) when there's a new update.
+
 ## Why should I use it?
 
 - **Stop staring at the terminal**: Chat with your agents in non-monospaced fonts, with proper UI affordances for plans, questions, permission prompts, slash commands, and more.
@@ -24,30 +36,8 @@ Designed for people who jump between Claude Code and Codex sessions and do many 
 - macOS 26.2 or later
 - At least one supported CLI installed and logged in on your shell’s PATH:
   - [Claude Code](https://claude.com/claude-code) (`claude`)
-  - [Codex](https://github.com/openai/codex) (`codex`) — **beta**. See [compatibility and limitations](docs/codex-beta.md).
+  - [Codex](https://github.com/openai/codex) (`codex`) — **beta**.
 - For GitHub PR features, [`gh` cli](https://cli.github.com/) installed and logged in on your shell's PATH
-
-## Installing
-
-With [Homebrew](https://brew.sh):
-
-```
-brew install ryanmoelter/tap/plume
-```
-
-Upgrade with `brew upgrade --cask plume`. Plume tells you in-app when an update is available, and its update window can run the upgrade in Terminal for you.
-
-Or download the signed and notarized DMG from the [releases page](https://github.com/ryanmoelter/plume/releases). A DMG install updates itself: use Check for Updates…, or click the "Update Available" row in the sidebar when one shows up.
-
-## Building from source
-
-Open `Plume.xcodeproj` in Xcode 26.2 or later, or build from the command line:
-
-```
-xcodebuild -scheme Plume -destination 'platform=macOS' build
-```
-
-A Debug build keeps its data separate from an installed release, so the two can run side by side.
 
 ## FAQ
 
@@ -64,6 +54,16 @@ This is artisanal slop, thank you very much. It's fully AI-coded, but I've had a
 All art (e.g. the icon) was made by me without AI assistance.
 
 Read my [AI Policy here](https://gist.github.com/ryanmoelter/d12c933bd1619224149faac356261a84).
+
+## Building from source
+
+Open `Plume.xcodeproj` in Xcode 26.2 or later, or build from the command line:
+
+```
+xcodebuild -scheme Plume -destination 'platform=macOS' build
+```
+
+A Debug build keeps its data separate from an installed release, so the two can run side by side.
 
 ## License
 
