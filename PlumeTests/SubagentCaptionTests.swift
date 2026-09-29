@@ -155,7 +155,7 @@ struct SubagentCaptionTests {
 
         #expect(caption.contextUsedTokens == 400_000)
         #expect(caption.contextWindow == 200_000)
-        #expect(caption.text == "Haiku 4.5 200K · 400k/200k")
+        #expect(caption.text == "Haiku 4.5 · 400k/200k")
     }
 
     @Test(arguments: [
