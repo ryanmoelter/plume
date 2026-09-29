@@ -10,12 +10,27 @@ Verified first-hand against Claude Code **2.1.258** (September 2026) by driving 
 claude -p --output-format stream-json --input-format stream-json \
        --include-partial-messages --verbose \
        --permission-mode <mode> --permission-prompt-tool stdio \
+       --allow-dangerously-skip-permissions \
        [--resume <session-id>] [--model <model>] [--settings <path>] [--add-dir <dir>]
 ```
 
 `--verbose` is required for `stream-json` output. Never pass `--bare`: it refuses the keychain and forces an API key.
 
 **`--permission-prompt-tool stdio` is the load-bearing flag.** Without it a headless run never asks — a tool needing approval is auto-denied with "no prompt available in headless mode", and the turn ends having done nothing. The flag's own help text says permission prompts reach the host over stdio. Its value is not validated at startup, so a wrong one fails only later, at the first tool call.
+
+**`--allow-dangerously-skip-permissions` is what lets a session switch into bypass.** Measured against 2.1.280 in a trusted directory, with a Bash call that needs approval:
+
+| launch | `--allow-…` | result |
+|---|---|---|
+| `--permission-mode bypassPermissions` | no | `init` reports `bypassPermissions`; no `can_use_tool`, the command runs |
+| `--permission-mode default`, then `set_permission_mode` → `bypassPermissions` | no | the request fails: `Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions`. The next `init` still reports `default`, and the call still asks |
+| same | yes | reply `{"mode":"bypassPermissions"}`, a `system/status` with the new mode, and no `can_use_tool` |
+| `--permission-mode default` | yes | `init` reports `default` and the call still asks — the flag only unlocks the mode |
+| `--permission-mode bypassPermissions`, then `set_permission_mode` → `default` | yes | the call asks again |
+
+So launching in bypass works either way, but switching into it needs the flag, and without it the refusal arrives only as an error reply. The error text names `--dangerously-skip-permissions`, but that flag *starts* the session in bypass; the `allow` variant is the one to pass. Plume passes it on every launch, and the picker's `showsBypassPermissions` setting stays the gate.
+
+The TUI is different: there the flag shows the "Bypass Permissions mode" warning dialog at every launch, whatever the starting mode. A terminal tab therefore doesn't pass it. It never switches mode mid-session, and launching straight into bypass works there without the flag, behind that same dialog.
 
 ## The two message planes
 
