@@ -7,7 +7,7 @@ struct ModelEffortCommandTests {
         (AgentModel.fable, "/model fable"),
         (AgentModel.opus, "/model opus[1m]"),
         (AgentModel.sonnet, "/model sonnet[1m]"),
-        (AgentModel.haiku, "/model haiku[1m]"),
+        (AgentModel.haiku, "/model haiku"),
     ])
     func setModelBuildsExactCommand(model: AgentModel, expected: String) {
         #expect(ModelEffortCommand.setModel(model) == expected)
@@ -58,23 +58,24 @@ struct ModelEffortCommandTests {
     /// A bare alias reported back (by a statusline, say) lands on the
     /// matching versioned "More" entry, since that's the specific model the
     /// alias actually resolved to — see "Model aliases" in
-    /// docs/headless-protocol.md.
+    /// docs/headless-protocol.md. Fable and Haiku send their bare alias at
+    /// the top level too, so an exact match wins there instead, the same as
+    /// `recognizingRoundTripsATopLevelAlias` below.
     @Test(arguments: [
         ("claude-opus-5-5", "claude-opus-5-5"),
         ("opus", "claude-opus-5-5"),
         ("opus 5.5", "claude-opus-5-5"),
         ("opus 5", "claude-opus-5"),
         ("sonnet", "claude-sonnet-5"),
-        ("haiku", "claude-haiku-4-5-20251001"),
     ])
     func recognizingMapsAnAliasToItsPlainModel(reported: String, expectedID: String) {
         #expect(AgentModel.recognizing(reported)?.id == expectedID)
     }
 
-    /// Opus, Sonnet and Fable are 1M at their bare ID, so a suffixed ID —
-    /// which a tab or setting from an older release may still hold — lands
-    /// on the same entry. Haiku is the one model whose suffix names a
-    /// distinct 1M variant.
+    /// Every preset is 1M at its bare ID or has no 1M variant at all (Haiku),
+    /// so a suffixed ID — which a tab or setting from an older release may
+    /// still hold, or Haiku's long-context beta this subscription can't use —
+    /// lands on the same bare entry.
     @Test(arguments: [
         ("claude-opus-5-5[1m]", AgentModel.opus5dot5),
         ("claude-opus-5[1m]", AgentModel.opus5),
@@ -82,8 +83,9 @@ struct ModelEffortCommandTests {
         ("opus 5.5[1m]", AgentModel.opus5dot5),
         ("opus 5[1m]", AgentModel.opus5),
         ("sonnet 5[1m]", AgentModel.sonnet5),
-        ("haiku 4.5[1m]", AgentModel.haiku4dot5),
-        ("claude-haiku-4-5-20251001[1m]", AgentModel.haiku4dot5),
+        ("haiku 4.5[1m]", AgentModel.haiku4dot5At200K),
+        ("claude-haiku-4-5-20251001[1m]", AgentModel.haiku4dot5At200K),
+        ("haiku[1m]", AgentModel.haiku4dot5At200K),
     ])
     func recognizingResolvesAContextSuffix(
         reported: String,
@@ -191,19 +193,19 @@ struct ModelEffortCommandTests {
     }
 
     /// The top-level entries show bare family names, since the CLI — not
-    /// Plume — picks the version. The "More" entries are explicit versioned
-    /// IDs, so their labels carry a version and, for Haiku's 200K form, a
-    /// size suffix.
+    /// Plume — picks the version. Haiku is the exception: it has no 1M
+    /// variant on this subscription, so even its top-level entry carries the
+    /// 200K suffix. The "More" entries are explicit versioned IDs, so their
+    /// labels carry a version and, for Haiku, the same size suffix.
     @Test(arguments: [
         (AgentModel.fable, "Fable"),
         (AgentModel.opus, "Opus"),
         (AgentModel.sonnet, "Sonnet"),
-        (AgentModel.haiku, "Haiku"),
+        (AgentModel.haiku, "Haiku 200K"),
         (AgentModel.opus5dot5, "Opus 5.5"),
         (AgentModel.opus5, "Opus 5"),
         (AgentModel.sonnet5, "Sonnet 5"),
         (AgentModel.fable5dot1, "Fable 5.1"),
-        (AgentModel.haiku4dot5, "Haiku 4.5"),
         (AgentModel.haiku4dot5At200K, "Haiku 4.5 200K"),
     ])
     func labelsFollowTheContextWindowNamingRule(model: AgentModel, expectedLabel: String) {
@@ -212,31 +214,31 @@ struct ModelEffortCommandTests {
 
     /// The primary menu is Default/Fable/Opus/Sonnet/Haiku; More holds each
     /// specific version, plus the prior-generation Opus kept reachable after
-    /// Opus 5.5 took the top-level slot. Only Haiku has a 200K sibling.
+    /// Opus 5.5 took the top-level slot. Haiku appears once, at its 200K bare
+    /// ID — it has no 1M variant on this subscription.
     @Test func moreHoldsExactlyTheVersionedModels() {
         #expect(AgentModel.more.map(\.id) == [
             "claude-opus-5-5",
             "claude-opus-5",
             "claude-sonnet-5",
             "claude-fable-5-1",
-            "claude-haiku-4-5-20251001[1m]", "claude-haiku-4-5-20251001",
+            "claude-haiku-4-5-20251001",
         ])
     }
 
     /// 200,000 and 1,000,000 are the exact figures a real `modelUsage` entry
     /// reports for a 200K and a 1M model, per `basic.ndjson`
     /// (`StreamJSONDecoderTests.largestContextWindowPicksTheMaxAcrossModelUsage`).
-    /// Only Haiku's bare ID means 200K; every other preset is 1M.
+    /// Haiku is 200K; every other preset is 1M.
     @Test(arguments: [
         (AgentModel.fable, 1_000_000),
         (AgentModel.opus, 1_000_000),
         (AgentModel.sonnet, 1_000_000),
-        (AgentModel.haiku, 1_000_000),
+        (AgentModel.haiku, 200_000),
         (AgentModel.opus5dot5, 1_000_000),
         (AgentModel.opus5, 1_000_000),
         (AgentModel.sonnet5, 1_000_000),
         (AgentModel.fable5dot1, 1_000_000),
-        (AgentModel.haiku4dot5, 1_000_000),
         (AgentModel.haiku4dot5At200K, 200_000),
     ])
     func nominalContextWindowMatchesTheRealFigure(model: AgentModel, expected: Int) {
