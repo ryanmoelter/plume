@@ -642,7 +642,9 @@ final class ChatListController: NSObject {
         let range = model.realizedRange(offset: offset)
         lastRealizedRange = range
         let kept = Set(model.realizedRange(offset: offset, overscan: model.overscan * 3).map { model.id(at: $0) })
-        for id in Array(hosts.keys) where !kept.contains(id) { free(id) }
+        // Freeing a departure cancels the ease that would retire it, and it
+        // would come back as a working indicator that never leaves.
+        for id in Array(hosts.keys) where !kept.contains(id) && departing[id] == nil { free(id) }
         for index in range {
             let id = model.id(at: index)
             guard hosts[id] == nil, let item = items[id] else { continue }
