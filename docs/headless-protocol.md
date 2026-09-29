@@ -72,7 +72,7 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 ## Model aliases
 
-**The current Opus, Sonnet and Fable models are 1M at their bare ID, with no 200K form; only Haiku 4.5 is 200K bare.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model` and the `result` event's `modelUsage.<id>.contextWindow`:
+**The current Opus and Sonnet models are 1M at their bare ID, with no 200K form. Fable has no `[1m]` form at all. Haiku 4.5 is 200K bare, and this subscription can't use its `[1m]` form.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model` and the `result` event's `modelUsage.<id>.contextWindow`:
 
 | `--model` | `init` reports | `contextWindow` |
 | --- | --- | --- |
@@ -83,14 +83,15 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 | `sonnet` | `claude-sonnet-5` | 1,000,000 |
 | `sonnet[1m]` | `claude-sonnet-5[1m]` | 1,000,000 |
 | `fable` | `claude-fable-5-1` | 1,000,000 |
+| `haiku` | `claude-haiku-4-5-20251001` | 200,000 |
 | `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` | 200,000 |
 | `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` | 400 "long context beta is not yet available for this subscription" |
 | `not-a-real-model` | `not-a-real-model` | |
 
 Three things follow.
 
-- **The suffix is redundant everywhere but Haiku.** `init` echoes the ID it was handed, suffix included, but the window is the same either way. So "More" offers `claude-opus-5-5`, `claude-opus-5` and `claude-sonnet-5` bare, with no 200K sibling, and `recognizing(_:)` maps a bare alias (`opus`, as `~/.claude/settings.json` often holds) or a suffixed ID from an older release onto that one entry. Only Haiku keeps a pair, since its bare ID really is 200K. `nominalContextWindow` reads 200K for a bare ID only when its `[1m]` sibling is also offered.
-- **The top-level picker sends `alias[1m]`** — `opus[1m]`/`sonnet[1m]`/`haiku[1m]`, and plain `fable` — and shows the bare family name until a session reports the resolved model. The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
+- **The `[1m]` suffix is redundant for Opus and Sonnet, and unusable for Haiku on this subscription.** `init` echoes the ID it was handed, suffix included, but for Opus/Sonnet the window is the same either way, and for Haiku the `[1m]` form 400s outright. So "More" offers every preset bare — `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5-20251001` — with no `[1m]` sibling, and `recognizing(_:)` strips a `[1m]` suffix before matching so a suffixed ID from an older release, or a stored `haiku[1m]` from before this subscription's beta status was known, lands on the same bare entry. `nominalContextWindow` reads 200K for Haiku and 1M for every other preset.
+- **The top-level picker sends `alias[1m]` for Opus and Sonnet** — `opus[1m]`/`sonnet[1m]` — and plain `fable`/`haiku`, and shows the bare family name until a session reports the resolved model (Haiku's top-level label carries the 200K suffix regardless, since it is that model's only offered form). The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
 
 ## Sending a turn

@@ -73,34 +73,35 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     var token: String { id }
 
     /// The context window this model implies before any turn has reported
-    /// the real one. A bare ID whose `[1m]` sibling is also offered means
-    /// 200K; every other preset means 1M. Nil outside `selectable`: a model
-    /// this build has never heard of assumes nothing.
+    /// the real one. Every preset is 1M except Haiku, which has no 1M variant
+    /// on this subscription. Nil outside `selectable`: a model this build has
+    /// never heard of assumes nothing.
     var nominalContextWindow: Int? {
         guard AgentModel.selectable.contains(where: { $0.id == id }) else { return nil }
-        return hasOneMillionVariant ? 200_000 : 1_000_000
+        return self == AgentModel.haiku || self == AgentModel.haiku4dot5At200K ? 200_000 : 1_000_000
     }
 
     // MARK: - Presets
 
-    /// The composer's top-level menu. Each sends the CLI's own alias — the
-    /// 1M form where one exists — and shows the bare family name; the CLI
-    /// picks the current version, so Plume tracks no version for this path.
-    /// Fable has no `[1m]` form, so it sends the plain alias. See "Model
-    /// aliases" in docs/headless-protocol.md.
+    /// The composer's top-level menu. Each sends the CLI's own alias and
+    /// shows the bare family name; the CLI picks the current version, so
+    /// Plume tracks no version for this path. Haiku has no 1M variant on this
+    /// subscription (the beta 400s on `haiku[1m]`), so it sends the plain
+    /// alias and carries the 200K suffix instead of the `[1m]` form. See
+    /// "Model aliases" in docs/headless-protocol.md.
     static let fable = AgentModel(alias: "fable", label: "Fable")
     static let opus = AgentModel(alias: "opus[1m]", label: "Opus")
     static let sonnet = AgentModel(alias: "sonnet[1m]", label: "Sonnet")
-    static let haiku = AgentModel(alias: "haiku[1m]", label: "Haiku")
+    static let haiku = AgentModel(alias: "haiku", label: "Haiku 200K")
 
     /// Explicit versioned IDs the "More" submenu offers. The current Opus,
     /// Sonnet and Fable models are 1M at their bare ID, with no 200K form, so
-    /// they carry no suffix. Haiku 4.5 is 200K bare and 1M only with `[1m]`.
+    /// they carry no suffix. Haiku 4.5 has no 1M variant on this subscription,
+    /// so it is offered only at its 200K bare ID.
     static let opus5dot5 = AgentModel(id: "claude-opus-5-5")
     static let opus5 = AgentModel(id: "claude-opus-5")
     static let sonnet5 = AgentModel(id: "claude-sonnet-5")
     static let fable5dot1 = AgentModel(id: "claude-fable-5-1")
-    static let haiku4dot5 = AgentModel(id: "claude-haiku-4-5-20251001[1m]")
     static let haiku4dot5At200K = AgentModel(id: "claude-haiku-4-5-20251001", contextSuffix: "200K")
 
     /// The models the "More" submenu offers.
@@ -114,7 +115,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
         opus5,
         sonnet5,
         fable5dot1,
-        haiku4dot5, haiku4dot5At200K
+        haiku4dot5At200K
     ]
 
     /// Everything the menu can offer, top-level items first.
@@ -136,20 +137,21 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// session reports it rather than the bare alias it was launched with.
     ///
     /// An exact ID match wins. Otherwise a short alias or a bare ID matches a
-    /// versioned "More" entry, with a `[1m]` suffix promoting the result to
-    /// that model's 1M variant where it has a distinct one. An unfamiliar ID
-    /// comes back as itself rather than nil, so the control can display what
-    /// the session actually runs on.
+    /// versioned "More" entry, stripping a `[1m]` suffix first — no preset
+    /// has a distinct 1M sibling, so a stored `haiku[1m]` (from an older
+    /// release, or the long-context beta this subscription can't use) lands
+    /// on the same 200K entry a bare `haiku` does. An unfamiliar ID comes
+    /// back as itself rather than nil, so the control can display what the
+    /// session actually runs on.
     static func recognizing(_ reported: String) -> AgentModel? {
         let trimmed = reported.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         if let exact = preset(withID: trimmed) {
             return exact
         }
-        let isOneMillion = trimmed.hasSuffix(contextSuffix)
-        let bare = String(trimmed.dropLast(isOneMillion ? contextSuffix.count : 0))
+        let bare = trimmed.hasSuffix(contextSuffix) ? String(trimmed.dropLast(contextSuffix.count)) : trimmed
         if let base = aliases[bare.lowercased()] ?? preset(withID: bare) {
-            return isOneMillion ? base.oneMillionVariant : base
+            return base
         }
         return AgentModel(unrecognizedID: trimmed)
     }
@@ -166,8 +168,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     /// Short names and display strings the CLI or a statusline may report in
     /// place of a full ID, each mapped to the model a bare `--model` of that
-    /// name runs on. A `[1m]` suffix on the reported string promotes the
-    /// result to its 1M variant, which only Haiku has.
+    /// name runs on.
     private static let aliases: [String: AgentModel] = [
         "fable": .fable5dot1, "fable 5": .fable5dot1, "fable 5.1": .fable5dot1, "claude-fable-5": .fable5dot1,
         "opus": .opus5dot5, "opus 5.5": .opus5dot5,
@@ -180,17 +181,6 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
 
     private static func preset(withID id: String) -> AgentModel? {
         selectable.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
-    }
-
-    private var hasOneMillionVariant: Bool {
-        oneMillionVariant != self
-    }
-
-    /// The 1M-context sibling of this model, or the model itself when its
-    /// bare ID is already 1M.
-    private var oneMillionVariant: AgentModel {
-        let suffixed = id + AgentModel.contextSuffix
-        return AgentModel.selectable.first { $0.id == suffixed } ?? self
     }
 }
 
