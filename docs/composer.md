@@ -25,6 +25,8 @@ Read this before touching anything under `Plume/UI/Chat/Composer/`, `Plume/UI/Ch
 
 `ComposerDocumentInvariants.padChips(_:style:)` is the third: it writes the `kern` that opens space around an inline code chip (see "Decorations" below) and clears it everywhere else. `ComposerParagraphStyles.apply(to:style:)` is the fourth: it rewrites every paragraph's `.paragraphStyle`, including the shared `NSTextList` stacks (`ComposerLists`) a list paragraph needs so decimal numbering keeps counting across paragraphs. All four are whole-document passes rather than edit-local ones — a composer draft is short enough that this costs nothing, and none of what they compute (list numbering, first/last-in-block padding) is actually local to the edited range.
 
+Every paragraph walk — these passes, serialization, and the decorations — goes through `ComposerParagraphs` (`ComposerParagraphs.swift`). `all(in:within:)` lists each paragraph's full range, its content range, and its `storedKind`, which is nil for an untagged paragraph rather than defaulting to `.paragraph`. `runs(of:where:)` groups neighbors by a rule each caller supplies, because serialization and the decorations group differently.
+
 ### The character-less last line and `stickyKind`
 
 A document ending in a newline — including an empty document, and the common case of the caret sitting after the last character typed — has a **character-less last line**: a caret position with no characters to carry an attribute. `ComposerNSTextView.ParagraphInfo` (`ComposerTextViewEditing.swift`) represents this as an `enclosing`/`content` range that are both empty.

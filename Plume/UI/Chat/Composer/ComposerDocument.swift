@@ -39,25 +39,16 @@ nonisolated enum ComposerDocument {
     /// several single-line paragraphs. That's the documented non-bijection,
     /// not a bug.
     static func markdown(from attributed: NSAttributedString) -> String {
-        let paragraphs = paragraphs(in: attributed)
-        guard !paragraphs.isEmpty else { return "" }
+        ComposerParagraphs.runs(of: ComposerParagraphs.all(in: attributed), where: sharesBlock)
+            .map { markdown(for: $0, attributed: attributed) }
+            .joined(separator: "\n\n")
+    }
 
-        var blocks: [String] = []
-        var index = 0
-        while index < paragraphs.count {
-            let kind = paragraphs[index].kind
-            var end = index + 1
-            if kind.isList {
-                while end < paragraphs.count, paragraphs[end].kind.isList { end += 1 }
-            } else if case .quote = kind.kind {
-                while end < paragraphs.count, paragraphs[end].kind.kind == .quote { end += 1 }
-            } else if kind.hasOwnBlockID {
-                while end < paragraphs.count, paragraphs[end].kind == kind { end += 1 }
-            }
-            blocks.append(markdown(for: Array(paragraphs[index..<end]), attributed: attributed))
-            index = end
-        }
-        return blocks.joined(separator: "\n\n")
+    private static func sharesBlock(_ previous: ComposerParagraph, _ next: ComposerParagraph) -> Bool {
+        let kind = previous.kind
+        if kind.isList { return next.kind.isList }
+        if case .quote = kind.kind { return next.kind.kind == .quote }
+        return kind.hasOwnBlockID && next.kind == kind
     }
 
     /// Whether the document has anything worth sending: any non-whitespace
@@ -176,33 +167,15 @@ nonisolated enum ComposerDocument {
 
     // MARK: - Serializing
 
-    private struct Paragraph {
-        let kind: ComposerBlockKind
-        /// The paragraph's own text, excluding its line terminator.
-        let contentRange: NSRange
-    }
-
-    private static func paragraphs(in attributed: NSAttributedString) -> [Paragraph] {
-        guard attributed.length > 0 else { return [] }
-        var result: [Paragraph] = []
-        let ns = attributed.string as NSString
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byParagraphs) { _, substringRange, enclosingRange, _ in
-            let kind = (attributed.attribute(.plumeBlock, at: enclosingRange.location, effectiveRange: nil) as? ComposerBlockKind)
-                ?? .paragraph
-            result.append(Paragraph(kind: kind, contentRange: substringRange))
-        }
-        return result
-    }
-
-    private static func markdown(for group: [Paragraph], attributed: NSAttributedString) -> String {
-        let kind = group[0].kind
+    private static func markdown(for group: ArraySlice<ComposerParagraph>, attributed: NSAttributedString) -> String {
+        let kind = group.first!.kind
         switch kind.kind {
         case let .heading(level):
-            let text = ComposerInlineMarkdown.markdown(from: attributed, range: group[0].contentRange)
+            let text = ComposerInlineMarkdown.markdown(from: attributed, range: group.first!.contentRange)
             return MarkdownSource.markdown(of: .heading(level: level, text: text))
 
         case .paragraph:
-            let text = ComposerInlineMarkdown.markdown(from: attributed, range: group[0].contentRange)
+            let text = ComposerInlineMarkdown.markdown(from: attributed, range: group.first!.contentRange)
             return MarkdownSource.markdown(of: .paragraph(text))
 
         case .quote:

@@ -142,37 +142,19 @@ enum ComposerDecorations {
 
     // MARK: - Code boxes and quote bars
 
-    /// Walks paragraphs once, grouping consecutive ones that share a
-    /// decoration: code paragraphs with the same `blockID` make one box, and
-    /// consecutive quote paragraphs one bar.
+    /// Groups consecutive paragraphs that share a decoration: code paragraphs
+    /// with the same `blockID` make one box, and consecutive quote paragraphs
+    /// one bar.
     private static func blockRects(_ context: Context) -> (boxes: [NSRect], bars: [NSRect]) {
         var boxes: [NSRect] = []
         var bars: [NSRect] = []
-        let ns = context.storage.string as NSString
         let (containerX, containerWidth) = context.containerRect
 
-        var location = 0
-        while location < ns.length {
-            let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
-            let kind = context.storage.attribute(.plumeBlock, at: paragraph.location, effectiveRange: nil) as? ComposerBlockKind
-
-            guard let kind, isDecorated(kind) else {
-                location = NSMaxRange(paragraph)
-                continue
-            }
-
-            var group = paragraph
-            var next = NSMaxRange(paragraph)
-            while next < ns.length {
-                let following = ns.paragraphRange(for: NSRange(location: next, length: 0))
-                let followingKind = context.storage.attribute(.plumeBlock, at: following.location, effectiveRange: nil) as? ComposerBlockKind
-                guard let followingKind, continues(kind, followingKind) else { break }
-                group = NSUnionRange(group, following)
-                next = NSMaxRange(following)
-            }
-            location = next
-
-            guard let bounds = fragmentBounds(for: group, context) else { continue }
+        let paragraphs = ComposerParagraphs.all(in: context.storage)
+        for run in ComposerParagraphs.runs(of: paragraphs, where: sharesDecoration) {
+            guard let first = run.first, let kind = first.storedKind, isDecorated(kind),
+                  let bounds = fragmentBounds(for: NSUnionRange(first.range, run.last!.range), context)
+            else { continue }
             if case .codeBlock = kind.kind {
                 boxes.append(NSRect(
                     x: containerX,
@@ -199,11 +181,12 @@ enum ComposerDecorations {
         }
     }
 
-    private static func continues(_ kind: ComposerBlockKind, _ next: ComposerBlockKind) -> Bool {
-        switch (kind.kind, next.kind) {
-        case (.quote, .quote): true
-        case (.codeBlock, .codeBlock): kind.blockID == next.blockID
-        default: false
+    private nonisolated static func sharesDecoration(_ previous: ComposerParagraph, _ next: ComposerParagraph) -> Bool {
+        guard let kind = previous.storedKind, let nextKind = next.storedKind else { return false }
+        switch (kind.kind, nextKind.kind) {
+        case (.quote, .quote): return true
+        case (.codeBlock, .codeBlock): return kind.blockID == nextKind.blockID
+        default: return false
         }
     }
 

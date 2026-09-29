@@ -10,56 +10,25 @@ import AppKit
 /// short enough that walking all of it per edit costs nothing.
 nonisolated enum ComposerParagraphStyles {
     static func apply(to storage: NSMutableAttributedString, style: ComposerTextStyle) {
-        guard storage.length > 0 else { return }
-        let ns = storage.string as NSString
-
+        let paragraphs = ComposerParagraphs.all(in: storage)
         var previousLists: [NSTextList] = []
-        var location = 0
-        while location < ns.length {
-            let paragraph = ns.paragraphRange(for: NSRange(location: location, length: 0))
-            let kind = (storage.attribute(.plumeBlock, at: paragraph.location, effectiveRange: nil) as? ComposerBlockKind)
-                ?? .paragraph
-
+        for (index, paragraph) in paragraphs.enumerated() {
+            let kind = paragraph.kind
             let lists = ComposerLists.lists(for: kind, continuing: previousLists)
             previousLists = lists
 
+            // An untagged neighbor never continues the block, even beside a
+            // paragraph whose own missing tag reads as `.paragraph`.
             let paragraphStyle = style.paragraphStyle(
                 for: kind.kind,
-                isFirstInBlock: !continues(kind, fromParagraphBefore: paragraph.location, in: storage, ns: ns),
-                isLastInBlock: !continues(kind, intoParagraphAfter: NSMaxRange(paragraph), in: storage, ns: ns),
+                isFirstInBlock: index == 0 || paragraphs[index - 1].storedKind != kind,
+                isLastInBlock: index == paragraphs.count - 1 || paragraphs[index + 1].storedKind != kind,
                 lists: lists
             )
-            let current = storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle
+            let current = storage.attribute(.paragraphStyle, at: paragraph.range.location, effectiveRange: nil) as? NSParagraphStyle
             if current == nil || !paragraphStyle.isEqual(current!) {
-                storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: paragraph)
+                storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: paragraph.range)
             }
-
-            location = NSMaxRange(paragraph)
         }
-    }
-
-    private static func continues(
-        _ kind: ComposerBlockKind,
-        fromParagraphBefore location: Int,
-        in storage: NSMutableAttributedString,
-        ns: NSString
-    ) -> Bool {
-        guard location > 0 else { return false }
-        let before = ns.paragraphRange(for: NSRange(location: location - 1, length: 0))
-        return neighborKind(at: before.location, in: storage) == kind
-    }
-
-    private static func continues(
-        _ kind: ComposerBlockKind,
-        intoParagraphAfter location: Int,
-        in storage: NSMutableAttributedString,
-        ns: NSString
-    ) -> Bool {
-        guard location < ns.length else { return false }
-        return neighborKind(at: location, in: storage) == kind
-    }
-
-    private static func neighborKind(at location: Int, in storage: NSMutableAttributedString) -> ComposerBlockKind? {
-        storage.attribute(.plumeBlock, at: location, effectiveRange: nil) as? ComposerBlockKind
     }
 }
