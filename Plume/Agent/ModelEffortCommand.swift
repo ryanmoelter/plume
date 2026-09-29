@@ -87,22 +87,20 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// shows the bare family name; the CLI picks the current version, so
     /// Plume tracks no version for this path. Haiku has no 1M variant on this
     /// subscription (the beta 400s on `haiku[1m]`), so it sends the plain
-    /// alias and carries the 200K suffix instead of the `[1m]` form. See
-    /// "Model aliases" in docs/headless-protocol.md.
+    /// alias rather than the `[1m]` form. See "Model aliases" in
+    /// docs/headless-protocol.md.
     static let fable = AgentModel(alias: "fable", label: "Fable")
     static let opus = AgentModel(alias: "opus[1m]", label: "Opus")
     static let sonnet = AgentModel(alias: "sonnet[1m]", label: "Sonnet")
-    static let haiku = AgentModel(alias: "haiku", label: "Haiku 200K")
+    static let haiku = AgentModel(alias: "haiku", label: "Haiku")
 
-    /// Explicit versioned IDs the "More" submenu offers. The current Opus,
-    /// Sonnet and Fable models are 1M at their bare ID, with no 200K form, so
-    /// they carry no suffix. Haiku 4.5 has no 1M variant on this subscription,
-    /// so it is offered only at its 200K bare ID.
+    /// Explicit versioned IDs the "More" submenu offers. Haiku 4.5 has no 1M
+    /// variant on this subscription, so it is offered only at its bare ID.
     static let opus5dot5 = AgentModel(id: "claude-opus-5-5")
     static let opus5 = AgentModel(id: "claude-opus-5")
     static let sonnet5 = AgentModel(id: "claude-sonnet-5")
     static let fable5dot1 = AgentModel(id: "claude-fable-5-1")
-    static let haiku4dot5At200K = AgentModel(id: "claude-haiku-4-5-20251001", contextSuffix: "200K")
+    static let haiku4dot5At200K = AgentModel(id: "claude-haiku-4-5-20251001")
 
     /// The models the "More" submenu offers.
     ///
@@ -140,9 +138,9 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// versioned "More" entry, stripping a `[1m]` suffix first — no preset
     /// has a distinct 1M sibling, so a stored `haiku[1m]` (from an older
     /// release, or the long-context beta this subscription can't use) lands
-    /// on the same 200K entry a bare `haiku` does. An unfamiliar ID comes
-    /// back as itself rather than nil, so the control can display what the
-    /// session actually runs on.
+    /// on the same entry a bare `haiku` does. An unfamiliar ID comes back as
+    /// itself rather than nil, so the control can display what the session
+    /// actually runs on.
     static func recognizing(_ reported: String) -> AgentModel? {
         let trimmed = reported.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }

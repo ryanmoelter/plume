@@ -193,28 +193,26 @@ struct ModelEffortCommandTests {
     }
 
     /// The top-level entries show bare family names, since the CLI — not
-    /// Plume — picks the version. Haiku is the exception: it has no 1M
-    /// variant on this subscription, so even its top-level entry carries the
-    /// 200K suffix. The "More" entries are explicit versioned IDs, so their
-    /// labels carry a version and, for Haiku, the same size suffix.
+    /// Plume — picks the version. The "More" entries are explicit versioned
+    /// IDs, so their labels carry a version.
     @Test(arguments: [
         (AgentModel.fable, "Fable"),
         (AgentModel.opus, "Opus"),
         (AgentModel.sonnet, "Sonnet"),
-        (AgentModel.haiku, "Haiku 200K"),
+        (AgentModel.haiku, "Haiku"),
         (AgentModel.opus5dot5, "Opus 5.5"),
         (AgentModel.opus5, "Opus 5"),
         (AgentModel.sonnet5, "Sonnet 5"),
         (AgentModel.fable5dot1, "Fable 5.1"),
-        (AgentModel.haiku4dot5At200K, "Haiku 4.5 200K"),
+        (AgentModel.haiku4dot5At200K, "Haiku 4.5"),
     ])
-    func labelsFollowTheContextWindowNamingRule(model: AgentModel, expectedLabel: String) {
+    func labelsFollowTheVersionNamingRule(model: AgentModel, expectedLabel: String) {
         #expect(model.label == expectedLabel)
     }
 
     /// The primary menu is Default/Fable/Opus/Sonnet/Haiku; More holds each
     /// specific version, plus the prior-generation Opus kept reachable after
-    /// Opus 5.5 took the top-level slot. Haiku appears once, at its 200K bare
+    /// Opus 5.5 took the top-level slot. Haiku appears once, at its bare
     /// ID — it has no 1M variant on this subscription.
     @Test func moreHoldsExactlyTheVersionedModels() {
         #expect(AgentModel.more.map(\.id) == [
