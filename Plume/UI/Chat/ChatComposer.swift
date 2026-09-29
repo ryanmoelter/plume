@@ -1,3 +1,4 @@
+import AppKit
 import Dispatch
 import SwiftUI
 
@@ -231,6 +232,7 @@ struct ChatComposer: View, ThemedView {
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
+                    onEscape: interruptOnEscape,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
@@ -352,6 +354,19 @@ struct ChatComposer: View, ThemedView {
         .help(stopsSubagents ? "Stop the subagents" : "Stop the current turn")
         .accessibilityLabel("Stop")
         .plumeID(AccessibilityID.composerStopButton)
+    }
+
+    /// Unlike the stop button, never stops subagents outside a turn: Esc is
+    /// too easy to press by accident to kill background work with.
+    private func interruptOnEscape(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard let headlessSession,
+              EscapeInterrupt.shouldInterrupt(
+                  isEnabled: settings.escapeInterruptsTurn,
+                  isTurnRunning: headlessSession.isWorking,
+                  modifiers: modifiers
+              ) else { return false }
+        headlessSession.interrupt()
+        return true
     }
 
     /// Says what the composer will do with what is being typed. Its button
