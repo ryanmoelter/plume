@@ -56,6 +56,17 @@ struct HeadlessCommandTests {
         )
         #expect(permissionModeToken(in: arguments) == "acceptEdits")
     }
+
+    @Test(arguments: [PermissionMode.acceptEdits, .bypassPermissions])
+    func allowsSwitchingToBypassMidSession(mode: PermissionMode) {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: mode,
+            settingsPath: nil
+        )
+        #expect(arguments.contains("--allow-dangerously-skip-permissions"))
+        #expect(!arguments.contains("--dangerously-skip-permissions"))
+    }
 }
 
 /// `--model` carries the tab's pre-launch choice, so the first turn runs on
