@@ -14,6 +14,8 @@ Run this when the user says "make the next release" or asks to work through the 
 
 ## 1. Plan the packages
 
+Pull `main` first (`git pull --ff-only`) and read the latest tag. Plume is developed on more than one Mac, so a checkout can sit releases behind, and planning against it gets both the footprints and the version wrong. The next version follows the latest tag, not the version the user names from memory.
+
 Invoke the `roadmap` skill to list the Todo queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
 
 - S-only groups (estimate 2) go to **Sonnet**; anything M or larger (estimate 3+), unsized, or touching the headless wire protocol, goes to **Opus**. Always set `model` explicitly.
