@@ -169,4 +169,18 @@ struct MarkdownCacheTests {
         #expect(font(bigger) != font(light), "a size change must rebuild the chips")
         #expect(bigger.pad != light.pad, "a size change must rebuild the chip padding")
     }
+
+    /// The key has no tint or appearance, which is only safe while the value
+    /// carries no color: the chip's fill is painted at draw time.
+    @Test func styledInlineIsTheSameUnderAnyAppearance() {
+        let text = "Run `git status` now."
+        let first = MarkdownCache.styledInline(text, fontSize: 16)
+        let second = MarkdownCache.styledInline(text, fontSize: 16)
+
+        #expect(first == second)
+        for run in first.segments.flatMap({ Array($0.text.runs) }) {
+            #expect(run.backgroundColor == nil)
+            #expect(run.foregroundColor == nil)
+        }
+    }
 }

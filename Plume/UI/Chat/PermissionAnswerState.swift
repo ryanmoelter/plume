@@ -130,7 +130,7 @@ enum PlanRejectionLabel {
     static let allLabels = [reject, giveFeedback]
 
     static func label(forReason reason: String) -> String {
-        reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? reject : giveFeedback
+        ComposerSendability.hasText(reason) ? giveFeedback : reject
     }
 }
 

@@ -70,18 +70,12 @@ struct ChatComposer: View, ThemedView {
     /// is actually on screen.
     @State private var visibleText = ""
 
-    private func sendableText(_ text: String) -> Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     private var attachedImages: [ChatImage] {
         drafts.attachments(forTab: tab.id)
     }
 
-    /// An image alone is a message worth sending, so the send button tracks
-    /// both halves of the draft.
     private var canSend: Bool {
-        hasSendableText || !attachedImages.isEmpty
+        ComposerSendability.canSend(hasText: hasSendableText, hasAttachments: !attachedImages.isEmpty)
     }
 
     /// Images ride only on the headless transport. A terminal tab's input is
@@ -147,7 +141,7 @@ struct ChatComposer: View, ThemedView {
         guard let stripped = CommandModeMatcher.enteringCommandMode(text) else { return }
         drafts.setCommandMode(true, forTab: tab.id)
         drafts.setDraft(stripped, forTab: tab.id)
-        hasSendableText = sendableText(stripped)
+        hasSendableText = ComposerSendability.hasText(stripped)
         pendingCaretLocation = max(0, caretLocation - 1)
     }
 
@@ -191,7 +185,7 @@ struct ChatComposer: View, ThemedView {
         }
         drafts.clearAttachments(forTab: tab.id)
         attach(blocks.compactMap { if case .image(let image) = $0 { image } else { nil } })
-        hasSendableText = sendableText(text)
+        hasSendableText = ComposerSendability.hasText(text)
     }
 
     var body: some View {
@@ -228,7 +222,7 @@ struct ChatComposer: View, ThemedView {
                     onSend: send,
                     onTextChange: { text in
                         visibleText = text
-                        let sendable = sendableText(text)
+                        let sendable = ComposerSendability.hasText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
                         updateCommandMode(for: text)
                         autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
@@ -321,7 +315,7 @@ struct ChatComposer: View, ThemedView {
             // The composer reports its visible text a turn after it loads;
             // until then the snapshot, or failing that the markdown, stands in.
             visibleText = drafts.document(forTab: tab.id)?.string ?? drafts.draft(forTab: tab.id)
-            hasSendableText = sendableText(visibleText)
+            hasSendableText = ComposerSendability.hasText(visibleText)
         }
     }
 

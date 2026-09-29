@@ -721,7 +721,7 @@ struct ChatTabView: View, ThemedView {
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
-        .decisionField(isFilled: !planRejectionVisibleText.isEmpty, isFocused: planFeedbackFocused, colors: colors)
+        .decisionField(isFilled: ComposerSendability.hasText(planRejectionVisibleText), isFocused: planFeedbackFocused, colors: colors)
         .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
         .onAppear {
             guard planApproval.showsApprovalOptions else { return }
