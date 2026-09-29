@@ -130,18 +130,4 @@ struct ComposerDocumentTests {
         let attributed = ComposerDocument.attributedString(markdown: markdown, style: Self.style)
         #expect(ComposerDocument.markdown(from: attributed) == markdown)
     }
-
-    @Test func emptyHeadingIsNotSendable() {
-        let attributed = ComposerDocument.attributedString(markdown: "# ", style: Self.style)
-        #expect(!ComposerDocument.plainTextIsSendable(attributed))
-    }
-
-    @Test func whitespaceOnlyIsNotSendable() {
-        #expect(!ComposerDocument.plainTextIsSendable(NSAttributedString(string: "  \n")))
-    }
-
-    @Test func nonWhitespaceIsSendable() {
-        let attributed = ComposerDocument.attributedString(markdown: "x", style: Self.style)
-        #expect(ComposerDocument.plainTextIsSendable(attributed))
-    }
 }

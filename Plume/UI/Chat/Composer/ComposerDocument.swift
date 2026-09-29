@@ -51,14 +51,6 @@ nonisolated enum ComposerDocument {
         return kind.hasOwnBlockID && next.kind == kind
     }
 
-    /// Whether the document has anything worth sending: any non-whitespace
-    /// character anywhere, so an empty heading or empty list item (whose
-    /// markdown is non-empty scaffolding but whose visible text is nothing)
-    /// still reads as not sendable.
-    static func plainTextIsSendable(_ attributed: NSAttributedString) -> Bool {
-        attributed.string.contains { !$0.isWhitespace }
-    }
-
     // MARK: - Building
 
     private static func append(

@@ -48,7 +48,7 @@ The round trip is deliberately **not a bijection**:
 
 **Verbatim blocks.** A table or a thematic break has no editing story in this model, so `ComposerDocument.attributedString(markdown:style:)` keeps it as `.verbatim` — one physical paragraph per source line, all sharing one `blockID` so they serialize back out as one block rather than being reparsed. What serializes is the paragraphs' own text, so an edit inside a table survives the round trip; two thematic breaks in a row stay two rules because their `blockID`s differ.
 
-`ComposerDocument.plainTextIsSendable(_:)` is the sendability check: any non-whitespace character anywhere in the visible text. An empty heading or an empty list item has non-empty *markdown* (its scaffolding) but empty visible text, and still reads as not sendable.
+`ComposerSendability` (`ComposerSendability.swift`) is the sendability rule, and the chat composer, its send and steer buttons, and the plan feedback field all use it. `hasText(_:)` asks for any non-whitespace character in the visible text. An empty heading or an empty list item has non-empty *markdown* (its scaffolding) but empty visible text, and still reads as not sendable. In command mode the visible text is the command, so the same check applies. `canSend(hasText:hasAttachments:)` adds that an image alone is sendable, in either mode.
 
 ### The attributed draft snapshot
 
