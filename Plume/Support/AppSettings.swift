@@ -99,8 +99,7 @@ final class AppSettings {
         // shutdown should never stall on a modal nobody is there to dismiss.
         self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
 
-        self.composerSendKey = defaults.string(forKey: Key.composerSendKeyRaw)
-            .flatMap(ComposerSendKey.init(rawValue:)) ?? .commandReturn
+        self.composerSendKey = Self.resolveComposerSendKey(defaults: defaults)
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
@@ -282,6 +281,23 @@ final class AppSettings {
         didSet {
             defaults.set(composerSendKey.rawValue, forKey: Key.composerSendKeyRaw)
         }
+    }
+
+    /// `composerSendKey`'s startup value: an explicit stored choice always
+    /// wins. Otherwise a fresh install defaults to plain Return, but an
+    /// install that predates that default keeps ⌘Return — detected by
+    /// `Key.showsCodexFullAccess` already being set, since `init` below
+    /// writes it unconditionally on every launch and so it is set in any
+    /// defaults domain `AppSettings` has run in before. The fallback is
+    /// persisted so the decision sticks even if that signal later changes.
+    static func resolveComposerSendKey(defaults: UserDefaults) -> ComposerSendKey {
+        if let stored = defaults.string(forKey: Key.composerSendKeyRaw).flatMap(ComposerSendKey.init(rawValue:)) {
+            return stored
+        }
+        let isExistingInstall = defaults.object(forKey: Key.showsCodexFullAccess) != nil
+        let resolved: ComposerSendKey = isExistingInstall ? .commandReturn : .returnKey
+        defaults.set(resolved.rawValue, forKey: Key.composerSendKeyRaw)
+        return resolved
     }
 
     /// Transport a new agent tab starts with. The TUI stays reachable as an

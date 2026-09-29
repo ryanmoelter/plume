@@ -41,15 +41,6 @@ struct VisualsSettingsPane: View {
                     Text("Relative to text size")
                         .foregroundStyle(.secondary)
                 }
-
-                Picker(selection: $settings.composerSendKey) {
-                    Text("⌘Return").tag(ComposerSendKey.commandReturn)
-                    Text("Return").tag(ComposerSendKey.returnKey)
-                } label: {
-                    Text("Send message with")
-                    Text("⇧Return always enters a new line")
-                        .foregroundStyle(.secondary)
-                }
             } header: {
                 Text("Chat")
             }
