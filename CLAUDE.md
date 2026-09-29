@@ -10,11 +10,11 @@ Todo means queued, Backlog means wanted but not queued. `estimate` is the size: 
 
 ## Build and test
 
-Builds need Xcode 27 (`/Applications/Xcode-27.0.0.app`) — the default `xcode-select` Xcode (26.2) fails. Prefix every `xcodebuild` invocation:
+Builds need Xcode 27. Check `xcodebuild -version` if a build fails on a missing SDK symbol.
 
 ```
-DEVELOPER_DIR=/Applications/Xcode-27.0.0.app/Contents/Developer xcodebuild -scheme Plume -destination 'platform=macOS' build
-DEVELOPER_DIR=/Applications/Xcode-27.0.0.app/Contents/Developer xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
+xcodebuild -scheme Plume -destination 'platform=macOS' build
+xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
 ```
 
 Every change ends with a clean build and a manual run. `PlumeUITests` launches the app, so a full `test` run is slow — prefer `-only-testing:PlumeTests` while iterating.
@@ -171,4 +171,4 @@ Sparkle checks for updates in the background, and **an available update never in
 - **A GUI-launched app does not inherit your shell PATH.** Launched from Xcode or a terminal it does, so a PATH bug hides completely until the app is opened from Finder or the Dock — `claude` at `~/.local/bin` then fails with `No such file or directory`. Both transports run through `LoginShellCommand.wrap` for this reason. Test PATH-sensitive changes by opening the installed bundle, not from a terminal.
 - **SwiftUI never re-evaluates a `Commands` body for a changed `@Observable`.** The menu bar is built once, so a rebindable chord read from `AppSettings` stays on whatever it was at launch — a recorded shortcut does nothing and the one it replaced keeps working. `ShortcutMenuApplier` writes the new chord onto the built `NSMenuItem` instead. **`docs/keyboard-shortcuts.md` is the reference**, and it also covers why a test must never read `PlumeShortcuts.all` (it reads the developer's own bindings) or assign to `AppSettings.shared.shortcutBindings`.
 - **A scratch instance cannot prove a menu command ran.** SwiftUI populates a `focusedSceneValue` only while the app's scene is active, which a hidden `open -g -j` instance never is, so the whole Tab menu and most of the File menu read disabled and their chords do nothing. The control server's `key` command still proves which item owns a chord (`handledBy`) and reports the item's enabled state; confirming the action itself needs a frontmost app.
-- Deployment target is macOS 26.2, but building needs the Xcode 27 SDK — see Build and test above. The default `xcode-select` Xcode (26.2) fails on `ModelMenuButton.swift`, which calls an `NSMenuItem` API only the 27 SDK has.
+- Deployment target is macOS 26.2, but building needs the Xcode 27 SDK. An older Xcode fails on `ModelMenuButton.swift`, which calls an `NSMenuItem` API only the 27 SDK has.
