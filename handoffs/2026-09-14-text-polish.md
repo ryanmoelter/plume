@@ -1,9 +1,10 @@
 # Text polish: chat code chips + true WYSIWYG composer
 
 title: Text polish: chat code chips + true WYSIWYG composer
-date: 2026-09-14
+date: 2026-09-14 (updated 2026-09-29)
 project: plume
-branch: text-polish
+branch: ryanm/plume-203-wysiwyg-composer
+ticket: PLUME-203
 slug: text-polish
 status: Active
 
@@ -17,7 +18,7 @@ Two parts. Part 1: a SwiftUI `TextRenderer` draws chips behind code runs of conc
 
 ## Done
 
-- Worktree `.worktrees/text-polish`, branch `text-polish`. Everything below is committed on it as a WIP commit.
+- Worktree `.worktrees/plume-203-wysiwyg-composer`, branch `ryanm/plume-203-wysiwyg-composer` (from `text-polish`), rebased onto main 0.13.1.
 - W1 chat chips: `CodeChipTextRenderer.swift`, `MarkdownCache.styledInline` returns `StyledInline`, five `MarkdownBlockView` call sites; tests green.
 - W2 model: `Plume/UI/Chat/Composer/` `ComposerAttributes`, `ComposerTextStyle`, `ComposerDocument`, `ComposerInlineMarkdown`, `ComposerDocumentInvariants`; long fences in `MarkdownBlock`; round-trip corpus tests.
 - W3 rules: `ComposerInputRules`, `ComposerListEditing` (75 tests).
@@ -26,13 +27,26 @@ Two parts. Part 1: a SwiftUI `TextRenderer` draws chips behind code runs of conc
 - W6 docs: `docs/composer.md`, CLAUDE.md "Composer" section and chip gotcha.
 - Independent code review found 8 issues; a fix agent applied all 8 plus two dedupes (see Remaining for the unverified state).
 
+## Done since the rebase (2026-09-29)
+
+- Rebased onto main 0.13.1, porting in: the plain focus binding (PLUME-106), command mode, image paste and drop, the send rules, the draft caret, the word reveal (chips fade in with their word), the Codex completion prefix, the vertical inset, and the plan feedback field.
+- The review-fix pass is verified. Its tests exist and pass, and a test now covers the tint-free `StyledInline` key.
+- Follow-ups are done: `ComposerParagraphs` is the one paragraph walk, and `ComposerSendability` is the one send rule.
+- `ComposerHostedTypingTests` types through `keyDown` in the hosted representable.
+- Full `PlumeTests` run: every suite that fails is outside the composer, and all but one pass when run alone.
+
 ## Remaining
 
-- [ ] **Verify the review-fix pass.** The fix agent was stopped right before its full-suite run, so its edits are unverified. Build, run the full `PlumeTests` suite, and check the new `ComposerSlashAcceptanceTests` plus the tests it added for: edited verbatim block serializes what is on screen; `---\n\n---` round-trips as two rules; `3. three` renders `3.` (`NSTextList.startingItemNumber`) and `renumber` resets across an interrupting bullet; composer chips carry `kern` on the neighboring characters; `loadDocument` clears only this view's undo (`removeAllActions(withTarget:)`); slash acceptance applied twice yields one trailing space; `**\`x\`**` gets a chip; `tint` dropped from the `StyledInline` cache key.
-- [ ] Manual run of the Debug app: type `` `code` `` and confirm the chip no longer covers the preceding character; `3. three`, Return, `four` reads 3. and 4.; then the "verifying by hand" checklist in `docs/composer.md`.
-- [ ] Not yet exercised by hand: ⌥⇧⌘V paste-as-markdown, IME composition, dictation, VoiceOver, a live send to an agent and reading the transcript rendering of every construct.
-- [ ] Review-suggested follow-ups left alone on purpose: unify the four paragraph walks (`ComposerDocument.paragraphs`, `ComposerDocumentInvariants`, `ComposerParagraphStyles.apply`, `ComposerDecorations.blockRects`); reconcile `ComposerDocument.plainTextIsSendable` with `ChatComposer.sendableText`.
-- [ ] Squash or tidy the WIP commit, write the MR description (`create-mr` skill; forge is GitLab), open the MR.
+- [ ] Ryan's review.
+- [ ] Hand checks that an agent can't drive, because the control server's `key` can't type into a scratch instance:
+  - undo and redo after each conversion, ⌘B/⌘I, ⌘V and ⌥⇧⌘V,
+  - Tab and Shift-Tab through a 3-deep list,
+  - pasting an image and sending it alone,
+  - the plan feedback field with ⌥↩,
+  - a Codex tab's completion prefix,
+  - a live send of every construct, read back in the transcript,
+  - IME, dictation and VoiceOver.
+- [ ] Decide: can an image with an empty `!` command be sent? Main allows it, and the send leaves command mode.
 
 ## Key files touched
 
@@ -62,12 +76,13 @@ Two parts. Part 1: a SwiftUI `TextRenderer` draws chips behind code runs of conc
 ## How to resume
 
 ```
-cd <repo>/.worktrees/text-polish   # or `wt co text-polish --no-tab` on a fresh machine, then `wt path text-polish`
+cd "$(wt path ryanm/plume-203-wysiwyg-composer)"   # or `wt co ryanm/plume-203-wysiwyg-composer --no-tab`
+export DEVELOPER_DIR=/Applications/Xcode-27.0.0.app/Contents/Developer   # main needs the macOS 27 SDK
 xcodebuild -scheme Plume -destination 'platform=macOS' build 2>&1 | grep -E "error:|BUILD" | tail
 xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests 2>&1 | grep -E "Test Suite '.*' (passed|failed)|Executed|failed" | tail -40
 ```
 
-Then the manual checks in Remaining and `docs/composer.md`, then `create-mr`.
+Then the hand checks in Remaining and `docs/composer.md`. The branch merges into main locally.
 
 ---
 
