@@ -37,8 +37,8 @@ struct ChatListHostPoolTests {
         #expect(hosts.allSatisfy { $0.alphaValue == 1 })
     }
 
-    /// PLUME-204: the reader scrolling away mid-departure evicts the
-    /// indicator's host, and it must not come back when they scroll down.
+    /// Scrolling away mid-departure takes the indicator outside the kept
+    /// window. It must not come back when the reader scrolls down.
     @Test func aWorkingIndicatorEvictedMidDepartureNeverReturns() async throws {
         let controller = ChatListController()
         let window = NSWindow(
@@ -76,6 +76,8 @@ struct ChatListHostPoolTests {
         #expect(visible.contains(working.id) == false)
     }
 
+    /// More rows than `maxRealized` in the kept window trims its end, where
+    /// the indicator sits, with no scroll at all.
     @Test func aWorkingIndicatorDepartingFromACrowdedWindowNeverReturns() async throws {
         let controller = ChatListController()
         let window = NSWindow(
