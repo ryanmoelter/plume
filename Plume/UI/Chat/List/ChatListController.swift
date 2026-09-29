@@ -471,6 +471,14 @@ final class ChatListController: NSObject {
         documentView.layoutSubtreeIfNeeded()
     }
 
+    /// Runs the frame that ends every animation in flight, so a test need
+    /// not race the display link for the main thread.
+    func finishAnimations() {
+        tick(at: .infinity)
+    }
+
+    var realizedIDs: Set<String> { Set(hosts.keys) }
+
     /// A working indicator that leaves while showing fades and collapses
     /// rather than vanishing, which would jump everything below it.
     private func startDepartures(from previous: [ChatPiece], staying next: [String: Item]) {

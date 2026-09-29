@@ -59,20 +59,20 @@ struct ChatListHostPoolTests {
         let reply = (0..<60).map { paragraph("m/\($0)", "Paragraph \($0) of a reply long enough to scroll.") }
         let working = ChatPiece(id: "m/working", messageID: "m", role: .assistant, content: .working, wash: .none)
         controller.update(ChatListInputs(pieces: reply + [working]))
-        controller.documentView.layoutSubtreeIfNeeded()
-        try await waitUntil { visible.contains(working.id) }
+        layOut(controller)
+        try #require(controller.realizedIDs.contains(working.id))
 
         controller.update(ChatListInputs(pieces: reply))
         let clip = controller.scrollView.contentView
         clip.scroll(to: .zero)
         controller.scrollView.reflectScrolledClipView(clip)
-        controller.documentView.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(500))
+        layOut(controller)
+        controller.finishAnimations()
 
         controller.scroll(to: .bottom, animated: false)
-        controller.documentView.layoutSubtreeIfNeeded()
-        try await waitUntil { visible.contains(reply[reply.count - 1].id) }
-        try await Task.sleep(for: .milliseconds(100))
+        layOut(controller)
+        await drainMainQueue()
+        try #require(visible.contains(reply[reply.count - 1].id))
         #expect(visible.contains(working.id) == false)
     }
 
@@ -98,14 +98,15 @@ struct ChatListHostPoolTests {
         let reply = (0..<400).map { paragraph("m/\($0)", "\($0)") }
         let working = ChatPiece(id: "m/working", messageID: "m", role: .assistant, content: .working, wash: .none)
         controller.update(ChatListInputs(pieces: reply + [working]))
-        controller.documentView.layoutSubtreeIfNeeded()
-        try await waitUntil { visible.contains(working.id) }
+        layOut(controller)
+        try #require(controller.realizedIDs.contains(working.id))
 
         controller.update(ChatListInputs(pieces: reply))
-        controller.documentView.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(600))
-        controller.documentView.needsLayout = true
-        controller.documentView.layoutSubtreeIfNeeded()
+        layOut(controller)
+        controller.finishAnimations()
+        layOut(controller)
+        await drainMainQueue()
+        try #require(visible.contains(reply[reply.count - 1].id))
         #expect(visible.contains(working.id) == false)
     }
 
@@ -115,6 +116,23 @@ struct ChatListHostPoolTests {
 
     private func visibleHosts(in controller: ChatListController) -> [NSView] {
         controller.documentView.subviews.filter { !$0.isHidden }
+    }
+
+    /// An offscreen window runs no layout of its own, and a pass realizes
+    /// around the offset it started from before it scrolls to follow.
+    private func layOut(_ controller: ChatListController) {
+        for _ in 0..<2 {
+            controller.documentView.needsLayout = true
+            controller.documentView.layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// `onVisiblePieceIDs` delivers on a later main-queue turn than the
+    /// layout pass that computed it.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
