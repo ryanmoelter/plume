@@ -47,12 +47,12 @@ struct AgentsSettingsPane: View {
                             Text(mode.label).tag(mode)
                         }
                     }
-                    Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
                     Picker("New tabs use", selection: $settings.defaultClaudeModel) {
                         ForEach(ClaudeModelDefault.offered(including: settings.defaultClaudeModel)) { option in
                             Text(label(for: option)).tag(option)
                         }
                     }
+                    Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
                 }
             }
 
