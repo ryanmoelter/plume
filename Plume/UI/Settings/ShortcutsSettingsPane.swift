@@ -15,6 +15,13 @@ struct ShortcutsSettingsPane: View {
                         .foregroundStyle(.secondary)
                 }
                 .plumeID(AccessibilityID.composerSendKeyPicker)
+
+                Toggle("Esc stops the current turn", isOn: $settings.escapeInterruptsTurn)
+                    .plumeID(
+                        AccessibilityID.escapeInterruptsTurnToggle,
+                        value: settings.escapeInterruptsTurn ? "on" : "off",
+                        invoke: { settings.escapeInterruptsTurn.toggle() }
+                    )
             } header: {
                 Text("Chat")
             }

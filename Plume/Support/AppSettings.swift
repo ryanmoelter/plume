@@ -20,6 +20,7 @@ final class AppSettings {
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
+        static let escapeInterruptsTurn = "escapeInterruptsTurn"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
         static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
@@ -106,6 +107,9 @@ final class AppSettings {
         self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
 
         self.composerSendKey = Self.resolveComposerSendKey(defaults: defaults, domainName: domainName)
+        self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
+            ? true
+            : defaults.bool(forKey: Key.escapeInterruptsTurn)
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
@@ -289,6 +293,14 @@ final class AppSettings {
     var composerSendKey: ComposerSendKey {
         didSet {
             defaults.set(composerSendKey.rawValue, forKey: Key.composerSendKeyRaw)
+        }
+    }
+
+    /// Whether Esc in the chat composer interrupts a running turn, as it does
+    /// in Claude Code's own TUI.
+    var escapeInterruptsTurn: Bool {
+        didSet {
+            defaults.set(escapeInterruptsTurn, forKey: Key.escapeInterruptsTurn)
         }
     }
 
