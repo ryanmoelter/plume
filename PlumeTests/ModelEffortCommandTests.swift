@@ -71,27 +71,27 @@ struct ModelEffortCommandTests {
         #expect(AgentModel.recognizing(reported)?.id == expectedID)
     }
 
-    /// A `[1m]` suffix names the 1M variant, which is a different model to
-    /// pass to `--model`, not a decoration to strip. `claude-opus-5-5[1m]` is
-    /// also a previous release's top-level ID, which a persisted default
-    /// from that release may still hold, and it must still round-trip.
+    /// Opus, Sonnet and Fable are 1M at their bare ID, so a suffixed ID —
+    /// which a tab or setting from an older release may still hold — lands
+    /// on the same entry. Haiku is the one model whose suffix names a
+    /// distinct 1M variant.
     @Test(arguments: [
         ("claude-opus-5-5[1m]", AgentModel.opus5dot5),
         ("claude-opus-5[1m]", AgentModel.opus5),
+        ("claude-sonnet-5[1m]", AgentModel.sonnet5),
         ("opus 5.5[1m]", AgentModel.opus5dot5),
         ("opus 5[1m]", AgentModel.opus5),
         ("sonnet 5[1m]", AgentModel.sonnet5),
         ("haiku 4.5[1m]", AgentModel.haiku4dot5),
+        ("claude-haiku-4-5-20251001[1m]", AgentModel.haiku4dot5),
     ])
-    func recognizingPromotesAContextSuffixToTheOneMillionVariant(
+    func recognizingResolvesAContextSuffix(
         reported: String,
         expected: AgentModel
     ) {
         #expect(AgentModel.recognizing(reported) == expected)
     }
 
-    /// Fable takes the suffix but reports back plain, so there is nothing to
-    /// promote it to.
     @Test func fableHasNoDistinctOneMillionVariant() {
         #expect(AgentModel.recognizing("fable[1m]") == .fable5dot1)
         #expect(AgentModel.fable5dot1.id == "claude-fable-5-1")
@@ -192,7 +192,7 @@ struct ModelEffortCommandTests {
 
     /// The top-level entries show bare family names, since the CLI — not
     /// Plume — picks the version. The "More" entries are explicit versioned
-    /// IDs, so their labels carry a version and, for the 200K sibling, a
+    /// IDs, so their labels carry a version and, for Haiku's 200K form, a
     /// size suffix.
     @Test(arguments: [
         (AgentModel.fable, "Fable"),
@@ -200,11 +200,8 @@ struct ModelEffortCommandTests {
         (AgentModel.sonnet, "Sonnet"),
         (AgentModel.haiku, "Haiku"),
         (AgentModel.opus5dot5, "Opus 5.5"),
-        (AgentModel.opus5dot5At200K, "Opus 5.5 200K"),
         (AgentModel.opus5, "Opus 5"),
-        (AgentModel.opus5At200K, "Opus 5 200K"),
         (AgentModel.sonnet5, "Sonnet 5"),
-        (AgentModel.sonnet5At200K, "Sonnet 5 200K"),
         (AgentModel.fable5dot1, "Fable 5.1"),
         (AgentModel.haiku4dot5, "Haiku 4.5"),
         (AgentModel.haiku4dot5At200K, "Haiku 4.5 200K"),
@@ -214,13 +211,13 @@ struct ModelEffortCommandTests {
     }
 
     /// The primary menu is Default/Fable/Opus/Sonnet/Haiku; More holds each
-    /// specific version and its 200K sibling, plus the prior-generation Opus
-    /// kept reachable after Opus 5.5 took the top-level slot.
+    /// specific version, plus the prior-generation Opus kept reachable after
+    /// Opus 5.5 took the top-level slot. Only Haiku has a 200K sibling.
     @Test func moreHoldsExactlyTheVersionedModels() {
         #expect(AgentModel.more.map(\.id) == [
-            "claude-opus-5-5[1m]", "claude-opus-5-5",
-            "claude-opus-5[1m]", "claude-opus-5",
-            "claude-sonnet-5[1m]", "claude-sonnet-5",
+            "claude-opus-5-5",
+            "claude-opus-5",
+            "claude-sonnet-5",
             "claude-fable-5-1",
             "claude-haiku-4-5-20251001[1m]", "claude-haiku-4-5-20251001",
         ])
@@ -229,19 +226,15 @@ struct ModelEffortCommandTests {
     /// 200,000 and 1,000,000 are the exact figures a real `modelUsage` entry
     /// reports for a 200K and a 1M model, per `basic.ndjson`
     /// (`StreamJSONDecoderTests.largestContextWindowPicksTheMaxAcrossModelUsage`).
-    /// A top-level alias with `[1m]` (or none, for Fable) means 1M; a bare
-    /// 200K ID in "More" means 200K.
+    /// Only Haiku's bare ID means 200K; every other preset is 1M.
     @Test(arguments: [
         (AgentModel.fable, 1_000_000),
         (AgentModel.opus, 1_000_000),
         (AgentModel.sonnet, 1_000_000),
         (AgentModel.haiku, 1_000_000),
         (AgentModel.opus5dot5, 1_000_000),
-        (AgentModel.opus5dot5At200K, 200_000),
         (AgentModel.opus5, 1_000_000),
-        (AgentModel.opus5At200K, 200_000),
         (AgentModel.sonnet5, 1_000_000),
-        (AgentModel.sonnet5At200K, 200_000),
         (AgentModel.fable5dot1, 1_000_000),
         (AgentModel.haiku4dot5, 1_000_000),
         (AgentModel.haiku4dot5At200K, 200_000),

@@ -57,23 +57,25 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 ## Model aliases
 
-**A bare alias resolves to the CLI's current 200K model; `alias[1m]` resolves to the current 1M model.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
+**The current Opus, Sonnet and Fable models are 1M at their bare ID, with no 200K form; only Haiku 4.5 is 200K bare.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model` and the `result` event's `modelUsage.<id>.contextWindow`:
 
-| `--model` | `init` reports |
-| --- | --- |
-| `opus` | `claude-opus-5-5` |
-| `opus[1m]` | `claude-opus-5-5[1m]` |
-| `sonnet` | `claude-sonnet-5` |
-| `sonnet[1m]` | `claude-sonnet-5[1m]` |
-| `fable` | `claude-fable-5-1` |
-| `haiku` | `claude-haiku-4-5-20251001` |
-| `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` |
-| `not-a-real-model` | `not-a-real-model` |
+| `--model` | `init` reports | `contextWindow` |
+| --- | --- | --- |
+| `opus` | `claude-opus-5-5` | 1,000,000 |
+| `opus[1m]` | `claude-opus-5-5[1m]` | 1,000,000 |
+| `claude-opus-5-5` | `claude-opus-5-5` | 1,000,000 |
+| `claude-opus-5` | `claude-opus-5` | 1,000,000 |
+| `sonnet` | `claude-sonnet-5` | 1,000,000 |
+| `sonnet[1m]` | `claude-sonnet-5[1m]` | 1,000,000 |
+| `fable` | `claude-fable-5-1` | 1,000,000 |
+| `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` | 200,000 |
+| `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` | 400 "long context beta is not yet available for this subscription" |
+| `not-a-real-model` | `not-a-real-model` | |
 
 Three things follow.
 
-- **`alias[1m]` is what the top-level picker sends.** The CLI resolves it to its current 1M model, so Plume never has to track a version for the default path — `AgentModel.opus`/`.sonnet`/`.haiku` send `opus[1m]`/`sonnet[1m]`/`haiku[1m]` and show the bare family name until a session reports the resolved model. Fable has no 1M variant, so `AgentModel.fable` sends the plain `fable` alias. Specific versions (`claude-opus-5-5[1m]` and so on) live in the "More" submenu as explicit IDs; `recognizing(_:)` maps a resolved or reported alias onto the matching one so the composer can show a real label like "Opus 5.5" once the session confirms it.
-- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable5dot1` is `claude-fable-5-1` and is labelled without a size — not because it's 1M by convention, but because it has no 200K form to distinguish from.
+- **The suffix is redundant everywhere but Haiku.** `init` echoes the ID it was handed, suffix included, but the window is the same either way. So "More" offers `claude-opus-5-5`, `claude-opus-5` and `claude-sonnet-5` bare, with no 200K sibling, and `recognizing(_:)` maps a bare alias (`opus`, as `~/.claude/settings.json` often holds) or a suffixed ID from an older release onto that one entry. Only Haiku keeps a pair, since its bare ID really is 200K. `nominalContextWindow` reads 200K for a bare ID only when its `[1m]` sibling is also offered.
+- **The top-level picker sends `alias[1m]`** — `opus[1m]`/`sonnet[1m]`/`haiku[1m]`, and plain `fable` — and shows the bare family name until a session reports the resolved model. The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
 
 ## Sending a turn
