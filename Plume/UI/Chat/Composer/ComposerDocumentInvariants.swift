@@ -36,25 +36,14 @@ nonisolated enum ComposerDocumentInvariants {
             range = NSUnionRange(range, following)
         }
 
-        var location = range.location
-        while location < NSMaxRange(range) {
-            let enclosing = ns.paragraphRange(for: NSRange(location: location, length: 0))
-            let contentLength = enclosing.length - (ns.substring(with: enclosing).hasSuffix("\n") ? 1 : 0)
-            let contentRange = NSRange(location: enclosing.location, length: contentLength)
-
-            let kind: ComposerBlockKind
-            if let existing = storage.attribute(.plumeBlock, at: enclosing.location, effectiveRange: nil) as? ComposerBlockKind {
-                kind = existing
-            } else {
-                let previous = enclosing.location > 0
-                    ? storage.attribute(.plumeBlock, at: enclosing.location - 1, effectiveRange: nil) as? ComposerBlockKind
-                    : nil
-                kind = continuationKind(after: previous)
-            }
-            storage.addAttribute(.plumeBlock, value: kind, range: enclosing)
-            refont(contentRange, kind: kind, storage: storage, style: style)
-
-            location = NSMaxRange(enclosing)
+        var previous = range.location > 0
+            ? storage.attribute(.plumeBlock, at: range.location - 1, effectiveRange: nil) as? ComposerBlockKind
+            : nil
+        for paragraph in ComposerParagraphs.all(in: storage, within: range) {
+            let kind = paragraph.storedKind ?? continuationKind(after: previous)
+            storage.addAttribute(.plumeBlock, value: kind, range: paragraph.range)
+            refont(paragraph.contentRange, kind: kind, storage: storage, style: style)
+            previous = kind
         }
     }
 
@@ -68,16 +57,10 @@ nonisolated enum ComposerDocumentInvariants {
     /// interruption keeps its own number and counts up from there, which is
     /// also where `ComposerLists` starts the `NSTextList` it builds.
     static func renumber(_ storage: NSMutableAttributedString, style: ComposerTextStyle) {
-        guard storage.length > 0 else { return }
-        let ns = storage.string as NSString
         var countersByDepth: [Int: Int] = [:]
-        var location = 0
-
-        while location < ns.length {
-            let enclosing = ns.paragraphRange(for: NSRange(location: location, length: 0))
-            guard let kind = storage.attribute(.plumeBlock, at: enclosing.location, effectiveRange: nil) as? ComposerBlockKind else {
+        for paragraph in ComposerParagraphs.all(in: storage) {
+            guard let kind = paragraph.storedKind else {
                 countersByDepth.removeAll()
-                location = NSMaxRange(enclosing)
                 continue
             }
 
@@ -86,7 +69,7 @@ nonisolated enum ComposerDocumentInvariants {
                 countersByDepth = countersByDepth.filter { $0.key <= depth }
                 let expected = countersByDepth[depth] ?? number
                 if expected != number {
-                    storage.addAttribute(.plumeBlock, value: ComposerBlockKind.numbered(depth: depth, number: expected), range: enclosing)
+                    storage.addAttribute(.plumeBlock, value: ComposerBlockKind.numbered(depth: depth, number: expected), range: paragraph.range)
                 }
                 countersByDepth[depth] = expected + 1
 
@@ -99,8 +82,6 @@ nonisolated enum ComposerDocumentInvariants {
             default:
                 countersByDepth.removeAll()
             }
-
-            location = NSMaxRange(enclosing)
         }
     }
 
