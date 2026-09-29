@@ -41,7 +41,6 @@ struct VisualsSettingsPane: View {
                     Text("Relative to text size")
                         .foregroundStyle(.secondary)
                 }
-
             } header: {
                 Text("Chat")
             }
