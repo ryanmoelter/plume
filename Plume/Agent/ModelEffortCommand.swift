@@ -73,17 +73,12 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     var token: String { id }
 
     /// The context window this model implies before any turn has reported
-    /// the real one. An `[1m]` suffix on the alias or ID means 1M; a bare
-    /// 200K ID in `more` means 200K, except Fable, which has no 200K form to
-    /// distinguish from and so means 1M like the top-level aliases without a
-    /// suffix. Nil outside `selectable`: a model this build has never heard
-    /// of assumes nothing.
+    /// the real one. A bare ID whose `[1m]` sibling is also offered means
+    /// 200K; every other preset means 1M. Nil outside `selectable`: a model
+    /// this build has never heard of assumes nothing.
     var nominalContextWindow: Int? {
         guard AgentModel.selectable.contains(where: { $0.id == id }) else { return nil }
-        if id == AgentModel.fable5dot1.id { return 1_000_000 }
-        if id.hasSuffix(AgentModel.contextSuffix) { return 1_000_000 }
-        if AgentModel.more.contains(where: { $0.id == id }) { return 200_000 }
-        return 1_000_000
+        return hasOneMillionVariant ? 200_000 : 1_000_000
     }
 
     // MARK: - Presets
@@ -91,20 +86,19 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// The composer's top-level menu. Each sends the CLI's own alias — the
     /// 1M form where one exists — and shows the bare family name; the CLI
     /// picks the current version, so Plume tracks no version for this path.
-    /// Fable has no 1M variant, so it sends the plain alias. See "Model
+    /// Fable has no `[1m]` form, so it sends the plain alias. See "Model
     /// aliases" in docs/headless-protocol.md.
     static let fable = AgentModel(alias: "fable", label: "Fable")
     static let opus = AgentModel(alias: "opus[1m]", label: "Opus")
     static let sonnet = AgentModel(alias: "sonnet[1m]", label: "Sonnet")
     static let haiku = AgentModel(alias: "haiku[1m]", label: "Haiku")
 
-    /// Explicit versioned IDs the "More" submenu offers.
-    static let opus5dot5 = AgentModel(id: "claude-opus-5-5[1m]")
-    static let opus5dot5At200K = AgentModel(id: "claude-opus-5-5", contextSuffix: "200K")
-    static let opus5 = AgentModel(id: "claude-opus-5[1m]")
-    static let opus5At200K = AgentModel(id: "claude-opus-5", contextSuffix: "200K")
-    static let sonnet5 = AgentModel(id: "claude-sonnet-5[1m]")
-    static let sonnet5At200K = AgentModel(id: "claude-sonnet-5", contextSuffix: "200K")
+    /// Explicit versioned IDs the "More" submenu offers. The current Opus,
+    /// Sonnet and Fable models are 1M at their bare ID, with no 200K form, so
+    /// they carry no suffix. Haiku 4.5 is 200K bare and 1M only with `[1m]`.
+    static let opus5dot5 = AgentModel(id: "claude-opus-5-5")
+    static let opus5 = AgentModel(id: "claude-opus-5")
+    static let sonnet5 = AgentModel(id: "claude-sonnet-5")
     static let fable5dot1 = AgentModel(id: "claude-fable-5-1")
     static let haiku4dot5 = AgentModel(id: "claude-haiku-4-5-20251001[1m]")
     static let haiku4dot5At200K = AgentModel(id: "claude-haiku-4-5-20251001", contextSuffix: "200K")
@@ -116,9 +110,9 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// not models. So it is maintained by hand from `claude --help`'s aliases
     /// and the IDs the CLI accepted when probed.
     static let more: [AgentModel] = [
-        opus5dot5, opus5dot5At200K,
-        opus5, opus5At200K,
-        sonnet5, sonnet5At200K,
+        opus5dot5,
+        opus5,
+        sonnet5,
         fable5dot1,
         haiku4dot5, haiku4dot5At200K
     ]
@@ -141,20 +135,21 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// selection, so the composer can show the resolved version once a
     /// session reports it rather than the bare alias it was launched with.
     ///
-    /// An exact ID match wins. Otherwise a short alias matches a versioned
-    /// "More" entry, with a `[1m]` suffix promoting the result to that
-    /// model's 1M variant. An unfamiliar ID comes back as itself rather than
-    /// nil, so the control can display what the session actually runs on.
+    /// An exact ID match wins. Otherwise a short alias or a bare ID matches a
+    /// versioned "More" entry, with a `[1m]` suffix promoting the result to
+    /// that model's 1M variant where it has a distinct one. An unfamiliar ID
+    /// comes back as itself rather than nil, so the control can display what
+    /// the session actually runs on.
     static func recognizing(_ reported: String) -> AgentModel? {
         let trimmed = reported.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
-        if let exact = selectable.first(where: { $0.id.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+        if let exact = preset(withID: trimmed) {
             return exact
         }
         let isOneMillion = trimmed.hasSuffix(contextSuffix)
         let bare = String(trimmed.dropLast(isOneMillion ? contextSuffix.count : 0))
-        if let alias = aliases[bare.lowercased()] {
-            return isOneMillion ? alias.oneMillionVariant : alias
+        if let base = aliases[bare.lowercased()] ?? preset(withID: bare) {
+            return isOneMillion ? base.oneMillionVariant : base
         }
         return AgentModel(unrecognizedID: trimmed)
     }
@@ -170,24 +165,29 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     }
 
     /// Short names and display strings the CLI or a statusline may report in
-    /// place of a full ID, each mapped to its versioned 200K form in "More".
-    /// A `[1m]` suffix on the reported string promotes the result to the 1M
-    /// variant — which is also how a previous release's top-level IDs
-    /// (`claude-opus-5[1m]`, `claude-opus-5-5[1m]`), still held by a
-    /// persisted default-model setting, round-trip: they match `more`
-    /// exactly rather than going through this map.
+    /// place of a full ID, each mapped to the model a bare `--model` of that
+    /// name runs on. A `[1m]` suffix on the reported string promotes the
+    /// result to its 1M variant, which only Haiku has.
     private static let aliases: [String: AgentModel] = [
         "fable": .fable5dot1, "fable 5": .fable5dot1, "fable 5.1": .fable5dot1, "claude-fable-5": .fable5dot1,
-        "opus": .opus5dot5At200K, "opus 5.5": .opus5dot5At200K, "claude-opus-5-5": .opus5dot5At200K,
-        "opus 5": .opus5At200K,
-        "sonnet": .sonnet5At200K, "sonnet 5": .sonnet5At200K,
+        "opus": .opus5dot5, "opus 5.5": .opus5dot5,
+        "opus 5": .opus5,
+        "sonnet": .sonnet5, "sonnet 5": .sonnet5,
         "haiku": .haiku4dot5At200K, "haiku 4.5": .haiku4dot5At200K
     ]
 
     private static let contextSuffix = "[1m]"
 
-    /// The 1M-context sibling of this model, or the model itself when it has
-    /// no 1M form — Fable, whose suffixed ID the CLI reports back plain.
+    private static func preset(withID id: String) -> AgentModel? {
+        selectable.first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+    }
+
+    private var hasOneMillionVariant: Bool {
+        oneMillionVariant != self
+    }
+
+    /// The 1M-context sibling of this model, or the model itself when its
+    /// bare ID is already 1M.
     private var oneMillionVariant: AgentModel {
         let suffixed = id + AgentModel.contextSuffix
         return AgentModel.selectable.first { $0.id == suffixed } ?? self

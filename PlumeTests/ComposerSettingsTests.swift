@@ -168,9 +168,7 @@ struct ComposerSettingsTests {
         #expect(session.model == defaults.model)
     }
 
-    /// Tabs stored before the model list carried IDs hold a bare alias, which
-    /// named the 200K model the CLI resolved it to. It has to keep reading
-    /// that way rather than being promoted to a 1M variant the tab never ran.
+    /// Tabs stored before the model list carried IDs hold a bare alias.
     @Test func aTabStoringABareAliasKeepsItsPlainModel() throws {
         let tab = makeTab()
         tab.modelRaw = "opus"

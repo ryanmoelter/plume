@@ -63,6 +63,14 @@ struct ClaudeCodeSettingsResolverTests {
         #expect(AgentModel.opus.label == "Opus")
     }
 
+    /// A bare `opus` runs Opus 5.5 at 1M, so the Default item must not name
+    /// a 200K variant.
+    @Test func aBareAliasResolvesToTheOneMillionModel() throws {
+        let model = try #require(resolvedModel(shared: #"{ "model": "opus" }"#))
+        #expect(model.label == "Opus 5.5")
+        #expect(model.nominalContextWindow == 1_000_000)
+    }
+
     @Test func resolvesAFullModelID() {
         #expect(resolvedModel(shared: #"{ "model": "claude-opus-5" }"#)?.id == "claude-opus-5")
     }
