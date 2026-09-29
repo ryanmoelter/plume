@@ -69,7 +69,12 @@ final class AppSettings {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    /// `defaults`' own persistent domain, so `resolveComposerSendKey` can look
+    /// it up before this initializer writes anything into it. `UserDefaults`
+    /// exposes no way to ask an instance its own suite name, so callers pass
+    /// it: the app passes its bundle identifier, a test its scratch suite
+    /// name.
+    init(defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? "") {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
@@ -100,7 +105,7 @@ final class AppSettings {
         // shutdown should never stall on a modal nobody is there to dismiss.
         self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
 
-        self.composerSendKey = Self.resolveComposerSendKey(defaults: defaults)
+        self.composerSendKey = Self.resolveComposerSendKey(defaults: defaults, domainName: domainName)
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
@@ -289,16 +294,21 @@ final class AppSettings {
 
     /// `composerSendKey`'s startup value: an explicit stored choice always
     /// wins. Otherwise a fresh install defaults to plain Return, but an
-    /// install that predates that default keeps ⌘Return — detected by
-    /// `Key.showsCodexFullAccess` already being set, since `init` below
-    /// writes it unconditionally on every launch and so it is set in any
-    /// defaults domain `AppSettings` has run in before. The fallback is
-    /// persisted so the decision sticks even if that signal later changes.
-    static func resolveComposerSendKey(defaults: UserDefaults) -> ComposerSendKey {
+    /// install that predates that default keeps ⌘Return — detected by the
+    /// domain already holding *any* key, which any past launch of any past
+    /// version leaves behind. `showsCodexFullAccess` alone (the previous
+    /// signal) only exists from 0.13.0 on, so an older install read as fresh
+    /// and silently lost its ⌘Return. Must run before `init` writes its own
+    /// migration keys (`showsCodexFullAccess` among them), or a fresh install
+    /// would read as existing. The fallback is persisted so the decision
+    /// sticks even if the domain is later cleared some other way.
+    static func resolveComposerSendKey(defaults: UserDefaults, domainName: String) -> ComposerSendKey {
         if let stored = defaults.string(forKey: Key.composerSendKeyRaw).flatMap(ComposerSendKey.init(rawValue:)) {
             return stored
         }
-        let isExistingInstall = defaults.object(forKey: Key.showsCodexFullAccess) != nil
+        // `dictionaryRepresentation()` also includes the global domain, so it
+        // reads non-empty even for a domain nothing has ever written to.
+        let isExistingInstall = !(defaults.persistentDomain(forName: domainName)?.isEmpty ?? true)
         let resolved: ComposerSendKey = isExistingInstall ? .commandReturn : .returnKey
         defaults.set(resolved.rawValue, forKey: Key.composerSendKeyRaw)
         return resolved

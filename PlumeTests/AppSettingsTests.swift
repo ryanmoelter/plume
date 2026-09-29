@@ -11,6 +11,13 @@ struct AppSettingsTests {
         return defaults
     }
 
+    /// The suite name doubles as the persistent domain name `resolveComposerSendKey`
+    /// checks — `UserDefaults` exposes no way to read a suite's own name back.
+    private func makeDefaultsWithDomainName() -> (UserDefaults, String) {
+        let suiteName = "AppSettingsTests-\(UUID().uuidString)"
+        return (UserDefaults(suiteName: suiteName)!, suiteName)
+    }
+
     @Test func defaultsToClaudeCodeAndNoBasePathOverride() {
         let settings = AppSettings(defaults: makeDefaults())
         #expect(settings.defaultProvider == .claudeCode)
@@ -49,31 +56,32 @@ struct AppSettingsTests {
     }
 
     @Test func composerSendKeyDefaultsToReturnOnAFreshInstall() {
-        let settings = AppSettings(defaults: makeDefaults())
+        let (defaults, domainName) = makeDefaultsWithDomainName()
+        let settings = AppSettings(defaults: defaults, domainName: domainName)
         #expect(settings.composerSendKey == .returnKey)
     }
 
     /// An install that predates the new default is any domain `AppSettings`
-    /// has already initialized in — simulated here by writing the migration
-    /// key `resolveComposerSendKey` checks for, without ever storing a
-    /// composer send key.
+    /// has already run in — simulated here by writing some unrelated old key
+    /// to the domain, without ever storing a composer send key. Deliberately
+    /// not `showsCodexFullAccess`: that key only exists from 0.13.0 on, so an
+    /// older install must still read as existing without it.
     @Test func composerSendKeyDefaultsToCommandReturnOnAnExistingInstallAndPersistsTheChoice() {
-        let defaults = makeDefaults()
-        defaults.set(false, forKey: "showsCodexFullAccess")
+        let (defaults, domainName) = makeDefaultsWithDomainName()
+        defaults.set(true, forKey: "someUnrelatedOldKey")
 
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(defaults: defaults, domainName: domainName)
         #expect(settings.composerSendKey == .commandReturn)
 
-        let reloaded = AppSettings(defaults: defaults)
+        let reloaded = AppSettings(defaults: defaults, domainName: domainName)
         #expect(reloaded.composerSendKey == .commandReturn)
     }
 
     @Test func composerSendKeyExplicitStoredValueWinsRegardlessOfInstallAge() {
-        let defaults = makeDefaults()
-        defaults.set(false, forKey: "showsCodexFullAccess")
+        let (defaults, domainName) = makeDefaultsWithDomainName()
         defaults.set(ComposerSendKey.returnKey.rawValue, forKey: "composerSendKeyRaw")
 
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(defaults: defaults, domainName: domainName)
         #expect(settings.composerSendKey == .returnKey)
     }
 
