@@ -48,18 +48,42 @@ struct AppSettingsTests {
         #expect(reloaded.animateCharacterReveal)
     }
 
-    @Test func composerSendKeyDefaultsToCommandReturn() {
+    @Test func composerSendKeyDefaultsToReturnOnAFreshInstall() {
         let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.composerSendKey == .returnKey)
+    }
+
+    /// An install that predates the new default is any domain `AppSettings`
+    /// has already initialized in — simulated here by writing the migration
+    /// key `resolveComposerSendKey` checks for, without ever storing a
+    /// composer send key.
+    @Test func composerSendKeyDefaultsToCommandReturnOnAnExistingInstallAndPersistsTheChoice() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "showsCodexFullAccess")
+
+        let settings = AppSettings(defaults: defaults)
         #expect(settings.composerSendKey == .commandReturn)
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.composerSendKey == .commandReturn)
+    }
+
+    @Test func composerSendKeyExplicitStoredValueWinsRegardlessOfInstallAge() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "showsCodexFullAccess")
+        defaults.set(ComposerSendKey.returnKey.rawValue, forKey: "composerSendKeyRaw")
+
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.composerSendKey == .returnKey)
     }
 
     @Test func composerSendKeyPersists() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
-        settings.composerSendKey = .returnKey
+        settings.composerSendKey = .commandReturn
 
         let reloaded = AppSettings(defaults: defaults)
-        #expect(reloaded.composerSendKey == .returnKey)
+        #expect(reloaded.composerSendKey == .commandReturn)
     }
 
     @Test func defaultPermissionModeDefaultsToFollowingClaudeCode() {
