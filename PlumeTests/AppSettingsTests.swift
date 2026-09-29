@@ -92,6 +92,23 @@ struct AppSettingsTests {
         #expect(settings.resolvedDefaultPermissionMode == .bypassPermissions)
     }
 
+    @Test func defaultClaudeModelDefaultsToFollowingClaudeCode() {
+        #expect(AppSettings(defaults: makeDefaults()).defaultClaudeModel == .followClaudeCode)
+    }
+
+    @Test func defaultClaudeModelPersists() {
+        let defaults = makeDefaults()
+        AppSettings(defaults: defaults).defaultClaudeModel = .model(.opus5dot5)
+
+        #expect(AppSettings(defaults: defaults).defaultClaudeModel == .model(.opus5dot5))
+    }
+
+    @Test func resolvedDefaultModelReturnsThePinnedModelDirectly() {
+        let settings = AppSettings(defaults: makeDefaults())
+        settings.defaultClaudeModel = .model(.sonnet5)
+        #expect(settings.resolvedDefaultModel == .sonnet5)
+    }
+
     /// Never nil, so the composer's effort control always has a value to show.
     @Test func defaultEffortFallsBackToMedium() {
         let settings = AppSettings(defaults: makeDefaults())

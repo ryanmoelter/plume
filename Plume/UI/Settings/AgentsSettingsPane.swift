@@ -48,6 +48,11 @@ struct AgentsSettingsPane: View {
                         }
                     }
                     Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
+                    Picker("New tabs use", selection: $settings.defaultClaudeModel) {
+                        ForEach(ClaudeModelDefault.offered(including: settings.defaultClaudeModel)) { option in
+                            Text(label(for: option)).tag(option)
+                        }
+                    }
                 }
             }
 
@@ -96,6 +101,18 @@ struct AgentsSettingsPane: View {
             } icon: {
                 AgentProviderIcon(provider: provider)
             }
+        }
+    }
+
+    /// Names the CLI's own default beside the follow option, so the user can
+    /// see what following it means.
+    private func label(for option: ClaudeModelDefault) -> String {
+        switch option {
+        case .followClaudeCode:
+            return ClaudeCodeSettingsResolver.resolvedDefaultModel()
+                .map { "Follow Claude Code (\($0.label))" } ?? "Follow Claude Code"
+        case .model(let model):
+            return model.label
         }
     }
 

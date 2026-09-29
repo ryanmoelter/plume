@@ -22,6 +22,7 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
+        static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
         static let defaultCodexPermissionProfileRaw = "defaultCodexPermissionProfileRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
         /// Stored under its original name, from when the setting covered
@@ -107,6 +108,9 @@ final class AppSettings {
 
         self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
             .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
+
+        self.defaultClaudeModel = defaults.string(forKey: Key.defaultClaudeModelRaw)
+            .map(ClaudeModelDefault.init(rawValue:)) ?? .followClaudeCode
 
         self.defaultCodexPermissionProfileRaw = defaults.string(
             forKey: Key.defaultCodexPermissionProfileRaw
@@ -300,6 +304,14 @@ final class AppSettings {
         }
     }
 
+    /// Model a new Claude tab starts on. Defaults to whatever the Claude Code
+    /// CLI itself resolves.
+    var defaultClaudeModel: ClaudeModelDefault {
+        didSet {
+            defaults.set(defaultClaudeModel.rawValue, forKey: Key.defaultClaudeModelRaw)
+        }
+    }
+
     var defaultCodexPermissionProfileRaw: String {
         didSet {
             defaults.set(defaultCodexPermissionProfileRaw, forKey: Key.defaultCodexPermissionProfileRaw)
@@ -484,10 +496,10 @@ final class AppSettings {
         }
     }
 
-    /// The model a launch that passes no `--model` will run on, read from the
-    /// CLI's own settings. Nil when nothing is configured there.
+    /// The model a new Claude tab runs on: the pinned default, else what the
+    /// CLI's own settings configure. Nil when neither names one.
     var resolvedDefaultModel: AgentModel? {
-        ClaudeCodeSettingsResolver.resolvedDefaultModel()
+        defaultClaudeModel.pinnedModel ?? ClaudeCodeSettingsResolver.resolvedDefaultModel()
     }
 
     /// Resolves `defaultPermissionMode` to an actual `PermissionMode`,
