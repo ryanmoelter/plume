@@ -1,6 +1,6 @@
 # Releasing
 
-Plume ships two ways. A **local install** on the machine that builds it — no archive, no DMG — which is how the maintainer installs it, and is what most of this document covers. And a **shared build** for other people, packaged as a DMG and attached to a GitHub release; that path is at the end, and `scripts/package-release.sh` runs it.
+Plume ships two ways. A **local install** on the machine that builds it — no archive, no DMG — for testing a Release build in place, and what most of this document covers. And a **shared build**, packaged as a DMG and attached to a GitHub release, which every installed copy updates from through Sparkle or Homebrew — the maintainer's own Macs included, so both upgrade paths get exercised. That path is at the end, and `scripts/package-release.sh` runs it.
 
 Both are signed with Developer ID and notarized. That used to be the shared build's distinction, but the sleep helper changed it: Apple documents that `SMAppService` daemons need a notarized app, so the local install is notarized too. The **One-time setup** under *Sharing a build* is a prerequisite for the local install too.
 
@@ -127,7 +127,7 @@ Tag the commit that carries the version bump, so the tag and `CFBundleShortVersi
 git branch --contains v0.1.0 | grep -qx '\* main\|  main' || echo "NOT on main"
 ```
 
-Check every commit is signed before pushing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing afterwards means rewriting history the tag already points into:
+If commits are signed here (`git config commit.gpgsign` prints `true`), check every one is signed before pushing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing afterwards means rewriting history the tag already points into:
 
 ```
 git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'

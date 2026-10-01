@@ -46,7 +46,7 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
   `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` and `SurfaceCommandTests`.
   Report those as environmental; anything else is yours to fix. Add tests for pure logic.
 - Roadmap: do NOT touch Linear. Report which issue identifiers you completed; the coordinator moves
-  them to Done after the user reviews the shipped behavior.
+  them to Done.
 - Comments: terse, why-only, per CLAUDE.md. No changelog-style comments.
 - If you hit a decision only the user can make, stop and report it rather than guessing.
 - Do not take screenshots. (Only one agent may screenshot at a time; the coordinator runs any visual check as a single serial pass after the merge.)
@@ -68,7 +68,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `origin/main`, not from your current branch** — in the 0.13.0 run that was a commit dozens behind local `main`, since nothing had been pushed, so tell it to start with `git checkout -B <prefix>/<slug> <prefix>/release-<version>` before editing (a plain `git checkout <prefix>/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-Leave shipped issues open. They move to Done through the `roadmap` skill only after the user reviews the shipped behavior; a green build and a merge are not that review.
+An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
 
 ### Clean up as each package lands
 
@@ -107,9 +107,9 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
   - Leave the draft **uncommitted**, so no draft ever reaches the history.
 - Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the **app target's** Debug and Release blocks only, to the numbers in the draft heading. Commit the bump alone (`git add Plume.xcodeproj/project.pbxproj`), leaving `CHANGELOG.md` out of the commit.
 - Tell the user the draft is ready for review, and wait. They edit the section and remove `Draft: ` from the heading to approve it. Then confirm the top heading is exactly `## <version> (<build>)`, and commit `CHANGELOG.md` on its own.
-- Merge the release branch into `main` (`--no-ff`).
+- Merge the release branch into `main` (`--no-ff`), then move every shipped issue still open to Done through the `roadmap` skill.
 - Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
-- **Check every commit is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders on the release branch before merging it (`git rebase --force-rebase --rebase-merges main` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit, and confirm with `git diff <old-tip> HEAD --quiet` that the tree is unchanged).
+- **If commits are signed here (`git config commit.gpgsign` prints `true`), check every one is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders on the release branch before merging it (`git rebase --force-rebase --rebase-merges main` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit, and confirm with `git diff <old-tip> HEAD --quiet` that the tree is unchanged).
 - Tag `v<version>` on `main`'s HEAD — the release merge — and push `main` with the tag. `package-release.sh` refuses unless the tag points at `HEAD`.
 - Publish through Sparkle and Homebrew, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, appcast, draft GitHub release), then the user publishes the draft, then `scripts/update-tap.sh <version>`. Ask before publishing and before bumping the tap; both are outward-facing.
 - **Do not install.** Every install updates through Sparkle or Homebrew, so never run `scripts/install-release.sh` as part of a release.
@@ -125,6 +125,6 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 
 - **A failed push is not a failed commit.** If your SSH key lives in a password manager's agent, `git push` signs through it, so a locked agent fails with `sign_and_send_pubkey: signing failed` and `Permission denied (publickey)`. There is no `--no-gpg-sign` equivalent — the only fix is unlocking, so ask. This is unrelated to the commit-signing fallback in CLAUDE.md, and the commits themselves may all be signed while the push still fails.
 - A schema change meets the installed store for the first time on the first launch after updating. Watch the log for a `Plume.store.<timestamp>.bak` move.
-- Roadmap edits: only the coordinator writes to Linear. An issue is Done when the user has reviewed its shipped behavior, not when an agent's turn ends or its work merges.
+- Roadmap edits: only the coordinator writes to Linear. An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. An agent's turn ending is not Done either.
 - The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
 - Six parallel `xcodebuild`s are slow but each worktree gets its own DerivedData. Do not try to share one.

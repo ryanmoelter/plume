@@ -4,7 +4,7 @@ Native macOS app for organizing and parallelizing coding-agent work: a sidebar o
 
 ## The roadmap
 
-The roadmap lives in **Linear**, team `Plume` — seven projects by area, one issue per item. **Use the `roadmap` skill** rather than the MCP tools directly; it knows the queue's conventions. Read the issue before starting work. Move it to Done only after the user has reviewed the shipped behavior — a green build and a merge are not that review.
+The roadmap lives in **Linear**, team `Plume` — seven projects by area, one issue per item. **Use the `roadmap` skill** rather than the MCP tools directly; it knows the queue's conventions. Read the issue before starting work. Move it to Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done.
 
 Todo means queued, Backlog means wanted but not queued. `estimate` is the size: 2 = S, 3 = M, 5 = L, 8 = XL. An issue states the item and any real blocker, not what the code already does — read the code for that.
 
