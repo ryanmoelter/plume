@@ -289,9 +289,12 @@ nonisolated struct TranscriptToolUseResult: Decodable {
     let status: String?
     /// Set on a `SendMessage` result that woke a finished subagent back up.
     let resumedAgentID: String?
+    /// Set on a `TaskOutput` result, which reports the agent's state when the
+    /// parent blocked on it. The CLI writes no notification for that finish.
+    let task: TranscriptTaskOutput?
 
     private enum CodingKeys: String, CodingKey {
-        case agentId, status, resumedAgentId
+        case agentId, status, resumedAgentId, task
     }
 
     init(from decoder: Decoder) throws {
@@ -299,6 +302,17 @@ nonisolated struct TranscriptToolUseResult: Decodable {
         agentID = try? container.decodeIfPresent(String.self, forKey: .agentId)
         status = try? container.decodeIfPresent(String.self, forKey: .status)
         resumedAgentID = try? container.decodeIfPresent(String.self, forKey: .resumedAgentId)
+        task = try? container.decodeIfPresent(TranscriptTaskOutput.self, forKey: .task)
+    }
+}
+
+nonisolated struct TranscriptTaskOutput: Decodable {
+    let taskID: String
+    /// `completed` once the agent finished, `running` when the wait timed out.
+    let status: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case taskID = "task_id", status
     }
 }
 

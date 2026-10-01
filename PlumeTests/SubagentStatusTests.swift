@@ -334,6 +334,45 @@ struct SubagentStatusTests {
         #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
     }
 
+    /// The shape a blocking `TaskOutput` writes, which carries no notification.
+    private func taskOutput(agentID: String, retrieval: String = "success", status: String = "completed") -> String {
+        #"{"type":"user","uuid":"\#(UUID().uuidString)","toolUseResult":{"retrieval_status":"\#(retrieval)","task":{"task_id":"\#(agentID)","task_type":"local_agent","status":"\#(status)"}}}"#
+    }
+
+    @Test func aTaskOutputCompletesAResumedAgent() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"completed","agentId":"a1"}}"#,
+            resume(agentID: "a1"),
+            taskOutput(agentID: "a1"),
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
+    }
+
+    @Test func aTimedOutTaskOutputLeavesTheAgentLaunched() {
+        let parent = Data([
+            resume(agentID: "a1"),
+            taskOutput(agentID: "a1", retrieval: "timeout", status: "running"),
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .launched)
+    }
+
+    @Test func aResumedAgentThatIsKilledIsInterrupted() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"completed","agentId":"a1"}}"#,
+            resume(agentID: "a1"),
+            taskNotification(agentID: "a1", status: "killed"),
+        ].joined(separator: "\n").utf8)
+        let signal = SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1")
+
+        #expect(signal == .stopped)
+        #expect(SubagentStatusDeriver.derive(
+            transcript: transcript([toolUse(id: "t1", name: "Bash", stopReason: "tool_use")]),
+            parentSignal: signal
+        ) == .interrupted)
+    }
+
     @Test func aResumeReopensAStoppedAgent() {
         let parent = Data([
             taskNotification(agentID: "a1", status: "killed"),

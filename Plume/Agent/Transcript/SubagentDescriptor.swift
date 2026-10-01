@@ -128,8 +128,9 @@ nonisolated enum SubagentSpawnScanner {
 ///
 /// Every record that carries it names the agent directly, so nothing here has
 /// to go through the spawning tool call: a `toolUseResult` reports `agentId`
-/// with its status, a `task_status` attachment reports `taskId`, and the
-/// `<task-notification>` on a `queue-operation` line reports `task-id`.
+/// with its status, a `task_status` attachment reports `taskId`, a
+/// `TaskOutput` result reports `task.task_id`, and the `<task-notification>`
+/// on a `queue-operation` line reports `task-id`.
 ///
 /// The notification is the one current CLI builds actually write. `task_status`
 /// appears nowhere in the sampled corpus, which is what left finished
@@ -165,6 +166,10 @@ nonisolated struct SubagentSpawnResults {
             }
             if let resumedAgentID = entry.toolUseResult?.resumedAgentID {
                 signals[resumedAgentID] = .launched
+            }
+            if let output = entry.toolUseResult?.task,
+               let signal = Self.signal(forNotificationStatus: output.status) {
+                record(signal, for: output.taskID)
             }
             if let task = entry.attachment?.taskStatus {
                 record(Self.signal(forStatus: task.status), for: task.taskID)
