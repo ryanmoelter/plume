@@ -44,6 +44,21 @@ struct HookSettingsWriterTests {
         #expect(command.contains("$PLUME_TAB_ID"))
     }
 
+    @Test func theCommandSucceedsWithoutTheVariables() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", HookSettingsWriter.hookCommand]
+        process.environment = [:]
+        let input = Pipe()
+        process.standardInput = input
+        try process.run()
+        input.fileHandleForWriting.write(Data(#"{"hook_event_name":"Stop"}"#.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+    }
+
     @Test func producesValidJSONOnDisk() throws {
         let url = try HookSettingsWriter.write()
         defer { try? FileManager.default.removeItem(at: url) }
