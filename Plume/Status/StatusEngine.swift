@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Live status for every agent tab, derived from hook events.
 ///
@@ -185,6 +186,7 @@ final class StatusEngine {
 
         let previousTabStatus = self.status(forTab: tabID)
         let previousTaskStatus = self.status(forTask: taskID)
+        Log.status.info("Tab \(tabID, privacy: .public) in task \(taskID, privacy: .public): \(self.tabStatuses[tabID]?.rawValue ?? "unregistered", privacy: .public) → \(status.rawValue, privacy: .public)")
         tabStatuses[tabID] = status
         report(
             taskID: taskID,
@@ -284,6 +286,7 @@ final class StatusEngine {
     }
 
     func forget(tabID: UUID, taskID: UUID) {
+        Log.status.info("Forgot tab \(tabID, privacy: .public) in task \(taskID, privacy: .public)")
         backgroundTasks.forget(tabID: tabID)
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
