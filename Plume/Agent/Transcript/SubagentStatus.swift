@@ -23,10 +23,12 @@ nonisolated enum SubagentParentSignal: Equatable {
 /// Derives a subagent's live status from its own transcript and whatever the
 /// parent recorded about it.
 ///
-/// Two signals mean done, and both are unambiguous:
+/// Three signals mean done, and all are unambiguous:
 ///
-/// - The last assistant turn to carry a `stop_reason` reports `end_turn`, so
-///   the model finished speaking rather than stopping to call a tool.
+/// - The current turn's last assistant message to carry a `stop_reason`
+///   reports `end_turn`, so the model finished speaking rather than stopping
+///   to call a tool.
+/// - The current turn's latest tool call is an accepted `SubagentHandback`.
 /// - The parent holds a real completion for the agent — a `toolUseResult` with
 ///   `status: "completed"`, or a `task_status` attachment saying the same.
 ///
@@ -86,7 +88,7 @@ nonisolated enum SubagentStatusDeriver {
         stoppedByUser: Bool
     ) -> Bool {
         if parentSignal == .completed, !stoppedByUser { return true }
-        return transcript.lastStopReason == "end_turn"
+        return transcript.lastStopReason == "end_turn" || transcript.handedBack
     }
 
     /// The user pressing escape ends the agent where it stood, so its file

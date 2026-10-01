@@ -304,6 +304,111 @@ struct SubagentStatusTests {
         #expect(results.signal(forAgentID: "missing") == nil)
     }
 
+    private func taskNotification(agentID: String, status: String = "completed") -> String {
+        #"{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>\#(agentID)</task-id>\n<status>\#(status)</status>\n</task-notification>"}"#
+    }
+
+    /// The shape `SendMessage` writes when it wakes a finished agent.
+    private func resume(agentID: String) -> String {
+        #"{"type":"user","uuid":"\#(UUID().uuidString)","toolUseResult":{"success":true,"message":"Resuming agent","resumedAgentId":"\#(agentID)"}}"#
+    }
+
+    @Test func aResumeReopensACompletedAgent() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"async_launched","agentId":"a1"}}"#,
+            taskNotification(agentID: "a1"),
+            resume(agentID: "a1"),
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .launched)
+    }
+
+    @Test func aResumedAgentsNextNotificationCompletesItAgain() {
+        let parent = Data([
+            #"{"type":"user","uuid":"p1","toolUseResult":{"status":"async_launched","agentId":"a1"}}"#,
+            taskNotification(agentID: "a1"),
+            resume(agentID: "a1"),
+            taskNotification(agentID: "a1"),
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .completed)
+    }
+
+    @Test func aResumeReopensAStoppedAgent() {
+        let parent = Data([
+            taskNotification(agentID: "a1", status: "killed"),
+            resume(agentID: "a1"),
+        ].joined(separator: "\n").utf8)
+
+        #expect(SubagentSpawnResults(parentData: parent).signal(forAgentID: "a1") == .launched)
+    }
+
+    /// Between the resume and its first closed response, the previous run's
+    /// `end_turn` is the newest stop reason in the file.
+    @Test func aResumedAgentIsWorkingBeforeItsNewRunAnswers() {
+        let resumed = transcript([
+            assistantText("Done with the first ask.", stopReason: "end_turn"),
+            #"{"type":"user","uuid":"u2","isSidechain":true,"message":{"role":"user","content":"One more thing."}}"#,
+            assistantText("On it."),
+        ])
+
+        #expect(resumed.lastStopReason == nil)
+        #expect(SubagentStatusDeriver.derive(transcript: resumed, parentSignal: .launched) == .working)
+    }
+
+    /// A nested subagent's completion is written only to its parent
+    /// subagent's file, and its closing messages carry no `stop_reason`.
+    @Test func aHandbackIsDoneWithoutAParentSignal() {
+        let lines = [
+            toolUse(id: "t1", name: "Bash", stopReason: "tool_use"),
+            toolResult(id: "t1", content: "ok"),
+            toolUse(id: "t2", name: "SubagentHandback"),
+            toolResult(id: "t2", content: "delivered"),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .done)
+    }
+
+    @Test func aResumeAfterAHandbackIsWorking() {
+        let lines = [
+            toolUse(id: "t1", name: "SubagentHandback"),
+            toolResult(id: "t1", content: "delivered"),
+            #"{"type":"user","uuid":"u2","isSidechain":true,"message":{"role":"user","content":"One more thing."}}"#,
+            assistantText("On it."),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: .launched) == .working)
+    }
+
+    @Test func workAfterAHandbackIsWorking() {
+        let lines = [
+            toolUse(id: "t1", name: "SubagentHandback"),
+            toolResult(id: "t1", content: "delivered"),
+            toolUse(id: "t2", name: "Bash", stopReason: "tool_use"),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .working)
+    }
+
+    @Test func aRejectedHandbackIsInterrupted() {
+        let lines = [
+            toolUse(id: "t1", name: "SubagentHandback"),
+            #"{"type":"user","uuid":"u2","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"The user doesn't want to proceed with this tool use.","is_error":true}]}}"#,
+            interruption(),
+        ]
+
+        #expect(SubagentStatusDeriver.derive(transcript: transcript(lines), parentSignal: nil) == .interrupted)
+    }
+
+    @Test func aToolResultDoesNotClearTheStopReason() {
+        let parsed = transcript([
+            toolUse(id: "t1", name: "Bash", stopReason: "tool_use"),
+            toolResult(id: "t1", content: "ok"),
+        ])
+
+        #expect(parsed.lastStopReason == "tool_use")
+    }
+
     @Test func theParserKeepsTheNewestStopReason() {
         let parsed = transcript([
             assistantText("first", stopReason: "end_turn"),

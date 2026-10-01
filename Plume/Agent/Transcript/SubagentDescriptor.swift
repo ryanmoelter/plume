@@ -146,6 +146,9 @@ nonisolated struct SubagentSpawnResults {
         // A stop is kept for the same reason, against the launch that preceded
         // it, but still yields to a completion — an agent resumed after a stop
         // goes on to report.
+        //
+        // Only a resume reopens either: `SendMessage` wakes the agent for
+        // another run, which its next notification completes in turn.
         func record(_ signal: SubagentParentSignal, for agentID: String) {
             guard signals[agentID] != .completed else { return }
             guard !(signals[agentID] == .stopped && signal != .completed) else { return }
@@ -159,6 +162,9 @@ nonisolated struct SubagentSpawnResults {
 
             if let outcome = entry.toolUseResult, let agentID = outcome.agentID {
                 record(Self.signal(forStatus: outcome.status), for: agentID)
+            }
+            if let resumedAgentID = entry.toolUseResult?.resumedAgentID {
+                signals[resumedAgentID] = .launched
             }
             if let task = entry.attachment?.taskStatus {
                 record(Self.signal(forStatus: task.status), for: task.taskID)
