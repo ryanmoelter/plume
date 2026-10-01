@@ -23,6 +23,11 @@ final class AgentProcess: @unchecked Sendable {
     /// has nothing else to report.
     private var lastErrorLine: String?
 
+    /// The CLI's own last `Error:` line, prefix dropped. Unlike `lastErrorLine`
+    /// it survives the hook output a CLI prints as it exits, and it explains a
+    /// failure even after the stream has started.
+    private var lastReportedError: String?
+
     /// Whether any output arrived. Separates a launch that never started from
     /// a session that ran and later exited.
     private var didReceiveLine = false
@@ -78,7 +83,11 @@ final class AgentProcess: @unchecked Sendable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return }
             Log.agent.error("\(self?.label ?? "agent", privacy: .public) stderr: \(text, privacy: .public)")
-            self?.queue.async { self?.lastErrorLine = text }
+            let reported = Self.reportedError(in: text)
+            self?.queue.async {
+                self?.lastErrorLine = text
+                if let reported { self?.lastReportedError = reported }
+            }
         }
         process.terminationHandler = { [weak self] process in
             self?.finish(status: process.terminationStatus)
@@ -184,9 +193,18 @@ final class AgentProcess: @unchecked Sendable {
             guard let self, self.isRunning else { return }
             self.isRunning = false
             // A run that never produced a line failed to launch, so its
-            // stderr explains why. Once the stream has started, stderr is
-            // just the login shell's own chatter and explains nothing.
-            self.onExit(status, self.didReceiveLine ? nil : self.lastErrorLine)
+            // stderr explains why. Once the stream has started, only the
+            // CLI's own `Error:` line does; the rest is login-shell chatter.
+            self.onExit(status, self.lastReportedError ?? (self.didReceiveLine ? nil : self.lastErrorLine))
         }
+    }
+
+    nonisolated static func reportedError(in stderr: String) -> String? {
+        let prefix = "Error:"
+        guard let line = stderr.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix(prefix) }) else {
+            return nil
+        }
+        let message = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return message.isEmpty ? nil : message
     }
 }

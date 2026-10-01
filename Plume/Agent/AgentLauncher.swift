@@ -90,7 +90,7 @@ enum AgentLauncher {
         // unasked. Refuse instead, and point at the terminal transport, where
         // the prompt can actually be answered. Never write the trust flag
         // here — that would grant the very trust the prompt exists to ask for.
-        guard let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
+        guard let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID) else { return }
 
         guard ClaudeTrustStore.isTrusted(workingDirectory) else {
             UntrustedDirectoryStore.shared.markUntrusted(tabID: tab.id, path: workingDirectory)
@@ -142,7 +142,7 @@ enum AgentLauncher {
             return
         }
         session.start(
-            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+            workingDirectory: workingDirectory,
             permissionMode: resolvedPermissionMode(
                 tab: tab.permissionMode,
                 task: task.permissionMode,
@@ -270,10 +270,24 @@ enum AgentLauncher {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+                workingDirectory: claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID),
                 envVars: launch.environment,
                 command: launch.command
             )
         )
+    }
+
+    /// A resume runs from where the session was launched, not from where the
+    /// tab is now. Claude Code refuses to resume from inside a worktree the
+    /// session entered with `EnterWorktree`, and moves the session back into
+    /// that worktree itself.
+    static func claudeLaunchDirectory(for tab: TaskTab, resumeSessionID: String?) -> String? {
+        let current = TabDirectoryStore.shared.directory(for: tab)
+        guard let resumeSessionID, !resumeSessionID.isEmpty else { return current }
+        let recordedTranscript = tab.sessionJSONLPath.flatMap {
+            SessionJSONLReader.hasContent(atPath: $0) ? $0 : nil
+        }
+        let transcript = recordedTranscript ?? SessionJSONLReader.locateTranscript(sessionID: resumeSessionID)
+        return transcript.flatMap(SessionJSONLReader.launchDirectory(atPath:)) ?? current
     }
 }

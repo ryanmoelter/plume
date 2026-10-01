@@ -653,6 +653,10 @@ final class HeadlessSession: AgentSession {
         statusEngine.setStatus(.working, taskID: taskID, tabID: tabID)
     }
 
+    /// Shown for an error result that carries no text, until the CLI's own
+    /// stderr explains it as the process exits.
+    static let unexplainedTurnFailure = "The turn failed."
+
     private func endTurn(_ result: TurnResult) {
         isWorking = false
         // The streamed text is not cleared here — see its declaration.
@@ -665,7 +669,7 @@ final class HeadlessSession: AgentSession {
             // failure that never happened.
             statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
         } else if result.isError {
-            lastError = result.text ?? "The turn failed."
+            lastError = result.text ?? Self.unexplainedTurnFailure
             statusEngine.setStatus(
                 .error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted
             )
@@ -738,7 +742,9 @@ final class HeadlessSession: AgentSession {
         streamingMessageID = nil
         exitStatus = status
         process = nil
-        if status != 0, lastError == nil {
+        if let errorLine, lastError == Self.unexplainedTurnFailure {
+            lastError = errorLine
+        } else if status != 0, lastError == nil {
             lastError = errorLine ?? "claude exited with status \(status)"
         }
         // Anything still pending will never be answered now.

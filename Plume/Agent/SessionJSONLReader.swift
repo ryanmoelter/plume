@@ -80,6 +80,30 @@ nonisolated enum SessionJSONLReader {
         let aiTitle: String?
     }
 
+    /// Where the session was launched: the first `cwd` its transcript records.
+    /// Later entries follow the agent as it moves, into a subdirectory or an
+    /// `EnterWorktree` worktree, so only the first one is the launch position.
+    static func launchDirectory(atPath path: String) -> String? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        return launchDirectory(in: data)
+    }
+
+    static func launchDirectory(in data: Data) -> String? {
+        let decoder = JSONDecoder()
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            guard let entry = try? decoder.decode(DirectoryEntry.self, from: Data(line)),
+                  let cwd = entry.cwd,
+                  !cwd.isEmpty
+            else { continue }
+            return cwd
+        }
+        return nil
+    }
+
+    private struct DirectoryEntry: Decodable {
+        let cwd: String?
+    }
+
     static func exists(atPath path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }
