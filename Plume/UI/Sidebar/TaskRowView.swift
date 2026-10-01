@@ -81,8 +81,8 @@ struct TaskRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .top, spacing: 6) {
                 if isEditing {
                     TextField("Task name", text: $task.title)
                         .textFieldStyle(.plain)
@@ -104,58 +104,58 @@ struct TaskRowView: View {
                         .truncationMode(.tail)
                         .emphasis(isInactive ? .secondary : .primary)
                 }
+                Spacer(minLength: 4)
+                StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
+            }
 
-                ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
-                    switch line {
-                    case .text(let text):
-                        Text(text)
+            ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
+                switch line {
+                case .text(let text):
+                    Text(text)
+                        .font(.caption)
+                        .emphasis(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                case .project(let name):
+                    HStack(spacing: 4) {
+                        Text(name)
                             .font(.caption)
                             .emphasis(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    case .project(let name):
-                        HStack(spacing: 4) {
-                            Text(name)
+                        if isRemoteControlled, index == firstProjectLineIndex {
+                            Image(systemName: StatusSymbol.remoteControl.name)
                                 .font(.caption)
-                                .emphasis(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            if isRemoteControlled, index == firstProjectLineIndex {
-                                Image(systemName: StatusSymbol.remoteControl.name)
-                                    .font(.caption)
-                                    .imageScale(.small)
-                                    .foregroundStyle(ChatRole.attention(for: colorScheme))
-                                    .help("Remote control is on")
-                            }
-                        }
-                    case .branch(let branch, let isWorktree, let companion):
-                        HStack(spacing: 4) {
-                            if isWorktree {
-                                Image(systemName: "tree")
-                                    .font(.caption)
-                                    .imageScale(.small)
-                                    .emphasis(.secondary)
-                            }
-                            Text(branch)
-                                .font(.caption)
-                                .emphasis(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            if let companion {
-                                PullRequestChip(state: companion, emphasis: .secondary)
-                            }
-                        }
-                    case .pullRequest(let directory, let state):
-                        PullRequestChip(state: state) {
-                            PullRequestStore.shared.checkRollup(for: directory, of: $0)
+                                .imageScale(.small)
+                                .foregroundStyle(ChatRole.attention(for: colorScheme))
+                                .help("Remote control is on")
                         }
                     }
+                case .branch(let branch, let isWorktree, let companion):
+                    HStack(spacing: 4) {
+                        if isWorktree {
+                            Image(systemName: "tree")
+                                .font(.caption)
+                                .imageScale(.small)
+                                .emphasis(.secondary)
+                        }
+                        Text(branch)
+                            .font(.caption)
+                            .emphasis(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let companion {
+                            PullRequestChip(state: companion, emphasis: .secondary)
+                        }
+                    }
+                case .pullRequest(let directory, let state):
+                    PullRequestChip(state: state) {
+                        PullRequestStore.shared.checkRollup(for: directory, of: $0)
+                    }
                 }
-
-                TaskActivityRow(tabIDs: agentTabIDs)
             }
-            Spacer(minLength: 4)
-            StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
+
+            TaskActivityRow(tabIDs: agentTabIDs)
         }
         .padding(.vertical, 2)
         .contentShape(.rect)
