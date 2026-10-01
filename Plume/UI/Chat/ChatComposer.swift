@@ -1,3 +1,4 @@
+import AppKit
 import Dispatch
 import SwiftUI
 
@@ -6,8 +7,10 @@ import SwiftUI
 /// A chat that sends on bare Return makes a half-typed multi-line message
 /// unrecoverable the instant you press it, where the terminal underneath
 /// would have just kept editing. ⌘↩ to send, ↩ to insert a newline, matches
-/// the terminal's own forgiveness — the default in `AppSettings.composerSendKey`.
-/// Whichever key sends, the other (with Shift) inserts a newline instead.
+/// the terminal's own forgiveness — still the default for anyone who used
+/// Plume before plain Return became the default for new installs; see
+/// `AppSettings.resolveComposerSendKey`. Whichever key sends, the other
+/// (with Shift) inserts a newline instead.
 struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
@@ -229,6 +232,7 @@ struct ChatComposer: View, ThemedView {
                     onEditQueuedMessage: headlessSession.flatMap { session in
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
+                    onEscape: interruptOnEscape,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
@@ -350,6 +354,19 @@ struct ChatComposer: View, ThemedView {
         .help(stopsSubagents ? "Stop the subagents" : "Stop the current turn")
         .accessibilityLabel("Stop")
         .plumeID(AccessibilityID.composerStopButton)
+    }
+
+    /// Unlike the stop button, never stops subagents outside a turn: Esc is
+    /// too easy to press by accident to kill background work with.
+    private func interruptOnEscape(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard let headlessSession,
+              EscapeInterrupt.shouldInterrupt(
+                  isEnabled: settings.escapeInterruptsTurn,
+                  isTurnRunning: headlessSession.isWorking,
+                  modifiers: modifiers
+              ) else { return false }
+        headlessSession.interrupt()
+        return true
     }
 
     /// Says what the composer will do with what is being typed. Its button

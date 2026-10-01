@@ -10,12 +10,27 @@ Verified first-hand against Claude Code **2.1.258** (September 2026) by driving 
 claude -p --output-format stream-json --input-format stream-json \
        --include-partial-messages --verbose \
        --permission-mode <mode> --permission-prompt-tool stdio \
+       --allow-dangerously-skip-permissions \
        [--resume <session-id>] [--model <model>] [--settings <path>] [--add-dir <dir>]
 ```
 
 `--verbose` is required for `stream-json` output. Never pass `--bare`: it refuses the keychain and forces an API key.
 
 **`--permission-prompt-tool stdio` is the load-bearing flag.** Without it a headless run never asks — a tool needing approval is auto-denied with "no prompt available in headless mode", and the turn ends having done nothing. The flag's own help text says permission prompts reach the host over stdio. Its value is not validated at startup, so a wrong one fails only later, at the first tool call.
+
+**`--allow-dangerously-skip-permissions` is what lets a session switch into bypass.** Measured against 2.1.280 in a trusted directory, with a Bash call that needs approval:
+
+| launch | `--allow-…` | result |
+|---|---|---|
+| `--permission-mode bypassPermissions` | no | `init` reports `bypassPermissions`; no `can_use_tool`, the command runs |
+| `--permission-mode default`, then `set_permission_mode` → `bypassPermissions` | no | the request fails: `Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions`. The next `init` still reports `default`, and the call still asks |
+| same | yes | reply `{"mode":"bypassPermissions"}`, a `system/status` with the new mode, and no `can_use_tool` |
+| `--permission-mode default` | yes | `init` reports `default` and the call still asks — the flag only unlocks the mode |
+| `--permission-mode bypassPermissions`, then `set_permission_mode` → `default` | yes | the call asks again |
+
+So launching in bypass works either way, but switching into it needs the flag, and without it the refusal arrives only as an error reply. The error text names `--dangerously-skip-permissions`, but that flag *starts* the session in bypass; the `allow` variant is the one to pass. Plume passes it on every launch, and the picker's `showsBypassPermissions` setting stays the gate.
+
+The TUI is different: there the flag shows the "Bypass Permissions mode" warning dialog at every launch, whatever the starting mode. A terminal tab therefore doesn't pass it. It never switches mode mid-session, and launching straight into bypass works there without the flag, behind that same dialog.
 
 ## The two message planes
 
@@ -57,23 +72,26 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 
 ## Model aliases
 
-**A bare alias resolves to the CLI's current 200K model; `alias[1m]` resolves to the current 1M model.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model`:
+**The current Opus and Sonnet models are 1M at their bare ID, with no 200K form. Fable has no `[1m]` form at all. Haiku 4.5 is 200K bare, and this subscription can't use its `[1m]` form.** Measured against 2.1.280 by running `claude -p --output-format stream-json --verbose --model <id> 'hi'` and reading the `init` event's `model` and the `result` event's `modelUsage.<id>.contextWindow`:
 
-| `--model` | `init` reports |
-| --- | --- |
-| `opus` | `claude-opus-5-5` |
-| `opus[1m]` | `claude-opus-5-5[1m]` |
-| `sonnet` | `claude-sonnet-5` |
-| `sonnet[1m]` | `claude-sonnet-5[1m]` |
-| `fable` | `claude-fable-5-1` |
-| `haiku` | `claude-haiku-4-5-20251001` |
-| `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` |
-| `not-a-real-model` | `not-a-real-model` |
+| `--model` | `init` reports | `contextWindow` |
+| --- | --- | --- |
+| `opus` | `claude-opus-5-5` | 1,000,000 |
+| `opus[1m]` | `claude-opus-5-5[1m]` | 1,000,000 |
+| `claude-opus-5-5` | `claude-opus-5-5` | 1,000,000 |
+| `claude-opus-5` | `claude-opus-5` | 1,000,000 |
+| `sonnet` | `claude-sonnet-5` | 1,000,000 |
+| `sonnet[1m]` | `claude-sonnet-5[1m]` | 1,000,000 |
+| `fable` | `claude-fable-5-1` | 1,000,000 |
+| `haiku` | `claude-haiku-4-5-20251001` | 200,000 |
+| `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` | 200,000 |
+| `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` | 400 "long context beta is not yet available for this subscription" |
+| `not-a-real-model` | `not-a-real-model` | |
 
 Three things follow.
 
-- **`alias[1m]` is what the top-level picker sends.** The CLI resolves it to its current 1M model, so Plume never has to track a version for the default path — `AgentModel.opus`/`.sonnet`/`.haiku` send `opus[1m]`/`sonnet[1m]`/`haiku[1m]` and show the bare family name until a session reports the resolved model. Fable has no 1M variant, so `AgentModel.fable` sends the plain `fable` alias. Specific versions (`claude-opus-5-5[1m]` and so on) live in the "More" submenu as explicit IDs; `recognizing(_:)` maps a resolved or reported alias onto the matching one so the composer can show a real label like "Opus 5.5" once the session confirms it.
-- **Fable has no 1M variant.** It accepts the suffix and reports back plain, so `AgentModel.fable5dot1` is `claude-fable-5-1` and is labelled without a size — not because it's 1M by convention, but because it has no 200K form to distinguish from.
+- **The `[1m]` suffix is redundant for Opus and Sonnet, and unusable for Haiku on this subscription.** `init` echoes the ID it was handed, suffix included, but for Opus/Sonnet the window is the same either way, and for Haiku the `[1m]` form 400s outright. So "More" offers every preset bare — `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5-20251001` — with no `[1m]` sibling, and `recognizing(_:)` strips a `[1m]` suffix before matching so a suffixed ID from an older release, or a stored `haiku[1m]` from before this subscription's beta status was known, lands on the same bare entry. `nominalContextWindow` reads 200K for Haiku and 1M for every other preset.
+- **The top-level picker sends `alias[1m]` for Opus and Sonnet** — `opus[1m]`/`sonnet[1m]` — and plain `fable`/`haiku`, and shows the bare family name until a session reports the resolved model. The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
 
 ## Sending a turn

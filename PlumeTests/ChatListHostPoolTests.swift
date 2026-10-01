@@ -37,12 +37,102 @@ struct ChatListHostPoolTests {
         #expect(hosts.allSatisfy { $0.alphaValue == 1 })
     }
 
+    /// Scrolling away mid-departure takes the indicator outside the kept
+    /// window. It must not come back when the reader scrolls down.
+    @Test func aWorkingIndicatorEvictedMidDepartureNeverReturns() async throws {
+        let controller = ChatListController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.scrollView
+        var visible: Set<String> = []
+        controller.onVisiblePieceIDs = { visible = $0 }
+        defer {
+            controller.tearDown()
+            window.close()
+        }
+
+        let reply = (0..<60).map { paragraph("m/\($0)", "Paragraph \($0) of a reply long enough to scroll.") }
+        let working = ChatPiece(id: "m/working", messageID: "m", role: .assistant, content: .working, wash: .none)
+        controller.update(ChatListInputs(pieces: reply + [working]))
+        layOut(controller)
+        try #require(controller.realizedIDs.contains(working.id))
+
+        controller.update(ChatListInputs(pieces: reply))
+        let clip = controller.scrollView.contentView
+        clip.scroll(to: .zero)
+        controller.scrollView.reflectScrolledClipView(clip)
+        layOut(controller)
+        controller.finishAnimations()
+
+        controller.scroll(to: .bottom, animated: false)
+        layOut(controller)
+        await drainMainQueue()
+        try #require(visible.contains(reply[reply.count - 1].id))
+        #expect(visible.contains(working.id) == false)
+    }
+
+    /// More rows than `maxRealized` in the kept window trims its end, where
+    /// the indicator sits, with no scroll at all.
+    @Test func aWorkingIndicatorDepartingFromACrowdedWindowNeverReturns() async throws {
+        let controller = ChatListController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 1400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.scrollView
+        var visible: Set<String> = []
+        controller.onVisiblePieceIDs = { visible = $0 }
+        defer {
+            controller.tearDown()
+            window.close()
+        }
+
+        let reply = (0..<400).map { paragraph("m/\($0)", "\($0)") }
+        let working = ChatPiece(id: "m/working", messageID: "m", role: .assistant, content: .working, wash: .none)
+        controller.update(ChatListInputs(pieces: reply + [working]))
+        layOut(controller)
+        try #require(controller.realizedIDs.contains(working.id))
+
+        controller.update(ChatListInputs(pieces: reply))
+        layOut(controller)
+        controller.finishAnimations()
+        layOut(controller)
+        await drainMainQueue()
+        try #require(visible.contains(reply[reply.count - 1].id))
+        #expect(visible.contains(working.id) == false)
+    }
+
     private func paragraph(_ id: String, _ text: String) -> ChatPiece {
         ChatPiece(id: id, messageID: "m", role: .assistant, content: .markdown(.paragraph(text), index: 0), wash: .none)
     }
 
     private func visibleHosts(in controller: ChatListController) -> [NSView] {
         controller.documentView.subviews.filter { !$0.isHidden }
+    }
+
+    /// An offscreen window runs no layout of its own, and a pass realizes
+    /// around the offset it started from before it scrolls to follow.
+    private func layOut(_ controller: ChatListController) {
+        for _ in 0..<2 {
+            controller.documentView.needsLayout = true
+            controller.documentView.layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// `onVisiblePieceIDs` delivers on a later main-queue turn than the
+    /// layout pass that computed it.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {

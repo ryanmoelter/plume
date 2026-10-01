@@ -115,9 +115,9 @@ struct SubagentCaptionTests {
             now: date("2026-09-05T22:00:00.000Z")
         )
 
-        #expect(caption.modelLabel == "Sonnet 5 200K")
+        #expect(caption.modelLabel == "Sonnet 5")
         #expect(caption.agentType == "Explore")
-        #expect(caption.text == "Sonnet 5 200K · Explore")
+        #expect(caption.text == "Sonnet 5 · Explore")
     }
 
     @Test func aTranscriptWithNothingInItSaysNothing() {
@@ -149,13 +149,13 @@ struct SubagentCaptionTests {
     @Test func contextCanReadHigherThanTheWindow() {
         let caption = SubagentCaption(
             subagent: subagent([
-                line(at: "2026-09-05T22:00:00.000Z", model: "claude-opus-5", contextTokens: 400_000)
+                line(at: "2026-09-05T22:00:00.000Z", model: "claude-haiku-4-5-20251001", contextTokens: 400_000)
             ])
         )
 
         #expect(caption.contextUsedTokens == 400_000)
         #expect(caption.contextWindow == 200_000)
-        #expect(caption.text == "Opus 5 200K · 400k/200k")
+        #expect(caption.text == "Haiku 4.5 · 400k/200k")
     }
 
     @Test(arguments: [

@@ -6,6 +6,27 @@ struct ShortcutsSettingsPane: View {
     var body: some View {
         Form {
             Section {
+                Picker(selection: $settings.composerSendKey) {
+                    Text("⌘Return").tag(ComposerSendKey.commandReturn)
+                    Text("Return").tag(ComposerSendKey.returnKey)
+                } label: {
+                    Text("Send message with")
+                    Text("⇧Return always enters a new line")
+                        .foregroundStyle(.secondary)
+                }
+                .plumeID(AccessibilityID.composerSendKeyPicker)
+
+                Toggle("Esc stops the current turn", isOn: $settings.escapeInterruptsTurn)
+                    .plumeID(
+                        AccessibilityID.escapeInterruptsTurnToggle,
+                        value: settings.escapeInterruptsTurn ? "on" : "off",
+                        invoke: { settings.escapeInterruptsTurn.toggle() }
+                    )
+            } header: {
+                Text("Chat")
+            }
+
+            Section {
                 ForEach(ShortcutAction.allCases) { action in
                     LabeledContent(action.label) {
                         HStack(spacing: 6) {

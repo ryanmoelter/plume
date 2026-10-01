@@ -46,6 +46,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on Up when the composer is empty, to recall a queued message
     /// for editing. Nil when there's nothing queued.
     var onEditQueuedMessage: (() -> Void)?
+    /// Called on Esc the slash-command list didn't take, with its modifiers.
+    /// Returns whether it consumed the key; false leaves Esc to `NSTextView`.
+    var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
@@ -87,6 +90,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
+        textView.onEscape = onEscape
         textView.onOptionReturn = onOptionReturn
         textView.onAttachImages = onAttachImages
         textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
@@ -303,6 +307,8 @@ final class ComposerNSTextView: NSTextView {
     /// shell-history-style recall of the most recently queued send.
     var onEditQueuedMessage: (() -> Void)?
 
+    var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
+
     /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
@@ -397,6 +403,10 @@ final class ComposerNSTextView: NSTextView {
             default:
                 break
             }
+        }
+
+        if event.keyCode == 53 /* Escape */, let onEscape, onEscape(event.modifierFlags) {
+            return
         }
 
         if event.keyCode == 51 /* Delete */, string.isEmpty, let onDeleteBackwardWhenEmpty {

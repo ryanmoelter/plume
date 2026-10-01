@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.13.3 (31)
+
+- Press Esc to interrupt the agent, like in Claude Code
+  - Turn it off in Settings → Shortcuts
+- Choose a default model for new Claude tabs in Settings → Agents
+- Fix bypass permissions not taking effect when switched on mid-conversation
+- Fix 1M models showing as "200K"
+  - Opus 5.5, Opus 5, and Sonnet 5 no longer list separate 200K variants
+- Fix "Working…" sometimes staying in the chat after the agent finished
+- Move the "Send message with" setting to Settings → Shortcuts
+  - Change the default for new installs to send with return instead of cmd+return
+
+### 0.13.x recap
+
+- Run Codex agents (beta)
+- Auto-update Plume via homebrew or the DMG file
+- Overhaul settings pages
+- Improve chat animations
+- Show a new "waiting" status when only subagents are working
+- Polish the sidebar, plans, and composer
+
+### Recently
+
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+- Install with Homebrew: `brew install ryanmoelter/tap/plume`
+- Send images in chat
+- Import your workspaces and tabs from cmux
+
 ## 0.13.2 (30)
 
 - Fix the sleep helper not coming back after a Homebrew upgrade, for real this time

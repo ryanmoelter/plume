@@ -20,8 +20,10 @@ final class AppSettings {
         static let confirmQuitWhileWorking = "confirmQuitWhileWorking"
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
+        static let escapeInterruptsTurn = "escapeInterruptsTurn"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
+        static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
         static let defaultCodexPermissionProfileRaw = "defaultCodexPermissionProfileRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
         /// Stored under its original name, from when the setting covered
@@ -68,7 +70,12 @@ final class AppSettings {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    /// `defaults`' own persistent domain, so `resolveComposerSendKey` can look
+    /// it up before this initializer writes anything into it. `UserDefaults`
+    /// exposes no way to ask an instance its own suite name, so callers pass
+    /// it: the app passes its bundle identifier, a test its scratch suite
+    /// name.
+    init(defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? "") {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
@@ -99,14 +106,19 @@ final class AppSettings {
         // shutdown should never stall on a modal nobody is there to dismiss.
         self.confirmSystemInitiatedQuit = defaults.bool(forKey: Key.confirmSystemInitiatedQuit)
 
-        self.composerSendKey = defaults.string(forKey: Key.composerSendKeyRaw)
-            .flatMap(ComposerSendKey.init(rawValue:)) ?? .commandReturn
+        self.composerSendKey = Self.resolveComposerSendKey(defaults: defaults, domainName: domainName)
+        self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
+            ? true
+            : defaults.bool(forKey: Key.escapeInterruptsTurn)
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
 
         self.defaultPermissionMode = defaults.string(forKey: Key.defaultPermissionModeRaw)
             .flatMap(PermissionModeDefault.init(rawValue:)) ?? .followClaudeCode
+
+        self.defaultClaudeModel = defaults.string(forKey: Key.defaultClaudeModelRaw)
+            .map(ClaudeModelDefault.init(rawValue:)) ?? .followClaudeCode
 
         self.defaultCodexPermissionProfileRaw = defaults.string(
             forKey: Key.defaultCodexPermissionProfileRaw
@@ -284,6 +296,36 @@ final class AppSettings {
         }
     }
 
+    /// Whether Esc in the chat composer interrupts a running turn, as it does
+    /// in Claude Code's own TUI.
+    var escapeInterruptsTurn: Bool {
+        didSet {
+            defaults.set(escapeInterruptsTurn, forKey: Key.escapeInterruptsTurn)
+        }
+    }
+
+    /// `composerSendKey`'s startup value: an explicit stored choice always
+    /// wins. Otherwise a fresh install defaults to plain Return, but an
+    /// install that predates that default keeps ⌘Return — detected by the
+    /// domain already holding *any* key, which any past launch of any past
+    /// version leaves behind. `showsCodexFullAccess` alone (the previous
+    /// signal) only exists from 0.13.0 on, so an older install read as fresh
+    /// and silently lost its ⌘Return. Must run before `init` writes its own
+    /// migration keys (`showsCodexFullAccess` among them), or a fresh install
+    /// would read as existing. The fallback is persisted so the decision
+    /// sticks even if the domain is later cleared some other way.
+    static func resolveComposerSendKey(defaults: UserDefaults, domainName: String) -> ComposerSendKey {
+        if let stored = defaults.string(forKey: Key.composerSendKeyRaw).flatMap(ComposerSendKey.init(rawValue:)) {
+            return stored
+        }
+        // `dictionaryRepresentation()` also includes the global domain, so it
+        // reads non-empty even for a domain nothing has ever written to.
+        let isExistingInstall = !(defaults.persistentDomain(forName: domainName)?.isEmpty ?? true)
+        let resolved: ComposerSendKey = isExistingInstall ? .commandReturn : .returnKey
+        defaults.set(resolved.rawValue, forKey: Key.composerSendKeyRaw)
+        return resolved
+    }
+
     /// Transport a new agent tab starts with. The TUI stays reachable as an
     /// escape hatch by flipping this, or per-tab via the tab menu.
     var defaultAgentTransport: AgentTransport {
@@ -297,6 +339,14 @@ final class AppSettings {
     var defaultPermissionMode: PermissionModeDefault {
         didSet {
             defaults.set(defaultPermissionMode.rawValue, forKey: Key.defaultPermissionModeRaw)
+        }
+    }
+
+    /// Model a new Claude tab starts on. Defaults to whatever the Claude Code
+    /// CLI itself resolves.
+    var defaultClaudeModel: ClaudeModelDefault {
+        didSet {
+            defaults.set(defaultClaudeModel.rawValue, forKey: Key.defaultClaudeModelRaw)
         }
     }
 
@@ -484,10 +534,10 @@ final class AppSettings {
         }
     }
 
-    /// The model a launch that passes no `--model` will run on, read from the
-    /// CLI's own settings. Nil when nothing is configured there.
+    /// The model a new Claude tab runs on: the pinned default, else what the
+    /// CLI's own settings configure. Nil when neither names one.
     var resolvedDefaultModel: AgentModel? {
-        ClaudeCodeSettingsResolver.resolvedDefaultModel()
+        defaultClaudeModel.pinnedModel ?? ClaudeCodeSettingsResolver.resolvedDefaultModel()
     }
 
     /// Resolves `defaultPermissionMode` to an actual `PermissionMode`,

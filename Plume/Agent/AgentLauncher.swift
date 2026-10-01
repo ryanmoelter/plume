@@ -150,7 +150,7 @@ enum AgentLauncher {
             ),
             resumeSessionID: resumeSessionID,
             settingsPath: settingsPath,
-            model: tab.model,
+            model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: LoginShellCommand.plumeEnvironment
         )

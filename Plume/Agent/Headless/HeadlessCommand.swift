@@ -24,7 +24,10 @@ enum HeadlessCommand {
             "--verbose",
             // Without this a headless run never asks: a tool needing approval
             // is auto-denied and the turn ends having done nothing.
-            "--permission-prompt-tool", "stdio"
+            "--permission-prompt-tool", "stdio",
+            // Without this the CLI refuses `set_permission_mode` to
+            // `bypassPermissions` mid-session. It starts no session in bypass.
+            "--allow-dangerously-skip-permissions"
         ]
 
         // A `-p` session starts in Manual on every plan, so a mode is always
