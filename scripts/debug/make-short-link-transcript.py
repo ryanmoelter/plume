@@ -1,8 +1,9 @@
 import json, uuid, datetime, os, sys
 SESSION = "beefcafe-0002-4000-8000-000000000002"
-CWD = "/Users/ryanmoelter/Development/Plume"
+CWD = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+PROJECT_DIR = CWD.replace("/", "-").replace(".", "-")
 # An explicit path suits PLUME_SEED_TRANSCRIPT_PATH; the default lands where Plume finds resumable sessions.
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.claude/projects/-Users-ryanmoelter-Development-Plume/%s.jsonl" % SESSION)
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.claude/projects/%s/%s.jsonl" % (PROJECT_DIR, SESSION))
 t0 = datetime.datetime(2026, 9, 16, 13, 0, 0, tzinfo=datetime.timezone.utc)
 lines, prev, n = [], None, [0]
 def stamp():

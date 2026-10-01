@@ -57,13 +57,15 @@ Read my [AI Policy here](https://gist.github.com/ryanmoelter/d12c933bd1619224149
 
 ## Building from source
 
-Open `Plume.xcodeproj` in Xcode 26.2 or later, or build from the command line:
+Open `Plume.xcodeproj` in Xcode 27, or build from the command line:
 
 ```
 xcodebuild -scheme Plume -destination 'platform=macOS' build
 ```
 
 A Debug build keeps its data separate from an installed release, so the two can run side by side.
+
+`CONTRIBUTING.md` covers first-time setup, signing, and running the tests.
 
 ## License
 

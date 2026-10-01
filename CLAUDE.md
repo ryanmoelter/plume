@@ -4,7 +4,7 @@ Native macOS app for organizing and parallelizing coding-agent work: a sidebar o
 
 ## The roadmap
 
-The roadmap lives in **Linear**, team `Plume` — seven projects by area, one issue per item. **Use the `roadmap` skill** rather than the MCP tools directly; it knows the queue's conventions. Read the issue before starting work, and move it to Done as it lands.
+The roadmap lives in **Linear**, team `Plume` — seven projects by area, one issue per item. **Use the `roadmap` skill** rather than the MCP tools directly; it knows the queue's conventions. Read the issue before starting work. Move it to Done only after the user has reviewed the shipped behavior — a green build and a merge are not that review.
 
 Todo means queued, Backlog means wanted but not queued. `estimate` is the size: 2 = S, 3 = M, 5 = L, 8 = XL. An issue states the item and any real blocker, not what the code already does — read the code for that.
 
@@ -18,6 +18,10 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 ```
 
 Every change ends with a clean build and a manual run. `PlumeUITests` launches the app, so a full `test` run is slow — prefer `-only-testing:PlumeTests` while iterating.
+
+The console hides Swift Testing's `Expectation failed: …` text and prints only that the test failed. Pass `-resultBundlePath /tmp/x.xcresult`, then read `xcrun xcresulttool get test-results tests --path /tmp/x.xcresult`. A `Crash:` node there means the test host died; its `.ips` in `~/Library/Logs/DiagnosticReports/` has the stack.
+
+`CONTRIBUTING.md` covers first-time setup, including the tests that fail on a fresh machine for environmental reasons.
 
 ## Releasing locally
 
@@ -95,17 +99,17 @@ Verify from outside the app rather than by screenshot — the surfaces are real 
 ```
 PLUME_SEED_TASKS=1 PLUME_SEED_TABS=3 PLUME_CYCLE_SELECTION=3 \
   <DerivedData>/Plume.app/Contents/MacOS/Plume &
+PID=$!
 ```
 
 Then watch real processes — one `login` → `-zsh` per surface, each on its own tty:
 
 ```
-PID=$(pgrep -x Plume)
 for l in $(pgrep -P $PID); do pgrep -P $l; done   # shell pids, stable across switches
 /usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume"' --last 2m --info
 ```
 
-Stable PIDs across many switches is the real proof that hide/show doesn't kill processes. `SmokeHarness` (DEBUG only) drives this from env vars.
+Stable PIDs across many switches is the real proof that hide/show doesn't kill processes. Compare the PID *sets* and ttys, not the counts: a teardown and respawn keeps the count identical. Take the PID from `$!` or from `pgrep -f` on the bundle path, never `pgrep -x Plume`, which has come back empty with Plume running. `SmokeHarness` (DEBUG only) drives this from env vars.
 
 Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matches the Claude desktop app's helper processes and will convince you an agent launched when none did.
 
@@ -127,6 +131,16 @@ Sparkle checks for updates in the background, and **an available update never in
 - **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password. `HomebrewUpgrade` opens a temporary `.command` script in Terminal.app instead, which upgrades and then reopens Plume.
 - **Never add a manual "Embed Frameworks" phase for Sparkle.** Xcode already auto-embeds and signs its XCFramework into `Contents/Frameworks`; a hand-written phase breaks the build with "Sparkle-product couldn't be opened".
 - **Test both update paths without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
+
+## Commits
+
+One line, no body. Imperative mood, capitalized, no trailing period, 50 characters at most — `Add image paste to the composer`, `Fix stale title after fork`. Name the behavior, not the files, and write identifiers in their source casing. No `feat:`-style prefixes, no gitmoji, no bracketed tags. Join two related changes with a comma; if they don't fit, lead with the main one. A body, when there is one, is only the issue identifier (`PLUME-123`).
+
+## Debugging
+
+Gather evidence before proposing a cause: the exact error text, recent changes to the affected area, the versions involved. Hold at least two hypotheses, and run the cheapest experiment that tells them apart before changing product code. After two failed fixes, stop guessing and measure.
+
+For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` records a trace; read its `swiftui-causes` table with `xcrun xctrace export --xpath '/trace-toc/run[@number="1"]/data/table[@schema="swiftui-causes"]'`. Node names are interned, so count `<metadata (id|ref)="N"` occurrences, not `fmt=` definitions. When something used to be fast, `git bisect` it against a fixed fixture. `docs/handoff-idle-cpu.md` is a worked example.
 
 ## Conventions
 
@@ -162,6 +176,8 @@ Sparkle checks for updates in the background, and **an available update never in
 - **Claude Code inherits directory trust from an ancestor, and records nothing for the child.** A folder under an already-trusted repository — every worktree under `<repo>/.plume/worktrees`, say — gets no `projects.<path>.hasTrustDialogAccepted` entry in `~/.claude.json`, because it was never prompted for. An exact-path lookup therefore reads every one of them as untrusted; `ClaudeTrustStore` walks the ancestors and takes the nearest explicit answer. Separately, `claude -p` skips the trust dialog outright (`claude --help` says so, and a probe confirms it), so the refusal in `AgentLauncher` is Plume's own stance rather than something the CLI enforces.
 - **`SurfaceCommandTests` needs a real GUI session.** It spawns real `NSWindow`s and PTYs, so it fails from a headless shell. That is environmental; check it against `main` before believing a regression.
 - **`SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` only asserts where Claude Code has run in this checkout.** It derives the repo path from `#filePath` and locates the transcript directory by the `cwd` Claude Code records, which a worktree or a freshly cloned machine has none of. There its `#require` fails with "Claude Code has not run in …" — an environmental failure, not a regression. More than one directory can legitimately record the same `cwd`, because an agent working in a worktree still stamps the parent repository's path, so the test asserts the encoded name is *among* the owning directories rather than the only one.
+- **Measure a SwiftUI view's height from AppKit with `NSHostingController.sizeThatFits(in:)`**, with an unbounded height. `NSHostingView` has no `sizeThatFits`, and its `fittingSize` collapses under a pinned frame, so every row measures the same. A hosting view with `sizingOptions = []` reports a `fittingSize` of exactly zero. That setting is right for an on-screen row and useless for measuring, so measure with a separate offscreen controller. A height test must assert that a long row measures taller than a short one; `> 0` passes the broken version.
+- **Every tab spawns its PTY at launch, hidden or not**, so a debug store with many tabs stalls launch long enough to look like a crash. Start from a fresh store instead. Moving a store aside means moving `Plume.store`, `-shm` and `-wal` together, or the fresh store inherits a stale WAL. To render a chat with no `claude` process at all, seed it with `PLUME_SEED_TRANSCRIPT_PATH`; `docs/chat-list.md` has the recipe.
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - **A test that waits on a file watcher must await the store's own read signal, never a wall clock.** `RealTranscriptCorpusTests` parses every transcript on the machine — hundreds of files, tens of seconds — and Swift Testing runs it in parallel with everything else, so a deadline generous enough to look safe still expires under that load. `TranscriptStore.didRead` and `MarkdownFileStore.didRead` exist for this; the `waitUntil` helpers in their suites resume on the signal and finish instantly. Lengthening a timeout only moves the threshold.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
