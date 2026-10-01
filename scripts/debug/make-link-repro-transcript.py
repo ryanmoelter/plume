@@ -1,8 +1,9 @@
 import json, uuid, datetime, os
 
 SESSION = "beefcafe-0001-4000-8000-000000000001"
-CWD = "/Users/ryanmoelter/Development/Plume"
-OUT = os.path.expanduser("~/.claude/projects/-Users-ryanmoelter-Development-Plume/%s.jsonl" % SESSION)
+CWD = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+PROJECT_DIR = CWD.replace("/", "-").replace(".", "-")
+OUT = os.path.expanduser("~/.claude/projects/%s/%s.jsonl" % (PROJECT_DIR, SESSION))
 
 t0 = datetime.datetime(2026, 9, 16, 12, 0, 0, tzinfo=datetime.timezone.utc)
 lines, prev, n = [], None, [0]

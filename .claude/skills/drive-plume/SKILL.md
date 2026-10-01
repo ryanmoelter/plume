@@ -56,7 +56,13 @@ c clear
 
 `invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. A click on a `List` row never fires its tap gesture, which is why task rows carry an `invoke` closure. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
 
+**Confirm which tab is selected before every chat-list or composer read.** A hidden agent tab renders nothing, so its controls read disabled and `readText` on its chat list returns "not found". That is a correctly hidden tab, not a broken one. Forking selects the new tab on its own. Run `c list plumeID=tab-chip`, find the chip with `value: "selected"`, and say which tab each reading came from.
+
 `key` posts a real `NSEvent` down the whole dispatch path, so it is how a keyboard shortcut gets tested. Its `handledBy` names the menu item that owns the chord, and `menu` dumps every item with the chord AppKit actually holds — which is the thing to check when a shortcut does nothing, not what the source asked for.
+
+**Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
+
+**Only one agent may screenshot at a time.** Parallel screenshot attempts fail, so when several agents run at once, give screenshot duty to at most one or run visual checks as a single pass afterwards.
 
 ## When a control is missing
 
@@ -65,5 +71,7 @@ The server sees only what registers with it. A SwiftUI control with no `plumeID(
 ## What this cannot tell you
 
 Whether a menu command *ran*. SwiftUI fills a `focusedSceneValue` only while the app's scene is active, and a hidden instance's never is, so the whole Tab menu and most of the File menu read disabled and their chords do nothing — including chords that work fine for the user. `key` still proves which item owns a chord; `handledByEnabled` tells you the item was disabled, so read a no-op there as the harness, not a bug.
+
+Typed text in a field. A hidden instance never becomes active, so `window.makeKey()` is a no-op and posted key-downs reach the window, not the composer. `setValue` assigns the composer's string directly and skips its input rules. Neither proves typing is broken; verify typed composer behavior with a test that hosts a real `MarkdownComposerTextView` in an `NSWindow` and sends it `keyDown` events.
 
 Terminal liveness. A tab's PTY is a real process, so whether it survived a switch is answered by the process tree, not by the window. The "Verifying terminal behavior" section of `CLAUDE.md` has that recipe; use both together when a change touches terminals.

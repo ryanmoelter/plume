@@ -8,3 +8,5 @@ xcuserdata/
 .swiftpm/
 out/
 *~lock~
+.worktrees/
+.claude/settings.local.json

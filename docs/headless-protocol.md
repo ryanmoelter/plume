@@ -229,11 +229,17 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 
 `set_permission_mode` and `set_model` replace what Plume does today by pasting `/model` or sending Shift+Tab.
 
+**Probe an untried request against the real binary before designing around it.** A short Python harness spawns `claude -p --output-format stream-json --input-format stream-json --verbose`, sends `initialize`, then the request under test. Probe the failure modes too, not only the happy path, and record what you find here with the CLI version. `generate_session_title` below came out of one such probe.
+
+**Every message id sent to the CLI comes from the transcript.** The chat's optimistic first message carries Plume's own id, `plume.optimistic.first-message`, which the CLI has never seen. Sent as `last_seen_user_message_uuid`, it gets `rewind_conversation` refused as `stale_target`. Gate any id-taking action on `Transcript.messages` containing the id, and log the CLI's own refusal reason.
+
+**A fork writes nothing until its first turn.** `claude --fork-session --session-id <new>` creates no `.jsonl` until the first turn produces content, so a missing transcript right after a fork is expected. It also refuses to start when a file already sits at the new session's path (`Error: Session ID <uuid> is already in use`). Never create a file at a path the CLI owns.
+
 ## Session titles — `generate_session_title`
 
 Verified first-hand against 2.1.276 and 2.1.280.
 
-**Claude Code auto-titles the interactive TUI. A headless conversation may not get an `ai-title` line on its own** — a scan of this machine's `~/.claude/projects` found one on 26 of 87 recent headless (`entrypoint: sdk-cli`) transcripts, and no guarantee it will appear on the rest — which is why `SessionJSONLReader` falls back to the first user message, and why Plume asks for a title explicitly rather than waiting for one to show up.
+**Claude Code auto-titles the interactive TUI. A headless conversation may not get an `ai-title` line on its own** — a sample of 87 recent headless (`entrypoint: sdk-cli`) transcripts had one on only 26, with no guarantee it will appear on the rest — which is why `SessionJSONLReader` falls back to the first user message, and why Plume asks for a title explicitly rather than waiting for one to show up.
 
 ```json
 {"type":"control_request","request_id":"plume-7","request":{

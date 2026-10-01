@@ -1,6 +1,6 @@
 # Releasing
 
-Plume ships two ways. A **local install** on the machine that builds it — no archive, no DMG — which is how Ryan installs it on his own Macs, and is what most of this document covers. And a **shared build** for other people, packaged as a DMG and attached to a GitHub release; that path is at the end, and `scripts/package-release.sh` runs it.
+Plume ships two ways. A **local install** on the machine that builds it — no archive, no DMG — for testing a Release build in place, and what most of this document covers. And a **shared build**, packaged as a DMG and attached to a GitHub release, which every installed copy updates from through Sparkle or Homebrew — the maintainer's own Macs included, so both upgrade paths get exercised. That path is at the end, and `scripts/package-release.sh` runs it.
 
 Both are signed with Developer ID and notarized. That used to be the shared build's distinction, but the sleep helper changed it: Apple documents that `SMAppService` daemons need a notarized app, so the local install is notarized too. The **One-time setup** under *Sharing a build* is a prerequisite for the local install too.
 
@@ -81,9 +81,9 @@ Releasing from a session hosted *inside* Plume is the case to watch, though it s
 
 `scripts/install-release.sh` handles that case itself: with `PLUME` set it re-execs detached under `nohup`, so it outlives both the app and the session that started it, and returns immediately.
 
-**Stop after running the script and wait for Ryan.** The script ends the agent driving it along with every other one, so an agent that carries straight on is talking from a session the relaunched app no longer hosts — and before that was fixed, one that kept running would fork its own transcript. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
+**Stop after running the script and wait for the user.** The script ends the agent driving it along with every other one, so an agent that carries straight on is talking from a session the relaunched app no longer hosts — and before that was fixed, one that kept running would fork its own transcript. Run the script, say it has been run, and wait to be messaged before doing anything else. The install returns no output either way, because the process that started it is gone by the time the copy finishes.
 
-**The conversation comes back**, in the new app: it relaunches Plume, which restores the session with its context intact. Once Ryan messages, read `/tmp/plume-install.log` — that log is the whole record of what the install did.
+**The conversation comes back**, in the new app: it relaunches Plume, which restores the session with its context intact. Once the user messages, read `/tmp/plume-install.log` — that log is the whole record of what the install did.
 
 Do the tag and push *before* the install. The resume is reliable, but the install is the one step that replaces the app underneath the session, so land anything you would hate to redo first.
 
@@ -127,7 +127,7 @@ Tag the commit that carries the version bump, so the tag and `CFBundleShortVersi
 git branch --contains v0.1.0 | grep -qx '\* main\|  main' || echo "NOT on main"
 ```
 
-Check every commit is signed before pushing. Agents fall back to `--no-gpg-sign` when 1Password locks mid-run, and re-signing afterwards means rewriting history the tag already points into:
+If commits are signed here (`git config commit.gpgsign` prints `true`), check every one is signed before pushing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing afterwards means rewriting history the tag already points into:
 
 ```
 git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'
@@ -212,6 +212,15 @@ An app signed only with an Apple Development identity runs on the machine that s
 `scripts/package-release.sh` does all of it: builds Release, re-signs the helper and then the app with Developer ID, notarizes, builds a drag-to-install DMG, notarizes that too, verifies both, and opens a **draft** GitHub release with the DMG attached. Nothing is public until you publish the draft.
 
 **Hardened runtime is not new here.** `ENABLE_HARDENED_RUNTIME = YES` applies at signing, not at notarization, so every local Release install has already enforced it — `codesign -d` reports `flags=0x10000(runtime)`. Plume spawns PTYs, launches `claude`, and runs `git worktree` under it today. Hardened runtime restricts what is done *to* the process (code injection, unsigned library loads, JIT), not the processes it spawns, which is why there is no `.entitlements` file and none is needed. Notarization adds a malware scan and a Gatekeeper ticket, not new runtime restrictions.
+
+### Who can release
+
+Packaging a release needs two things that belong to the project, not to the person releasing:
+
+- **Membership in the Apple Developer team `U6J478KTGV`**, with a Developer ID Application certificate. The team ID is also compiled into the app and the sleep helper (`sleepHelperTeamID`), so a build signed by another team cannot talk to the helper.
+- **Read access to the Sparkle EdDSA private key** — see *The EdDSA key*. Without it, a release cannot be signed for Sparkle.
+
+A contributor without either can still build, test, and run Debug builds. Only the release scripts need them.
 
 ### One-time setup
 
@@ -299,7 +308,7 @@ Expect `accepted` and `source=Notarized Developer ID`. An `Apple Development` au
 
 Open the DMG, drag Plume to Applications. A correctly notarized build opens normally — **if anyone needs the right-click → Open workaround, the notarization is broken**, and that is the signal to check it rather than to talk them through the workaround.
 
-First launch prompts for permissions this machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
+First launch prompts for permissions the build machine granted long ago, since Plume spawns terminals and reads `~/.claude/**`. Plume also needs `claude` on the PATH; a GUI-launched app does not inherit a shell PATH, which is why both transports go through `LoginShellCommand.wrap`.
 
 ## Sparkle auto-updates
 
@@ -333,7 +342,7 @@ scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by
 scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
 ```
 
-It copies the built Debug app, bumps its version, re-signs it, signs the update with the 1Password EdDSA key, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, run the scheduled background check now, or reset the skipped version and the last-check date. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the EdDSA key at `SPARKLE_KEY_REF`, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, run the scheduled background check now, or reset the skipped version and the last-check date. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
 
 For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
 
