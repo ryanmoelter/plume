@@ -81,78 +81,22 @@ struct TaskRowView: View {
     }
 
     var body: some View {
+        let lines = Array(detailLines.enumerated())
+        let badgeLineCount = Self.badgeLineCount(of: detailLines)
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
-                if isEditing {
-                    TextField("Task name", text: $task.title)
-                        .textFieldStyle(.plain)
-                        .focused($titleFocused)
-                        .onSubmit(endEditing)
-                        .onChange(of: titleFocused) { _, focused in
-                            if !focused { endEditing() }
-                        }
-                        // Deferred a tick: this field replaces the row's own
-                        // `Text` in the same update rather than mounting
-                        // fresh, so `onAppear` fires before the row's prior
-                        // content finishes resigning first responder.
-                        // Claiming focus in that same transaction loses the
-                        // race silently; the next run loop turn wins it.
-                        .onAppear { DispatchQueue.main.async { titleFocused = true } }
-                } else {
-                    Text(TitleStore.shared.displayTitle(for: task))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .emphasis(isInactive ? .secondary : .primary)
+                VStack(alignment: .leading, spacing: 1) {
+                    title
+                    ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
+                        detailLine(line, at: index)
+                    }
                 }
                 Spacer(minLength: 4)
                 StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
             }
 
-            ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
-                switch line {
-                case .text(let text):
-                    Text(text)
-                        .font(.caption)
-                        .emphasis(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                case .project(let name):
-                    HStack(spacing: 4) {
-                        Text(name)
-                            .font(.caption)
-                            .emphasis(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if isRemoteControlled, index == firstProjectLineIndex {
-                            Image(systemName: StatusSymbol.remoteControl.name)
-                                .font(.caption)
-                                .imageScale(.small)
-                                .foregroundStyle(ChatRole.attention(for: colorScheme))
-                                .help("Remote control is on")
-                        }
-                    }
-                case .branch(let branch, let isWorktree, let companion):
-                    HStack(spacing: 4) {
-                        if isWorktree {
-                            Image(systemName: "tree")
-                                .font(.caption)
-                                .imageScale(.small)
-                                .emphasis(.secondary)
-                        }
-                        Text(branch)
-                            .font(.caption)
-                            .emphasis(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let companion {
-                            PullRequestChip(state: companion, emphasis: .secondary)
-                        }
-                    }
-                case .pullRequest(let directory, let state):
-                    PullRequestChip(state: state) {
-                        PullRequestStore.shared.checkRollup(for: directory, of: $0)
-                    }
-                }
+            ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
+                detailLine(line, at: index)
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
@@ -206,6 +150,85 @@ struct TaskRowView: View {
         for directory in change.gitToWatch { GitStateStore.shared.watch(directory) }
         for directory in change.pullRequestsToWatch { PullRequestStore.shared.watch(directory) }
         watched.apply(change)
+    }
+
+    @ViewBuilder
+    private var title: some View {
+        if isEditing {
+            TextField("Task name", text: $task.title)
+                .textFieldStyle(.plain)
+                .focused($titleFocused)
+                .onSubmit(endEditing)
+                .onChange(of: titleFocused) { _, focused in
+                    if !focused { endEditing() }
+                }
+                // Deferred a tick: this field replaces the row's own
+                // `Text` in the same update rather than mounting
+                // fresh, so `onAppear` fires before the row's prior
+                // content finishes resigning first responder.
+                // Claiming focus in that same transaction loses the
+                // race silently; the next run loop turn wins it.
+                .onAppear { DispatchQueue.main.async { titleFocused = true } }
+        } else {
+            Text(TitleStore.shared.displayTitle(for: task))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .emphasis(isInactive ? .secondary : .primary)
+        }
+    }
+
+    /// The project header shares the status badge's lines, so a badge glyph
+    /// taller than the title never changes the row's height.
+    private static func badgeLineCount(of lines: [TaskRowDetails.Line]) -> Int {
+        if case .project = lines.first { 1 } else { 0 }
+    }
+
+    @ViewBuilder
+    private func detailLine(_ line: TaskRowDetails.Line, at index: Int) -> some View {
+        switch line {
+        case .text(let text):
+            Text(text)
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        case .project(let name):
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if isRemoteControlled, index == firstProjectLineIndex {
+                    Image(systemName: StatusSymbol.remoteControl.name)
+                        .font(.caption)
+                        .imageScale(.small)
+                        .foregroundStyle(ChatRole.attention(for: colorScheme))
+                        .help("Remote control is on")
+                }
+            }
+        case .branch(let branch, let isWorktree, let companion):
+            HStack(spacing: 4) {
+                if isWorktree {
+                    Image(systemName: "tree")
+                        .font(.caption)
+                        .imageScale(.small)
+                        .emphasis(.secondary)
+                }
+                Text(branch)
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let companion {
+                    PullRequestChip(state: companion, emphasis: .secondary)
+                }
+            }
+        case .pullRequest(let directory, let state):
+            PullRequestChip(state: state) {
+                PullRequestStore.shared.checkRollup(for: directory, of: $0)
+            }
+        }
     }
 
     private var accessibilityLabel: String {
