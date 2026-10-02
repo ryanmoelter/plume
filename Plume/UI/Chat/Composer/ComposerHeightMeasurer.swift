@@ -26,6 +26,8 @@ final class ComposerHeightMeasurer {
         let fontSize: CGFloat
         let inset: NSSize
         let revision: Int
+        let trailingFont: NSFont?
+        let trailingParagraphStyle: NSParagraphStyle?
     }
 
     init(lineFragmentPadding: CGFloat) {
@@ -41,10 +43,10 @@ final class ComposerHeightMeasurer {
         cached = nil
     }
 
-    /// The attributes an empty document's single line is laid out with —
-    /// the live view's `typingAttributes`, so a font size change is visible
-    /// even with nothing typed.
-    var emptyAttributes: [NSAttributedString.Key: Any] = [
+    /// The attributes the live view lays out the character-less line after
+    /// the document's final newline with, which an empty document's single
+    /// line is too — `ComposerNSTextView.trailingLineLayoutAttributes`.
+    var trailingLineAttributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
     ]
 
@@ -62,7 +64,14 @@ final class ComposerHeightMeasurer {
     /// line is what reproduces the live height rather than approximating it
     /// from font metrics.
     func height(for storage: NSTextStorage, width: CGFloat, inset: NSSize, revision: Int) -> CGFloat {
-        let key = Key(width: width, fontSize: fontSize(of: storage), inset: inset, revision: revision)
+        let key = Key(
+            width: width,
+            fontSize: fontSize(of: storage),
+            inset: inset,
+            revision: revision,
+            trailingFont: trailingLineAttributes[.font] as? NSFont,
+            trailingParagraphStyle: trailingLineAttributes[.paragraphStyle] as? NSParagraphStyle
+        )
         if let cached, cached.key == key { return cached.height }
 
         container.size = CGSize(width: max(0, width - inset.width * 2), height: CGFloat.greatestFiniteMagnitude)
@@ -89,18 +98,15 @@ final class ComposerHeightMeasurer {
     /// there is one.
     private func measurable(_ storage: NSTextStorage) -> NSAttributedString {
         guard storage.length == 0 || storage.string.hasSuffix("\n") else { return storage }
-        let attributes = storage.length > 0
-            ? storage.attributes(at: storage.length - 1, effectiveRange: nil)
-            : emptyAttributes
         let result = NSMutableAttributedString(attributedString: storage)
-        result.append(NSAttributedString(string: "\u{200B}", attributes: attributes))
+        result.append(NSAttributedString(string: "\u{200B}", attributes: trailingLineAttributes))
         return result
     }
 
     private func fontSize(of storage: NSTextStorage) -> CGFloat {
         let font = storage.length > 0
             ? storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
-            : emptyAttributes[.font] as? NSFont
+            : trailingLineAttributes[.font] as? NSFont
         return font?.pointSize ?? 0
     }
 }

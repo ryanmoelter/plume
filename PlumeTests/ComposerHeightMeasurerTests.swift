@@ -33,7 +33,7 @@ struct ComposerHeightMeasurerTests {
         let measurer = ComposerHeightMeasurer(
             lineFragmentPadding: view.textContainer?.lineFragmentPadding ?? 0
         )
-        measurer.emptyAttributes = view.typingAttributes
+        measurer.trailingLineAttributes = view.trailingLineLayoutAttributes ?? [:]
         return measurer
     }
 
@@ -80,6 +80,40 @@ struct ComposerHeightMeasurerTests {
         ))
         let lineHeight = Self.measure(one) - Self.inset.height * 2
         #expect(abs(Self.measure(view) - Self.measure(one) - lineHeight) < 1)
+    }
+
+    /// Appends the newline Return would leave, with the caret either on the
+    /// character-less line after it or back at the start of the document.
+    private static func makeTextViewEndingInANewline(markdown: String, caretOnTheLine: Bool) -> ComposerNSTextView {
+        let view = makeTextView(markdown: markdown)
+        let storage = view.textStorage!
+        let lastKind = storage.attribute(.plumeBlock, at: storage.length - 1, effectiveRange: nil) as! ComposerBlockKind
+        storage.append(NSAttributedString(string: "\n", attributes: style.attributes(for: lastKind)))
+        view.setSelectedRange(NSRange(location: caretOnTheLine ? storage.length : 0, length: 0))
+        view.typingAttributes = view.desiredTypingAttributes()
+        view.layOutTrailingLine()
+        return view
+    }
+
+    private static var bodyLineHeight: CGFloat {
+        measure(makeTextView(markdown: "x")) - inset.height * 2
+    }
+
+    @Test(arguments: ["# Title", "- item", "1. item", "> quote", "```\ncode\n```"], [true, false])
+    func aTrailingLineMeasuresWhatTheLiveViewLaysOut(markdown: String, caretOnTheLine: Bool) {
+        let view = Self.makeTextViewEndingInANewline(markdown: markdown, caretOnTheLine: caretOnTheLine)
+        #expect(abs(Self.measure(view) - Self.liveHeight(of: view)) < 0.5)
+    }
+
+    /// With the caret elsewhere, TextKit lays the line out with the heading's
+    /// paragraph style, so the heading's `paragraphSpacingBefore` (0.4 of
+    /// the body size) lands above it too.
+    @Test(arguments: [true, false])
+    func theLineAfterAHeadingIsBodyHeight(caretOnTheLine: Bool) {
+        let heading = Self.makeTextView(markdown: "# Title")
+        let view = Self.makeTextViewEndingInANewline(markdown: "# Title", caretOnTheLine: caretOnTheLine)
+        let spacing = caretOnTheLine ? 0 : Self.style.bodySize * 0.4
+        #expect(abs(Self.liveHeight(of: view) - Self.liveHeight(of: heading) - Self.bodyLineHeight - spacing) < 1)
     }
 
     @Test func aHeadingIsTallerThanTheSameStringAsAParagraph() {

@@ -158,6 +158,52 @@ struct ComposerDecorationsTests {
         return result
     }
 
+    /// `view` with a code block ending in the newline Return leaves, and the
+    /// character-less line after it carrying `trailingKind`.
+    private static func makeCodeBlockEndingInANewline(trailingKind: ComposerBlockKind?) -> ComposerNSTextView {
+        let view = makeTextView(markdown: "```\ncode\n```", width: 300)
+        let storage = view.textStorage!
+        let codeKind = storage.attribute(.plumeBlock, at: 0, effectiveRange: nil) as! ComposerBlockKind
+        storage.append(NSAttributedString(string: "\n", attributes: style.attributes(for: codeKind)))
+        if let trailingKind { view.stickyKind = (trailingKind, storage.length) }
+        view.setSelectedRange(NSRange(location: storage.length, length: 0))
+        view.layOutTrailingLine()
+        return view
+    }
+
+    /// The character-less last line, in the view's coordinates.
+    private static func trailingLineRect(in view: ComposerNSTextView) -> NSRect? {
+        let layoutManager = view.textLayoutManager!
+        var rect: NSRect?
+        layoutManager.enumerateTextLayoutFragments(
+            from: layoutManager.documentRange.endLocation,
+            options: [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
+        ) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            rect = fragment.textLineFragments.last?.typographicBounds.offsetBy(
+                dx: frame.minX + view.textContainerOrigin.x,
+                dy: frame.minY + view.textContainerOrigin.y
+            )
+            return false
+        }
+        return rect
+    }
+
+    @Test func aCodeBlockStopsAboveAnEmptyParagraphAfterIt() throws {
+        let view = Self.makeCodeBlockEndingInANewline(trailingKind: .paragraph)
+        let box = try #require(ComposerDecorations.rects(in: view, style: Self.style).codeBoxes.first)
+        let line = try #require(Self.trailingLineRect(in: view))
+        #expect(abs(box.maxY - line.minY) < 0.5)
+    }
+
+    @Test func aCodeBlockContinuingOntoTheLastLineCoversIt() throws {
+        let view = Self.makeCodeBlockEndingInANewline(trailingKind: nil)
+        let decorations = ComposerDecorations.rects(in: view, style: Self.style)
+        try #require(decorations.codeBoxes.count == 1)
+        let line = try #require(Self.trailingLineRect(in: view))
+        #expect(decorations.codeBoxes[0].maxY >= line.maxY - 0.5)
+    }
+
     @Test func plainProseDecoratesNothing() {
         let view = Self.makeTextView(markdown: "Just a plain paragraph.", width: 300)
         let decorations = ComposerDecorations.rects(in: view, style: Self.style)

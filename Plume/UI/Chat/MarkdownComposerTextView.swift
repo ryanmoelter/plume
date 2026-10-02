@@ -439,6 +439,8 @@ final class ComposerNSTextView: NSTextView, NSTextStorageDelegate {
     /// so its own caret placement does not read as the user leaving the line.
     var isApplyingEdit = false
 
+    lazy var listMarkerLayout = ComposerListMarkerLayout()
+
     /// The inline style ⌘B/⌘I chose for a collapsed selection, which
     /// `desiredTypingAttributes()` would otherwise re-derive from the
     /// characters around the caret and discard. Cleared by the next insertion
@@ -468,6 +470,11 @@ final class ComposerNSTextView: NSTextView, NSTextStorageDelegate {
     override func layout() {
         super.layout()
         observeStorage()
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        layOutTrailingLine()
     }
 
     func textStorage(
@@ -801,7 +808,7 @@ final class ScrollableComposerTextView: NSView {
 
         guard let storage = composerTextView.textStorage else { return minHeight }
 
-        measurer.emptyAttributes = composerTextView.typingAttributes
+        measurer.trailingLineAttributes = composerTextView.trailingLineLayoutAttributes ?? [:]
         let measured = measurer.height(
             for: storage,
             width: width,

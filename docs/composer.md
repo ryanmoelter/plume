@@ -35,6 +35,20 @@ A document ending in a newline — including an empty document, and the common c
 
 A selection that moves off that line abandons the sticky kind (`setSelectedRanges` override) — otherwise the marker of a list the user just selected and deleted would reappear on the next fresh line they start typing. Plume's own edits are exempt (guarded by `isApplyingEdit`), since they place the caret themselves as part of the edit rather than as the user leaving the line.
 
+### Laying out and drawing the character-less last line
+
+TextKit 2 lays the character-less line out only as part of the last paragraph, and with whatever attributes apply at that moment:
+
+- While the caret is on the line, it uses the text view's typing attributes.
+- Otherwise, it uses the final newline's font and the last paragraph's paragraph style.
+
+Nothing else lays the line out again. A caret move does not, and neither does a change of the line's kind, because that changes no character. `ComposerTrailingLine.swift` handles the consequences:
+
+- The typing attributes on that line come from the line's own kind (`trailingLineAttributes(for:)`), so the empty line after a heading is body height, not heading height.
+- `layOutTrailingLine()` lays the last paragraph out again after every edit (`didChangeText()`), every change of the line's kind (`applying(_:thenStick:at:)`, a selection that abandons `stickyKind`), and every load or restyle.
+- The final newline carries the line's font, so editing a heading with the caret elsewhere doesn't make the empty line below it heading height. That font is never larger than the paragraph's own text, which shares the newline's line, and an empty last paragraph keeps its own font, because the newline is all that sizes its line. The heading's `paragraphSpacingBefore` still lands above the empty line while the caret is elsewhere; the paragraph style is per paragraph, so nothing can change that.
+- **`NSTextView` drops `textLists` from its typing attributes**, so TextKit never draws a list marker on that line. Instead, the line's paragraph style indents to where the item's text will start, and `ComposerDecorations` draws the marker. `ComposerListMarkerLayout` lays out a zero-width character as a one-item list in a TextKit 2 stack of its own. Drawing that fragment gives the real marker glyph, number and position, and the end of its line is the text indent.
+
 ## Serialization policy
 
 `ComposerDocument` (`ComposerDocument.swift`) is the only place that converts between markdown and the storage's `NSAttributedString`. The policy, stated in its own doc comment, is not negotiable: **the message goes to an LLM, not a renderer.** `ComposerDocument.markdown(from:)` and `ComposerInlineMarkdown.markdown(from:range:)` never escape a literal markdown character — a path, a shell command, or a stray `*` the user typed passes through exactly as typed. Markers appear in the output only for formatting that was actually applied through the model.
@@ -125,6 +139,7 @@ A fresh decimal instance takes its `startingItemNumber` from the paragraph's own
 - **Inline code does not extend.** After a closing-backtick conversion, or at a chip's trailing edge, typing is plain — a code span only grows from *inside* it (both surrounding characters already code).
 - **Links never extend.**
 - `ComposerNSTextView.typingInlineOverride` is the one exception: ⌘B/⌘I on a collapsed selection sets it, so the next character honors the toggle rather than having `desiredTypingAttributes()` re-derive the style from what's already there and discard the toggle. It's cleared on the next insertion or caret move.
+- On the character-less last line, the paragraph style is `trailingLineParagraphStyle(for:)`: a list item's indents to where its text will start and carries no `textLists`, since `NSTextView` drops them anyway.
 
 Nothing decorative — `kern`, spelling state, rendering attributes — is ever part of a typing-attribute dictionary; it's built from scratch each time rather than edited in place.
 
@@ -173,15 +188,19 @@ Switching mode with the text unchanged reloads it literally (`Coordinator.loadLi
 
 **Code boxes and quote bars.** One full-width box per run of paragraphs sharing a code block's `blockID`, one bar per run of consecutive quote paragraphs (`blockRects(_:)`). Both use `layoutFragmentFrame` (not segment frames) so the box's vertical extent already includes the paragraph spacing `ComposerTextStyle.paragraphStyle` adds before/after a code block — the box's actual vertical padding — without an extra inset that would make two adjacent blocks overlap into one.
 
+The character-less last line lays out inside the last paragraph's fragment. If its kind shares the last paragraph's decoration, the box or bar covers it. If only the line is decorated (an empty quote typed on the last line, say), it gets a box or bar of its own. Otherwise the last paragraph's box or bar stops where the line starts.
+
+**The trailing list marker.** An empty list item on the character-less last line draws its marker from `ComposerListMarkerLayout` (see "Laying out and drawing the character-less last line").
+
 **Rules.** One line `ruleThickness` thick across the text column (the container width less `lineFragmentPadding` on each side), through the middle of the rule paragraph's empty line, in the chat's divider color.
 
 ## Height measurement
 
 `ComposerHeightMeasurer` (`ComposerHeightMeasurer.swift`) is a second, off-screen TextKit 2 stack (its own `NSTextContentStorage` / `NSTextLayoutManager` / `NSTextContainer`) that measures how tall the document would lay out at a given width, without touching the live view. SwiftUI's `sizeThatFits` is asked on *every* layout pass, not only when the text changes, so the stack is built once and re-measured in place.
 
-The cache key (`Key`) is `(width, fontSize, inset, revision)`. **`revision` is the caller's own edit counter** (`ComposerNSTextView.documentRevision`), and it's what makes an attribute-only edit — a re-style, an undo that changes no characters — invalidate the cache correctly: the text content alone can't see those changes, but a repaired block kind changing a paragraph's font or spacing can still change its height. `documentRevision` is bumped from the storage delegate callback (`textStorage(_:didProcessEditing:range:changeInLength:)`), which fires for *any* edit AppKit processes, characters or attributes alike — that's why the revision is sourced there rather than derived from the string.
+The cache key (`Key`) is `(width, fontSize, inset, revision)` plus the font and paragraph style of the trailing-line attributes below. **`revision` is the caller's own edit counter** (`ComposerNSTextView.documentRevision`), and it's what makes an attribute-only edit — a re-style, an undo that changes no characters — invalidate the cache correctly: the text content alone can't see those changes, but a repaired block kind changing a paragraph's font or spacing can still change its height. `documentRevision` is bumped from the storage delegate callback (`textStorage(_:didProcessEditing:range:changeInLength:)`), which fires for *any* edit AppKit processes, characters or attributes alike — that's why the revision is sourced there rather than derived from the string.
 
-An empty document, and a document ending in a newline, have no layout fragment for their trailing empty line, yet the live view still reserves caret room there and counts it in `usageBoundsForTextContainer`. `measurable(_:)` reproduces this by appending a zero-width `\u{200B}` sentinel (carrying the last real run's attributes, or the caller-supplied `emptyAttributes`) before measuring, rather than approximating the gap from font metrics.
+An empty document, and a document ending in a newline, have no layout fragment for their trailing empty line, yet the live view still reserves caret room there and counts it in `usageBoundsForTextContainer`. `measurable(_:)` reproduces this by appending a zero-width `\u{200B}` sentinel before measuring, rather than approximating the gap from font metrics. The sentinel carries `trailingLineAttributes`, which the host sets from `ComposerNSTextView.trailingLineLayoutAttributes`: the attributes TextKit lays that line out with, by the rule above. Those attributes are part of the cache key, since a change of the line's kind changes no character and bumps no revision.
 
 ## Slash commands
 
@@ -211,6 +230,8 @@ Spelling marks themselves live as **layout-manager temporary attributes**, not s
 - Type `---` and Return — a horizontal rule appears and the caret sits on the line below. Backspace there removes the rule; ⌘Z instead brings back the literal `---`.
 - Copy a formatted slice and paste it back into the same composer — formatting survives. Paste `**x**` from another app — it stays literal. ⌥⇧⌘V on the same clipboard text renders it as markdown instead.
 - Switch chat tabs with an unsent, partially formatted draft, then switch back — the draft and its formatting are both restored, and a literal `**x**` in it is still literal.
+- Type `# Title` and Return — the composer grows by one body line, not a heading line. Click back into the title and type — the empty line stays body height.
+- Type `- ` in an empty composer, then `1. a` and Return — each empty item shows its marker (`•`, then `2`), and the caret sits where the item's text will start.
 - Resize the composer's width while it holds a code block, a chip, and a quote — the code box, chip, and quote bar all track the new layout without a visible lag or a stale rect.
 - Misspell a word inside inline code and outside it — only the one outside gets a red underline.
 - Type `/` to open the slash-command list, arrow to a different entry, and accept it — the rest of a message typed before it keeps its formatting, and ⌘Z undoes only the acceptance.

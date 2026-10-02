@@ -136,18 +136,22 @@ extension ComposerNSTextView {
         edit()
         stickyKind = kind.map { (kind: $0, paragraphStart: paragraphStart) }
         typingAttributes = desiredTypingAttributes()
+        trailingLineDidChange()
     }
 
     /// Abandons a sticky kind once the selection leaves the line it belongs
     /// to. Plume's own edits place the caret themselves and are exempt.
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        var abandonsSticky = false
         if let sticky = stickyKind, !isApplyingEdit {
             let range = ranges.first?.rangeValue
             if range == nil || range!.length > 0 || range!.location != sticky.paragraphStart {
                 stickyKind = nil
+                abandonsSticky = true
             }
         }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if abandonsSticky { trailingLineDidChange() }
     }
 
     /// `slice` re-attributed for `kind`, keeping each run's own inline style
@@ -488,7 +492,9 @@ extension ComposerNSTextView {
         }
 
         var attributes = style.attributes(for: info.kind, inline: inline)
-        attributes[.paragraphStyle] = paragraphStyle(for: info)
+        attributes[.paragraphStyle] = info.enclosing.length == 0
+            ? trailingLineParagraphStyle(for: info.kind)
+            : paragraphStyle(for: info)
         return attributes
     }
 
@@ -655,6 +661,7 @@ extension ComposerNSTextView {
         typingInlineOverride = nil
         setSelectedRange(NSRange(location: storage.length, length: 0))
         typingAttributes = desiredTypingAttributes()
+        layOutTrailingLine()
         undoManager?.removeAllActions(withTarget: storage)
         undoManager?.removeAllActions(withTarget: self)
     }
@@ -667,6 +674,7 @@ extension ComposerNSTextView {
         font = baseFont
         guard let storage = textStorage, storage.length > 0 else {
             typingAttributes = desiredTypingAttributes()
+            layOutTrailingLine()
             return
         }
         let full = NSRange(location: 0, length: storage.length)
@@ -679,6 +687,7 @@ extension ComposerNSTextView {
         ComposerDocumentInvariants.padChips(storage, style: style)
         ComposerParagraphStyles.apply(to: storage, style: style)
         typingAttributes = desiredTypingAttributes()
+        layOutTrailingLine()
     }
 
     /// In command mode, the literal text: a command is shell, not markdown.
