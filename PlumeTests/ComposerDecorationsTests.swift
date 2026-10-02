@@ -81,6 +81,18 @@ struct ComposerDecorationsTests {
         #expect(bar.height > Self.style.body.boundingRectForFont.height * 1.5)
     }
 
+    /// The chat composer clips its text view at the text column's edges, so
+    /// a bar at the container's own edge would never show.
+    @Test(arguments: ["> one line", "> first line\n> second line"])
+    func aQuoteBarSitsAtTheTextColumnsLeadingEdge(markdown: String) throws {
+        let view = Self.makeTextView(markdown: markdown, width: 300)
+        let bar = try #require(ComposerDecorations.rects(in: view, style: Self.style).quoteBars.first)
+        let padding = view.textContainer?.lineFragmentPadding ?? 0
+        #expect(abs(bar.minX - (view.textContainerOrigin.x + padding)) < 0.5)
+        let text = try #require(Self.segmentMinX(of: NSRange(location: 0, length: 1), in: view))
+        #expect(bar.maxX < text)
+    }
+
     /// The leading edge of the glyphs of `range`, in the view's coordinates —
     /// what the chip's own leading edge is measured against.
     private static func segmentMinX(of range: NSRange, in view: ComposerNSTextView) -> CGFloat? {

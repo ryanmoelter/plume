@@ -255,6 +255,8 @@ struct ComposerHostedTypingTests {
 
         let bars = ComposerDecorations.rects(in: view, style: view.style).quoteBars
         try #require(bars.count == 1)
+        let padding = view.textContainer?.lineFragmentPadding ?? 0
+        #expect(abs(bars[0].minX - (view.textContainerOrigin.x + padding)) < 0.5)
         let caret = try #require(harness.caretFrame)
         #expect(abs(bars[0].minY - (caret.minY + view.textContainerOrigin.y)) < 0.5)
         #expect(abs(bars[0].height - caret.height) < 0.5)

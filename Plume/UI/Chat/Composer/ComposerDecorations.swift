@@ -114,6 +114,14 @@ enum ComposerDecorations {
             let width = textView.textContainer?.size.width ?? textView.bounds.width
             return (origin.x, width > 0 ? width : textView.bounds.width)
         }
+
+        /// Where the text column starts and ends, inside the container's
+        /// edges. The chat composer pulls its text view out by this much so
+        /// glyphs line up with the controls below, which puts the container's
+        /// own edges outside the composer's clipped bounds.
+        var lineFragmentPadding: CGFloat {
+            textView.textContainer?.lineFragmentPadding ?? 0
+        }
     }
 
     // MARK: - Inline code chips
@@ -176,7 +184,8 @@ enum ComposerDecorations {
 
     /// Groups consecutive paragraphs that share a decoration: code paragraphs
     /// with the same `blockID` make one box, and consecutive quote paragraphs
-    /// one bar.
+    /// one bar. A bar sits at the text column's leading edge, where the first
+    /// glyph of an unquoted line lands.
     ///
     /// The character-less last line lays out inside the last paragraph's
     /// fragment. It joins that paragraph's box or bar when its kind shares the
@@ -191,7 +200,12 @@ enum ComposerDecorations {
             if case .codeBlock = kind.kind {
                 boxes.append(NSRect(x: containerX, y: minY, width: containerWidth, height: maxY - minY))
             } else {
-                bars.append(NSRect(x: containerX, y: minY, width: context.style.quoteBarWidth, height: maxY - minY))
+                bars.append(NSRect(
+                    x: containerX + context.lineFragmentPadding,
+                    y: minY,
+                    width: context.style.quoteBarWidth,
+                    height: maxY - minY
+                ))
             }
         }
 
@@ -286,7 +300,7 @@ enum ComposerDecorations {
     /// One line across the text column per `.rule` paragraph, through the
     /// middle of the paragraph's empty line.
     private static func ruleRects(_ context: Context) -> [NSRect] {
-        let padding = context.textView.textContainer?.lineFragmentPadding ?? 0
+        let padding = context.lineFragmentPadding
         let (containerX, containerWidth) = context.containerRect
         let thickness = context.style.ruleThickness
         return ComposerParagraphs.all(in: context.storage)

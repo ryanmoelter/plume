@@ -188,6 +188,8 @@ Switching mode with the text unchanged reloads it literally (`Coordinator.loadLi
 
 **Code boxes and quote bars.** One full-width box per run of paragraphs sharing a code block's `blockID`, one bar per run of consecutive quote paragraphs (`blockRects(_:)`). Both use `layoutFragmentFrame` (not segment frames) so the box's vertical extent already includes the paragraph spacing `ComposerTextStyle.paragraphStyle` adds before/after a code block — the box's actual vertical padding — without an extra inset that would make two adjacent blocks overlap into one.
 
+A quote bar sits at the text column's leading edge (`lineFragmentPadding` in from the container's), where the first glyph of an unquoted line lands. `ChatComposer` pulls the text view out by that padding so glyphs line up with the controls below it, and the composer's `animatedHeight` clips, so anything drawn in the container's outer `lineFragmentPadding` never shows.
+
 The character-less last line lays out inside the last paragraph's fragment. If its kind shares the last paragraph's decoration, the box or bar covers it. If only the line is decorated (an empty quote typed on the last line, say), it gets a box or bar of its own. Otherwise the last paragraph's box or bar stops where the line starts.
 
 **The trailing list marker.** An empty list item on the character-less last line draws its marker from `ComposerListMarkerLayout` (see "Laying out and drawing the character-less last line").
