@@ -24,7 +24,11 @@ enum HookSettingsWriter {
         "SessionEnd",
     ]
 
-    static let hookCommand = #"mkdir -p "$PLUME_EVENTS_DIR/$PLUME_TASK_ID" && cat >> "$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID.jsonl""#
+    /// A headless `claude` gets this file too, as the marker
+    /// `ClaudeProcessScanner` finds Plume's processes by, but none of the
+    /// variables. There the hook drains its stdin and succeeds, since appending
+    /// to `//.jsonl` fails on every tool call.
+    static let hookCommand = #"if [ -z "$PLUME_EVENTS_DIR" ]; then cat >/dev/null; else mkdir -p "$PLUME_EVENTS_DIR/$PLUME_TASK_ID" && cat >> "$PLUME_EVENTS_DIR/$PLUME_TASK_ID/$PLUME_TAB_ID.jsonl"; fi"#
 
     static func settingsJSON() -> [String: Any] {
         var hooks: [String: Any] = [:]

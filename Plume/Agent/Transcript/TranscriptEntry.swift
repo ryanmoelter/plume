@@ -182,6 +182,13 @@ nonisolated struct TranscriptEntry: Decodable {
         }
     }
 
+    /// A user line that asks for a new turn, as opposed to one answering a
+    /// tool call or injecting context.
+    var isPrompt: Bool {
+        guard type == "user", !isMeta, let blocks = message?.content?.blocks, !blocks.isEmpty else { return false }
+        return !blocks.contains { if case .toolResult = $0 { true } else { false } }
+    }
+
     /// An `api_error`'s payload nests the real message a couple of levels
     /// down (`error.error.error.message`), with an HTTP `status` beside it.
     private static func describeError(_ value: JSONValue?) -> String? {
@@ -280,15 +287,32 @@ nonisolated struct TranscriptContent: Decodable {
 nonisolated struct TranscriptToolUseResult: Decodable {
     let agentID: String?
     let status: String?
+    /// Set on a `SendMessage` result that woke a finished subagent back up.
+    let resumedAgentID: String?
+    /// Set on a `TaskOutput` result, which reports the agent's state when the
+    /// parent blocked on it. The CLI writes no notification for that finish.
+    let task: TranscriptTaskOutput?
 
     private enum CodingKeys: String, CodingKey {
-        case agentId, status
+        case agentId, status, resumedAgentId, task
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         agentID = try? container.decodeIfPresent(String.self, forKey: .agentId)
         status = try? container.decodeIfPresent(String.self, forKey: .status)
+        resumedAgentID = try? container.decodeIfPresent(String.self, forKey: .resumedAgentId)
+        task = try? container.decodeIfPresent(TranscriptTaskOutput.self, forKey: .task)
+    }
+}
+
+nonisolated struct TranscriptTaskOutput: Decodable {
+    let taskID: String
+    /// `completed` once the agent finished, `running` when the wait timed out.
+    let status: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case taskID = "task_id", status
     }
 }
 

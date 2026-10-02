@@ -23,10 +23,16 @@ nonisolated struct Transcript: Equatable {
     /// re-read transcript reports the same span.
     var startedAt: Date?
     var lastActivityAt: Date?
-    /// The `stop_reason` of the most recent assistant turn to carry one.
-    /// `end_turn` means the model finished speaking; `tool_use` means it
-    /// stopped to call a tool and the turn continues.
+    /// The `stop_reason` of the most recent assistant turn to carry one, or
+    /// nil once a new prompt opens another turn. `end_turn` means the model
+    /// finished speaking; `tool_use` means it stopped to call a tool and the
+    /// turn continues.
     var lastStopReason: String?
+    /// Whether the current turn's latest tool call is an accepted
+    /// `SubagentHandback`, which is how a subagent delivers its final report.
+    /// A nested subagent's completion is recorded only in its parent
+    /// subagent's file, so this is the one signal its own transcript carries.
+    var handedBack = false
 }
 
 /// Parses a Claude Code transcript JSONL into a `Transcript` of render-ready
@@ -109,6 +115,7 @@ nonisolated enum TranscriptParser {
         // A `<local-command-stdout>` line names no command, so the row takes
         // its title from the `<command-name>` line that preceded it.
         var lastSlashCommand: String?
+        var handbackID: String?
 
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
@@ -122,6 +129,25 @@ nonisolated enum TranscriptParser {
             }
             if let usage = entry.message?.usage { transcript.latestUsage = usage }
             if let stopReason = entry.message?.stopReason { transcript.lastStopReason = stopReason }
+            // A resumed subagent's previous `end_turn` would otherwise read as
+            // done until its new run's first response closes.
+            if entry.isPrompt {
+                transcript.lastStopReason = nil
+                handbackID = nil
+            }
+            // Only the turn's latest tool call counts: an agent can keep working
+            // after handing back, and a rejected hand-back delivered nothing.
+            for block in entry.message?.content?.blocks ?? [] {
+                switch block {
+                case .toolUse(let id, let name, _) where entry.type == "assistant":
+                    handbackID = name == "SubagentHandback" ? id : nil
+                case .toolResult(let toolUseId, _, _, true) where toolUseId == handbackID:
+                    handbackID = nil
+                default:
+                    break
+                }
+            }
+            transcript.handedBack = handbackID != nil
             if let model = entry.message?.model { transcript.model = model }
             if let effort = entry.effort { transcript.effort = effort }
             if let gitBranch = entry.gitBranch { transcript.gitBranch = gitBranch }

@@ -88,6 +88,11 @@ final class HeadlessSession: AgentSession {
     /// that turn is accounted for.
     private var wasInterrupted = false
 
+    /// Set once the manager drops this session. The process's exit and any
+    /// line still in flight land after that, and a status written then would
+    /// re-register a tab that `StatusEngine.forget` already cleared.
+    private var isClosed = false
+
     private(set) var remoteControl: RemoteControlState = .disconnected
 
     /// The last Remote Control change worth telling the user about, until it
@@ -232,6 +237,7 @@ final class HeadlessSession: AgentSession {
     var processIdentifier: pid_t? { process?.processIdentifier }
 
     func stop() {
+        isClosed = true
         process?.terminate()
         process = nil
         hasExited = true
@@ -244,9 +250,7 @@ final class HeadlessSession: AgentSession {
         lastError = reason
         hasExited = true
         exitStatus = nil
-        statusEngine.setStatus(
-            .error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted
-        )
+        reportStatus(.error, notifiable: hasUserSubmitted)
     }
 
     /// A pre-flight failure the caller has already worded, for a refusal no
@@ -323,7 +327,7 @@ final class HeadlessSession: AgentSession {
               send(StreamJSONEncoder.interrupt(requestID: nextRequestID())) else { return }
         // The user stopped the work in progress, so the subagents settling
         // afterwards is no turn ending worth announcing.
-        statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+        reportStatus(.interrupted)
     }
 
     var hasWorkingSubagents: Bool {
@@ -567,7 +571,7 @@ final class HeadlessSession: AgentSession {
         guard !hasExited else { return }
         let resting: TaskStatus = isWorking ? .working : .awaitingReply
         let status = Self.attentionStatus(for: pendingPermissions) ?? resting
-        statusEngine.setStatus(status, taskID: taskID, tabID: tabID)
+        reportStatus(status)
     }
 
     /// What the tab is waiting on, or nil when it is waiting on nothing.
@@ -650,7 +654,7 @@ final class HeadlessSession: AgentSession {
         isWorking = true
         lastError = nil
         wasInterrupted = false
-        statusEngine.setStatus(.working, taskID: taskID, tabID: tabID)
+        reportStatus(.working)
     }
 
     /// Shown for an error result that carries no text, until the CLI's own
@@ -667,14 +671,12 @@ final class HeadlessSession: AgentSession {
             // The turn ends as an error because it was cut short, but the user
             // is who cut it — blaming the agent would send them looking for a
             // failure that never happened.
-            statusEngine.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+            reportStatus(.interrupted)
         } else if result.isError {
             lastError = result.text ?? Self.unexplainedTurnFailure
-            statusEngine.setStatus(
-                .error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted
-            )
+            reportStatus(.error, notifiable: hasUserSubmitted)
         } else {
-            statusEngine.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
+            reportStatus(.awaitingReply)
         }
         wasInterrupted = false
         requestTitleIfDue()
@@ -761,12 +763,12 @@ final class HeadlessSession: AgentSession {
         } else {
             .error
         }
-        statusEngine.setStatus(
-            reported,
-            taskID: taskID,
-            tabID: tabID,
-            notifiable: reported != .error || hasUserSubmitted
-        )
+        reportStatus(reported, notifiable: reported != .error || hasUserSubmitted)
+    }
+
+    private func reportStatus(_ status: TaskStatus, notifiable: Bool = true) {
+        guard !isClosed else { return }
+        statusEngine.setStatus(status, taskID: taskID, tabID: tabID, notifiable: notifiable)
     }
 
     @discardableResult
