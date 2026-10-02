@@ -26,7 +26,7 @@ struct ForgeKindTests {
     @Test(arguments: [
         "git@bitbucket.org:team/repo.git",
         "https://git.sr.ht/~user/repo",
-        "/Users/ryanmoelter/local-repo",
+        "/Users/example/local-repo",
         "",
     ])
     func anythingElseIsNone(_ url: String) {
