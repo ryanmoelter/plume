@@ -49,7 +49,7 @@ struct BackgroundTaskParsingTests {
     @Test func aBackgroundCommandTakesItsIDFromTheSentenceNotThePath() throws {
         let started = try #require(BackgroundTaskResult.parse("""
         Command running in background with ID: b000iiw3u. Output is being written to: \
-        /private/tmp/claude-501/-Users-ryanmoelter-Development-Plume/8c37f2a5/tasks/b000iiw3u.output. \
+        /private/tmp/claude-501/-Users-example-Code-widget/8c37f2a5/tasks/b000iiw3u.output. \
         You will be notified when it completes.
         """))
 

@@ -12,9 +12,9 @@ struct InjectedContentTests {
 
     @Test func aSkillBodyIsNamedByItsBaseDirectory() {
         let text = """
-        Base directory for this skill: /Users/ryanmoelter/.claude/skills/commit-message
+        Base directory for this skill: /Users/example/.claude/skills/commit-message
 
-        Match Ryan's actual commits, which are almost always a single subject line.
+        Match the repo's commits, which are almost always a single subject line.
         """
         #expect(InjectedContent.classify(text: text, isMeta: true) == .skill(name: "commit-message"))
     }

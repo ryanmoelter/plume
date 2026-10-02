@@ -213,19 +213,19 @@ struct TranscriptParserTests {
 
     @Test func aPlanModeAttachmentSurfacesThePlanPath() {
         let transcript = TranscriptParser.parse(data([
-            #"{"isSidechain":false,"attachment":{"type":"plan_mode","reminderType":"full","isSubAgent":false,"planFilePath":"/Users/ryanmoelter/.claude/plans/first-plan.md","planExists":false},"type":"attachment","uuid":"u1"}"#,
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode","reminderType":"full","isSubAgent":false,"planFilePath":"/Users/example/.claude/plans/first-plan.md","planExists":false},"type":"attachment","uuid":"u1"}"#,
         ]))
 
-        #expect(transcript.planFilePath == "/Users/ryanmoelter/.claude/plans/first-plan.md")
+        #expect(transcript.planFilePath == "/Users/example/.claude/plans/first-plan.md")
         #expect(transcript.messages.isEmpty)
     }
 
     @Test func aPlanModeExitAttachmentSurfacesThePlanPath() {
         let transcript = TranscriptParser.parse(data([
-            #"{"isSidechain":false,"attachment":{"type":"plan_mode_exit","planFilePath":"/Users/ryanmoelter/.claude/plans/first-plan.md","planExists":true},"type":"attachment","uuid":"u1"}"#,
+            #"{"isSidechain":false,"attachment":{"type":"plan_mode_exit","planFilePath":"/Users/example/.claude/plans/first-plan.md","planExists":true},"type":"attachment","uuid":"u1"}"#,
         ]))
 
-        #expect(transcript.planFilePath == "/Users/ryanmoelter/.claude/plans/first-plan.md")
+        #expect(transcript.planFilePath == "/Users/example/.claude/plans/first-plan.md")
         #expect(transcript.messages.isEmpty)
     }
 
