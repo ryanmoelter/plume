@@ -597,13 +597,34 @@ extension ComposerNSTextView {
         return ComposerPasteboard.write(storage.attributedSubstring(from: selection), to: pboard, type: type)
     }
 
-    /// The read side of paste, drag-and-drop and Services alike. Images come
-    /// first, as attachments beside the text — the storage has no way to carry
-    /// one. A slice from another composer keeps its formatting; anything else
-    /// lands **literally** under the current paragraph kind and inline
-    /// context, because the text goes to an LLM and a pasted `**` or `_` is
-    /// far more often a shell command than an emphasis marker.
+    /// The read side of paste, drag-and-drop and Services alike, in order:
+    ///
+    /// 1. Images, as attachments beside the text — the storage has no way to
+    ///    carry one.
+    /// 2. In command mode, the text literally: a command is shell.
+    /// 3. A slice from another composer, with its formatting.
+    /// 4. Inside code, the text literally, as more of that code.
+    /// 5. Anything else, parsed as markdown, so it shows the way it would
+    ///    render. ⌘⇧V (`pasteAsPlainText(_:)`) is the literal paste.
+    ///
+    /// Each is one edit, so ⌘Z takes the whole paste back in one step.
     override func readSelection(from pboard: NSPasteboard) -> Bool {
+        readSelection(from: pboard, literally: isCommandMode)
+    }
+
+    /// ⌘⇧V, and ⌥⇧⌘V — the system's Paste and Match Style chord: the
+    /// clipboard's text exactly as it is, under the current paragraph kind
+    /// and typing attributes.
+    override func pasteAsPlainText(_ sender: Any?) {
+        readPlainText(from: .general)
+    }
+
+    @discardableResult
+    func readPlainText(from pboard: NSPasteboard) -> Bool {
+        readSelection(from: pboard, literally: true)
+    }
+
+    private func readSelection(from pboard: NSPasteboard, literally: Bool) -> Bool {
         let images = attachableImages(on: pboard)
         if !images.isEmpty {
             onAttachImages?(images)
@@ -612,22 +633,59 @@ extension ComposerNSTextView {
         guard pboard.availableType(from: readablePasteboardTypes) != nil else { return false }
         leaveRuleLine()
         let selection = selectedRange()
-        if !isCommandMode, let restored = ComposerPasteboard.read(from: pboard, style: style) {
-            return replace(selection, with: restored, selection: NSRange(location: selection.location + restored.length, length: 0))
+        let pasted: NSAttributedString
+        if !literally, let restored = ComposerPasteboard.read(from: pboard, style: style) {
+            pasted = restored
+        } else if let text = pboard.string(forType: .string) {
+            pasted = literally ? NSAttributedString(string: text, attributes: typingAttributes) : parsedPaste(text, replacing: selection)
+        } else {
+            return false
         }
-        guard let text = pboard.string(forType: .string) else { return false }
-        let inserted = NSAttributedString(string: text, attributes: typingAttributes)
-        return replace(selection, with: inserted, selection: NSRange(location: selection.location + inserted.length, length: 0))
+        return replace(selection, with: pasted, selection: NSRange(location: selection.location + pasted.length, length: 0))
     }
 
-    /// ⌥⇧⌘V: the clipboard's text read as markdown rather than literally.
-    @objc func pasteAsMarkdown(_ sender: Any?) {
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        let parsed = isCommandMode
-            ? NSAttributedString(string: text, attributes: typingAttributes)
-            : ComposerDocument.attributedString(markdown: text, style: style)
-        let selection = selectedRange()
-        replace(selection, with: parsed, selection: NSRange(location: selection.location + parsed.length, length: 0))
+    /// `text` as markdown, or literally as code when `selection` sits in a
+    /// code block or inside an inline code span.
+    ///
+    /// The first parsed block joins the paragraph it lands in. A plain
+    /// paragraph takes that paragraph's kind, so pasting a sentence into a
+    /// heading or a list item doesn't turn it into a plain paragraph.
+    private func parsedPaste(_ text: String, replacing selection: NSRange) -> NSAttributedString {
+        let info = paragraphInfo(at: selection.location)
+        if isCode(info.kind) {
+            return NSAttributedString(string: text, attributes: style.attributes(for: info.kind))
+        }
+        if isInsideInlineCode(selection) {
+            return NSAttributedString(string: text, attributes: style.attributes(for: info.kind, inline: .code))
+        }
+
+        let parsed = ComposerDocument.attributedString(markdown: text, style: style)
+        guard parsed.length > 0 else {
+            return NSAttributedString(string: text, attributes: typingAttributes)
+        }
+        guard (parsed.attribute(.plumeBlock, at: 0, effectiveRange: nil) as? ComposerBlockKind)?.kind == .paragraph else {
+            return parsed
+        }
+        let result = NSMutableAttributedString(attributedString: parsed)
+        let firstBlock = (parsed.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+        result.replaceCharacters(in: firstBlock, with: restyled(parsed.attributedSubstring(from: firstBlock), to: info.kind))
+        return result
+    }
+
+    /// Whether text replacing `selection` lands inside an inline code span:
+    /// every selected character is code, or, for a caret, the characters on
+    /// both sides are. A caret at a span's edge is outside it, as for typing.
+    private func isInsideInlineCode(_ selection: NSRange) -> Bool {
+        guard let storage = textStorage else { return false }
+        func isCodeCharacter(at location: Int) -> Bool {
+            guard location >= 0, location < storage.length else { return false }
+            let inline = storage.attribute(.plumeInline, at: location, effectiveRange: nil) as? ComposerInlineStyle
+            return inline?.contains(.code) == true
+        }
+        guard selection.length == 0 else {
+            return (selection.location..<NSMaxRange(selection)).allSatisfy { isCodeCharacter(at: $0) }
+        }
+        return isCodeCharacter(at: selection.location - 1) && isCodeCharacter(at: selection.location)
     }
 
     // MARK: - Document loading and restyling

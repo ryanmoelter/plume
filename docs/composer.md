@@ -68,7 +68,7 @@ The round trip is deliberately **not a bijection**:
 
 ### The attributed draft snapshot
 
-`DraftStore` (`Plume/Models/DraftStore.swift`) keeps a draft twice: as markdown (`draft(forTab:)`, what a send and any future persistence use) and as the composer's own attributed document (`document(forTab:)`). The second copy exists because of the no-escaping policy above: a pasted **literal** `**x**` stays literal in the storage (see the pasteboard contract below), but re-parsing that same markdown string on a tab switch would read it back as *actual* bold. `MarkdownComposerTextView.restoredDocument` and `onDocumentChange` are what let `Coordinator.load(markdown:snapshot:fontSize:into:)` prefer the snapshot over reparsing whenever one exists — only the composer's own echo of its own change drops it (`DraftStore.setDraft` clears `documents` because every other caller is replacing the draft wholesale).
+`DraftStore` (`Plume/Models/DraftStore.swift`) keeps a draft twice: as markdown (`draft(forTab:)`, what a send and any future persistence use) and as the composer's own attributed document (`document(forTab:)`). The second copy exists because of the no-escaping policy above: a **literal** `**x**` pasted as plain text stays literal in the storage (see the pasteboard contract below), but re-parsing that same markdown string on a tab switch would read it back as *actual* bold. `MarkdownComposerTextView.restoredDocument` and `onDocumentChange` are what let `Coordinator.load(markdown:snapshot:fontSize:into:)` prefer the snapshot over reparsing whenever one exists — only the composer's own echo of its own change drops it (`DraftStore.setDraft` clears `documents` because every other caller is replacing the draft wholesale).
 
 ## Input rules
 
@@ -163,9 +163,16 @@ A markdown-shortcut conversion is deliberately a **second, separate undo step** 
 
 **Images come first.** `readSelection(from:)` hands any image on the pasteboard to `onAttachImages` as an attachment beside the text, because the storage has no way to carry one. Drag-and-drop takes the same path through the drag overrides on `ComposerNSTextView`.
 
-**Reading is literal by default.** `ComposerNSTextView.readSelection(from:)` restores the private type's formatting when it's present (a slice from another composer), but anything else — a paste from Terminal, Slack, a browser — lands as **literal, unformatted text** under the current paragraph kind and typing attributes. This is deliberate: the message is read by an LLM, and a pasted `**` or `_` is far more often part of a shell command or an identifier than an emphasis marker the user meant to apply.
+**⌘V parses markdown.** After images, `ComposerNSTextView.readSelection(from:)` takes the first of these that applies:
 
-**⌥⇧⌘V** (`pasteAsMarkdown(_:)`) is the escape hatch: it reads the general pasteboard's plain string and parses it *as* markdown through `ComposerDocument.attributedString(markdown:style:)`, for the case where the clipboard genuinely holds markdown the user wants rendered.
+1. **Command mode:** the text literally, because a command is shell.
+2. **The private type** (a slice from another composer): its formatting, restored.
+3. **Inside code** — a code block, or a caret with code on both sides, or a selection entirely of inline code: the text literally, as more of that code. A caret at a chip's edge is outside it, as for typing.
+4. **Anything else:** the text parsed through `ComposerDocument.attributedString(markdown:style:)`, so a paste shows the way the markdown renders. If the first parsed block is a plain paragraph, it takes the kind of the paragraph it lands in, so pasting a sentence into a heading or a list item keeps the heading or the item. A string that parses to nothing (only whitespace) goes in literally.
+
+**⌘⇧V pastes plain text.** `pasteAsPlainText(_:)` inserts the clipboard's string exactly as it is, under the current paragraph kind and typing attributes, for a path or a shell command whose `*` and `_` must not turn into emphasis. ⌥⇧⌘V, the system's Paste and Match Style chord, does the same. Images still come first. Plume has no menu item on either chord, so `keyDown` routes both.
+
+Every paste is one `replace(_:with:selection:)`, so one ⌘Z takes it back. The exception is a paste on a rule's line, which first opens a paragraph after the rule (see "Rules").
 
 ## Command mode
 
@@ -230,7 +237,7 @@ Spelling marks themselves live as **layout-manager temporary attributes**, not s
 - Tab and Shift-Tab indent/outdent a list item, clamped to one level under the item above; Backspace at an item's start removes just its marker.
 - Type a fence, a language, Return, some code, then Return twice on an empty line — the block opens and then closes back to a plain paragraph.
 - Type `---` and Return — a horizontal rule appears and the caret sits on the line below. Backspace there removes the rule; ⌘Z instead brings back the literal `---`.
-- Copy a formatted slice and paste it back into the same composer — formatting survives. Paste `**x**` from another app — it stays literal. ⌥⇧⌘V on the same clipboard text renders it as markdown instead.
+- Copy a formatted slice and paste it back into the same composer — formatting survives. Paste `**x**` from another app — it renders bold. ⌘⇧V on the same clipboard text keeps it literal. Paste it inside a code block or between a chip's characters — it stays literal code.
 - Switch chat tabs with an unsent, partially formatted draft, then switch back — the draft and its formatting are both restored, and a literal `**x**` in it is still literal.
 - Type `# Title` and Return — the composer grows by one body line, not a heading line. Click back into the title and type — the empty line stays body height.
 - Type `- ` in an empty composer, then `1. a` and Return — each empty item shows its marker (`•`, then `2`), and the caret sits where the item's text will start.

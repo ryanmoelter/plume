@@ -444,18 +444,145 @@ struct ComposerUndoTests {
 
     // MARK: - Pasteboard
 
-    @Test func pastingLiteralMarkdownStaysLiteral() {
+    private func pasteboard(holding text: String) -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.ryanmoelter.Plume.tests.paste"))
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        return pasteboard
+    }
+
+    @Test func pastingMarkdownShowsItFormatted() {
         let composer = makeComposer()
         defer { composer.close() }
 
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.ryanmoelter.Plume.tests.literal"))
-        pasteboard.clearContents()
-        pasteboard.setString("**x** and ~/.claude/*.json", forType: .string)
+        #expect(composer.paste(from: pasteboard(holding: "**x** and `y`")))
+        #expect(composer.view.string == "x and y")
+        #expect(composer.inline(at: 0) == .bold)
+        #expect(composer.inline(at: 6) == .code)
+        #expect(composer.view.currentMarkdown == "**x** and `y`")
+    }
 
-        #expect(composer.paste(from: pasteboard))
+    @Test func pastingSeveralBlocksParsesEachOne() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        #expect(composer.paste(from: pasteboard(holding: "# Title\n\n- a\n- b\n\n---\n\nend")))
+        #expect(composer.view.string == "Title\na\nb\n\nend")
+        #expect(composer.kind(at: 0)?.kind == .heading(level: 1))
+        #expect(composer.kind(at: 6)?.kind == .bullet(depth: 0))
+        #expect(composer.kind(at: 8)?.kind == .bullet(depth: 0))
+        #expect(composer.kind(at: 10)?.kind == .rule)
+        #expect(composer.view.currentMarkdown == "# Title\n\n- a\n- b\n\n---\n\nend")
+    }
+
+    @Test(arguments: [0, 2])
+    func aParagraphPastedIntoAHeadingStaysInTheHeading(at location: Int) {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("# Ti")
+        composer.view.setSelectedRange(NSRange(location: location, length: 0))
+        #expect(composer.paste(from: pasteboard(holding: "a **b**")))
+
+        #expect(composer.kind(at: 0)?.kind == .heading(level: 1))
+        #expect(composer.view.string.count == 5)
+        #expect((composer.view.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0)).length == 5)
+        #expect(composer.inline(at: location + 2) == .bold)
+    }
+
+    @Test func aParagraphPastedOnAnEmptyListItemStaysInTheList() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("- ")
+        #expect(composer.paste(from: pasteboard(holding: "item")))
+        #expect(composer.view.currentMarkdown == "- item")
+    }
+
+    @Test func pastingIntoACodeBlockStaysLiteralCode() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("```")
+        composer.newline()
+        #expect(composer.paste(from: pasteboard(holding: "**x**\n- y")))
+
+        #expect(composer.view.string == "**x**\n- y")
+        #expect(composer.view.currentMarkdown == "```\n**x**\n- y\n```")
+    }
+
+    @Test func pastingInsideInlineCodeStaysLiteralCode() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("`ab`")
+        composer.view.setSelectedRange(NSRange(location: 1, length: 0))
+        #expect(composer.paste(from: pasteboard(holding: "**c**")))
+
+        #expect(composer.view.string == "a**c**b")
+        #expect((0..<7).allSatisfy { composer.inline(at: $0) == .code })
+    }
+
+    @Test func pastingAtAnInlineCodeSpansEdgeParsesMarkdown() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("`ab`")
+        composer.view.setSelectedRange(NSRange(location: 2, length: 0))
+        #expect(composer.paste(from: pasteboard(holding: "**c**")))
+
+        #expect(composer.view.string == "abc")
+        #expect(composer.inline(at: 2) == .bold)
+    }
+
+    @Test func aPlainTextPasteStaysLiteral() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.startEvent()
+        #expect(composer.view.readPlainText(from: pasteboard(holding: "**x** and ~/.claude/*.json")))
+        composer.endEvent()
         #expect(composer.view.string == "**x** and ~/.claude/*.json")
         #expect(composer.inline(at: 2) == [])
         #expect(composer.view.currentMarkdown == "**x** and ~/.claude/*.json")
+    }
+
+    @Test func aPasteInCommandModeStaysLiteral() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.view.isCommandMode = true
+        composer.view.loadDocument(NSAttributedString(string: ""))
+        #expect(composer.paste(from: pasteboard(holding: "ls **/*.swift")))
+        #expect(composer.view.string == "ls **/*.swift")
+        #expect(composer.view.currentMarkdown == "ls **/*.swift")
+    }
+
+    @Test func aParsedPasteIsOneUndoStep() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("z")
+        #expect(composer.paste(from: pasteboard(holding: "# A\n\n- b **c**")))
+        #expect(composer.view.string == "zA\nb c")
+
+        composer.undo()
+        #expect(composer.view.string == "z")
+    }
+
+    @Test func theComposersOwnTypeWinsOverItsPlainText() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("**x**")
+        composer.view.setSelectedRange(NSRange(location: 0, length: 1))
+        let pasteboard = pasteboard(holding: "**not this**")
+        #expect(composer.view.writeSelection(to: pasteboard, type: ComposerPasteboard.type))
+
+        composer.view.setSelectedRange(NSRange(location: 1, length: 0))
+        #expect(composer.paste(from: pasteboard))
+        #expect(composer.view.string == "xx")
+        #expect(composer.inline(at: 1) == .bold)
     }
 
     @Test func aCopiedSliceKeepsItsFormattingThroughThePrivateType() {

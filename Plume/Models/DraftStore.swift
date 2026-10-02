@@ -15,8 +15,8 @@ import Observation
 /// A draft is kept twice: as markdown, which is what a send and any future
 /// persistence use, and as the composer's own attributed document. The second
 /// copy exists because the composer never escapes a literal markdown
-/// character, so a pasted literal `**x**` would come back bold if a tab switch
-/// had to re-parse the markdown to restore it.
+/// character, so a literal `**x**` pasted as plain text would come back bold
+/// if a tab switch had to re-parse the markdown to restore it.
 @MainActor
 @Observable
 final class DraftStore {

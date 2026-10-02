@@ -74,8 +74,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var recognizedSlashCommandNames: Set<String> = []
     /// The attributed document to restore on mount, when the caller kept one.
     /// Literals are never escaped, so re-parsing the markdown draft would turn
-    /// a pasted literal `**x**` bold on the way back in; the snapshot is what
-    /// keeps it literal across an unmount.
+    /// a literal `**x**` pasted as plain text bold on the way back in; the
+    /// snapshot is what keeps it literal across an unmount.
     var restoredDocument: () -> NSAttributedString? = { nil }
     /// Called with a fresh snapshot after every change, for a caller that
     /// keeps one.
@@ -619,8 +619,8 @@ final class ComposerNSTextView: NSTextView, NSTextStorageDelegate {
             case "i":
                 toggleInline(.italic)
                 return
-            case "v" where event.modifierFlags.contains(.option) && event.modifierFlags.contains(.shift):
-                pasteAsMarkdown(self)
+            case "v" where event.modifierFlags.contains(.shift):
+                pasteAsPlainText(self)
                 return
             default:
                 break
