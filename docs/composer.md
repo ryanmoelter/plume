@@ -8,7 +8,7 @@ Read this before touching anything under `Plume/UI/Chat/Composer/`, `Plume/UI/Ch
 
 `NSTextStorage` **is** the document. There is no separate model object — every fact about the document's structure lives as an attribute on some range of the storage. Three keys, all defined in `ComposerAttributes.swift`, carry it:
 
-- **`.plumeBlock`** — a `ComposerBlockKind`, covering the paragraph's full range including its trailing newline. Its `Kind` enum is `.paragraph`, `.heading(level:)`, `.bullet(depth:)`, `.numbered(depth:number:)`, `.quote`, `.codeBlock(language:)`, or `.verbatim` for a construct with no editing story (a table, a rule). `ComposerBlockKind` also carries a `blockID`, a `UUID` that distinguishes two adjacent, otherwise-identical `codeBlock` or `verbatim` paragraphs so they serialize as two blocks rather than merging into one (`hasOwnBlockID` is which kinds those are) — every other kind forces `blockID` to a shared sentinel, so equality never depends on a caller threading an id through.
+- **`.plumeBlock`** — a `ComposerBlockKind`, covering the paragraph's full range including its trailing newline. Its `Kind` enum is `.paragraph`, `.heading(level:)`, `.bullet(depth:)`, `.numbered(depth:number:)`, `.quote`, `.codeBlock(language:)`, `.rule` for a thematic break, or `.verbatim` for a construct with no editing story (a table). `ComposerBlockKind` also carries a `blockID`, a `UUID` that distinguishes two adjacent, otherwise-identical `codeBlock` or `verbatim` paragraphs so they serialize as two blocks rather than merging into one (`hasOwnBlockID` is which kinds those are) — every other kind forces `blockID` to a shared sentinel, so equality never depends on a caller threading an id through.
 - **`.plumeInline`** — a `ComposerInlineStyle` option set (`.bold`, `.italic`, `.code`) on a run. `ComposerTextStyle.font(for:inline:)` resolves the actual font: code wins outright (a bold code span still renders in mono), otherwise bold/italic add symbolic traits on top of the block kind's own base font.
 - **`.plumeLink`** — the `URL` a run points to, independent of `.plumeInline`.
 
@@ -46,7 +46,9 @@ The round trip is deliberately **not a bijection**:
 - A plain paragraph or heading is never grouped with a neighbor even when adjacent in the storage, so a paragraph whose source text itself contained an embedded newline comes back out as several single-line paragraph blocks — one per physical `NSString` paragraph — rather than as the one multi-line block it started as. Only list items, quote lines, and same-`blockID` paragraphs merge back into one block.
 - A trailing newline at the end of the whole document is not preserved (`MarkdownBlock.parseWithSources` drops a paragraph's own trailing blank line from its source).
 
-**Verbatim blocks.** A table or a thematic break has no editing story in this model, so `ComposerDocument.attributedString(markdown:style:)` keeps it as `.verbatim` — one physical paragraph per source line, all sharing one `blockID` so they serialize back out as one block rather than being reparsed. What serializes is the paragraphs' own text, so an edit inside a table survives the round trip; two thematic breaks in a row stay two rules because their `blockID`s differ.
+**Verbatim blocks.** A table has no editing story in this model, so `ComposerDocument.attributedString(markdown:style:)` keeps it as `.verbatim` — one physical paragraph per source line, all sharing one `blockID` so they serialize back out as one block rather than being reparsed. What serializes is the paragraphs' own text, so an edit inside a table survives the round trip.
+
+**Rules.** A thematic break (`---`, `***`, `___`) loads as a `.rule` paragraph that holds nothing but its own newline, and serializes as `---`. It keeps that newline even as the document's last block, because the newline is the only character that can carry `.rule`; the caret then lands on the character-less line after it. Two rules in a row stay two blocks, since a rule never groups with a neighbor. A rule holds no text by definition, so the repair pass turns a `.rule` paragraph that gained characters — a drop onto its line, say — into a `.paragraph` that keeps them.
 
 `ComposerSendability` (`ComposerSendability.swift`) is the sendability rule, and the chat composer, its send and steer buttons, and the plan feedback field all use it. `hasText(_:)` asks for any non-whitespace character in the visible text. An empty heading or an empty list item has non-empty *markdown* (its scaffolding) but empty visible text, and still reads as not sendable. In command mode the visible text is the command, so the same check applies. `canSend(hasText:hasAttachments:)` adds that an image alone is sendable, in either mode.
 
@@ -64,6 +66,7 @@ The round trip is deliberately **not a bijection**:
 | `- `, `* `, `+ ` | Caret at position 2, paragraph starts with the marker + space | `.bullet(depth:)`, depth inherited from a preceding list item |
 | `N. ` | Caret right after the space, leading digits + `.` + space | `.numbered(depth:number:)`, depth inherited the same way |
 | `> ` | Caret at position 2 | `.quote` |
+| `---`, `***`, `___` | Return on a paragraph holding only the break (`MarkdownBlock.isRule`) | `.rule` — see "Rules" below |
 | ` ``` ` + optional bare language word | The instant the closing backtick completes an exact `` ``` `` (+ language) paragraph | See "the fence-then-Return gesture" below |
 | `**x**` | Second asterisk of a closing `**` just typed | `.convertInline(.bold)` on the enclosed text |
 | `*x*` / `_x_` | A single, unpaired closing delimiter, content non-whitespace at both ends, `_` additionally requires a word boundary on both sides | `.convertInline(.italic)` |
@@ -79,6 +82,17 @@ Applying a conversion is a **second edit**, never part of the keystroke that tri
 `ComposerInputRules.codeFenceEdit` does detect a completed fence line the instant the third backtick lands, and returns a `.convertBlock(kind: .codeBlock(language:))` edit for it — but `ComposerTextViewEditing.apply(_:in:caret:)` discards that edit outright (`if case .codeBlock = kind.kind { return }`). The fence characters stay literal so a language name can still be typed after them.
 
 The actual conversion happens from `insertNewline(_:)`: on Return, it re-checks the current paragraph's text with `ComposerCodeFence.language(of:)`, and if it reads as a bare fence (with or without a language), calls `openCodeBlock(in:language:)`. That function replaces the fence line itself with an empty `.codeBlock` paragraph — no fence characters ever reach the document. If the fence was the very last line of the whole document, there's no existing trailing newline to reuse, so it clears the line's content and sticks the new kind via `stickyKind` instead of inserting an actual paragraph break, reusing the character-less-last-line mechanism above rather than creating a redundant one.
+
+### Rules
+
+Like a fence, a break line converts on Return rather than as it is typed, so `---` stays literal until then. `insertNewline(_:)` replaces the line with a `.rule` paragraph and puts the caret on a fresh paragraph after it: a new empty one, or the character-less last line when the rule ends the document. The literal `---` was typed in earlier events, so ⌘Z after the Return restores it as its own step.
+
+The caret can sit on a rule's line, but text never lands there:
+
+- Typing or pasting on a rule's line opens an empty paragraph after the rule first (`leaveRuleLine()`), and the text goes there.
+- Return on a rule's line opens an empty paragraph after it.
+- Backspace on a rule's line removes the rule.
+- Backspace at the start of the line after a rule deletes the rule's newline, which removes the rule. A heading or list item there loses its marker first, as everywhere else.
 
 ### Leaving a code block
 
@@ -151,13 +165,15 @@ Switching mode with the text unchanged reloads it literally (`Coordinator.loadLi
 
 ## Decorations
 
-`ComposerDecorations` (`ComposerDecorations.swift`) computes and draws the chip, code-box, and quote-bar rects behind the text, from a live TextKit 2 layout. Geometry (`rects(in:style:)`) and drawing (`draw(in:style:dirtyRect:)`) are kept separate so the rects can be asserted in tests without a graphics context.
+`ComposerDecorations` (`ComposerDecorations.swift`) computes and draws the chip, code-box, quote-bar, and rule rects behind the text, from a live TextKit 2 layout. Geometry (`rects(in:style:)`) and drawing (`draw(in:style:dirtyRect:)`) are kept separate so the rects can be asserted in tests without a graphics context.
 
 **It draws from `drawBackground(in:)`, never `draw(_:)`.** Overriding `draw(_:)` on an `NSTextView` silently drops the view to TextKit 1 — `textLayoutManager` comes back `nil`, and every TextKit 2 API the decorations depend on goes with it, with no diagnostic beyond the geometry computing nothing. `drawBackground(in:)` keeps TextKit 2 and runs before the glyphs are drawn, which is where a background decoration belongs anyway. `ComposerNSTextView` also can't observe its own storage from `init(frame:)` for the same class of reason — AppKit's own designated initializer overflows the stack if overridden — so it wires up via `observeStorage()`, called from `layout()` on first use instead.
 
 **Inline code chips.** One rounded rect per line a code span occupies; a span that wraps gets one rect per line rather than a spanning rect. **The kern trick**: the chat transcript (`MarkdownCache.styledInline`) and the composer both use `kern` rather than a padding character to open visual space around a chip — a padding character would become part of the copyable text. `ComposerDocumentInvariants.padChips` is what writes it in the composer: `style.chipPadding` on the character before a span and on the span's own last character, and no kern anywhere else. Typing attributes never carry it; it is re-derived by the repair pass instead. `chipRects(_:)` reclaims the leading kern as extra rect width, and checks whether the span's last character already carries a trailing kern before deciding whether to extend the trailing edge itself, so the two padding sources never double up. Without the leading kern the chip is drawn over the glyph before it.
 
 **Code boxes and quote bars.** One full-width box per run of paragraphs sharing a code block's `blockID`, one bar per run of consecutive quote paragraphs (`blockRects(_:)`). Both use `layoutFragmentFrame` (not segment frames) so the box's vertical extent already includes the paragraph spacing `ComposerTextStyle.paragraphStyle` adds before/after a code block — the box's actual vertical padding — without an extra inset that would make two adjacent blocks overlap into one.
+
+**Rules.** One line `ruleThickness` thick across the text column (the container width less `lineFragmentPadding` on each side), through the middle of the rule paragraph's empty line, in the chat's divider color.
 
 ## Height measurement
 
@@ -192,6 +208,7 @@ Spelling marks themselves live as **layout-manager temporary attributes**, not s
 - ⌘Z after any of the above restores the literal marker text; a second ⌘Z after typing more text still reaches that same undo step without skipping over it.
 - Tab and Shift-Tab indent/outdent a list item, clamped to one level under the item above; Backspace at an item's start removes just its marker.
 - Type a fence, a language, Return, some code, then Return twice on an empty line — the block opens and then closes back to a plain paragraph.
+- Type `---` and Return — a horizontal rule appears and the caret sits on the line below. Backspace there removes the rule; ⌘Z instead brings back the literal `---`.
 - Copy a formatted slice and paste it back into the same composer — formatting survives. Paste `**x**` from another app — it stays literal. ⌥⇧⌘V on the same clipboard text renders it as markdown instead.
 - Switch chat tabs with an unsent, partially formatted draft, then switch back — the draft and its formatting are both restored, and a literal `**x**` in it is still literal.
 - Resize the composer's width while it holds a code block, a chip, and a quote — the code box, chip, and quote bar all track the new layout without a visible lag or a stale rect.

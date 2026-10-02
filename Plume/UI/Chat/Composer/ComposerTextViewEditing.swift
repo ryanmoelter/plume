@@ -193,6 +193,9 @@ extension ComposerNSTextView {
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         let plain = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        if replacementRange.location == NSNotFound, !hasMarkedText() {
+            leaveRuleLine()
+        }
         super.insertText(plain, replacementRange: replacementRange)
         typingInlineOverride = nil
         guard !hasMarkedText(), !isCommandMode else { return }
@@ -304,6 +307,14 @@ extension ComposerNSTextView {
             openCodeBlock(in: info, language: language)
             return
         }
+        if case .paragraph = info.kind.kind, ComposerThematicBreak.matches(text) {
+            insertRule(replacing: info)
+            return
+        }
+        if info.kind.kind == .rule {
+            openParagraph(after: info)
+            return
+        }
 
         switch ComposerListEditing.newline(in: listParagraph(info), at: selection.location == NSMaxRange(info.content)) {
         case .insertNewlineInBlock:
@@ -357,6 +368,10 @@ extension ComposerNSTextView {
             super.deleteBackward(sender)
             return
         }
+        if info.kind.kind == .rule {
+            replace(info.enclosing, with: NSAttributedString(), selection: NSRange(location: info.enclosing.location, length: 0))
+            return
+        }
         if case let .removeMarker(kind) = ComposerListEditing.backspaceAtStart(of: listParagraph(info)) {
             convertParagraph(info, to: kind)
             return
@@ -402,6 +417,37 @@ extension ComposerNSTextView {
                 replace(info.content, with: NSAttributedString(), selection: NSRange(location: info.content.location, length: 0))
             }, thenStick: kind, at: info.content.location)
         }
+    }
+
+    /// Replaces a `---` (or `***`, `___`) line with a rule. The caret lands
+    /// on a fresh paragraph after it: a new empty one, or the character-less
+    /// last line when the rule ends the document.
+    private func insertRule(replacing info: ParagraphInfo) {
+        let rule = NSMutableAttributedString(string: "\n", attributes: style.attributes(for: .rule))
+        if info.enclosing.length > info.content.length {
+            rule.append(NSAttributedString(string: "\n", attributes: style.attributes(for: .paragraph)))
+        }
+        replace(info.enclosing, with: rule, selection: NSRange(location: info.enclosing.location + 1, length: 0))
+        typingAttributes = desiredTypingAttributes()
+    }
+
+    /// A rule's line holds no text, so Return or typing there opens an empty
+    /// paragraph after the rule and moves the caret onto it.
+    private func openParagraph(after info: ParagraphInfo) {
+        let replacement = NSMutableAttributedString(string: "\n", attributes: style.attributes(for: .rule))
+        replacement.append(NSAttributedString(string: "\n", attributes: style.attributes(for: .paragraph)))
+        replace(info.enclosing, with: replacement, selection: NSRange(location: info.enclosing.location + 1, length: 0))
+        typingAttributes = desiredTypingAttributes()
+    }
+
+    /// Moves a caret sitting on a rule's line onto a new paragraph after it,
+    /// so text about to be inserted never lands in the rule.
+    func leaveRuleLine() {
+        let selection = selectedRange()
+        guard !isCommandMode, selection.length == 0 else { return }
+        let info = paragraphInfo(at: selection.location)
+        guard info.kind.kind == .rule, info.enclosing.length > 0 else { return }
+        openParagraph(after: info)
     }
 
     private func isLastParagraphOfBlock(_ info: ParagraphInfo) -> Bool {
@@ -557,6 +603,8 @@ extension ComposerNSTextView {
             onAttachImages?(images)
             return true
         }
+        guard pboard.availableType(from: readablePasteboardTypes) != nil else { return false }
+        leaveRuleLine()
         let selection = selectedRange()
         if !isCommandMode, let restored = ComposerPasteboard.read(from: pboard, style: style) {
             return replace(selection, with: restored, selection: NSRange(location: selection.location + restored.length, length: 0))
@@ -678,6 +726,13 @@ extension ComposerNSTextView {
               let textRange = NSTextRange(location: start, end: end)
         else { return }
         layoutManager.addRenderingAttribute(.foregroundColor, value: NSColor.controlAccentColor, for: textRange)
+    }
+}
+
+/// Recognizes a thematic break typed alone on a line.
+nonisolated enum ComposerThematicBreak {
+    static func matches(_ text: String) -> Bool {
+        MarkdownBlock.isRule(text.trimmingCharacters(in: .whitespaces))
     }
 }
 

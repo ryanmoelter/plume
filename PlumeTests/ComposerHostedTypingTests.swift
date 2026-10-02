@@ -96,6 +96,16 @@ struct ComposerHostedTypingTests {
         #expect(harness.draft.markdown == "**b**")
     }
 
+    @Test func aTypedBreakBecomesARuleOnReturn() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+
+        try await harness.type("---\rx")
+
+        #expect(harness.view.string == "\nx")
+        #expect(harness.draft.markdown == "---\n\nx")
+    }
+
     @Test func aTypedFenceOpensACodeBlockOnReturn() async throws {
         let harness = try await Self.makeHarness()
         defer { harness.close() }

@@ -14,10 +14,12 @@ nonisolated struct ComposerTextStyle {
     let mono: NSFont
     let codeBackground: NSColor
     let quoteBar: NSColor
+    let rule: NSColor
     let chipCornerRadius: CGFloat = 4
     let chipPadding: CGFloat
     let codeBoxCornerRadius: CGFloat = 6
     let quoteBarWidth: CGFloat = 3
+    let ruleThickness: CGFloat = 1
 
     /// Indexed by heading level 1...6; index 0 is unused padding so
     /// `heading(level:)` can subscript directly.
@@ -29,7 +31,8 @@ nonisolated struct ComposerTextStyle {
         mono = .monospacedSystemFont(ofSize: bodySize, weight: .regular)
         chipPadding = bodySize * 0.25
         codeBackground = ComposerTextStyle.makeCodeBackground()
-        quoteBar = ComposerTextStyle.makeQuoteBar()
+        quoteBar = ComposerTextStyle.surface(.disabled)
+        rule = ComposerTextStyle.surface(.divider)
         headingFonts = [NSFont.composerBody(ofSize: bodySize)]
             + (1...6).map { ComposerTextStyle.headingFont(level: $0, bodySize: bodySize) }
     }
@@ -88,6 +91,10 @@ nonisolated struct ComposerTextStyle {
 
         case .heading:
             style.paragraphSpacingBefore = bodySize * 0.4
+
+        case .rule:
+            style.paragraphSpacingBefore = bodySize * 0.3
+            style.paragraphSpacing = bodySize * 0.3
 
         case .quote:
             let indent = bodySize * 1.0
@@ -168,14 +175,15 @@ nonisolated struct ComposerTextStyle {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    /// The chat's quote bar color: `Palette.surface(.disabled)`, which is the
-    /// theme foreground at `Emphasis.disabled`'s alpha. Resolves per draw like
-    /// `codeBackground` so it tracks a light/dark switch.
-    private static func makeQuoteBar() -> NSColor {
+    /// The chat's `Palette.surface(emphasis)`: the theme foreground at that
+    /// emphasis's alpha — `.disabled` for the quote bar, `.divider` for a
+    /// rule. Resolves per draw like `codeBackground` so it tracks a
+    /// light/dark switch.
+    private static func surface(_ emphasis: Emphasis) -> NSColor {
         NSColor(name: nil) { appearance in
             let scheme: ColorScheme =
                 appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
-            let alpha = Emphasis.disabled.fillOpacity(for: scheme)
+            let alpha = emphasis.fillOpacity(for: scheme)
             guard let themeColor = ThemeChrome.foreground(for: scheme) else {
                 return NSColor.secondaryLabelColor.withAlphaComponent(alpha)
             }

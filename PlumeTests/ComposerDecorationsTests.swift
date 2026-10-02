@@ -121,6 +121,43 @@ struct ComposerDecorationsTests {
         #expect(abs(chip.minX - (glyphs - Self.style.chipPadding)) < 0.5)
     }
 
+    @Test func aRuleDrawsOneLineAcrossTheTextColumn() throws {
+        let view = Self.makeTextView(markdown: "above\n\n---\n\nbelow", width: 300)
+        let decorations = ComposerDecorations.rects(in: view, style: Self.style)
+
+        let rule = try #require(decorations.rules.first)
+        #expect(decorations.rules.count == 1)
+        #expect(rule.height == Self.style.ruleThickness)
+        let padding = view.textContainer?.lineFragmentPadding ?? 0
+        #expect(abs(rule.width - (300 - padding * 2)) < 0.5)
+        // Between the two paragraphs, not over either.
+        let above = try #require(Self.segmentMinY(of: NSRange(location: 0, length: 5), in: view))
+        let below = try #require(Self.segmentMinY(of: NSRange(location: 7, length: 5), in: view))
+        #expect(rule.minY > above.maxY)
+        #expect(rule.maxY < below.minY)
+    }
+
+    @Test func aRuleThatEndsTheDocumentStillDraws() {
+        let view = Self.makeTextView(markdown: "---", width: 300)
+        #expect(ComposerDecorations.rects(in: view, style: Self.style).rules.count == 1)
+    }
+
+    /// The first line `range` lays out, in the view's coordinates.
+    private static func segmentMinY(of range: NSRange, in view: ComposerNSTextView) -> NSRect? {
+        guard let layoutManager = view.textLayoutManager,
+              let contentStorage = layoutManager.textContentManager as? NSTextContentStorage,
+              let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: range.location),
+              let end = contentStorage.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end)
+        else { return nil }
+        var result: NSRect?
+        layoutManager.enumerateTextSegments(in: textRange, type: .standard, options: [.rangeNotRequired]) { _, frame, _, _ in
+            if result == nil { result = frame.offsetBy(dx: view.textContainerOrigin.x, dy: view.textContainerOrigin.y) }
+            return true
+        }
+        return result
+    }
+
     @Test func plainProseDecoratesNothing() {
         let view = Self.makeTextView(markdown: "Just a plain paragraph.", width: 300)
         let decorations = ComposerDecorations.rects(in: view, style: Self.style)

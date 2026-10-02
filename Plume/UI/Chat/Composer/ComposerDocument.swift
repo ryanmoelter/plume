@@ -10,10 +10,14 @@ import Foundation
 /// carried through verbatim.
 nonisolated enum ComposerDocument {
     /// Builds attributed text from `markdown`. Unsupported block kinds
-    /// (tables, rules — anything with no editing story) become `.verbatim`
+    /// (tables — anything with no editing story) become `.verbatim`
     /// paragraphs holding their source text literally, one physical
     /// paragraph per source line, all sharing one `blockID` so they
     /// serialize back out as one block.
+    ///
+    /// A rule is a `.rule` paragraph holding only its newline, which it keeps
+    /// even as the last block: that newline is the one character that can
+    /// carry its kind.
     ///
     /// Empty markdown returns an empty string with no attributes: a
     /// zero-length string can't usefully carry a typing kind, so the caller
@@ -111,7 +115,10 @@ nonisolated enum ComposerDocument {
                 )
             }
 
-        case .table, .rule:
+        case .rule:
+            result.append(NSAttributedString(string: "\n", attributes: style.attributes(for: .rule)))
+
+        case .table:
             let kind = ComposerBlockKind.verbatim()
             let lines = parsed.source.components(separatedBy: "\n")
             for (lineIndex, line) in lines.enumerated() {
@@ -191,6 +198,9 @@ nonisolated enum ComposerDocument {
             let code = group.map { (attributed.string as NSString).substring(with: $0.contentRange) }
                 .joined(separator: "\n")
             return MarkdownSource.markdown(of: .codeBlock(language: language, code: code))
+
+        case .rule:
+            return MarkdownSource.markdown(of: .rule)
 
         case .verbatim:
             return group.map { (attributed.string as NSString).substring(with: $0.contentRange) }

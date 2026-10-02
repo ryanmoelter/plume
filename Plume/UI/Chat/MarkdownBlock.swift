@@ -313,7 +313,9 @@ nonisolated enum MarkdownBlock: Equatable {
         return level
     }
 
-    private static func isRule(_ trimmed: String) -> Bool {
+    /// Whether a whitespace-trimmed line is a thematic break: three or more
+    /// of one of `-`, `*`, `_`, optionally spaced out.
+    static func isRule(_ trimmed: String) -> Bool {
         for marker: Character in ["-", "*", "_"] {
             let stripped = trimmed.filter { $0 == marker }
             if stripped.count >= 3 && stripped.count == trimmed.replacingOccurrences(of: " ", with: "").count {

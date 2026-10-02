@@ -24,7 +24,7 @@ nonisolated enum ComposerListEditing {
         case outdent(kind: ComposerBlockKind)
         /// Enter inside a code block: a literal newline, same kind and blockID.
         case insertNewlineInBlock
-        /// Enter on a heading, or on a non-empty quote line: a new `.paragraph`.
+        /// Enter on a heading, a rule, or a non-empty quote line: a new `.paragraph`.
         case splitToParagraph
     }
 
@@ -37,7 +37,7 @@ nonisolated enum ComposerListEditing {
         case .codeBlock:
             return .insertNewlineInBlock
 
-        case .heading:
+        case .heading, .rule:
             return .splitToParagraph
 
         case .quote:

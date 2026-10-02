@@ -23,6 +23,9 @@ nonisolated enum ComposerDocumentInvariants {
     /// A paragraph with no tag at its start — a genuinely fresh line, one
     /// whose `.plumeBlock` a caller cleared on insertion — takes the
     /// previous paragraph's continuation kind instead.
+    ///
+    /// A rule holds no text, so a `.rule` paragraph that gained characters —
+    /// a paste or a drop onto its line — becomes a `.paragraph` and keeps them.
     static func normalize(_ storage: NSMutableAttributedString, editedRange: NSRange, style: ComposerTextStyle) {
         guard storage.length > 0 else { return }
         let ns = storage.string as NSString
@@ -40,7 +43,8 @@ nonisolated enum ComposerDocumentInvariants {
             ? storage.attribute(.plumeBlock, at: range.location - 1, effectiveRange: nil) as? ComposerBlockKind
             : nil
         for paragraph in ComposerParagraphs.all(in: storage, within: range) {
-            let kind = paragraph.storedKind ?? continuationKind(after: previous)
+            var kind = paragraph.storedKind ?? continuationKind(after: previous)
+            if kind.kind == .rule, paragraph.contentRange.length > 0 { kind = .paragraph }
             storage.addAttribute(.plumeBlock, value: kind, range: paragraph.range)
             refont(paragraph.contentRange, kind: kind, storage: storage, style: style)
             previous = kind

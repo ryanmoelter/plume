@@ -56,7 +56,7 @@ nonisolated enum ComposerInputRules {
 
     static func edit(for context: Context) -> Edit? {
         switch context.kind.kind {
-        case .codeBlock, .verbatim:
+        case .codeBlock, .verbatim, .rule:
             return nil
         case .paragraph:
             if let block = blockEdit(for: context) { return block }

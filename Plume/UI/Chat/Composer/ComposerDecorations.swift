@@ -1,6 +1,6 @@
 import AppKit
 
-/// The chip, code-box and quote-bar geometry the composer paints behind its
+/// The chip, code-box, quote-bar and rule geometry the composer paints behind its
 /// text, computed from the TextKit 2 layout of a live `NSTextView`.
 ///
 /// Geometry and drawing are separate so the rects can be asserted without a
@@ -14,15 +14,14 @@ enum ComposerDecorations {
         var chips: [NSRect] = []
         var codeBoxes: [NSRect] = []
         var quoteBars: [NSRect] = []
+        var rules: [NSRect] = []
     }
 
     /// Fills the decorations behind the text. Called from the text view's
     /// `drawBackground(in:)`, which runs before the glyphs.
     static func draw(in textView: NSTextView, style: ComposerTextStyle, dirtyRect: NSRect) {
         let decorations = rects(in: textView, style: style)
-        guard !decorations.chips.isEmpty || !decorations.codeBoxes.isEmpty || !decorations.quoteBars.isEmpty else {
-            return
-        }
+        guard decorations != Decorations() else { return }
 
         style.codeBackground.setFill()
         for box in decorations.codeBoxes where box.intersects(dirtyRect) {
@@ -36,6 +35,11 @@ enum ComposerDecorations {
         let barRadius = style.quoteBarWidth / 2
         for bar in decorations.quoteBars where bar.intersects(dirtyRect) {
             NSBezierPath(roundedRect: bar, xRadius: barRadius, yRadius: barRadius).fill()
+        }
+
+        style.rule.setFill()
+        for rule in decorations.rules where rule.intersects(dirtyRect) {
+            rule.fill()
         }
     }
 
@@ -62,6 +66,7 @@ enum ComposerDecorations {
         let (boxes, bars) = blockRects(context)
         decorations.codeBoxes = boxes
         decorations.quoteBars = bars
+        decorations.rules = ruleRects(context)
         return decorations
     }
 
@@ -213,6 +218,42 @@ enum ComposerDecorations {
             return true
         }
         return bounds
+    }
+
+    // MARK: - Rules
+
+    /// One line across the text column per `.rule` paragraph, through the
+    /// middle of the paragraph's empty line.
+    private static func ruleRects(_ context: Context) -> [NSRect] {
+        let padding = context.textView.textContainer?.lineFragmentPadding ?? 0
+        let (containerX, containerWidth) = context.containerRect
+        let thickness = context.style.ruleThickness
+        return ComposerParagraphs.all(in: context.storage)
+            .filter { $0.storedKind?.kind == .rule }
+            .compactMap { paragraph in
+                guard let line = firstLineRect(for: paragraph.range, context) else { return nil }
+                return NSRect(
+                    x: containerX + padding,
+                    y: (line.midY - thickness / 2).rounded(),
+                    width: containerWidth - padding * 2,
+                    height: thickness
+                )
+            }
+    }
+
+    /// The typographic bounds of the first line `range` lays out, in view
+    /// coordinates. Unlike the fragment frame, this leaves out the
+    /// paragraph's spacing.
+    private static func firstLineRect(for range: NSRange, _ context: Context) -> NSRect? {
+        guard let textRange = textRange(range, in: context.contentStorage),
+              let fragment = context.layoutManager.textLayoutFragment(for: textRange.location),
+              let line = fragment.textLineFragments.first
+        else { return nil }
+        let frame = fragment.layoutFragmentFrame
+        return line.typographicBounds.offsetBy(
+            dx: frame.minX + context.origin.x,
+            dy: frame.minY + context.origin.y
+        )
     }
 
     // MARK: - Range conversion

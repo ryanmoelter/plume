@@ -21,8 +21,8 @@ nonisolated extension NSAttributedString.Key {
 ///
 /// `blockID` distinguishes adjacent `codeBlock` or `verbatim` paragraphs
 /// that would otherwise compare equal: two fenced blocks back to back, both
-/// unlabeled or both the same language, and two thematic breaks in a row,
-/// must still serialize as two blocks rather than one merged block. Every
+/// unlabeled or both the same language, must still serialize as two blocks
+/// rather than one merged block. Every
 /// other kind forces `blockID` to a shared sentinel in `init`, so two
 /// paragraphs of the same kind always compare equal regardless of what a
 /// caller happened to pass — nothing needs to know to thread a shared id
@@ -35,8 +35,11 @@ nonisolated struct ComposerBlockKind: Hashable, Sendable, Codable {
         case numbered(depth: Int, number: Int)
         case quote
         case codeBlock(language: String?)
-        /// An unsupported construct (a table, a rule, ...) whose lines are
-        /// kept as literal text rather than modeled structurally.
+        /// A thematic break. Its paragraph holds no characters but its own
+        /// newline; text that lands in one turns it into a `.paragraph`.
+        case rule
+        /// An unsupported construct (a table, ...) whose lines are kept as
+        /// literal text rather than modeled structurally.
         case verbatim
     }
 
@@ -57,6 +60,7 @@ nonisolated struct ComposerBlockKind: Hashable, Sendable, Codable {
 
     static let paragraph = ComposerBlockKind(.paragraph)
     static let quote = ComposerBlockKind(.quote)
+    static let rule = ComposerBlockKind(.rule)
 
     static func heading(_ level: Int) -> ComposerBlockKind {
         ComposerBlockKind(.heading(level: level))

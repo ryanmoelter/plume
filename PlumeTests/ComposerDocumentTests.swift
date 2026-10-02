@@ -71,6 +71,23 @@ struct ComposerDocumentTests {
         }
     }
 
+    /// A rule keeps its newline even as the last block: that newline is the
+    /// only character there is to carry `.rule`.
+    @Test(arguments: ["---", "***", "- - -"])
+    func aBreakLoadsAsAnEmptyRuleParagraph(markdown: String) {
+        let attributed = ComposerDocument.attributedString(markdown: markdown, style: Self.style)
+        #expect(attributed.string == "\n")
+        #expect(attributed.attribute(.plumeBlock, at: 0, effectiveRange: nil) as? ComposerBlockKind == .rule)
+        #expect(ComposerDocument.markdown(from: attributed) == "---")
+    }
+
+    @Test func aRuleBetweenParagraphsRoundTrips() {
+        let markdown = "above\n\n---\n\nbelow"
+        let attributed = ComposerDocument.attributedString(markdown: markdown, style: Self.style)
+        #expect(attributed.string == "above\n\nbelow")
+        #expect(ComposerDocument.markdown(from: attributed) == markdown)
+    }
+
     @Test func aTableStaysVerbatim() {
         let markdown = "| a | b |\n| --- | --- |\n| 1 | 2 |"
         let attributed = ComposerDocument.attributedString(markdown: markdown, style: Self.style)
@@ -122,9 +139,6 @@ struct ComposerDocumentTests {
         #expect(ComposerDocument.markdown(from: attributed) == "Z\(markdown)")
     }
 
-    /// Two thematic breaks read as two blocks, which only their `blockID`
-    /// distinguishes — without one they compare equal and merge into a single
-    /// rule on the way back out.
     @Test func adjacentRulesStayTwoBlocks() {
         let markdown = "---\n\n---"
         let attributed = ComposerDocument.attributedString(markdown: markdown, style: Self.style)

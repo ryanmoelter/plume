@@ -10,6 +10,13 @@ struct ComposerDocumentInvariantsTests {
         storage.attribute(.plumeBlock, at: location, effectiveRange: nil) as? ComposerBlockKind
     }
 
+    @Test func aRuleThatGainsTextBecomesAParagraph() {
+        let storage = NSMutableAttributedString(string: "pasted\n", attributes: Self.style.attributes(for: .rule))
+        ComposerDocumentInvariants.normalize(storage, editedRange: NSRange(location: 0, length: 7), style: Self.style)
+        #expect(kind(at: 0, in: storage) == .paragraph)
+        #expect(kind(at: 6, in: storage) == .paragraph)
+    }
+
     @Test func emptyDocumentDoesNothing() {
         let storage = NSMutableAttributedString(string: "")
         ComposerDocumentInvariants.normalize(storage, editedRange: NSRange(location: 0, length: 0), style: Self.style)

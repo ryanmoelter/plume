@@ -304,6 +304,128 @@ struct ComposerUndoTests {
         #expect(composer.kind(at: 5) == .paragraph)
     }
 
+    // MARK: - Rules
+
+    @Test(arguments: ["---", "***", "___"])
+    func aBreakLineBecomesARuleOnReturn(marker: String) {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type(marker)
+        #expect(composer.view.string == marker)
+
+        composer.newline()
+        #expect(composer.view.string == "\n")
+        #expect(composer.kind(at: 0) == .rule)
+        #expect(composer.view.selectedRange().location == 1)
+        #expect(composer.view.currentMarkdown == "---")
+
+        composer.type("after")
+        #expect(composer.view.currentMarkdown == "---\n\nafter")
+    }
+
+    @Test func undoingARuleRestoresItsLiteralMarker() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("---")
+        composer.newline()
+        composer.undo()
+        #expect(composer.view.string == "---")
+    }
+
+    @Test func aBreakLineMidDocumentOpensAParagraphAfterTheRule() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("first")
+        composer.newline()
+        composer.type("last")
+        composer.view.setSelectedRange(NSRange(location: 0, length: 5))
+        composer.type("---")
+        composer.newline()
+
+        #expect(composer.view.string == "\n\nlast")
+        #expect(composer.kind(at: 0) == .rule)
+        #expect(composer.kind(at: 1) == .paragraph)
+        #expect(composer.view.selectedRange().location == 1)
+    }
+
+    @Test func backspaceOnTheLineAfterARuleRemovesIt() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("above")
+        composer.newline()
+        composer.type("---")
+        composer.newline()
+        composer.type("below")
+        composer.view.setSelectedRange(NSRange(location: 7, length: 0))
+        composer.backspace()
+
+        #expect(composer.view.string == "above\nbelow")
+        #expect(composer.view.currentMarkdown == "above\n\nbelow")
+    }
+
+    @Test func backspaceOnARulesOwnLineRemovesIt() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("---")
+        composer.newline()
+        composer.type("below")
+        composer.view.setSelectedRange(NSRange(location: 0, length: 0))
+        composer.backspace()
+
+        #expect(composer.view.string == "below")
+        #expect(composer.view.selectedRange().location == 0)
+    }
+
+    @Test func typingOnARulesLineStartsAParagraphAfterIt() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("---")
+        composer.newline()
+        composer.type("below")
+        composer.view.setSelectedRange(NSRange(location: 0, length: 0))
+        composer.type("x")
+
+        #expect(composer.view.currentMarkdown == "---\n\nx\n\nbelow")
+        #expect(composer.kind(at: 0) == .rule)
+    }
+
+    @Test func pastingOnARulesLineStartsAParagraphAfterIt() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("---")
+        composer.newline()
+        composer.view.setSelectedRange(NSRange(location: 0, length: 0))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.ryanmoelter.Plume.tests.rule"))
+        pasteboard.clearContents()
+        pasteboard.setString("pasted", forType: .string)
+
+        #expect(composer.paste(from: pasteboard))
+        #expect(composer.view.currentMarkdown == "---\n\npasted")
+    }
+
+    @Test func returnOnARulesLineOpensAnEmptyParagraphAfterIt() {
+        let composer = makeComposer()
+        defer { composer.close() }
+
+        composer.type("---")
+        composer.newline()
+        composer.type("below")
+        composer.view.setSelectedRange(NSRange(location: 0, length: 0))
+        composer.newline()
+
+        #expect(composer.view.string == "\n\nbelow")
+        #expect(composer.kind(at: 0) == .rule)
+        #expect(composer.kind(at: 1) == .paragraph)
+        #expect(composer.view.selectedRange().location == 1)
+    }
+
     // MARK: - ⌘B
 
     @Test func toggleBoldOnASelectionIsUndoable() {
