@@ -336,8 +336,25 @@ struct RevealTimedFadeTests {
 
     @Test func aPositionIsReachedWhenTheSamplesPassIt() {
         #expect(RevealSample.time(reaching: 25, in: samples) == 10.25)
-        #expect(RevealSample.time(reaching: 0, in: samples) == -.infinity)
+        #expect(RevealSample.time(reaching: -1, in: samples) == -.infinity)
         #expect(RevealSample.time(reaching: 150, in: samples) == .infinity)
+    }
+
+    @Test func theFirstSamplesPositionIsReachedAtItsTime() {
+        #expect(RevealSample.time(reaching: 0, in: samples) == 10)
+    }
+
+    /// A reveal starts at position 0, so the message's first word sits on the
+    /// first sample and must fade like any other.
+    @Test func aMessagesFirstWordFadesIn() {
+        let frame = RevealFrame(position: 100, time: 10.25, faded: 0, samples: samples)
+        let reveal = WordReveal(
+            position: 100,
+            wordStarts: [0, 25],
+            length: 100,
+            timing: .init(offset: 0, frame: frame, duration: 0.5)
+        )
+        #expect(abs(reveal.opacity(at: 3) - 0.5) < 0.0001)
     }
 
     @Test func aWordFadesOverTheDurationFromWhenTheRevealReachedIt() {

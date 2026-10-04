@@ -102,6 +102,11 @@ final class MessageReveal {
         case shown
         case hidden
         case partial(RevealFrame)
+
+        var isShown: Bool {
+            if case .shown = self { return true }
+            return false
+        }
     }
 
     /// The reveal as seen by content spanning `start..<end`. Only content the
@@ -147,8 +152,11 @@ struct RevealSample: Equatable {
 
     /// When the reveal reached `position`: minus infinity for a position it
     /// passed before the samples begin, plus infinity for one not yet reached.
+    /// The first sample's own position is reached at that sample's time,
+    /// which is when the reveal left it.
     static func time(reaching position: Double, in samples: [RevealSample]) -> CFTimeInterval {
-        guard let first = samples.first, position > first.position else { return -.infinity }
+        guard let first = samples.first, position >= first.position else { return -.infinity }
+        if position == first.position { return first.time }
         guard let next = samples.firstIndex(where: { $0.position >= position }) else { return .infinity }
         let a = samples[next - 1], b = samples[next]
         return a.time + (b.time - a.time) * (position - a.position) / (b.position - a.position)
@@ -657,18 +665,17 @@ private struct RevealFade: ViewModifier {
     @Environment(\.chatReveal) private var context
     @State private var tuning = RevealTuning.shared
 
+    /// Selectable text draws without consulting its `TextRenderer`, so the
+    /// text stays unselectable until the reveal has passed it. Shown text
+    /// drops the renderer and takes the selection its container sets.
     func body(content: Content) -> some View {
-        if let context {
-            let values = tuning.values
-            let length = text.utf16.count
-            let start = Double(context.offset)
-            let end = start + Double(length)
-            content.textRenderer(renderer(
-                state: context.reveal.state(across: start, end),
-                start: start,
-                length: length,
-                values: values
-            ))
+        let length = text.utf16.count
+        let start = Double(context?.offset ?? 0)
+        let state = context?.reveal.state(across: start, start + Double(length))
+        if let state, !state.isShown {
+            content
+                .textRenderer(renderer(state: state, start: start, length: length, values: tuning.values))
+                .textSelection(.disabled)
         } else {
             content
         }
