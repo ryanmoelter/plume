@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import QuartzCore
 import SwiftUI
 import Testing
 @testable import Plume
@@ -229,6 +231,53 @@ struct ChatRevealModelTests {
         for _ in 0..<600 where !model.hasReached(later) { model.advance(by: 1.0 / 60) }
         #expect(model.hasReached(later))
         #expect(fired == 1)
+    }
+
+    @Test func screensSleepingShowsEveryRevealWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        var fired = 0
+        model.watch(["b": 50]) { fired += 1 }
+
+        model.screensDidSleep()
+
+        #expect(try #require(model.reveal(for: "b")).isSettled)
+        #expect(fired == 1)
+    }
+
+    @Test func aMessageArrivingWhileTheScreensSleepShowsWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.screensDidSleep()
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        #expect(try #require(model.reveal(for: "b")).isSettled)
+
+        model.screensDidWake()
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100), (messageID: "c", length: 100)])
+        #expect(try #require(model.reveal(for: "c")).position == 0)
+    }
+
+    /// The first stall rebuilds the link; the second, before any frame
+    /// arrives, gives up on animating.
+    @Test func aDisplayLinkThatStallsTwiceShowsTheRevealWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        let reveal = try #require(model.reveal(for: "b"))
+        let stalled = { CACurrentMediaTime() + ChatRevealModel.stallInterval * 2 }
+
+        model.checkForStalledDisplayLink(now: CACurrentMediaTime())
+        #expect(!reveal.isSettled || NSScreen.main == nil)
+
+        model.checkForStalledDisplayLink(now: stalled())
+        #expect(!reveal.isSettled || NSScreen.main == nil)
+
+        model.checkForStalledDisplayLink(now: stalled())
+        #expect(reveal.isSettled)
     }
 
     @Test func onlyAMessageStillRevealingHasAnUnsettledTarget() {

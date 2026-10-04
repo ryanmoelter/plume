@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 /// How far an assistant message's reveal has reached, as a character index
@@ -221,8 +222,30 @@ final class ChatRevealModel: NSObject {
     /// reveals.
     private var isPrimed = false
     private var displayLink: CADisplayLink?
-    private var fallback: Timer?
     private var lastTimestamp: CFTimeInterval?
+    /// A display link can stop firing for good while it is unpaused, and a
+    /// reveal that never advances holds back the rest of its message. This
+    /// checks the link is still delivering frames.
+    private var watchdog: Timer?
+    private var lastFrameAt: CFTimeInterval?
+    private var hasRebuiltStalledLink = false
+    /// Nobody sees a reveal while the screens sleep, and Keep Awake leaves
+    /// agents streaming through it.
+    private var screensAreAsleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
+    static let stallInterval: CFTimeInterval = 1
+
+    override init() {
+        super.init()
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(handleScreensDidSleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(handleScreensDidWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenParametersChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
 
     func reveal(for messageID: String) -> MessageReveal? {
         reveals[messageID]
@@ -265,7 +288,7 @@ final class ChatRevealModel: NSObject {
     /// Retargets each message at `length` characters, and forgets any
     /// message no longer listed.
     func update(targets: [(messageID: String, length: Int)]) {
-        let animates = isPrimed && AppSettings.shared.animateCharacterReveal
+        let animates = isPrimed && !screensAreAsleep && AppSettings.shared.animateCharacterReveal
         // A stream that never named its message, taken over by the
         // transcript's copy under a real id.
         var unclaimed = reveals[ChatStreamHandoff.unidentifiedLiveID]
@@ -311,33 +334,96 @@ final class ChatRevealModel: NSObject {
         if !isMoving { pause() }
     }
 
+    /// Without a display link there is nothing to animate on, so every
+    /// reveal finishes at once rather than hiding what it has not reached.
     private func resume() {
-        if displayLink == nil, let screen = NSScreen.main {
+        if displayLink == nil, !screensAreAsleep, let screen = NSScreen.main {
             let link = screen.displayLink(target: self, selector: #selector(step))
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
-        if let displayLink {
-            let rate = Float(RevealTuning.shared.values.frameRate)
-            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: min(rate, 30), maximum: rate, preferred: rate)
-            displayLink.isPaused = false
-        } else if fallback == nil {
-            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tick(at: CACurrentMediaTime()) }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            fallback = timer
+        guard let displayLink else {
+            finishAll()
+            return
         }
+        let rate = Float(RevealTuning.shared.values.frameRate)
+        displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: min(rate, 30), maximum: rate, preferred: rate)
+        if displayLink.isPaused || lastFrameAt == nil { lastFrameAt = CACurrentMediaTime() }
+        displayLink.isPaused = false
+        startWatchdog()
     }
 
     private func pause() {
         displayLink?.isPaused = true
-        fallback?.invalidate()
-        fallback = nil
+        watchdog?.invalidate()
+        watchdog = nil
         lastTimestamp = nil
     }
 
+    private func dropDisplayLink() {
+        pause()
+        displayLink?.invalidate()
+        displayLink = nil
+        lastFrameAt = nil
+    }
+
+    private func finishAll() {
+        for reveal in reveals.values { reveal.settle() }
+        fireReachedThresholds()
+        pause()
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        let timer = Timer(timeInterval: Self.stallInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForStalledDisplayLink(now: CACurrentMediaTime()) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
+    }
+
+    /// Rebuilds an unpaused link that has delivered no frame for
+    /// `stallInterval`. A rebuilt link that stalls before its first frame
+    /// finishes every reveal instead.
+    func checkForStalledDisplayLink(now: CFTimeInterval) {
+        guard let link = displayLink, !link.isPaused,
+              now - (lastFrameAt ?? now) >= Self.stallInterval
+        else { return }
+        dropDisplayLink()
+        if hasRebuiltStalledLink {
+            Log.chatList.error("Rebuilt reveal display link stalled too; showing reveals whole")
+            finishAll()
+        } else {
+            Log.chatList.error("Reveal display link stalled; rebuilding it")
+            hasRebuiltStalledLink = true
+            resume()
+        }
+    }
+
+    func screensDidSleep() {
+        screensAreAsleep = true
+        dropDisplayLink()
+        finishAll()
+    }
+
+    func screensDidWake() {
+        screensAreAsleep = false
+    }
+
+    /// A link built for a screen that has since gone away may never fire.
+    func screenParametersDidChange() {
+        let wasAnimating = displayLink.map { !$0.isPaused } ?? false
+        dropDisplayLink()
+        if wasAnimating { resume() }
+    }
+
+    @objc private func handleScreensDidSleep(_: Notification) { screensDidSleep() }
+    @objc private func handleScreensDidWake(_: Notification) { screensDidWake() }
+    @objc private func handleScreenParametersChange(_: Notification) { screenParametersDidChange() }
+
     @objc private func step(_ link: CADisplayLink) {
+        lastFrameAt = CACurrentMediaTime()
+        hasRebuiltStalledLink = false
         tick(at: link.targetTimestamp)
     }
 
