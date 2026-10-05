@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import QuartzCore
 import SwiftUI
 import Testing
 @testable import Plume
@@ -93,6 +95,17 @@ struct WordRevealTests {
         #expect(WordReveal.word(containing: 5, in: starts, length: 20) == 3..<15)
         #expect(WordReveal.word(containing: 8, in: starts, length: 20) == 3..<15)
         #expect(WordReveal.word(containing: 16, in: starts, length: 20) == 15..<20)
+    }
+
+    @Test func paragraphStartsFollowEverySeparator() {
+        #expect(WordReveal.paragraphStarts(in: "ab\ncd") == [0, 3, 5])
+        #expect(WordReveal.paragraphStarts(in: "a\r\n\nb") == [0, 3, 4, 5])
+        #expect(WordReveal.paragraphStarts(in: "") == [0])
+    }
+
+    @Test func aLineStartsANewParagraphUnlessItCountsOnPastTheOneAbove() {
+        let spans: [ClosedRange<Int>?] = [0...4, 5...9, 0...3, nil, 0...2]
+        #expect(WordReveal.paragraphIndices(ofLines: spans) == [0, 0, 1, 2, 3])
     }
 
     @Test func aWordIsHiddenUntilTheRevealReachesIt() {
@@ -231,6 +244,53 @@ struct ChatRevealModelTests {
         #expect(fired == 1)
     }
 
+    @Test func screensSleepingShowsEveryRevealWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        var fired = 0
+        model.watch(["b": 50]) { fired += 1 }
+
+        model.screensDidSleep()
+
+        #expect(try #require(model.reveal(for: "b")).isSettled)
+        #expect(fired == 1)
+    }
+
+    @Test func aMessageArrivingWhileTheScreensSleepShowsWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.screensDidSleep()
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        #expect(try #require(model.reveal(for: "b")).isSettled)
+
+        model.screensDidWake()
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100), (messageID: "c", length: 100)])
+        #expect(try #require(model.reveal(for: "c")).position == 0)
+    }
+
+    /// The first stall rebuilds the link; the second, before any frame
+    /// arrives, gives up on animating.
+    @Test func aDisplayLinkThatStallsTwiceShowsTheRevealWhole() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = ChatRevealModel()
+        model.update(targets: [(messageID: "a", length: 0)])
+        model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
+        let reveal = try #require(model.reveal(for: "b"))
+        let stalled = { CACurrentMediaTime() + ChatRevealModel.stallInterval * 2 }
+
+        model.checkForStalledDisplayLink(now: CACurrentMediaTime())
+        #expect(!reveal.isSettled || NSScreen.main == nil)
+
+        model.checkForStalledDisplayLink(now: stalled())
+        #expect(!reveal.isSettled || NSScreen.main == nil)
+
+        model.checkForStalledDisplayLink(now: stalled())
+        #expect(reveal.isSettled)
+    }
+
     @Test func onlyAMessageStillRevealingHasAnUnsettledTarget() {
         guard AppSettings.shared.animateCharacterReveal else { return }
         let model = ChatRevealModel()
@@ -260,6 +320,47 @@ struct ChatRevealLayoutUnitTests {
         let span = try #require(indices.first).distance(to: try #require(indices.last))
         #expect(span == ChatReveal.length(of: markdown) - 1)
     }
+
+    @Test(arguments: [
+        ("ab cd\nef gh\nij", [0, 6, 12]),
+        ("aa\n\nbb", [0, 3, 4]),
+        ("\nab", [0, 1]),
+    ])
+    func eachLineCountsFromItsParagraphsStart(text: String, expected: [Int]) {
+        #expect(lineStarts(of: text, width: 400) == expected)
+    }
+
+    @Test func aWrappedLineKeepsCountingFromItsParagraph() throws {
+        let text = "ab\n" + String(repeating: "word ", count: 40)
+        let starts = lineStarts(of: text, width: 120)
+        #expect(starts.count > 2)
+        #expect(starts.dropFirst().allSatisfy { $0 == 3 })
+    }
+
+    private func lineStarts(of text: String, width: CGFloat) -> [Int] {
+        let recorder = LineStartRecorder(paragraphStarts: WordReveal.paragraphStarts(in: text))
+        let renderer = ImageRenderer(content: Text(text).textRenderer(recorder).frame(width: width))
+        _ = renderer.nsImage
+        return recorder.box.lineStarts
+    }
+}
+
+private final class LineStartBox {
+    var lineStarts: [Int] = []
+}
+
+/// Keeps the last draw's line starts: SwiftUI draws once to size the `Text`
+/// before the pass that lays out every line.
+private struct LineStartRecorder: TextRenderer {
+    let paragraphStarts: [Int]
+    let box = LineStartBox()
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        if let origin = layout.lazy.compactMap({ $0.first?.characterIndices.first }).first {
+            box.lineStarts = WordReveal.lineStarts(of: layout, from: origin, paragraphStarts: paragraphStarts)
+        }
+        for line in layout { ctx.draw(line) }
+    }
 }
 
 private final class IndexBox {
@@ -287,8 +388,25 @@ struct RevealTimedFadeTests {
 
     @Test func aPositionIsReachedWhenTheSamplesPassIt() {
         #expect(RevealSample.time(reaching: 25, in: samples) == 10.25)
-        #expect(RevealSample.time(reaching: 0, in: samples) == -.infinity)
+        #expect(RevealSample.time(reaching: -1, in: samples) == -.infinity)
         #expect(RevealSample.time(reaching: 150, in: samples) == .infinity)
+    }
+
+    @Test func theFirstSamplesPositionIsReachedAtItsTime() {
+        #expect(RevealSample.time(reaching: 0, in: samples) == 10)
+    }
+
+    /// A reveal starts at position 0, so the message's first word sits on the
+    /// first sample and must fade like any other.
+    @Test func aMessagesFirstWordFadesIn() {
+        let frame = RevealFrame(position: 100, time: 10.25, faded: 0, samples: samples)
+        let reveal = WordReveal(
+            position: 100,
+            wordStarts: [0, 25],
+            length: 100,
+            timing: .init(offset: 0, frame: frame, duration: 0.5)
+        )
+        #expect(abs(reveal.opacity(at: 3) - 0.5) < 0.0001)
     }
 
     @Test func aWordFadesOverTheDurationFromWhenTheRevealReachedIt() {

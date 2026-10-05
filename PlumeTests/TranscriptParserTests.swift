@@ -52,6 +52,21 @@ struct TranscriptParserTests {
         }
     }
 
+    @Test func anEmptyThinkingBlockIsDropped() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"assistant","uuid":"a1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"abc"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"done"}]}}"#,
+        ]))
+
+        let blocks = transcript.messages.flatMap(\.blocks)
+        #expect(blocks.count == 1)
+        if case .markdown(let text) = blocks.first {
+            #expect(text == "done")
+        } else {
+            Issue.record("expected only the text block")
+        }
+    }
+
     @Test func aToolUseIsMatchedToItsResult() {
         let transcript = TranscriptParser.parse(data([
             #"""

@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 /// How far an assistant message's reveal has reached, as a character index
@@ -101,6 +102,11 @@ final class MessageReveal {
         case shown
         case hidden
         case partial(RevealFrame)
+
+        var isShown: Bool {
+            if case .shown = self { return true }
+            return false
+        }
     }
 
     /// The reveal as seen by content spanning `start..<end`. Only content the
@@ -146,8 +152,11 @@ struct RevealSample: Equatable {
 
     /// When the reveal reached `position`: minus infinity for a position it
     /// passed before the samples begin, plus infinity for one not yet reached.
+    /// The first sample's own position is reached at that sample's time,
+    /// which is when the reveal left it.
     static func time(reaching position: Double, in samples: [RevealSample]) -> CFTimeInterval {
-        guard let first = samples.first, position > first.position else { return -.infinity }
+        guard let first = samples.first, position >= first.position else { return -.infinity }
+        if position == first.position { return first.time }
         guard let next = samples.firstIndex(where: { $0.position >= position }) else { return .infinity }
         let a = samples[next - 1], b = samples[next]
         return a.time + (b.time - a.time) * (position - a.position) / (b.position - a.position)
@@ -221,8 +230,30 @@ final class ChatRevealModel: NSObject {
     /// reveals.
     private var isPrimed = false
     private var displayLink: CADisplayLink?
-    private var fallback: Timer?
     private var lastTimestamp: CFTimeInterval?
+    /// A display link can stop firing for good while it is unpaused, and a
+    /// reveal that never advances holds back the rest of its message. This
+    /// checks the link is still delivering frames.
+    private var watchdog: Timer?
+    private var lastFrameAt: CFTimeInterval?
+    private var hasRebuiltStalledLink = false
+    /// Nobody sees a reveal while the screens sleep, and Keep Awake leaves
+    /// agents streaming through it.
+    private var screensAreAsleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
+    static let stallInterval: CFTimeInterval = 1
+
+    override init() {
+        super.init()
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(handleScreensDidSleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(handleScreensDidWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenParametersChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
 
     func reveal(for messageID: String) -> MessageReveal? {
         reveals[messageID]
@@ -265,7 +296,7 @@ final class ChatRevealModel: NSObject {
     /// Retargets each message at `length` characters, and forgets any
     /// message no longer listed.
     func update(targets: [(messageID: String, length: Int)]) {
-        let animates = isPrimed && AppSettings.shared.animateCharacterReveal
+        let animates = isPrimed && !screensAreAsleep && AppSettings.shared.animateCharacterReveal
         // A stream that never named its message, taken over by the
         // transcript's copy under a real id.
         var unclaimed = reveals[ChatStreamHandoff.unidentifiedLiveID]
@@ -311,33 +342,96 @@ final class ChatRevealModel: NSObject {
         if !isMoving { pause() }
     }
 
+    /// Without a display link there is nothing to animate on, so every
+    /// reveal finishes at once rather than hiding what it has not reached.
     private func resume() {
-        if displayLink == nil, let screen = NSScreen.main {
+        if displayLink == nil, !screensAreAsleep, let screen = NSScreen.main {
             let link = screen.displayLink(target: self, selector: #selector(step))
             link.add(to: .main, forMode: .common)
             displayLink = link
         }
-        if let displayLink {
-            let rate = Float(RevealTuning.shared.values.frameRate)
-            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: min(rate, 30), maximum: rate, preferred: rate)
-            displayLink.isPaused = false
-        } else if fallback == nil {
-            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tick(at: CACurrentMediaTime()) }
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            fallback = timer
+        guard let displayLink else {
+            finishAll()
+            return
         }
+        let rate = Float(RevealTuning.shared.values.frameRate)
+        displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: min(rate, 30), maximum: rate, preferred: rate)
+        if displayLink.isPaused || lastFrameAt == nil { lastFrameAt = CACurrentMediaTime() }
+        displayLink.isPaused = false
+        startWatchdog()
     }
 
     private func pause() {
         displayLink?.isPaused = true
-        fallback?.invalidate()
-        fallback = nil
+        watchdog?.invalidate()
+        watchdog = nil
         lastTimestamp = nil
     }
 
+    private func dropDisplayLink() {
+        pause()
+        displayLink?.invalidate()
+        displayLink = nil
+        lastFrameAt = nil
+    }
+
+    private func finishAll() {
+        for reveal in reveals.values { reveal.settle() }
+        fireReachedThresholds()
+        pause()
+    }
+
+    private func startWatchdog() {
+        guard watchdog == nil else { return }
+        let timer = Timer(timeInterval: Self.stallInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForStalledDisplayLink(now: CACurrentMediaTime()) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
+    }
+
+    /// Rebuilds an unpaused link that has delivered no frame for
+    /// `stallInterval`. A rebuilt link that stalls before its first frame
+    /// finishes every reveal instead.
+    func checkForStalledDisplayLink(now: CFTimeInterval) {
+        guard let link = displayLink, !link.isPaused,
+              now - (lastFrameAt ?? now) >= Self.stallInterval
+        else { return }
+        dropDisplayLink()
+        if hasRebuiltStalledLink {
+            Log.chatList.error("Rebuilt reveal display link stalled too; showing reveals whole")
+            finishAll()
+        } else {
+            Log.chatList.error("Reveal display link stalled; rebuilding it")
+            hasRebuiltStalledLink = true
+            resume()
+        }
+    }
+
+    func screensDidSleep() {
+        screensAreAsleep = true
+        dropDisplayLink()
+        finishAll()
+    }
+
+    func screensDidWake() {
+        screensAreAsleep = false
+    }
+
+    /// A link built for a screen that has since gone away may never fire.
+    func screenParametersDidChange() {
+        let wasAnimating = displayLink.map { !$0.isPaused } ?? false
+        dropDisplayLink()
+        if wasAnimating { resume() }
+    }
+
+    @objc private func handleScreensDidSleep(_: Notification) { screensDidSleep() }
+    @objc private func handleScreensDidWake(_: Notification) { screensDidWake() }
+    @objc private func handleScreenParametersChange(_: Notification) { screenParametersDidChange() }
+
     @objc private func step(_ link: CADisplayLink) {
+        lastFrameAt = CACurrentMediaTime()
+        hasRebuiltStalledLink = false
         tick(at: link.targetTimestamp)
     }
 
@@ -375,7 +469,7 @@ final class RevealTuning {
         var frameRate: Double
 
         static let defaults = Values(
-            response: 0.3,
+            response: 0.5,
             dampingRatio: 1,
             minimumSpeed: 1,
             maximumSpeed: 0,
@@ -446,6 +540,7 @@ struct WordReveal: TextRenderer {
     /// to the next start, so it carries its trailing space and punctuation.
     var wordStarts: [Int]
     var length: Int
+    var paragraphStarts: [Int] = [0]
     /// Nil shows each word whole the moment the reveal reaches it.
     var timing: Timing?
 
@@ -461,13 +556,14 @@ struct WordReveal: TextRenderer {
             if position > 0 { layout.forEach { ctx.draw($0) } }
             return
         }
-        guard let origin = layout.first?.first?.characterIndices.first else { return }
+        guard let origin = layout.lazy.compactMap({ $0.first?.characterIndices.first }).first else { return }
         let fadedThrough = timing.map { $0.frame.faded - $0.offset } ?? position
-        for line in layout {
+        let lineStarts = Self.lineStarts(of: layout, from: origin, paragraphStarts: paragraphStarts)
+        for (line, lineStart) in zip(layout, lineStarts) {
             for run in line {
                 guard let first = run.characterIndices.first, let last = run.characterIndices.last else { continue }
-                let firstIndex = origin.distance(to: first)
-                if fadedThrough >= Double(origin.distance(to: last) + 1) {
+                let firstIndex = lineStart + origin.distance(to: first)
+                if fadedThrough >= Double(lineStart + origin.distance(to: last) + 1) {
                     ctx.draw(run)
                     continue
                 }
@@ -476,7 +572,7 @@ struct WordReveal: TextRenderer {
                 }
                 for slice in run {
                     guard let index = slice.characterIndices.first else { continue }
-                    let opacity = opacity(at: origin.distance(to: index))
+                    let opacity = opacity(at: lineStart + origin.distance(to: index))
                     guard opacity > 0 else { continue }
                     var glyph = ctx
                     glyph.opacity = opacity
@@ -526,6 +622,54 @@ struct WordReveal: TextRenderer {
 
     /// Read on every frame a `Text` spends under the reveal.
     private static var wordStartCache: [String: [Int]] = [:]
+
+    /// Where each paragraph of `text` starts in UTF-16 units: zero, then
+    /// after every paragraph separator.
+    static func paragraphStarts(in text: String) -> [Int] {
+        if let cached = paragraphStartCache[text] { return cached }
+        let string = text as NSString
+        var starts: [Int] = [0]
+        var end = 0
+        while end < string.length {
+            end = NSMaxRange(string.paragraphRange(for: NSRange(location: end, length: 0)))
+            starts.append(end)
+        }
+        if paragraphStartCache.count >= 256 { paragraphStartCache.removeAll(keepingCapacity: true) }
+        paragraphStartCache[text] = starts
+        return starts
+    }
+
+    private static var paragraphStartCache: [String: [Int]] = [:]
+
+    /// The text offset each line's character indices count from.
+    /// `Text.Layout` restarts its indices at every paragraph, so a line
+    /// counts from the start of the paragraph it belongs to.
+    static func lineStarts(of layout: Text.Layout, from origin: Text.Layout.CharacterIndex, paragraphStarts: [Int]) -> [Int] {
+        let spans = layout.map { line -> ClosedRange<Int>? in
+            let ends = line.flatMap { run in
+                [run.characterIndices.first, run.characterIndices.last].compactMap { $0.map(origin.distance(to:)) }
+            }
+            guard let low = ends.min(), let high = ends.max() else { return nil }
+            return low...high
+        }
+        return paragraphIndices(ofLines: spans).map { paragraphStarts[min($0, paragraphStarts.count - 1)] }
+    }
+
+    /// Which paragraph each line belongs to, given the indices it holds. A
+    /// line continues the paragraph above only by counting on past it; an
+    /// empty line is a paragraph of its own.
+    static func paragraphIndices(ofLines spans: [ClosedRange<Int>?]) -> [Int] {
+        var paragraph = 0
+        var previous: ClosedRange<Int>?
+        return spans.enumerated().map { line, span in
+            if line > 0 {
+                let continues = span.flatMap { span in previous.map { span.lowerBound > $0.upperBound } } ?? false
+                if !continues { paragraph += 1 }
+            }
+            previous = span
+            return paragraph
+        }
+    }
 }
 
 /// The reveal a piece's `Text`s read, and where the one reading it starts.
@@ -571,18 +715,17 @@ private struct RevealFade: ViewModifier {
     @Environment(\.chatReveal) private var context
     @State private var tuning = RevealTuning.shared
 
+    /// Selectable text draws without consulting its `TextRenderer`, so the
+    /// text stays unselectable until the reveal has passed it. Shown text
+    /// drops the renderer and takes the selection its container sets.
     func body(content: Content) -> some View {
-        if let context {
-            let values = tuning.values
-            let length = text.utf16.count
-            let start = Double(context.offset)
-            let end = start + Double(length)
-            content.textRenderer(renderer(
-                state: context.reveal.state(across: start, end),
-                start: start,
-                length: length,
-                values: values
-            ))
+        let length = text.utf16.count
+        let start = Double(context?.offset ?? 0)
+        let state = context?.reveal.state(across: start, start + Double(length))
+        if let state, !state.isShown {
+            content
+                .textRenderer(renderer(state: state, start: start, length: length, values: tuning.values))
+                .textSelection(.disabled)
         } else {
             content
         }
@@ -592,7 +735,8 @@ private struct RevealFade: ViewModifier {
         var renderer = WordReveal(
             position: 0,
             wordStarts: WordReveal.wordStarts(in: text),
-            length: length
+            length: length,
+            paragraphStarts: WordReveal.paragraphStarts(in: text)
         )
         switch state {
         case .shown:
