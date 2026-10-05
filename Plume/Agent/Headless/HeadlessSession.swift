@@ -103,7 +103,8 @@ final class HeadlessSession: AgentSession {
 
     /// Set optimistically when the host asks for a change, then corrected
     /// from whatever the stream reports — `init` for `model`/`permissionMode`,
-    /// which round-trip through a real control request. There is no
+    /// which round-trip through a real control request, and a refused
+    /// `set_permission_mode` reply for `permissionMode`. There is no
     /// `set_effort` control request (`docs/headless-protocol.md`), so
     /// `effort` is never corrected; it only ever reflects what this host sent.
     private(set) var permissionMode: PermissionMode?
@@ -123,6 +124,7 @@ final class HeadlessSession: AgentSession {
 
     private var process: AgentProcess?
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
+    private var permissionModeRequests = PermissionModeRequests()
     private var nextRequestNumber = 0
 
     /// Decides when to ask the CLI to name this conversation.
@@ -195,6 +197,7 @@ final class HeadlessSession: AgentSession {
         guard process == nil else { return }
         launchDirectory = workingDirectory
         self.permissionMode = permissionMode
+        permissionModeRequests.confirm(HeadlessCommand.launchPermissionMode(permissionMode))
         if let model { self.model = model }
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
@@ -336,7 +339,13 @@ final class HeadlessSession: AgentSession {
 
     func setPermissionMode(_ mode: PermissionMode) {
         permissionMode = mode
-        send(StreamJSONEncoder.setPermissionMode(mode.token, requestID: nextRequestID()))
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .setPermissionMode(mode)
+        permissionModeRequests.didRequest(id: requestID)
+        guard send(StreamJSONEncoder.setPermissionMode(mode.token, requestID: requestID)) else {
+            pendingControlRequests[requestID] = nil
+            return
+        }
     }
 
     func setModel(_ newModel: AgentModel) {
@@ -479,6 +488,7 @@ final class HeadlessSession: AgentSession {
             }
             if let reported = info.permissionMode, let recognized = PermissionMode.recognizing(reported) {
                 permissionMode = recognized
+                permissionModeRequests.confirm(recognized)
             }
 
         case .status(let status):
@@ -604,7 +614,21 @@ final class HeadlessSession: AgentSession {
             ))
         case .generateSessionTitle:
             applyGeneratedTitle(in: response)
+        case .setPermissionMode(let mode):
+            applyPermissionModeReply(response, requested: mode)
         }
+    }
+
+    private func applyPermissionModeReply(_ response: ControlResponse, requested mode: PermissionMode) {
+        if response.isError {
+            Log.agent.error("Permission mode change refused: \(response.errorMessage ?? "unknown", privacy: .public)")
+        }
+        let outcome = permissionModeRequests.applyReply(
+            requestID: response.requestID,
+            mode: mode,
+            isError: response.isError
+        )
+        if case .revert(let confirmed) = outcome { permissionMode = confirmed }
     }
 
     /// Titling is best-effort. A description the CLI will not title is
@@ -788,5 +812,6 @@ final class HeadlessSession: AgentSession {
         case initialize
         case remoteControl(enabled: Bool)
         case generateSessionTitle
+        case setPermissionMode(PermissionMode)
     }
 }
