@@ -469,7 +469,7 @@ final class RevealTuning {
         var frameRate: Double
 
         static let defaults = Values(
-            response: 0.3,
+            response: 0.5,
             dampingRatio: 1,
             minimumSpeed: 1,
             maximumSpeed: 0,
