@@ -26,8 +26,8 @@ struct TaskCommands {
     let addTab: (TabKind) -> Void
     let selectTab: (Int) -> Void
     let cycleTab: (Int) -> Void
-    /// Returns whether a tab was actually closed, so ⌘W can fall back to
-    /// closing the window when the task has none.
+    /// Returns whether it handled the close, so ⌘W can fall back to closing
+    /// the window when it did not. A task with no tabs is deleted instead.
     let closeSelectedTab: () -> Bool
     let archiveSelectedTask: () -> Void
     /// Nil when the selected tab has no stored session to discard.
