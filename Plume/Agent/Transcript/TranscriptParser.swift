@@ -184,6 +184,10 @@ nonisolated enum TranscriptParser {
                     case .text(let text):
                         pendingAssistantBlocks.append(.markdown(text))
                     case .thinking(let text):
+                        // A redacted block, signature only. The stream merges
+                        // no block for it, and an extra one here would shift
+                        // the positions that piece ids are built from.
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                         pendingAssistantBlocks.append(.thinking(text))
                     case .toolUse(let id, let name, let input):
                         let call = ToolCall(
