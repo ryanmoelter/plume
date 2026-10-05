@@ -31,6 +31,11 @@ What an Option chord does cost is the terminal. `MenuShortcut.isClaimable` lets 
 
 **A scratch instance cannot prove the action ran.** Every command gated on a `focusedSceneValue` — the whole Tab menu, most of the File menu — reads disabled unless the app's scene is active, and a hidden instance's never is. `handledByEnabled` reports that, so a no-op there is not evidence of a bug. Confirming the action itself still needs a frontmost app.
 
+## Removing a task from the keyboard
+
+- **Delete / Backspace** on the sidebar list archives the selected task, or deletes it when it never started (`KeyboardRemoval.verbForDeleteKey`). It is `.onDeleteCommand` on the `List`, which fires only while the list has focus, so Delete in a text field never reaches it. Both paths go through `requestRemoval`, so confirmations still appear.
+- **⌘W** on a task with no tabs deletes the task instead of closing the window (`KeyboardRemoval.deletesTaskOnClose`). With no task selected it still closes the window.
+
 ## AppKit's own menu items need claiming too
 
 Settings (⌘,), Hide (⌘H) and Quit (⌘Q) come from AppKit's standard app menu, not from a button in `PlumeCommands`, so they are absent from `PlumeShortcuts.all`. A focused terminal's `performKeyEquivalent` still runs before the main menu's, so without a separate claim these three do nothing while a terminal has focus. `TerminalShortcutMonitor.systemMenuShortcuts` lists them and `isClaimed` always adds it on top of whatever `shortcuts` it was given.
