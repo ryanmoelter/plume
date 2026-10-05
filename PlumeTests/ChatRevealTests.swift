@@ -164,6 +164,15 @@ struct ChatRevealLengthTests {
 /// arrives after the first update, per message.
 @MainActor
 struct ChatRevealModelTests {
+    /// A new model reads the real display's sleep state, and while the
+    /// screens sleep every reveal shows whole, so a run with the display off
+    /// would never animate.
+    private func makeAwakeModel() -> ChatRevealModel {
+        let model = ChatRevealModel()
+        model.screensDidWake()
+        return model
+    }
+
     @Test func aZeroLengthPieceAtTheRevealBoundaryIsVisibleWhenReached() {
         let reveal = MessageReveal(position: 0, target: 0)
         guard case .shown = reveal.state(across: 0, 0) else {
@@ -174,7 +183,7 @@ struct ChatRevealModelTests {
 
     @Test func aFutureZeroLengthPieceStaysHiddenUntilItsBoundary() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 0)])
         model.update(targets: [(messageID: "a", length: 40)])
         let reveal = try #require(model.reveal(for: "a"))
@@ -198,7 +207,7 @@ struct ChatRevealModelTests {
     }
 
     @Test func theFirstUpdateSettlesEverythingAtItsTarget() {
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 40)])
         let reveal = model.reveal(for: "a")
         #expect(reveal?.position == 40)
@@ -209,7 +218,7 @@ struct ChatRevealModelTests {
     /// every message immediately, so there is nothing to test here.
     @Test func aMessageAddedAfterPrimingStartsFromZero() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 40)])
         model.update(targets: [(messageID: "a", length: 40), (messageID: "b", length: 20)])
         let reveal = try #require(model.reveal(for: "b"))
@@ -219,7 +228,7 @@ struct ChatRevealModelTests {
 
     @Test func advanceMovesAnUnsettledRevealTowardItsTarget() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 40)])
         model.update(targets: [(messageID: "a", length: 40), (messageID: "b", length: 100)])
         let reveal = try #require(model.reveal(for: "b"))
@@ -230,7 +239,7 @@ struct ChatRevealModelTests {
     }
     @Test func aPieceIsHeldUntilTheRevealReachesItsOffset() {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 0)])
         model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
         var later = ChatPiece(id: "b/1", messageID: "b", role: .assistant, content: .thinking(""), wash: .none)
@@ -246,7 +255,7 @@ struct ChatRevealModelTests {
 
     @Test func screensSleepingShowsEveryRevealWhole() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 0)])
         model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
         var fired = 0
@@ -260,7 +269,7 @@ struct ChatRevealModelTests {
 
     @Test func aMessageArrivingWhileTheScreensSleepShowsWhole() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 0)])
         model.screensDidSleep()
         model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
@@ -275,7 +284,7 @@ struct ChatRevealModelTests {
     /// arrives, gives up on animating.
     @Test func aDisplayLinkThatStallsTwiceShowsTheRevealWhole() throws {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 0)])
         model.update(targets: [(messageID: "a", length: 0), (messageID: "b", length: 100)])
         let reveal = try #require(model.reveal(for: "b"))
@@ -293,7 +302,7 @@ struct ChatRevealModelTests {
 
     @Test func onlyAMessageStillRevealingHasAnUnsettledTarget() {
         guard AppSettings.shared.animateCharacterReveal else { return }
-        let model = ChatRevealModel()
+        let model = makeAwakeModel()
         model.update(targets: [(messageID: "a", length: 40)])
         #expect(model.unsettledTargets.isEmpty)
 
