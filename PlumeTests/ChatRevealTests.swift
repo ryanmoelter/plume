@@ -97,6 +97,17 @@ struct WordRevealTests {
         #expect(WordReveal.word(containing: 16, in: starts, length: 20) == 15..<20)
     }
 
+    @Test func paragraphStartsFollowEverySeparator() {
+        #expect(WordReveal.paragraphStarts(in: "ab\ncd") == [0, 3, 5])
+        #expect(WordReveal.paragraphStarts(in: "a\r\n\nb") == [0, 3, 4, 5])
+        #expect(WordReveal.paragraphStarts(in: "") == [0])
+    }
+
+    @Test func aLineStartsANewParagraphUnlessItCountsOnPastTheOneAbove() {
+        let spans: [ClosedRange<Int>?] = [0...4, 5...9, 0...3, nil, 0...2]
+        #expect(WordReveal.paragraphIndices(ofLines: spans) == [0, 0, 1, 2, 3])
+    }
+
     @Test func aWordIsHiddenUntilTheRevealReachesIt() {
         let reveal = WordReveal(position: 5, wordStarts: [0, 5], length: 10)
         #expect(reveal.opacity(at: 7) == 0)
@@ -308,6 +319,47 @@ struct ChatRevealLayoutUnitTests {
         let indices = try #require(recorder.box.indices.isEmpty ? nil : recorder.box.indices)
         let span = try #require(indices.first).distance(to: try #require(indices.last))
         #expect(span == ChatReveal.length(of: markdown) - 1)
+    }
+
+    @Test(arguments: [
+        ("ab cd\nef gh\nij", [0, 6, 12]),
+        ("aa\n\nbb", [0, 3, 4]),
+        ("\nab", [0, 1]),
+    ])
+    func eachLineCountsFromItsParagraphsStart(text: String, expected: [Int]) {
+        #expect(lineStarts(of: text, width: 400) == expected)
+    }
+
+    @Test func aWrappedLineKeepsCountingFromItsParagraph() throws {
+        let text = "ab\n" + String(repeating: "word ", count: 40)
+        let starts = lineStarts(of: text, width: 120)
+        #expect(starts.count > 2)
+        #expect(starts.dropFirst().allSatisfy { $0 == 3 })
+    }
+
+    private func lineStarts(of text: String, width: CGFloat) -> [Int] {
+        let recorder = LineStartRecorder(paragraphStarts: WordReveal.paragraphStarts(in: text))
+        let renderer = ImageRenderer(content: Text(text).textRenderer(recorder).frame(width: width))
+        _ = renderer.nsImage
+        return recorder.box.lineStarts
+    }
+}
+
+private final class LineStartBox {
+    var lineStarts: [Int] = []
+}
+
+/// Keeps the last draw's line starts: SwiftUI draws once to size the `Text`
+/// before the pass that lays out every line.
+private struct LineStartRecorder: TextRenderer {
+    let paragraphStarts: [Int]
+    let box = LineStartBox()
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        if let origin = layout.lazy.compactMap({ $0.first?.characterIndices.first }).first {
+            box.lineStarts = WordReveal.lineStarts(of: layout, from: origin, paragraphStarts: paragraphStarts)
+        }
+        for line in layout { ctx.draw(line) }
     }
 }
 

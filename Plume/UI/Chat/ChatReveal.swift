@@ -540,6 +540,7 @@ struct WordReveal: TextRenderer {
     /// to the next start, so it carries its trailing space and punctuation.
     var wordStarts: [Int]
     var length: Int
+    var paragraphStarts: [Int] = [0]
     /// Nil shows each word whole the moment the reveal reaches it.
     var timing: Timing?
 
@@ -555,13 +556,14 @@ struct WordReveal: TextRenderer {
             if position > 0 { layout.forEach { ctx.draw($0) } }
             return
         }
-        guard let origin = layout.first?.first?.characterIndices.first else { return }
+        guard let origin = layout.lazy.compactMap({ $0.first?.characterIndices.first }).first else { return }
         let fadedThrough = timing.map { $0.frame.faded - $0.offset } ?? position
-        for line in layout {
+        let lineStarts = Self.lineStarts(of: layout, from: origin, paragraphStarts: paragraphStarts)
+        for (line, lineStart) in zip(layout, lineStarts) {
             for run in line {
                 guard let first = run.characterIndices.first, let last = run.characterIndices.last else { continue }
-                let firstIndex = origin.distance(to: first)
-                if fadedThrough >= Double(origin.distance(to: last) + 1) {
+                let firstIndex = lineStart + origin.distance(to: first)
+                if fadedThrough >= Double(lineStart + origin.distance(to: last) + 1) {
                     ctx.draw(run)
                     continue
                 }
@@ -570,7 +572,7 @@ struct WordReveal: TextRenderer {
                 }
                 for slice in run {
                     guard let index = slice.characterIndices.first else { continue }
-                    let opacity = opacity(at: origin.distance(to: index))
+                    let opacity = opacity(at: lineStart + origin.distance(to: index))
                     guard opacity > 0 else { continue }
                     var glyph = ctx
                     glyph.opacity = opacity
@@ -620,6 +622,54 @@ struct WordReveal: TextRenderer {
 
     /// Read on every frame a `Text` spends under the reveal.
     private static var wordStartCache: [String: [Int]] = [:]
+
+    /// Where each paragraph of `text` starts in UTF-16 units: zero, then
+    /// after every paragraph separator.
+    static func paragraphStarts(in text: String) -> [Int] {
+        if let cached = paragraphStartCache[text] { return cached }
+        let string = text as NSString
+        var starts: [Int] = [0]
+        var end = 0
+        while end < string.length {
+            end = NSMaxRange(string.paragraphRange(for: NSRange(location: end, length: 0)))
+            starts.append(end)
+        }
+        if paragraphStartCache.count >= 256 { paragraphStartCache.removeAll(keepingCapacity: true) }
+        paragraphStartCache[text] = starts
+        return starts
+    }
+
+    private static var paragraphStartCache: [String: [Int]] = [:]
+
+    /// The text offset each line's character indices count from.
+    /// `Text.Layout` restarts its indices at every paragraph, so a line
+    /// counts from the start of the paragraph it belongs to.
+    static func lineStarts(of layout: Text.Layout, from origin: Text.Layout.CharacterIndex, paragraphStarts: [Int]) -> [Int] {
+        let spans = layout.map { line -> ClosedRange<Int>? in
+            let ends = line.flatMap { run in
+                [run.characterIndices.first, run.characterIndices.last].compactMap { $0.map(origin.distance(to:)) }
+            }
+            guard let low = ends.min(), let high = ends.max() else { return nil }
+            return low...high
+        }
+        return paragraphIndices(ofLines: spans).map { paragraphStarts[min($0, paragraphStarts.count - 1)] }
+    }
+
+    /// Which paragraph each line belongs to, given the indices it holds. A
+    /// line continues the paragraph above only by counting on past it; an
+    /// empty line is a paragraph of its own.
+    static func paragraphIndices(ofLines spans: [ClosedRange<Int>?]) -> [Int] {
+        var paragraph = 0
+        var previous: ClosedRange<Int>?
+        return spans.enumerated().map { line, span in
+            if line > 0 {
+                let continues = span.flatMap { span in previous.map { span.lowerBound > $0.upperBound } } ?? false
+                if !continues { paragraph += 1 }
+            }
+            previous = span
+            return paragraph
+        }
+    }
 }
 
 /// The reveal a piece's `Text`s read, and where the one reading it starts.
@@ -685,7 +735,8 @@ private struct RevealFade: ViewModifier {
         var renderer = WordReveal(
             position: 0,
             wordStarts: WordReveal.wordStarts(in: text),
-            length: length
+            length: length,
+            paragraphStarts: WordReveal.paragraphStarts(in: text)
         )
         switch state {
         case .shown:
