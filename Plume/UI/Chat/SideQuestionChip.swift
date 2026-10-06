@@ -35,7 +35,10 @@ struct SideQuestionChip: View, ThemedView {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { promptHeight = $0 }
             answer
         }
-        .padding(dimensions.composerFieldInset)
+        .padding([.top, .horizontal], dimensions.composerFieldInset)
+        // An answer carries the bottom inset inside its scroll view instead,
+        // so it scrolls right up to the card's edge.
+        .padding(.bottom, hasAnswer ? 0 : dimensions.composerFieldInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(glass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .plumeTheme(bodySize: chatFontSize)
@@ -116,6 +119,8 @@ struct SideQuestionChip: View, ThemedView {
             content()
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, answerTopPadding)
+                .padding(.bottom, dimensions.composerFieldInset)
         }
         .onScrollGeometryChange(for: ScrollOverflow.self) { geometry in
             ScrollOverflow(visibleRect: geometry.visibleRect, contentHeight: geometry.contentSize.height)
@@ -141,15 +146,25 @@ struct SideQuestionChip: View, ThemedView {
     }
 
     private let questionLineLimit = 2
-    private let sectionSpacing: CGFloat = 12
+    private let sectionSpacing: CGFloat = 6
+    /// Inside the scroll view, so the first line clears the top fade once
+    /// the answer is scrolled.
+    private let answerTopPadding: CGFloat = 10
     /// A floor, so a tiny window still shows a few lines of answer.
     private let answerMinHeight: CGFloat = 80
 
     private var answerMaxHeight: CGFloat {
-        let chrome = promptHeight + sectionSpacing + dimensions.composerFieldInset * 2
+        let chrome = promptHeight + sectionSpacing + dimensions.composerFieldInset
         return max(answerMinHeight, maxHeight - chrome)
     }
     private let edgeFadeHeight: CGFloat = 28
+
+    private var hasAnswer: Bool {
+        switch exchange.state {
+        case .pending, .running: false
+        case .answered, .failed: true
+        }
+    }
 
     /// What a driver reads to tell the states apart without the glyph.
     private var chipValue: String {
