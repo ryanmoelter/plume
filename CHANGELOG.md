@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.13.4 (32)
+
+- Fix chat issues
+  - Fix text sometimes not showing up after display sleep if fade-by-word was on
+  - Fix fade-by-word animation not working after display sleep
+- Show resumed and nested subagents while they run
+- ⌘W on a task with no tabs deletes it, instead of closing the window
+- Misc fixes
+  - Fix resumed Claude sessions starting in the wrong directory
+  - Fix a closed tab's status sometimes sticking around
+  - Fix the status badge squeezing long branch names in the sidebar
+  - Fix a lack of opacity in sidebar's empty state
+  - Reflect refusals for permission mode changes in the dropdown
+  - Hide empty thinking blocks
+
+### 0.13.x recap
+
+- Run Codex agents (beta)
+- Auto-update Plume via homebrew or the DMG file
+- Overhaul settings pages
+- Improve chat animations
+- Show a new "waiting" status when only subagents are working
+- Press Esc to interrupt the agent
+- Choose a default model for new Claude tabs
+
+### Recently
+
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+- Install with Homebrew: `brew install ryanmoelter/tap/plume`
+- Send images in chat
+- Import your workspaces and tabs from cmux
+
 ## 0.13.3 (31)
 
 - Press Esc to interrupt the agent, like in Claude Code

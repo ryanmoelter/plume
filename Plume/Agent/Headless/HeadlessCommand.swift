@@ -6,6 +6,10 @@ import Foundation
 /// here. `AgentProcess` quotes and wraps it in a login shell, which is what
 /// puts `claude` on PATH.
 enum HeadlessCommand {
+    static func launchPermissionMode(_ resolved: PermissionMode?) -> PermissionMode {
+        resolved ?? .acceptEdits
+    }
+
     /// `isModelExplicitlyChosen` distinguishes a model the user picked from
     /// one that is only a snapshot of what the conversation already ran on.
     static func arguments(
@@ -37,7 +41,7 @@ enum HeadlessCommand {
         // floor for when even that resolution comes back empty, not Plume's
         // preferred mode.
         arguments.append("--permission-mode")
-        arguments.append((permissionMode ?? .acceptEdits).token)
+        arguments.append(launchPermissionMode(permissionMode).token)
 
         // Left off entirely when unset, so the CLI keeps its own default
         // rather than being pinned to a guess.

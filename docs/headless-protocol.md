@@ -28,7 +28,7 @@ claude -p --output-format stream-json --input-format stream-json \
 | `--permission-mode default` | yes | `init` reports `default` and the call still asks — the flag only unlocks the mode |
 | `--permission-mode bypassPermissions`, then `set_permission_mode` → `default` | yes | the call asks again |
 
-So launching in bypass works either way, but switching into it needs the flag, and without it the refusal arrives only as an error reply. The error text names `--dangerously-skip-permissions`, but that flag *starts* the session in bypass; the `allow` variant is the one to pass. Plume passes it on every launch, and the picker's `showsBypassPermissions` setting stays the gate.
+So launching in bypass works either way, but switching into it needs the flag, and without it the refusal arrives only as an error reply. `HeadlessSession` moves the picker before the reply, so on an error reply to the latest `set_permission_mode` it reverts to the last mode the CLI confirmed — the launch mode, `init`, or an accepted switch. A refusal of an older request is ignored, since a newer one has already superseded it. The error text names `--dangerously-skip-permissions`, but that flag *starts* the session in bypass; the `allow` variant is the one to pass. Plume passes it on every launch, and the picker's `showsBypassPermissions` setting stays the gate.
 
 The TUI is different: there the flag shows the "Bypass Permissions mode" warning dialog at every launch, whatever the starting mode. A terminal tab therefore doesn't pass it. It never switches mode mid-session, and launching straight into bypass works there without the flag, behind that same dialog.
 

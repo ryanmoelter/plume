@@ -3,7 +3,6 @@ import SwiftData
 
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
-    @Environment(\.colorScheme) private var colorScheme
     @Binding var selection: UUID?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
@@ -70,6 +69,13 @@ struct SidebarView: View {
                 default: break
                 }
             }
+            .onDeleteCommand {
+                guard let task = tasks.first(where: { $0.id == selection }) else { return }
+                switch KeyboardRemoval.verbForDeleteKey(hasNeverStarted: task.hasNeverStarted) {
+                case .archive: requestArchive(task)
+                case .delete: requestDelete(task)
+                }
+            }
             .toolbar {
                 ToolbarItem {
                     Menu {
@@ -97,7 +103,6 @@ struct SidebarView: View {
                     } description: {
                         Text("Press ⌘N to start a task.")
                     }
-                    .themeTint(colorScheme: colorScheme)
                 }
             }
 

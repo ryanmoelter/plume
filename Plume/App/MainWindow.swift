@@ -127,6 +127,10 @@ struct MainWindow: View {
                     TaskStore.selectTab(tabs[next], in: task)
                 },
                 closeSelectedTab: {
+                    if KeyboardRemoval.deletesTaskOnClose(tabCount: task.tabs.count) {
+                        requestRemoval(of: task, verb: .delete)
+                        return true
+                    }
                     guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
                     else { return false }
                     TaskStore.closeTab(tab, in: context)
