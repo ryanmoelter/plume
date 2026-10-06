@@ -18,6 +18,8 @@ struct SideQuestionChip: View, ThemedView {
     let onOpenPanel: () -> Void
     let onDismiss: () -> Void
 
+    @State private var answerOverflow = ScrollOverflow()
+
     static let symbol = "bubble.left.and.bubble.right"
 
     var body: some View {
@@ -97,14 +99,33 @@ struct SideQuestionChip: View, ThemedView {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onScrollGeometryChange(for: ScrollOverflow.self) { geometry in
+            ScrollOverflow(visibleRect: geometry.visibleRect, contentHeight: geometry.contentSize.height)
+        } action: { _, overflow in
+            withAnimation(.easeOut(duration: 0.15)) { answerOverflow = overflow }
+        }
+        .mask(edgeFade)
         .frame(maxHeight: answerMaxHeight)
         .fixedSize(horizontal: false, vertical: true)
         .onTapGesture(perform: onOpenPanel)
     }
 
+    /// Fades only the edges with more answer past them, so a cut-off answer
+    /// reads as scrollable without the glass behind it changing.
+    private var edgeFade: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                .frame(height: answerOverflow.above ? edgeFadeHeight : 0)
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: answerOverflow.below ? edgeFadeHeight : 0)
+        }
+    }
+
     private let questionLineLimit = 2
     private let questionAnswerSpacing: CGFloat = 12
     private let answerMaxHeight: CGFloat = 220
+    private let edgeFadeHeight: CGFloat = 28
 
     /// What a driver reads to tell the states apart without the glyph.
     private var chipValue: String {
@@ -114,4 +135,19 @@ struct SideQuestionChip: View, ThemedView {
         case let .failed(message): "failed: \(message)"
         }
     }
+}
+
+/// Which edges of a scroll view have content past them.
+struct ScrollOverflow: Equatable {
+    var above = false
+    var below = false
+
+    /// The half-point tolerance absorbs rounding at rest, which would
+    /// otherwise leave a fade on an answer scrolled fully to an end.
+    init(visibleRect: CGRect, contentHeight: CGFloat) {
+        above = visibleRect.minY > 0.5
+        below = visibleRect.maxY < contentHeight - 0.5
+    }
+
+    init() {}
 }
