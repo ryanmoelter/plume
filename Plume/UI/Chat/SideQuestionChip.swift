@@ -120,7 +120,7 @@ struct SideQuestionChip: View, ThemedView {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, answerTopPadding)
-                .padding(.bottom, dimensions.composerFieldInset)
+                .padding(.bottom, answerBottomPadding)
         }
         .onScrollGeometryChange(for: ScrollOverflow.self) { geometry in
             ScrollOverflow(visibleRect: geometry.visibleRect, contentHeight: geometry.contentSize.height)
@@ -150,6 +150,9 @@ struct SideQuestionChip: View, ThemedView {
     /// Inside the scroll view, so the first line clears the top fade once
     /// the answer is scrolled.
     private let answerTopPadding: CGFloat = 10
+    /// Deeper than the card's own inset, so the end of a scrolled answer
+    /// reads as the end rather than a line cut off at the edge.
+    private let answerBottomPadding: CGFloat = 28
     /// A floor, so a tiny window still shows a few lines of answer.
     private let answerMinHeight: CGFloat = 80
 

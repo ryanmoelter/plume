@@ -23,12 +23,15 @@ struct MessageRedoButtons: View, ThemedView {
         if let context {
             HStack(spacing: 4) {
                 forkMarker(context: context)
+                // Debug-only until rollback and forking are ready to ship.
+                #if DEBUG
                 if role == .assistant,
                    let target = context.rollbackTargetByReplyID[messageID],
                    context.transcriptMessageIDs.contains(target),
                    let session = session(for: context) {
                     actions(target: target, session: session, context: context)
                 }
+                #endif
             }
         }
     }
@@ -64,8 +67,6 @@ struct MessageRedoButtons: View, ThemedView {
                 invoke: { rollBack(to: target, session: session, context: context) }
             )
 
-            // Debug-only until forking is ready to ship.
-            #if DEBUG
             Button { fork(from: target, context: context) } label: {
                 FooterGlyph(symbol: "arrow.triangle.branch")
             }
@@ -78,7 +79,6 @@ struct MessageRedoButtons: View, ThemedView {
                 label: messageID,
                 invoke: { fork(from: target, context: context) }
             )
-            #endif
         }
         .buttonStyle(.plain)
     }
