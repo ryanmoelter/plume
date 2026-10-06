@@ -261,7 +261,7 @@ Measured behaviour:
 
 ## Rewinding — `rewind_conversation`
 
-Cuts the conversation back to just before a message so it can be asked again. This is what Plume's "Redo this message" uses.
+Cuts the conversation back to just before a message so it can be asked again. This is what Plume's "Roll back to here" uses, on a reply: it targets the user message that followed the reply.
 
 ```json
 {"type":"control_request","request_id":"rw-1",
@@ -274,6 +274,8 @@ Cuts the conversation back to just before a message so it can be asked again. Th
 A success carries `prefillText` — the target's own text, for putting back in the composer — and `precedingAssistantUuid`. A refusal is **not** an error response: it is `{"rewound": false, "reason": "…"}`. Known reasons: `commands_queued`, `prompt_pending`, `turn_running`, `target_not_found`, `stale_target`, `unseen_later_turn`, `poll_tool_result_target`, `target_splits_tool_call`, `delivered_poll_events_in_range`, `persist_failed`, `state_changed`.
 
 **It deletes nothing.** Measured twice, including once with a scrubbed environment: the file stayed the same length through the rewind, the prefix was byte-identical, no uuids were removed, and the abandoned prompt stayed on disk. Later turns append.
+
+**The new tip has no row of its own.** A rewind appends one `{"type":"last-prompt","rewound":true,"leafUuid":…}` row and nothing else; in a measured run its `leafUuid` named the reply being rolled back to. The row has no `uuid`, so a tree walk from the file's last uuid'd row still lands on the cut-off branch until the next turn appends under the new tip. Plume applies the cut itself from the success response: `HeadlessSession.rewoundBeforeMessageID` and `Transcript.rolledBack(before:)`. Measured against 2.1.289.
 
 **It cannot switch branches.** Rewinding onto a message on an already-abandoned branch answers `target_not_found` *even though that uuid is still in the file*: the file is append-only but the CLI's in-memory chain is not. Rewind is a one-way ratchet backward along the current path, not navigation.
 

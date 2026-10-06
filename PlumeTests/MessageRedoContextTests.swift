@@ -72,4 +72,78 @@ struct MessageRedoContextTests {
         withOtherClosure.parentByMessageID = ["u2": "different"]
         #expect(context().renderedState == withOtherClosure.renderedState)
     }
+
+    /// A rendered reply changing which message it rolls back to changes
+    /// which rows show the buttons, so it has to restage.
+    @Test func aNewRollbackTargetChangesTheRenderedState() {
+        var withTarget = context()
+        withTarget.rollbackTargetByReplyID = ["a1": "u2"]
+        #expect(context().renderedState != withTarget.renderedState)
+    }
+}
+
+/// Rolling back to a reply rewinds to the user message after it, since
+/// `rewind_conversation` cuts before its target.
+struct RollbackTargetTests {
+    private func message(_ id: String, _ role: ChatMessage.Role) -> ChatMessage {
+        ChatMessage(id: id, role: role, blocks: [], timestamp: nil)
+    }
+
+    @Test func eachReplyRollsBackToTheMessageAfterIt() {
+        let targets = MessageRedoContext.rollbackTargets(in: [
+            message("u1", .user), message("a1", .assistant),
+            message("u2", .user), message("a2", .assistant),
+            message("u3", .user), message("a3", .assistant)
+        ])
+        #expect(targets == ["a1": "u2", "a2": "u3"])
+    }
+
+    /// Only a turn's last reply gets the buttons: rolling back to an earlier
+    /// one in the same turn would still cut at the same message.
+    @Test func aTurnOfSeveralRepliesOffersOnlyItsLast() {
+        let targets = MessageRedoContext.rollbackTargets(in: [
+            message("u1", .user), message("a1", .assistant), message("a1b", .assistant),
+            message("u2", .user)
+        ])
+        #expect(targets == ["a1b": "u2"])
+    }
+
+    /// A notice between a reply and the next message is the transcript's own
+    /// aside, not a turn, so the reply still rolls back to that message.
+    @Test func aNoticeBetweenAReplyAndTheNextMessageIsSkipped() {
+        let targets = MessageRedoContext.rollbackTargets(in: [
+            message("u1", .user), message("a1", .assistant), message("n1", .notice),
+            message("u2", .user)
+        ])
+        #expect(targets == ["a1": "u2"])
+    }
+
+    @Test func theNewestReplyHasNothingToRollBack() {
+        let targets = MessageRedoContext.rollbackTargets(in: [
+            message("u1", .user), message("a1", .assistant)
+        ])
+        #expect(targets.isEmpty)
+    }
+}
+
+/// The CLI writes no new tip after a rewind until the next turn, so the chat
+/// applies the cut itself.
+struct TranscriptRollbackTests {
+    private func transcript(_ ids: [String]) -> Transcript {
+        var transcript = Transcript()
+        transcript.messages = ids.map { ChatMessage(id: $0, role: $0.hasPrefix("u") ? .user : .assistant, blocks: [], timestamp: nil) }
+        return transcript
+    }
+
+    @Test func aRewindDropsTheCutMessageAndEverythingAfterIt() {
+        let cut = transcript(["u1", "a1", "u2", "a2", "u3", "a3"]).rolledBack(before: "u2")
+        #expect(cut.messages.map(\.id) == ["u1", "a1"])
+    }
+
+    /// The next turn appends under the rewind's tip, so the cut message
+    /// leaves the live branch and the stale cut must stop applying.
+    @Test func aCutMessageNoLongerOnTheBranchChangesNothing() {
+        let next = transcript(["u1", "a1", "u4", "a4"])
+        #expect(next.rolledBack(before: "u2") == next)
+    }
 }

@@ -45,6 +45,7 @@ struct ChatTabView: View, ThemedView {
     /// past it. Nothing in that subtree is sized from it, so measuring
     /// cannot feed back into the measurement.
     @State private var panelHeight: CGFloat = 0
+    @State private var chatHeight: CGFloat = 0
     /// Set to pull a queued message back into the composer for editing, from
     /// the chip's own edit button. `ChatComposer` owns the actual draft/state
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
@@ -69,8 +70,11 @@ struct ChatTabView: View, ThemedView {
 
     private var transcript: Transcript? {
         switch tab.provider {
-        case .claudeCode: TranscriptStore.shared.transcript(forTab: tab.id)
-        case .codex: CodexItemStore.shared.transcript(forTab: tab.id)
+        case .claudeCode:
+            let stored = TranscriptStore.shared.transcript(forTab: tab.id)
+            if let cut = claudeSession?.rewoundBeforeMessageID { return stored?.rolledBack(before: cut) }
+            return stored
+        case .codex: return CodexItemStore.shared.transcript(forTab: tab.id)
         }
     }
 
@@ -457,6 +461,7 @@ struct ChatTabView: View, ThemedView {
                 SideQuestionChip(
                     exchange: exchange,
                     glass: planGlass,
+                    maxHeight: chatHeight / 2,
                     onOpenPanel: { isSideQuestionsPanelShown = true },
                     onDismiss: { claudeSession.dismissChippedSideQuestion() }
                 )
@@ -972,6 +977,7 @@ struct ChatTabView: View, ThemedView {
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .overlay(alignment: .bottom) {
             let reserve = isSide ? geometry.chatTrailingReserve : 0
             // Moves with the chat's own horizontal shift.
@@ -1017,7 +1023,7 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
-    /// What the redo and fork buttons in a user message's footer act on.
+    /// What the rollback and fork buttons in a reply's footer act on.
     ///
     /// Nil unless a Claude Code headless session is live: the rewind rides
     /// that session's control plane, and a fork resumes the session id it has
@@ -1036,6 +1042,7 @@ struct ChatTabView: View, ThemedView {
             lastSeenUserMessageID: lastSeenUserMessageID,
             parentByMessageID: transcript.parentByMessageID,
             transcriptMessageIDs: Set(transcript.messages.map(\.id)),
+            rollbackTargetByReplyID: MessageRedoContext.rollbackTargets(in: transcript.messages),
             canFork: forkSessionID != nil,
             onFork: { cutAfter in forkToNewTab(cutAfter: cutAfter) },
             abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
@@ -1268,7 +1275,7 @@ struct ChatTabView: View, ThemedView {
                     .frame(maxWidth: 420)
             }
             if failure.remedy == .redoInstead {
-                Text("Redo the message in this conversation instead — it rewinds in place and doesn't need the flag this fork asked for.")
+                Text("Roll back to that reply in this conversation instead — it rewinds in place and doesn't need the flag this fork asked for.")
                     .font(.callout)
                     .emphasis(.secondary)
                     .multilineTextAlignment(.center)

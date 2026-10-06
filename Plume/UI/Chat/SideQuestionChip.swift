@@ -15,16 +15,24 @@ struct SideQuestionChip: View, ThemedView {
 
     let exchange: SideQuestion
     let glass: Glass
+    /// The tallest the whole panel may grow. The answer scrolls within
+    /// whatever the header and question leave of it.
+    let maxHeight: CGFloat
     let onOpenPanel: () -> Void
     let onDismiss: () -> Void
 
     @State private var answerOverflow = ScrollOverflow()
+    @State private var promptHeight: CGFloat = 0
 
     static let symbol = "bubble.left.and.bubble.right"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: questionAnswerSpacing) {
-            questionLine
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
+                header
+                question
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { promptHeight = $0 }
             answer
         }
         .padding(dimensions.composerFieldInset)
@@ -34,16 +42,15 @@ struct SideQuestionChip: View, ThemedView {
         .plumeID(AccessibilityID.sideQuestionChip, value: chipValue)
     }
 
-    private var questionLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+    /// Titled the way a decision card is, so it reads as the same family as
+    /// a question the agent asks.
+    private var header: some View {
+        HStack(spacing: DecisionCard.rowSpacing) {
+            Label("/btw", systemImage: Self.symbol)
+                .font(typography.caption.semibold)
+                .emphasis(.secondary)
             status
-            Text(exchange.question)
-                .font(typography.body.font)
-                .lineSpacing(typography.body.lineSpacing)
-                .lineLimit(questionLineLimit)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
@@ -55,6 +62,16 @@ struct SideQuestionChip: View, ThemedView {
         }
     }
 
+    private var question: some View {
+        Text(exchange.question)
+            .font(typography.body.font)
+            .lineSpacing(typography.body.lineSpacing)
+            .lineLimit(questionLineLimit)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder
     private var status: some View {
         switch exchange.state {
@@ -62,9 +79,7 @@ struct SideQuestionChip: View, ThemedView {
             WorkingEllipsis(color: colors.activity)
                 .font(typography.caption.font)
         case .answered:
-            Image(systemName: Self.symbol)
-                .font(typography.caption.font)
-                .emphasis(.secondary)
+            EmptyView()
         case .failed:
             Image(systemName: "exclamationmark.triangle")
                 .font(typography.caption.font)
@@ -80,6 +95,9 @@ struct SideQuestionChip: View, ThemedView {
         case let .answered(answer):
             scrolling {
                 MarkdownView(answer, isAgentVoice: true)
+                    // Each block pads itself off the chat list's edges, which
+                    // would indent the answer from the question above it.
+                    .padding(.horizontal, -dimensions.horizontalEdgePadding)
             }
         case let .failed(message):
             scrolling {
@@ -123,8 +141,14 @@ struct SideQuestionChip: View, ThemedView {
     }
 
     private let questionLineLimit = 2
-    private let questionAnswerSpacing: CGFloat = 12
-    private let answerMaxHeight: CGFloat = 220
+    private let sectionSpacing: CGFloat = 12
+    /// A floor, so a tiny window still shows a few lines of answer.
+    private let answerMinHeight: CGFloat = 80
+
+    private var answerMaxHeight: CGFloat {
+        let chrome = promptHeight + sectionSpacing + dimensions.composerFieldInset * 2
+        return max(answerMinHeight, maxHeight - chrome)
+    }
     private let edgeFadeHeight: CGFloat = 28
 
     /// What a driver reads to tell the states apart without the glyph.

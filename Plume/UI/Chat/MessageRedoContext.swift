@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What a user message's redo and fork buttons need, threaded to the chat
+/// What a reply's rollback and fork buttons need, threaded to the chat
 /// rows through the environment.
 ///
 /// A hosted chat row inherits no environment, so `ChatListItemRoot` has to put
@@ -24,6 +24,9 @@ struct MessageRedoContext {
     /// an optimistic first message whose id is Plume's own string rather than
     /// a uuid the CLI has seen, and neither redo nor fork can name that.
     var transcriptMessageIDs: Set<String>
+    /// The user message that followed each reply, keyed by the reply's id —
+    /// what rolling back to that reply rewinds to. See `rollbackTargets(in:)`.
+    var rollbackTargetByReplyID: [String: String] = [:]
     /// Whether this tab has everything a fork needs: a session id to resume
     /// and a working directory to spawn in. False leaves the fork buttons
     /// disabled rather than letting them open an empty tab that never starts.
@@ -47,15 +50,42 @@ struct MessageRedoContext {
             tabID: tabID,
             lastSeenUserMessageID: lastSeenUserMessageID,
             transcriptMessageIDs: transcriptMessageIDs,
+            rollbackTargetByReplyID: rollbackTargetByReplyID,
             canFork: canFork,
             abandonedCountByMessageID: abandonedCountByMessageID
         )
+    }
+
+    /// Maps each turn's last reply to the user message after it.
+    ///
+    /// Rolling back to a reply means rewinding to the message that followed
+    /// it, because `rewind_conversation` cuts *before* its target. The
+    /// reply's own id cannot be the cut: a rendered reply merges several
+    /// transcript rows and carries the first one's uuid, so cutting there
+    /// would drop the rest of the turn. The newest reply has nothing after
+    /// it to roll back, so it is absent.
+    static func rollbackTargets(in messages: [ChatMessage]) -> [String: String] {
+        var targets: [String: String] = [:]
+        var lastReplyID: String?
+        for message in messages {
+            switch message.role {
+            case .assistant:
+                lastReplyID = message.id
+            case .user:
+                if let lastReplyID { targets[lastReplyID] = message.id }
+                lastReplyID = nil
+            case .notice:
+                break
+            }
+        }
+        return targets
     }
 
     struct RenderedState: Equatable {
         var tabID: UUID
         var lastSeenUserMessageID: String
         var transcriptMessageIDs: Set<String>
+        var rollbackTargetByReplyID: [String: String]
         var canFork: Bool
         var abandonedCountByMessageID: [String: Int]
     }

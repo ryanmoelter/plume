@@ -571,4 +571,21 @@ struct TranscriptParserForkTests {
         #expect(transcript.forkPoints == ["p1"])
         #expect(transcript.abandonedBranches["p1"]?.map(\.id) == ["abandoned1", "abandoned2"])
     }
+
+    /// The shape a rollback leaves: the abandoned reply carries its API
+    /// message id, not its row uuid, and still has to leave the chat. A
+    /// reply found only by API id stayed on screen beside the live branch.
+    @Test func theChatShowsOnlyTheLiveBranch() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"say APPLE"}}"#,
+            #"{"type":"assistant","uuid":"r1","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_apple","role":"assistant","content":[{"type":"text","text":"APPLE"}]}}"#,
+            #"{"type":"user","uuid":"u2","parentUuid":"r1","isSidechain":false,"message":{"role":"user","content":"say BANANA"}}"#,
+            #"{"type":"assistant","uuid":"r2","parentUuid":"u2","isSidechain":false,"message":{"id":"msg_banana","role":"assistant","content":[{"type":"text","text":"BANANA"}]}}"#,
+            #"{"type":"user","uuid":"u3","parentUuid":"r1","isSidechain":false,"message":{"role":"user","content":"say DATE"}}"#,
+            #"{"type":"assistant","uuid":"r3","parentUuid":"u3","isSidechain":false,"message":{"id":"msg_date","role":"assistant","content":[{"type":"text","text":"DATE"}]}}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id) == ["u1", "msg_apple", "u3", "msg_date"])
+        #expect(transcript.abandonedBranches["r1"]?.map(\.id) == ["u2", "msg_banana"])
+    }
 }

@@ -39,8 +39,8 @@ nonisolated struct Transcript: Equatable {
     var forkPoints: Set<String> = []
     /// Every rendered message on every branch a fork point left behind, in
     /// file order, keyed by the fork's parent uuid. The branch that reaches
-    /// the file's last row is the live one and is not included here — it
-    /// stays in `messages` as normal.
+    /// the file's last row is the live one: it alone makes up `messages`,
+    /// and is not included here.
     var abandonedBranches: [String: [ChatMessage]] = [:]
     /// Each row's `parentUuid`, for every row the file names — including the
     /// ones no rendered message came from. A fork cuts at the target's parent
@@ -50,6 +50,19 @@ nonisolated struct Transcript: Equatable {
     /// Whether `messageID` is a row where the conversation forked.
     func isForkPoint(messageID: String) -> Bool {
         forkPoints.contains(messageID)
+    }
+
+    /// This transcript as it reads after a rewind that cut before
+    /// `messageID`: everything from that message on is dropped.
+    ///
+    /// Unchanged once `messageID` is off the live branch, which is what the
+    /// next turn does by appending under the rewind's tip — so a stale cut
+    /// stops applying on its own.
+    func rolledBack(before messageID: String) -> Transcript {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return self }
+        var copy = self
+        copy.messages = Array(messages[..<index])
+        return copy
     }
 }
 
@@ -103,6 +116,9 @@ nonisolated enum TranscriptParser {
         // only ever appends to the branch it is currently on, so this row is
         // the tip of the surviving path.
         var tipUUID: String?
+        // Every row merged into the pending reply. The reply is keyed by its
+        // API id, so without these no row uuid on a branch leads to it.
+        var pendingAssistantRowUUIDs: [String] = []
 
         func flushPendingAssistant() {
             guard !pendingAssistantBlocks.isEmpty else { return }
@@ -114,12 +130,14 @@ nonisolated enum TranscriptParser {
                 timestamp: pendingAssistantTimestamp
             ))
             if let id = pendingAssistantID { messageIndexByUUID[id] = messageIndex }
+            for uuid in pendingAssistantRowUUIDs { messageIndexByUUID[uuid] = messageIndex }
             for (id, location) in pendingToolCalls {
                 if case .pendingAssistant(let blockIndex) = location {
                     pendingToolCalls[id] = .flushedMessage(messageIndex: messageIndex, blockIndex: blockIndex)
                 }
             }
             pendingAssistantBlocks = []
+            pendingAssistantRowUUIDs = []
             pendingAssistantID = nil
             pendingAssistantTimestamp = nil
         }
@@ -242,6 +260,7 @@ nonisolated enum TranscriptParser {
 
             switch (entry.type, role) {
             case ("assistant", "assistant"):
+                if let uuid = entry.uuid { pendingAssistantRowUUIDs.append(uuid) }
                 for block in contentBlocks {
                     switch block {
                     case .text(let text):
@@ -395,6 +414,7 @@ nonisolated enum TranscriptParser {
         tipUUID: String?
     ) {
         let live = liveUUIDs(upTo: tipUUID, parentByUUID: parentByUUID)
+        var abandonedIndices = Set<Int>()
 
         for (parentUuid, children) in childrenByParent {
             guard children.count >= 2, !isApiErrorRetryPair(children) else { continue }
@@ -412,7 +432,13 @@ nonisolated enum TranscriptParser {
             if !abandoned.isEmpty {
                 transcript.abandonedBranches[parentUuid] = abandoned
             }
+            abandonedIndices.formUnion(indices)
         }
+        // Only the live branch is the conversation; the rest survives in
+        // `abandonedBranches` for the fork marker.
+        transcript.messages = transcript.messages.indices
+            .filter { !abandonedIndices.contains($0) }
+            .map { transcript.messages[$0] }
     }
 
     /// The rendered-message indices descending from `rootUUID`, sorted back

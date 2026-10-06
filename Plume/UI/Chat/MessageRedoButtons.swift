@@ -1,17 +1,16 @@
 import SwiftUI
 
-/// Redo and fork, in the footer of a user message.
+/// Rollback and fork, in the footer of a reply.
 ///
-/// Offered on user messages only. Redoing an assistant message is not
-/// meaningful — the user turn that produced it is still in context, so the
-/// model would only answer it again — and the CLI agrees: an assistant row is
-/// frequently mid-tool-call, which `rewind_conversation` refuses outright with
-/// `target_splits_tool_call`.
+/// Both act on the point just after the reply: rollback cuts the conversation
+/// there in place, and fork opens the conversation up to there in a new tab.
+/// The cut is the user message that followed the reply (see
+/// `MessageRedoContext.rollbackTargets(in:)`), so the newest reply offers
+/// neither.
 ///
-/// Redo is the default and rides the documented control plane, cutting the
-/// conversation in place and handing its text back to the composer. Fork
-/// keeps both branches live by starting a second session, which needs an
-/// undocumented CLI flag — hence the secondary billing. See
+/// Rollback rides the documented control plane and hands the cut message's
+/// text back to the composer. Fork keeps both branches live by starting a
+/// second session, which needs an undocumented CLI flag. See
 /// `HeadlessCommand.Fork`.
 struct MessageRedoButtons: View, ThemedView {
     @Environment(\.theme) var theme
@@ -24,10 +23,11 @@ struct MessageRedoButtons: View, ThemedView {
         if let context {
             HStack(spacing: 4) {
                 forkMarker(context: context)
-                if role == .user,
-                   context.transcriptMessageIDs.contains(messageID),
+                if role == .assistant,
+                   let target = context.rollbackTargetByReplyID[messageID],
+                   context.transcriptMessageIDs.contains(target),
                    let session = session(for: context) {
-                    actions(session: session, context: context)
+                    actions(target: target, session: session, context: context)
                 }
             }
         }
@@ -50,56 +50,75 @@ struct MessageRedoButtons: View, ThemedView {
         }
     }
 
-    private func actions(session: HeadlessSession, context: MessageRedoContext) -> some View {
+    private func actions(target: String, session: HeadlessSession, context: MessageRedoContext) -> some View {
         Group {
-            Button { redo(session: session, context: context) } label: {
-                Image(systemName: "arrow.uturn.backward")
+            Button { rollBack(to: target, session: session, context: context) } label: {
+                FooterGlyph(symbol: "arrow.uturn.backward")
             }
-            .help("Redo this message — cuts the conversation back to here and puts the text back in the composer")
+            .help("Roll back to here — removes everything after this reply and puts your next message back in the composer")
             // The closure, so a driver runs the action rather than aiming a
-            // synthetic click at a 13pt glyph inside a hosted row.
+            // synthetic click at a small glyph inside a hosted row.
             .plumeID(
-                AccessibilityID.messageRedoButton,
+                AccessibilityID.messageRollbackButton,
                 label: messageID,
-                invoke: { redo(session: session, context: context) }
+                invoke: { rollBack(to: target, session: session, context: context) }
             )
 
             // Debug-only until forking is ready to ship.
             #if DEBUG
-            Button { fork(context: context) } label: {
-                Image(systemName: "arrow.triangle.branch")
+            Button { fork(from: target, context: context) } label: {
+                FooterGlyph(symbol: "arrow.triangle.branch")
             }
-            .help("Fork to a new tab from this message, leaving this conversation as it is")
-            // A fork cuts at the target's parent, so the first message of a
-            // conversation has nothing to cut after. Disabled rather than
-            // left to do nothing when pressed, as is a tab with no session id
-            // to resume or no directory to spawn in.
-            .disabled(!context.canFork || context.parentByMessageID[messageID] == nil)
+            .help("Fork to a new tab from here, leaving this conversation as it is")
+            // Disabled rather than left to do nothing when pressed, for a tab
+            // with no session id to resume or no directory to spawn in.
+            .disabled(!context.canFork || context.parentByMessageID[target] == nil)
             .plumeID(
                 AccessibilityID.messageForkButton,
                 label: messageID,
-                invoke: { fork(context: context) }
+                invoke: { fork(from: target, context: context) }
             )
             #endif
         }
         .buttonStyle(.plain)
-        .font(.system(size: 11, weight: .medium))
-        .emphasis(.subtle)
     }
 
     private func session(for context: MessageRedoContext) -> HeadlessSession? {
         AgentSessionManager.shared.existingSession(for: context.tabID) as? HeadlessSession
     }
 
-    private func redo(session: HeadlessSession, context: MessageRedoContext) {
+    private func rollBack(to target: String, session: HeadlessSession, context: MessageRedoContext) {
         session.rewindConversation(
-            to: messageID,
+            to: target,
             lastSeenMessageID: context.lastSeenUserMessageID
         )
     }
 
-    private func fork(context: MessageRedoContext) {
-        guard let parent = context.parentByMessageID[messageID] else { return }
+    /// Cuts at the target's parent: the target is the message being dropped.
+    private func fork(from target: String, context: MessageRedoContext) {
+        guard let parent = context.parentByMessageID[target] else { return }
         context.onFork(parent)
     }
+}
+
+/// A footer action's glyph, in the same hover circle as the copy button
+/// beside it.
+private struct FooterGlyph: View, ThemedView {
+    @Environment(\.theme) var theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    let symbol: String
+    @State private var isHovered = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .medium))
+            .emphasis(isHovered && isEnabled ? .primary : .subtle)
+            .frame(width: Self.diameter, height: Self.diameter)
+            .background(isHovered && isEnabled ? colors.surface(.backgroundTint) : .clear, in: .circle)
+            .contentShape(.circle)
+            .plumeHover { isHovered = $0 }
+    }
+
+    private static let diameter: CGFloat = 22
 }

@@ -138,6 +138,13 @@ final class HeadlessSession: AgentSession {
     /// Why the last rewind did not happen, until the user dismisses it.
     private(set) var rewindFailure: String?
 
+    /// The message the last successful rewind cut before. The transcript
+    /// cannot say this itself: the CLI writes no uuid'd row at the new tip
+    /// until the next turn appends under it, so the file's last such row
+    /// still hangs from the abandoned branch. See
+    /// `Transcript.rolledBack(before:)`.
+    private(set) var rewoundBeforeMessageID: String?
+
     private(set) var remoteControl: RemoteControlState = .disconnected
 
     /// The last Remote Control change worth telling the user about, until it
@@ -476,7 +483,7 @@ final class HeadlessSession: AgentSession {
     /// which the user can act on, not that anything went wrong.
     func rewindConversation(to messageID: String, lastSeenMessageID: String) {
         let requestID = nextRequestID()
-        pendingControlRequests[requestID] = .rewind
+        pendingControlRequests[requestID] = .rewind(targetID: messageID)
         guard send(StreamJSONEncoder.rewindConversation(
             targetMessageUUID: messageID,
             lastSeenMessageUUID: lastSeenMessageID,
@@ -492,7 +499,7 @@ final class HeadlessSession: AgentSession {
         rewindFailure = nil
     }
 
-    private func applyRewind(in response: ControlResponse) {
+    private func applyRewind(in response: ControlResponse, targetID: String) {
         if response.isError {
             rewindFailure = response.errorMessage ?? "The conversation could not be rewound."
             return
@@ -510,6 +517,12 @@ final class HeadlessSession: AgentSession {
         // A refusal the user already saw would otherwise stay on screen
         // beside the rewind that did work.
         rewindFailure = nil
+        rewoundBeforeMessageID = targetID
+        // The retained reply is the newest one, which the cut just dropped;
+        // the transcript will never carry it, so nothing else retires it.
+        streamingText = ""
+        streamingThinking = ""
+        streamingMessageID = nil
         // Straight into the draft rather than left for the view to consume:
         // the composer reads `DraftStore` for its text already, and a tab the
         // user has switched away from still gets its message back.
@@ -779,8 +792,8 @@ final class HeadlessSession: AgentSession {
             applyPermissionModeReply(response, requested: mode)
         case .sideQuestion(let id):
             applySideQuestionAnswer(in: response, id: id)
-        case .rewind:
-            applyRewind(in: response)
+        case .rewind(let targetID):
+            applyRewind(in: response, targetID: targetID)
         }
     }
 
@@ -994,6 +1007,6 @@ final class HeadlessSession: AgentSession {
         case generateSessionTitle
         case setPermissionMode(PermissionMode)
         case sideQuestion(id: String)
-        case rewind
+        case rewind(targetID: String)
     }
 }
