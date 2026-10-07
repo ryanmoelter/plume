@@ -82,7 +82,8 @@ struct InfoPaneContent: View, ThemedView {
                 showsCompleted.toggle()
             } label: {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Color.clear }
+                    // Holds the first column without filling the row's height.
+                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
                     InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
                     Text("Completed")
                     Spacer(minLength: 0)
@@ -191,8 +192,14 @@ struct InfoPaneContent: View, ThemedView {
         if let pullRequest = facts.pullRequest {
             let checkRollup: (PullRequest) -> CheckRollup = { pullRequest.checkRollup ?? $0.checkRollup() }
             HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: "arrow.triangle.pull") }
-                    .emphasis(.secondary)
+                InfoPaneIcon {
+                    if let forge = pullRequest.forge, forge.markImageName != nil {
+                        ForgeMark(forge: forge)
+                    } else {
+                        Image(systemName: "arrow.triangle.pull")
+                    }
+                }
+                .emphasis(.secondary)
                 PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
                 Spacer(minLength: 0)
             }
@@ -303,6 +310,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(
                     state: pullRequest.state,
+                    forge: pullRequest.forge,
                     checkRollup: { pullRequest.checkRollup ?? $0.checkRollup() },
                     summaryOnly: true
                 )

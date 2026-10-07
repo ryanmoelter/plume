@@ -53,6 +53,12 @@ struct InfoPaneFacts: Equatable {
         /// Resolved by the store, so the repository's ignored checks are
         /// already suppressed. Nil when the state holds no pull request.
         let checkRollup: CheckRollup?
+        /// Nil until the store has resolved the repository's origin.
+        var forge: ForgeKind? = nil
+
+        var hasPullRequest: Bool {
+            if case .pullRequest = state { true } else { false }
+        }
     }
 
     var tabID: UUID
@@ -77,14 +83,16 @@ struct InfoPaneFacts: Equatable {
         return sections
     }
 
-    /// What the collapsed form draws an icon for. Where the conversation runs
-    /// rarely changes, so only the pull request stands in for it.
+    /// What the collapsed form draws an icon for: only what has something to
+    /// say. Where the conversation runs rarely changes, and a branch without
+    /// a pull request has no status worth a glance.
     var collapsedSections: [InfoPaneSection] {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
+            case .pullRequest: pullRequest?.hasPullRequest == true
             case .folder, .branch: false
-            default: true
+            case .backgroundTasks, .plan: true
             }
         }
     }
@@ -104,6 +112,7 @@ extension InfoPaneFacts {
     /// than drawn as an empty row.
     static func pullRequest(
         state: PullRequestFetchState?,
+        forge: ForgeKind? = nil,
         checkRollup: (PullRequest) -> CheckRollup
     ) -> PullRequestFacts? {
         guard let state else { return nil }
@@ -111,9 +120,9 @@ extension InfoPaneFacts {
         case .forgeUnsupported:
             return nil
         case .pullRequest(let pullRequest):
-            return PullRequestFacts(state: state, checkRollup: checkRollup(pullRequest))
+            return PullRequestFacts(state: state, checkRollup: checkRollup(pullRequest), forge: forge)
         default:
-            return PullRequestFacts(state: state, checkRollup: nil)
+            return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
     }
 }

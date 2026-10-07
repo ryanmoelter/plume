@@ -72,6 +72,14 @@ final class PullRequestStore {
         return states[directory]
     }
 
+    /// Which forge the directory's origin points at, once its repository has
+    /// resolved.
+    func forge(for directory: String?) -> ForgeKind? {
+        guard let repository = directory.flatMap({ watches[$0]?.repository }),
+              let facts = facts[repository] else { return nil }
+        return ForgeKind.sniffing(originURL: facts.originURL)
+    }
+
     /// The rollup a row should draw, with this repository's ignored checks
     /// already suppressed.
     func checkRollup(for directory: String?, of pullRequest: PullRequest) -> CheckRollup {

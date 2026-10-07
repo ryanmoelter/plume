@@ -136,6 +136,8 @@ struct PullRequestChip: View {
     /// the thing the row exists to surface; one riding on the branch line is
     /// an annotation to it, and matches that line instead.
     var emphasis: Emphasis = .primary
+    /// Leads the chip with the forge's mark when known.
+    var forge: ForgeKind? = nil
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
     /// Draws only `PullRequestChipContent.summaryGlyph`.
@@ -148,6 +150,10 @@ struct PullRequestChip: View {
             ? PullRequestChipContent.summaryGlyph(for: state, checkRollup: checkRollup).map { [$0] } ?? []
             : PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
         HStack(spacing: 3) {
+            if let forge, !glyphs.isEmpty {
+                ForgeMark(forge: forge)
+                    .foregroundStyle(emphasis.textHierarchy)
+            }
             ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
                 Group {
                     if let symbol = glyph.symbol {
@@ -172,6 +178,35 @@ struct PullRequestChip: View {
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
         case .neutral: AnyShapeStyle(emphasis.textHierarchy)
+        }
+    }
+}
+
+/// The forge's own mark, sized to the caption text beside it. Nothing for a
+/// forge without one.
+struct ForgeMark: View {
+    let forge: ForgeKind
+
+    @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 10
+
+    var body: some View {
+        if let name = forge.markImageName {
+            Image(name)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension ForgeKind {
+    var markImageName: String? {
+        switch self {
+        case .github: "GitHubMark"
+        case .gitlab: "GitLabMark"
+        case .none: nil
         }
     }
 }

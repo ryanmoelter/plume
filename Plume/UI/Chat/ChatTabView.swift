@@ -160,7 +160,10 @@ struct ChatTabView: View, ThemedView {
             )
         }
         let pullRequest = settings.showsPullRequestStatus
-            ? InfoPaneFacts.pullRequest(state: PullRequestStore.shared.state(for: gitDirectory)) {
+            ? InfoPaneFacts.pullRequest(
+                state: PullRequestStore.shared.state(for: gitDirectory),
+                forge: PullRequestStore.shared.forge(for: gitDirectory)
+            ) {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
             : nil
@@ -888,10 +891,7 @@ struct ChatTabView: View, ThemedView {
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
-        .overlay(alignment: .bottom) {
-            bottomChrome(transcript: transcript)
-                .padding(.trailing, isSide ? geometry.chatTrailingReserve : 0)
-        }
+        .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { conversationWidth = $0 }
     }
 
@@ -900,7 +900,11 @@ struct ChatTabView: View, ThemedView {
             width: conversationWidth,
             railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
-            chatColumnWidth: dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
+            // The bleed column, so a code block clears the pane as well as prose.
+            chatColumnWidth: max(
+                dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
+                dimensions.bleedWidth + dimensions.horizontalBleedPadding * 2
+            ),
             state: settings.infoPaneState,
             collapsedHeight: collapsedInfoPaneHeight
         )

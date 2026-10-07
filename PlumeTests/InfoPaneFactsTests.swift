@@ -50,7 +50,17 @@ struct InfoPaneFactsTests {
             branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
             pullRequest: .init(state: .noPR, checkRollup: nil)
         )
-        #expect(facts.collapsedSections == [.plan, .pullRequest])
+        #expect(facts.collapsedSections == [.plan])
+    }
+
+    @Test func theCollapsedFormShowsAPullRequestOnlyWhenThereIsOne() {
+        let open = PullRequest(number: 7, state: .open, isDraft: false)
+        let withPR = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: .pullRequest(open), checkRollup: .success))
+        #expect(withPR.collapsedSections == [.pullRequest])
+        for state in [PullRequestFetchState.noPR, .localOnly, .loading] {
+            let facts = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: state, checkRollup: nil))
+            #expect(facts.collapsedSections.isEmpty)
+        }
     }
 
     @Test func aHiddenPaneComesBackCollapsed() {

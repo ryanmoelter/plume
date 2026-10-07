@@ -28,6 +28,9 @@ struct InfoSidePane: View, ThemedView {
     @State private var isFloatingOpen = false
     @State private var showsCompletedSubagents = false
     @State private var pendingHover: Task<Void, Never>?
+    @State private var collapsedSize: CGSize = .zero
+    @State private var expandedHeight: CGFloat = 0
+    @State private var availableHeight: CGFloat = 0
 
     /// Long enough that a click aimed at the collapsed row lands on it rather
     /// than on the header the open pane puts under the pointer.
@@ -35,6 +38,18 @@ struct InfoSidePane: View, ThemedView {
     private static var hoverCloseDelay: Duration { .milliseconds(250) }
 
     private var isOpen: Bool { geometry.isPinned || isHoverOpen || isFloatingOpen }
+
+    private var maxExpandedHeight: CGFloat {
+        max(0, availableHeight - dimensions.panelInset)
+    }
+
+    /// The only thing that animates between the two forms. Both keep their
+    /// own size inside it, so opening never relays out the pane's text.
+    private var boxSize: CGSize {
+        isOpen
+            ? CGSize(width: InfoPaneLayout.paneWidth, height: min(expandedHeight, maxExpandedHeight))
+            : collapsedSize
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -49,6 +64,7 @@ struct InfoSidePane: View, ThemedView {
                 .padding(.trailing, geometry.trailingInset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
         .padding(.bottom, bottomInset + dimensions.panelInset)
         .animation(.snappy(duration: 0.22), value: isOpen)
         // Hover never reports an exit for a view that changes under the
@@ -68,17 +84,20 @@ struct InfoSidePane: View, ThemedView {
     }
 
     private var box: some View {
-        // A ZStack rather than a Group, so the glass and the hover region
-        // belong to one view that outlives the swap between its two forms.
-        ZStack(alignment: .topTrailing) {
-            if isOpen {
-                expanded
-                    .transition(.opacity)
-            } else {
-                collapsed
-                    .transition(.opacity)
-            }
+        // Both forms stay mounted and cross-fade, so the glass and the hover
+        // region belong to one view and only its frame moves.
+        ZStack(alignment: .topLeading) {
+            collapsed
+                .opacity(isOpen ? 0 : 1)
+                .allowsHitTesting(!isOpen)
+                .plumeControlsHidden(isOpen)
+            expanded
+                .opacity(isOpen ? 1 : 0)
+                .allowsHitTesting(isOpen)
+                .plumeControlsHidden(!isOpen)
         }
+        .frame(width: boxSize.width, height: boxSize.height, alignment: .topLeading)
+        .clipShape(.rect(cornerRadius: dimensions.panelCornerRadius))
         .glassEffect(glass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .plumeHover { hovering in
             isHovering = hovering
@@ -97,10 +116,14 @@ struct InfoSidePane: View, ThemedView {
         .buttonStyle(.plain)
         .help(geometry.fitsBeside ? "Keep the info pane open" : "Open the info pane")
         .plumeID(AccessibilityID.infoPanePill)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onCollapsedHeight($0) }
+        .fixedSize()
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+            collapsedSize = size
+            onCollapsedHeight(size.height)
+        }
     }
 
-    /// Scrolls once it outgrows the height it is offered, and hugs its
+    /// Scrolls once it outgrows the room above the composer, and hugs its
     /// content otherwise.
     private var expanded: some View {
         let content = InfoPaneContent(
@@ -118,11 +141,13 @@ struct InfoSidePane: View, ThemedView {
         )
         .padding(12)
         .frame(width: InfoPaneLayout.paneWidth, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { expandedHeight = $0 }
 
-        return ViewThatFits(in: .vertical) {
-            content
-            ScrollView { content }
-        }
+        return ScrollView { content }
+            .scrollDisabled(expandedHeight <= maxExpandedHeight)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(width: InfoPaneLayout.paneWidth, height: min(expandedHeight, maxExpandedHeight))
     }
 
     private var headerButton: InfoPaneHeaderButton {

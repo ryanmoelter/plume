@@ -13,6 +13,9 @@ struct ChatListInputs: Equatable {
     /// Room above the first message for whatever floats over the list's top
     /// edge.
     var leadingInset: CGFloat = 0
+    /// How far every row slides sideways, eased rather than relaid out, so
+    /// the columns can make way for the pinned info pane without rewrapping.
+    var horizontalShift: CGFloat = 0
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -111,11 +114,13 @@ final class ChatListController: NSObject {
     private var departing: [String: Departure] = [:]
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
+    private var horizontalShift: CGFloat = 0
 
     private static let leadingInsetID = "plume.leading.inset"
     private static let dockID = "plume.trailing.dock"
     private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
+    private static let shiftEaseKey = "plume.horizontalShift"
     private static let poolLimit = 40
 
     /// About a line or two of body text left showing above a freshly pinned
@@ -242,6 +247,13 @@ final class ChatListController: NSObject {
                 model.trailingInset = new.trailingInset
             }
         }
+        if new.horizontalShift != old.horizontalShift {
+            if new.animate, documentView.window != nil {
+                animator.ease(Self.shiftEaseKey, from: horizontalShift, to: new.horizontalShift, duration: 0.22)
+            } else {
+                horizontalShift = new.horizontalShift
+            }
+        }
         if new.animate != old.animate {
             if !new.animate {
                 for key in animator.eases.keys { animator.cancelEase(key) }
@@ -251,6 +263,7 @@ final class ChatListController: NSObject {
                 }
                 model.snapDisplayHeights()
                 model.trailingInset = new.trailingInset
+                horizontalShift = new.horizontalShift
                 for host in hosts.values { host.state.containerHeight = nil; host.view.alphaValue = 1 }
                 arriving.removeAll()
             } else {
@@ -452,6 +465,8 @@ final class ChatListController: NSObject {
             let value = ease.value(at: now)
             if key == Self.insetEaseKey {
                 model.trailingInset = value
+            } else if key == Self.shiftEaseKey {
+                horizontalShift = value
             } else if let host = hosts[key] {
                 model.setDisplayHeight(value, for: key)
                 host.state.containerHeight = value
@@ -587,7 +602,7 @@ final class ChatListController: NSObject {
 
         for (id, host) in hosts {
             guard let frame = model.frame(of: id) else { continue }
-            host.view.frame = NSRect(x: 0, y: frame.minY, width: width, height: frame.height)
+            host.view.frame = NSRect(x: horizontalShift, y: frame.minY, width: width, height: frame.height)
         }
 
         if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
