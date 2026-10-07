@@ -143,9 +143,9 @@ private struct TabChip: View {
             }
             Text(chipTitle)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
                 .font(.callout)
-                .frame(maxWidth: 120, alignment: .leading)
+                .frame(maxWidth: 180, alignment: .leading)
 
             if BellStore.shared.hasUnseenBell(tabID: tab.id) {
                 Circle()
