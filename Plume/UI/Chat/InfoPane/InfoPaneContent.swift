@@ -13,6 +13,7 @@ struct InfoPaneContent: View, ThemedView {
     let headerButton: InfoPaneHeaderButton?
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
+    let onOpenSideChat: () -> Void
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -41,6 +42,7 @@ struct InfoPaneContent: View, ThemedView {
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
         case .plan: plan
+        case .sideChat: sideChat
         case .folder: folder
         case .branch: branch
         case .pullRequest: pullRequest
@@ -158,6 +160,26 @@ struct InfoPaneContent: View, ThemedView {
         .buttonStyle(.plain)
         .help("Open the plan this conversation produced")
         .plumeID(AccessibilityID.infoPanePlanRow)
+    }
+
+    // MARK: Side chat
+
+    private var sideChat: some View {
+        Button(action: onOpenSideChat) {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: SideQuestionChip.symbol) }
+                Text("Side chats")
+                Text("\(facts.sideChatCount)")
+                    .emphasis(.subtle)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .emphasis(.subtle)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("Open the side chats")
+        .plumeID(AccessibilityID.infoPaneSideChatRow)
     }
 
     // MARK: Where it runs
@@ -356,7 +378,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: "tree")
                 .emphasis(.secondary)
                 .help("In a worktree")
-        case .folder:
+        case .folder, .sideChat:
             EmptyView()
         }
     }

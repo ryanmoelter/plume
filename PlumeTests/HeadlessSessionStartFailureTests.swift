@@ -33,4 +33,23 @@ struct HeadlessSessionStartFailureTests {
         #expect(failure.remedy == .installCLI)
         #expect(failure.detail == "claude: command not found")
     }
+
+    /// A launch that asked to fork records a session id the CLI never wrote,
+    /// so the retry the generic classification offers would resume a
+    /// conversation that does not exist. Every failure of a fork has to reach
+    /// `.redoInstead` instead, whatever the stderr line says.
+    @Test func aForkThatDiesIsNeverOfferedARetry() throws {
+        let session = makeSession()
+        session.start(
+            workingDirectory: nil,
+            permissionMode: nil,
+            resumeSessionID: "session-1",
+            settingsPath: nil,
+            fork: HeadlessCommand.Fork(newSessionID: "session-2", cutAfterMessageUUID: "cut")
+        )
+        session.failToLaunch(reason: "something the classifier has never seen")
+
+        let failure = try #require(session.startFailure)
+        #expect(failure.remedy == .redoInstead)
+    }
 }

@@ -63,6 +63,7 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    var onOpenSideChat: () -> Void = {}
     /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
     /// so a change between nil and non-nil refreshes mounted rows itself.
     var onOpenPlan: (() -> Void)? {
@@ -75,6 +76,16 @@ final class ChatListController: NSObject {
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
+    /// Set on every update. Assigning it restages the rows itself when what
+    /// a row draws from it has changed, because a fork marker can appear on a
+    /// transcript change that leaves every piece untouched — and an untouched
+    /// piece is not otherwise restaged.
+    var redoContext: MessageRedoContext? {
+        didSet {
+            guard redoContext?.renderedState != oldValue?.renderedState else { return }
+            refreshRoots(Set(hosts.keys))
+        }
+    }
 
     private(set) var inputs = ChatListInputs()
     private var model = ChatLayoutModel()
@@ -811,7 +822,8 @@ final class ChatListController: NSObject {
             chatFontSize: inputs.chatFontSize,
             revealModel: revealModel,
             workStartedAt: inputs.workStartedAt,
-            linkDirectory: inputs.linkDirectory
+            linkDirectory: inputs.linkDirectory,
+            redoContext: redoContext
         )
         switch item {
         case .leadingInset:
@@ -836,9 +848,15 @@ final class ChatListController: NSObject {
             let facts = inputs.infoPane
             let onOpen = onOpenSubagent
             let onOpenPlan = onOpenPlan ?? {}
+            let onOpenSideChat = onOpenSideChat
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 if let facts {
-                    InfoPaneInlineBlock(facts: facts, onOpenSubagent: onOpen, onOpenPlan: onOpenPlan)
+                    InfoPaneInlineBlock(
+                        facts: facts,
+                        onOpenSubagent: onOpen,
+                        onOpenPlan: onOpenPlan,
+                        onOpenSideChat: onOpenSideChat
+                    )
                         .listItemPadding(vertical: false)
                         .containerHeight(state, onMeasure: onMeasure)
                 }
@@ -896,6 +914,9 @@ struct ChatListItemEnvironment {
     /// environment, so the link handler has to be rebuilt here rather than
     /// reaching the row from the chat's own.
     var linkDirectory: URL?
+    /// What a user message's redo and fork buttons act on. Nil where the tab
+    /// has no live session to rewind.
+    var redoContext: MessageRedoContext?
 }
 
 struct ChatListItemRoot<Content: View>: View {
@@ -910,6 +931,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.chatRevealModel, environment.revealModel)
             .environment(\.workStartedAt, environment.workStartedAt)
+            .environment(\.messageRedoContext, environment.redoContext)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }

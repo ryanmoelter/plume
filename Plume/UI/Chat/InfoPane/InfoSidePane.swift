@@ -20,6 +20,7 @@ struct InfoSidePane: View, ThemedView {
     let onCollapsedHeight: (CGFloat) -> Void
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
+    let onOpenSideChat: () -> Void
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -126,6 +127,10 @@ struct InfoSidePane: View, ThemedView {
             onOpenPlan: {
                 closeTransient()
                 onOpenPlan()
+            },
+            onOpenSideChat: {
+                closeTransient()
+                onOpenSideChat()
             },
             showsCompleted: $showsCompletedSubagents
         )

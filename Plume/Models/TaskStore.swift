@@ -235,6 +235,7 @@ enum TaskStore {
         BellStore.shared.forget(tabID: tabID)
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
+        InheritedForkHistory.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         CodexSubagentStore.shared.forget(tabID: tabID)
         CodexItemStore.shared.forget(tabID: tabID)

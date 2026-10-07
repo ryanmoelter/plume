@@ -10,6 +10,7 @@ struct InfoPaneInlineBlock: View, ThemedView {
     let facts: InfoPaneFacts
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
+    let onOpenSideChat: () -> Void
 
     @State private var settings = AppSettings.shared
     @State private var showsCompletedSubagents = false
@@ -26,6 +27,7 @@ struct InfoPaneInlineBlock: View, ThemedView {
                     ) { settings.infoPaneState = .collapsed },
                     onOpenSubagent: onOpenSubagent,
                     onOpenPlan: onOpenPlan,
+                    onOpenSideChat: onOpenSideChat,
                     showsCompleted: $showsCompletedSubagents
                 )
             } else {

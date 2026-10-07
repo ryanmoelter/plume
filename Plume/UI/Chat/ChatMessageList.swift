@@ -24,10 +24,14 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// Set on the headless transport, so pending permissions can be docked
     /// after the last message. Nil leaves the list read-only.
     var tabID: UUID?
+    /// What a user message's redo and fork buttons act on. Nil on a tab with
+    /// no live session, which leaves the buttons off.
+    var redoContext: MessageRedoContext?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
     var onOpenPlan: (() -> Void)? = nil
+    var onOpenSideChat: () -> Void = {}
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
@@ -156,8 +160,10 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             ),
             revealModel: revealModel,
             commands: commands,
+            redoContext: redoContext,
             onOpenSubagent: onOpenSubagent,
             onOpenPlan: onOpenPlan,
+            onOpenSideChat: onOpenSideChat,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }
         )

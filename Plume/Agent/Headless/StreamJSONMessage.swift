@@ -12,6 +12,10 @@ enum StreamJSONMessage {
     case initialized(SessionInit)
     case status(String)
     case bridgeState(BridgeState)
+    /// A control request is under way — currently only observed for
+    /// `side_question`, which otherwise gives no sign it is running until its
+    /// `control_response` arrives.
+    case controlRequestProgress(requestID: String)
     case streamEvent(PartialEvent)
     case assistant(MessageEnvelope)
     case user(MessageEnvelope)

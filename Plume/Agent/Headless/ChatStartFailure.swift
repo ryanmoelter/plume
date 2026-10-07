@@ -18,6 +18,10 @@ nonisolated struct ChatStartFailure: Equatable {
         /// Claude Code has not been told to trust the directory, so the fix is
         /// a terminal tab, where the folder-trust prompt can be answered.
         case trustDirectory
+        /// Forking is unavailable in this CLI, so the fix is to redo the
+        /// message in place instead — which rides the documented control
+        /// plane and needs no flag.
+        case redoInstead
     }
 
     /// The refusal `AgentLauncher` reports when it will not spawn into a
@@ -28,6 +32,59 @@ nonisolated struct ChatStartFailure: Equatable {
             detail: "Claude Code needs to ask about \((path as NSString).lastPathComponent) before it can run there, and this chat can't show that prompt.",
             remedy: .trustDirectory
         )
+    }
+
+    /// A fork that the CLI refused.
+    ///
+    /// `--resume-session-at` is undocumented, so a CLI upgrade can withdraw
+    /// it without warning; `commander` then rejects the whole invocation with
+    /// `error: unknown option` before Claude Code runs at all. Both this and a
+    /// cut point the session does not contain exit 1 with one stderr line and
+    /// no stdout, so a fork that fails this way is reported as a fork rather
+    /// than as a chat that mysteriously would not start.
+    static func forkUnavailable(detail: String?) -> ChatStartFailure {
+        ChatStartFailure(
+            title: "This version of Claude Code can't fork a conversation",
+            detail: detail,
+            remedy: .redoInstead
+        )
+    }
+
+    static func forkTargetMissing(detail: String?) -> ChatStartFailure {
+        ChatStartFailure(
+            title: "That message isn't in this conversation",
+            detail: detail,
+            remedy: .redoInstead
+        )
+    }
+
+    static func forkFailed(detail: String?) -> ChatStartFailure {
+        ChatStartFailure(
+            title: "This conversation couldn't be forked",
+            detail: detail,
+            remedy: .redoInstead
+        )
+    }
+
+    /// How a fork that died is reported. Checked by a session that knows it
+    /// asked for a fork — `classify` cannot tell, since the same line from a
+    /// non-forking launch means something else.
+    ///
+    /// Every outcome is `.redoInstead`, including a line neither known mode
+    /// matches: the fork tab records a session id the CLI never wrote, so a
+    /// retry resumes a conversation that does not exist and fails again with
+    /// different wording.
+    static func forkRefusal(error: String?) -> ChatStartFailure {
+        guard let error = error?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !error.isEmpty else { return .forkFailed(detail: nil) }
+        let lowered = error.lowercased()
+        if lowered.contains("unknown option"), lowered.contains("resume-session-at") {
+            return .forkUnavailable(detail: error)
+        }
+        if lowered.contains("no message found with message.uuid") {
+            return .forkTargetMissing(detail: error)
+        }
+        return .forkFailed(detail: error)
     }
 
     let title: String

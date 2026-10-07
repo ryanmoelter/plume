@@ -29,24 +29,29 @@ enum AgentLauncher {
         launch(blocks: message.map { [.text($0)] } ?? [], task: task, tab: tab, resumeSessionID: resumeSessionID)
     }
 
+    /// `fork` branches the resumed conversation into a new session instead of
+    /// continuing it, and is honoured on Claude Code's headless transport
+    /// only — no other path has a way to pass the cut through.
     static func launch(
         blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
-        resumeSessionID: String? = nil
+        resumeSessionID: String? = nil,
+        fork: HeadlessCommand.Fork? = nil
     ) {
         let normalized = blocks.normalized
         let text = normalized.plainText
         switch (tab.provider, tab.transport) {
         case (.claudeCode, .headless):
-            launchClaudeHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
+            launchClaudeHeadless(
+                blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork
+            )
         case (.claudeCode, .terminal):
             launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case (.codex, .headless):
             launchCodexHeadless(blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID)
         case (.codex, .terminal):
             launchCodexTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
-
         }
     }
 
@@ -83,7 +88,8 @@ enum AgentLauncher {
 
         task: WorkTask,
         tab: TaskTab,
-        resumeSessionID: String?
+        resumeSessionID: String?,
+        fork: HeadlessCommand.Fork? = nil
     ) {
         // `claude -p` skips the folder-trust prompt outright rather than
         // blocking on it, so a directory the user never accepted would run
@@ -129,7 +135,9 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+        // A launch with no prompt runs no turn, so nothing would end it. A
+        // prompt reports `.working` itself once submitted.
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: blocks.hasContent ? .working : .awaitingReply)
 
         let existing = AgentSessionManager.shared.session(
             for: tab.id,
@@ -152,7 +160,8 @@ enum AgentLauncher {
             settingsPath: settingsPath,
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
-            environment: LoginShellCommand.plumeEnvironment
+            environment: LoginShellCommand.plumeEnvironment,
+            fork: fork
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)

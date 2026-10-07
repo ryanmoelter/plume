@@ -110,6 +110,7 @@ struct ChatPieceView: View, ThemedView {
                     label: "Copy message as markdown",
                     isFloating: false
                 )
+                MessageRedoButtons(messageID: piece.messageID, role: piece.role)
                 if let timestamp = piece.timestamp {
                     Text(ChatTimestampFormat.string(for: timestamp, now: .now))
                         .font(typography.caption.font)

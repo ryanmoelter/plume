@@ -82,6 +82,39 @@ enum StreamJSONEncoder {
         return controlRequest(id: requestID, body: body)
     }
 
+    /// Asks a side question, answered from main context without disturbing
+    /// the main conversation or writing to its transcript.
+    static func sideQuestion(question: String, requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("side_question"),
+            "question": .string(question)
+        ])
+    }
+
+    /// Cuts the conversation back to just before `targetMessageUUID`, so that
+    /// message can be asked again. The reply carries the target's own text as
+    /// `prefillText`, for editing and resending.
+    ///
+    /// `lastSeenMessageUUID` is the newest user message the host has rendered.
+    /// The CLI refuses with `stale_target` without it, since a target chosen
+    /// against a conversation that has moved on would cut the wrong place.
+    ///
+    /// The cut is append-only on disk: nothing is deleted, and the rows left
+    /// behind stay readable as an abandoned branch. It does not survive into
+    /// a new process, though — the abandoned rows leave the CLI's live chain,
+    /// so rewinding back onto one answers `target_not_found`.
+    static func rewindConversation(
+        targetMessageUUID: String,
+        lastSeenMessageUUID: String,
+        requestID: String
+    ) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("rewind_conversation"),
+            "target_message_uuid": .string(targetMessageUUID),
+            "last_seen_user_message_uuid": .string(lastSeenMessageUUID)
+        ])
+    }
+
     /// A bare success, for answering a CLI-originated request Plume has
     /// nothing to say about. Dropping one instead leaves the CLI waiting.
     static func controlSuccess(requestID: String) -> String? {

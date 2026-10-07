@@ -77,6 +77,8 @@ struct InfoPaneFacts: Equatable {
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
+    /// How many `/btw` questions this tab has asked.
+    var sideChatCount = 0
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
@@ -84,6 +86,7 @@ struct InfoPaneFacts: Equatable {
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
         if planTitle != nil { sections.append(.plan) }
+        if sideChatCount > 0 { sections.append(.sideChat) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
         return sections
@@ -96,7 +99,7 @@ struct InfoPaneFacts: Equatable {
             switch section {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
-            case .folder: false
+            case .folder, .sideChat: false
             case .backgroundTasks, .plan, .pullRequest: true
             }
         }
@@ -136,6 +139,7 @@ enum InfoPaneSection: Equatable {
     case subagents
     case backgroundTasks
     case plan
+    case sideChat
     case folder
     case branch
     case pullRequest

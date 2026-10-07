@@ -31,6 +31,10 @@ struct ChatTabView: View, ThemedView {
     /// id rather than the value so the overlay follows the subagent's live
     /// re-reads instead of freezing at the moment it was opened.
     @State private var openSubagentID: String?
+    /// Whether the `/btw` side-questions panel is open. Independent of
+    /// `openSubagentID`: unlike a subagent, there's no per-question row in the
+    /// chat to open one from, so this is a single on/off toggle for the tab.
+    @State private var isSideChatShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
     /// The first message, from the moment it is sent until the transcript
     /// contains it. Held here rather than on the session because it has to
@@ -41,6 +45,7 @@ struct ChatTabView: View, ThemedView {
     /// past it. Nothing in that subtree is sized from it, so measuring
     /// cannot feed back into the measurement.
     @State private var panelHeight: CGFloat = 0
+    @State private var chatHeight: CGFloat = 0
     /// Set to pull a queued message back into the composer for editing, from
     /// the chip's own edit button. `ChatComposer` owns the actual draft/state
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
@@ -65,8 +70,11 @@ struct ChatTabView: View, ThemedView {
 
     private var transcript: Transcript? {
         switch tab.provider {
-        case .claudeCode: TranscriptStore.shared.transcript(forTab: tab.id)
-        case .codex: CodexItemStore.shared.transcript(forTab: tab.id)
+        case .claudeCode:
+            let stored = TranscriptStore.shared.transcript(forTab: tab.id)
+            if let cut = claudeSession?.rewoundBeforeMessageID { return stored?.rolledBack(before: cut) }
+            return stored
+        case .codex: return CodexItemStore.shared.transcript(forTab: tab.id)
         }
     }
 
@@ -80,9 +88,15 @@ struct ChatTabView: View, ThemedView {
     /// the two are never both on screen.
     private var conversationMessages: [ChatMessage] {
         OptimisticChatReconciler.messages(
-            transcript: transcriptMessages,
+            transcript: inheritedForkMessages + transcriptMessages,
             pending: pendingFirstMessage
         )
+    }
+
+    /// The conversation a forked tab was cut from, shown until the fork's own
+    /// transcript carries it.
+    private var inheritedForkMessages: [ChatMessage] {
+        InheritedForkHistory.shared.messages(forTab: tab.id)
     }
 
     /// The transcript's plan path is a stale snapshot from when the line was
@@ -179,7 +193,8 @@ struct ChatTabView: View, ThemedView {
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
-            pullRequest: pullRequest
+            pullRequest: pullRequest,
+            sideChatCount: claudeSession?.sideQuestions.count ?? 0
         )
     }
 
@@ -217,12 +232,22 @@ struct ChatTabView: View, ThemedView {
         return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
+    /// Side questions, redo and fork are Claude Code control requests.
+    private var claudeSession: HeadlessSession? {
+        headlessSession as? HeadlessSession
+    }
+
     /// Which of the tab's states is on screen. An optimistic first message is
     /// enough to reach the conversation, so the transcript is not what decides
     /// it — `conversationMessages` is.
     @ViewBuilder
     private var content: some View {
-        if !conversationMessages.isEmpty || hasPlan {
+        // A fork that never started has only the inherited history to show,
+        // which would hide why it failed and what to do instead.
+        if let startFailure = headlessSession?.startFailure, startFailure.remedy == .redoInstead,
+           transcriptMessages.isEmpty {
+            startFailureState(startFailure)
+        } else if !conversationMessages.isEmpty || hasPlan {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
@@ -249,6 +274,7 @@ struct ChatTabView: View, ThemedView {
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,
+                    tabID: tab.id,
                     pending: $pendingFirstMessage
                 ))
                 .onDrop(
@@ -352,6 +378,16 @@ struct ChatTabView: View, ThemedView {
                 .transition(.scale(scale: 0.96).combined(with: .opacity))
             }
         }
+        .overlay {
+            if isSideChatShown, let claudeSession {
+                SideQuestionsOverlay(sideQuestions: claudeSession.sideQuestions, glass: planGlass) {
+                    isSideChatShown = false
+                }
+                .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+                .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            }
+        }
         .animation(.snappy(duration: 0.22), value: planPresentation)
         .animation(.snappy(duration: 0.22), value: openSubagentID)
         .onChange(of: planPresentation) { _, presentation in
@@ -365,6 +401,7 @@ struct ChatTabView: View, ThemedView {
             // native mouse-down focus handoff for that wrapper.
             DispatchQueue.main.async { planFeedbackFocused = true }
         }
+        .animation(.snappy(duration: 0.22), value: isSideChatShown)
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
@@ -408,8 +445,20 @@ struct ChatTabView: View, ThemedView {
             }
             RemoteControlToast(tabID: tab.id)
                 .listItemPadding(vertical: false)
+            RewindFailureToast(tabID: tab.id)
+                .listItemPadding(vertical: false)
             if !commandRuns.isEmpty {
                 commandRunsView
+            }
+            if let claudeSession, let exchange = claudeSession.chippedSideQuestion {
+                SideQuestionChip(
+                    exchange: exchange,
+                    glass: planGlass,
+                    maxHeight: chatHeight / 2,
+                    onOpenPanel: { isSideChatShown = true },
+                    onDismiss: { claudeSession.dismissChippedSideQuestion() }
+                )
+                .listItemPadding(vertical: false)
             }
             if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
@@ -889,12 +938,15 @@ struct ChatTabView: View, ThemedView {
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
+            redoContext: redoContext(transcript: transcript),
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
+            onOpenSideChat: { isSideChatShown = true },
             topInset: isSide ? geometry.chatTopInset : 0,
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .overlay(alignment: .bottom) {
             let reserve = isSide ? geometry.chatTrailingReserve : 0
             // Moves with the chat's own horizontal shift.
@@ -935,9 +987,104 @@ struct ChatTabView: View, ThemedView {
                     Self.lastCollapsedInfoPaneHeight = height
                 },
                 onOpenSubagent: { openSubagentID = $0.id },
-                onOpenPlan: openPlan
+                onOpenPlan: openPlan,
+                onOpenSideChat: { isSideChatShown = true }
             )
         }
+    }
+
+    /// What the rollback and fork buttons in a reply's footer act on.
+    ///
+    /// Nil in Release, where nothing reads it: a context that changes with
+    /// every message restages every mounted row.
+    ///
+    /// Nil unless a Claude Code headless session is live: the rewind rides
+    /// that session's control plane, and a fork resumes the session id it has
+    /// recorded.
+    ///
+    /// Read from the transcript rather than from the rendered messages, which
+    /// also carry the optimistic first message. That one's id is Plume's own
+    /// string, not a uuid the CLI has ever seen, and sending it as the last
+    /// seen message is refused as `stale_target`.
+    private func redoContext(transcript: Transcript) -> MessageRedoContext? {
+        #if DEBUG
+        guard claudeSession != nil,
+              let lastSeenUserMessageID = transcript.messages.last(where: { $0.role == .user })?.id
+        else { return nil }
+        return MessageRedoContext(
+            tabID: tab.id,
+            lastSeenUserMessageID: lastSeenUserMessageID,
+            parentByMessageID: transcript.parentByMessageID,
+            transcriptMessageIDs: Set(transcript.messages.map(\.id)),
+            rollbackTargetByReplyID: MessageRedoContext.rollbackTargets(in: transcript.messages),
+            canFork: forkSessionID != nil,
+            onFork: { target in forkToNewTab(droppingFrom: target) },
+            abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
+        )
+        #else
+        return nil
+        #endif
+    }
+
+
+    /// The session a fork would resume, and the directory it would spawn in.
+    /// The tab has no session id until the CLI reports one, and a discarded
+    /// conversation drops it until the replacement arrives.
+    private var forkSessionID: String? {
+        guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+              task.workingDirectoryPath != nil
+        else { return nil }
+        return sessionID
+    }
+
+    /// Opens the conversation again in a new tab, without `target` and
+    /// everything after it, as a separate Claude Code session. Both
+    /// conversations stay live: the CLI writes the fork to its own transcript
+    /// and leaves the resumed one alone.
+    ///
+    /// The new session's id is minted here rather than read back afterwards,
+    /// so the tab records it before the process exists.
+    private func forkToNewTab(droppingFrom target: String) {
+        // Checked before the tab exists: `AgentLauncher` returns without a
+        // word when either is missing, which would leave a tab that never
+        // starts and never says why.
+        guard let resumeSessionID = forkSessionID,
+              let transcript,
+              // The CLI cuts after a row, and cutting at the target itself
+              // would keep it, opening the fork on two user turns in a row.
+              let cutAfter = transcript.parentByMessageID[target]
+        else { return }
+        let newSessionID = UUID().uuidString.lowercased()
+        let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
+        newTab.transport = .headless
+        newTab.agentSessionID = newSessionID
+        // Derived here, because `persistHeadlessSessionID` only derives it for
+        // an id it has not already seen — and the fork's id is recorded above,
+        // before the CLI reports it. Without the path the tab watches nothing,
+        // so its transcript is never read and the composer stays disabled.
+        if let workingDirectory = task.workingDirectoryPath {
+            newTab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
+                workingDirectory: workingDirectory,
+                sessionID: newSessionID
+            )
+        }
+        newTab.model = tab.model
+        newTab.isModelUserChosen = tab.isModelUserChosen
+        newTab.permissionMode = tab.permissionMode
+        newTab.effort = tab.effort
+        // The fork writes no transcript until its first turn, so it opens on
+        // the conversation it was cut from rather than on an empty tab.
+        InheritedForkHistory.shared.adopt(from: transcript, cutBefore: target, tabID: newTab.id)
+        AgentLauncher.launch(
+            blocks: [],
+            task: task,
+            tab: newTab,
+            resumeSessionID: resumeSessionID,
+            fork: HeadlessCommand.Fork(
+                newSessionID: newSessionID,
+                cutAfterMessageUUID: cutAfter
+            )
+        )
     }
 
     /// The composer stays mounted once a session exists, disabled rather than
@@ -1105,6 +1252,13 @@ struct ChatTabView: View, ThemedView {
                 ChatNoticeRow(notice: ChatNotice(kind: .error, title: detail, detail: nil))
                     .frame(maxWidth: 420)
             }
+            if failure.remedy == .redoInstead {
+                Text("Roll back to that reply in this conversation instead — it rewinds in place and doesn't need the flag this fork asked for.")
+                    .font(.callout)
+                    .emphasis(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
             if failure.remedy == .installCLI {
                 Text("\(AppIdentity.displayName) runs \(tab.provider.displayName) through your login shell. Install \(tab.provider.displayName), or make sure it's on the PATH your shell profile sets.")
                     .font(.callout)
@@ -1115,7 +1269,15 @@ struct ChatTabView: View, ThemedView {
             HStack(spacing: 12) {
                 // Answering the folder-trust prompt is what unblocks this, so
                 // the terminal tab leads and the retry follows it.
-                if failure.remedy == .trustDirectory {
+                // A retry would re-run the same refused flags, so this
+                // offers to drop the empty fork tab instead.
+                if failure.remedy == .redoInstead {
+                    Button("Close This Tab") {
+                        TaskStore.closeTab(tab, in: modelContext)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .plumeID(AccessibilityID.chatForkFailureCloseTab)
+                } else if failure.remedy == .trustDirectory {
                     Button("Open Terminal Tab") {
                         TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
                     }

@@ -21,6 +21,9 @@ enum StreamJSONDecoder {
             case "init": return .initialized(sessionInit(from: root))
             case "status": return .status(root["status"]?.stringValue ?? "")
             case "bridge_state": return .bridgeState(bridgeState(from: root))
+            case "control_request_progress":
+                guard let id = root["request_id"]?.stringValue else { return .unknown(type: "system") }
+                return .controlRequestProgress(requestID: id)
             default: return .unknown(type: "system")
             }
         case "stream_event":
