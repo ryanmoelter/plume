@@ -165,7 +165,7 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private func backgroundTaskRow(_ entry: BackgroundTaskTracker.Entry) -> some View {
-        HStack(spacing: InfoPaneLayout.columnSpacing) {
+        HStack(alignment: .firstTextBaseline, spacing: InfoPaneLayout.columnSpacing) {
             Text(entry.description ?? entry.kind.label)
                 .lineLimit(1)
                 .truncationMode(.tail)
