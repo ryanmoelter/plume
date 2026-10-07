@@ -102,6 +102,26 @@ struct ChatBlockSpacingTests {
         ])
     }
 
+    @Test func aSkillOrSystemNoteBetweenCallsSitsTightInTheRun() {
+        let insets = ChatBlockSpacing.rowTopInsets(
+            [
+                message(id: "a", role: .assistant, blocks: [toolCall(id: "1")]),
+                message(id: "b", role: .user, blocks: [.injected(.skill(name: "debug"), text: "body")]),
+                message(id: "c", role: .user, blocks: [.injected(.systemNote, text: "note")]),
+                message(id: "d", role: .assistant, blocks: [toolCall(id: "2")]),
+                message(id: "e", role: .user, blocks: [.injected(.interrupted, text: "[Request interrupted]")])
+            ],
+            dimensions: dimensions
+        )
+        #expect(insets == [
+            dimensions.verticalPadding,
+            dimensions.toolCallSpacing,
+            dimensions.toolCallSpacing,
+            dimensions.toolCallSpacing,
+            dimensions.messageSpacing
+        ])
+    }
+
     /// A message ending in a call after prose is not "calls and nothing else",
     /// but the call opening the next message should still sit tight against
     /// it — the cliff PLUME-18 fixes.
