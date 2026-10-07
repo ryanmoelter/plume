@@ -401,9 +401,8 @@ struct TranscriptParserTests {
     }
 }
 
-/// Covers the branch tree PLUME-140 built out of `parentUuid`, which the
-/// parser previously decoded and never read. Fixtures mirror the shapes
-/// measured across a 319-transcript corpus scan.
+/// Covers the branch tree built out of `parentUuid`. Fixtures mirror the
+/// shapes measured across a 319-transcript corpus scan.
 struct TranscriptParserForkTests {
     private func data(_ lines: [String]) -> Data {
         Data(lines.joined(separator: "\n").utf8)
@@ -529,9 +528,6 @@ struct TranscriptParserForkTests {
         #expect(transcript.messages.contains { $0.id == "earlier" })
         #expect(transcript.messages.contains { $0.id == "a1" })
 
-        // `later` was the fork's last child, but the file's last row
-        // descends from `earlier` — so `later` is the abandoned one, not
-        // `earlier`, despite `dropLast()` picking the opposite.
         let abandoned = transcript.abandonedBranches["p1"]
         #expect(abandoned?.count == 1)
         #expect(abandoned?.first?.id == "later")
@@ -573,8 +569,9 @@ struct TranscriptParserForkTests {
     }
 
     /// The shape a rollback leaves: the abandoned reply carries its API
-    /// message id, not its row uuid, and still has to leave the chat. A
-    /// reply found only by API id stayed on screen beside the live branch.
+    /// message id, not its row uuid, and still has to leave the chat. The
+    /// branch is keyed by the reply the fork hangs below, under the id it
+    /// renders with.
     @Test func theChatShowsOnlyTheLiveBranch() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"say APPLE"}}"#,
@@ -586,6 +583,68 @@ struct TranscriptParserForkTests {
         ]))
 
         #expect(transcript.messages.map(\.id) == ["u1", "msg_apple", "u3", "msg_date"])
-        #expect(transcript.abandonedBranches["r1"]?.map(\.id) == ["u2", "msg_banana"])
+        #expect(transcript.abandonedBranches["msg_apple"]?.map(\.id) == ["u2", "msg_banana"])
+    }
+
+    /// A compaction restarts the chain: the boundary row has a null
+    /// `parentUuid` and names the row it continued from only as
+    /// `logicalParentUuid`.
+    @Test func aForkBeforeACompactionKeepsTheBranchTheCompactionContinued() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"start"}}"#,
+            #"{"type":"assistant","uuid":"r1","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"one"}]}}"#,
+            #"{"type":"user","uuid":"u2","parentUuid":"r1","isSidechain":false,"message":{"role":"user","content":"abandoned"}}"#,
+            #"{"type":"user","uuid":"u3","parentUuid":"r1","isSidechain":false,"message":{"role":"user","content":"kept"}}"#,
+            #"{"type":"assistant","uuid":"r3","parentUuid":"u3","isSidechain":false,"message":{"id":"msg_3","role":"assistant","content":[{"type":"text","text":"three"}]}}"#,
+            #"{"type":"system","uuid":"b1","parentUuid":null,"logicalParentUuid":"r3","isSidechain":false,"subtype":"compact_boundary","content":"Conversation compacted","compactMetadata":{"trigger":"auto","preTokens":1000}}"#,
+            #"{"type":"user","uuid":"u5","parentUuid":"b1","isSidechain":false,"message":{"role":"user","content":"after"}}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id).contains("u3"))
+        #expect(transcript.messages.map(\.id).contains("msg_3"))
+        #expect(transcript.abandonedBranches["msg_1"]?.map(\.id) == ["u2"])
+    }
+
+    /// When the live walk reaches none of a fork's children, abandoning all
+    /// of them would hide the conversation the file actually kept.
+    @Test func aForkWithNoLiveChildHidesNothing() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"start"}}"#,
+            #"{"type":"user","uuid":"u2","parentUuid":"u1","isSidechain":false,"message":{"role":"user","content":"first"}}"#,
+            #"{"type":"user","uuid":"u3","parentUuid":"u1","isSidechain":false,"message":{"role":"user","content":"second"}}"#,
+            #"{"type":"user","uuid":"orphan","parentUuid":"missing","isSidechain":false,"message":{"role":"user","content":"unattached"}}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id) == ["u1", "u2", "u3", "orphan"])
+        #expect(transcript.abandonedBranches.isEmpty)
+    }
+
+    /// Two assistant rows answering the same parent are siblings on separate
+    /// branches, so they cannot merge into one reply — abandoning one would
+    /// then hide the other.
+    @Test func siblingAssistantRowsDoNotMergeIntoOneReply() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"hi"}}"#,
+            #"{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"partial attempt"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"retried answer"}]}}"#,
+            #"{"type":"user","uuid":"u2","parentUuid":"a2","isSidechain":false,"message":{"role":"user","content":"next"}}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id) == ["u1", "msg_2", "u2"])
+        #expect(transcript.abandonedBranches["u1"]?.map(\.id) == ["msg_1"])
+    }
+
+    /// One reply's rows chain through each other and through attachments
+    /// between them, and still render as one message.
+    @Test func aReplysChainedRowsStillMerge() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"hi"}}"#,
+            #"{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#,
+            #"{"type":"attachment","uuid":"att","parentUuid":"a1","isSidechain":false,"attachment":{"type":"plan_mode","planFilePath":"/plans/a.md"}}"#,
+            #"{"type":"assistant","uuid":"a2","parentUuid":"att","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"answer"}]}}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id) == ["u1", "msg_1"])
+        #expect(transcript.messages.last?.blocks.count == 2)
     }
 }

@@ -22,9 +22,9 @@ struct MessageRedoButtons: View, ThemedView {
     var body: some View {
         if let context {
             HStack(spacing: 4) {
-                forkMarker(context: context)
                 // Debug-only until rollback and forking are ready to ship.
                 #if DEBUG
+                forkMarker(context: context)
                 if role == .assistant,
                    let target = context.rollbackTargetByReplyID[messageID],
                    context.transcriptMessageIDs.contains(target),
@@ -94,10 +94,9 @@ struct MessageRedoButtons: View, ThemedView {
         )
     }
 
-    /// Cuts at the target's parent: the target is the message being dropped.
     private func fork(from target: String, context: MessageRedoContext) {
-        guard let parent = context.parentByMessageID[target] else { return }
-        context.onFork(parent)
+        guard context.parentByMessageID[target] != nil else { return }
+        context.onFork(target)
     }
 }
 

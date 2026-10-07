@@ -31,7 +31,8 @@ struct MessageRedoContext {
     /// and a working directory to spawn in. False leaves the fork buttons
     /// disabled rather than letting them open an empty tab that never starts.
     var canFork: Bool
-    /// Opens a fork of this conversation cut after the given message uuid.
+    /// Opens a fork of this conversation without the given message or
+    /// anything after it.
     var onFork: (String) -> Void
     /// The rows this conversation forked at, and how many messages each one
     /// left on the branch that was abandoned. Rendered as a marker in the

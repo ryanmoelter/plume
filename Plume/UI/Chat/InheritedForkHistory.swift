@@ -24,12 +24,12 @@ final class InheritedForkHistory {
         messagesByTab[tabID] ?? []
     }
 
-    /// `cutAfter` is the last message the fork keeps — the same uuid passed to
-    /// `--resume-session-at`, so the two cannot disagree about where the
-    /// conversation was cut.
-    func adopt(from transcript: Transcript, cutAfter: String, tabID: UUID) {
-        guard let cut = transcript.messages.firstIndex(where: { $0.id == cutAfter }) else { return }
-        messagesByTab[tabID] = Array(transcript.messages[...cut])
+    /// `target` is the rendered message the fork drops, along with everything
+    /// after it. Cut by the rendered id rather than by the row uuid passed to
+    /// `--resume-session-at`, which often names a row nothing renders.
+    func adopt(from transcript: Transcript, cutBefore target: String, tabID: UUID) {
+        guard let cut = transcript.messages.firstIndex(where: { $0.id == target }) else { return }
+        messagesByTab[tabID] = Array(transcript.messages[..<cut])
     }
 
     /// Drops the inherited copy once the fork's own transcript carries the

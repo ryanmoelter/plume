@@ -87,6 +87,9 @@ nonisolated struct TranscriptEntry: Decodable {
     let type: String
     let uuid: String?
     let parentUuid: String?
+    /// Set where `parentUuid` is null because a compaction restarted the
+    /// chain: the row the conversation continued from.
+    let logicalParentUuid: String?
     let timestamp: Date?
     let isSidechain: Bool
     let agentId: String?
@@ -132,7 +135,7 @@ nonisolated struct TranscriptEntry: Decodable {
     let isApiErrorMessage: Bool
 
     enum CodingKeys: String, CodingKey {
-        case type, uuid, parentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
+        case type, uuid, parentUuid, logicalParentUuid, timestamp, isSidechain, agentId, cwd, gitBranch, effort, sessionId, message
         case permissionMode
         case isMeta
         case isCompactSummary
@@ -148,6 +151,7 @@ nonisolated struct TranscriptEntry: Decodable {
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
         uuid = try container.decodeIfPresent(String.self, forKey: .uuid)
         parentUuid = try container.decodeIfPresent(String.self, forKey: .parentUuid)
+        logicalParentUuid = try container.decodeIfPresent(String.self, forKey: .logicalParentUuid)
         isSidechain = try container.decodeIfPresent(Bool.self, forKey: .isSidechain) ?? false
         agentId = try container.decodeIfPresent(String.self, forKey: .agentId)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)

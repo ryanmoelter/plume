@@ -549,11 +549,6 @@ final class HeadlessSession: AgentSession {
         remoteControlNotice = nil
     }
 
-    /// The one way `remoteControl` moves, so every change raises its notice.
-    ///
-    /// `notify` is false only when the process dies: the tab already reports
-    /// that, and a toast saying Remote Control turned off would blame the
-    /// wrong thing.
     private func updateSideQuestion(id: String, mutate: (inout SideQuestion) -> Void) {
         guard let index = sideQuestions.firstIndex(where: { $0.id == id }) else { return }
         mutate(&sideQuestions[index])
@@ -573,6 +568,11 @@ final class HeadlessSession: AgentSession {
         }
     }
 
+    /// The one way `remoteControl` moves, so every change raises its notice.
+    ///
+    /// `notify` is false only when the process dies: the tab already reports
+    /// that, and a toast saying Remote Control turned off would blame the
+    /// wrong thing.
     private func updateRemoteControl(_ new: RemoteControlState, notify: Bool = true) {
         guard new != remoteControl else { return }
         remoteControl = new

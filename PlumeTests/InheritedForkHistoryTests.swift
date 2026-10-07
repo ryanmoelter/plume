@@ -26,17 +26,15 @@ struct InheritedForkHistoryTests {
     @Test func theConversationIsKeptThroughTheCutAndNoFurther() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "a1", tabID: tabID)
+        history.adopt(from: transcript(), cutBefore: "u2", tabID: tabID)
         #expect(history.messages(forTab: tabID).map(\.id) == ["u1", "a1"])
     }
 
-    /// The fork cuts at the target's parent, so the whole conversation being
-    /// carried over is a legitimate cut, not a failure to cut.
-    @Test func cuttingAtTheLastMessageKeepsEverything() {
+    @Test func theTargetItselfIsNotInherited() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "a2", tabID: tabID)
-        #expect(history.messages(forTab: tabID).count == 4)
+        history.adopt(from: transcript(), cutBefore: "a2", tabID: tabID)
+        #expect(history.messages(forTab: tabID).map(\.id) == ["u1", "a1", "u2"])
     }
 
     /// A cut point the transcript does not contain would otherwise silently
@@ -44,7 +42,7 @@ struct InheritedForkHistoryTests {
     @Test func anUnknownCutPointInheritsNothing() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "nonexistent", tabID: tabID)
+        history.adopt(from: transcript(), cutBefore: "nonexistent", tabID: tabID)
         #expect(history.messages(forTab: tabID).isEmpty)
     }
 
@@ -54,7 +52,7 @@ struct InheritedForkHistoryTests {
     @Test func theCopyRetiresOnceTheForkWritesTheSameMessages() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "a1", tabID: tabID)
+        history.adopt(from: transcript(), cutBefore: "u2", tabID: tabID)
         history.settleIfCarried(by: [message("u1"), message("a1", .assistant)], tabID: tabID)
         #expect(history.messages(forTab: tabID).isEmpty)
     }
@@ -64,7 +62,7 @@ struct InheritedForkHistoryTests {
     @Test func aPartiallyWrittenTranscriptKeepsTheCopy() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "a1", tabID: tabID)
+        history.adopt(from: transcript(), cutBefore: "u2", tabID: tabID)
         history.settleIfCarried(by: [message("u1")], tabID: tabID)
         #expect(history.messages(forTab: tabID).map(\.id) == ["u1", "a1"])
     }
@@ -72,7 +70,7 @@ struct InheritedForkHistoryTests {
     @Test func aForgottenTabKeepsNothing() {
         let history = history()
         let tabID = UUID()
-        history.adopt(from: transcript(), cutAfter: "a1", tabID: tabID)
+        history.adopt(from: transcript(), cutBefore: "u2", tabID: tabID)
         history.forget(tabID: tabID)
         #expect(history.messages(forTab: tabID).isEmpty)
     }
@@ -80,7 +78,7 @@ struct InheritedForkHistoryTests {
     @Test func oneTabsHistoryIsNotAnothers() {
         let history = history()
         let forked = UUID()
-        history.adopt(from: transcript(), cutAfter: "a1", tabID: forked)
+        history.adopt(from: transcript(), cutBefore: "u2", tabID: forked)
         #expect(history.messages(forTab: UUID()).isEmpty)
         #expect(!history.messages(forTab: forked).isEmpty)
     }

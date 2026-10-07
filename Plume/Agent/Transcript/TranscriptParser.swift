@@ -38,9 +38,11 @@ nonisolated struct Transcript: Equatable {
     /// most rows have. Keyed by the parent row's own uuid.
     var forkPoints: Set<String> = []
     /// Every rendered message on every branch a fork point left behind, in
-    /// file order, keyed by the fork's parent uuid. The branch that reaches
-    /// the file's last row is the live one: it alone makes up `messages`,
-    /// and is not included here.
+    /// file order. Keyed by the rendered message the fork hangs below — the
+    /// fork's parent row, or its nearest rendered ancestor, since a reply
+    /// renders under its API id and tool-result rows render nothing. The
+    /// branch that reaches the file's last row is the live one: it alone
+    /// makes up `messages`, and is not included here.
     var abandonedBranches: [String: [ChatMessage]] = [:]
     /// Each row's `parentUuid`, for every row the file names — including the
     /// ones no rendered message came from. A fork cuts at the target's parent
@@ -112,6 +114,10 @@ nonisolated enum TranscriptParser {
         var allChildrenByParent: [String: [String]] = [:]
         var messageIndexByUUID: [String: Int] = [:]
         var parentByUUID: [String: String] = [:]
+        // Where a compaction restarted the chain with a null `parentUuid`.
+        // Only the live walk follows these: without them nothing before the
+        // latest compaction reads as live.
+        var logicalParentByUUID: [String: String] = [:]
         // The file's last row with a uuid, whatever its type — Claude Code
         // only ever appends to the branch it is currently on, so this row is
         // the tip of the surviving path.
@@ -119,6 +125,10 @@ nonisolated enum TranscriptParser {
         // Every row merged into the pending reply. The reply is keyed by its
         // API id, so without these no row uuid on a branch leads to it.
         var pendingAssistantRowUUIDs: [String] = []
+        // Every row read since the pending reply opened. An assistant row
+        // whose parent is not among them is a sibling on another branch, so
+        // it starts a reply of its own.
+        var rowUUIDsInPendingRun = Set<String>()
 
         func flushPendingAssistant() {
             guard !pendingAssistantBlocks.isEmpty else { return }
@@ -138,6 +148,7 @@ nonisolated enum TranscriptParser {
             }
             pendingAssistantBlocks = []
             pendingAssistantRowUUIDs = []
+            rowUUIDsInPendingRun = []
             pendingAssistantID = nil
             pendingAssistantTimestamp = nil
         }
@@ -193,7 +204,14 @@ nonisolated enum TranscriptParser {
             if let uuid = entry.uuid {
                 guard seenUUIDs.insert(uuid).inserted else { continue }
                 tipUUID = uuid
-                if let parentUuid = entry.parentUuid { parentByUUID[uuid] = parentUuid }
+                if let parentUuid = entry.parentUuid {
+                    parentByUUID[uuid] = parentUuid
+                } else if let logicalParentUuid = entry.logicalParentUuid {
+                    logicalParentByUUID[uuid] = logicalParentUuid
+                }
+                if !pendingAssistantRowUUIDs.isEmpty, entry.type != "assistant" {
+                    rowUUIDsInPendingRun.insert(uuid)
+                }
             }
             if let parentUuid = entry.parentUuid, let uuid = entry.uuid {
                 allChildrenByParent[parentUuid, default: []].append(uuid)
@@ -260,7 +278,14 @@ nonisolated enum TranscriptParser {
 
             switch (entry.type, role) {
             case ("assistant", "assistant"):
-                if let uuid = entry.uuid { pendingAssistantRowUUIDs.append(uuid) }
+                if let parentUuid = entry.parentUuid, !pendingAssistantRowUUIDs.isEmpty,
+                   !rowUUIDsInPendingRun.contains(parentUuid) {
+                    flushPendingAssistant()
+                }
+                if let uuid = entry.uuid {
+                    pendingAssistantRowUUIDs.append(uuid)
+                    rowUUIDsInPendingRun.insert(uuid)
+                }
                 for block in contentBlocks {
                     switch block {
                     case .text(let text):
@@ -381,6 +406,7 @@ nonisolated enum TranscriptParser {
             allChildrenByParent: allChildrenByParent,
             messageIndexByUUID: messageIndexByUUID,
             parentByUUID: parentByUUID,
+            logicalParentByUUID: logicalParentByUUID,
             tipUUID: tipUUID
         )
         return transcript
@@ -391,11 +417,15 @@ nonisolated enum TranscriptParser {
     /// wherever the file last left off. Iterative: a transcript can be many
     /// thousands of rows deep, deep enough to blow the stack if this walked
     /// `parentUuid` by recursion.
-    private static func liveUUIDs(upTo tip: String?, parentByUUID: [String: String]) -> Set<String> {
+    private static func liveUUIDs(
+        upTo tip: String?,
+        parentByUUID: [String: String],
+        logicalParentByUUID: [String: String]
+    ) -> Set<String> {
         var live = Set<String>()
         var current = tip
         while let uuid = current, live.insert(uuid).inserted {
-            current = parentByUUID[uuid]
+            current = parentByUUID[uuid] ?? logicalParentByUUID[uuid]
         }
         return live
     }
@@ -411,14 +441,19 @@ nonisolated enum TranscriptParser {
         allChildrenByParent: [String: [String]],
         messageIndexByUUID: [String: Int],
         parentByUUID: [String: String],
+        logicalParentByUUID: [String: String],
         tipUUID: String?
     ) {
-        let live = liveUUIDs(upTo: tipUUID, parentByUUID: parentByUUID)
+        let live = liveUUIDs(upTo: tipUUID, parentByUUID: parentByUUID, logicalParentByUUID: logicalParentByUUID)
         var abandonedIndices = Set<Int>()
+        let messageIDs = transcript.messages.map(\.id)
 
         for (parentUuid, children) in childrenByParent {
             guard children.count >= 2, !isApiErrorRetryPair(children) else { continue }
             transcript.forkPoints.insert(parentUuid)
+            // A fork inside an abandoned branch, or one the live walk never
+            // reached. Abandoning every child would hide the conversation.
+            guard children.contains(where: { live.contains($0.uuid) }) else { continue }
 
             let abandonedRoots = children.filter { !live.contains($0.uuid) }
             let indices = abandonedRoots.flatMap {
@@ -429,8 +464,13 @@ nonisolated enum TranscriptParser {
                 )
             }.sorted()
             let abandoned = indices.map { transcript.messages[$0] }
-            if !abandoned.isEmpty {
-                transcript.abandonedBranches[parentUuid] = abandoned
+            if !abandoned.isEmpty,
+               let anchor = renderedAncestorIndex(
+                   of: parentUuid,
+                   parentByUUID: parentByUUID,
+                   messageIndexByUUID: messageIndexByUUID
+               ) {
+                transcript.abandonedBranches[messageIDs[anchor], default: []].append(contentsOf: abandoned)
             }
             abandonedIndices.formUnion(indices)
         }
@@ -439,6 +479,22 @@ nonisolated enum TranscriptParser {
         transcript.messages = transcript.messages.indices
             .filter { !abandonedIndices.contains($0) }
             .map { transcript.messages[$0] }
+    }
+
+    /// The rendered message `uuid` belongs to, or failing that its nearest
+    /// ancestor's.
+    private static func renderedAncestorIndex(
+        of uuid: String,
+        parentByUUID: [String: String],
+        messageIndexByUUID: [String: Int]
+    ) -> Int? {
+        var visited = Set<String>()
+        var current: String? = uuid
+        while let row = current, visited.insert(row).inserted {
+            if let index = messageIndexByUUID[row] { return index }
+            current = parentByUUID[row]
+        }
+        return nil
     }
 
     /// The rendered-message indices descending from `rootUUID`, sorted back

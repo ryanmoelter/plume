@@ -436,7 +436,15 @@ struct ChatComposer: View, ThemedView {
             return
         }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession = headlessSession as? HeadlessSession else { return }
+            guard let headlessSession = headlessSession as? HeadlessSession else {
+                // A question has nothing to read until a conversation exists,
+                // so it goes back in the composer rather than vanishing.
+                if case .sideQuestion = command {
+                    drafts.setDraft(text, forTab: tab.id)
+                    hasSendableText = true
+                }
+                return
+            }
             switch command {
             case .remoteControl(let name):
                 headlessSession.setRemoteControl(

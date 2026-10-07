@@ -1044,7 +1044,7 @@ struct ChatTabView: View, ThemedView {
             transcriptMessageIDs: Set(transcript.messages.map(\.id)),
             rollbackTargetByReplyID: MessageRedoContext.rollbackTargets(in: transcript.messages),
             canFork: forkSessionID != nil,
-            onFork: { cutAfter in forkToNewTab(cutAfter: cutAfter) },
+            onFork: { target in forkToNewTab(droppingFrom: target) },
             abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
         )
     }
@@ -1059,17 +1059,22 @@ struct ChatTabView: View, ThemedView {
         return sessionID
     }
 
-    /// Opens the conversation again in a new tab, cut after `cutAfter`, as a
-    /// separate Claude Code session. Both conversations stay live: the CLI
+    /// Opens the conversation again in a new tab, without `target` and
+    /// everything after it, as a separate Claude Code session. Both conversations stay live: the CLI
     /// writes the fork to its own transcript and leaves the resumed one alone.
     ///
     /// The new session's id is minted here rather than read back afterwards,
     /// so the tab records it before the process exists.
-    private func forkToNewTab(cutAfter: String) {
+    private func forkToNewTab(droppingFrom target: String) {
         // Checked before the tab exists: `AgentLauncher` returns without a
         // word when either is missing, which would leave a tab that never
         // starts and never says why.
-        guard let resumeSessionID = forkSessionID else { return }
+        guard let resumeSessionID = forkSessionID,
+              let transcript,
+              // The CLI cuts after a row, and cutting at the target itself
+              // would keep it, opening the fork on two user turns in a row.
+              let cutAfter = transcript.parentByMessageID[target]
+        else { return }
         let newSessionID = UUID().uuidString.lowercased()
         let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
         newTab.transport = .headless
@@ -1090,13 +1095,7 @@ struct ChatTabView: View, ThemedView {
         newTab.effort = tab.effort
         // The fork writes no transcript until its first turn, so it opens on
         // the conversation it was cut from rather than on an empty tab.
-        if let transcript {
-            InheritedForkHistory.shared.adopt(
-                from: transcript,
-                cutAfter: cutAfter,
-                tabID: newTab.id
-            )
-        }
+        InheritedForkHistory.shared.adopt(from: transcript, cutBefore: target, tabID: newTab.id)
         AgentLauncher.launch(
             blocks: [],
             task: task,
