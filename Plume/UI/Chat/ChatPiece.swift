@@ -91,9 +91,9 @@ struct ChatPiece: Identifiable, Equatable {
         var isLast: Bool { self == .single || self == .last }
     }
 
-    /// The agent's voice earns the serif; the user's own words and a tool's
-    /// output stay in the system face.
-    var isAgentVoice: Bool { role == .assistant }
+    /// An agent's voice earns the serif — this session's or another agent's;
+    /// the user's own words and a tool's output stay in the system face.
+    var isAgentVoice: Bool { role == .assistant || wash == .agentBubble }
 
     /// A short name for the kind of content, for the stats probe's log.
     var kindName: String {

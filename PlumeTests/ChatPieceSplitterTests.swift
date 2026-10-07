@@ -200,6 +200,7 @@ struct ChatPieceSplitterTests {
         """
         let result = pieces([message("m", .user, [.injected(.agentMessage(name: "plume-8b"), text: text)])])
         #expect(result.allSatisfy { $0.wash == .agentBubble })
+        #expect(result.allSatisfy { $0.isAgentVoice })
         #expect(result.first?.content == .agentMessageTitle(name: "plume-8b"))
         #expect(result.count == 3)
         #expect(Set(result.map(\.id)).count == result.count)
