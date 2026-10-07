@@ -33,7 +33,6 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let infoPanePresentationRaw = "infoPanePresentationRaw"
         static let infoPaneStateRaw = "infoPaneStateRaw"
-        static let infoPaneShowsCompletedSubagents = "infoPaneShowsCompletedSubagents"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
@@ -152,9 +151,6 @@ final class AppSettings {
             .flatMap(InfoPanePresentation.init(rawValue:)) ?? .side
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
-        self.infoPaneShowsCompletedSubagents = defaults.object(forKey: Key.infoPaneShowsCompletedSubagents) == nil
-            ? true
-            : defaults.bool(forKey: Key.infoPaneShowsCompletedSubagents)
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
@@ -424,17 +420,12 @@ final class AppSettings {
         }
     }
 
-    /// Applies only while the side pane fits beside the chat. A narrower
-    /// window floats the pane on demand instead, which this never records.
+    /// The side pane's state applies only while the pane fits beside the
+    /// chat. A narrower window opens it on demand instead, which this never
+    /// records.
     var infoPaneState: InfoPaneState {
         didSet {
             defaults.set(infoPaneState.rawValue, forKey: Key.infoPaneStateRaw)
-        }
-    }
-
-    var infoPaneShowsCompletedSubagents: Bool {
-        didSet {
-            defaults.set(infoPaneShowsCompletedSubagents, forKey: Key.infoPaneShowsCompletedSubagents)
         }
     }
 

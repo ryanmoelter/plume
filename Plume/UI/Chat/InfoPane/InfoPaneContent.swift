@@ -2,79 +2,36 @@ import SwiftUI
 
 /// The info pane's sections — subagents, background tasks, the plan, and where
 /// the conversation runs — shared by every presentation.
+///
+/// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
+/// the text beside the icons starts on one edge. A collapsible section leads
+/// with its disclosure chevron in that column and puts its own icon in a
+/// second one.
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
-    enum Style {
-        case side
-        case inline
-    }
-
     let facts: InfoPaneFacts
-    let style: Style
+    let headerButton: InfoPaneHeaderButton?
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
-    /// Set where the pane can switch between its full and icon-only forms.
-    var collapseToggle: CollapseToggle?
-
-    struct CollapseToggle {
-        let isCollapsed: Bool
-        let action: () -> Void
-    }
+    /// Held by the presentation, which outlives this view as the side pane
+    /// opens and closes.
+    @Binding var showsCompleted: Bool
 
     @State private var settings = AppSettings.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            InfoPaneHeader(button: headerButton) {
+                Text("Info")
+                    .font(typography.caption.font.weight(.semibold))
+                    .emphasis(.secondary)
+            }
             ForEach(facts.sections, id: \.self) { section in
                 self.section(section)
             }
         }
         .font(typography.caption.font)
-        .plumeID(AccessibilityID.infoPane, value: style == .side ? "side" : "inline")
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text("Info")
-                .font(typography.caption.font.weight(.semibold))
-                .emphasis(.secondary)
-            Spacer(minLength: 0)
-            if let collapseToggle {
-                Button(action: collapseToggle.action) {
-                    Image(systemName: collapseToggle.isCollapsed ? "pin" : "chevron.right.2")
-                }
-                .buttonStyle(.plain)
-                .emphasis(.secondary)
-                .help(collapseToggle.isCollapsed ? "Keep the pane expanded" : "Collapse to icons")
-                .accessibilityLabel(collapseToggle.isCollapsed ? "Expand" : "Collapse")
-                .plumeID(AccessibilityID.infoPaneCollapseButton, value: collapseToggle.isCollapsed ? "collapsed" : "expanded")
-            }
-            menu
-        }
-    }
-
-    private var menu: some View {
-        Menu {
-            Picker("Show As", selection: $settings.infoPanePresentation) {
-                ForEach(InfoPanePresentation.allCases, id: \.self) { presentation in
-                    Text(presentation.label).tag(presentation)
-                }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Toggle("Show Completed Subagents", isOn: $settings.infoPaneShowsCompletedSubagents)
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .emphasis(.secondary)
-        .help("Info pane options")
-        .plumeID(AccessibilityID.infoPaneMenu)
     }
 
     @ViewBuilder
@@ -97,14 +54,12 @@ struct InfoPaneContent: View, ThemedView {
             Button {
                 settings.infoPaneSubagentsExpanded.toggle()
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    Label("Subagents", systemImage: StatusSymbol.subagents.name)
-                    Text("\(facts.liveSubagents.count + facts.completedSubagents.count)")
-                        .emphasis(.subtle)
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { DisclosureChevron(isExpanded: isExpanded) }
+                    InfoPaneIcon { Image(systemName: StatusSymbol.subagents.name) }
+                    Text("Subagents")
                     Spacer(minLength: 0)
-                    if !isExpanded { subagentGlyphs }
+                    if !isExpanded { SubagentGlyphs(subagents: facts.liveSubagents) }
                 }
                 .emphasis(.secondary)
                 .contentShape(.rect)
@@ -115,44 +70,53 @@ struct InfoPaneContent: View, ThemedView {
             if isExpanded {
                 ForEach(facts.liveSubagents) { subagentRow($0) }
                 if !facts.completedSubagents.isEmpty {
-                    if !facts.liveSubagents.isEmpty {
-                        Text("Completed")
-                            .emphasis(.subtle)
-                            .padding(.top, 4)
-                            .padding(.horizontal, 8)
-                    }
-                    ForEach(facts.completedSubagents) { subagentRow($0) }
+                    completedSubagents
                 }
             }
         }
-        // The rows inset themselves for their hover wash; pulling them out
-        // lines their text up with the other sections.
-        .padding(.horizontal, -8)
+    }
+
+    private var completedSubagents: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                showsCompleted.toggle()
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Color.clear }
+                    InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
+                    Text("Completed")
+                    Spacer(minLength: 0)
+                    if !showsCompleted { SubagentGlyphs(subagents: facts.completedSubagents) }
+                }
+                .emphasis(.subtle)
+                .padding(.vertical, 3)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.infoPaneCompletedToggle, value: showsCompleted ? "expanded" : "collapsed")
+
+            if showsCompleted {
+                ForEach(facts.completedSubagents) { subagentRow($0) }
+            }
+        }
     }
 
     private func subagentRow(_ subagent: SubagentTranscript) -> some View {
-        SubagentRow(subagent: subagent, tabID: facts.tabID) { onOpenSubagent(subagent) }
+        SubagentRow(subagent: subagent, tabID: facts.tabID, columns: .infoPane) { onOpenSubagent(subagent) }
             .id(subagent.id)
-    }
-
-    private var subagentGlyphs: some View {
-        HStack(spacing: 4) {
-            ForEach(facts.liveSubagents + facts.completedSubagents) { subagent in
-                StatusBadge(status: subagent.status)
-                    .imageScale(.small)
-                    .help(subagent.title)
-            }
-        }
+            // The row insets itself for its hover wash; pulling it out puts
+            // its badge back in the pane's icon column.
+            .padding(.horizontal, -SubagentRow.Columns.washInset)
     }
 
     // MARK: Background tasks
 
     private var backgroundTasks: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Background", systemImage: "clock.arrow.circlepath")
-                .emphasis(.secondary)
             ForEach(facts.backgroundTasks) { entry in
-                HStack(spacing: 6) {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Image(systemName: "clock.arrow.circlepath") }
+                        .emphasis(.secondary)
                     Text(entry.description ?? entry.kind.label)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -160,7 +124,7 @@ struct InfoPaneContent: View, ThemedView {
                     ElapsedLabel(since: entry.startedAt)
                         .emphasis(.subtle)
                 }
-                .padding(.leading, 22)
+                .help(entry.kind.label)
                 .plumeID(AccessibilityID.infoPaneBackgroundTask, label: entry.description ?? entry.kind.label)
             }
         }
@@ -170,8 +134,9 @@ struct InfoPaneContent: View, ThemedView {
 
     private var plan: some View {
         Button(action: onOpenPlan) {
-            HStack(spacing: 6) {
-                Label(facts.planTitle ?? "Plan", systemImage: StatusSymbol.plan.name)
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: StatusSymbol.plan.name) }
+                Text(facts.planTitle ?? "Plan")
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
@@ -190,18 +155,22 @@ struct InfoPaneContent: View, ThemedView {
     @ViewBuilder
     private var folder: some View {
         if let folder = facts.folder {
-            Label(folder, systemImage: "folder")
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .emphasis(.secondary)
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: "folder") }
+                Text(folder)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .emphasis(.secondary)
         }
     }
 
     @ViewBuilder
     private var branch: some View {
         if let branch = facts.branch {
-            HStack(spacing: 6) {
-                Label(branch.name, systemImage: branch.isWorktree ? "tree" : "arrow.triangle.branch")
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: branch.isWorktree ? "tree" : "arrow.triangle.branch") }
+                Text(branch.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
@@ -221,67 +190,114 @@ struct InfoPaneContent: View, ThemedView {
     private var pullRequest: some View {
         if let pullRequest = facts.pullRequest {
             let checkRollup: (PullRequest) -> CheckRollup = { pullRequest.checkRollup ?? $0.checkRollup() }
-            Label {
-                PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
-            } icon: {
-                Image(systemName: "arrow.triangle.pull")
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: "arrow.triangle.pull") }
                     .emphasis(.secondary)
+                PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
+                Spacer(minLength: 0)
             }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
         }
     }
 }
 
-/// The side pane shrunk to icons: one mark per section that has something to
-/// say.
-struct InfoPaneIconColumn: View, ThemedView {
+struct InfoPaneHeaderButton {
+    let systemImage: String
+    let help: String
+    /// What the control server reads back, so a driver can tell the
+    /// button's forms apart.
+    let value: String
+    let action: () -> Void
+}
+
+/// The pane's top row: a title on the leading edge, then the button that
+/// collapses, pins or closes it, then the options menu.
+struct InfoPaneHeader<Title: View>: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let button: InfoPaneHeaderButton?
+    @ViewBuilder let title: Title
+
+    @State private var settings = AppSettings.shared
+
+    var body: some View {
+        HStack(spacing: InfoPaneLayout.columnSpacing) {
+            title
+            Spacer(minLength: 0)
+            if let button {
+                Button(action: button.action) {
+                    Image(systemName: button.systemImage)
+                        .frame(width: InfoPaneLayout.iconColumnWidth)
+                }
+                .buttonStyle(.plain)
+                .emphasis(.secondary)
+                .help(button.help)
+                .accessibilityLabel(button.help)
+                .plumeID(AccessibilityID.infoPaneCollapseButton, value: button.value)
+            }
+            menu
+        }
+        .font(typography.caption.font)
+    }
+
+    private var menu: some View {
+        Menu {
+            Picker("Show As", selection: $settings.infoPanePresentation) {
+                ForEach(InfoPanePresentation.allCases, id: \.self) { presentation in
+                    Text(presentation.label).tag(presentation)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .emphasis(.secondary)
+        .help("Info pane options")
+        .plumeID(AccessibilityID.infoPaneMenu)
+    }
+}
+
+/// The collapsed form: one icon per section with something to say, in a row.
+struct InfoPaneCollapsedIcons: View, ThemedView {
     @Environment(\.theme) var theme
 
     let facts: InfoPaneFacts
 
-    private static let maxSubagentBadges = 6
-
     var body: some View {
-        VStack(spacing: 10) {
-            ForEach(facts.sections, id: \.self) { section in
+        let sections = facts.collapsedSections
+        HStack(spacing: 10) {
+            if sections.isEmpty {
+                Image(systemName: "info.circle")
+                    .emphasis(.secondary)
+            }
+            ForEach(sections, id: \.self) { section in
                 icon(for: section)
             }
         }
         .font(typography.caption.font)
-        .frame(width: InfoPaneLayout.iconColumnContentWidth)
     }
 
     @ViewBuilder
     private func icon(for section: InfoPaneSection) -> some View {
         switch section {
         case .subagents:
-            VStack(spacing: 4) {
-                let subagents = facts.liveSubagents + facts.completedSubagents
+            HStack(spacing: 4) {
                 Image(systemName: StatusSymbol.subagents.name)
                     .emphasis(.secondary)
-                ForEach(subagents.prefix(Self.maxSubagentBadges)) { subagent in
-                    StatusBadge(status: subagent.status)
-                        .imageScale(.small)
-                }
-                if subagents.count > Self.maxSubagentBadges {
-                    Text("+\(subagents.count - Self.maxSubagentBadges)")
-                        .emphasis(.subtle)
-                }
+                SubagentGlyphs(subagents: facts.liveSubagents)
             }
         case .backgroundTasks:
-            VStack(spacing: 2) {
+            HStack(spacing: 2) {
                 Image(systemName: "clock.arrow.circlepath")
                 Text("\(facts.backgroundTasks.count)")
             }
             .emphasis(.secondary)
         case .plan:
             Image(systemName: StatusSymbol.plan.name)
-                .emphasis(.secondary)
-        case .folder:
-            Image(systemName: "folder")
-                .emphasis(.secondary)
-        case .branch:
-            Image(systemName: facts.branch?.isWorktree == true ? "tree" : "arrow.triangle.branch")
                 .emphasis(.secondary)
         case .pullRequest:
             if let pullRequest = facts.pullRequest {
@@ -291,6 +307,50 @@ struct InfoPaneIconColumn: View, ThemedView {
                     summaryOnly: true
                 )
             }
+        case .folder, .branch:
+            EmptyView()
         }
+    }
+}
+
+/// One status glyph per subagent, capped so a busy session can't push the
+/// row past its container.
+private struct SubagentGlyphs: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let subagents: [SubagentTranscript]
+
+    private static let limit = 6
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(subagents.prefix(Self.limit)) { subagent in
+                StatusBadge(status: subagent.status)
+                    .imageScale(.small)
+                    .help(subagent.title)
+            }
+            if subagents.count > Self.limit {
+                Text("+\(subagents.count - Self.limit)")
+                    .emphasis(.subtle)
+            }
+        }
+    }
+}
+
+/// One cell of the pane's icon column.
+struct InfoPaneIcon<Icon: View>: View {
+    @ViewBuilder let icon: Icon
+
+    var body: some View {
+        icon.frame(width: InfoPaneLayout.iconColumnWidth, alignment: .center)
+    }
+}
+
+private struct DisclosureChevron: View {
+    let isExpanded: Bool
+
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
     }
 }

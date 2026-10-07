@@ -10,6 +10,9 @@ struct ChatListInputs: Equatable {
     /// The inline info pane, after the last message. Nil when the pane is
     /// presented elsewhere.
     var infoPane: InfoPaneFacts?
+    /// Room above the first message for whatever floats over the list's top
+    /// edge.
+    var leadingInset: CGFloat = 0
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -109,6 +112,7 @@ final class ChatListController: NSObject {
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
 
+    private static let leadingInsetID = "plume.leading.inset"
     private static let dockID = "plume.trailing.dock"
     private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
@@ -120,6 +124,7 @@ final class ChatListController: NSObject {
     private var pinTopInset: CGFloat { inputs.chatFontSize * 2.5 }
 
     private enum Item {
+        case leadingInset
         case piece(ChatPiece)
         case dock
         case infoPane
@@ -226,7 +231,8 @@ final class ChatListController: NSObject {
         var stale: Set<String> = []
 
         if new.pieces != old.pieces || new.tabID != old.tabID
-            || (new.infoPane == nil) != (old.infoPane == nil) {
+            || (new.infoPane == nil) != (old.infoPane == nil)
+            || (new.leadingInset == 0) != (old.leadingInset == 0) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
         if new.trailingInset != old.trailingInset {
@@ -258,6 +264,9 @@ final class ChatListController: NSObject {
         if new.infoPane != old.infoPane {
             stale.insert(Self.infoPaneID)
         }
+        if new.leadingInset != old.leadingInset {
+            stale.insert(Self.leadingInsetID)
+        }
         refreshRoots(stale)
         documentView.needsLayout = true
     }
@@ -266,8 +275,12 @@ final class ChatListController: NSObject {
     private func rebuildItems(previous: [ChatPiece], allowsDepartures: Bool = false) -> Set<String> {
         var next: [String: Item] = [:]
         var layoutItems: [ChatLayoutItem] = []
-        layoutItems.reserveCapacity(inputs.pieces.count + 2)
+        layoutItems.reserveCapacity(inputs.pieces.count + 3)
         let width = max(1, model.measurementWidth)
+        if inputs.leadingInset > 0 {
+            next[Self.leadingInsetID] = .leadingInset
+            layoutItems.append(ChatLayoutItem(id: Self.leadingInsetID, estimatedHeight: inputs.leadingInset))
+        }
         for piece in inputs.pieces {
             next[piece.id] = .piece(piece)
         }
@@ -773,6 +786,13 @@ final class ChatListController: NSObject {
             linkDirectory: inputs.linkDirectory
         )
         switch item {
+        case .leadingInset:
+            let height = inputs.leadingInset
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
+                Color.clear
+                    .frame(height: height)
+                    .containerHeight(state, onMeasure: onMeasure)
+            }.id(id))
         case let .piece(piece):
             let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in

@@ -46,6 +46,11 @@ struct ChatTabView: View, ThemedView {
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
+    /// The conversation's width and the collapsed side pane's height, which
+    /// decide whether the pane pins beside the chat and how far the first
+    /// message starts below it.
+    @State private var conversationWidth: CGFloat = 0
+    @State private var collapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
@@ -141,7 +146,6 @@ struct ChatTabView: View, ThemedView {
     private var infoPaneFacts: InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
-            showsCompleted: settings.infoPaneShowsCompletedSubagents,
             hasSettled: { SubagentCompletionTracker.shared.hasSettled($0, tabID: tab.id) }
         )
         let gitState = GitStateStore.shared.state(for: gitDirectory)
@@ -231,14 +235,7 @@ struct ChatTabView: View, ThemedView {
     }
 
     var body: some View {
-        InfoPaneHost(
-            // Built only for the presentation that shows it.
-            facts: settings.infoPanePresentation == .side ? infoPaneFacts : InfoPaneFacts(tabID: tab.id),
-            glass: planGlass,
-            bottomInset: panelHeight,
-            onOpenSubagent: { openSubagentID = $0.id },
-            onOpenPlan: openPlan
-        ) {
+        VStack(spacing: 0) {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
             content
@@ -876,17 +873,52 @@ struct ChatTabView: View, ThemedView {
     /// is nothing on disk to read them from yet.
     private func conversationView(messages: [ChatMessage]) -> some View {
         let transcript = transcript ?? Transcript()
+        let isSide = settings.infoPanePresentation == .side
+        let geometry = sideInfoPaneGeometry
         return ChatMessageList(
             messages: messages,
-            infoPane: settings.infoPanePresentation == .inline ? infoPaneFacts : nil,
+            infoPane: isSide ? nil : infoPaneFacts,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
             onOpenSubagent: { openSubagentID = $0.id },
-            onOpenPlan: hasPlan ? { openPlan() } : nil
+            onOpenPlan: hasPlan ? { openPlan() } : nil,
+            topInset: isSide ? geometry.chatTopInset : 0,
+            trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
+            sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
-        .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
+        .overlay(alignment: .bottom) {
+            bottomChrome(transcript: transcript)
+                .padding(.trailing, isSide ? geometry.chatTrailingReserve : 0)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { conversationWidth = $0 }
+    }
+
+    private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
+        InfoPaneLayout.side(
+            width: conversationWidth,
+            railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
+            gap: dimensions.panelInset,
+            chatColumnWidth: dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
+            state: settings.infoPaneState,
+            collapsedHeight: collapsedInfoPaneHeight
+        )
+    }
+
+    @ViewBuilder
+    private func sideInfoPane(isShown: Bool, geometry: InfoPaneLayout.SideGeometry) -> some View {
+        if isShown {
+            InfoSidePane(
+                facts: infoPaneFacts,
+                glass: planGlass,
+                geometry: geometry,
+                bottomInset: panelHeight,
+                onCollapsedHeight: { collapsedInfoPaneHeight = $0 },
+                onOpenSubagent: { openSubagentID = $0.id },
+                onOpenPlan: openPlan
+            )
+        }
     }
 
     /// The composer stays mounted once a session exists, disabled rather than

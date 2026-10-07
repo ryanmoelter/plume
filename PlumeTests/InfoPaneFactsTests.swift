@@ -35,21 +35,27 @@ struct InfoPaneFactsTests {
         let lingering = subagent("lingering", .done)
         let split = InfoPaneFacts.splitSubagents(
             [settled, lingering, subagent("working")],
-            showsCompleted: true,
             hasSettled: { $0.id == "settled" }
         )
         #expect(split.live.map(\.id) == ["lingering", "working"])
         #expect(split.completed.map(\.id) == ["settled"])
     }
 
-    @Test func hiddenCompletedSubagentsAreDroppedNotMovedToLive() {
-        let split = InfoPaneFacts.splitSubagents(
-            [subagent("settled", .done), subagent("working")],
-            showsCompleted: false,
-            hasSettled: { $0.id == "settled" }
+    @Test func theCollapsedFormLeavesOutWhereItRunsAndSettledSubagents() {
+        let facts = InfoPaneFacts(
+            tabID: UUID(),
+            completedSubagents: [subagent("a", .done)],
+            planTitle: "Plan",
+            folder: "Plume",
+            branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
+            pullRequest: .init(state: .noPR, checkRollup: nil)
         )
-        #expect(split.live.map(\.id) == ["working"])
-        #expect(split.completed.isEmpty)
+        #expect(facts.collapsedSections == [.plan, .pullRequest])
+    }
+
+    @Test func aHiddenPaneComesBackCollapsed() {
+        #expect(InfoPaneState(rawValue: "hidden") == .collapsed)
+        #expect(InfoPaneState(rawValue: "expanded") == .expanded)
     }
 
     @Test func aForgeThatCannotAnswerShowsNoPullRequestRow() {
@@ -65,9 +71,46 @@ struct InfoPaneFactsTests {
 }
 
 struct InfoPaneLayoutTests {
-    @Test func thePaneSitsBesideOnlyWhileTheChatKeepsMostOfItsColumn() {
-        let needed = InfoPaneLayout.paneWidth + 20 + 640 * InfoPaneLayout.minimumChatShare
-        #expect(InfoPaneLayout.fitsBeside(width: needed, contentWidth: 640, inset: 20))
-        #expect(!InfoPaneLayout.fitsBeside(width: needed - 1, contentWidth: 640, inset: 20))
+    private let chatColumn: CGFloat = 672
+    private let rail: CGFloat = 30
+    private let gap: CGFloat = 10
+
+    private func side(width: CGFloat, state: InfoPaneState = .expanded) -> InfoPaneLayout.SideGeometry {
+        InfoPaneLayout.side(
+            width: width,
+            railFootprint: rail,
+            gap: gap,
+            chatColumnWidth: chatColumn,
+            state: state,
+            collapsedHeight: 28
+        )
+    }
+
+    @Test func thePanePinsOnlyWhileTheChatKeepsItsFullColumn() {
+        let needed = chatColumn + InfoPaneLayout.paneWidth + gap + rail
+        #expect(side(width: needed).isPinned)
+        #expect(!side(width: needed - 1).isPinned)
+        #expect(!side(width: needed - 1).fitsBeside)
+    }
+
+    @Test func aPinnedPaneTakesRoomBesideTheChatAndNoneAboveIt() {
+        let pinned = side(width: 2000)
+        #expect(pinned.chatTrailingReserve == InfoPaneLayout.paneWidth + gap + rail)
+        #expect(pinned.chatTopInset == 0)
+    }
+
+    @Test func aCollapsedPaneTakesRoomAboveTheChatAndNoneBesideIt() {
+        let collapsed = side(width: 2000, state: .collapsed)
+        #expect(collapsed.fitsBeside)
+        #expect(!collapsed.isPinned)
+        #expect(collapsed.chatTrailingReserve == 0)
+        #expect(collapsed.chatTopInset == 28 + gap)
+    }
+
+    @Test func aNarrowWindowNeverPinsEvenWhenExpanded() {
+        let narrow = side(width: 800)
+        #expect(!narrow.isPinned)
+        #expect(narrow.chatTrailingReserve == 0)
+        #expect(narrow.trailingInset == rail + gap)
     }
 }

@@ -12,10 +12,31 @@ struct SubagentRow: View, ThemedView {
     let onOpen: () -> Void
     let onOverride: (SubagentStatusOverrides.Override?) -> Void
     let currentOverride: SubagentStatusOverrides.Override?
+    let columns: Columns
+
+    /// Where the badge and the text start, so a host with its own icon column
+    /// can line the row up with it.
+    struct Columns {
+        var leadingIndent: CGFloat = 0
+        var badgeWidth: CGFloat = 12
+        var spacing: CGFloat = 8
+
+        /// How far the hover wash reaches past the badge and the chevron.
+        static let washInset: CGFloat = 8
+
+        /// The badge in the info pane's second icon column, under a
+        /// collapsible section's own icon.
+        static let infoPane = Columns(
+            leadingIndent: InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing,
+            badgeWidth: InfoPaneLayout.iconColumnWidth,
+            spacing: InfoPaneLayout.columnSpacing
+        )
+    }
 
     /// Routes a status override to the store that owns this subagent.
-    init(subagent: SubagentTranscript, tabID: UUID, onOpen: @escaping () -> Void) {
+    init(subagent: SubagentTranscript, tabID: UUID, columns: Columns = Columns(), onOpen: @escaping () -> Void) {
         self.subagent = subagent
+        self.columns = columns
         self.onOpen = onOpen
         self.onOverride = { override in
             switch subagent.provider {
@@ -40,9 +61,9 @@ struct SubagentRow: View, ThemedView {
     var body: some View {
         let caption = SubagentCaption(subagent: subagent)
         Button(action: onOpen) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: columns.spacing) {
                 StatusBadge(status: subagent.status)
-                    .frame(width: 12, alignment: .center)
+                    .frame(width: columns.badgeWidth, alignment: .center)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
                         .font(typography.body.font)
@@ -65,7 +86,8 @@ struct SubagentRow: View, ThemedView {
                     .font(typography.caption.font)
                     .emphasis(.subtle)
             }
-            .padding(.horizontal, 8)
+            .padding(.leading, columns.leadingIndent)
+            .padding(.horizontal, Columns.washInset)
             .padding(.vertical, 5)
             .contentShape(.rect(cornerRadius: 6))
             .background(

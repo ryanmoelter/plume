@@ -17,9 +17,21 @@ enum InfoPanePresentation: String, CaseIterable {
 
 enum InfoPaneState: String {
     case expanded
-    /// Icons only, expanding while hovered.
+    /// One row of icons; the side pane opens over the chat while hovered.
     case collapsed
-    case hidden
+
+    /// A pane once hidden comes back collapsed, the closest state left.
+    init?(rawValue: String) {
+        switch rawValue {
+        case "expanded": self = .expanded
+        case "collapsed", "hidden": self = .collapsed
+        default: return nil
+        }
+    }
+
+    var toggled: InfoPaneState {
+        self == .expanded ? .collapsed : .expanded
+    }
 }
 
 /// Everything the info pane shows for one chat tab, resolved from the stores
@@ -45,7 +57,6 @@ struct InfoPaneFacts: Equatable {
 
     var tabID: UUID
     var liveSubagents: [SubagentTranscript] = []
-    /// Empty when the user has chosen not to see them.
     var completedSubagents: [SubagentTranscript] = []
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
     /// What the plan row reads, or nil when the conversation has no plan.
@@ -65,6 +76,18 @@ struct InfoPaneFacts: Equatable {
         if pullRequest != nil { sections.append(.pullRequest) }
         return sections
     }
+
+    /// What the collapsed form draws an icon for. Where the conversation runs
+    /// rarely changes, so only the pull request stands in for it.
+    var collapsedSections: [InfoPaneSection] {
+        sections.filter { section in
+            switch section {
+            case .subagents: !liveSubagents.isEmpty
+            case .folder, .branch: false
+            default: true
+            }
+        }
+    }
 }
 
 extension InfoPaneFacts {
@@ -72,12 +95,9 @@ extension InfoPaneFacts {
     /// counts as live.
     static func splitSubagents(
         _ subagents: [SubagentTranscript],
-        showsCompleted: Bool,
         hasSettled: (SubagentTranscript) -> Bool
     ) -> (live: [SubagentTranscript], completed: [SubagentTranscript]) {
-        let live = subagents.filter { !hasSettled($0) }
-        let completed = showsCompleted ? subagents.filter(hasSettled) : []
-        return (live, completed)
+        (subagents.filter { !hasSettled($0) }, subagents.filter(hasSettled))
     }
 
     /// A state with nothing to say about a pull request is left out, rather
@@ -109,14 +129,58 @@ enum InfoPaneSection: Equatable {
 
 enum InfoPaneLayout {
     static let paneWidth: CGFloat = 280
-    static let iconColumnContentWidth: CGFloat = 20
+    /// The shared width every row's icon centers in, so the text beside the
+    /// icons starts on one edge.
+    static let iconColumnWidth: CGFloat = 16
+    static let columnSpacing: CGFloat = 6
 
-    /// The narrowest the chat column may get with the pane beside it, as a
-    /// share of the prose column it would otherwise have. Below that the pane
-    /// floats instead, so opening it never squeezes the conversation.
-    static let minimumChatShare: CGFloat = 0.75
+    /// The room a pinned pane takes from the chat's trailing edge: the pane,
+    /// and the gap and minimap rail beyond it. The chat's own edge padding
+    /// is the gap on the pane's other side.
+    static func reservedWidth(railFootprint: CGFloat, gap: CGFloat) -> CGFloat {
+        paneWidth + gap + railFootprint
+    }
 
-    static func fitsBeside(width: CGFloat, contentWidth: CGFloat, inset: CGFloat) -> Bool {
-        width - paneWidth - inset >= contentWidth * minimumChatShare
+    /// Pinned beside the chat only while the chat keeps its full prose
+    /// column, edge padding included. Narrower than that the pane opens over
+    /// the chat on demand instead.
+    static func fitsBeside(width: CGFloat, reservedWidth: CGFloat, chatColumnWidth: CGFloat) -> Bool {
+        width - reservedWidth >= chatColumnWidth
+    }
+
+    /// Where the side pane sits over a chat `width` wide, and what room the
+    /// chat gives it.
+    static func side(
+        width: CGFloat,
+        railFootprint: CGFloat,
+        gap: CGFloat,
+        chatColumnWidth: CGFloat,
+        state: InfoPaneState,
+        collapsedHeight: CGFloat
+    ) -> SideGeometry {
+        let reserved = reservedWidth(railFootprint: railFootprint, gap: gap)
+        let fits = fitsBeside(width: width, reservedWidth: reserved, chatColumnWidth: chatColumnWidth)
+        let isPinned = fits && state == .expanded
+        return SideGeometry(
+            fitsBeside: fits,
+            isPinned: isPinned,
+            trailingInset: railFootprint + gap,
+            chatTrailingReserve: isPinned ? reserved : 0,
+            chatTopInset: isPinned ? 0 : collapsedHeight + gap
+        )
+    }
+
+    struct SideGeometry: Equatable {
+        var fitsBeside: Bool
+        /// Open beside the chat rather than over it.
+        var isPinned: Bool
+        /// From the chat's trailing edge to the pane's, clear of the minimap.
+        var trailingInset: CGFloat
+        /// Taken off the chat's trailing edge, so its columns center in what
+        /// is left.
+        var chatTrailingReserve: CGFloat
+        /// Added above the first message, so the collapsed pane never covers
+        /// it at rest.
+        var chatTopInset: CGFloat
     }
 }

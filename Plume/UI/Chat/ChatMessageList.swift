@@ -8,7 +8,7 @@ import SwiftUI
 /// session — all of which change while a scroll is in flight. Built inline, every one of those
 /// rebuilt this list. Here, only `messages`, `status` and the theme reach it,
 /// so nothing else can.
-struct ChatMessageList: View, ThemedView {
+struct ChatMessageList<SidePane: View>: View, ThemedView {
     @Environment(\.theme) var theme
 
     let messages: [ChatMessage]
@@ -28,6 +28,13 @@ struct ChatMessageList: View, ThemedView {
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
     var onOpenPlan: (() -> Void)? = nil
+    /// Room above the first message for the collapsed side pane.
+    var topInset: CGFloat = 0
+    /// Taken off the list's trailing edge while the side pane is pinned
+    /// beside it.
+    var trailingReserve: CGFloat = 0
+    /// Drawn over the list and under the minimap, so the open map covers it.
+    let sidePane: SidePane
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -56,7 +63,7 @@ struct ChatMessageList: View, ThemedView {
     /// the reveal paces what is shown on its own, so batching them costs
     /// nothing visible.
     @State private var pendingStreamRebuild: Task<Void, Never>?
-    private static let streamRebuildInterval: Duration = .milliseconds(100)
+    private static var streamRebuildInterval: Duration { .milliseconds(100) }
 
     /// The pieces that grow into place. Only replaced when a rebuild actually
     /// brings some, so a piece has time to mount and read it — an id left
@@ -114,6 +121,8 @@ struct ChatMessageList: View, ThemedView {
     /// within.
     var body: some View {
         list
+            .padding(.trailing, trailingReserve)
+            .overlay(alignment: .topTrailing) { sidePane }
             .overlay(alignment: .trailing) {
                 if !outline.isEmpty {
                     ChatMinimap(
@@ -137,6 +146,7 @@ struct ChatMessageList: View, ThemedView {
                 pieces: shownPieces,
                 tabID: tabID,
                 infoPane: infoPane,
+                leadingInset: topInset,
                 animate: settings.animateChatMotion,
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,
