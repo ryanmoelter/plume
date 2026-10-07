@@ -292,7 +292,6 @@ struct InfoPaneContent: View, ThemedView {
                             imageScale: .medium
                         )
                         Image(systemName: "arrow.up.forward.square")
-                            .emphasis(.secondary)
                             .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
                             .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
                     }
