@@ -1,0 +1,171 @@
+import Foundation
+import Testing
+@testable import Plume
+
+/// Each case writes the caret as `|` in both the input and the expected
+/// output, so a test reads as before and after.
+struct ComposerMarkdownEditingTests {
+    private typealias Operation = (String, NSRange) -> ComposerMarkdownEditing.Result?
+
+    private func run(_ operation: Operation, _ marked: String) -> String? {
+        let caret = (marked as NSString).range(of: "|")
+        let text = (marked as NSString).replacingCharacters(in: caret, with: "")
+        guard let result = operation(text, NSRange(location: caret.location, length: 0)) else { return nil }
+        #expect(result.selection.length == 0)
+        return (result.text as NSString).replacingCharacters(in: result.selection, with: "|")
+    }
+
+    // MARK: - Return
+
+    @Test func returnContinuesABullet() {
+        #expect(run(ComposerMarkdownEditing.newline, "- one|") == "- one\n- |")
+        #expect(run(ComposerMarkdownEditing.newline, "  * one|") == "  * one\n  * |")
+    }
+
+    @Test func returnMidItemCarriesTheRestDown() {
+        #expect(run(ComposerMarkdownEditing.newline, "- on|e") == "- on\n- |e")
+    }
+
+    @Test func returnIncrementsAndRenumbers() {
+        #expect(run(ComposerMarkdownEditing.newline, "1. a|\n2. b\n3. c") == "1. a\n2. |\n3. b\n4. c")
+    }
+
+    @Test func returnKeepsTheDelimiter() {
+        #expect(run(ComposerMarkdownEditing.newline, "1) a|") == "1) a\n2) |")
+    }
+
+    @Test func returnContinuesATaskUnchecked() {
+        #expect(run(ComposerMarkdownEditing.newline, "- [x] done|") == "- [x] done\n- [ ] |")
+    }
+
+    @Test func returnOnAnEmptyItemEndsTheList() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n- |") == "- a\n|")
+    }
+
+    @Test func returnOnAnEmptyNestedItemOutdents() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  - |") == "- a\n- |")
+    }
+
+    @Test func returnContinuesAQuote() {
+        #expect(run(ComposerMarkdownEditing.newline, "> > deep|") == "> > deep\n> > |")
+        #expect(run(ComposerMarkdownEditing.newline, "> - item|") == "> - item\n> - |")
+    }
+
+    @Test func returnOnAnEmptyQuoteLineLeavesALevel() {
+        #expect(run(ComposerMarkdownEditing.newline, "> > |") == "> |")
+    }
+
+    @Test func returnIsOrdinaryElsewhere() {
+        #expect(run(ComposerMarkdownEditing.newline, "plain|") == nil)
+        #expect(run(ComposerMarkdownEditing.newline, "# Title|") == nil)
+        #expect(run(ComposerMarkdownEditing.newline, "```\n- code|") == nil)
+    }
+
+    // MARK: - Tab
+
+    @Test func tabIndentsToTheItemAbove() {
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n- |b") == "- a\n  - |b")
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n2. |b") == "1. a\n   1. |b")
+    }
+
+    @Test func tabCarriesNestedLines() {
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n- |b\n  - c\n- d") == "- a\n  - |b\n    - c\n- d")
+    }
+
+    @Test func tabOnTheFirstItemIsSwallowed() {
+        #expect(run(ComposerMarkdownEditing.indent, "- |a") == "- |a")
+    }
+
+    @Test func tabOutsideAListIsOrdinary() {
+        #expect(run(ComposerMarkdownEditing.indent, "text|") == nil)
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n- b|") == nil)
+    }
+
+    @Test func tabRenumbersBothLists() {
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n2. |b\n3. c") == "1. a\n   1. |b\n2. c")
+    }
+
+    // MARK: - Shift-Tab
+
+    @Test func shiftTabOutdentsToTheParent() {
+        #expect(run(ComposerMarkdownEditing.outdent, "- a\n  - |b") == "- a\n- |b")
+        #expect(run(ComposerMarkdownEditing.outdent, "- a\n  - b\n    - c|") == "- a\n  - b\n  - c|")
+    }
+
+    @Test func shiftTabAtTheTopLevelIsSwallowed() {
+        #expect(run(ComposerMarkdownEditing.outdent, "- a|") == "- a|")
+    }
+
+    // MARK: - Delete
+
+    @Test func deleteAtTheTextStartRemovesTheMarker() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- |item") == "|item")
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- [ ] |task") == "|task")
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "1. |one") == "|one")
+    }
+
+    @Test func deleteOutdentsANestedItem() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- a\n  - |b") == "- a\n- |b")
+    }
+
+    @Test func deleteRemovesOneQuoteLevel() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "> > |deep") == "> |deep")
+    }
+
+    @Test func deleteKeepsTheQuoteAroundAListItem() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "> - |item") == "> |item")
+    }
+
+    @Test func deleteAfterARuleBreaksIt() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "---\n|after") == "--\n|after")
+    }
+
+    @Test func deleteRenumbersTheRest() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "1. a\n2. |b\n3. c\n4. d") == "1. a\n|b\n3. c\n4. d")
+    }
+
+    @Test func deleteIsOrdinaryElsewhere() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- it|em") == nil)
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "# |Title") == nil)
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "plain\n|next") == nil)
+    }
+
+    // MARK: - Checkbox
+
+    @Test func checkboxToggles() {
+        let text = "- [ ] task"
+        let box = NSRange(location: 2, length: 3)
+        let checked = ComposerMarkdownEditing.toggleCheckbox(box, in: text, selection: NSRange(location: 0, length: 0))
+        #expect(checked?.text == "- [x] task")
+        let unchecked = ComposerMarkdownEditing.toggleCheckbox(box, in: checked!.text, selection: NSRange(location: 0, length: 0))
+        #expect(unchecked?.text == text)
+    }
+
+    // MARK: - Caret
+
+    private func snapped(_ text: String, to location: Int, from previous: Int?) -> Int {
+        ComposerMarkdownEditing.snappedSelection(
+            NSRange(location: location, length: 0),
+            previous: previous.map { NSRange(location: $0, length: 0) },
+            in: MarkdownLineStructure.lines(in: text)
+        ).location
+    }
+
+    @Test func caretInsideAHiddenMarkerGoesToTheText() {
+        #expect(snapped("a\n- item", to: 2, from: nil) == 4)
+        #expect(snapped("a\n- item", to: 3, from: 2) == 4)
+    }
+
+    @Test func movingBackFromTheTextJumpsToThePreviousLine() {
+        #expect(snapped("a\n- item", to: 3, from: 4) == 1)
+    }
+
+    @Test func firstLineCannotMoveBeforeItsMarker() {
+        #expect(snapped("- item", to: 1, from: 2) == 2)
+    }
+
+    @Test func shownMarkersAreNotSnapped() {
+        #expect(snapped("1. item", to: 1, from: 3) == 1)
+        #expect(snapped("# Title", to: 1, from: nil) == 1)
+    }
+}
