@@ -103,10 +103,12 @@ struct InfoPaneLayoutTests {
         #expect(!side(width: needed - 1).fitsBeside)
     }
 
-    @Test func aPinnedPaneTakesRoomBesideTheChatAndNoneAboveIt() {
+    /// Pinning never moves the chat vertically: that would slide every
+    /// visible row while the pane animates.
+    @Test func aPinnedPaneTakesRoomBesideTheChatAndKeepsTheTopInset() {
         let pinned = side(width: 2000)
         #expect(pinned.chatTrailingReserve == InfoPaneLayout.paneWidth + gap + rail)
-        #expect(pinned.chatTopInset == 0)
+        #expect(pinned.chatTopInset == side(width: 2000, state: .collapsed).chatTopInset)
     }
 
     @Test func aCollapsedPaneTakesRoomAboveTheChatAndNoneBesideIt() {

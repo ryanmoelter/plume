@@ -183,7 +183,7 @@ enum InfoPaneLayout {
             isPinned: isPinned,
             trailingInset: railFootprint + gap,
             chatTrailingReserve: isPinned ? reserved : 0,
-            chatTopInset: isPinned ? 0 : collapsedHeight + gap
+            chatTopInset: collapsedHeight + gap
         )
     }
 

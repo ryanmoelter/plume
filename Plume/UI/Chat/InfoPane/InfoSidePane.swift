@@ -66,6 +66,9 @@ struct InfoSidePane: View, ThemedView {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { availableHeight = $0 }
         .padding(.bottom, bottomInset + dimensions.panelInset)
+        // A resize that pins or unpins the pane snaps it, as a window's
+        // sidebars do, rather than animating against the live resize.
+        .transaction(value: geometry.fitsBeside) { $0.animation = nil }
         .animation(.snappy(duration: 0.22), value: isOpen)
         // Hover never reports an exit for a view that changes under the
         // pointer, so a pin or a resize clears it by hand.

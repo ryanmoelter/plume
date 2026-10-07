@@ -248,7 +248,8 @@ final class ChatListController: NSObject {
             }
         }
         if new.horizontalShift != old.horizontalShift {
-            shift(to: new.horizontalShift, animated: new.animate && documentView.window != nil)
+            let window = documentView.window
+            shift(to: new.horizontalShift, animated: new.animate && window != nil && window?.inLiveResize == false)
         }
         if new.animate != old.animate {
             if !new.animate {

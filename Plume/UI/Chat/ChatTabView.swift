@@ -49,8 +49,12 @@ struct ChatTabView: View, ThemedView {
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
     /// message starts below it.
-    @State private var conversationWidth: CGFloat = 0
-    @State private var collapsedInfoPaneHeight: CGFloat = 0
+    /// Both start from the last chat measured, so a task opens with its pane
+    /// already in place rather than animating there.
+    @State private var conversationWidth = Self.lastConversationWidth
+    @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
+    private static var lastConversationWidth: CGFloat = 0
+    private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
@@ -892,7 +896,10 @@ struct ChatTabView: View, ThemedView {
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
         .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { conversationWidth = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            conversationWidth = width
+            Self.lastConversationWidth = width
+        }
     }
 
     private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
@@ -918,7 +925,10 @@ struct ChatTabView: View, ThemedView {
                 glass: planGlass,
                 geometry: geometry,
                 bottomInset: panelHeight,
-                onCollapsedHeight: { collapsedInfoPaneHeight = $0 },
+                onCollapsedHeight: { height in
+                    collapsedInfoPaneHeight = height
+                    Self.lastCollapsedInfoPaneHeight = height
+                },
                 onOpenSubagent: { openSubagentID = $0.id },
                 onOpenPlan: openPlan
             )
