@@ -20,9 +20,9 @@ enum ComposerDecorations {
     }
 
     struct Bullet: Equatable {
-        var glyph: String
-        /// The top-left the glyph is drawn from.
-        var origin: NSPoint
+        enum Shape { case disc, ring, square }
+        var rect: NSRect
+        var shape: Shape
     }
 
     struct Decorations: Equatable {
@@ -54,12 +54,18 @@ enum ComposerDecorations {
             rule.fill()
         }
 
-        let bulletAttributes: [NSAttributedString.Key: Any] = [
-            .font: metrics.body,
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ]
-        for bullet in decorations.bullets {
-            (bullet.glyph as NSString).draw(at: bullet.origin, withAttributes: bulletAttributes)
+        NSColor.secondaryLabelColor.set()
+        for bullet in decorations.bullets where bullet.rect.intersects(dirtyRect) {
+            switch bullet.shape {
+            case .disc:
+                NSBezierPath(ovalIn: bullet.rect).fill()
+            case .ring:
+                let ring = NSBezierPath(ovalIn: bullet.rect.insetBy(dx: 0.6, dy: 0.6))
+                ring.lineWidth = 1.2
+                ring.stroke()
+            case .square:
+                bullet.rect.insetBy(dx: 0.4, dy: 0.4).fill()
+            }
         }
 
         for checkbox in decorations.checkboxes where checkbox.rect.intersects(dirtyRect) {
@@ -124,10 +130,13 @@ enum ComposerDecorations {
                 }
             case .bullet:
                 if let rect = context.firstLineRect(of: line) {
-                    let glyph = bulletGlyph(depth: line.depth)
-                    let width = (glyph as NSString).size(withAttributes: [.font: metrics.body]).width
+                    let size = metrics.bulletSize
                     let right = context.columnStart + metrics.contentColumn(for: line) - metrics.markerGap
-                    decorations.bullets.append(Bullet(glyph: glyph, origin: NSPoint(x: right - width, y: rect.minY)))
+                    let centerY = rect.minY + metrics.body.ascender - metrics.body.xHeight / 2
+                    decorations.bullets.append(Bullet(
+                        rect: NSRect(x: right - size, y: centerY - size / 2, width: size, height: size),
+                        shape: bulletShape(depth: line.depth)
+                    ))
                 }
             case let .task(isChecked):
                 if let rect = context.firstLineRect(of: line), let box = line.checkbox {
@@ -147,8 +156,8 @@ enum ComposerDecorations {
         return decorations
     }
 
-    private static func bulletGlyph(depth: Int) -> String {
-        ["•", "◦", "▪"][depth % 3]
+    private static func bulletShape(depth: Int) -> Bullet.Shape {
+        [.disc, .ring, .square][depth % 3]
     }
 
     // MARK: - Shared state

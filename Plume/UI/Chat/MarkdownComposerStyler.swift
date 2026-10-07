@@ -44,7 +44,7 @@ enum MarkdownComposerStyler {
             apply(span, to: storage, metrics: metrics, accent: accent)
         }
         for span in spans where span.style == .delimiter && fullRange.contains(span.range) {
-            storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: span.range)
+            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
         }
         padChips(spans, in: storage, text: ns, metrics: metrics)
         var isInsideFence = false
@@ -141,7 +141,7 @@ enum MarkdownComposerStyler {
 
         case .fence, .code:
             if line.kind == .fence {
-                storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: line.range)
+                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: line.range)
             }
             style.firstLineHeadIndent = metrics.codeInset
             style.headIndent = metrics.codeInset
@@ -160,13 +160,38 @@ enum MarkdownComposerStyler {
         if line.kind != .fence, line.kind != .code {
             let column = metrics.contentColumn(for: line)
             if column > 0 {
+                var hidden = line.quoteMarkers
+                if line.isListItem, line.hidesMarker {
+                    hidden.append(NSRange(location: line.indent.location, length: line.contentStart - line.indent.location))
+                }
+                for range in hidden where range.length > 0 {
+                    collapse(range, in: storage)
+                }
                 let prefix = NSRange(location: line.range.location, length: line.contentStart - line.range.location)
-                let prefixWidth = prefix.length > 0 ? storage.attributedSubstring(from: prefix).size().width : 0
+                let prefixWidth = prefix.length > 0 ? typographicWidth(of: prefix, in: storage) : 0
                 style.firstLineHeadIndent = max(0, column - prefixWidth)
                 style.headIndent = column
             }
         }
         storage.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+    }
+
+    /// Shrinks a hidden run so a marker wider than its column (`- [ ] `)
+    /// still fits under the paragraph indent. TextKit 2 floors a negative
+    /// kern at a fraction of the glyph, so a smaller font is what frees the
+    /// width. The last character keeps the body font so an empty item's line
+    /// keeps its height.
+    private static func collapse(_ range: NSRange, in storage: NSTextStorage) {
+        guard range.length > 1 else { return }
+        storage.addAttribute(.font, value: hiddenMarkerFont, range: NSRange(location: range.location, length: range.length - 1))
+    }
+
+    private static let hiddenMarkerFont = NSFont.systemFont(ofSize: 1)
+
+    /// The advance of `range` as CoreText sets it, trailing spaces included.
+    private static func typographicWidth(of range: NSRange, in storage: NSTextStorage) -> CGFloat {
+        let line = CTLineCreateWithAttributedString(storage.attributedSubstring(from: range))
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
     }
 
     private static func isNewline(_ unit: unichar) -> Bool {
@@ -204,6 +229,7 @@ struct ComposerMarkdownMetrics {
     var quoteBarWidth: CGFloat { 3 }
     var ruleThickness: CGFloat { 1 }
     var checkboxSize: CGFloat { (fontSize * 0.85).rounded() }
+    var bulletSize: CGFloat { fontSize * 0.38 }
 
     /// Where a line's content starts, measured from the text column's
     /// leading edge. Zero leaves the line's own layout alone.

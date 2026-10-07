@@ -40,7 +40,7 @@ struct ComposerMarkdownPresentationTests {
         let stars: NSColor? = attribute(.foregroundColor, at: 8, in: view)
         let content: NSColor? = attribute(.foregroundColor, at: 10, in: view)
         #expect(hash == .tertiaryLabelColor)
-        #expect(stars == .tertiaryLabelColor)
+        #expect(stars == .secondaryLabelColor)
         #expect(content == .labelColor)
     }
 
@@ -55,6 +55,32 @@ struct ComposerMarkdownPresentationTests {
         #expect(indents[2] > indents[1])
     }
 
+    @Test func itemTextSharesOneColumnWhateverItsMarker() throws {
+        let text = "- a\n- [ ] b\n- [x] c\n> - d"
+        let view = styledView(text)
+        let layoutManager = try #require(view.textLayoutManager)
+        let contentStorage = try #require(layoutManager.textContentManager as? NSTextContentStorage)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        func minX(at location: Int) -> CGFloat? {
+            guard let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: location),
+                  let end = contentStorage.location(start, offsetBy: 1),
+                  let range = NSTextRange(location: start, end: end)
+            else { return nil }
+            var x: CGFloat?
+            layoutManager.enumerateTextSegments(in: range, type: .standard, options: []) { _, segment, _, _ in
+                x = segment.minX
+                return false
+            }
+            return x
+        }
+        let ns = text as NSString
+        let xs = ["a", "b", "c"].compactMap { minX(at: ns.range(of: $0).location) }
+        #expect(xs.count == 3)
+        #expect(xs.allSatisfy { abs($0 - xs[0]) < 0.5 }, "\(xs)")
+        let quoted = try #require(minX(at: ns.range(of: "d").location))
+        #expect(abs(quoted - xs[0] - metrics.quoteStep) < 0.5)
+    }
+
     // MARK: - Decorations
 
     @Test func staysOnTextKit2() {
@@ -67,7 +93,8 @@ struct ComposerMarkdownPresentationTests {
     @Test func bulletsStepRightByDepth() {
         let decorations = ComposerDecorations.rects(in: styledView("- a\n  - b"), metrics: metrics)
         #expect(decorations.bullets.count == 2)
-        #expect(decorations.bullets[1].origin.x > decorations.bullets[0].origin.x)
+        #expect(decorations.bullets[1].rect.minX > decorations.bullets[0].rect.minX)
+        #expect(decorations.bullets.map(\.shape) == [.disc, .ring])
     }
 
     @Test func oneBarPerQuoteLevel() {
