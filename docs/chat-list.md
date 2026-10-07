@@ -46,6 +46,8 @@ Past those, a bounds change whose size still matches the model's `viewportHeight
 
 `realizeWindow(around:)` asks the model for `realizedRange(offset:)`: everything whose slot falls within the viewport plus **overscan** of half a viewport on each side, capped at `maxRealized` (120) hosts by trimming alternately from whichever end is farther from the offset. It realizes anything in that window without a host, but frees only what has left a window three times as wide. The hysteresis matters: a sustained fast scroll otherwise builds and tears down every host at the window's edge once per frame, which was the difference between 63% and 39% main-thread CPU under the synthetic wheel harness.
 
+A pass realizes around the offset it started at, then again around the offset it resolved if the two windows differ. The second call matters when the document shrinks enough to move the offset, such as a long agent message collapsing to its preview: without it the rows at the new offset stayed blank, because the `needsLayout` request made from inside the pass did not bring another one.
+
 Both numbers come from measuring the real cost. Creating and measuring one host for a real piece is about 1.3 ms, and laying out 150 of them costs about 50 ms more on top of that. Half a viewport of overscan each side is enough headroom that a normal scroll never outruns realization; the 120-host cap exists so a pathological case, a huge viewport, or many tiny pieces, can't make a single pass do unbounded work.
 
 ## Measurement
