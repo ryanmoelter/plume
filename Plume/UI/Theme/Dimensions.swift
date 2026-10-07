@@ -21,11 +21,12 @@ struct Dimensions {
 
     /// Breathing room outside a content item's column. It sits outside the
     /// column's clamp, so it costs nothing once the window can seat the full
-    /// width and only bites when the window is narrower than that.
-    let horizontalEdgePadding: CGFloat = 16
+    /// width and only bites when the window is narrower than that. Prose
+    /// inside a bleed row pays this on top of the row's own padding.
+    let horizontalEdgePadding: CGFloat = 12
 
-    /// The same, for a bleed item. Smaller, so a bleed row reaches closer to
-    /// the window edge than the prose inside it. The collapsed minimap has to
+    /// The same, for a bleed item, so a bleed row reaches closer to the
+    /// window edge than the prose inside it. The collapsed minimap has to
     /// fit within this band, since it overlays the list rather than taking a
     /// column of its own.
     let horizontalBleedPadding: CGFloat = 12

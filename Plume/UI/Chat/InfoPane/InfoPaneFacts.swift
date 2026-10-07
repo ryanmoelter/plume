@@ -90,12 +90,13 @@ struct InfoPaneFacts: Equatable {
     }
 
     /// What the collapsed form draws an icon for. Where the conversation runs
-    /// rarely changes, so it stays out of the row.
+    /// rarely changes, so the row only marks a worktree.
     var collapsedSections: [InfoPaneSection] {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
-            case .folder, .branch: false
+            case .branch: branch?.isWorktree == true
+            case .folder: false
             case .backgroundTasks, .plan, .pullRequest: true
             }
         }
@@ -142,6 +143,7 @@ enum InfoPaneSection: Equatable {
 
 enum InfoPaneLayout {
     static let paneWidth: CGFloat = 280
+    static let symbol = "checklist.unchecked"
     /// The shared width every row's icon centers in, so the text beside the
     /// icons starts on one edge.
     static let iconColumnWidth: CGFloat = 16

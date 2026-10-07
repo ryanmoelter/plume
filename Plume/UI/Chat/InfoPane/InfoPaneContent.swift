@@ -179,13 +179,7 @@ struct InfoPaneContent: View, ThemedView {
     private var branch: some View {
         if let branch = facts.branch {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
-                // The main checkout keeps the column empty, so the branch
-                // name still lines up with the rows above it.
-                InfoPaneIcon {
-                    Image(systemName: "tree")
-                        .opacity(branch.isWorktree ? 1 : 0)
-                        .accessibilityHidden(!branch.isWorktree)
-                }
+                InfoPaneIcon { Image(systemName: branch.isWorktree ? "tree" : "arrow.triangle.branch") }
                 Text(branch.name)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -317,7 +311,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
         let sections = facts.collapsedSections
         HStack(spacing: 10) {
             if sections.isEmpty {
-                Image(systemName: "info.circle")
+                Image(systemName: InfoPaneLayout.symbol)
                     .emphasis(.secondary)
             }
             ForEach(sections, id: \.self) { section in
@@ -358,7 +352,11 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                     imageScale: .medium
                 )
             }
-        case .folder, .branch:
+        case .branch:
+            Image(systemName: "tree")
+                .emphasis(.secondary)
+                .help("In a worktree")
+        case .folder:
             EmptyView()
         }
     }

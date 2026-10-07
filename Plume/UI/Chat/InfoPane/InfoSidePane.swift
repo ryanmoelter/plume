@@ -75,7 +75,7 @@ struct InfoSidePane: View, ThemedView {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: toggle) {
-                    Label("Info Pane", systemImage: "sidebar.trailing")
+                    Label("Info Pane", systemImage: InfoPaneLayout.symbol)
                 }
                 .help(isOpen ? "Collapse the info pane" : "Open the info pane")
                 .plumeID(AccessibilityID.infoPaneToggle, value: isOpen ? "open" : "collapsed", invoke: toggle)

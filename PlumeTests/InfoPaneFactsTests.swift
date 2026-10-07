@@ -53,6 +53,14 @@ struct InfoPaneFactsTests {
         #expect(facts.collapsedSections == [.plan])
     }
 
+    @Test func theCollapsedFormMarksAWorktree() {
+        let facts = InfoPaneFacts(
+            tabID: UUID(),
+            branch: .init(name: "feature", isWorktree: true, ahead: nil, behind: nil, isDirty: false)
+        )
+        #expect(facts.collapsedSections == [.branch])
+    }
+
     @Test func aPullRequestRowNeedsAPullRequest() {
         let open = PullRequest(number: 7, state: .open, isDraft: false)
         let withPR = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: .pullRequest(open), checkRollup: .success))
