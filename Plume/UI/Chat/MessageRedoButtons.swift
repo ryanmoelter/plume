@@ -20,10 +20,11 @@ struct MessageRedoButtons: View, ThemedView {
     let role: ChatMessage.Role
 
     var body: some View {
+        // Debug-only until rollback and forking are ready to ship. Release
+        // draws nothing at all, so the footer keeps its spacing.
+        #if DEBUG
         if let context {
             HStack(spacing: 4) {
-                // Debug-only until rollback and forking are ready to ship.
-                #if DEBUG
                 forkMarker(context: context)
                 if role == .assistant,
                    let target = context.rollbackTargetByReplyID[messageID],
@@ -31,9 +32,9 @@ struct MessageRedoButtons: View, ThemedView {
                    let session = session(for: context) {
                     actions(target: target, session: session, context: context)
                 }
-                #endif
             }
         }
+        #endif
     }
 
     /// Says that the conversation forked here. Shown on any message, unlike

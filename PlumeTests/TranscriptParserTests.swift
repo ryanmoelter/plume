@@ -484,11 +484,8 @@ struct TranscriptParserForkTests {
 
         #expect(transcript.forkPoints == ["p1"])
 
-        // The surviving branch (last in file order) stays in the main list.
         #expect(transcript.messages.contains { $0.id == "c2" })
 
-        // The abandoned branch's message is still reachable for a later UI
-        // step to render.
         let abandoned = transcript.abandonedBranches["p1"]
         #expect(abandoned?.count == 1)
         #expect(abandoned?.first?.id == "c1")
@@ -513,11 +510,7 @@ struct TranscriptParserForkTests {
     @Test func theSurvivingBranchIsDeterminedByTheFinalRowNotByFileOrder() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"user","uuid":"p1","isSidechain":false,"message":{"role":"user","content":"original question"}}"#,
-            // The first child of the fork, but the file keeps going from it.
             #"{"type":"user","uuid":"earlier","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"kept branch"}}"#,
-            // The second (later) child of the fork — abandoned even though
-            // it is the fork's last child, because the file's last row
-            // descends from `earlier` instead.
             #"{"type":"user","uuid":"later","parentUuid":"p1","isSidechain":false,"message":{"role":"user","content":"edited later"}}"#,
             #"""
             {"type":"assistant","uuid":"a1","parentUuid":"earlier","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"reply"}]}}
@@ -632,6 +625,22 @@ struct TranscriptParserForkTests {
 
         #expect(transcript.messages.map(\.id) == ["u1", "msg_2", "u2"])
         #expect(transcript.abandonedBranches["u1"]?.map(\.id) == ["msg_1"])
+    }
+
+    /// A `progress` row hanging off a tool call is a side leaf, not a branch,
+    /// even when it is the file's last row.
+    @Test func aTrailingProgressLeafHidesNothing() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"run it"}}"#,
+            #"{"type":"assistant","uuid":"a1","parentUuid":"u1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"#,
+            #"{"type":"user","uuid":"r1","parentUuid":"a1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","parentUuid":"r1","isSidechain":false,"message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"done"}]}}"#,
+            #"{"type":"progress","uuid":"p1","parentUuid":"a1","isSidechain":false}"#,
+        ]))
+
+        #expect(transcript.messages.map(\.id) == ["u1", "msg_1", "msg_2"])
+        #expect(transcript.forkPoints.isEmpty)
+        #expect(transcript.abandonedBranches.isEmpty)
     }
 
     /// One reply's rows chain through each other and through attachments

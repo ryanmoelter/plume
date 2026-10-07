@@ -146,7 +146,9 @@ struct OptimisticFirstMessageTracking: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: messages) { _, arrived in
+            // Initial too: a hidden tab is unmounted, so the transcript can
+            // catch up while no view is watching.
+            .onChange(of: messages, initial: true) { _, arrived in
                 InheritedForkHistory.shared.settleIfCarried(by: arrived, tabID: tabID)
                 guard OptimisticChatReconciler.isSettled(transcript: arrived, pending: pending) else { return }
                 pending = nil

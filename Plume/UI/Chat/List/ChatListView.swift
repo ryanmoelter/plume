@@ -10,8 +10,8 @@ struct ChatListView: NSViewRepresentable {
     var revealModel: ChatRevealModel?
     var commands: ChatListCommands
     /// Passed beside `inputs` rather than within it: it carries a closure, so
-    /// it cannot be compared, and the values a row actually draws from it
-    /// only change when the messages do — which already restages every row.
+    /// it cannot be compared. The controller restages rows itself when what
+    /// they draw from it changes.
     var redoContext: MessageRedoContext?
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenPlan: (() -> Void)?

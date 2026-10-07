@@ -201,11 +201,7 @@ final class HeadlessSession: AgentSession {
     /// chat shows that as a `ChatStartFailure` in place of the conversation;
     /// a notification saying the agent stopped would blame the user's own
     /// launch for stopping something that never ran.
-    ///
-    /// It also separates a session waiting on its own reply from one waiting
-    /// on the user, which the existence of a process cannot: a fork is
-    /// launched with no prompt and must keep its composer usable.
-    private(set) var hasUserSubmitted = false
+    private var hasUserSubmitted = false
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
@@ -461,6 +457,12 @@ final class HeadlessSession: AgentSession {
     /// Asks a side question, answered from main context without disturbing
     /// the main conversation. Follows the run entered here so its state can
     /// be corrected by the reply, the same way `setRemoteControl` does.
+    /// Keeps an exited session's side chats in the one that resumes it,
+    /// since nothing else records them.
+    func inheritSideQuestions(from exited: HeadlessSession) {
+        sideQuestions = exited.sideQuestions + sideQuestions
+    }
+
     func askSideQuestion(_ question: String) {
         let requestID = nextRequestID()
         sideQuestions.append(SideQuestion(id: requestID, question: question, askedAt: Date()))

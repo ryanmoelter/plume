@@ -237,27 +237,17 @@ struct ChatTabView: View, ThemedView {
         headlessSession as? HeadlessSession
     }
 
-    /// Whether something has been asked of this tab that has yet to produce
-    /// anything to read, which is what the composer waits out.
-    ///
-    /// A live session is not enough on its own. A forked tab is launched with
-    /// no prompt, so it holds a running process that is waiting on the user —
-    /// disabling its composer would be a deadlock, since the first message is
-    /// the only thing that can end the wait.
-    private var isAwaitingFirstContent: Bool {
-        if SurfaceManager.shared.existingSession(for: tab.id) != nil { return true }
-        if let claudeSession { return claudeSession.hasUserSubmitted }
-        if headlessSession != nil { return true }
-        // No process yet, but a session id means a resume is still to come.
-        return tab.agentSessionID?.isEmpty == false
-    }
-
     /// Which of the tab's states is on screen. An optimistic first message is
     /// enough to reach the conversation, so the transcript is not what decides
     /// it — `conversationMessages` is.
     @ViewBuilder
     private var content: some View {
-        if !conversationMessages.isEmpty || hasPlan {
+        // A fork that never started has only the inherited history to show,
+        // which would hide why it failed and what to do instead.
+        if let startFailure = headlessSession?.startFailure, startFailure.remedy == .redoInstead,
+           transcriptMessages.isEmpty {
+            startFailureState(startFailure)
+        } else if !conversationMessages.isEmpty || hasPlan {
             conversationView(messages: conversationMessages)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
@@ -265,9 +255,11 @@ struct ChatTabView: View, ThemedView {
             startFailureState(startFailure)
         } else if let error = headlessSession?.lastError, !error.isEmpty {
             agentErrorState(error)
-        } else if isAwaitingFirstContent {
-            // Work is in flight but has written no transcript content yet —
-            // nothing to show but a quiet wait.
+        } else if SurfaceManager.shared.existingSession(for: tab.id) != nil
+            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
+            || (tab.agentSessionID?.isEmpty == false) {
+            // A process (or a resumable session) exists but has written no
+            // transcript content yet — nothing to show but a quiet wait.
             emptyState(isComposerEnabled: tab.transport == .headless)
         } else {
             emptyState(isComposerEnabled: true)
@@ -1003,6 +995,9 @@ struct ChatTabView: View, ThemedView {
 
     /// What the rollback and fork buttons in a reply's footer act on.
     ///
+    /// Nil in Release, where nothing reads it: a context that changes with
+    /// every message restages every mounted row.
+    ///
     /// Nil unless a Claude Code headless session is live: the rewind rides
     /// that session's control plane, and a fork resumes the session id it has
     /// recorded.
@@ -1012,6 +1007,7 @@ struct ChatTabView: View, ThemedView {
     /// string, not a uuid the CLI has ever seen, and sending it as the last
     /// seen message is refused as `stale_target`.
     private func redoContext(transcript: Transcript) -> MessageRedoContext? {
+        #if DEBUG
         guard claudeSession != nil,
               let lastSeenUserMessageID = transcript.messages.last(where: { $0.role == .user })?.id
         else { return nil }
@@ -1025,7 +1021,11 @@ struct ChatTabView: View, ThemedView {
             onFork: { target in forkToNewTab(droppingFrom: target) },
             abandonedCountByMessageID: transcript.abandonedBranches.mapValues(\.count)
         )
+        #else
+        return nil
+        #endif
     }
+
 
     /// The session a fork would resume, and the directory it would spawn in.
     /// The tab has no session id until the CLI reports one, and a discarded
@@ -1038,8 +1038,9 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Opens the conversation again in a new tab, without `target` and
-    /// everything after it, as a separate Claude Code session. Both conversations stay live: the CLI
-    /// writes the fork to its own transcript and leaves the resumed one alone.
+    /// everything after it, as a separate Claude Code session. Both
+    /// conversations stay live: the CLI writes the fork to its own transcript
+    /// and leaves the resumed one alone.
     ///
     /// The new session's id is minted here rather than read back afterwards,
     /// so the tab records it before the process exists.

@@ -42,7 +42,7 @@ struct SideQuestionChip: View, ThemedView {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(glass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
         .plumeTheme(bodySize: chatFontSize)
-        .plumeID(AccessibilityID.sideQuestionChip, value: chipValue)
+        .plumeID(AccessibilityID.sideQuestionChip, value: chipValue, invoke: onOpenPanel)
     }
 
     /// Titled the way a decision card is, so it reads as the same family as
@@ -86,7 +86,7 @@ struct SideQuestionChip: View, ThemedView {
         case .failed:
             Image(systemName: "exclamationmark.triangle")
                 .font(typography.caption.font)
-                .foregroundStyle(.red)
+                .foregroundStyle(colors.danger)
         }
     }
 
@@ -106,7 +106,7 @@ struct SideQuestionChip: View, ThemedView {
             scrolling {
                 Text(message)
                     .font(typography.body.font)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(colors.danger)
             }
         }
     }

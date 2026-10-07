@@ -118,9 +118,11 @@ nonisolated enum TranscriptParser {
         // Only the live walk follows these: without them nothing before the
         // latest compaction reads as live.
         var logicalParentByUUID: [String: String] = [:]
-        // The file's last row with a uuid, whatever its type — Claude Code
-        // only ever appends to the branch it is currently on, so this row is
-        // the tip of the surviving path.
+        // The file's last message row — Claude Code only ever appends to the
+        // branch it is currently on, so this row is the tip of the surviving
+        // path. Bookkeeping rows such as `progress` can hang off the chain as
+        // side leaves, and one of those as the tip would read the real
+        // continuation as abandoned.
         var tipUUID: String?
         // Every row merged into the pending reply. The reply is keyed by its
         // API id, so without these no row uuid on a branch leads to it.
@@ -203,7 +205,7 @@ nonisolated enum TranscriptParser {
             // lines; without this a duplicated parent reads as forking.
             if let uuid = entry.uuid {
                 guard seenUUIDs.insert(uuid).inserted else { continue }
-                tipUUID = uuid
+                if entry.type == "user" || entry.type == "assistant" { tipUUID = uuid }
                 if let parentUuid = entry.parentUuid {
                     parentByUUID[uuid] = parentUuid
                 } else if let logicalParentUuid = entry.logicalParentUuid {
@@ -215,7 +217,7 @@ nonisolated enum TranscriptParser {
             }
             if let parentUuid = entry.parentUuid, let uuid = entry.uuid {
                 allChildrenByParent[parentUuid, default: []].append(uuid)
-                if entry.type != "attachment" {
+                if entry.type != "attachment", entry.type != "progress" {
                     childrenByParent[parentUuid, default: []].append(
                         BranchChild(uuid: uuid, type: entry.type, isApiErrorMessage: entry.isApiErrorMessage)
                     )

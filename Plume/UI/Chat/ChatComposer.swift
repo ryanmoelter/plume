@@ -94,21 +94,21 @@ struct ChatComposer: View, ThemedView {
         return { drafts.attach($0, toTab: tabID) }
     }
 
-    /// The CLI's commands, from this session when it has reported and from
-    /// the last one to report in this tab's directory until then, so a cold
-    /// tab still completes them.
-    ///
-    /// Plume's own join them only once a session exists to run them against —
-    /// `/rc` drives a control request, which has no process to reach without
-    /// one — except `/btw`, which resumes the conversation itself. They never
-    /// shadow a name the CLI reports: if a later CLI serves `/rc` headlessly,
-    /// its version wins.
     private var skillDirectory: String? {
         tab.provider == .codex && tab.transport == .headless ? tabDirectories.directory(for: tab) : nil
     }
 
     private var completionPrefix: String { tab.provider == .codex ? "$" : "/" }
 
+    /// The CLI's commands, from this session when it has reported and from
+    /// the last one to report in this tab's directory until then, so a cold
+    /// tab still completes them.
+    ///
+    /// Plume's own join them only once there is something to run them
+    /// against. `/rc` drives a control request, which needs a live process.
+    /// `/btw` needs a conversation instead, and resumes one that has no
+    /// process. They never shadow a name the CLI reports: if a later CLI
+    /// serves `/rc` headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
@@ -119,8 +119,7 @@ struct ChatComposer: View, ThemedView {
         let reportedNames = Set(reported.map(\.name))
         let plumeCommands = PlumeSlashCommand.all.filter { command in
             guard !reportedNames.contains(command.name) else { return false }
-            // `/btw` resumes a cold tab's conversation to answer it.
-            return headlessSession != nil || (command.name == "btw" && canResumeForSideQuestion)
+            return command.name == "btw" ? hasConversation : headlessSession != nil
         }
         return reported + plumeCommands
     }
@@ -500,19 +499,29 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
-    /// The session a Plume command runs against. A side question on a tab
-    /// with a conversation but no running process — every tab, after a
-    /// relaunch — resumes it first, since the CLI answers from the
-    /// conversation it has loaded.
+    /// The session a Plume command runs against. A side question needs a
+    /// conversation to ask about, so it is never a chat's first message. On a
+    /// tab with a conversation but no running process — every tab, after a
+    /// relaunch — it resumes the conversation first, since the CLI answers
+    /// from the one it has loaded.
     private func liveClaudeSession(for command: PlumeSlashCommand.Parsed) -> HeadlessSession? {
         let session = headlessSession as? HeadlessSession
-        guard case .sideQuestion = command, session?.hasExited ?? true, canResumeForSideQuestion else { return session }
+        guard case .sideQuestion = command else { return session }
+        guard hasConversation else { return nil }
+        guard session?.hasExited ?? true else { return session }
         if session != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
         AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-        return headlessSession as? HeadlessSession
+        let resumed = headlessSession as? HeadlessSession
+        if let session, let resumed {
+            resumed.inheritSideQuestions(from: session)
+            for message in session.queuedMessages { resumed.submit(blocks: message) }
+        }
+        return resumed
     }
 
-    private var canResumeForSideQuestion: Bool {
+    /// Recorded once the CLI reports the session, so a chat whose first
+    /// message has yet to reach it has none.
+    private var hasConversation: Bool {
         guard let sessionID = tab.agentSessionID else { return false }
         return !sessionID.isEmpty
     }

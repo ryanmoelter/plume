@@ -105,7 +105,7 @@ private struct SideQuestionRow: View, ThemedView {
         case .failed(let message):
             Text(message)
                 .font(typography.body.font)
-                .foregroundStyle(.red)
+                .foregroundStyle(colors.danger)
         }
     }
 
