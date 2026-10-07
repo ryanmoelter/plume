@@ -24,10 +24,8 @@ struct SubagentRow: View, ThemedView {
         /// How far the hover wash reaches past the badge and the chevron.
         static let washInset: CGFloat = 8
 
-        /// The badge in the info pane's second icon column, under a
-        /// collapsible section's own icon.
+        /// The badge in the info pane's icon column, under its section's icon.
         static let infoPane = Columns(
-            leadingIndent: InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing,
             badgeWidth: InfoPaneLayout.iconColumnWidth,
             spacing: InfoPaneLayout.columnSpacing
         )
