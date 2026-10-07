@@ -115,10 +115,12 @@ struct InfoPaneContent: View, ThemedView {
             if isExpanded {
                 ForEach(facts.liveSubagents) { subagentRow($0) }
                 if !facts.completedSubagents.isEmpty {
-                    Text("Completed")
-                        .emphasis(.subtle)
-                        .padding(.top, 4)
-                        .padding(.horizontal, 8)
+                    if !facts.liveSubagents.isEmpty {
+                        Text("Completed")
+                            .emphasis(.subtle)
+                            .padding(.top, 4)
+                            .padding(.horizontal, 8)
+                    }
                     ForEach(facts.completedSubagents) { subagentRow($0) }
                 }
             }
@@ -219,11 +221,11 @@ struct InfoPaneContent: View, ThemedView {
     private var pullRequest: some View {
         if let pullRequest = facts.pullRequest {
             let checkRollup: (PullRequest) -> CheckRollup = { pullRequest.checkRollup ?? $0.checkRollup() }
-            HStack(spacing: 6) {
+            Label {
+                PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
+            } icon: {
                 Image(systemName: "arrow.triangle.pull")
                     .emphasis(.secondary)
-                PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
-                Spacer(minLength: 0)
             }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
         }
