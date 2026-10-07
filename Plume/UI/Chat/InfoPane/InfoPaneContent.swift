@@ -343,9 +343,10 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(
                     state: pullRequest.state,
+                    emphasis: .secondary,
                     forge: pullRequest.forge,
                     checkRollup: { pullRequest.checkRollup ?? $0.checkRollup() },
-                    summaryOnly: true,
+                    showsNumber: false,
                     font: typography.caption.font,
                     fontSize: typography.caption.size,
                     imageScale: .medium

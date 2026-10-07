@@ -87,31 +87,3 @@ struct PullRequestChipTests {
         #expect(ignored.map(\.label) == ["PR #8", "checks pass"])
     }
 }
-
-/// The collapsed info pane draws one mark per pull request: a problem
-/// outranks anything waiting, which outranks any other verdict.
-struct PullRequestSummaryGlyphTests {
-    private func summary(_ pullRequest: PullRequest, rollup: CheckRollup) -> String? {
-        PullRequestChipContent.summaryGlyph(for: .pullRequest(pullRequest)) { _ in rollup }?.label
-    }
-
-    @Test func requestedChangesOutrankPassingChecks() {
-        let pullRequest = PullRequest(number: 1, state: .open, isDraft: false, reviewDecision: .changesRequested)
-        #expect(summary(pullRequest, rollup: .success) == "changes requested")
-    }
-
-    @Test func pendingChecksOutrankApproval() {
-        let pullRequest = PullRequest(number: 2, state: .open, isDraft: false, reviewDecision: .approved)
-        #expect(summary(pullRequest, rollup: .pending) == "checks pending")
-    }
-
-    @Test func aDraftWithNoVerdictShowsTheDraftMark() {
-        let pullRequest = PullRequest(number: 3, state: .open, isDraft: true)
-        #expect(summary(pullRequest, rollup: .none) == "draft")
-    }
-
-    @Test func theNumberIsNeverTheSummary() {
-        let pullRequest = PullRequest(number: 4, state: .open, isDraft: false)
-        #expect(summary(pullRequest, rollup: .none) == "open")
-    }
-}

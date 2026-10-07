@@ -105,19 +105,6 @@ nonisolated enum PullRequestChipContent {
         return glyphs
     }
 
-    /// The one mark that sums a state up, for a space too narrow for the chip:
-    /// a problem first, then anything waiting, then any other verdict.
-    static func summaryGlyph(
-        for state: PullRequestFetchState,
-        checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
-    ) -> PullRequestGlyph? {
-        let marks = glyphs(for: state, checkRollup: checkRollup).filter { $0.symbol != nil }
-        return marks.first { $0.tint == .danger }
-            ?? marks.first { $0.tint == .attention }
-            ?? marks.first { $0.tint != .neutral }
-            ?? marks.last
-    }
-
     static func accessibilityText(for state: PullRequestFetchState) -> String? {
         accessibilityText(for: state) { $0.checkRollup() }
     }
@@ -141,8 +128,7 @@ struct PullRequestChip: View {
     var forge: ForgeKind? = nil
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
-    /// Draws only `PullRequestChipContent.summaryGlyph`.
-    var summaryOnly = false
+    var showsNumber = true
     /// The sidebar's chip is small beside its row's title; the info pane's
     /// matches its own text.
     var font: Font = .caption
@@ -153,9 +139,8 @@ struct PullRequestChip: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let glyphs = summaryOnly
-            ? PullRequestChipContent.summaryGlyph(for: state, checkRollup: checkRollup).map { [$0] } ?? []
-            : PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
+        let glyphs = PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
+            .filter { showsNumber || $0.text == nil }
         HStack(spacing: 4) {
             if let forge, forge.markImageName != nil, !glyphs.isEmpty {
                 ForgeMarkCell(forge: forge)
