@@ -179,7 +179,13 @@ struct InfoPaneContent: View, ThemedView {
     private var branch: some View {
         if let branch = facts.branch {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: branch.isWorktree ? "tree" : "arrow.triangle.branch") }
+                // The main checkout keeps the column empty, so the branch
+                // name still lines up with the rows above it.
+                InfoPaneIcon {
+                    Image(systemName: "tree")
+                        .opacity(branch.isWorktree ? 1 : 0)
+                        .accessibilityHidden(!branch.isWorktree)
+                }
                 Text(branch.name)
                     .lineLimit(1)
                     .truncationMode(.middle)

@@ -913,7 +913,10 @@ struct ChatTabView: View, ThemedView {
             width: conversationWidth,
             railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
-            chatColumnWidth: dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
+            // Prose sits inside a bleed row, so it pays both rows' edge
+            // padding before it reaches its full measure.
+            chatColumnWidth: dimensions.contentWidth
+                + (dimensions.horizontalEdgePadding + dimensions.horizontalBleedPadding) * 2,
             state: settings.infoPaneState,
             collapsedHeight: collapsedInfoPaneHeight
         )
