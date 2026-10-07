@@ -68,7 +68,7 @@ nonisolated enum PullRequestChipContent {
         )
         switch pullRequest.state {
         case .merged:
-            return [number, PullRequestGlyph(symbol: "arrow.triangle.merge", tint: .merged, label: "merged")]
+            return [number, PullRequestGlyph(symbol: "arrow.trianglehead.pull", tint: .merged, label: "merged")]
         case .closed:
             return [number, PullRequestGlyph(symbol: "nosign", tint: .danger, label: "closed")]
         case .open:
