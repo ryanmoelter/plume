@@ -178,6 +178,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                 jumpButton.isDetached = false
                 jumpToBottom(animated: true)
             }
+            .padding(.trailing, trailingReserve)
+            .animation(.easeOut(duration: 0.22), value: trailingReserve)
         }
     }
 
