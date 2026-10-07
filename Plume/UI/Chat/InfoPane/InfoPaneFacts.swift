@@ -59,6 +59,11 @@ struct InfoPaneFacts: Equatable {
         var hasPullRequest: Bool {
             if case .pullRequest = state { true } else { false }
         }
+
+        var url: URL? {
+            guard case .pullRequest(let pullRequest) = state else { return nil }
+            return pullRequest.url.flatMap(URL.init(string:))
+        }
     }
 
     var tabID: UUID

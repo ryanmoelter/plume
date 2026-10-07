@@ -154,6 +154,7 @@ enum AccessibilityID {
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
+    static let infoPanePullRequestRow = "info-pane-pull-request-row"
 
     // MARK: Minimap
 

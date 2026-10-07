@@ -4,9 +4,8 @@ import SwiftUI
 /// the conversation runs — shared by every presentation.
 ///
 /// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
-/// the text beside the icons starts on one edge. A collapsible section leads
-/// with its disclosure chevron in that column and puts its own icon in a
-/// second one.
+/// the text beside the icons starts on one edge. A collapsible section ends
+/// with its disclosure chevron, and its rows start on that text edge.
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -19,6 +18,8 @@ struct InfoPaneContent: View, ThemedView {
     @Binding var showsCompleted: Bool
 
     @State private var settings = AppSettings.shared
+    @State private var isHoveringPullRequest = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -55,11 +56,16 @@ struct InfoPaneContent: View, ThemedView {
                 settings.infoPaneSubagentsExpanded.toggle()
             } label: {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { DisclosureChevron(isExpanded: isExpanded) }
                     InfoPaneIcon { Image(systemName: StatusSymbol.subagents.name) }
-                    Text("Subagents")
+                    // Collapsed, the running subagents say more than the
+                    // section's name does.
+                    if !isExpanded, !facts.liveSubagents.isEmpty {
+                        SubagentGlyphs(subagents: facts.liveSubagents)
+                    } else {
+                        Text("Subagents")
+                    }
                     Spacer(minLength: 0)
-                    if !isExpanded { SubagentGlyphs(subagents: facts.liveSubagents) }
+                    InfoPaneIcon { DisclosureChevron(isExpanded: isExpanded) }
                 }
                 .emphasis(.secondary)
                 .contentShape(.rect)
@@ -84,10 +90,10 @@ struct InfoPaneContent: View, ThemedView {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
                     // Holds the first column without filling the row's height.
                     InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
                     Text("Completed")
                     Spacer(minLength: 0)
                     if !showsCompleted { Text("\(facts.completedSubagents.count)") }
+                    InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
                 }
                 .emphasis(.subtle)
                 .padding(.vertical, 3)
@@ -191,25 +197,42 @@ struct InfoPaneContent: View, ThemedView {
     private var pullRequest: some View {
         if let pullRequest = facts.pullRequest {
             let checkRollup: (PullRequest) -> CheckRollup = { pullRequest.checkRollup ?? $0.checkRollup() }
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon {
-                    if let forge = pullRequest.forge, forge.markImageName != nil {
-                        ForgeMarkCell(forge: forge)
-                    } else {
-                        Image(systemName: "arrow.triangle.pull")
+            let url = pullRequest.url
+            Button {
+                if let url { openURL(url) }
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon {
+                        if let forge = pullRequest.forge, forge.markImageName != nil {
+                            ForgeMarkCell(forge: forge)
+                        } else {
+                            Image(systemName: "arrow.triangle.pull")
+                        }
                     }
+                    .emphasis(.secondary)
+                    // Wider than the gaps between the status marks, so the
+                    // link reads as an action rather than another status.
+                    HStack(spacing: 8) {
+                        PullRequestChip(
+                            state: pullRequest.state,
+                            checkRollup: checkRollup,
+                            font: typography.caption.font,
+                            fontSize: typography.caption.size,
+                            imageScale: .medium
+                        )
+                        Image(systemName: "arrow.up.forward.square")
+                            .emphasis(.secondary)
+                            .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
+                    }
+                    Spacer(minLength: 0)
                 }
-                .emphasis(.secondary)
-                PullRequestChip(
-                    state: pullRequest.state,
-                    checkRollup: checkRollup,
-                    font: typography.caption.font,
-                    fontSize: typography.caption.size,
-                    imageScale: .medium
-                )
-                Spacer(minLength: 0)
+                .contentShape(.rect)
             }
+            .buttonStyle(.plain)
+            .disabled(url == nil)
+            .plumeHover { isHoveringPullRequest = $0 }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
+            .plumeID(AccessibilityID.infoPanePullRequestRow, value: isHoveringPullRequest ? "hovered" : nil)
         }
     }
 }
@@ -367,7 +390,7 @@ private struct DisclosureChevron: View {
     let isExpanded: Bool
 
     var body: some View {
-        Image(systemName: "chevron.right")
-            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+        Image(systemName: "chevron.down")
+            .rotationEffect(.degrees(isExpanded ? 0 : 90))
     }
 }
