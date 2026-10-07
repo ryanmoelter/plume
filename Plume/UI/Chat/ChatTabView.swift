@@ -895,7 +895,13 @@ struct ChatTabView: View, ThemedView {
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
-        .overlay(alignment: .bottom) { bottomChrome(transcript: transcript) }
+        .overlay(alignment: .bottom) {
+            let reserve = isSide ? geometry.chatTrailingReserve : 0
+            // Moves with the chat's own horizontal shift.
+            bottomChrome(transcript: transcript)
+                .padding(.trailing, reserve)
+                .animation(.easeOut(duration: 0.22), value: reserve)
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             conversationWidth = width
             Self.lastConversationWidth = width
