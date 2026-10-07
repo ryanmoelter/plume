@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A task's live subagents, one status symbol each, for the bottom of a
-/// sidebar row.
+/// A task's live subagents, one status symbol each, and a count of its
+/// running background tasks, for the bottom of a sidebar row.
 ///
 /// This is the sidebar's view of what the info pane shows in the chat, so
 /// it follows the same rule for which subagents count: live ones, plus the
@@ -31,22 +31,41 @@ struct TaskActivityRow: View, ThemedView {
         }
     }
 
+    private var backgroundTaskCount: Int {
+        tabIDs.reduce(0) { $0 + BackgroundTaskTracker.shared.inFlight(tabID: $1).count }
+    }
+
     var body: some View {
         let rows = visible
-        if !rows.isEmpty {
+        let backgroundTaskCount = backgroundTaskCount
+        if !rows.isEmpty || backgroundTaskCount > 0 {
             // Centred, not baseline-aligned. Every SF Symbol reports the same
             // ascent whatever its ink, so a baseline puts `ellipsis` — 3pt of
             // ink centred in a 14pt box — visibly low against taller symbols.
-            HStack(spacing: 4) {
-                // Also sets the row's height, which a row of only ellipses
-                // would otherwise leave shorter than its neighbours.
-                Image(systemName: StatusSymbol.subagents.filled)
-                    .imageScale(.small)
+            HStack(spacing: 8) {
+                if !rows.isEmpty {
+                    HStack(spacing: 4) {
+                        // Also sets the row's height, which a row of only
+                        // ellipses would otherwise leave shorter than its
+                        // neighbours.
+                        Image(systemName: StatusSymbol.subagents.filled)
+                            .imageScale(.small)
+                            .emphasis(.secondary)
+                        ForEach(rows, id: \.subagent.id) { row in
+                            StatusBadge(status: row.subagent.status)
+                                .imageScale(.small)
+                                .help(row.subagent.title)
+                        }
+                    }
+                }
+                if backgroundTaskCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: StatusSymbol.backgroundTasks.filled)
+                            .imageScale(.small)
+                        Text("\(backgroundTaskCount)")
+                    }
                     .emphasis(.secondary)
-                ForEach(rows, id: \.subagent.id) { row in
-                    StatusBadge(status: row.subagent.status)
-                        .imageScale(.small)
-                        .help(row.subagent.title)
+                    .help(backgroundTaskCount == 1 ? "1 background task" : "\(backgroundTaskCount) background tasks")
                 }
             }
             // These symbols carry little ink at this size — the working

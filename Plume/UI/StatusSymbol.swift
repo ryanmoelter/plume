@@ -21,6 +21,8 @@ enum StatusSymbol: CaseIterable {
     case remoteControl
     /// The agents working under a conversation.
     case subagents
+    /// Work that keeps running after the turn that started it.
+    case backgroundTasks
 
     var name: String {
         switch self {
@@ -36,18 +38,19 @@ enum StatusSymbol: CaseIterable {
         case .awaitingReply: "arrow.uturn.backward"
         case .remoteControl: "antenna.radiowaves.left.and.right"
         case .subagents: "gearshape.2"
+        case .backgroundTasks: "clock.arrow.circlepath"
         }
     }
 
     /// The filled variant, for a status badge that stands alone.
     ///
-    /// Not every symbol has one — `arrow.uturn.backward` and the antenna are
-    /// strokes with nothing to fill — and naming a symbol that does not exist
-    /// draws nothing at all, so those stand as themselves. `StatusSymbolTests`
-    /// is what keeps this list honest.
+    /// Not every symbol has one — `arrow.uturn.backward`, the antenna and the
+    /// clock arrow are strokes with nothing to fill — and naming a symbol that
+    /// does not exist draws nothing at all, so those stand as themselves.
+    /// `StatusSymbolTests` is what keeps this list honest.
     var filled: String {
         switch self {
-        case .awaitingReply, .remoteControl: name
+        case .awaitingReply, .remoteControl, .backgroundTasks: name
         default: "\(name).fill"
         }
     }

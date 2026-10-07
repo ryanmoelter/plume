@@ -175,6 +175,7 @@ struct AppSettingsTests {
         #expect(settings.infoPanePresentation == .side)
         #expect(settings.infoPaneState == .expanded)
         #expect(settings.infoPaneSubagentsExpanded)
+        #expect(settings.infoPaneBackgroundTasksExpanded)
     }
 
     @Test func infoPaneSettingsPersist() {
@@ -183,11 +184,13 @@ struct AppSettingsTests {
         settings.infoPanePresentation = .inline
         settings.infoPaneState = .collapsed
         settings.infoPaneSubagentsExpanded = false
+        settings.infoPaneBackgroundTasksExpanded = false
 
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.infoPanePresentation == .inline)
         #expect(reloaded.infoPaneState == .collapsed)
         #expect(!reloaded.infoPaneSubagentsExpanded)
+        #expect(!reloaded.infoPaneBackgroundTasksExpanded)
     }
 
     /// A finished turn is frequent enough that notifying on every one is a

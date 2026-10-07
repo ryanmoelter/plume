@@ -20,6 +20,9 @@ struct SubagentRow: View, ThemedView {
         var leadingIndent: CGFloat = 0
         var badgeWidth: CGFloat = 12
         var spacing: CGFloat = 8
+        /// Sets the title in the caption font, matching a host whose text is
+        /// all caption-sized.
+        var usesCaptionTitle = false
 
         /// How far the hover wash reaches past the badge and the chevron.
         static let washInset: CGFloat = 8
@@ -27,7 +30,8 @@ struct SubagentRow: View, ThemedView {
         /// The badge in the info pane's icon column, under its section's icon.
         static let infoPane = Columns(
             badgeWidth: InfoPaneLayout.iconColumnWidth,
-            spacing: InfoPaneLayout.columnSpacing
+            spacing: InfoPaneLayout.columnSpacing,
+            usesCaptionTitle: true
         )
     }
 
@@ -64,7 +68,7 @@ struct SubagentRow: View, ThemedView {
                     .frame(width: columns.badgeWidth, alignment: .center)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(typography.body.font)
+                        .font(columns.usesCaptionTitle ? typography.caption.font : typography.body.font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     // Rendered even while empty, so a row keeps its height as

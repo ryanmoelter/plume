@@ -151,6 +151,7 @@ enum AccessibilityID {
     static let infoPaneFloatingDismiss = "info-pane-floating-dismiss"
     static let infoPaneSubagentsToggle = "info-pane-subagents-toggle"
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
+    static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"

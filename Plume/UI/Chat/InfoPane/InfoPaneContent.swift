@@ -123,23 +123,58 @@ struct InfoPaneContent: View, ThemedView {
 
     // MARK: Background tasks
 
+    @ViewBuilder
     private var backgroundTasks: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(facts.backgroundTasks) { entry in
+        if facts.backgroundTasks.count == 1, let entry = facts.backgroundTasks.first {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
+                    .emphasis(.secondary)
+                backgroundTaskRow(entry)
+            }
+        } else {
+            backgroundTaskSection
+        }
+    }
+
+    private var backgroundTaskSection: some View {
+        let isExpanded = settings.infoPaneBackgroundTasksExpanded
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneBackgroundTasksExpanded.toggle() }
+            } label: {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: "clock.arrow.circlepath") }
-                        .emphasis(.secondary)
-                    Text(entry.description ?? entry.kind.label)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    ElapsedLabel(since: entry.startedAt)
-                        .emphasis(.subtle)
+                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
+                    Text("Background Tasks")
+                    Text("\(facts.backgroundTasks.count)")
+                    DisclosureChevron(isExpanded: isExpanded)
+                    Spacer(minLength: 0)
                 }
-                .help(entry.kind.label)
-                .plumeID(AccessibilityID.infoPaneBackgroundTask, label: entry.description ?? entry.kind.label)
+                .emphasis(.secondary)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.infoPaneBackgroundTasksToggle, value: isExpanded ? "expanded" : "collapsed")
+
+            if isExpanded {
+                ForEach(facts.backgroundTasks) { entry in
+                    backgroundTaskRow(entry)
+                        .padding(.leading, InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing)
+                }
             }
         }
+    }
+
+    private func backgroundTaskRow(_ entry: BackgroundTaskTracker.Entry) -> some View {
+        HStack(spacing: InfoPaneLayout.columnSpacing) {
+            Text(entry.description ?? entry.kind.label)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            ElapsedLabel(since: entry.startedAt)
+                .emphasis(.subtle)
+        }
+        .help(entry.kind.label)
+        .plumeID(AccessibilityID.infoPaneBackgroundTask, label: entry.description ?? entry.kind.label)
     }
 
     // MARK: Plan
@@ -354,7 +389,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             }
         case .backgroundTasks:
             HStack(spacing: 2) {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: StatusSymbol.backgroundTasks.name)
                 Text("\(facts.backgroundTasks.count)")
             }
             .emphasis(.secondary)
