@@ -625,13 +625,19 @@ final class ChatListController: NSObject {
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
+        // The window was realized around the offset the pass started at. A
+        // document that shrank enough to move the offset — a long message
+        // collapsing — would otherwise leave rows at the new offset blank
+        // until something else asks for a pass; the request below, made from
+        // inside layout, does not reliably bring one.
+        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
+            realizeWindow(around: offset)
+            documentView.needsLayout = true
+        }
+
         for (id, host) in hosts {
             guard let frame = model.frame(of: id) else { continue }
             host.view.frame = NSRect(x: 0, y: frame.minY, width: width, height: frame.height)
-        }
-
-        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
-            documentView.needsLayout = true
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
