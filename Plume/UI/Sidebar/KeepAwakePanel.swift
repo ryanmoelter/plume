@@ -247,15 +247,7 @@ private struct KeepAwakeReasonRow: View {
         case .working(.needsTerminalInput): "Waiting"
         case .working: "Active"
         case .remoteControl: "Remote"
-        case .backgroundTask(let kind, let description): description ?? Self.word(for: kind)
-        }
-    }
-
-    private static func word(for kind: BackgroundTaskTracker.Kind) -> String {
-        switch kind {
-        case .monitor: "Monitor"
-        case .backgroundCommand: "Background"
-        case .workflow: "Workflow"
+        case .backgroundTask(let kind, let description): description ?? kind.label
         }
     }
 }

@@ -76,7 +76,7 @@ struct StatusBadge: View {
 /// state, so the redraw stays inside this label instead of invalidating the
 /// row — the reason `ChatWorkingIndicator` does the same. The schedule slows
 /// itself once the text stops changing by the second.
-private struct ElapsedLabel: View {
+struct ElapsedLabel: View {
     let since: Date
 
     var body: some View {

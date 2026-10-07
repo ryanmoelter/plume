@@ -8,11 +8,12 @@ import SwiftUI
 /// session — all of which change while a scroll is in flight. Built inline, every one of those
 /// rebuilt this list. Here, only `messages`, `status` and the theme reach it,
 /// so nothing else can.
-struct ChatMessageList: View, ThemedView {
+struct ChatMessageList<SidePane: View>: View, ThemedView {
     @Environment(\.theme) var theme
 
     let messages: [ChatMessage]
-    let subagents: [SubagentTranscript]
+    /// Set when the info pane is presented inline, after the last message.
+    var infoPane: InfoPaneFacts?
     let status: TaskStatus
     let bottomPadding: CGFloat
     /// How much of the list's bottom edge the floating bottom chrome covers —
@@ -27,6 +28,13 @@ struct ChatMessageList: View, ThemedView {
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
     var onOpenPlan: (() -> Void)? = nil
+    /// Room above the first message for the collapsed side pane.
+    var topInset: CGFloat = 0
+    /// Room the pinned side pane takes off the list's trailing edge; the
+    /// rows lay out in what is left.
+    var trailingReserve: CGFloat = 0
+    /// Drawn over the list and under the minimap, so the open map covers it.
+    let sidePane: SidePane
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -55,7 +63,7 @@ struct ChatMessageList: View, ThemedView {
     /// the reveal paces what is shown on its own, so batching them costs
     /// nothing visible.
     @State private var pendingStreamRebuild: Task<Void, Never>?
-    private static let streamRebuildInterval: Duration = .milliseconds(100)
+    private static var streamRebuildInterval: Duration { .milliseconds(100) }
 
     /// The pieces that grow into place. Only replaced when a rebuild actually
     /// brings some, so a piece has time to mount and read it — an id left
@@ -113,6 +121,7 @@ struct ChatMessageList: View, ThemedView {
     /// within.
     var body: some View {
         list
+            .overlay(alignment: .topTrailing) { sidePane }
             .overlay(alignment: .trailing) {
                 if !outline.isEmpty {
                     ChatMinimap(
@@ -135,7 +144,9 @@ struct ChatMessageList: View, ThemedView {
             inputs: ChatListInputs(
                 pieces: shownPieces,
                 tabID: tabID,
-                subagents: subagents,
+                infoPane: infoPane,
+                leadingInset: topInset,
+                sideReserve: trailingReserve,
                 animate: settings.animateChatMotion,
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,
@@ -167,6 +178,8 @@ struct ChatMessageList: View, ThemedView {
                 jumpButton.isDetached = false
                 jumpToBottom(animated: true)
             }
+            .padding(.trailing, trailingReserve)
+            .animation(.easeOut(duration: 0.22), value: trailingReserve)
         }
     }
 

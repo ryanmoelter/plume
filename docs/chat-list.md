@@ -16,9 +16,9 @@ An earlier version rendered messages in a SwiftUI `LazyVStack` instead, and hung
 
 `ChatListCommands` (`ChatListController.swift`) is the handle `ChatMessageList` calls into: `jump(to:)`, `scrollToBottom(animated:)`, and `pin(pieceID:)`, each forwarding to the matching controller method. `ChatMessageList` holds one in `@State` before the representable's `makeCoordinator()` has ever run, and `makeNSView` sets `commands.controller` to the real controller once it exists.
 
-`ChatListInputs` (top of `ChatListController.swift`) is the one value the SwiftUI side hands down each render: the pieces, the tab id, the subagent list, whether motion is on, the trailing inset the composer covers, the chat font size, when the current turn started, and the `arrivals` set that marks which pieces should grow in. It is `Equatable`, and `ChatListView.updateNSView` only calls `controller.update(_:)` when it actually changed, so an unrelated SwiftUI re-render costs nothing on the AppKit side.
+`ChatListInputs` (top of `ChatListController.swift`) is the one value the SwiftUI side hands down each render: the pieces, the tab id, the inline info pane, the leading inset that keeps the first message clear of the side pane (the same whether the pane is pinned or collapsed, so pinning never moves rows vertically), the side reserve the pinned side pane takes off the trailing edge (rows lay out in the width left, which re-measures them like any width change, and an additive animation on the document's layer slides them in from their old column), whether motion is on, the trailing inset the composer covers, the chat font size, when the current turn started, and the `arrivals` set that marks which pieces should grow in. It is `Equatable`, and `ChatListView.updateNSView` only calls `controller.update(_:)` when it actually changed, so an unrelated SwiftUI re-render costs nothing on the AppKit side.
 
-`update(_:)` diffs the old and new inputs field by field. A change to `pieces` or `tabID` rebuilds the item list (`rebuildItems`, which also frees hosts for anything removed); a change to `trailingInset` eases the composer room; turning `animate` off snaps every in-flight ease to its target instead of leaving it stranded mid-flight; a change to `chatFontSize` or `workStartedAt` marks every realized host stale so its root gets rebuilt with the new environment. `ChatListDocumentView.layout()`, AppKit's own layout hook, is what actually calls `layoutPass()`. `update(_:)` and everything else only ever request one, through `documentView.needsLayout = true`.
+`update(_:)` diffs the old and new inputs field by field. A change to `pieces` or `tabID`, the info pane arriving or leaving, or the leading inset appearing or going to zero, rebuilds the item list (`rebuildItems`, which also frees hosts for anything removed); a change to `trailingInset` eases the composer room; turning `animate` off snaps every in-flight ease to its target instead of leaving it stranded mid-flight; a change to `chatFontSize` or `workStartedAt` marks every realized host stale so its root gets rebuilt with the new environment. `ChatListDocumentView.layout()`, AppKit's own layout hook, is what actually calls `layoutPass()`. `update(_:)` and everything else only ever request one, through `documentView.needsLayout = true`.
 
 ## The layout pass and the single-offset-writer rule
 
@@ -91,7 +91,7 @@ Sending always jumps: `pin(pieceID:)` unconditionally scrolls, regardless of whe
 
 ## The fold
 
-The trailing items are, in order, the permission dock, the subagent header and the subagent rows. The rows are marked `folds` on their `ChatLayoutItem`, and `ChatLayoutModel.foldHeight` is the height of the trailing run of folding items. Following rests at `followOffset = maxOffset - foldHeight`: the header sits just above the composer and the rows behind it, where they can be read through the glass or scrolled out. The slack formula uses `heldHeight = contentHeight - foldHeight`, so while a reply is still shorter than the viewport the rows show in full below it and slide behind the composer as it grows, before the list starts scrolling. The dock comes first because it needs a click. `SubagentListView.Part` is what lets one view draw as two items.
+A non-zero leading inset is one spacer item ahead of every piece, so the room it takes scrolls away with the conversation. The trailing items are, in order, the permission dock and, when the info pane is presented inline, the info pane. The info pane is marked `folds` on its `ChatLayoutItem`, and `ChatLayoutModel.foldHeight` is the height of the trailing run of folding items. Following rests at `followOffset = maxOffset - foldHeight`: the last message sits just above the composer and the info pane behind it, where it can be read through the glass or scrolled out. The slack formula uses `heldHeight = contentHeight - foldHeight`, so while a reply is still shorter than the viewport the info pane shows in full below it and slides behind the composer as it grows, before the list starts scrolling. The dock comes first because it needs a click.
 
 ## Wheel events over a row's own scroll view
 
@@ -138,7 +138,7 @@ Manual checklist:
 - Opens at the bottom of a transcript.
 - Follows a live stream without detaching.
 - Jump-to-bottom button appears once scrolled away, and returns to the bottom.
-- Minimap select jumps to a piece; select-end jumps to the bottom.
+- Minimap select jumps to a piece and lands it below the leading inset; select-end jumps to the bottom.
 - Composer growth (gaining a line) slides the list rather than jumping it.
 - Resizing the window re-measures rather than leaving stale heights.
 - Send-to-top with a short reply leaves visible slack below the pinned prompt.

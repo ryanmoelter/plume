@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One mark in a pull request chip, before any color scheme is known.
@@ -105,7 +106,14 @@ nonisolated enum PullRequestChipContent {
     }
 
     static func accessibilityText(for state: PullRequestFetchState) -> String? {
-        let labels = glyphs(for: state).map(\.label)
+        accessibilityText(for: state) { $0.checkRollup() }
+    }
+
+    static func accessibilityText(
+        for state: PullRequestFetchState,
+        checkRollup: (PullRequest) -> CheckRollup
+    ) -> String? {
+        let labels = glyphs(for: state, checkRollup: checkRollup).map(\.label)
         return labels.isEmpty ? nil : labels.joined(separator: " ")
     }
 }
@@ -116,26 +124,56 @@ struct PullRequestChip: View {
     /// the thing the row exists to surface; one riding on the branch line is
     /// an annotation to it, and matches that line instead.
     var emphasis: Emphasis = .primary
+    /// Leads the chip with the forge's mark when known.
+    var forge: ForgeKind? = nil
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
+    var showsNumber = true
+    /// The sidebar's chip is small beside its row's title; the info pane's
+    /// matches its own text.
+    var font: Font = .caption
+    /// The point size of `font`, for centering the number on its digits.
+    var fontSize: CGFloat = NSFont.preferredFont(forTextStyle: .caption1).pointSize
+    var imageScale: Image.Scale = .small
 
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let glyphs = PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
-        HStack(spacing: 3) {
-            ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
-                Group {
-                    if let symbol = glyph.symbol {
-                        Image(systemName: symbol).imageScale(.small)
-                    } else if let text = glyph.text {
-                        Text(text)
+            .filter { showsNumber || $0.text == nil }
+        HStack(spacing: 4) {
+            if let forge, forge.markImageName != nil, !glyphs.isEmpty {
+                ForgeMarkCell(forge: forge)
+                    .foregroundStyle(emphasis.textHierarchy)
+                    // The mark's weight hangs below its centre, so centred on
+                    // the number's cap height it still reads low.
+                    .offset(y: -fontSize / 20)
+            }
+            HStack(spacing: 3) {
+                ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
+                    Group {
+                        if let symbol = glyph.symbol {
+                            Image(systemName: symbol)
+                        } else if let text = glyph.text {
+                            // The number is digits and a pound sign, with
+                            // nothing below the baseline, so it centers on its
+                            // cap height rather than its line box.
+                            Text(text)
+                                .alignmentGuide(VerticalAlignment.center) {
+                                    $0[.firstTextBaseline] - capHeight / 2
+                                }
+                        }
                     }
+                    .foregroundStyle(color(for: glyph.tint))
                 }
-                .foregroundStyle(color(for: glyph.tint))
             }
         }
-        .font(.caption)
+        .imageScale(imageScale)
+        .font(font)
+    }
+
+    private var capHeight: CGFloat {
+        NSFont.systemFont(ofSize: fontSize).capHeight
     }
 
     /// Verdicts take a `ChatRole` hue. The marks that carry none still read at
@@ -148,6 +186,40 @@ struct PullRequestChip: View {
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
         case .neutral: AnyShapeStyle(emphasis.textHierarchy)
+        }
+    }
+}
+
+/// The forge's own mark, in a cell the size of the worktree glyph at the
+/// surrounding font and image scale, so text after it lines up with text
+/// after a worktree icon. Nothing for a forge without a mark.
+struct ForgeMarkCell: View {
+    let forge: ForgeKind
+
+    var body: some View {
+        if let name = forge.markImageName {
+            Image(systemName: "tree")
+                .hidden()
+                .overlay {
+                    // A filled mark reads heavier than an outlined symbol of
+                    // the same size, so it sits a little inside the cell.
+                    Image(name)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .scaleEffect(0.82)
+                }
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension ForgeKind {
+    var markImageName: String? {
+        switch self {
+        case .github: "GitHubMark"
+        case .gitlab: "GitLabMark"
+        case .none: nil
         }
     }
 }

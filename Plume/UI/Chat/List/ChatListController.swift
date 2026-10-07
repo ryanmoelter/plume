@@ -7,7 +7,15 @@ import SwiftUI
 struct ChatListInputs: Equatable {
     var pieces: [ChatPiece] = []
     var tabID: UUID?
-    var subagents: [SubagentTranscript] = []
+    /// The inline info pane, after the last message. Nil when the pane is
+    /// presented elsewhere.
+    var infoPane: InfoPaneFacts?
+    /// Room above the first message for whatever floats over the list's top
+    /// edge.
+    var leadingInset: CGFloat = 0
+    /// Room the rows leave beside them at the list's trailing edge, for the
+    /// pinned info pane. Rows lay out in what is left.
+    var sideReserve: CGFloat = 0
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -107,9 +115,9 @@ final class ChatListController: NSObject {
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
 
+    private static let leadingInsetID = "plume.leading.inset"
     private static let dockID = "plume.trailing.dock"
-    private static let subagentsHeaderID = "plume.trailing.subagents.header"
-    private static let subagentRowsID = "plume.trailing.subagents.rows"
+    private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
 
@@ -119,9 +127,10 @@ final class ChatListController: NSObject {
     private var pinTopInset: CGFloat { inputs.chatFontSize * 2.5 }
 
     private enum Item {
+        case leadingInset
         case piece(ChatPiece)
         case dock
-        case subagents(SubagentListView.Part)
+        case infoPane
     }
 
     private struct Host {
@@ -146,6 +155,7 @@ final class ChatListController: NSObject {
     override init() {
         super.init()
         documentView.controller = self
+        documentView.wantsLayer = true
         scrollView.documentView = documentView
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
@@ -224,7 +234,9 @@ final class ChatListController: NSObject {
         inputs = new
         var stale: Set<String> = []
 
-        if new.pieces != old.pieces || new.tabID != old.tabID {
+        if new.pieces != old.pieces || new.tabID != old.tabID
+            || (new.infoPane == nil) != (old.infoPane == nil)
+            || (new.leadingInset == 0) != (old.leadingInset == 0) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
         if new.trailingInset != old.trailingInset {
@@ -233,6 +245,9 @@ final class ChatListController: NSObject {
             } else {
                 model.trailingInset = new.trailingInset
             }
+        }
+        if new.sideReserve != old.sideReserve, new.animate, documentView.window != nil {
+            slideFromPreviousColumn(by: (new.sideReserve - old.sideReserve) / 2)
         }
         if new.animate != old.animate {
             if !new.animate {
@@ -253,9 +268,11 @@ final class ChatListController: NSObject {
             || new.linkDirectory != old.linkDirectory {
             stale.formUnion(hosts.keys)
         }
-        if new.subagents != old.subagents {
-            stale.insert(Self.subagentsHeaderID)
-            stale.insert(Self.subagentRowsID)
+        if new.infoPane != old.infoPane {
+            stale.insert(Self.infoPaneID)
+        }
+        if new.leadingInset != old.leadingInset {
+            stale.insert(Self.leadingInsetID)
         }
         refreshRoots(stale)
         documentView.needsLayout = true
@@ -265,8 +282,12 @@ final class ChatListController: NSObject {
     private func rebuildItems(previous: [ChatPiece], allowsDepartures: Bool = false) -> Set<String> {
         var next: [String: Item] = [:]
         var layoutItems: [ChatLayoutItem] = []
-        layoutItems.reserveCapacity(inputs.pieces.count + 2)
+        layoutItems.reserveCapacity(inputs.pieces.count + 3)
         let width = max(1, model.measurementWidth)
+        if inputs.leadingInset > 0 {
+            next[Self.leadingInsetID] = .leadingInset
+            layoutItems.append(ChatLayoutItem(id: Self.leadingInsetID, estimatedHeight: inputs.leadingInset))
+        }
         for piece in inputs.pieces {
             next[piece.id] = .piece(piece)
         }
@@ -301,13 +322,13 @@ final class ChatListController: NSObject {
         appendDepartures(after: nil)
         if inputs.tabID != nil {
             // The dock needs a click, so it stays above the composer; the
-            // subagent rows fold behind it and only their header holds.
+            // info pane folds behind it.
             next[Self.dockID] = .dock
-            next[Self.subagentsHeaderID] = .subagents(.header)
-            next[Self.subagentRowsID] = .subagents(.rows)
             layoutItems.append(ChatLayoutItem(id: Self.dockID, estimatedHeight: 0))
-            layoutItems.append(ChatLayoutItem(id: Self.subagentsHeaderID, estimatedHeight: 0))
-            layoutItems.append(ChatLayoutItem(id: Self.subagentRowsID, estimatedHeight: 0, folds: true))
+            if inputs.infoPane != nil {
+                next[Self.infoPaneID] = .infoPane
+                layoutItems.append(ChatLayoutItem(id: Self.infoPaneID, estimatedHeight: 0, folds: true))
+            }
         }
         items = next
         model.setItems(layoutItems)
@@ -378,7 +399,8 @@ final class ChatListController: NSObject {
             setDetached(false)
         case let .item(id):
             isFollowing = false
-            readerAnchor = (id: id, distance: 0)
+            // Lands below whatever floats over the list's top edge.
+            readerAnchor = (id: id, distance: -inputs.leadingInset)
         }
         Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.followOffset))")
     }
@@ -390,7 +412,7 @@ final class ChatListController: NSObject {
         let clip = scrollView.contentView
         // A size change is geometry, not intent; the pass it schedules
         // re-resolves the offset from the state the reader already has.
-        guard clip.bounds.height == model.viewportHeight, clip.bounds.width == model.measurementWidth,
+        guard clip.bounds.height == model.viewportHeight, rowWidth(in: clip) == model.measurementWidth,
               model.viewportHeight > 0 else {
             documentView.needsLayout = true
             return
@@ -432,6 +454,22 @@ final class ChatListController: NSObject {
     }
 
     // MARK: - Animation
+
+    /// The rows land in their new column at once; this slides the document's
+    /// layer in from where the old column centered them. The render server
+    /// interpolates it, so the slide costs the main thread nothing past the
+    /// one relayout, and an additive animation per change lets a reversal
+    /// mid-slide carry on from where the rows are.
+    private func slideFromPreviousColumn(by distance: CGFloat) {
+        guard distance != 0, let layer = documentView.layer else { return }
+        let animation = CABasicAnimation(keyPath: "bounds.origin.x")
+        animation.isAdditive = true
+        animation.fromValue = -distance
+        animation.toValue = 0
+        animation.duration = 0.22
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(animation, forKey: "plume.columnSlide.\(UUID().uuidString)")
+    }
 
     private func tick(at now: TimeInterval) {
         for (key, ease) in animator.eases {
@@ -518,8 +556,12 @@ final class ChatListController: NSObject {
     private func resolve(_ target: ChatListScrollTarget) -> CGFloat {
         switch target {
         case .bottom: model.followOffset
-        case let .item(id): min(model.slotTop(of: id), model.maxOffset)
+        case let .item(id): max(0, min(model.slotTop(of: id) - inputs.leadingInset, model.maxOffset))
         }
+    }
+
+    private func rowWidth(in clip: NSClipView) -> CGFloat {
+        max(0, clip.bounds.width - inputs.sideReserve)
     }
 
     // MARK: - Layout
@@ -532,7 +574,7 @@ final class ChatListController: NSObject {
         defer { isLayingOut = false }
 
         let clip = scrollView.contentView
-        let width = clip.bounds.width
+        let width = rowWidth(in: clip)
         let viewport = clip.bounds.height
         let widthChanged = width != model.measurementWidth
         model.measurementWidth = width
@@ -556,7 +598,7 @@ final class ChatListController: NSObject {
         let writes = easedOffset != nil || desired != lastResolvedOffset
         let offset = writes ? desired : actual
 
-        documentView.setFrameSize(NSSize(width: width, height: max(model.totalHeight, viewport)))
+        documentView.setFrameSize(NSSize(width: clip.bounds.width, height: max(model.totalHeight, viewport)))
         if writes {
             lastResolvedOffset = desired
             if actual != desired {
@@ -772,6 +814,13 @@ final class ChatListController: NSObject {
             linkDirectory: inputs.linkDirectory
         )
         switch item {
+        case .leadingInset:
+            let height = inputs.leadingInset
+            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
+                Color.clear
+                    .frame(height: height)
+                    .containerHeight(state, onMeasure: onMeasure)
+            }.id(id))
         case let .piece(piece):
             let onOpenPlan = onOpenPlan
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
@@ -783,14 +832,16 @@ final class ChatListController: NSObject {
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))
-        case let .subagents(part):
-            let subagents = inputs.subagents
-            let tabID = inputs.tabID ?? UUID()
+        case .infoPane:
+            let facts = inputs.infoPane
             let onOpen = onOpenSubagent
+            let onOpenPlan = onOpenPlan ?? {}
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
-                SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
-                    .listItemPadding(vertical: false)
-                    .containerHeight(state, onMeasure: onMeasure)
+                if let facts {
+                    InfoPaneInlineBlock(facts: facts, onOpenSubagent: onOpen, onOpenPlan: onOpenPlan)
+                        .listItemPadding(vertical: false)
+                        .containerHeight(state, onMeasure: onMeasure)
+                }
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()

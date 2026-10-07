@@ -225,7 +225,7 @@ struct TaskRowView: View {
                 }
             }
         case .pullRequest(let directory, let state):
-            PullRequestChip(state: state) {
+            PullRequestChip(state: state, forge: PullRequestStore.shared.forge(for: directory)) {
                 PullRequestStore.shared.checkRollup(for: directory, of: $0)
             }
         }
