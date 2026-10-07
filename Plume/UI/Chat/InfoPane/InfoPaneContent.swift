@@ -64,8 +64,8 @@ struct InfoPaneContent: View, ThemedView {
                     } else {
                         Text("Subagents")
                     }
+                    DisclosureChevron(isExpanded: isExpanded)
                     Spacer(minLength: 0)
-                    InfoPaneIcon { DisclosureChevron(isExpanded: isExpanded) }
                 }
                 .emphasis(.secondary)
                 .contentShape(.rect)
@@ -91,12 +91,15 @@ struct InfoPaneContent: View, ThemedView {
                     // Holds the first column without filling the row's height.
                     InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
                     Text("Completed")
-                    Spacer(minLength: 0)
                     if !showsCompleted { Text("\(facts.completedSubagents.count)") }
-                    InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
+                    DisclosureChevron(isExpanded: showsCompleted)
+                    Spacer(minLength: 0)
                 }
                 .emphasis(.subtle)
                 .padding(.vertical, 3)
+                // Straight under the section header, it needs the room a
+                // running row would otherwise give it.
+                .padding(.top, facts.liveSubagents.isEmpty ? 3 : 0)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -223,6 +226,7 @@ struct InfoPaneContent: View, ThemedView {
                         Image(systemName: "arrow.up.forward.square")
                             .emphasis(.secondary)
                             .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
+                            .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
                     }
                     Spacer(minLength: 0)
                 }
