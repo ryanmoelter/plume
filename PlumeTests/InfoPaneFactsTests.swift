@@ -25,6 +25,13 @@ struct InfoPaneFactsTests {
         #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequest, .plan, .folder, .branch])
     }
 
+    @Test func aSideChatShowsOnceAQuestionIsAskedInBothForms() {
+        let facts = InfoPaneFacts(tabID: UUID(), planTitle: "Plan", folder: "Plume", sideChatCount: 2)
+        #expect(facts.sections == [.plan, .sideChat, .folder])
+        #expect(facts.collapsedSections == [.plan, .sideChat])
+        #expect(!InfoPaneFacts(tabID: UUID(), sideChatCount: 0).sections.contains(.sideChat))
+    }
+
     @Test func onlyCompletedSubagentsStillShowTheSection() {
         let facts = InfoPaneFacts(tabID: UUID(), completedSubagents: [subagent("a", .done)])
         #expect(facts.sections == [.subagents])

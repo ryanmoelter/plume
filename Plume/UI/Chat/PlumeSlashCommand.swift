@@ -19,7 +19,7 @@ enum PlumeSlashCommand {
         ),
         SlashCommand(
             name: "btw",
-            description: "Ask a side question, answered without disturbing this conversation",
+            description: "Ask in a side chat, answered without disturbing this conversation",
             argumentHint: "<question>",
             isPlumeProvided: true
         )

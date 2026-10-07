@@ -31,6 +31,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
     var onOpenPlan: (() -> Void)? = nil
+    var onOpenSideChat: () -> Void = {}
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
@@ -162,6 +163,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             redoContext: redoContext,
             onOpenSubagent: onOpenSubagent,
             onOpenPlan: onOpenPlan,
+            onOpenSideChat: onOpenSideChat,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }
         )

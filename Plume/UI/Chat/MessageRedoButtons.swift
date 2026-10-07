@@ -116,7 +116,7 @@ private struct FooterGlyph: View, ThemedView {
             .frame(width: Self.diameter, height: Self.diameter)
             .background(isHovered && isEnabled ? colors.surface(.backgroundTint) : .clear, in: .circle)
             .contentShape(.circle)
-            .plumeHover { isHovered = $0 }
+            .plumeHover { hovering in withAnimation(CopyGlyph.hoverAnimation) { isHovered = hovering } }
     }
 
     private static let diameter: CGFloat = 22

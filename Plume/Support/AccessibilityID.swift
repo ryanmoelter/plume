@@ -153,11 +153,11 @@ enum AccessibilityID {
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
+    static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
 
     // MARK: Side questions (/btw)
 
-    static let sideQuestionsOpenButton = "side-questions-open-button"
     static let sideQuestionsClose = "side-questions-close"
     static let sideQuestionChip = "side-question-chip"
     static let sideQuestionChipDismiss = "side-question-chip-dismiss"

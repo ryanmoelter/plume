@@ -59,8 +59,8 @@ struct SideQuestionChip: View, ThemedView {
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Dismiss this side question")
-            .accessibilityLabel("Dismiss side question")
+            .help("Dismiss the side chat")
+            .accessibilityLabel("Dismiss side chat")
             .plumeID(AccessibilityID.sideQuestionChipDismiss, invoke: onDismiss)
         }
     }

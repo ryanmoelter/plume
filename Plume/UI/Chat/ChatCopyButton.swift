@@ -74,13 +74,15 @@ struct CopyGlyph: View, ThemedView {
             }
         }
         .font(.system(size: Self.glyphSize, weight: .medium))
-        .modifier(CopyGlyphTint(alwaysFilled: alwaysFilled, didCopy: didCopy))
+        .modifier(CopyGlyphTint(alwaysFilled: alwaysFilled, isLit: didCopy || isHovered))
         .animation(.default, value: didCopy)
         .frame(width: Self.diameter, height: Self.diameter)
         .background(showsCircle ? colors.surface(.backgroundTint) : .clear, in: .circle)
         .contentShape(.circle)
-        .plumeHover { isHovered = $0 }
+        .plumeHover { hovering in withAnimation(Self.hoverAnimation) { isHovered = hovering } }
     }
+
+    static let hoverAnimation: Animation = .easeInOut(duration: 0.15)
 
     private var showsCircle: Bool {
         alwaysFilled || isHovered
@@ -95,18 +97,19 @@ struct CopyGlyph: View, ThemedView {
 }
 
 /// A floating glyph keeps the theme foreground against its chip; an inline
-/// one dims to the surrounding text and brightens once the copy lands.
+/// one dims to the surrounding text and brightens on hover and once the copy
+/// lands.
 private struct CopyGlyphTint: ViewModifier, ThemedView {
     @Environment(\.theme) var theme
 
     let alwaysFilled: Bool
-    let didCopy: Bool
+    let isLit: Bool
 
     func body(content: Content) -> some View {
         if alwaysFilled {
             content.foregroundStyle(colors.foreground)
         } else {
-            content.emphasis(didCopy ? .primary : .subtle)
+            content.emphasis(isLit ? .primary : .subtle)
         }
     }
 }

@@ -42,7 +42,7 @@ struct SideQuestionsOverlay: View, ThemedView {
         HStack(spacing: 12) {
             Image(systemName: SideQuestionChip.symbol)
                 .emphasis(.secondary)
-            Text("Side questions")
+            Text("Side chat")
                 .font(.headline)
             Spacer()
             Button(action: onClose) {

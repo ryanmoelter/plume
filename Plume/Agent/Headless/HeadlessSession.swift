@@ -812,7 +812,7 @@ final class HeadlessSession: AgentSession {
     private func applySideQuestionAnswer(in response: ControlResponse, id: String) {
         if response.isError {
             updateSideQuestion(id: id) {
-                $0.state = .failed(response.errorMessage ?? "The side question failed.")
+                $0.state = .failed(response.errorMessage ?? "The side chat failed to answer.")
             }
             return
         }

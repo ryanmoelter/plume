@@ -63,6 +63,7 @@ final class ChatListController: NSObject {
     let documentView = ChatListDocumentView()
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
+    var onOpenSideChat: () -> Void = {}
     /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
     /// so a change between nil and non-nil refreshes mounted rows itself.
     var onOpenPlan: (() -> Void)? {
@@ -847,9 +848,15 @@ final class ChatListController: NSObject {
             let facts = inputs.infoPane
             let onOpen = onOpenSubagent
             let onOpenPlan = onOpenPlan ?? {}
+            let onOpenSideChat = onOpenSideChat
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 if let facts {
-                    InfoPaneInlineBlock(facts: facts, onOpenSubagent: onOpen, onOpenPlan: onOpenPlan)
+                    InfoPaneInlineBlock(
+                        facts: facts,
+                        onOpenSubagent: onOpen,
+                        onOpenPlan: onOpenPlan,
+                        onOpenSideChat: onOpenSideChat
+                    )
                         .listItemPadding(vertical: false)
                         .containerHeight(state, onMeasure: onMeasure)
                 }

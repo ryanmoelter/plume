@@ -34,7 +34,7 @@ struct ChatTabView: View, ThemedView {
     /// Whether the `/btw` side-questions panel is open. Independent of
     /// `openSubagentID`: unlike a subagent, there's no per-question row in the
     /// chat to open one from, so this is a single on/off toggle for the tab.
-    @State private var isSideQuestionsPanelShown = false
+    @State private var isSideChatShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
     /// The first message, from the moment it is sent until the transcript
     /// contains it. Held here rather than on the session because it has to
@@ -193,7 +193,8 @@ struct ChatTabView: View, ThemedView {
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
-            pullRequest: pullRequest
+            pullRequest: pullRequest,
+            sideChatCount: claudeSession?.sideQuestions.count ?? 0
         )
     }
 
@@ -386,9 +387,9 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .overlay {
-            if isSideQuestionsPanelShown, let claudeSession {
+            if isSideChatShown, let claudeSession {
                 SideQuestionsOverlay(sideQuestions: claudeSession.sideQuestions, glass: planGlass) {
-                    isSideQuestionsPanelShown = false
+                    isSideChatShown = false
                 }
                 .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
                 .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
@@ -408,7 +409,7 @@ struct ChatTabView: View, ThemedView {
             // native mouse-down focus handoff for that wrapper.
             DispatchQueue.main.async { planFeedbackFocused = true }
         }
-        .animation(.snappy(duration: 0.22), value: isSideQuestionsPanelShown)
+        .animation(.snappy(duration: 0.22), value: isSideChatShown)
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {
                 ResumeSessionSheet(
@@ -462,7 +463,7 @@ struct ChatTabView: View, ThemedView {
                     exchange: exchange,
                     glass: planGlass,
                     maxHeight: chatHeight / 2,
-                    onOpenPanel: { isSideQuestionsPanelShown = true },
+                    onOpenPanel: { isSideChatShown = true },
                     onDismiss: { claudeSession.dismissChippedSideQuestion() }
                 )
                 .listItemPadding(vertical: false)
@@ -644,10 +645,6 @@ struct ChatTabView: View, ThemedView {
                 if let headlessSession {
                     RemoteControlControl(session: headlessSession)
                 }
-                if let claudeSession, !claudeSession.sideQuestions.isEmpty,
-                   claudeSession.chippedSideQuestion == nil {
-                    sideQuestionsButton(session: claudeSession)
-                }
             }
             .fixedSize(horizontal: true, vertical: false)
             .animation(
@@ -655,27 +652,6 @@ struct ChatTabView: View, ThemedView {
                 value: tab.provider == .codex && CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 })
             )
         }
-    }
-
-    /// The way back to answered questions once their chip is dismissed. The
-    /// chip below the chat is the entry point while it is up, so this shows
-    /// only after a dismissal — most tabs never ask a `/btw` at all, and the
-    /// statusline stays uncluttered until one does.
-    private func sideQuestionsButton(session: HeadlessSession) -> some View {
-        Button {
-            isSideQuestionsPanelShown.toggle()
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: SideQuestionChip.symbol)
-                Text("\(session.sideQuestions.count)")
-            }
-        }
-        .buttonStyle(.plain)
-        .font(typography.caption.font)
-        .emphasis(.secondary)
-        .help("Side questions")
-        .accessibilityLabel("Side questions")
-        .plumeID(AccessibilityID.sideQuestionsOpenButton)
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
@@ -973,6 +949,7 @@ struct ChatTabView: View, ThemedView {
             redoContext: redoContext(transcript: transcript),
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
+            onOpenSideChat: { isSideChatShown = true },
             topInset: isSide ? geometry.chatTopInset : 0,
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
@@ -1018,7 +995,8 @@ struct ChatTabView: View, ThemedView {
                     Self.lastCollapsedInfoPaneHeight = height
                 },
                 onOpenSubagent: { openSubagentID = $0.id },
-                onOpenPlan: openPlan
+                onOpenPlan: openPlan,
+                onOpenSideChat: { isSideChatShown = true }
             )
         }
     }
