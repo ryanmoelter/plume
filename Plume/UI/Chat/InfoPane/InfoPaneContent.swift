@@ -157,8 +157,10 @@ struct InfoPaneContent: View, ThemedView {
 
             if isExpanded {
                 ForEach(facts.backgroundTasks) { entry in
-                    backgroundTaskRow(entry)
-                        .padding(.leading, InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing)
+                    HStack(spacing: InfoPaneLayout.columnSpacing) {
+                        InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name).hidden() }
+                        backgroundTaskRow(entry)
+                    }
                 }
             }
         }
