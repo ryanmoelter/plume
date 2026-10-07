@@ -14,7 +14,8 @@ struct ChatPiece: Identifiable, Equatable {
     /// kind: `<message>/<block>` for a whole block, one component deeper for a
     /// markdown block within it, one deeper again for a segment of a split
     /// one. Every component is an `Int`, so no shorter path can collide with a
-    /// longer one. A duplicate here is a hang rather than a visible glitch, so
+    /// longer one — except a collapsed agent message's `<message>/<block>/preview`,
+    /// whose last component no index can equal. A duplicate here is a hang rather than a visible glitch, so
     /// `ChatPieceSplitterTests` asserts it.
     var id: String
     var messageID: String
@@ -42,6 +43,9 @@ struct ChatPiece: Identifiable, Equatable {
     /// Set on the same piece as `messageCopySource`, and nil where the
     /// transcript recorded no time.
     var timestamp: Date?
+    /// Set on every piece of another agent's message: the key its collapsed
+    /// or expanded state is kept under, shared by all of the message's pieces.
+    var agentMessageKey: String?
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -51,7 +55,11 @@ struct ChatPiece: Identifiable, Equatable {
         case toolCall(ToolCall, isPending: Bool)
         case injected(InjectedContent, text: String)
         /// Names the agent whose message the pieces below it are.
-        case agentMessageTitle(name: String?)
+        /// `isExpanded` is set only on a message that can collapse and
+        /// currently doesn't.
+        case agentMessageTitle(name: String?, isSubagent: Bool = false, isExpanded: Bool = false)
+        /// A long agent message cut to its opening lines, as one piece.
+        case agentMessagePreview(markdown: String)
         case notice(ChatNotice)
         case image(ChatImage)
         case working
@@ -105,6 +113,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .toolCall: "toolCall"
         case .injected: "injected"
         case .agentMessageTitle: "agentMessageTitle"
+        case .agentMessagePreview: "agentMessagePreview"
         case .notice: "notice"
         case .image: "image"
         case .working: "working"

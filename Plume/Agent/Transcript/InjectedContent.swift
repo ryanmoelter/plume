@@ -14,8 +14,11 @@ nonisolated enum InjectedContent: Equatable {
     /// every other wrapper here it holds the user's own words, so it reads as
     /// prose rather than a marker.
     case pastedContent
-    /// A message another Claude session sent this one.
-    case agentMessage(name: String?)
+    /// A message another Claude session sent this one, or one a subagent of
+    /// this session sent back to it. A subagent names itself only by its
+    /// id; `TranscriptParser` resolves that to the spawning call's
+    /// description where the transcript has one.
+    case agentMessage(name: String?, subagentID: String? = nil)
     /// A skill's body, injected when the skill is invoked.
     case skill(name: String)
     /// A slash command the user ran, from its `<command-name>` block.
@@ -67,7 +70,8 @@ nonisolated enum InjectedContent: Equatable {
     var markerLabel: String? {
         switch self {
         case .userMessage, .pastedContent: return nil
-        case .agentMessage(let name): return "Message from \(name ?? "another agent")"
+        case .agentMessage(let name, let subagentID):
+            return "Message from \(name ?? (subagentID == nil ? "another agent" : "a subagent"))"
         case .skill(let name): return "Skill: \(name)"
         case .slashCommand(let name, let arguments):
             guard let arguments else { return name }
@@ -123,8 +127,10 @@ nonisolated enum InjectedContent: Equatable {
     /// transcript's XML.
     func bodyText(_ raw: String) -> String {
         switch self {
-        case .agentMessage:
-            return Self.element(named: Self.agentMessageTag, in: raw)?.body ?? raw
+        case .agentMessage(_, let subagentID):
+            let tag = subagentID == nil ? Self.agentMessageTag : Self.subagentMessageTag
+            guard let body = Self.element(named: tag, in: raw)?.body else { return raw }
+            return subagentID == nil ? body : Self.subagentReport(body)
         default:
             return bodyStyle == .markdown ? Self.unwrapped(raw) : raw
         }
@@ -170,7 +176,7 @@ nonisolated enum InjectedContent: Equatable {
         return range.lowerBound
     }
 
-    /// The open tag's attribute text and body of the first `<name …>…</name>`
+    /// The open tag's attribute text and body of the `<name …>…</name>`
     /// element in the string, wherever it sits.
     private static func element(named name: String, in text: String) -> (attributes: String, body: String)? {
         guard let openStart = text.range(of: "<\(name)"),
@@ -179,15 +185,40 @@ nonisolated enum InjectedContent: Equatable {
         let attributes = String(text[openStart.upperBound..<openEnd])
         guard attributes.isEmpty || attributes.first!.isWhitespace else { return nil }
         let bodyStart = text.index(after: openEnd)
-        guard let close = text.range(of: "</\(name)>", range: bodyStart..<text.endIndex) else { return nil }
+        // The last close, since a report can quote the tag in its own body.
+        guard let close = text.range(of: "</\(name)>", options: .backwards, range: bodyStart..<text.endIndex)
+        else { return nil }
         let body = String(text[bodyStart..<close.lowerBound])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (attributes, body)
     }
 
     private static let agentMessageTag = "cross-session-message"
+    private static let subagentMessageTag = "agent-message"
 
-    /// The sending session's name, from the open tag's `from-name`.
+    /// A subagent's final report opens with one line of harness framing and
+    /// arrives with every line indented two spaces, which markdown would
+    /// otherwise read as nesting.
+    private static func subagentReport(_ body: String) -> String {
+        var lines = body.components(separatedBy: "\n")
+        if lines.first?.hasPrefix("[Subagent hand-back]") == true {
+            lines.removeFirst()
+        }
+        return lines
+            .map { $0.hasPrefix("  ") ? String($0.dropFirst(2)) : $0 }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether the text holds the element on a line of its own. Claude Code
+    /// wraps a peer's message in boilerplate on both sides, so the tag opens
+    /// a line rather than the text; requiring that keeps prose that mentions
+    /// the tag mid-sentence the user's.
+    private static func opensLine(_ tag: String, in trimmed: String) -> Bool {
+        trimmed.hasPrefix("<\(tag)") || trimmed.range(of: "\n<\(tag)") != nil
+    }
+
+    /// One attribute's value from an open tag's attribute text.
     private static func attribute(_ name: String, in attributes: String) -> String? {
         guard let key = attributes.range(of: "\(name)=\"") else { return nil }
         guard let close = attributes[key.upperBound...].firstIndex(of: "\"") else { return nil }
@@ -237,12 +268,13 @@ nonisolated enum InjectedContent: Equatable {
         if trimmed.hasPrefix("<pasted_content") {
             return .pastedContent
         }
-        // Claude Code wraps the peer's message in boilerplate on both sides,
-        // so the tag opens a line rather than the text. Requiring a line of
-        // its own keeps prose that mentions the tag mid-sentence the user's.
-        if trimmed.range(of: "\n<\(agentMessageTag)") != nil || trimmed.hasPrefix("<\(agentMessageTag)"),
+        if opensLine(agentMessageTag, in: trimmed),
            let element = element(named: agentMessageTag, in: trimmed) {
             return .agentMessage(name: attribute("from-name", in: element.attributes))
+        }
+        if opensLine(subagentMessageTag, in: trimmed),
+           let element = element(named: subagentMessageTag, in: trimmed) {
+            return .agentMessage(name: nil, subagentID: attribute("from", in: element.attributes) ?? "")
         }
         if trimmed.hasPrefix("<system-reminder") {
             return .systemNote

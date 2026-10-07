@@ -64,6 +64,7 @@ final class ChatListController: NSObject {
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenSideChat: () -> Void = {}
+    var onToggleAgentMessage: (String) -> Void = { _ in }
     /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
     /// so a change between nil and non-nil refreshes mounted rows itself.
     var onOpenPlan: (() -> Void)? {
@@ -835,12 +836,16 @@ final class ChatListController: NSObject {
             }.id(id))
         case let .piece(piece):
             let onOpenPlan = onOpenPlan
+            // Through the controller rather than captured, so a mounted row
+            // calls whichever closure the list holds now.
+            let onToggleAgentMessage: (String) -> Void = { [weak self] key in self?.onToggleAgentMessage(key) }
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 ChatPieceView(
                     piece: piece,
                     containerState: state,
                     onNaturalHeight: onMeasure,
-                    onOpenPlan: onOpenPlan
+                    onOpenPlan: onOpenPlan,
+                    onToggleAgentMessage: onToggleAgentMessage
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))

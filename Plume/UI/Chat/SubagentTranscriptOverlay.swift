@@ -24,6 +24,7 @@ struct SubagentTranscriptOverlay: View, ThemedView {
     /// path.
     @State private var pieces: [ChatPiece] = []
     @State private var cache = ChatPieceCache()
+    @State private var expandedAgentMessages: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,7 +39,7 @@ struct SubagentTranscriptOverlay: View, ThemedView {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(pieces) { piece in
-                            ChatPieceView(piece: piece)
+                            ChatPieceView(piece: piece, onToggleAgentMessage: toggleAgentMessage)
                                 .listItemPadding(bleed: true, vertical: false)
                                 .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
                                 .padding(.bottom, piece.bottomInset)
@@ -60,8 +61,14 @@ struct SubagentTranscriptOverlay: View, ThemedView {
             for: messages,
             status: subagent.status,
             hiddenToolUseIDs: [],
+            expandedAgentMessages: expandedAgentMessages,
             dimensions: dimensions
         )
+    }
+
+    private func toggleAgentMessage(_ key: String) {
+        expandedAgentMessages.formSymmetricDifference([key])
+        rebuildPieces()
     }
 
     private var header: some View {

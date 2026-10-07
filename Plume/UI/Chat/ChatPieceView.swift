@@ -23,6 +23,9 @@ struct ChatPieceView: View, ThemedView {
     /// open, as inside a subagent's own transcript, or where there is no
     /// plan to show.
     var onOpenPlan: (() -> Void)? = nil
+    /// Collapses or expands the agent message keyed by the argument. Nil
+    /// leaves every agent message as the splitter laid it out.
+    var onToggleAgentMessage: ((String) -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel
@@ -78,6 +81,7 @@ struct ChatPieceView: View, ThemedView {
             // that hangs past a short line.
             .contentShape(.rect)
             .plumeHover { isHovered = $0 }
+            .modifier(AgentMessageToggle(piece: piece, toggle: onToggleAgentMessage))
     }
 
     /// The table's own source, on a table's piece. Hover-revealed, since a
@@ -151,8 +155,10 @@ struct ChatPieceView: View, ThemedView {
             } else {
                 InjectedContentRow(kind: kind, text: text)
             }
-        case let .agentMessageTitle(name):
-            AgentMessageTitle(name: name)
+        case let .agentMessageTitle(name, isSubagent, isExpanded):
+            AgentMessageTitle(name: name, isSubagent: isSubagent, isExpanded: isExpanded)
+        case let .agentMessagePreview(markdown):
+            AgentMessagePreview(markdown: markdown)
         case let .notice(notice):
             ChatNoticeRow(notice: notice)
         case let .image(image):
@@ -220,6 +226,37 @@ struct ChatPieceView: View, ThemedView {
 
     private var washPadding: CGFloat { piece.wash == .none ? 0 : 10 }
     private var washRadius: CGFloat { 10 }
+}
+
+/// Makes a click anywhere on a collapsible agent message toggle it. Only
+/// pieces of such a message get the gesture, so no other row's clicks pay
+/// for it.
+private struct AgentMessageToggle: ViewModifier {
+    let piece: ChatPiece
+    let toggle: ((String) -> Void)?
+
+    func body(content: Content) -> some View {
+        if let key = piece.agentMessageKey, let toggle {
+            content
+                .onTapGesture { toggle(key) }
+                .plumeID(
+                    AccessibilityID.agentMessageToggle,
+                    label: piece.id,
+                    value: isCollapsed ? "collapsed" : "expanded",
+                    invoke: { toggle(key) }
+                )
+        } else {
+            content
+        }
+    }
+
+    private var isCollapsed: Bool {
+        switch piece.content {
+        case .agentMessagePreview: true
+        case let .agentMessageTitle(_, _, isExpanded): !isExpanded
+        default: false
+        }
+    }
 }
 
 /// Where a piece's height comes from: its own ease, or the container's.

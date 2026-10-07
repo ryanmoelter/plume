@@ -13,6 +13,7 @@ enum ChatPieceSplitter {
         for messages: [ChatMessage],
         status: TaskStatus,
         hiddenToolUseIDs: Set<String>,
+        expandedAgentMessages: Set<String> = [],
         dimensions: Dimensions,
         parse: (String) -> [MarkdownBlock.Parsed] = MarkdownBlock.parseWithSources
     ) -> [ChatPiece] {
@@ -35,6 +36,7 @@ enum ChatPieceSplitter {
                 activity: isLast ? Self.activity(for: status) : nil,
                 hiddenToolUseIDs: messageHiddenToolUseIDs,
                 previousMessageKind: previousMessageKind,
+                expandedAgentMessages: expandedAgentMessages,
                 dimensions: dimensions
             )
             let group = pieces(of: context, parse: parse)
@@ -80,6 +82,7 @@ enum ChatPieceSplitter {
         let activity: ChatPiece.Content?
         let hiddenToolUseIDs: Set<String>
         let previousMessageKind: ChatBlockSpacing.Kind?
+        let expandedAgentMessages: Set<String>
         let dimensions: Dimensions
 
         var wash: ChatPiece.Wash {
@@ -235,27 +238,49 @@ enum ChatPieceSplitter {
             let isPending = context.needsInput && blockIndex == message.blocks.count - 1
             return single(.toolCall(call, isPending: isPending))
         case .injected(let kind, let text):
-            guard case .agentMessage(let name) = kind else {
+            guard case .agentMessage(let name, let subagentID) = kind else {
                 return single(.injected(kind, text: text))
             }
+            let body = kind.bodyText(text)
+            let collapsible = AgentMessagePreviewMetrics.isCollapsible(
+                body,
+                width: context.dimensions.contentWidth
+            )
+            let isExpanded = collapsible && context.expandedAgentMessages.contains(base)
             var result = [ChatPiece(
                 id: base,
                 messageID: message.id,
                 role: message.role,
-                content: .agentMessageTitle(name: name),
+                content: .agentMessageTitle(name: name, isSubagent: subagentID != nil, isExpanded: isExpanded),
                 wash: .agentBubble,
                 topInset: leading
             )]
-            result += markdownPieces(
-                parse(kind.bodyText(text)),
-                idPrefix: base,
-                messageID: message.id,
-                role: message.role,
-                wash: .agentBubble,
-                leading: context.dimensions.messageBlockSpacing,
-                dimensions: context.dimensions
-            )
-            return result
+            if collapsible && !isExpanded {
+                result.append(ChatPiece(
+                    id: "\(base)/preview",
+                    messageID: message.id,
+                    role: message.role,
+                    content: .agentMessagePreview(markdown: body),
+                    wash: .agentBubble,
+                    topInset: context.dimensions.messageBlockSpacing
+                ))
+            } else {
+                result += markdownPieces(
+                    parse(body),
+                    idPrefix: base,
+                    messageID: message.id,
+                    role: message.role,
+                    wash: .agentBubble,
+                    leading: context.dimensions.messageBlockSpacing,
+                    dimensions: context.dimensions
+                )
+            }
+            guard collapsible else { return result }
+            return result.map { piece in
+                var piece = piece
+                piece.agentMessageKey = base
+                return piece
+            }
         case .notice(let notice):
             return single(.notice(notice))
         case .image(let image):
