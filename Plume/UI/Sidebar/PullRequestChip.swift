@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One mark in a pull request chip, before any color scheme is known.
@@ -145,6 +146,8 @@ struct PullRequestChip: View {
     /// The sidebar's chip is small beside its row's title; the info pane's
     /// matches its own text.
     var font: Font = .caption
+    /// The point size of `font`, for centering the number on its digits.
+    var fontSize: CGFloat = NSFont.preferredFont(forTextStyle: .caption1).pointSize
     var imageScale: Image.Scale = .small
 
     @Environment(\.colorScheme) private var colorScheme
@@ -164,7 +167,13 @@ struct PullRequestChip: View {
                         if let symbol = glyph.symbol {
                             Image(systemName: symbol)
                         } else if let text = glyph.text {
+                            // The number is digits and a pound sign, with
+                            // nothing below the baseline, so it centers on its
+                            // cap height rather than its line box.
                             Text(text)
+                                .alignmentGuide(VerticalAlignment.center) {
+                                    $0[.firstTextBaseline] - capHeight / 2
+                                }
                         }
                     }
                     .foregroundStyle(color(for: glyph.tint))
@@ -173,6 +182,10 @@ struct PullRequestChip: View {
         }
         .imageScale(imageScale)
         .font(font)
+    }
+
+    private var capHeight: CGFloat {
+        NSFont.systemFont(ofSize: fontSize).capHeight
     }
 
     /// Verdicts take a `ChatRole` hue. The marks that carry none still read at
@@ -200,10 +213,13 @@ struct ForgeMarkCell: View {
             Image(systemName: "tree")
                 .hidden()
                 .overlay {
+                    // A filled mark reads heavier than an outlined symbol of
+                    // the same size, so it sits a little inside the cell.
                     Image(name)
                         .renderingMode(.template)
                         .resizable()
                         .scaledToFit()
+                        .scaleEffect(0.82)
                 }
                 .accessibilityHidden(true)
         }

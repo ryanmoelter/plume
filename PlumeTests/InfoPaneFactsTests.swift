@@ -20,9 +20,9 @@ struct InfoPaneFactsTests {
             planTitle: "Plan",
             folder: "Plume",
             branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
-            pullRequest: .init(state: .noPR, checkRollup: nil)
+            pullRequest: .init(state: .pullRequest(PullRequest(number: 7, state: .open, isDraft: false)), checkRollup: nil)
         )
-        #expect(facts.sections == [.subagents, .backgroundTasks, .plan, .pullRequest, .folder, .branch])
+        #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequest, .plan, .folder, .branch])
     }
 
     @Test func onlyCompletedSubagentsStillShowTheSection() {
@@ -53,13 +53,13 @@ struct InfoPaneFactsTests {
         #expect(facts.collapsedSections == [.plan])
     }
 
-    @Test func theCollapsedFormShowsAPullRequestOnlyWhenThereIsOne() {
+    @Test func aPullRequestRowNeedsAPullRequest() {
         let open = PullRequest(number: 7, state: .open, isDraft: false)
         let withPR = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: .pullRequest(open), checkRollup: .success))
         #expect(withPR.collapsedSections == [.pullRequest])
         for state in [PullRequestFetchState.noPR, .localOnly, .loading] {
             let facts = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: state, checkRollup: nil))
-            #expect(facts.collapsedSections.isEmpty)
+            #expect(facts.sections.isEmpty)
         }
     }
 
@@ -115,6 +115,10 @@ struct InfoPaneLayoutTests {
         #expect(!collapsed.isPinned)
         #expect(collapsed.chatTrailingReserve == 0)
         #expect(collapsed.chatTopInset == 28 + gap)
+    }
+
+    @Test func anUnmeasuredChatStartsPinned() {
+        #expect(side(width: 0).isPinned)
     }
 
     @Test func aNarrowWindowNeverPinsEvenWhenExpanded() {

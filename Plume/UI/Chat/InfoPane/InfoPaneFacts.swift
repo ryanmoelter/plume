@@ -76,23 +76,21 @@ struct InfoPaneFacts: Equatable {
         var sections: [InfoPaneSection] = []
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
+        if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
         if planTitle != nil { sections.append(.plan) }
-        if pullRequest != nil { sections.append(.pullRequest) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
         return sections
     }
 
-    /// What the collapsed form draws an icon for: only what has something to
-    /// say. Where the conversation runs rarely changes, and a branch without
-    /// a pull request has no status worth a glance.
+    /// What the collapsed form draws an icon for. Where the conversation runs
+    /// rarely changes, so it stays out of the row.
     var collapsedSections: [InfoPaneSection] {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
-            case .pullRequest: pullRequest?.hasPullRequest == true
             case .folder, .branch: false
-            case .backgroundTasks, .plan: true
+            case .backgroundTasks, .plan, .pullRequest: true
             }
         }
     }
@@ -168,7 +166,10 @@ enum InfoPaneLayout {
         collapsedHeight: CGFloat
     ) -> SideGeometry {
         let reserved = reservedWidth(railFootprint: railFootprint, gap: gap)
-        let fits = fitsBeside(width: width, reservedWidth: reserved, chatColumnWidth: chatColumnWidth)
+        // Before the first measurement, so a pane left pinned opens pinned
+        // rather than animating out of the collapsed form.
+        let fits = width <= 0
+            || fitsBeside(width: width, reservedWidth: reserved, chatColumnWidth: chatColumnWidth)
         let isPinned = fits && state == .expanded
         return SideGeometry(
             fitsBeside: fits,

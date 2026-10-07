@@ -204,6 +204,7 @@ struct InfoPaneContent: View, ThemedView {
                     state: pullRequest.state,
                     checkRollup: checkRollup,
                     font: typography.caption.font,
+                    fontSize: typography.caption.size,
                     imageScale: .medium
                 )
                 Spacer(minLength: 0)
@@ -319,6 +320,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                     checkRollup: { pullRequest.checkRollup ?? $0.checkRollup() },
                     summaryOnly: true,
                     font: typography.caption.font,
+                    fontSize: typography.caption.size,
                     imageScale: .medium
                 )
             }
