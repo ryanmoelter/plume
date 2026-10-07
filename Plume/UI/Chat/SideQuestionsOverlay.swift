@@ -66,9 +66,13 @@ private struct SideQuestionRow: View, ThemedView {
     let exchange: SideQuestion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(exchange.question)
                 .font(typography.body.font)
+                .textSelection(.enabled)
+                .padding(10)
+                .background(colors.surfaceTint, in: .rect(cornerRadius: 10))
+                .frame(maxWidth: .infinity, alignment: .trailing)
             answerView
         }
         .padding(.vertical, 14)
