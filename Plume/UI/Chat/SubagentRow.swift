@@ -82,7 +82,8 @@ struct SubagentRow: View, ThemedView {
                 // Rendered even while empty, for the same reason the caption
                 // is: a row that gains its start time shouldn't reflow.
                 Text(caption.elapsedText ?? "")
-                    .font(typography.caption.mono)
+                    .font(typography.caption.font)
+                    .monospacedDigit()
                     .emphasis(.subtle)
                 Image(systemName: "chevron.right")
                     .font(typography.caption.font)
