@@ -134,7 +134,6 @@ struct PullRequestChip: View {
     var font: Font = .caption
     /// The point size of `font`, for centering the number on its digits.
     var fontSize: CGFloat = NSFont.preferredFont(forTextStyle: .caption1).pointSize
-    var imageScale: Image.Scale = .small
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -145,9 +144,6 @@ struct PullRequestChip: View {
             if let forge, forge.markImageName != nil, !glyphs.isEmpty {
                 ForgeMarkCell(forge: forge)
                     .foregroundStyle(emphasis.textHierarchy)
-                    // The mark's weight hangs below its centre, so centred on
-                    // the number's cap height it still reads low.
-                    .offset(y: -fontSize / 20)
             }
             HStack(spacing: 3) {
                 ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
@@ -168,7 +164,9 @@ struct PullRequestChip: View {
                 }
             }
         }
-        .imageScale(imageScale)
+        // Medium, because a smaller symbol sits on the text's baseline rather
+        // than centring on it, and the number centres on its cap height.
+        .imageScale(.medium)
         .font(font)
     }
 

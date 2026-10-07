@@ -220,8 +220,7 @@ struct InfoPaneContent: View, ThemedView {
                             state: pullRequest.state,
                             checkRollup: checkRollup,
                             font: typography.caption.font,
-                            fontSize: typography.caption.size,
-                            imageScale: .medium
+                            fontSize: typography.caption.size
                         )
                         Image(systemName: "arrow.up.forward.square")
                             .emphasis(.secondary)
@@ -348,8 +347,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                     checkRollup: { pullRequest.checkRollup ?? $0.checkRollup() },
                     showsNumber: false,
                     font: typography.caption.font,
-                    fontSize: typography.caption.size,
-                    imageScale: .medium
+                    fontSize: typography.caption.size
                 )
             }
         case .branch:

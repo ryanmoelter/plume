@@ -145,7 +145,6 @@ enum AccessibilityID {
     // MARK: Info pane
 
     static let infoPane = "info-pane"
-    static let infoPaneToggle = "info-pane-toggle"
     static let infoPaneMenu = "info-pane-menu"
     static let infoPaneCollapseButton = "info-pane-collapse-button"
     static let infoPanePill = "info-pane-pill"

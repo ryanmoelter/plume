@@ -6,8 +6,7 @@ import SwiftUI
 ///
 /// Open means pinned beside the chat, hovered, or opened on demand in a
 /// window too narrow to pin it. Only pinning persists; the other two close on
-/// their own. The toolbar button lives here so it exists only while this
-/// presentation does.
+/// their own.
 struct InfoSidePane: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -72,15 +71,6 @@ struct InfoSidePane: View, ThemedView {
         .onChange(of: settings.infoPaneState) { closeTransient() }
         .onChange(of: geometry.fitsBeside) { closeTransient() }
         .onDisappear { closeTransient() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: toggle) {
-                    Label("Info Pane", systemImage: InfoPaneLayout.symbol)
-                }
-                .help(isOpen ? "Collapse the info pane" : "Open the info pane")
-                .plumeID(AccessibilityID.infoPaneToggle, value: isOpen ? "open" : "collapsed", invoke: toggle)
-            }
-        }
     }
 
     private var box: some View {
