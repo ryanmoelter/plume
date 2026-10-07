@@ -203,4 +203,38 @@ struct MarkdownHighlighterTests {
         let spans = MarkdownHighlighter.spans(in: text)
         #expect(spans.contains(MarkdownHighlighter.Span(range: NSRange(location: 2, length: 2), style: .listMarker)))
     }
+
+    @Test func strikethroughDimsItsTildes() {
+        let text = "a ~~gone~~ b"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "gone"), style: .strikethrough)))
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "~~", occurrence: 0), style: .delimiter)))
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "~~", occurrence: 1), style: .delimiter)))
+    }
+
+    @Test func unterminatedStrikethroughStylesNothing() {
+        #expect(MarkdownHighlighter.spans(in: "a ~~gone").isEmpty)
+    }
+
+    @Test func emphasisMarkersAreDelimiters() {
+        let text = "**bold** and `code`"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "**", occurrence: 1), style: .delimiter)))
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "`", occurrence: 0), style: .delimiter)))
+        #expect(!spans.contains { $0.style == .delimiter && $0.range == text.range(of: "bold") })
+    }
+
+    @Test func linkSyntaxIncludingTheURLIsDelimited() {
+        let text = "see [docs](https://x.dev) now"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "["), style: .delimiter)))
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "](https://x.dev)"), style: .delimiter)))
+    }
+
+    @Test func imageLooksLikeALink() {
+        let text = "![alt](a.png)"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: NSRange(location: 0, length: 13), style: .link)))
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: "!["), style: .delimiter)))
+    }
 }

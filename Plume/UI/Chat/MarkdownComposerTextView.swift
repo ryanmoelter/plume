@@ -214,6 +214,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 isCommandMode: isCommandMode,
                 accent: accent
             )
+            (textView as? ComposerNSTextView)?.markdownMetrics = isCommandMode ? nil : ComposerMarkdownMetrics(fontSize: fontSize)
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
         }
@@ -238,8 +239,26 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 accent: ThemeChrome.accentNSColor(isActive: isActive)
             )
             updatePlaceholderVisibility(textView)
+            // A decoration can span lines the edit didn't touch, like a quote
+            // bar or a code box.
+            textView.needsDisplay = true
             host?.invalidateContentHeight()
             onCaretChange(textView.selectedRange().location)
+        }
+
+        /// Typing right after a hidden marker or a chip's padding would
+        /// otherwise inherit its clear color or kern, which shows while marked
+        /// text is composed and before the next restyle.
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTypingAttributes oldTypingAttributes: [String: Any],
+            toAttributes newTypingAttributes: [NSAttributedString.Key: Any]
+        ) -> [NSAttributedString.Key: Any] {
+            var attributes = newTypingAttributes
+            attributes[.kern] = nil
+            attributes[.strikethroughStyle] = nil
+            attributes[.foregroundColor] = NSColor.labelColor
+            return attributes
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -406,8 +425,21 @@ final class ComposerNSTextView: NSTextView {
         return resigned
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+    /// The metrics markdown is presented with, or nil in command mode, which
+    /// draws no decorations and edits as plain text.
+    var markdownMetrics: ComposerMarkdownMetrics? {
+        didSet { needsDisplay = true }
+    }
+
+    /// Draws decorations and the placeholder here rather than in `draw(_:)`:
+    /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
+    /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
+    /// even with `drawsBackground` off.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        if let markdownMetrics {
+            ComposerDecorations.draw(ComposerDecorations.rects(in: self, metrics: markdownMetrics), in: rect, metrics: markdownMetrics)
+        }
         guard let placeholderText, let font = self.font else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -415,6 +447,108 @@ final class ComposerNSTextView: NSTextView {
         ]
         let origin = NSPoint(x: textContainerInset.width + 5, y: textContainerInset.height)
         placeholderText.draw(at: origin, withAttributes: attributes)
+    }
+
+    // MARK: - Markdown editing
+
+    private var editsMarkdown: Bool {
+        markdownMetrics != nil && !hasMarkedText()
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        guard editsMarkdown, let result = ComposerMarkdownEditing.newline(in: string, selection: selectedRange()) else {
+            super.insertNewline(sender)
+            return
+        }
+        apply(result)
+    }
+
+    override func insertTab(_ sender: Any?) {
+        guard editsMarkdown, let result = ComposerMarkdownEditing.indent(in: string, selection: selectedRange()) else {
+            super.insertTab(sender)
+            return
+        }
+        apply(result)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        guard editsMarkdown, let result = ComposerMarkdownEditing.outdent(in: string, selection: selectedRange()) else {
+            super.insertBacktab(sender)
+            return
+        }
+        apply(result)
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        guard editsMarkdown, let result = ComposerMarkdownEditing.deleteBackward(in: string, selection: selectedRange()) else {
+            super.deleteBackward(sender)
+            return
+        }
+        apply(result)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if let markdownMetrics, editsMarkdown {
+            let point = convert(event.locationInWindow, from: nil)
+            let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics).checkboxes
+            if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
+               let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
+                apply(result)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        guard editsMarkdown, !stillSelectingFlag, ranges.count == 1, let proposed = ranges.first?.rangeValue else {
+            super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+            return
+        }
+        let snapped = ComposerMarkdownEditing.snappedSelection(
+            proposed,
+            previous: selectedRanges.first?.rangeValue,
+            in: MarkdownLineStructure.lines(in: string)
+        )
+        super.setSelectedRanges([NSValue(range: snapped)], affinity: affinity, stillSelecting: stillSelectingFlag)
+    }
+
+    /// ⌘⇧V pastes too. The composer holds plain markdown, so there is no
+    /// formatting for "paste as plain text" to strip.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if window?.firstResponder === self, modifiers == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "v" {
+            pasteAsPlainText(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Replaces only the span that differs, as one undoable change, so undo
+    /// restores exactly what the key changed.
+    private func apply(_ result: ComposerMarkdownEditing.Result) {
+        let old = string as NSString
+        let new = result.text as NSString
+        var prefix = 0
+        let shorter = min(old.length, new.length)
+        while prefix < shorter, old.character(at: prefix) == new.character(at: prefix) {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < shorter - prefix,
+              old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) {
+            suffix += 1
+        }
+        let range = NSRange(location: prefix, length: old.length - prefix - suffix)
+        let replacement = new.substring(with: NSRange(location: prefix, length: new.length - prefix - suffix))
+        if range.length > 0 || !replacement.isEmpty {
+            breakUndoCoalescing()
+            guard shouldChangeText(in: range, replacementString: replacement) else { return }
+            textStorage?.replaceCharacters(in: range, with: replacement)
+            didChangeText()
+        }
+        setSelectedRange(result.selection)
+        breakUndoCoalescing()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -515,6 +649,7 @@ final class ScrollableComposerTextView: NSView {
 
     private func setUp() {
         composerTextView.isRichText = false
+        composerTextView.allowsUndo = true
         // Nothing may rewrite what the user typed: a message is full of
         // identifiers, paths and shell commands that every substitution gets
         // wrong. Misspellings are marked and left alone.
