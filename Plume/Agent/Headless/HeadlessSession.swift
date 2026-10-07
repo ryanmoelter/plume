@@ -44,6 +44,7 @@ struct SideQuestion: Identifiable, Equatable {
     let question: String
     let askedAt: Date
     var state: State = .pending
+    var answeredAt: Date?
 }
 
 /// One headless `claude` conversation, driving a tab.
@@ -820,7 +821,10 @@ final class HeadlessSession: AgentSession {
             updateSideQuestion(id: id) { $0.state = .failed("No answer was returned.") }
             return
         }
-        updateSideQuestion(id: id) { $0.state = .answered(answer) }
+        updateSideQuestion(id: id) {
+            $0.state = .answered(answer)
+            $0.answeredAt = .now
+        }
     }
 
     /// Titling is best-effort. A description the CLI will not title is

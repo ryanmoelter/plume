@@ -67,12 +67,15 @@ private struct SideQuestionRow: View, ThemedView {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(exchange.question)
-                .font(typography.body.font)
-                .textSelection(.enabled)
-                .padding(10)
-                .background(colors.surfaceTint, in: .rect(cornerRadius: 10))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(exchange.question)
+                    .font(typography.body.font)
+                    .textSelection(.enabled)
+                footer(copying: exchange.question, label: "Copy prompt", at: exchange.askedAt)
+            }
+            .padding(10)
+            .background(colors.surfaceTint, in: .rect(cornerRadius: 10))
+            .frame(maxWidth: .infinity, alignment: .trailing)
             answerView
         }
         .padding(.vertical, 14)
@@ -91,15 +94,33 @@ private struct SideQuestionRow: View, ThemedView {
             }
             .font(typography.caption.font)
         case .answered(let answer):
-            MarkdownView(answer, isAgentVoice: true)
-                // Each block pads itself off the chat list's edges, which
-                // would indent the answer from the question above it.
-                .padding(.horizontal, -dimensions.horizontalEdgePadding)
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 4) {
+                MarkdownView(answer, isAgentVoice: true)
+                    // Each block pads itself off the chat list's edges, which
+                    // would indent the answer from the question above it.
+                    .padding(.horizontal, -dimensions.horizontalEdgePadding)
+                    .textSelection(.enabled)
+                footer(copying: answer, label: "Copy response as markdown", at: exchange.answeredAt)
+            }
         case .failed(let message):
             Text(message)
                 .font(typography.body.font)
                 .foregroundStyle(.red)
         }
+    }
+
+    private func footer(copying text: String, label: String, at date: Date?) -> some View {
+        HStack(spacing: 4) {
+            ChatCopyButton(markdown: text, isRevealed: true, label: label, isFloating: false)
+            if let date {
+                Text(ChatTimestampFormat.string(for: date, now: .now))
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        // Lands the glyph, not its hover circle, on the text's edge.
+        .padding(.leading, -CopyGlyph.inset)
     }
 }
