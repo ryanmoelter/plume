@@ -100,8 +100,9 @@ struct ChatComposer: View, ThemedView {
     ///
     /// Plume's own join them only once a session exists to run them against —
     /// `/rc` drives a control request, which has no process to reach without
-    /// one — and never shadow a name the CLI reports: if a later CLI serves
-    /// `/rc` headlessly, its version wins.
+    /// one — except `/btw`, which resumes the conversation itself. They never
+    /// shadow a name the CLI reports: if a later CLI serves `/rc` headlessly,
+    /// its version wins.
     private var skillDirectory: String? {
         tab.provider == .codex && tab.transport == .headless ? tabDirectories.directory(for: tab) : nil
     }
@@ -114,12 +115,14 @@ struct ChatComposer: View, ThemedView {
         }
         guard tab.provider == .claudeCode, tab.transport == .headless else { return [] }
         let remembered = commandMemory.commands(inDirectory: tabDirectories.directory(for: tab))
-        guard let headlessSession else { return remembered }
-        let reported = headlessSession.slashCommands.isEmpty
-            ? remembered
-            : headlessSession.slashCommands
+        let reported = headlessSession.map { $0.slashCommands.isEmpty ? remembered : $0.slashCommands } ?? remembered
         let reportedNames = Set(reported.map(\.name))
-        return reported + PlumeSlashCommand.all.filter { !reportedNames.contains($0.name) }
+        let plumeCommands = PlumeSlashCommand.all.filter { command in
+            guard !reportedNames.contains(command.name) else { return false }
+            // `/btw` resumes a cold tab's conversation to answer it.
+            return headlessSession != nil || (command.name == "btw" && canResumeForSideQuestion)
+        }
+        return reported + plumeCommands
     }
 
     /// True while the CLI list on offer is the last session's rather than this
@@ -436,7 +439,7 @@ struct ChatComposer: View, ThemedView {
             return
         }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession = headlessSession as? HeadlessSession else {
+            guard let headlessSession = liveClaudeSession(for: command) else {
                 // A question has nothing to read until a conversation exists,
                 // so it goes back in the composer rather than vanishing.
                 if case .sideQuestion = command {
@@ -495,6 +498,23 @@ struct ChatComposer: View, ThemedView {
                 CommandModeRuns.shared.finish(runID, tabID: tabID)
             }
         }
+    }
+
+    /// The session a Plume command runs against. A side question on a tab
+    /// with a conversation but no running process — every tab, after a
+    /// relaunch — resumes it first, since the CLI answers from the
+    /// conversation it has loaded.
+    private func liveClaudeSession(for command: PlumeSlashCommand.Parsed) -> HeadlessSession? {
+        let session = headlessSession as? HeadlessSession
+        guard case .sideQuestion = command, session?.hasExited ?? true, canResumeForSideQuestion else { return session }
+        if session != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
+        return headlessSession as? HeadlessSession
+    }
+
+    private var canResumeForSideQuestion: Bool {
+        guard let sessionID = tab.agentSessionID else { return false }
+        return !sessionID.isEmpty
     }
 
     /// Sends `blocks` to whichever backend the tab has, launching one when

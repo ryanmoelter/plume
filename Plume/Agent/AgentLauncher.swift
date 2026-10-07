@@ -135,7 +135,9 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .working)
+        // A launch with no prompt runs no turn, so nothing would end it. A
+        // prompt reports `.working` itself once submitted.
+        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: blocks.hasContent ? .working : .awaitingReply)
 
         let existing = AgentSessionManager.shared.session(
             for: tab.id,
