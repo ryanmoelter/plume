@@ -202,6 +202,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
                 : NSFont.composerBody(ofSize: fontSize)
             textView.font = bodyFont
+            (textView as? ComposerNSTextView)?.bodyFont = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             let accent = ThemeChrome.accentNSColor(isActive: isActive)
             textView.insertionPointColor = accent
@@ -430,6 +431,11 @@ final class ComposerNSTextView: NSTextView {
     var markdownMetrics: ComposerMarkdownMetrics? {
         didSet { needsDisplay = true }
     }
+
+    /// The composer's text font. `font` reports the first character's,
+    /// which is a hidden marker's 1 pt font when the text opens with a list
+    /// or quote.
+    var bodyFont: NSFont?
 
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
@@ -680,6 +686,16 @@ final class ScrollableComposerTextView: NSView {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.autohidesScrollers = true
+        // Scrolling copies the drawn pixels and redraws only the exposed
+        // strip, which leaves the markdown decorations behind while TextKit 2
+        // moves the text itself.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipViewDidScroll),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -689,6 +705,11 @@ final class ScrollableComposerTextView: NSView {
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    @objc private func clipViewDidScroll(_ notification: Notification) {
+        guard composerTextView.markdownMetrics != nil else { return }
+        composerTextView.setNeedsDisplay(composerTextView.visibleRect)
     }
 
     func setVerticalInset(_ inset: CGFloat) {
@@ -734,7 +755,7 @@ final class ScrollableComposerTextView: NSView {
     /// container's width explicitly before measuring is what makes this
     /// correct independent of AutoLayout's pass order.
     func contentHeight(forWidth width: CGFloat) -> CGFloat {
-        let font = composerTextView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        let font = composerTextView.bodyFont ?? composerTextView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = font.boundingRectForFont.height
         let inset = composerTextView.textContainerInset
         let insets = inset.height * 2

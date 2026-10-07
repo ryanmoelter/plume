@@ -20,9 +20,9 @@ enum ComposerDecorations {
     }
 
     struct Bullet: Equatable {
-        enum Shape { case disc, ring, square }
-        var rect: NSRect
-        var shape: Shape
+        var glyph: String
+        /// The left end of the glyph's baseline, which is the item text's.
+        var baselineOrigin: NSPoint
     }
 
     struct Decorations: Equatable {
@@ -54,18 +54,17 @@ enum ComposerDecorations {
             rule.fill()
         }
 
-        NSColor.secondaryLabelColor.set()
-        for bullet in decorations.bullets where bullet.rect.intersects(dirtyRect) {
-            switch bullet.shape {
-            case .disc:
-                NSBezierPath(ovalIn: bullet.rect).fill()
-            case .ring:
-                let ring = NSBezierPath(ovalIn: bullet.rect.insetBy(dx: 0.6, dy: 0.6))
-                ring.lineWidth = 1.2
-                ring.stroke()
-            case .square:
-                bullet.rect.insetBy(dx: 0.4, dy: 0.4).fill()
-            }
+        let bulletAttributes: [NSAttributedString.Key: Any] = [
+            .font: metrics.body,
+            .foregroundColor: NSColor.labelColor,
+        ]
+        for bullet in decorations.bullets {
+            // Without `.usesLineFragmentOrigin`, the rect's origin is the baseline.
+            (bullet.glyph as NSString).draw(
+                with: NSRect(origin: bullet.baselineOrigin, size: .zero),
+                options: [],
+                attributes: bulletAttributes
+            )
         }
 
         for checkbox in decorations.checkboxes where checkbox.rect.intersects(dirtyRect) {
@@ -129,14 +128,11 @@ enum ComposerDecorations {
                     ))
                 }
             case .bullet:
-                if let rect = context.firstLineRect(of: line) {
-                    let size = metrics.bulletSize
+                if let baseline = context.firstBaseline(of: line) {
+                    let glyph = line.depth.isMultiple(of: 2) ? "•" : "◦"
+                    let width = (glyph as NSString).size(withAttributes: [.font: metrics.body]).width
                     let right = context.columnStart + metrics.contentColumn(for: line) - metrics.markerGap
-                    let centerY = rect.minY + metrics.body.ascender - metrics.body.xHeight / 2
-                    decorations.bullets.append(Bullet(
-                        rect: NSRect(x: right - size, y: centerY - size / 2, width: size, height: size),
-                        shape: bulletShape(depth: line.depth)
-                    ))
+                    decorations.bullets.append(Bullet(glyph: glyph, baselineOrigin: NSPoint(x: right - width, y: baseline)))
                 }
             case let .task(isChecked):
                 if let rect = context.firstLineRect(of: line), let box = line.checkbox {
@@ -154,10 +150,6 @@ enum ComposerDecorations {
             }
         }
         return decorations
-    }
-
-    private static func bulletShape(depth: Int) -> Bullet.Shape {
-        [.disc, .ring, .square][depth % 3]
     }
 
     // MARK: - Shared state
@@ -199,6 +191,18 @@ enum ComposerDecorations {
             return lineFragment.typographicBounds.offsetBy(dx: frame.minX + origin.x, dy: frame.minY + origin.y)
         }
 
+        /// The y of the first baseline `line` lays out, in view coordinates.
+        func firstBaseline(of line: MarkdownLine) -> CGFloat? {
+            if line.range.location >= length {
+                return trailingLineRect().map { $0.minY + metrics.body.ascender }
+            }
+            guard let location = contentStorage.location(contentStorage.documentRange.location, offsetBy: line.range.location),
+                  let fragment = layoutManager.textLayoutFragment(for: location),
+                  let lineFragment = fragment.textLineFragments.first
+            else { return nil }
+            return fragment.layoutFragmentFrame.minY + origin.y + lineFragment.typographicBounds.minY + lineFragment.glyphOrigin.y
+        }
+
         /// The layout fragment frame of `line`, which includes its paragraph
         /// spacing.
         func fragmentRect(of line: MarkdownLine) -> NSRect? {
@@ -226,6 +230,11 @@ enum ComposerDecorations {
             return rect
         }
 
+        func kern(at location: Int) -> CGFloat {
+            guard location >= 0, location < length else { return 0 }
+            return textView.textStorage?.attribute(.kern, at: location, effectiveRange: nil) as? CGFloat ?? 0
+        }
+
         func segmentFrames(for range: NSRange) -> [NSRect] {
             guard let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: range.location),
                   let end = contentStorage.location(start, offsetBy: range.length),
@@ -244,17 +253,25 @@ enum ComposerDecorations {
 
     // MARK: - Inline code chips
 
-    /// One rounded rect per line a code span occupies. The trailing kern the
-    /// styler puts on the closing backtick already sits inside its segment,
-    /// so only the leading edge reaches back by the padding.
+    /// One rounded rect per line a code span occupies, reaching `chipPadding`
+    /// past each backtick's glyph. TextKit 2 splits a kern's gap evenly
+    /// between the segments on either side of it, so a backtick's glyph edge
+    /// sits half the styler's kern inside its segment.
     private static func chipRects(_ spans: [MarkdownHighlighter.Span], _ context: Context) -> [NSRect] {
+        let padding = context.metrics.chipPadding
         var rects: [NSRect] = []
         for span in spans where span.style == .inlineCode {
-            for frame in context.segmentFrames(for: span.range) {
-                var rect = frame
-                rect.origin.x = max(context.columnStart, frame.minX - context.metrics.chipPadding)
-                rect.size.width = frame.maxX - rect.minX
-                rects.append(rect)
+            var frames = context.segmentFrames(for: span.range)
+            guard !frames.isEmpty else { continue }
+            let leadingKern = context.kern(at: span.range.location - 1)
+            let trailingKern = context.kern(at: NSMaxRange(span.range) - 1)
+            let firstMinX = frames[0].minX + leadingKern / 2 - padding
+            frames[0] = NSRect(x: firstMinX, y: frames[0].minY, width: frames[0].maxX - firstMinX, height: frames[0].height)
+            let last = frames.count - 1
+            frames[last].size.width += padding - trailingKern / 2
+            rects += frames.map { frame in
+                let minX = max(context.columnStart, frame.minX)
+                return NSRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height)
             }
         }
         return merged(rects)

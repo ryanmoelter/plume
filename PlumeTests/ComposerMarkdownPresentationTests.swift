@@ -81,6 +81,22 @@ struct ComposerMarkdownPresentationTests {
         #expect(abs(quoted - xs[0] - metrics.quoteStep) < 0.5)
     }
 
+    @Test(arguments: ["- top\n  - nested\n- [ ] task", "> a\n> b\n> c", "1. a\n2. b\n3. c"])
+    func hiddenMarkersDoNotShrinkTheMeasuredHeight(_ text: String) {
+        func height(of text: String, styled: Bool) -> CGFloat {
+            let host = ScrollableComposerTextView()
+            host.composerTextView.string = text
+            host.composerTextView.bodyFont = metrics.body
+            if styled {
+                MarkdownComposerStyler.style(host.composerTextView.textStorage!, text: text, fontSize: metrics.fontSize)
+            }
+            return host.contentHeight(forWidth: 400)
+        }
+        let plain = height(of: "a\nb\nc", styled: false)
+        let styled = height(of: text, styled: true)
+        #expect(styled >= plain - 0.5, "\(styled) vs \(plain)")
+    }
+
     // MARK: - Decorations
 
     @Test func staysOnTextKit2() {
@@ -93,8 +109,8 @@ struct ComposerMarkdownPresentationTests {
     @Test func bulletsStepRightByDepth() {
         let decorations = ComposerDecorations.rects(in: styledView("- a\n  - b"), metrics: metrics)
         #expect(decorations.bullets.count == 2)
-        #expect(decorations.bullets[1].rect.minX > decorations.bullets[0].rect.minX)
-        #expect(decorations.bullets.map(\.shape) == [.disc, .ring])
+        #expect(decorations.bullets[1].baselineOrigin.x > decorations.bullets[0].baselineOrigin.x)
+        #expect(decorations.bullets.map(\.glyph) == ["•", "◦"])
     }
 
     @Test func oneBarPerQuoteLevel() {
@@ -107,6 +123,32 @@ struct ComposerMarkdownPresentationTests {
         let decorations = ComposerDecorations.rects(in: styledView("```\ncode\n```"), metrics: metrics)
         #expect(decorations.codeBoxes.count == 1)
         #expect(decorations.codeBoxes.allSatisfy { $0.minX >= 5 })
+    }
+
+    @Test func chipPaddingIsEvenOnBothSides() throws {
+        let text = "a `code` b"
+        let view = styledView(text)
+        let layoutManager = try #require(view.textLayoutManager)
+        let contentStorage = try #require(layoutManager.textContentManager as? NSTextContentStorage)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        func segment(_ location: Int) -> NSRect {
+            let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: location)!
+            let range = NSTextRange(location: start, end: contentStorage.location(start, offsetBy: 1)!)!
+            var rect = NSRect.zero
+            layoutManager.enumerateTextSegments(in: range, type: .standard, options: []) { _, frame, _, _ in
+                rect = frame
+                return false
+            }
+            return rect.offsetBy(dx: view.textContainerOrigin.x, dy: 0)
+        }
+        let chip = try #require(ComposerDecorations.rects(in: view, metrics: metrics).chips.first)
+        // Each code-font glyph inside the span has the same advance, so the
+        // backticks' glyph edges follow from the first and last content letters.
+        let advance = segment(3).width
+        let openingGlyph = segment(3).minX - advance
+        let closingGlyphEnd = segment(6).maxX + advance
+        #expect(abs((openingGlyph - chip.minX) - (chip.maxX - closingGlyphEnd)) < 0.5)
+        #expect(abs(openingGlyph - chip.minX - metrics.chipPadding) < 0.5)
     }
 
     @Test func inlineCodeGetsAChip() {
