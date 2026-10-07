@@ -53,7 +53,7 @@ struct InfoPaneContent: View, ThemedView {
         let isExpanded = settings.infoPaneSubagentsExpanded
         return VStack(alignment: .leading, spacing: 2) {
             Button {
-                settings.infoPaneSubagentsExpanded.toggle()
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } label: {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
                     InfoPaneIcon { Image(systemName: StatusSymbol.subagents.name) }
@@ -85,13 +85,13 @@ struct InfoPaneContent: View, ThemedView {
     private var completedSubagents: some View {
         VStack(alignment: .leading, spacing: 2) {
             Button {
-                showsCompleted.toggle()
+                withAnimation(InfoPaneLayout.sectionAnimation) { showsCompleted.toggle() }
             } label: {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
                     // Holds the first column without filling the row's height.
                     InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
                     Text("Completed")
-                    if !showsCompleted { Text("\(facts.completedSubagents.count)") }
+                    Text("\(facts.completedSubagents.count)")
                     DisclosureChevron(isExpanded: showsCompleted)
                     Spacer(minLength: 0)
                 }

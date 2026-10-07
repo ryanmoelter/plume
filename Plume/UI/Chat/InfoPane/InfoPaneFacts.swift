@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 enum InfoPanePresentation: String, CaseIterable {
     /// A glass box at the chat's top-trailing corner.
@@ -145,6 +146,7 @@ enum InfoPaneLayout {
     /// icons starts on one edge.
     static let iconColumnWidth: CGFloat = 16
     static let columnSpacing: CGFloat = 6
+    static let sectionAnimation: Animation = .snappy(duration: 0.22)
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,
     /// and the gap and minimap rail beyond it. The chat's own edge padding

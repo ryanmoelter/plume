@@ -117,8 +117,8 @@ struct InfoSidePane: View, ThemedView {
         .help(geometry.fitsBeside ? "Keep the info pane open" : "Open the info pane")
         .plumeID(AccessibilityID.infoPanePill)
         .fixedSize()
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-            collapsedSize = size
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { old, size in
+            resize(isFirst: old == .zero) { collapsedSize = size }
             onCollapsedHeight(size.height)
         }
     }
@@ -142,12 +142,24 @@ struct InfoSidePane: View, ThemedView {
         .padding(12)
         .frame(width: InfoPaneLayout.paneWidth, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { expandedHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { old, height in
+            resize(isFirst: old == 0) { expandedHeight = height }
+        }
 
         return ScrollView { content }
             .scrollDisabled(expandedHeight <= maxExpandedHeight)
             .scrollBounceBehavior(.basedOnSize)
             .frame(width: InfoPaneLayout.paneWidth, height: min(expandedHeight, maxExpandedHeight))
+    }
+
+    /// Grows the glass with its content, except on the first measurement, so
+    /// a pane that starts open doesn't animate in.
+    private func resize(isFirst: Bool, _ apply: () -> Void) {
+        if isFirst {
+            apply()
+        } else {
+            withAnimation(InfoPaneLayout.sectionAnimation, apply)
+        }
     }
 
     private var headerButton: InfoPaneHeaderButton {
