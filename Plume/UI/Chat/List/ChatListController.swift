@@ -64,6 +64,7 @@ final class ChatListController: NSObject {
 
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenSideChat: () -> Void = {}
+    var onToggleAgentMessage: (String) -> Void = { _ in }
     /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
     /// so a change between nil and non-nil refreshes mounted rows itself.
     var onOpenPlan: (() -> Void)? {
@@ -624,13 +625,19 @@ final class ChatListController: NSObject {
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
+        // The window was realized around the offset the pass started at. A
+        // document that shrank enough to move the offset — a long message
+        // collapsing — would otherwise leave rows at the new offset blank
+        // until something else asks for a pass; the request below, made from
+        // inside layout, does not reliably bring one.
+        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
+            realizeWindow(around: offset)
+            documentView.needsLayout = true
+        }
+
         for (id, host) in hosts {
             guard let frame = model.frame(of: id) else { continue }
             host.view.frame = NSRect(x: 0, y: frame.minY, width: width, height: frame.height)
-        }
-
-        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
-            documentView.needsLayout = true
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
@@ -835,12 +842,16 @@ final class ChatListController: NSObject {
             }.id(id))
         case let .piece(piece):
             let onOpenPlan = onOpenPlan
+            // Through the controller rather than captured, so a mounted row
+            // calls whichever closure the list holds now.
+            let onToggleAgentMessage: (String) -> Void = { [weak self] key in self?.onToggleAgentMessage(key) }
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
                 ChatPieceView(
                     piece: piece,
                     containerState: state,
                     onNaturalHeight: onMeasure,
-                    onOpenPlan: onOpenPlan
+                    onOpenPlan: onOpenPlan,
+                    onToggleAgentMessage: onToggleAgentMessage
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))

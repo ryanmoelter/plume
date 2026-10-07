@@ -115,7 +115,7 @@ nonisolated enum SubagentSpawnScanner {
     }
 
     /// The spawn result reports the id as `agentId: <id>` on its own line.
-    private static func agentID(in content: String) -> String? {
+    static func agentID(in content: String) -> String? {
         guard let range = content.range(of: "agentId:") else { return nil }
         let rest = content[range.upperBound...]
         let token = rest.drop { $0 == " " }.prefix { !$0.isWhitespace }

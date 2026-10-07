@@ -17,7 +17,7 @@ enum MarkdownSource {
         case let .codeSegment(segment): markdown(of: segment)
         case let .listSegment(segment): markdown(of: segment)
         case .thinking, .toolCall, .injected, .notice, .image, .working,
-             .waitingOnSubagents, .agentMessageTitle:
+             .waitingOnSubagents, .agentMessageTitle, .agentMessagePreview:
             nil
         }
     }

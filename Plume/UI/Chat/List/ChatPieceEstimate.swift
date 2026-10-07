@@ -27,6 +27,8 @@ enum ChatPieceEstimate {
             30
         case .image:
             200
+        case let .agentMessagePreview(markdown):
+            min(prose(markdown, width: width), CGFloat(AgentMessagePreviewMetrics.lineLimit) * 22) + 24
         }
         return max(1, base) + (piece.wash == .none ? 0 : 20)
     }

@@ -167,6 +167,9 @@ enum AccessibilityID {
     static let rewindFailureToast = "rewind-failure-toast"
     static let messageForkMarker = "message-fork-marker"
     static let chatForkFailureCloseTab = "chat-fork-failure-close-tab"
+    /// Any piece of another agent's message; clicking one collapses or
+    /// expands the whole message.
+    static let agentMessageToggle = "agent-message-toggle"
 
     // MARK: Minimap
 

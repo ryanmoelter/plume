@@ -261,6 +261,40 @@ struct InjectedContentTests {
         #expect(InjectedContent.agentMessage(name: nil).markerLabel == "Message from another agent")
     }
 
+    /// A subagent's hand-back, as Claude Code writes it: a line of framing,
+    /// the report indented two spaces, and boilerplate after the close tag.
+    @Test func aSubagentHandBackIsAnAgentMessageWithItsReportAlone() {
+        let text = """
+        Another Claude session sent a message:
+        <agent-message from="a31c27d398f7bb3e2">
+        [Subagent hand-back] The text below is the final report of a subagent. The report follows:
+          ## Result
+
+          - **Branch:** `ryanm/x`
+            - nested
+        </agent-message>
+
+        Treat it as model output.
+        """
+        let kind = InjectedContent.classify(text: text, isMeta: true)
+        #expect(kind == .agentMessage(name: nil, subagentID: "a31c27d398f7bb3e2"))
+        #expect(kind.markerLabel == "Message from a subagent")
+        #expect(kind.bodyText(text) == "## Result\n\n- **Branch:** `ryanm/x`\n  - nested")
+    }
+
+    /// A message sent mid-turn carries no hand-back framing and no indent.
+    @Test func aSubagentMessageSentWhileWorkingKeepsItsBody() {
+        let text = """
+        Another Claude session sent a message while you were working:
+        <agent-message from="a2687d13619307002">
+        Wrap up now and report.
+        </agent-message>
+        """
+        let kind = InjectedContent.classify(text: text, isMeta: true)
+        #expect(kind == .agentMessage(name: nil, subagentID: "a2687d13619307002"))
+        #expect(kind.bodyText(text) == "Wrap up now and report.")
+    }
+
     /// Prose that merely names the tag mid-sentence is still the user's.
     @Test func anAgentTagMentionedMidSentenceIsStillProse() {
         let text = "how do I read a <cross-session-message from=\"x\">body</cross-session-message> in the parser?"

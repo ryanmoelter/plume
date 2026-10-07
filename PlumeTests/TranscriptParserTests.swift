@@ -24,6 +24,26 @@ struct TranscriptParserTests {
         }
     }
 
+    /// A subagent names itself only by id, so its message is titled with the
+    /// description of the call that spawned it.
+    @Test func aSubagentMessageIsNamedByItsSpawningCall() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"assistant","uuid":"a1","isSidechain":false,"message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"description":"Find the list","subagent_type":"Explore","prompt":"go"}}]}}"#,
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"Async agent launched successfully.\nagentId: a807fe56 (internal ID)"}]}}"#,
+            #"{"type":"user","uuid":"u2","isSidechain":false,"isMeta":true,"message":{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"a807fe56\">\n[Subagent hand-back] The report follows:\n  Found it.\n</agent-message>"}}"#,
+            #"{"type":"user","uuid":"u3","isSidechain":false,"isMeta":true,"message":{"role":"user","content":"Another Claude session sent a message:\n<agent-message from=\"unknown\">\nHi.\n</agent-message>"}}"#,
+        ]))
+
+        let kinds = transcript.messages.flatMap(\.blocks).compactMap { block -> InjectedContent? in
+            guard case .injected(let kind, _) = block else { return nil }
+            return kind
+        }
+        #expect(kinds == [
+            .agentMessage(name: "Explore: Find the list", subagentID: "a807fe56"),
+            .agentMessage(name: nil, subagentID: "unknown")
+        ])
+    }
+
     @Test func aBareStringUserMessageDecodesAsMarkdown() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"just a string"}}"#,

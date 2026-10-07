@@ -200,11 +200,59 @@ struct ChatPieceSplitterTests {
         """
         let result = pieces([message("m", .user, [.injected(.agentMessage(name: "plume-8b"), text: text)])])
         #expect(result.allSatisfy { $0.wash == .agentBubble })
+        #expect(result.allSatisfy { $0.isAgentVoice })
         #expect(result.first?.content == .agentMessageTitle(name: "plume-8b"))
         #expect(result.count == 3)
         #expect(Set(result.map(\.id)).count == result.count)
         #expect(result.first?.segment == .first)
         #expect(result.last?.segment == .last)
+    }
+
+    /// Twelve one-line paragraphs: past the ten-line preview at any width.
+    private let longAgentMessage = """
+        <agent-message from="a1">
+        \((1...12).map { "Line \($0)." }.joined(separator: "\n\n"))
+        </agent-message>
+        """
+
+    @Test func aLongAgentMessageStartsCollapsedToOnePreview() {
+        let kind = InjectedContent.agentMessage(name: "Explore: look", subagentID: "a1")
+        let result = pieces([message("m", .user, [.injected(kind, text: longAgentMessage)])])
+        #expect(result.count == 2)
+        #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: false))
+        guard case .agentMessagePreview(let markdown)? = result.last?.content else {
+            Issue.record("expected a preview, got \(String(describing: result.last?.content))")
+            return
+        }
+        #expect(markdown.hasPrefix("Line 1."))
+        #expect(result.allSatisfy { $0.agentMessageKey == "m/0" })
+        #expect(result.allSatisfy { $0.wash == .agentBubble })
+        #expect(result.last?.segment == .last)
+    }
+
+    @Test func anExpandedAgentMessageSplitsLikeAnyOther() {
+        let kind = InjectedContent.agentMessage(name: nil, subagentID: "a1")
+        let result = ChatPieceSplitter.pieces(
+            for: [message("m", .user, [.injected(kind, text: longAgentMessage)])],
+            status: .awaitingReply,
+            hiddenToolUseIDs: [],
+            expandedAgentMessages: ["m/0"],
+            dimensions: dimensions
+        )
+        #expect(result.count == 13)
+        #expect(result.first?.content == .agentMessageTitle(name: nil, isSubagent: true, isExpanded: true))
+        #expect(result.allSatisfy { $0.agentMessageKey == "m/0" })
+        #expect(Set(result.map(\.id)).count == result.count)
+    }
+
+    /// A message short enough to read whole has nothing to collapse.
+    @Test func aShortAgentMessageIsNotCollapsible() {
+        let text = "<agent-message from=\"a1\">\nDone.\n</agent-message>"
+        let kind = InjectedContent.agentMessage(name: nil, subagentID: "a1")
+        let result = pieces([message("m", .user, [.injected(kind, text: text)])])
+        #expect(result.count == 2)
+        #expect(result.allSatisfy { $0.agentMessageKey == nil })
+        #expect(result.first?.content == .agentMessageTitle(name: nil, isSubagent: true, isExpanded: false))
     }
 
     /// An injected line is not the user speaking, so it skips the bubble.
