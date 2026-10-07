@@ -3,7 +3,7 @@ import SwiftUI
 /// A task's live subagents, one status symbol each, for the bottom of a
 /// sidebar row.
 ///
-/// This is the sidebar's view of what `SubagentListView` shows in the chat, so
+/// This is the sidebar's view of what the info pane shows in the chat, so
 /// it follows the same rule for which subagents count: live ones, plus the
 /// finished ones still inside their linger. Both read
 /// `SubagentCompletionTracker`, so a subagent folds away here and there at the

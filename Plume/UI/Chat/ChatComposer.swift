@@ -23,9 +23,6 @@ struct ChatComposer: View, ThemedView {
     /// Up-arrow recall path below already does, since only this view knows
     /// how to keep `hasSendableText` in sync with the draft it writes.
     var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
-    /// Forwarded straight to `ComposerControlsRow` — see its own doc comment.
-    var showsPlanButton = false
-    var onOpenPlan: () -> Void = {}
     /// The message that just launched the agent, so the caller can open the
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
@@ -251,9 +248,7 @@ struct ChatComposer: View, ThemedView {
                     ComposerControlsRow(
                         task: task,
                         tab: tab,
-                        headlessSession: headlessSession,
-                        showsPlanButton: showsPlanButton,
-                        onOpenPlan: onOpenPlan
+                        headlessSession: headlessSession
                     )
                     if headlessSession?.isWorking == true || stopsSubagents {
                         stopButton

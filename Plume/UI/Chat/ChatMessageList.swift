@@ -12,7 +12,8 @@ struct ChatMessageList: View, ThemedView {
     @Environment(\.theme) var theme
 
     let messages: [ChatMessage]
-    let subagents: [SubagentTranscript]
+    /// Set when the info pane is presented inline, after the last message.
+    var infoPane: InfoPaneFacts?
     let status: TaskStatus
     let bottomPadding: CGFloat
     /// How much of the list's bottom edge the floating bottom chrome covers —
@@ -135,7 +136,7 @@ struct ChatMessageList: View, ThemedView {
             inputs: ChatListInputs(
                 pieces: shownPieces,
                 tabID: tabID,
-                subagents: subagents,
+                infoPane: infoPane,
                 animate: settings.animateChatMotion,
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,

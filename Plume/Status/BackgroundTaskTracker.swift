@@ -21,6 +21,15 @@ final class BackgroundTaskTracker {
         case monitor
         case backgroundCommand
         case workflow
+
+        /// What a task of this kind is called when its call named nothing.
+        var label: String {
+            switch self {
+            case .monitor: "Monitor"
+            case .backgroundCommand: "Background"
+            case .workflow: "Workflow"
+            }
+        }
     }
 
     struct Entry: Equatable, Identifiable, Sendable {

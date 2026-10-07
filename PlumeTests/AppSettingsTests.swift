@@ -170,6 +170,29 @@ struct AppSettingsTests {
         #expect(!reloaded.showsPullRequestStatus)
     }
 
+    @Test func infoPaneDefaultsToAnExpandedSidePane() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.infoPanePresentation == .side)
+        #expect(settings.infoPaneState == .expanded)
+        #expect(settings.infoPaneShowsCompletedSubagents)
+        #expect(settings.infoPaneSubagentsExpanded)
+    }
+
+    @Test func infoPaneSettingsPersist() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.infoPanePresentation = .inline
+        settings.infoPaneState = .collapsed
+        settings.infoPaneShowsCompletedSubagents = false
+        settings.infoPaneSubagentsExpanded = false
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.infoPanePresentation == .inline)
+        #expect(reloaded.infoPaneState == .collapsed)
+        #expect(!reloaded.infoPaneShowsCompletedSubagents)
+        #expect(!reloaded.infoPaneSubagentsExpanded)
+    }
+
     /// A finished turn is frequent enough that notifying on every one is a
     /// nuisance, so it stays off until asked for.
     @Test func notifiesOnTurnEndDefaultsToOffWhenUnset() {

@@ -31,6 +31,10 @@ final class AppSettings {
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
         static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let infoPanePresentationRaw = "infoPanePresentationRaw"
+        static let infoPaneStateRaw = "infoPaneStateRaw"
+        static let infoPaneShowsCompletedSubagents = "infoPaneShowsCompletedSubagents"
+        static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
@@ -143,6 +147,17 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
+
+        self.infoPanePresentation = defaults.string(forKey: Key.infoPanePresentationRaw)
+            .flatMap(InfoPanePresentation.init(rawValue:)) ?? .side
+        self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
+            .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
+        self.infoPaneShowsCompletedSubagents = defaults.object(forKey: Key.infoPaneShowsCompletedSubagents) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneShowsCompletedSubagents)
+        self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
@@ -400,6 +415,34 @@ final class AppSettings {
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
+        }
+    }
+
+    var infoPanePresentation: InfoPanePresentation {
+        didSet {
+            defaults.set(infoPanePresentation.rawValue, forKey: Key.infoPanePresentationRaw)
+        }
+    }
+
+    /// Applies only while the side pane fits beside the chat. A narrower
+    /// window floats the pane on demand instead, which this never records.
+    var infoPaneState: InfoPaneState {
+        didSet {
+            defaults.set(infoPaneState.rawValue, forKey: Key.infoPaneStateRaw)
+        }
+    }
+
+    var infoPaneShowsCompletedSubagents: Bool {
+        didSet {
+            defaults.set(infoPaneShowsCompletedSubagents, forKey: Key.infoPaneShowsCompletedSubagents)
+        }
+    }
+
+    /// Whether the info pane's subagent section lists titles and captions,
+    /// rather than one status glyph per subagent.
+    var infoPaneSubagentsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneSubagentsExpanded, forKey: Key.infoPaneSubagentsExpanded)
         }
     }
 

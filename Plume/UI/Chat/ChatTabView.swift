@@ -138,6 +138,46 @@ struct ChatTabView: View, ThemedView {
         transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
+    private var infoPaneFacts: InfoPaneFacts {
+        let split = InfoPaneFacts.splitSubagents(
+            subagents,
+            showsCompleted: settings.infoPaneShowsCompletedSubagents,
+            hasSettled: { SubagentCompletionTracker.shared.hasSettled($0, tabID: tab.id) }
+        )
+        let gitState = GitStateStore.shared.state(for: gitDirectory)
+        let checkout = CheckoutFactsStore.shared.facts(for: gitDirectory)
+        let branch = GitState.displayedBranch(state: gitState, taskBranchName: task.branchName).map {
+            InfoPaneFacts.Branch(
+                name: $0,
+                isWorktree: checkout?.isWorktree ?? false,
+                ahead: gitState?.ahead,
+                behind: gitState?.behind,
+                isDirty: gitState?.isDirty ?? false
+            )
+        }
+        let pullRequest = settings.showsPullRequestStatus
+            ? InfoPaneFacts.pullRequest(state: PullRequestStore.shared.state(for: gitDirectory)) {
+                PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
+            }
+            : nil
+        return InfoPaneFacts(
+            tabID: tab.id,
+            liveSubagents: split.live,
+            completedSubagents: split.completed,
+            backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
+            planTitle: hasPlan ? planTitle : nil,
+            folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
+            branch: branch,
+            pullRequest: pullRequest
+        )
+    }
+
+    private var planTitle: String {
+        displayedPlanMarkdown.flatMap(PlanSummary.title(of:))
+            ?? planFilePath.map { ($0 as NSString).lastPathComponent }
+            ?? "Proposed plan"
+    }
+
     /// Subagents working alone read as `waitingOnSubagents`, never as
     /// `working`: the conversation must not claim the main agent is still
     /// speaking.
@@ -191,7 +231,14 @@ struct ChatTabView: View, ThemedView {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        InfoPaneHost(
+            // Built only for the presentation that shows it.
+            facts: settings.infoPanePresentation == .side ? infoPaneFacts : InfoPaneFacts(tabID: tab.id),
+            glass: planGlass,
+            bottomInset: panelHeight,
+            onOpenSubagent: { openSubagentID = $0.id },
+            onOpenPlan: openPlan
+        ) {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
             content
@@ -220,12 +267,16 @@ struct ChatTabView: View, ThemedView {
         }
         .onChange(of: gitDirectory, initial: true) { previous, current in
             if let previous { GitStateStore.shared.release(previous) }
-            if let current { GitStateStore.shared.watch(current) }
+            if let current {
+                GitStateStore.shared.watch(current)
+                CheckoutFactsStore.shared.load(current)
+            }
             TabDirectoryStore.shared.setDirectory(current, forTab: tab)
         }
         .onDisappear {
             releaseGitDirectory()
         }
+        .pullRequestWatch(directory: gitDirectory, isEnabled: settings.showsPullRequestStatus)
         .onChange(of: planFilePath, initial: true) { _, path in
             if let path { planFile.watch(path: path) } else { planFile.stop() }
         }
@@ -265,8 +316,8 @@ struct ChatTabView: View, ThemedView {
         // `initial` so a tab returned to mid-proposal finds its way back to a
         // dock bar. The state is per-view and starts closed, and without this
         // an approval that was already pending when the view went away never
-        // changes again — the plan would be reachable only from the
-        // composer's plan button, with no sign one was waiting.
+        // changes again — the plan would be reachable only from the info
+        // pane, with no sign one was waiting.
         .onChange(of: planApproval, initial: true) { _, approval in
             planPresentation = planPresentation.reconciled(with: approval)
         }
@@ -281,7 +332,7 @@ struct ChatTabView: View, ThemedView {
                 planOverlay(dismiss: dismissPlanPanel) {
                     planPanel(path: planFilePath)
                         // The bar is the source whenever it exists, so the panel
-                        // grows out of it; opened straight from the Plan button
+                        // grows out of it; opened straight from the info pane
                         // there is none, and the effect is a no-op.
                         .matchedGeometryEffect(id: Self.planZoomID, in: planZoom, isSource: false)
                 }
@@ -438,8 +489,7 @@ struct ChatTabView: View, ThemedView {
     /// The bottom chrome as one floating panel, content width like the prose
     /// above it: the plan dock bar when a plan is docked, then the composer,
     /// then the session facts under it. One glass surface carries all three.
-    /// A closed plan's own button lives in the composer's controls row
-    /// instead of up here — see `ComposerControlsRow.showsPlanButton`.
+    /// A closed plan opens from the info pane instead.
     private func composerPanel(transcript: Transcript) -> some View {
         let isDocked = planPresentation.hiddenForm == .dockBar
         return VStack(spacing: 0) {
@@ -453,9 +503,7 @@ struct ChatTabView: View, ThemedView {
                 tab: tab,
                 isVisible: isVisible && !planPresentation.isExpanded,
                 hasContentAbove: isDocked,
-                editQueuedMessageIndex: $editQueuedMessageIndex,
-                showsPlanButton: hasPlan && planPresentation.hiddenForm == .closed,
-                onOpenPlan: { planPresentation = .expanded }
+                editQueuedMessageIndex: $editQueuedMessageIndex
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -830,7 +878,7 @@ struct ChatTabView: View, ThemedView {
         let transcript = transcript ?? Transcript()
         return ChatMessageList(
             messages: messages,
-            subagents: subagents,
+            infoPane: settings.infoPanePresentation == .inline ? infoPaneFacts : nil,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,

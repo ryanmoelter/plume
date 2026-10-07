@@ -104,8 +104,28 @@ nonisolated enum PullRequestChipContent {
         return glyphs
     }
 
+    /// The one mark that sums a state up, for a space too narrow for the chip:
+    /// a problem first, then anything waiting, then any other verdict.
+    static func summaryGlyph(
+        for state: PullRequestFetchState,
+        checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
+    ) -> PullRequestGlyph? {
+        let marks = glyphs(for: state, checkRollup: checkRollup).filter { $0.symbol != nil }
+        return marks.first { $0.tint == .danger }
+            ?? marks.first { $0.tint == .attention }
+            ?? marks.first { $0.tint != .neutral }
+            ?? marks.last
+    }
+
     static func accessibilityText(for state: PullRequestFetchState) -> String? {
-        let labels = glyphs(for: state).map(\.label)
+        accessibilityText(for: state) { $0.checkRollup() }
+    }
+
+    static func accessibilityText(
+        for state: PullRequestFetchState,
+        checkRollup: (PullRequest) -> CheckRollup
+    ) -> String? {
+        let labels = glyphs(for: state, checkRollup: checkRollup).map(\.label)
         return labels.isEmpty ? nil : labels.joined(separator: " ")
     }
 }
@@ -118,11 +138,15 @@ struct PullRequestChip: View {
     var emphasis: Emphasis = .primary
     /// Supplied by the store so a repository's ignored checks are honored.
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
+    /// Draws only `PullRequestChipContent.summaryGlyph`.
+    var summaryOnly = false
 
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let glyphs = PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
+        let glyphs = summaryOnly
+            ? PullRequestChipContent.summaryGlyph(for: state, checkRollup: checkRollup).map { [$0] } ?? []
+            : PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
         HStack(spacing: 3) {
             ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
                 Group {

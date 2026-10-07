@@ -22,12 +22,6 @@ struct ComposerControlsRow: View, ThemedView {
     @Bindable var task: WorkTask
     @Bindable var tab: TaskTab
     let headlessSession: (any AgentSession)?
-    /// The plan a conversation has produced, when it's closed rather than
-    /// docked or expanded — `ChatTabView` owns `PlanPresentation` and decides
-    /// when that's true. A docked plan keeps its own bar above the composer;
-    /// expanded is a full overlay with nothing to open from here.
-    var showsPlanButton = false
-    var onOpenPlan: () -> Void = {}
 
     /// The row's own width, which the parent sets: every segment hugs its
     /// content and the leading `Spacer` absorbs the rest, so the form the
@@ -40,9 +34,6 @@ struct ComposerControlsRow: View, ThemedView {
         let settings = settings
         let form = form(state: settings)
         HStack(spacing: dimensions.panelContentInset) {
-            if showsPlanButton {
-                PlanButton(form: form, action: onOpenPlan)
-            }
             Spacer(minLength: 0)
             ModelControl(state: settings, form: form)
             EffortControl(state: settings, form: form)
@@ -66,15 +57,9 @@ struct ComposerControlsRow: View, ThemedView {
         )
     }
 
-    /// The measured width belongs to the whole row, Plan button included, so
-    /// its own estimated width comes off the top before the three next-turn
-    /// controls decide whether they fit.
     private func form(state: ComposerSettings) -> ComposerControlsForm {
-        let planReservation = showsPlanButton
-            ? ComposerControlsMetrics.segmentWidth(label: "Plan") + dimensions.panelContentInset
-            : 0
-        return ComposerControlsMetrics.form(
-            availableWidth: availableWidth - planReservation,
+        ComposerControlsMetrics.form(
+            availableWidth: availableWidth,
             labels: ComposerControlLabels.all(state: state),
             spacing: dimensions.panelContentInset
         )
@@ -157,8 +142,6 @@ struct ComposerSegmentLabel: View, ThemedView {
 
     enum Indicator {
         case none
-        /// Opens something, as `PlanButton` does. Only with the text shown.
-        case disclosure
         /// Opens a menu, and shows even in the collapsed form.
         case menu
     }
@@ -194,44 +177,11 @@ struct ComposerSegmentLabel: View, ThemedView {
         switch indicator {
         case .none:
             break
-        case .disclosure:
-            if showsText {
-                result = result + Text(" \(Image(systemName: "chevron.right"))")
-            }
         case .menu:
             result = result + Text(" ")
                 + Text(Image(systemName: "chevron.down")).font(.system(size: 9, weight: .semibold))
         }
         return result
-    }
-}
-
-/// The plan a conversation has produced, when it exists and is closed. Sits
-/// on the row's leading edge, across the `Spacer` from the next-turn
-/// controls it shares no subject with — a document the conversation already
-/// wrote, not a setting for the message being composed.
-///
-/// The chevron marks it clickable the way a disclosure indicator would.
-private struct PlanButton: View, ThemedView {
-    @Environment(\.theme) var theme
-    let form: ComposerControlsForm
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ComposerSegmentLabel(
-                systemImage: StatusSymbol.plan.name,
-                text: "Plan",
-                showsText: form.showsLabels,
-                indicator: .disclosure,
-                foreground: colors.foreground,
-                height: dimensions.composerControlHeight
-            )
-        }
-        .buttonStyle(.plain)
-        .help("Open the plan this conversation produced")
-        .accessibilityLabel("Plan")
-        .plumeID(AccessibilityID.planLinkButton)
     }
 }
 
@@ -432,7 +382,7 @@ private struct EffortControl: View, ThemedView {
 
 extension PermissionMode {
     /// One symbol per case, so the collapsed form still tells the four modes
-    /// apart. `plan` matches `PlanButton`'s own icon, so the mode and the
+    /// apart. `plan` matches the info pane's plan row, so the mode and the
     /// document it produces read as the same concept.
     var symbol: String {
         switch self {

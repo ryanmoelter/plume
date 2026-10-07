@@ -116,7 +116,6 @@ enum AccessibilityID {
     static let planMinimizeButton = "plan-minimize-button"
     static let planCloseButton = "plan-close-button"
     static let planExpandButton = "plan-expand-button"
-    static let planLinkButton = "plan-link-button"
     static let planTitleRow = "plan-title-row"
     static let planBackgroundDismiss = "plan-background-dismiss"
     static let planReviewButton = "plan-review-button"
@@ -138,11 +137,22 @@ enum AccessibilityID {
     // MARK: Subagents
 
     static let subagentRow = "subagent-row"
-    static let completedSubagentsToggle = "completed-subagents-toggle"
     static let subagentMarkDone = "subagent-mark-done"
     static let subagentMarkInterrupted = "subagent-mark-interrupted"
     static let subagentClearOverride = "subagent-clear-override"
     static let subagentTranscriptClose = "subagent-transcript-close"
+
+    // MARK: Info pane
+
+    static let infoPane = "info-pane"
+    static let infoPaneToggle = "info-pane-toggle"
+    static let infoPaneMenu = "info-pane-menu"
+    static let infoPaneCollapseButton = "info-pane-collapse-button"
+    static let infoPaneIconColumn = "info-pane-icon-column"
+    static let infoPaneFloatingDismiss = "info-pane-floating-dismiss"
+    static let infoPaneSubagentsToggle = "info-pane-subagents-toggle"
+    static let infoPaneBackgroundTask = "info-pane-background-task"
+    static let infoPanePlanRow = "info-pane-plan-row"
 
     // MARK: Minimap
 

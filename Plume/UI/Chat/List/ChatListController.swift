@@ -7,7 +7,9 @@ import SwiftUI
 struct ChatListInputs: Equatable {
     var pieces: [ChatPiece] = []
     var tabID: UUID?
-    var subagents: [SubagentTranscript] = []
+    /// The inline info pane, after the last message. Nil when the pane is
+    /// presented elsewhere.
+    var infoPane: InfoPaneFacts?
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -108,8 +110,7 @@ final class ChatListController: NSObject {
     private var pendingPin: String?
 
     private static let dockID = "plume.trailing.dock"
-    private static let subagentsHeaderID = "plume.trailing.subagents.header"
-    private static let subagentRowsID = "plume.trailing.subagents.rows"
+    private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
 
@@ -121,7 +122,7 @@ final class ChatListController: NSObject {
     private enum Item {
         case piece(ChatPiece)
         case dock
-        case subagents(SubagentListView.Part)
+        case infoPane
     }
 
     private struct Host {
@@ -224,7 +225,8 @@ final class ChatListController: NSObject {
         inputs = new
         var stale: Set<String> = []
 
-        if new.pieces != old.pieces || new.tabID != old.tabID {
+        if new.pieces != old.pieces || new.tabID != old.tabID
+            || (new.infoPane == nil) != (old.infoPane == nil) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
         if new.trailingInset != old.trailingInset {
@@ -253,9 +255,8 @@ final class ChatListController: NSObject {
             || new.linkDirectory != old.linkDirectory {
             stale.formUnion(hosts.keys)
         }
-        if new.subagents != old.subagents {
-            stale.insert(Self.subagentsHeaderID)
-            stale.insert(Self.subagentRowsID)
+        if new.infoPane != old.infoPane {
+            stale.insert(Self.infoPaneID)
         }
         refreshRoots(stale)
         documentView.needsLayout = true
@@ -301,13 +302,13 @@ final class ChatListController: NSObject {
         appendDepartures(after: nil)
         if inputs.tabID != nil {
             // The dock needs a click, so it stays above the composer; the
-            // subagent rows fold behind it and only their header holds.
+            // info pane folds behind it.
             next[Self.dockID] = .dock
-            next[Self.subagentsHeaderID] = .subagents(.header)
-            next[Self.subagentRowsID] = .subagents(.rows)
             layoutItems.append(ChatLayoutItem(id: Self.dockID, estimatedHeight: 0))
-            layoutItems.append(ChatLayoutItem(id: Self.subagentsHeaderID, estimatedHeight: 0))
-            layoutItems.append(ChatLayoutItem(id: Self.subagentRowsID, estimatedHeight: 0, folds: true))
+            if inputs.infoPane != nil {
+                next[Self.infoPaneID] = .infoPane
+                layoutItems.append(ChatLayoutItem(id: Self.infoPaneID, estimatedHeight: 0, folds: true))
+            }
         }
         items = next
         model.setItems(layoutItems)
@@ -783,14 +784,16 @@ final class ChatListController: NSObject {
                 )
                 .listItemPadding(bleed: true, vertical: false)
             }.id(id))
-        case let .subagents(part):
-            let subagents = inputs.subagents
-            let tabID = inputs.tabID ?? UUID()
+        case .infoPane:
+            let facts = inputs.infoPane
             let onOpen = onOpenSubagent
+            let onOpenPlan = onOpenPlan ?? {}
             return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
-                SubagentListView(subagents: subagents, tabID: tabID, onOpen: onOpen, part: part)
-                    .listItemPadding(vertical: false)
-                    .containerHeight(state, onMeasure: onMeasure)
+                if let facts {
+                    InfoPaneInlineBlock(facts: facts, onOpenSubagent: onOpen, onOpenPlan: onOpenPlan)
+                        .listItemPadding(vertical: false)
+                        .containerHeight(state, onMeasure: onMeasure)
+                }
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
