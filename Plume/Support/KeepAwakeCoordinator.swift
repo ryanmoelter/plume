@@ -270,7 +270,7 @@ final class KeepAwakeCoordinator {
     static func deriveReasons(
         activeTabs: [(taskID: UUID, tabID: UUID, status: TaskStatus)],
         remoteControlledTabs: [(taskID: UUID, tabID: UUID)],
-        backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] = [],
+        backgroundTaskTabs: [BackgroundTaskTab] = [],
         commandTabs: [(taskID: UUID, tabID: UUID, command: String)] = [],
         allowsRemoteControl: Bool = true
     ) -> [KeepAwakeReason] {
@@ -292,14 +292,14 @@ final class KeepAwakeCoordinator {
                 KeepAwakeReason(
                     taskID: $0.taskID,
                     tabID: $0.tabID,
-                    kind: .backgroundTask($0.kind, description: $0.description)
+                    kind: .backgroundTask($0.kind, description: $0.description, count: $0.count)
                 )
             }
 
         // Dictionary order is arbitrary; sorting keeps the panel from
         // reshuffling every time an unrelated tab changes status.
         let all = working + remote + background + runningCommands
-        return Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { $0.merging($1) })
             .values.sorted { $0.id < $1.id }
     }
 
@@ -367,15 +367,22 @@ final class KeepAwakeCoordinator {
         return false
     }
 
-    /// How many tabs are working, how many are running something in the
-    /// background, and whether any is remotely controlled — for the sidebar
+    /// How many tabs are working, how many background tasks are running,
+    /// and whether any tab is remotely controlled — for the sidebar
     /// row, where the whole reason list would not fit.
     var tally: (working: Int, backgroundTasks: Int, remotelyControlled: Bool) {
         (
             working: reasons.count { if case .working = $0.kind { true } else { false } },
-            backgroundTasks: reasons.count { if case .backgroundTask = $0.kind { true } else { false } },
+            backgroundTasks: Self.backgroundTaskCount(in: reasons),
             remotelyControlled: reasons.contains { $0.kind == .remoteControl }
         )
+    }
+
+    private static func backgroundTaskCount(in reasons: [KeepAwakeReason]) -> Int {
+        reasons.reduce(0) { total, reason in
+            guard case .backgroundTask(_, _, let count) = reason.kind else { return total }
+            return total + count
+        }
     }
 
     /// What the user reads in `pmset -g assertions` and the battery menu.
@@ -385,7 +392,7 @@ final class KeepAwakeCoordinator {
             return "Plume: Keep Awake is set to Always"
         }
         let working = reasons.count { if case .working = $0.kind { true } else { false } }
-        let background = reasons.count { if case .backgroundTask = $0.kind { true } else { false } }
+        let background = backgroundTaskCount(in: reasons)
         let remote = reasons.count { $0.kind == .remoteControl }
         var parts: [String] = []
         if working > 0 {

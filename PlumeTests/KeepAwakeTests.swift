@@ -211,7 +211,7 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [],
             remoteControlledTabs: [(taskID: taskID, tabID: tabID)],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)],
+            backgroundTaskTabs: [BackgroundTaskTab(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)],
             allowsRemoteControl: false
         )
         #expect(reasons.map(\.kind) == [.backgroundTask(.monitor, description: nil)])
@@ -246,7 +246,7 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [],
             remoteControlledTabs: [],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)]
+            backgroundTaskTabs: [BackgroundTaskTab(taskID: taskID, tabID: tabID, kind: .monitor, description: nil)]
         )
 
         #expect(reasons.map(\.kind) == [.backgroundTask(.monitor, description: nil)])
@@ -264,7 +264,7 @@ struct KeepAwakeTests {
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [(taskID: taskID, tabID: tabID, status: .working)],
             remoteControlledTabs: [],
-            backgroundTaskTabs: [(taskID: taskID, tabID: tabID, kind: .backgroundCommand, description: nil)]
+            backgroundTaskTabs: [BackgroundTaskTab(taskID: taskID, tabID: tabID, kind: .backgroundCommand, description: nil)]
         )
 
         #expect(reasons.count == 2)
@@ -293,6 +293,22 @@ struct KeepAwakeTests {
         #expect(coordinator.tally == (working: 1, backgroundTasks: 1, remotelyControlled: false))
     }
 
+    /// The panel lists one reason per tab, but the footer counts tasks.
+    @Test func theTallyCountsTasksNotTabs() {
+        let tracker = BackgroundTaskTracker()
+        let engine = StatusEngine(backgroundTasks: tracker)
+        let (coordinator, _, _) = makeCoordinator(engine: engine)
+        let tabID = UUID()
+        engine.setStatus(.awaitingReply, taskID: UUID(), tabID: tabID)
+        tracker.replaceLive(tabID: tabID, entries: ["b1", "b2", "b3"].map {
+            BackgroundTaskTracker.Entry(id: $0, kind: .backgroundCommand, startedAt: Date(), expiresAt: nil)
+        })
+        coordinator.refresh()
+
+        #expect(coordinator.reasons.count == 1)
+        #expect(coordinator.tally == (working: 0, backgroundTasks: 3, remotelyControlled: false))
+    }
+
     /// `pmset -g assertions` mangles anything but ASCII, and the em dash in a
     /// monitor's own phrasing is exactly the kind of thing that could leak in.
     @Test func theSummaryNamesBackgroundTasksInASCII() {
@@ -301,7 +317,7 @@ struct KeepAwakeTests {
             reasons: KeepAwakeCoordinator.deriveReasons(
                 activeTabs: [],
                 remoteControlledTabs: [],
-                backgroundTaskTabs: [(taskID: taskID, tabID: UUID(), kind: .monitor, description: nil)]
+                backgroundTaskTabs: [BackgroundTaskTab(taskID: taskID, tabID: UUID(), kind: .monitor, description: nil)]
             ),
             mode: .auto
         )
@@ -313,8 +329,8 @@ struct KeepAwakeTests {
                 activeTabs: [(taskID: taskID, tabID: UUID(), status: .working)],
                 remoteControlledTabs: [],
                 backgroundTaskTabs: [
-                    (taskID: taskID, tabID: UUID(), kind: .monitor, description: nil),
-                    (taskID: taskID, tabID: UUID(), kind: .backgroundCommand, description: nil),
+                    BackgroundTaskTab(taskID: taskID, tabID: UUID(), kind: .monitor, description: nil),
+                    BackgroundTaskTab(taskID: taskID, tabID: UUID(), kind: .backgroundCommand, description: nil),
                 ]
             ),
             mode: .auto

@@ -133,7 +133,7 @@ struct RemoteControlTests {
     }
 
     @Test func leavesOtherSystemSubtypesUnknown() throws {
-        let line = #"{"type":"system","subtype":"background_tasks_changed","tasks":[]}"#
+        let line = #"{"type":"system","subtype":"task_progress","task_id":"b1"}"#
         guard case .unknown(let type) = try #require(StreamJSONDecoder.decode(line: line)) else {
             Issue.record("expected an unknown message")
             return

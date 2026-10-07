@@ -205,6 +205,7 @@ final class HeadlessSession: AgentSession {
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
+    @ObservationIgnored private let backgroundTasks: BackgroundTaskTracker
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
     /// effort, so a resumed session's control shows it immediately instead of
@@ -215,13 +216,15 @@ final class HeadlessSession: AgentSession {
         taskID: UUID,
         initialEffort: AgentEffort? = nil,
         statusEngine: StatusEngine = .shared,
-        quotaStore: QuotaStore = .shared
+        quotaStore: QuotaStore = .shared,
+        backgroundTasks: BackgroundTaskTracker = .shared
     ) {
         self.tabID = tabID
         self.taskID = taskID
         self.effort = initialEffort
         self.statusEngine = statusEngine
         self.quotaStore = quotaStore
+        self.backgroundTasks = backgroundTasks
     }
 
     #if DEBUG
@@ -285,6 +288,9 @@ final class HeadlessSession: AgentSession {
             return
         }
         process = handler
+        // A new process runs nothing yet, whatever a resumed transcript says
+        // the last one left running.
+        backgroundTasks.replaceLive(tabID: tabID, entries: [])
         // Registers this host as a capable client, and returns the session's
         // slash commands.
         let requestID = nextRequestID()
@@ -300,6 +306,9 @@ final class HeadlessSession: AgentSession {
         process?.terminate()
         process = nil
         hasExited = true
+        // Forgotten rather than emptied, so a tab switched to the terminal
+        // transport reads its tasks from the transcript again.
+        backgroundTasks.forget(tabID: tabID)
     }
 
     /// Records a failure found before any process was spawned — a failed
@@ -677,6 +686,22 @@ final class HeadlessSession: AgentSession {
         case .controlRequestProgress(let requestID):
             updateSideQuestion(id: requestID) { $0.state = .running }
 
+        case .backgroundTasksChanged(let tasks):
+            // An event decoded before the process exited can land after it.
+            guard !hasExited else { break }
+            let now = Date()
+            backgroundTasks.replaceLive(tabID: tabID, entries: tasks.compactMap { task in
+                task.trackedKind.map {
+                    BackgroundTaskTracker.Entry(
+                        id: task.id,
+                        kind: $0,
+                        description: task.description,
+                        startedAt: now,
+                        expiresAt: nil
+                    )
+                }
+            })
+
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
             // approving a tool resumes the same turn with a fresh one. Each
@@ -975,6 +1000,9 @@ final class HeadlessSession: AgentSession {
         pendingPermissions.removeAll()
         failUnansweredSideQuestions()
         pendingControlRequests.removeAll()
+        // The CLI reports nothing on its way out, and a task it orphans is
+        // beyond anything Plume can see.
+        if !isClosed { backgroundTasks.replaceLive(tabID: tabID, entries: []) }
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
         // A process the user stopped exits non-zero, which is not a failure
