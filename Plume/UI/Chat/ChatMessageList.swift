@@ -30,11 +30,9 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
-    /// Room the pinned side pane takes off the list's trailing edge. The
-    /// rows slide over by half of it, so their columns center in what is
-    /// left without the list resizing.
+    /// Room the pinned side pane takes off the list's trailing edge; the
+    /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
-    var bleedInset: CGFloat = 0
     /// Drawn over the list and under the minimap, so the open map covers it.
     let sidePane: SidePane
 
@@ -148,8 +146,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                 tabID: tabID,
                 infoPane: infoPane,
                 leadingInset: topInset,
-                horizontalShift: -trailingReserve / 2,
-                bleedInset: bleedInset,
+                sideReserve: trailingReserve,
                 animate: settings.animateChatMotion,
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,

@@ -4,10 +4,6 @@ private struct ChatHugsContentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-private struct ChatBleedInsetKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 0
-}
-
 extension EnvironmentValues {
     /// Set on the user's bubble, where the container sizes to its text rather
     /// than the text filling a column. `ListItemPadding` reads it so a short
@@ -15,12 +11,6 @@ extension EnvironmentValues {
     var chatHugsContent: Bool {
         get { self[ChatHugsContentKey.self] }
         set { self[ChatHugsContentKey.self] = newValue }
-    }
-
-    /// Room a bleed item gives up on each side for the pinned info pane.
-    var chatBleedInset: CGFloat {
-        get { self[ChatBleedInsetKey.self] }
-        set { self[ChatBleedInsetKey.self] = newValue }
     }
 }
 
@@ -41,7 +31,6 @@ extension EnvironmentValues {
 private struct ListItemPadding: ViewModifier, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.chatHugsContent) private var hugsContent
-    @Environment(\.chatBleedInset) private var bleedInset
 
     let bleed: Bool
     let vertical: Bool
@@ -60,7 +49,6 @@ private struct ListItemPadding: ViewModifier, ThemedView {
             // visual bound wherever the window can seat it. The padding only
             // takes space once the window is narrower than the column.
             .padding(.horizontal, edgePadding)
-            .padding(.horizontal, bleed || hugsContent ? bleedInset : 0)
             // The column itself centers in whatever contains it.
             .frame(maxWidth: fillsContainer ? .infinity : nil, alignment: .center)
     }

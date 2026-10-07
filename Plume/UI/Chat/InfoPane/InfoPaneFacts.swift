@@ -169,7 +169,6 @@ enum InfoPaneLayout {
         railFootprint: CGFloat,
         gap: CGFloat,
         chatColumnWidth: CGFloat,
-        bleedColumnWidth: CGFloat,
         state: InfoPaneState,
         collapsedHeight: CGFloat
     ) -> SideGeometry {
@@ -184,7 +183,6 @@ enum InfoPaneLayout {
             isPinned: isPinned,
             trailingInset: railFootprint + gap,
             chatTrailingReserve: isPinned ? reserved : 0,
-            chatBleedInset: isPinned && width - reserved < bleedColumnWidth ? reserved / 2 : 0,
             chatTopInset: collapsedHeight + gap
         )
     }
@@ -198,10 +196,6 @@ enum InfoPaneLayout {
         /// Taken off the chat's trailing edge, so its columns center in what
         /// is left.
         var chatTrailingReserve: CGFloat
-        /// Taken off both sides of a bleed item where the pane leaves it too
-        /// little room. Both, because the rows are laid out at the full
-        /// width and shifted by half the reserve.
-        var chatBleedInset: CGFloat
         /// Added above the first message, so the collapsed pane never covers
         /// it at rest.
         var chatTopInset: CGFloat

@@ -13,11 +13,9 @@ struct ChatListInputs: Equatable {
     /// Room above the first message for whatever floats over the list's top
     /// edge.
     var leadingInset: CGFloat = 0
-    /// How far every row slides sideways, so the columns can make way for the
-    /// pinned info pane without rewrapping.
-    var horizontalShift: CGFloat = 0
-    /// Narrows bleed items to stay clear of the pinned info pane.
-    var bleedInset: CGFloat = 0
+    /// Room the rows leave beside them at the list's trailing edge, for the
+    /// pinned info pane. Rows lay out in what is left.
+    var sideReserve: CGFloat = 0
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -121,7 +119,6 @@ final class ChatListController: NSObject {
     private static let dockID = "plume.trailing.dock"
     private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
-    private static let shiftAnimationKey = "plume.horizontalShift"
     private static let poolLimit = 40
 
     /// About a line or two of body text left showing above a freshly pinned
@@ -249,8 +246,8 @@ final class ChatListController: NSObject {
                 model.trailingInset = new.trailingInset
             }
         }
-        if new.horizontalShift != old.horizontalShift {
-            shift(to: new.horizontalShift, animated: new.animate && documentView.window != nil)
+        if new.sideReserve != old.sideReserve, new.animate, documentView.window != nil {
+            slideFromPreviousColumn(by: (new.sideReserve - old.sideReserve) / 2)
         }
         if new.animate != old.animate {
             if !new.animate {
@@ -268,7 +265,7 @@ final class ChatListController: NSObject {
             }
         }
         if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt
-            || new.linkDirectory != old.linkDirectory || new.bleedInset != old.bleedInset {
+            || new.linkDirectory != old.linkDirectory {
             stale.formUnion(hosts.keys)
         }
         if new.infoPane != old.infoPane {
@@ -402,7 +399,8 @@ final class ChatListController: NSObject {
             setDetached(false)
         case let .item(id):
             isFollowing = false
-            readerAnchor = (id: id, distance: 0)
+            // Lands below whatever floats over the list's top edge.
+            readerAnchor = (id: id, distance: -inputs.leadingInset)
         }
         Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.followOffset))")
     }
@@ -414,7 +412,7 @@ final class ChatListController: NSObject {
         let clip = scrollView.contentView
         // A size change is geometry, not intent; the pass it schedules
         // re-resolves the offset from the state the reader already has.
-        guard clip.bounds.height == model.viewportHeight, clip.bounds.width == model.measurementWidth,
+        guard clip.bounds.height == model.viewportHeight, rowWidth(in: clip) == model.measurementWidth,
               model.viewportHeight > 0 else {
             documentView.needsLayout = true
             return
@@ -457,21 +455,20 @@ final class ChatListController: NSObject {
 
     // MARK: - Animation
 
-    /// Moves every row at once through the document's bounds, and animates
-    /// the layer rather than the views, so the render server interpolates it
-    /// and no row's SwiftUI geometry changes mid-flight.
-    private func shift(to shift: CGFloat, animated: Bool) {
-        let from = documentView.bounds.origin.x
-        let to = -shift
-        guard from != to else { return }
-        documentView.setBoundsOrigin(NSPoint(x: to, y: documentView.bounds.origin.y))
-        guard animated, let layer = documentView.layer else { return }
+    /// The rows land in their new column at once; this slides the document's
+    /// layer in from where the old column centered them. The render server
+    /// interpolates it, so the slide costs the main thread nothing past the
+    /// one relayout, and an additive animation per change lets a reversal
+    /// mid-slide carry on from where the rows are.
+    private func slideFromPreviousColumn(by distance: CGFloat) {
+        guard distance != 0, let layer = documentView.layer else { return }
         let animation = CABasicAnimation(keyPath: "bounds.origin.x")
-        animation.fromValue = from
-        animation.toValue = to
+        animation.isAdditive = true
+        animation.fromValue = -distance
+        animation.toValue = 0
         animation.duration = 0.22
         animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(animation, forKey: Self.shiftAnimationKey)
+        layer.add(animation, forKey: "plume.columnSlide.\(UUID().uuidString)")
     }
 
     private func tick(at now: TimeInterval) {
@@ -559,8 +556,12 @@ final class ChatListController: NSObject {
     private func resolve(_ target: ChatListScrollTarget) -> CGFloat {
         switch target {
         case .bottom: model.followOffset
-        case let .item(id): min(model.slotTop(of: id), model.maxOffset)
+        case let .item(id): max(0, min(model.slotTop(of: id) - inputs.leadingInset, model.maxOffset))
         }
+    }
+
+    private func rowWidth(in clip: NSClipView) -> CGFloat {
+        max(0, clip.bounds.width - inputs.sideReserve)
     }
 
     // MARK: - Layout
@@ -573,7 +574,7 @@ final class ChatListController: NSObject {
         defer { isLayingOut = false }
 
         let clip = scrollView.contentView
-        let width = clip.bounds.width
+        let width = rowWidth(in: clip)
         let viewport = clip.bounds.height
         let widthChanged = width != model.measurementWidth
         model.measurementWidth = width
@@ -597,7 +598,7 @@ final class ChatListController: NSObject {
         let writes = easedOffset != nil || desired != lastResolvedOffset
         let offset = writes ? desired : actual
 
-        documentView.setFrameSize(NSSize(width: width, height: max(model.totalHeight, viewport)))
+        documentView.setFrameSize(NSSize(width: clip.bounds.width, height: max(model.totalHeight, viewport)))
         if writes {
             lastResolvedOffset = desired
             if actual != desired {
@@ -810,8 +811,7 @@ final class ChatListController: NSObject {
             chatFontSize: inputs.chatFontSize,
             revealModel: revealModel,
             workStartedAt: inputs.workStartedAt,
-            linkDirectory: inputs.linkDirectory,
-            bleedInset: inputs.bleedInset
+            linkDirectory: inputs.linkDirectory
         )
         switch item {
         case .leadingInset:
@@ -896,7 +896,6 @@ struct ChatListItemEnvironment {
     /// environment, so the link handler has to be rebuilt here rather than
     /// reaching the row from the chat's own.
     var linkDirectory: URL?
-    var bleedInset: CGFloat
 }
 
 struct ChatListItemRoot<Content: View>: View {
@@ -911,7 +910,6 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.chatRevealModel, environment.revealModel)
             .environment(\.workStartedAt, environment.workStartedAt)
-            .environment(\.chatBleedInset, environment.bleedInset)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }
