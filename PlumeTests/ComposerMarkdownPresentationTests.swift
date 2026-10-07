@@ -97,6 +97,28 @@ struct ComposerMarkdownPresentationTests {
         #expect(styled >= plain - 0.5, "\(styled) vs \(plain)")
     }
 
+    @Test func listTouchingTextIsSpacedFromIt() {
+        let text = "intro\n- a\n  more\n- b\noutro"
+        let view = styledView(text)
+        let ns = text as NSString
+        func spacing(_ line: String) -> (before: CGFloat, after: CGFloat) {
+            let style: NSParagraphStyle? = attribute(.paragraphStyle, at: ns.range(of: line).location, in: view)
+            return (style?.paragraphSpacingBefore ?? 0, style?.paragraphSpacing ?? 0)
+        }
+        #expect(spacing("- a") == (metrics.listSpacing, 0))
+        #expect(spacing("  more") == (0, 0))
+        #expect(spacing("- b") == (0, metrics.listSpacing))
+        #expect(spacing("intro") == (0, 0))
+    }
+
+    @Test func blankLinesAlreadySeparateAList() {
+        let text = "intro\n\n- a\n\noutro"
+        let view = styledView(text)
+        let style: NSParagraphStyle? = attribute(.paragraphStyle, at: 7, in: view)
+        #expect(style?.paragraphSpacingBefore == 0)
+        #expect(style?.paragraphSpacing == 0)
+    }
+
     // MARK: - Decorations
 
     @Test func staysOnTextKit2() {

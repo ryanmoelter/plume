@@ -48,9 +48,16 @@ enum MarkdownComposerStyler {
         }
         padChips(spans, in: storage, text: ns, metrics: metrics)
         var isInsideFence = false
-        for line in lines {
+        for (index, line) in lines.enumerated() {
             if line.kind == .fence { isInsideFence.toggle() }
-            applyLine(line, opensFence: isInsideFence, to: storage, text: ns, metrics: metrics)
+            applyLine(
+                line,
+                opensFence: isInsideFence,
+                listEdges: listEdges(at: index, in: lines),
+                to: storage,
+                text: ns,
+                metrics: metrics
+            )
         }
 
         if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
@@ -99,6 +106,7 @@ enum MarkdownComposerStyler {
     private static func applyLine(
         _ line: MarkdownLine,
         opensFence: Bool,
+        listEdges: ListEdges,
         to storage: NSTextStorage,
         text ns: NSString,
         metrics: ComposerMarkdownMetrics
@@ -156,6 +164,8 @@ enum MarkdownComposerStyler {
         case .plain, .blank:
             break
         }
+        if listEdges.contains(.first) { style.paragraphSpacingBefore = metrics.listSpacing }
+        if listEdges.contains(.last) { style.paragraphSpacing = metrics.listSpacing }
 
         if line.kind != .fence, line.kind != .code {
             let column = metrics.contentColumn(for: line)
@@ -174,6 +184,29 @@ enum MarkdownComposerStyler {
             }
         }
         storage.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+    }
+
+    struct ListEdges: OptionSet {
+        let rawValue: Int
+        static let first = ListEdges(rawValue: 1 << 0)
+        static let last = ListEdges(rawValue: 1 << 1)
+    }
+
+    /// Whether the line at `index` opens or closes a list that text sits
+    /// directly against. A blank line already separates a list from its
+    /// neighbors, so only a list touching text gets spacing.
+    private static func listEdges(at index: Int, in lines: [MarkdownLine]) -> ListEdges {
+        func isInList(_ line: MarkdownLine) -> Bool {
+            line.isListItem || (line.kind == .plain && line.indent.length > 0)
+        }
+        func isText(_ line: MarkdownLine) -> Bool {
+            line.kind != .blank && !isInList(line)
+        }
+        guard isInList(lines[index]) else { return [] }
+        var edges: ListEdges = []
+        if index > 0, isText(lines[index - 1]) { edges.insert(.first) }
+        if index + 1 < lines.count, isText(lines[index + 1]) { edges.insert(.last) }
+        return edges
     }
 
     /// Shrinks a hidden run so a marker wider than its column (`- [ ] `)
@@ -229,6 +262,7 @@ struct ComposerMarkdownMetrics {
     var quoteBarWidth: CGFloat { 3 }
     var ruleThickness: CGFloat { 1 }
     var checkboxSize: CGFloat { (fontSize * 0.85).rounded() }
+    var listSpacing: CGFloat { fontSize * 0.4 }
 
     /// Where a line's content starts, measured from the text column's
     /// leading edge. Zero leaves the line's own layout alone.
