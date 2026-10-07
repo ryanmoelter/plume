@@ -87,7 +87,7 @@ struct InfoPaneContent: View, ThemedView {
                     InfoPaneIcon { DisclosureChevron(isExpanded: showsCompleted) }
                     Text("Completed")
                     Spacer(minLength: 0)
-                    if !showsCompleted { SubagentGlyphs(subagents: facts.completedSubagents) }
+                    if !showsCompleted { Text("\(facts.completedSubagents.count)") }
                 }
                 .emphasis(.subtle)
                 .padding(.vertical, 3)
@@ -194,13 +194,18 @@ struct InfoPaneContent: View, ThemedView {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon {
                     if let forge = pullRequest.forge, forge.markImageName != nil {
-                        ForgeMark(forge: forge)
+                        ForgeMarkCell(forge: forge)
                     } else {
                         Image(systemName: "arrow.triangle.pull")
                     }
                 }
                 .emphasis(.secondary)
-                PullRequestChip(state: pullRequest.state, checkRollup: checkRollup)
+                PullRequestChip(
+                    state: pullRequest.state,
+                    checkRollup: checkRollup,
+                    font: typography.caption.font,
+                    imageScale: .medium
+                )
                 Spacer(minLength: 0)
             }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
@@ -312,7 +317,9 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                     state: pullRequest.state,
                     forge: pullRequest.forge,
                     checkRollup: { pullRequest.checkRollup ?? $0.checkRollup() },
-                    summaryOnly: true
+                    summaryOnly: true,
+                    font: typography.caption.font,
+                    imageScale: .medium
                 )
             }
         case .folder, .branch:

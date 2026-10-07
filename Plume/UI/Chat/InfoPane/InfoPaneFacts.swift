@@ -77,9 +77,9 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if planTitle != nil { sections.append(.plan) }
+        if pullRequest != nil { sections.append(.pullRequest) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
-        if pullRequest != nil { sections.append(.pullRequest) }
         return sections
     }
 

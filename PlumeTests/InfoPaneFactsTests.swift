@@ -12,7 +12,7 @@ struct InfoPaneFactsTests {
         #expect(InfoPaneFacts(tabID: UUID()).sections.isEmpty)
     }
 
-    @Test func sectionsRunFromWhatIsHappeningToWhereItRuns() {
+    @Test func whatNeedsAttentionComesBeforeWhereItRuns() {
         let facts = InfoPaneFacts(
             tabID: UUID(),
             liveSubagents: [subagent("a")],
@@ -22,7 +22,7 @@ struct InfoPaneFactsTests {
             branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
             pullRequest: .init(state: .noPR, checkRollup: nil)
         )
-        #expect(facts.sections == [.subagents, .backgroundTasks, .plan, .folder, .branch, .pullRequest])
+        #expect(facts.sections == [.subagents, .backgroundTasks, .plan, .pullRequest, .folder, .branch])
     }
 
     @Test func onlyCompletedSubagentsStillShowTheSection() {

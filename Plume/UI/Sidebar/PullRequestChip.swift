@@ -142,6 +142,10 @@ struct PullRequestChip: View {
     var checkRollup: (PullRequest) -> CheckRollup = { $0.checkRollup() }
     /// Draws only `PullRequestChipContent.summaryGlyph`.
     var summaryOnly = false
+    /// The sidebar's chip is small beside its row's title; the info pane's
+    /// matches its own text.
+    var font: Font = .caption
+    var imageScale: Image.Scale = .small
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -149,23 +153,26 @@ struct PullRequestChip: View {
         let glyphs = summaryOnly
             ? PullRequestChipContent.summaryGlyph(for: state, checkRollup: checkRollup).map { [$0] } ?? []
             : PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
-        HStack(spacing: 3) {
-            if let forge, !glyphs.isEmpty {
-                ForgeMark(forge: forge)
+        HStack(spacing: 4) {
+            if let forge, forge.markImageName != nil, !glyphs.isEmpty {
+                ForgeMarkCell(forge: forge)
                     .foregroundStyle(emphasis.textHierarchy)
             }
-            ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
-                Group {
-                    if let symbol = glyph.symbol {
-                        Image(systemName: symbol).imageScale(.small)
-                    } else if let text = glyph.text {
-                        Text(text)
+            HStack(spacing: 3) {
+                ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
+                    Group {
+                        if let symbol = glyph.symbol {
+                            Image(systemName: symbol)
+                        } else if let text = glyph.text {
+                            Text(text)
+                        }
                     }
+                    .foregroundStyle(color(for: glyph.tint))
                 }
-                .foregroundStyle(color(for: glyph.tint))
             }
         }
-        .font(.caption)
+        .imageScale(imageScale)
+        .font(font)
     }
 
     /// Verdicts take a `ChatRole` hue. The marks that carry none still read at
@@ -182,20 +189,22 @@ struct PullRequestChip: View {
     }
 }
 
-/// The forge's own mark, sized to the caption text beside it. Nothing for a
-/// forge without one.
-struct ForgeMark: View {
+/// The forge's own mark, in a cell the size of the worktree glyph at the
+/// surrounding font and image scale, so text after it lines up with text
+/// after a worktree icon. Nothing for a forge without a mark.
+struct ForgeMarkCell: View {
     let forge: ForgeKind
-
-    @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 10
 
     var body: some View {
         if let name = forge.markImageName {
-            Image(name)
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: size, height: size)
+            Image(systemName: "tree")
+                .hidden()
+                .overlay {
+                    Image(name)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                }
                 .accessibilityHidden(true)
         }
     }
