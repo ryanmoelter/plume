@@ -233,7 +233,8 @@ struct TaskRowView: View {
 
     private var accessibilityLabel: String {
         ([TitleStore.shared.displayTitle(for: task)]
-            + detailLines.compactMap(TaskRowDetails.accessibilityText)).joined(separator: ", ")
+            + detailLines.compactMap(TaskRowDetails.accessibilityText)
+            + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
     }
 
     /// Clearing the name is how the user goes back to showing the agent's own
