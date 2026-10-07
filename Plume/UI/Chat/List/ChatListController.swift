@@ -16,6 +16,8 @@ struct ChatListInputs: Equatable {
     /// How far every row slides sideways, so the columns can make way for the
     /// pinned info pane without rewrapping.
     var horizontalShift: CGFloat = 0
+    /// Narrows bleed items to stay clear of the pinned info pane.
+    var bleedInset: CGFloat = 0
     var animate = true
     /// The room the floating composer covers, plus the padding below the
     /// last message.
@@ -266,7 +268,7 @@ final class ChatListController: NSObject {
             }
         }
         if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt
-            || new.linkDirectory != old.linkDirectory {
+            || new.linkDirectory != old.linkDirectory || new.bleedInset != old.bleedInset {
             stale.formUnion(hosts.keys)
         }
         if new.infoPane != old.infoPane {
@@ -808,7 +810,8 @@ final class ChatListController: NSObject {
             chatFontSize: inputs.chatFontSize,
             revealModel: revealModel,
             workStartedAt: inputs.workStartedAt,
-            linkDirectory: inputs.linkDirectory
+            linkDirectory: inputs.linkDirectory,
+            bleedInset: inputs.bleedInset
         )
         switch item {
         case .leadingInset:
@@ -893,6 +896,7 @@ struct ChatListItemEnvironment {
     /// environment, so the link handler has to be rebuilt here rather than
     /// reaching the row from the chat's own.
     var linkDirectory: URL?
+    var bleedInset: CGFloat
 }
 
 struct ChatListItemRoot<Content: View>: View {
@@ -907,6 +911,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.chatRevealModel, environment.revealModel)
             .environment(\.workStartedAt, environment.workStartedAt)
+            .environment(\.chatBleedInset, environment.bleedInset)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
     }

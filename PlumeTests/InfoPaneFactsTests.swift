@@ -82,6 +82,7 @@ struct InfoPaneFactsTests {
 
 struct InfoPaneLayoutTests {
     private let chatColumn: CGFloat = 672
+    private let bleedColumn: CGFloat = 874
     private let rail: CGFloat = 30
     private let gap: CGFloat = 10
 
@@ -91,9 +92,17 @@ struct InfoPaneLayoutTests {
             railFootprint: rail,
             gap: gap,
             chatColumnWidth: chatColumn,
+            bleedColumnWidth: bleedColumn,
             state: state,
             collapsedHeight: 28
         )
+    }
+
+    @Test func aBleedItemNarrowsOnlyWhereThePinnedPaneCrowdsIt() {
+        let reserved = InfoPaneLayout.paneWidth + gap + rail
+        #expect(side(width: bleedColumn + reserved).chatBleedInset == 0)
+        #expect(side(width: bleedColumn + reserved - 1).chatBleedInset == reserved / 2)
+        #expect(side(width: bleedColumn + reserved - 1, state: .collapsed).chatBleedInset == 0)
     }
 
     @Test func thePanePinsOnlyWhileTheChatKeepsItsFullColumn() {

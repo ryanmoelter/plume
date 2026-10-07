@@ -893,6 +893,7 @@ struct ChatTabView: View, ThemedView {
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: isSide ? geometry.chatTopInset : 0,
             trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
+            bleedInset: isSide ? geometry.chatBleedInset : 0,
             sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
         )
         .overlay(alignment: .bottom) {
@@ -913,11 +914,8 @@ struct ChatTabView: View, ThemedView {
             width: conversationWidth,
             railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
-            // The bleed column, so a code block clears the pane as well as prose.
-            chatColumnWidth: max(
-                dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
-                dimensions.bleedWidth + dimensions.horizontalBleedPadding * 2
-            ),
+            chatColumnWidth: dimensions.contentWidth + dimensions.horizontalEdgePadding * 2,
+            bleedColumnWidth: dimensions.bleedWidth + dimensions.horizontalBleedPadding * 2,
             state: settings.infoPaneState,
             collapsedHeight: collapsedInfoPaneHeight
         )

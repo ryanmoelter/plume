@@ -34,6 +34,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// rows slide over by half of it, so their columns center in what is
     /// left without the list resizing.
     var trailingReserve: CGFloat = 0
+    var bleedInset: CGFloat = 0
     /// Drawn over the list and under the minimap, so the open map covers it.
     let sidePane: SidePane
 
@@ -148,6 +149,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                 infoPane: infoPane,
                 leadingInset: topInset,
                 horizontalShift: -trailingReserve / 2,
+                bleedInset: bleedInset,
                 animate: settings.animateChatMotion,
                 trailingInset: bottomPadding + floatingPanelHeight,
                 chatFontSize: chatFontSize,
