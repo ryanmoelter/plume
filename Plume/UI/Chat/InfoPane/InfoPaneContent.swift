@@ -123,16 +123,24 @@ struct InfoPaneContent: View, ThemedView {
 
     // MARK: Background tasks
 
-    @ViewBuilder
     private var backgroundTasks: some View {
-        if facts.backgroundTasks.count == 1, let entry = facts.backgroundTasks.first {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
-                    .emphasis(.secondary)
-                backgroundTaskRow(entry)
+        let isGrouped = facts.backgroundTasks.count > 1
+        return Group {
+            if !isGrouped, let entry = facts.backgroundTasks.first {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
+                        .emphasis(.secondary)
+                    backgroundTaskRow(entry)
+                }
+            } else {
+                backgroundTaskSection
             }
-        } else {
-            backgroundTaskSection
+        }
+        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
+        // Folding a lone task's row under a collapsed header would read as
+        // the task vanishing, so a section that just formed opens.
+        .onChange(of: isGrouped) { _, isGrouped in
+            if isGrouped { settings.infoPaneBackgroundTasksExpanded = true }
         }
     }
 
@@ -185,6 +193,7 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenPlan) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: StatusSymbol.plan.name) }
+                    .emphasis(.secondary)
                 Text(facts.planTitle ?? "Plan")
                     .lineLimit(1)
                     .truncationMode(.tail)
