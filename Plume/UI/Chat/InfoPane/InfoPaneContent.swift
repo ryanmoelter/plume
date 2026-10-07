@@ -168,7 +168,7 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenSideChat) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: SideQuestionChip.symbol) }
-                Text("Side chat")
+                Text("Side chats")
                 Text("\(facts.sideChatCount)")
                     .emphasis(.subtle)
                 Spacer(minLength: 4)
@@ -178,7 +178,7 @@ struct InfoPaneContent: View, ThemedView {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .help("Open the side chat")
+        .help("Open the side chats")
         .plumeID(AccessibilityID.infoPaneSideChatRow)
     }
 
@@ -361,12 +361,6 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
         case .plan:
             Image(systemName: StatusSymbol.plan.name)
                 .emphasis(.secondary)
-        case .sideChat:
-            HStack(spacing: 2) {
-                Image(systemName: SideQuestionChip.symbol)
-                Text("\(facts.sideChatCount)")
-            }
-            .emphasis(.secondary)
         case .pullRequest:
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(
@@ -384,7 +378,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: "tree")
                 .emphasis(.secondary)
                 .help("In a worktree")
-        case .folder:
+        case .folder, .sideChat:
             EmptyView()
         }
     }

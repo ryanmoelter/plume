@@ -99,8 +99,8 @@ struct InfoPaneFacts: Equatable {
             switch section {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
-            case .folder: false
-            case .backgroundTasks, .plan, .pullRequest, .sideChat: true
+            case .folder, .sideChat: false
+            case .backgroundTasks, .plan, .pullRequest: true
             }
         }
     }

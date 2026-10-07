@@ -24,11 +24,14 @@ struct SideQuestionsOverlay: View, ThemedView {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(sideQuestions.reversed()) { exchange in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(sideQuestions.reversed().enumerated()), id: \.element.id) { index, exchange in
+                            if index > 0 { Divider() }
                             SideQuestionRow(exchange: exchange)
                         }
                     }
+                    .frame(maxWidth: dimensions.contentWidth)
+                    .frame(maxWidth: .infinity)
                     .padding(12)
                 }
             }
@@ -42,7 +45,7 @@ struct SideQuestionsOverlay: View, ThemedView {
         HStack(spacing: 12) {
             Image(systemName: SideQuestionChip.symbol)
                 .emphasis(.secondary)
-            Text("Side chat")
+            Text("Side chats")
                 .font(.headline)
             Spacer()
             Button(action: onClose) {
@@ -68,9 +71,8 @@ private struct SideQuestionRow: View, ThemedView {
                 .font(typography.body.font)
             answerView
         }
-        .padding(10)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: .rect(cornerRadius: 8))
     }
 
     @ViewBuilder
@@ -85,12 +87,14 @@ private struct SideQuestionRow: View, ThemedView {
             }
             .font(typography.caption.font)
         case .answered(let answer):
-            Text(answer)
-                .font(typography.caption.font)
-                .emphasis(.secondary)
+            MarkdownView(answer, isAgentVoice: true)
+                // Each block pads itself off the chat list's edges, which
+                // would indent the answer from the question above it.
+                .padding(.horizontal, -dimensions.horizontalEdgePadding)
+                .textSelection(.enabled)
         case .failed(let message):
             Text(message)
-                .font(typography.caption.font)
+                .font(typography.body.font)
                 .foregroundStyle(.red)
         }
     }

@@ -25,10 +25,10 @@ struct InfoPaneFactsTests {
         #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequest, .plan, .folder, .branch])
     }
 
-    @Test func aSideChatShowsOnceAQuestionIsAskedInBothForms() {
+    @Test func sideChatsShowOnceAQuestionIsAskedButNotWhenCollapsed() {
         let facts = InfoPaneFacts(tabID: UUID(), planTitle: "Plan", folder: "Plume", sideChatCount: 2)
         #expect(facts.sections == [.plan, .sideChat, .folder])
-        #expect(facts.collapsedSections == [.plan, .sideChat])
+        #expect(facts.collapsedSections == [.plan])
         #expect(!InfoPaneFacts(tabID: UUID(), sideChatCount: 0).sections.contains(.sideChat))
     }
 
