@@ -8,10 +8,20 @@ import Observation
 /// the agent's turn ends. The tab drops to `awaitingReply` at that point, and
 /// without this the Mac would sleep before the task ever fires.
 ///
-/// Entries are reconciled wholesale from the transcript rather than counted
-/// up and down. A transcript read is the only thing that sees them, and a
-/// counter kept in step by hand would eventually miss a release — which here
-/// means the Mac never sleeps again.
+/// Each tab has one of two sources, and both replace their entries wholesale
+/// rather than counting up and down — a counter kept in step by hand would
+/// eventually miss a release, which here means the Mac never sleeps again.
+///
+/// - A **live list** from the running process (`replaceLive`), which a
+///   headless tab gets from the CLI's `background_tasks_changed` events. It
+///   decides membership outright and has no time limit: a task is running for
+///   exactly as long as the CLI lists it.
+/// - **Inferred entries** (`replace`), read from the transcript for a
+///   terminal tab or from a Codex inventory. They name an end only when the
+///   task announced one, so `hardCap` bounds them.
+///
+/// A live tab's inferred entries still supply what the list lacks — the
+/// list reports a `Monitor` as a plain command and gives no start time.
 @MainActor
 @Observable
 final class BackgroundTaskTracker {
@@ -51,13 +61,17 @@ final class BackgroundTaskTracker {
         }
     }
 
-    /// Nothing may hold the Mac awake longer than this, whatever a task
-    /// declared. A persistent monitor names no end, and a transcript that
+    /// No inferred entry may hold the Mac awake longer than this, whatever a
+    /// task declared. A persistent monitor names no end, and a transcript that
     /// stops being written — the app quit mid-task, the CLI died — leaves its
-    /// entries with nothing to clear them.
+    /// entries with nothing to clear them. A live list needs no cap, because
+    /// its process reports every end and its exit clears the rest.
     static let hardCap: TimeInterval = 30 * 60
 
     private var entriesByTab: [UUID: [Entry]] = [:]
+    /// A tab present here, even with an empty list, ignores its inferred
+    /// entries for membership.
+    private var liveEntriesByTab: [UUID: [Entry]] = [:]
 
     /// Bumped when an expiry passes, so a derived reason set recomputes
     /// without anything having written to the transcript.
@@ -78,32 +92,68 @@ final class BackgroundTaskTracker {
         armExpiryTimer()
     }
 
+    /// Makes `entries` the tab's whole membership until `forget`. An empty
+    /// list keeps the tab live, so a process that exited holds nothing even
+    /// while its transcript still reads as mid-task.
+    func replaceLive(tabID: UUID, entries: [Entry]) {
+        let previous = Dictionary(
+            (liveEntriesByTab[tabID] ?? []).map { ($0.id, $0.startedAt) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let carried = entries.map { entry in
+            guard let startedAt = previous[entry.id] else { return entry }
+            return Entry(
+                id: entry.id,
+                kind: entry.kind,
+                description: entry.description,
+                startedAt: startedAt,
+                expiresAt: entry.expiresAt
+            )
+        }
+        guard liveEntriesByTab[tabID] != carried else { return }
+        liveEntriesByTab[tabID] = carried
+        armExpiryTimer()
+    }
+
     func forget(tabID: UUID) {
-        guard entriesByTab.removeValue(forKey: tabID) != nil else { return }
+        let removedInferred = entriesByTab.removeValue(forKey: tabID) != nil
+        let removedLive = liveEntriesByTab.removeValue(forKey: tabID) != nil
+        guard removedInferred || removedLive else { return }
         armExpiryTimer()
     }
 
     func reset() {
         entriesByTab.removeAll()
+        liveEntriesByTab.removeAll()
         armExpiryTimer()
     }
 
     func inFlight(tabID: UUID, now: Date = Date()) -> [Entry] {
         _ = revision
-        return (entriesByTab[tabID] ?? []).filter { $0.isRunning(at: now) }
+        guard let live = liveEntriesByTab[tabID] else {
+            return (entriesByTab[tabID] ?? []).filter { $0.isRunning(at: now) }
+        }
+        let inferred = Dictionary(
+            (entriesByTab[tabID] ?? []).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return live
+            .map { $0.enriched(by: inferred[$0.id]) }
+            .sorted { $0.startedAt < $1.startedAt }
     }
 
     /// Every tab with something still running, for the keep-awake reason set.
     ///
     /// One row per tab however many tasks it runs, so the description is the
     /// oldest running task's — the one the tab has been held awake for
-    /// longest.
-    var tabsWithBackgroundTasks: [(tabID: UUID, kind: Kind, description: String?)] {
+    /// longest. `count` is how many are running.
+    var tabsWithBackgroundTasks: [(tabID: UUID, kind: Kind, description: String?, count: Int)] {
         _ = revision
         let now = Date()
-        return entriesByTab.compactMap { tabID, entries in
-            guard let first = entries.first(where: { $0.isRunning(at: now) }) else { return nil }
-            return (tabID, first.kind, first.description)
+        return Set(entriesByTab.keys).union(liveEntriesByTab.keys).compactMap { tabID in
+            let running = inFlight(tabID: tabID, now: now)
+            guard let first = running.first else { return nil }
+            return (tabID, first.kind, first.description, running.count)
         }
     }
 
@@ -114,7 +164,9 @@ final class BackgroundTaskTracker {
         expiryTimer?.cancel()
         expiryTimer = nil
         let now = Date()
-        let deadlines = entriesByTab.values.flatMap { $0 }
+        let deadlines = entriesByTab
+            .filter { liveEntriesByTab[$0.key] == nil }
+            .values.flatMap { $0 }
             .filter { $0.isRunning(at: now) }
             .map(\.deadline)
         guard let next = deadlines.min() else { return }
@@ -138,5 +190,18 @@ private extension BackgroundTaskTracker.Entry {
 
     func isRunning(at now: Date) -> Bool {
         deadline > now
+    }
+
+    /// The live list reports a `Monitor` as a plain command and carries no
+    /// start time, so the transcript's reading of the same id fills both in.
+    func enriched(by inferred: Self?) -> Self {
+        guard let inferred else { return self }
+        return Self(
+            id: id,
+            kind: inferred.kind,
+            description: description ?? inferred.description,
+            startedAt: min(startedAt, inferred.startedAt),
+            expiresAt: inferred.expiresAt
+        )
     }
 }

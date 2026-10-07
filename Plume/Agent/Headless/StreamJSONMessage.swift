@@ -16,6 +16,8 @@ enum StreamJSONMessage {
     /// `side_question`, which otherwise gives no sign it is running until its
     /// `control_response` arrives.
     case controlRequestProgress(requestID: String)
+    /// The CLI's whole list of running background tasks, sent on every change.
+    case backgroundTasksChanged([LiveBackgroundTask])
     case streamEvent(PartialEvent)
     case assistant(MessageEnvelope)
     case user(MessageEnvelope)
@@ -72,6 +74,26 @@ struct BridgeState: Equatable {
     let state: String
     let detail: String?
     let epoch: Int?
+}
+
+/// One entry of `background_tasks_changed`. See "The live background-task
+/// list" in docs/headless-protocol.md.
+struct LiveBackgroundTask: Equatable {
+    let id: String
+    let taskType: String
+    let description: String?
+
+    /// Nil for a subagent, which `setSubagentActivity` already answers for,
+    /// and for any type not known to be a task worth staying awake for. A
+    /// `Monitor` arrives as `local_bash`; the transcript corrects its kind.
+    var trackedKind: BackgroundTaskTracker.Kind? {
+        switch taskType {
+        case "local_bash": .backgroundCommand
+        case "monitor_mcp": .monitor
+        case "local_workflow": .workflow
+        default: nil
+        }
+    }
 }
 
 struct MessageEnvelope {

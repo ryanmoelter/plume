@@ -210,6 +210,34 @@ An `Agent` call with `run_in_background: true` returns at once, and the main tur
 
 When the subagent finishes, its `task_notification` wakes the main agent: a fresh `system/init`, then a main-thread turn (envelopes with `parent_tool_use_id: null`) that ends in its own `result`. So only an envelope with no parent may mark a main turn as started. `HeadlessSession` reads it that way; a subagent's envelope opening one would never see a `result` close it. The woken turn's `system/status` `requesting` arrives about 0.1 s after the notification and seconds before its first envelope, and in the recorded runs only the main thread sent that event. `HeadlessSession` starts the turn there too.
 
+## The live background-task list
+
+`background_tasks_changed` carries the CLI's whole list of running background tasks, not only subagents. A backgrounded `Bash` and a `Monitor` both appear in it. Measured against **2.1.292** with the flags above, in a trusted directory: one turn started `sleep 40` with `run_in_background` and a `Monitor` on a `date` loop, then ended. The sleep finished between turns, and a later turn stopped the monitor with `TaskStop`.
+
+```
+{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b5b6p3ipm","run_id":"0muyhepps-9ba3eac4","task_type":"local_bash","description":"Sleep in background"}]}
+{"type":"system","subtype":"task_started","task_id":"b5b6p3ipm","run_id":"0muyhepps-9ba3eac4","tool_use_id":"toolu_01F1…","description":"Sleep in background","is_backgrounded":true,"task_type":"local_bash"}
+{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b5b6p3ipm",…},{"task_id":"bmzg7xfjs","run_id":"0muyheqxb-d628cb7a","task_type":"local_bash","description":"clock"}]}
+… the turn ends with its `result`; 39 s later, between turns:
+{"type":"system","subtype":"task_updated","task_id":"b5b6p3ipm","patch":{"status":"completed","end_time":1791400210755}}
+{"type":"system","subtype":"task_notification","task_id":"b5b6p3ipm","tool_use_id":"toolu_01F1…","status":"completed","output_file":"…/tasks/b5b6p3ipm.output","summary":"Background command \"Sleep in background\" completed (exit code 0)"}
+{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"bmzg7xfjs",…}]}
+… TaskStop on the monitor:
+{"type":"system","subtype":"task_updated","task_id":"bmzg7xfjs","patch":{"status":"killed","end_time":1791400236793}}
+{"type":"system","subtype":"task_notification","task_id":"bmzg7xfjs","status":"stopped","summary":"clock"}
+{"type":"system","subtype":"background_tasks_changed","tasks":[]}
+```
+
+Every event also carries `uuid` and `session_id`. What the run showed:
+
+- **The list is the whole membership, sent on every change.** It arrives before `task_started` on a launch and after `task_notification` on an end, and fires between turns as readily as during one. An empty `tasks` array means nothing runs.
+- **`task_id` is the id the tool's `tool_result` announces.** `Command running in background with ID: b5b6p3ipm.` and `Monitor started (task bmzg7xfjs, …` name the same ids `BackgroundTaskResult.parse` extracts, so a transcript entry and a list entry match by id.
+- **A `Monitor` reports `task_type: "local_bash"`, the same as a backgrounded `Bash`.** The list cannot tell them apart; `task_started.tool_use_id` or the transcript can. The binary's other task types include `local_agent`, `remote_agent`, `in_process_teammate`, `local_workflow`, `monitor_mcp` and `dream`.
+- **A Monitor event emits no `task_*` event.** Each event wakes a main-thread turn (`system/init`, then a `result`), and the list does not change.
+- **The CLI exiting sends nothing.** A second run started `sleep 120` in the background, ended its turn, and then took a SIGKILL. Stdout closed with no further event. The `sleep` survived as an orphan of the dead CLI, so nothing on the wire can report it after that.
+
+`HeadlessSession` therefore treats the list as the source of truth for its tab's background tasks, and clears them when its process exits.
+
 ## Other host-to-CLI control requests
 
 Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_model` were exercised, the rest are listed as available:

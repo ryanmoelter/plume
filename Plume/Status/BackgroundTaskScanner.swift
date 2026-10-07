@@ -105,9 +105,10 @@ nonisolated enum BackgroundTaskResult {
 
 /// Which background tasks a transcript says are still running.
 ///
-/// Both transports write the transcript, so this is the one place that sees
-/// them whichever way the tab is driven. It mirrors `SubagentSpawnResults`:
-/// one pass over the parent's own bytes, off the main actor.
+/// The source of truth for a terminal tab. A headless tab's CLI lists its
+/// tasks live, so there this only names what that list cannot. It mirrors
+/// `SubagentSpawnResults`: one pass over the parent's own bytes, off the main
+/// actor.
 nonisolated enum BackgroundTaskScanner {
     /// Tools that always run in the background, plus the ones that do only
     /// when asked.
