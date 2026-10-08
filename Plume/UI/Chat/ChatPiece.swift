@@ -14,9 +14,9 @@ struct ChatPiece: Identifiable, Equatable {
     /// kind: `<message>/<block>` for a whole block, one component deeper for a
     /// markdown block within it, one deeper again for a segment of a split
     /// one. Every component is an `Int`, so no shorter path can collide with a
-    /// longer one — except a collapsed agent message's `<message>/<block>/preview`,
-    /// whose last component no index can equal. A duplicate here is a hang rather than a visible glitch, so
-    /// `ChatPieceSplitterTests` asserts it.
+    /// longer one — except a collapsible agent message's `<message>/<block>/toggle`,
+    /// whose last component no index can equal. A duplicate here is a hang
+    /// rather than a visible glitch, so `ChatPieceSplitterTests` asserts it.
     var id: String
     var messageID: String
     var role: ChatMessage.Role
@@ -46,6 +46,14 @@ struct ChatPiece: Identifiable, Equatable {
     /// Set on every piece of another agent's message: the key its collapsed
     /// or expanded state is kept under, shared by all of the message's pieces.
     var agentMessageKey: String?
+    /// Set on the last piece a collapsed agent message shows.
+    var collapsedTail: CollapsedTail?
+
+    /// The last piece of a collapsed agent message: faded out toward the
+    /// "Show more" row, and clipped where it alone runs past the budget.
+    struct CollapsedTail: Equatable {
+        var lineLimit: Int?
+    }
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -58,8 +66,8 @@ struct ChatPiece: Identifiable, Equatable {
         /// `isExpanded` is set only on a message that can collapse and
         /// currently doesn't.
         case agentMessageTitle(name: String?, isSubagent: Bool = false, isExpanded: Bool = false)
-        /// A long agent message cut to its opening lines, as one piece.
-        case agentMessagePreview(markdown: String)
+        /// "Show more" or "Hide message", closing a collapsible agent message.
+        case agentMessageToggle(isExpanded: Bool)
         case notice(ChatNotice)
         case image(ChatImage)
         case working
@@ -113,7 +121,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .toolCall: "toolCall"
         case .injected: "injected"
         case .agentMessageTitle: "agentMessageTitle"
-        case .agentMessagePreview: "agentMessagePreview"
+        case .agentMessageToggle: "agentMessageToggle"
         case .notice: "notice"
         case .image: "image"
         case .working: "working"

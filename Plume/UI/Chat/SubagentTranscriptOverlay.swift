@@ -36,16 +36,18 @@ struct SubagentTranscriptOverlay: View, ThemedView {
                     .emphasis(.subtle)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(pieces) { piece in
-                            ChatPieceView(piece: piece, onToggleAgentMessage: toggleAgentMessage)
-                                .listItemPadding(bleed: true, vertical: false)
-                                .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
-                                .padding(.bottom, piece.bottomInset)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(pieces) { piece in
+                                ChatPieceView(piece: piece, onToggleAgentMessage: { toggleAgentMessage($0, proxy: proxy) })
+                                    .listItemPadding(bleed: true, vertical: false)
+                                    .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
+                                    .padding(.bottom, piece.bottomInset)
+                            }
                         }
+                        .padding(.bottom, dimensions.verticalPadding)
                     }
-                    .padding(.bottom, dimensions.verticalPadding)
                 }
             }
         }
@@ -66,9 +68,15 @@ struct SubagentTranscriptOverlay: View, ThemedView {
         )
     }
 
-    private func toggleAgentMessage(_ key: String) {
-        expandedAgentMessages.formSymmetricDifference([key])
-        rebuildPieces()
+    /// Closing a long message from its foot would leave the reader below
+    /// it, so a collapse brings its title back into view.
+    private func toggleAgentMessage(_ key: String, proxy: ScrollViewProxy) {
+        let collapsing = expandedAgentMessages.contains(key)
+        withAnimation(.easeOut(duration: 0.2)) {
+            expandedAgentMessages.formSymmetricDifference([key])
+            rebuildPieces()
+            if collapsing { proxy.scrollTo(key) }
+        }
     }
 
     private var header: some View {
