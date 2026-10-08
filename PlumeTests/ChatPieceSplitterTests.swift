@@ -208,51 +208,97 @@ struct ChatPieceSplitterTests {
         #expect(result.last?.segment == .last)
     }
 
-    /// Twelve one-line paragraphs: past the ten-line preview at any width.
+    /// Twenty one-line paragraphs: well past the ten lines a collapsed
+    /// message shows, at any width.
     private let longAgentMessage = """
         <agent-message from="a1">
-        \((1...12).map { "Line \($0)." }.joined(separator: "\n\n"))
+        \((1...20).map { "Line \($0)." }.joined(separator: "\n\n"))
         </agent-message>
         """
 
-    @Test func aLongAgentMessageStartsCollapsedToOnePreview() {
-        let kind = InjectedContent.agentMessage(name: "Explore: look", subagentID: "a1")
-        let result = pieces([message("m", .user, [.injected(kind, text: longAgentMessage)])])
-        #expect(result.count == 2)
+    private func agentPieces(_ text: String, expanded: Bool = false) -> [ChatPiece] {
+        ChatPieceSplitter.pieces(
+            for: [message("m", .user, [.injected(.agentMessage(name: "Explore: look", subagentID: "a1"), text: text)])],
+            status: .awaitingReply,
+            hiddenToolUseIDs: [],
+            expandedAgentMessages: expanded ? ["m/0"] : [],
+            dimensions: dimensions
+        )
+    }
+
+    @Test func aLongAgentMessageStartsCollapsedToItsLeadingPieces() {
+        let result = agentPieces(longAgentMessage)
+        #expect(result.map(\.id) == ["m/0"] + (0..<10).map { "m/0/\($0)" } + ["m/0/toggle"])
         #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: false))
-        guard case .agentMessagePreview(let markdown)? = result.last?.content else {
-            Issue.record("expected a preview, got \(String(describing: result.last?.content))")
-            return
-        }
-        #expect(markdown.hasPrefix("Line 1."))
+        #expect(result.last?.content == .agentMessageToggle(isExpanded: false))
+        #expect(result.filter { $0.collapsedTail != nil }.map(\.id) == ["m/0/9"])
+        #expect(result[10].collapsedTail == ChatPiece.CollapsedTail(lineLimit: nil))
         #expect(result.allSatisfy { $0.agentMessageKey == "m/0" })
         #expect(result.allSatisfy { $0.wash == .agentBubble })
         #expect(result.last?.segment == .last)
     }
 
-    @Test func anExpandedAgentMessageSplitsLikeAnyOther() {
-        let kind = InjectedContent.agentMessage(name: nil, subagentID: "a1")
-        let result = ChatPieceSplitter.pieces(
-            for: [message("m", .user, [.injected(kind, text: longAgentMessage)])],
-            status: .awaitingReply,
-            hiddenToolUseIDs: [],
-            expandedAgentMessages: ["m/0"],
-            dimensions: dimensions
-        )
-        #expect(result.count == 13)
-        #expect(result.first?.content == .agentMessageTitle(name: nil, isSubagent: true, isExpanded: true))
+    @Test func anExpandedAgentMessageShowsEveryPieceAndAHideRow() {
+        let result = agentPieces(longAgentMessage, expanded: true)
+        #expect(result.map(\.id) == ["m/0"] + (0..<20).map { "m/0/\($0)" } + ["m/0/toggle"])
+        #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: true))
+        #expect(result.last?.content == .agentMessageToggle(isExpanded: true))
+        #expect(result.allSatisfy { $0.collapsedTail == nil })
         #expect(result.allSatisfy { $0.agentMessageKey == "m/0" })
-        #expect(Set(result.map(\.id)).count == result.count)
+    }
+
+    /// The list reuses a row only while its id and place in the wash stay
+    /// put, so the pieces both states show must match in everything but
+    /// the fade.
+    @Test func togglingKeepsTheSharedPiecesIntact() {
+        let collapsed = agentPieces(longAgentMessage)
+        let expanded = agentPieces(longAgentMessage, expanded: true)
+        let shared = Set(collapsed.map(\.id)).intersection(expanded.map(\.id))
+        #expect(shared == Set(collapsed.map(\.id)))
+        let byID = Dictionary(uniqueKeysWithValues: expanded.map { ($0.id, $0) })
+        for piece in collapsed where piece.agentMessageKey != nil {
+            guard let other = byID[piece.id] else { continue }
+            #expect(piece.segment == other.segment, "\(piece.id)")
+            #expect(piece.topInset == other.topInset, "\(piece.id)")
+            if case .markdown = piece.content { #expect(piece.content == other.content, "\(piece.id)") }
+        }
+    }
+
+    /// One block too long to show whole is clipped rather than dropped, or a
+    /// collapsed message would show nothing but its title.
+    @Test func aLongFirstBlockIsClippedToTheLineLimit() {
+        let paragraph = (1...40).map { "Line \($0) of one long paragraph." }.joined(separator: "\n")
+        let result = agentPieces("<agent-message from=\"a1\">\n\(paragraph)\n\nAfter.\n</agent-message>")
+        #expect(result.map(\.id) == ["m/0", "m/0/0", "m/0/toggle"])
+        #expect(result[1].collapsedTail == ChatPiece.CollapsedTail(lineLimit: AgentMessageCollapse.lineLimit))
     }
 
     /// A message short enough to read whole has nothing to collapse.
     @Test func aShortAgentMessageIsNotCollapsible() {
         let text = "<agent-message from=\"a1\">\nDone.\n</agent-message>"
-        let kind = InjectedContent.agentMessage(name: nil, subagentID: "a1")
-        let result = pieces([message("m", .user, [.injected(kind, text: text)])])
+        let result = agentPieces(text)
         #expect(result.count == 2)
+        #expect(result.allSatisfy { $0.agentMessageKey == nil && $0.collapsedTail == nil })
+        #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: false))
+    }
+
+    /// Past ten lines but not by enough to be worth a "Show more" row.
+    @Test func anAgentMessageJustPastTheLimitStaysWhole() {
+        let text = "<agent-message from=\"a1\">\n\((1...12).map { "Line \($0)." }.joined(separator: "\n\n"))\n</agent-message>"
+        let result = agentPieces(text)
+        #expect(result.count == 13)
         #expect(result.allSatisfy { $0.agentMessageKey == nil })
-        #expect(result.first?.content == .agentMessageTitle(name: nil, isSubagent: true, isExpanded: false))
+    }
+
+    @Test func theCutFadesTheLastWholePieceOrClipsALongOne() {
+        // Exactly fills the budget.
+        #expect(AgentMessageCollapse.cut(lineCounts: [4, 6, 5]) == (2, nil))
+        // Room for 6 more lines of an 8-line block: clipped to them.
+        #expect(AgentMessageCollapse.cut(lineCounts: [4, 8, 5]) == (2, 6))
+        // Room for only one line of the next block: it is dropped instead.
+        #expect(AgentMessageCollapse.cut(lineCounts: [9, 8]) == (1, nil))
+        // The first block alone overflows.
+        #expect(AgentMessageCollapse.cut(lineCounts: [30, 2]) == (1, 10))
     }
 
     /// An injected line is not the user speaking, so it skips the bubble.

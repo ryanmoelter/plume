@@ -48,6 +48,12 @@ final class ChatListCommands {
     func pin(pieceID: String) {
         controller?.pin(pieceID: pieceID)
     }
+
+    /// Keeps the piece where it is on screen through the next change, if
+    /// the reader can see it. See `ChatListController.hold`.
+    func hold(pieceID: String, overridingFollow: Bool) {
+        controller?.hold(pieceID: pieceID, overridingFollow: overridingFollow)
+    }
 }
 
 /// Owns the custom chat list: the scroll view, the document view, the layout
@@ -121,8 +127,9 @@ final class ChatListController: NSObject {
     private var lastResolvedOffset: CGFloat?
     private var consumedArrivals: Set<String> = []
     private var arriving: Set<String> = []
-    /// Working indicators the pieces no longer hold, fading and collapsing
-    /// in place of vanishing, each keyed to the piece it followed.
+    /// Pieces that fade and collapse in place of vanishing — a working
+    /// indicator, or the rows a collapsing agent message hides — each keyed
+    /// to the nearest piece above it that stays.
     private var departing: [String: Departure] = [:]
     private var publishedVisibleIDs: Set<String> = []
     private var pendingPin: String?
@@ -154,6 +161,9 @@ final class ChatListController: NSObject {
     private struct Departure {
         let piece: ChatPiece
         let after: String?
+        /// Its place in the pieces it left, so several departing after the
+        /// same piece keep their order.
+        let order: Int
         var isCollapsing = false
     }
 
@@ -304,18 +314,20 @@ final class ChatListController: NSObject {
             next[piece.id] = .piece(piece)
         }
         if allowsDepartures { startDepartures(from: previous, staying: next) }
+        var returned: [String] = []
         for id in departing.keys where next[id] != nil {
             departing[id] = nil
             animator.cancelEase(id)
             hosts[id]?.view.alphaValue = 1
+            returned.append(id)
         }
-        var departuresAfter: [String?: [ChatPiece]] = [:]
+        var departuresAfter: [String?: [Departure]] = [:]
         for departure in departing.values {
             let after = departure.after.flatMap { next[$0] == nil ? nil : $0 }
-            departuresAfter[after, default: []].append(departure.piece)
+            departuresAfter[after, default: []].append(departure)
         }
         func appendDepartures(after id: String?) {
-            for piece in departuresAfter[id] ?? [] {
+            for piece in (departuresAfter[id] ?? []).sorted(by: { $0.order < $1.order }).map(\.piece) {
                 next[piece.id] = .piece(piece)
                 // Its inset is folded into the collapsing height, so the
                 // content below closes up continuously.
@@ -343,7 +355,11 @@ final class ChatListController: NSObject {
             }
         }
         items = next
+        keepReaderAnchor(among: next)
         model.setItems(layoutItems)
+        for id in returned {
+            animateHeight(of: id, from: model.displayHeight(of: id), to: model.targetHeight(of: id))
+        }
         for (id, departure) in departing where !departure.isCollapsing {
             beginCollapse(id, topInset: departure.piece.paysInsetOutside ? departure.piece.topInset : 0)
         }
@@ -353,6 +369,23 @@ final class ChatListController: NSObject {
         var before: [String: ChatPiece] = [:]
         for piece in previous { before[piece.id] = piece }
         return Set(inputs.pieces.filter { self.hosts[$0.id] != nil && before[$0.id] != $0 }.map(\.id))
+    }
+
+    /// Moves the reader's anchor off a piece that is leaving, onto the
+    /// nearest one above it that stays, at the same place on screen.
+    /// Otherwise the anchor would resolve against an id the model no longer
+    /// has, and the list would jump to the top.
+    private func keepReaderAnchor(among next: [String: Item]) {
+        guard let anchor = readerAnchor, next[anchor.id] == nil, var index = model.index(of: anchor.id) else { return }
+        let offset = model.slotTop(of: anchor.id) + anchor.distance
+        while index > 0 {
+            index -= 1
+            let id = model.id(at: index)
+            guard next[id] != nil else { continue }
+            readerAnchor = (id: id, distance: offset - model.slotTop(of: id))
+            return
+        }
+        readerAnchor = nil
     }
 
     /// Rebuilds the named roots from the current inputs. A host keeps its
@@ -396,6 +429,22 @@ final class ChatListController: NSObject {
         pendingPin = pieceID
         model.setAnchor(pieceID, inset: pinTopInset)
         scroll(to: .bottom, animated: true)
+    }
+
+    /// Anchors the reader on the piece, so a change around it — a message
+    /// collapsing above the row that collapsed it — leaves it where it is
+    /// on screen. Only for a piece the reader can see, and never mid-scroll.
+    ///
+    /// Following the bottom wins unless `overridingFollow`: rows opening
+    /// below a reader at the bottom would otherwise push up the very text
+    /// they asked to read.
+    func hold(pieceID: String, overridingFollow: Bool) {
+        guard easedOffset == nil, overridingFollow || !isFollowing else { return }
+        let offset = scrollView.contentView.bounds.origin.y
+        guard model.visibleIDs(offset: offset).contains(pieceID) else { return }
+        isFollowing = false
+        followDistance = 0
+        readerAnchor = (id: pieceID, distance: offset - model.slotTop(of: pieceID))
     }
 
     /// Sets the follow state a finished scroll leaves behind.
@@ -530,12 +579,20 @@ final class ChatListController: NSObject {
     var realizedIDs: Set<String> { Set(hosts.keys) }
 
     /// A working indicator that leaves while showing fades and collapses
-    /// rather than vanishing, which would jump everything below it.
+    /// rather than vanishing, which would jump everything below it. So do
+    /// the rows of an agent message collapsing, whose title stays.
     private func startDepartures(from previous: [ChatPiece], staying next: [String: Item]) {
         guard inputs.animate, model.viewportHeight > 0, documentView.window != nil else { return }
-        for (index, piece) in previous.enumerated()
-        where piece.content.isActivityIndicator && next[piece.id] == nil && hosts[piece.id] != nil && departing[piece.id] == nil {
-            departing[piece.id] = Departure(piece: piece, after: index > 0 ? previous[index - 1].id : nil)
+        var survivor: String?
+        for (index, piece) in previous.enumerated() {
+            if next[piece.id] != nil {
+                survivor = piece.id
+                continue
+            }
+            let departs = piece.content.isActivityIndicator
+                || piece.agentMessageKey.map { next[$0] != nil } == true
+            guard departs, hosts[piece.id] != nil, departing[piece.id] == nil else { continue }
+            departing[piece.id] = Departure(piece: piece, after: survivor, order: index)
         }
     }
 

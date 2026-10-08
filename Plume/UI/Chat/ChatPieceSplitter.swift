@@ -241,42 +241,42 @@ enum ChatPieceSplitter {
             guard case .agentMessage(let name, let subagentID) = kind else {
                 return single(.injected(kind, text: text))
             }
-            let body = kind.bodyText(text)
-            let collapsible = AgentMessagePreviewMetrics.isCollapsible(
-                body,
-                width: context.dimensions.contentWidth
+            var body = markdownPieces(
+                parse(kind.bodyText(text)),
+                idPrefix: base,
+                messageID: message.id,
+                role: message.role,
+                wash: .agentBubble,
+                leading: context.dimensions.messageBlockSpacing,
+                dimensions: context.dimensions
             )
+            let width = context.dimensions.contentWidth
+            let lineCounts = body.map { AgentMessageCollapse.estimatedLines($0.copySource ?? "", width: width) }
+            let collapsible = AgentMessageCollapse.isCollapsible(lineCounts: lineCounts)
             let isExpanded = collapsible && context.expandedAgentMessages.contains(base)
-            var result = [ChatPiece(
+            let title = ChatPiece(
                 id: base,
                 messageID: message.id,
                 role: message.role,
                 content: .agentMessageTitle(name: name, isSubagent: subagentID != nil, isExpanded: isExpanded),
                 wash: .agentBubble,
                 topInset: leading
-            )]
-            if collapsible && !isExpanded {
-                result.append(ChatPiece(
-                    id: "\(base)/preview",
-                    messageID: message.id,
-                    role: message.role,
-                    content: .agentMessagePreview(markdown: body),
-                    wash: .agentBubble,
-                    topInset: context.dimensions.messageBlockSpacing
-                ))
-            } else {
-                result += markdownPieces(
-                    parse(body),
-                    idPrefix: base,
-                    messageID: message.id,
-                    role: message.role,
-                    wash: .agentBubble,
-                    leading: context.dimensions.messageBlockSpacing,
-                    dimensions: context.dimensions
-                )
+            )
+            guard collapsible else { return [title] + body }
+            if !isExpanded {
+                let cut = AgentMessageCollapse.cut(lineCounts: lineCounts)
+                body.removeSubrange(cut.count...)
+                body[body.count - 1].collapsedTail = ChatPiece.CollapsedTail(lineLimit: cut.tailLineLimit)
             }
-            guard collapsible else { return result }
-            return result.map { piece in
+            let toggle = ChatPiece(
+                id: agentMessageToggleID(base),
+                messageID: message.id,
+                role: message.role,
+                content: .agentMessageToggle(isExpanded: isExpanded),
+                wash: .agentBubble,
+                topInset: context.dimensions.messageBlockSpacing
+            )
+            return ([title] + body + [toggle]).map { piece in
                 var piece = piece
                 piece.agentMessageKey = base
                 return piece
@@ -405,6 +405,10 @@ enum ChatPieceSplitter {
         // and a heading is never long enough to be worth one.
         return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
     }
+
+    /// The row closing a collapsible agent message, under either label, so
+    /// the list keeps one row and moves it rather than swapping two.
+    static func agentMessageToggleID(_ key: String) -> String { "\(key)/toggle" }
 
     /// One id for the working indicator wherever it sits, so the row that
     /// draws it survives the reply arriving below the prompt and its

@@ -307,8 +307,8 @@ enum ChatOutlineBuilder {
             proseWeight(of: text, block: nil)
         case .agentMessageTitle:
             toolCallWeight
-        case .agentMessagePreview(let markdown):
-            proseWeight(of: markdown, block: nil)
+        case .agentMessageToggle:
+            0
         case .notice(let notice):
             proseWeight(of: notice.title, block: nil)
         case .image:

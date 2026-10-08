@@ -203,7 +203,15 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         commands.jump(to: id)
     }
 
+    /// Holds the reader on the row that changes least: the last row showing
+    /// as the message opens, and the toggle row as it closes, so closing a
+    /// long message from its foot leaves its title in view.
     private func toggleAgentMessage(_ key: String) {
+        if expandedAgentMessages.contains(key) {
+            commands.hold(pieceID: ChatPieceSplitter.agentMessageToggleID(key), overridingFollow: false)
+        } else if let tail = pieces.last(where: { $0.agentMessageKey == key && $0.collapsedTail != nil }) {
+            commands.hold(pieceID: tail.id, overridingFollow: true)
+        }
         expandedAgentMessages.formSymmetricDifference([key])
         rebuildPieces()
     }
