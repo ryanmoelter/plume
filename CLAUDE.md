@@ -25,7 +25,7 @@ The console hides Swift Testing's `Expectation failed: …` text and prints only
 
 ## Releasing locally
 
-Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build registers too in practice, so the flow is testable without a release). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
+Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build can register it too, but only for a human: Debug builds skip the helper unless `defaults write com.ryanmoelter.Plume.debug PlumeRegisterSleepHelperInDebug -bool true` is set, and **agents must never set it** — launchd has one job for every install, so a Debug registration repoints the installed app's helper at DerivedData, and a rebuild breaks it, PLUME-217). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
 Release links Ghostty **statically**, so the only embedded framework is Sparkle's — `otool -L` on the binary shows exactly `@rpath/Sparkle.framework` and nothing else non-system. `install-release.sh` fails the build if that's not true. `PlumeSleepHelper` is the other exception: a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`. `scripts/lib/sign-bundle.sh` signs everything inside out — Sparkle's nested code, then the helper, then the outer bundle — since `codesign` without `--deep` leaves nested code alone.
 

@@ -53,7 +53,13 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
         && NSClassFromString("XCTestCase") == nil
 
+    @ObservationIgnored private let isInert = !SleepHelperRegistrationGate.allowsRegistrationInThisProcess
+
     init() {
+        if isInert {
+            status = .unavailable(SleepHelperRegistrationGate.disabledReason)
+            return
+        }
         readStatus()
         if status == .ready, Self.changesRegistrationOnItsOwn {
             let generation = generation
@@ -75,11 +81,13 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     /// With no hold wanting the helper, nothing else retries it, so an
     /// unresponsive helper is asked again here, on the user's return.
     func refreshStatus() {
+        guard !isInert else { return }
         readStatus()
         if status == .unresponsive, !wantsEngaged { checkResponsive() }
     }
 
     func ensureRegistered() {
+        guard !isInert else { return }
         // A re-register passes through notRegistered and owns the registration until it ends.
         guard status == .notRegistered, !isRecovering else { return }
         do {
@@ -99,7 +107,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func unregister() {
-        guard status != .notRegistered else { return }
+        guard !isInert, status != .notRegistered else { return }
         apply(false)
         stopDeferredCheck()
         resetRecovery()
@@ -115,6 +123,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func reinstall() {
+        guard !isInert else { return }
         versionPolicy.recordManualReinstall()
         stopDeferredCheck()
         resetRecovery()
@@ -132,6 +141,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     }
 
     func apply(_ engaged: Bool) {
+        guard !isInert else { return }
         wantsEngaged = engaged
         if engaged {
             guard service.status == .enabled else {
