@@ -376,7 +376,9 @@ private struct ChatMinimapEntryView: View, ThemedView {
         .buttonStyle(.plain)
         .plumeID(
             AccessibilityID.chatMinimapEntry,
-            label: entry.kind.isUserInput ? entry.kind.text : nil
+            label: entry.kind.isUserInput ? entry.kind.text : nil,
+            // A synthetic click on the collapsed rail does not select an entry.
+            invoke: { onSelect(entry.id) }
         )
         .modifier(MinimapEmphasis(progress: isVisible ? 1 : 0, ceiling: entry.kind.minimapOpacityCeiling))
         .animation(.easeOut(duration: 0.2), value: isVisible)
