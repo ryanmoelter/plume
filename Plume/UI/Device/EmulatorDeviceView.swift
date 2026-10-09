@@ -51,8 +51,8 @@ struct EmulatorDeviceView: View {
                 Button("Change Device…") { session.changeDevice() }
                     .plumeID(AccessibilityID.emulatorChangeDeviceMenuItem)
                 Button("Shut Down Emulator…") { confirmingShutDown = true }
-                    .disabled(!session.isConnected)
                     .plumeID(AccessibilityID.emulatorShutDownMenuItem)
+                    .disabled(!session.isConnected)
             } label: {
                 Image(systemName: "ellipsis")
             }

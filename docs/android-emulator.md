@@ -21,7 +21,7 @@ Each running emulator writes `pid_<pid>.ini` to `~/Library/Caches/TemporaryItems
 
 - The pid is qemu's, not the `emulator` launcher's, so a boot is matched to its file by `avd.id` and modification time.
 - Files outlive their emulator after a crash. A file counts only while its pid is alive and that process's path contains `qemu-system` (pid reuse).
-- `EmulatorDiscovery` watches the directory only while something holds a reference to it — the picker, or a boot in progress.
+- `EmulatorDiscovery` watches the directory only while the picker is on screen. A boot does not hold the watcher; it polls `refresh()` instead.
 
 ## Authentication (measured)
 

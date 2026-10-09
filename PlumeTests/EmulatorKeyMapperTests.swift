@@ -21,8 +21,17 @@ struct EmulatorKeyMapperTests {
 
     @Test func commandChordsAreNotForwarded() {
         #expect(keys(.keyDown, 13, flags: .command).isEmpty)
-        #expect(keys(.keyUp, 13, flags: [.command, .shift]).isEmpty)
         #expect(keys(.keyDown, 0, flags: .command).isEmpty)
+    }
+
+    @Test func keyUpWithCommandHeldStillReleasesTheKey() {
+        #expect(keys(.keyUp, 13, flags: [.command, .shift]) == [.mac(keyCode: 13, phase: .up)])
+        #expect(keys(.keyUp, 0, flags: .command) == [.evdev(keyCode: 30, phase: .up)])
+    }
+
+    @Test func commandKeyCodesAreNeverForwardedOnKeyUp() {
+        #expect(keys(.keyUp, 54, flags: .command).isEmpty)
+        #expect(keys(.keyUp, 55).isEmpty)
     }
 
     @Test func commandKeyItselfIsNeverForwarded() {

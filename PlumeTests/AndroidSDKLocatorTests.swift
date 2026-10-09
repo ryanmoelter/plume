@@ -58,3 +58,19 @@ struct AndroidSDKLocatorTests {
         #expect(AndroidSDKLocator.sdkRoot(fromADB: "/usr/bin/adb", resolveSymlinks: { $0 }) == nil)
     }
 }
+
+struct AndroidSDKLocatorRunnerTests {
+    @Test func capturesOutput() {
+        let output = AndroidSDKLocator.runCapturingOutput(executable: "/bin/sh", arguments: ["-c", "echo hi"], timeout: 5)
+        #expect(output == "hi\n")
+    }
+
+    @Test func timeoutReturnsNilEvenWhenABackgroundedHelperHoldsTheOutput() {
+        let start = Date()
+        let output = AndroidSDKLocator.runCapturingOutput(
+            executable: "/bin/sh", arguments: ["-c", "sleep 30 & echo partial; sleep 30"], timeout: 0.5
+        )
+        #expect(output == nil)
+        #expect(Date().timeIntervalSince(start) < 10)
+    }
+}

@@ -18,6 +18,7 @@ nonisolated enum KeyEventType: Sendable, Equatable {
 
 nonisolated enum EmulatorKeyMapper {
     private static let evdevKeyA: Int32 = 30
+    private static let commandKeyCodes: Set<UInt16> = [54, 55]
     private static let capsLockKeyCode: UInt16 = 57
 
     private static let modifierFlagByKeyCode: [UInt16: NSEvent.ModifierFlags] = [
@@ -35,7 +36,9 @@ nonisolated enum EmulatorKeyMapper {
     ) -> [DeviceKey] {
         switch type {
         case .keyDown, .keyUp:
-            if modifierFlags.contains(.command) { return [] }
+            // Releases always go through, or a key pressed before ⌘ would never be released in the guest.
+            if type == .keyDown, modifierFlags.contains(.command) { return [] }
+            if commandKeyCodes.contains(keyCode) { return [] }
             let phase: DeviceKeyPhase = type == .keyDown ? .down : .up
             // The emulator drops Mac keycode 0 (ANSI A) as a proto3 default value.
             if keyCode == 0 { return [.evdev(keyCode: evdevKeyA, phase: phase)] }

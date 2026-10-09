@@ -88,14 +88,13 @@ nonisolated enum EmulatorScanner {
         return result.sorted { $0.pid < $1.pid }
     }
 
+    static func modificationDate(of emulator: RunningEmulator) -> Date? {
+        try? emulator.fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }
+
     static func scanAll(directories: [URL] = runningDirectories()) -> [RunningEmulator] {
         directories.flatMap { scan(directory: $0) }
     }
-}
-
-struct EmulatorWaitTimeout: LocalizedError {
-    let avdID: String
-    var errorDescription: String? { "\(avdID) did not finish starting in time" }
 }
 
 /// Tracks emulators already running, whoever started them. Idle until retained.
@@ -133,24 +132,6 @@ final class EmulatorDiscovery {
         let directories = directories
         let found = await Task.detached { EmulatorScanner.scanAll(directories: directories) }.value
         if found != running { running = found }
-    }
-
-    /// Matches on avd id and a file newer than the launch, not on pid, since the file names qemu's pid.
-    func waitForEmulator(avdID: String, newerThan launch: Date, timeout: Duration = .seconds(120)) async throws -> RunningEmulator {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            try Task.checkCancellation()
-            await refresh()
-            if let match = running.first(where: { $0.avdID == avdID && Self.modified($0.fileURL) >= launch }) {
-                return match
-            }
-            try await Task.sleep(for: .milliseconds(500))
-        }
-        throw EmulatorWaitTimeout(avdID: avdID)
-    }
-
-    private static func modified(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
     private func scheduleRescan(after delay: Duration) {

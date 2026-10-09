@@ -7,7 +7,7 @@ import GRPCProtobuf
 typealias EmulatorTransport = HTTP2ClientTransport.TransportServices
 typealias EmulatorClient = Android_Emulation_Control_EmulatorController.Client<EmulatorTransport>
 
-/// Frames are about 4 MiB for a 1080x2400 RGBA screen; the default 4 MiB limit would reject them.
+/// A 1080x2400 RGBA frame is about 9.9 MiB, and 1440x3120 is about 17 MiB on the bytes fallback; the default 4 MiB limit would reject both.
 private let maxResponseBytes = 64 * 1024 * 1024
 private let shutDownTimeout: Duration = .seconds(3)
 
@@ -41,6 +41,7 @@ private final class InputQueue: @unchecked Sendable {
 public actor EmulatorConnection {
     private let endpoint: EmulatorEndpoint
     private var grpc: GRPCClient<EmulatorTransport>?
+    private var closed = false
     private var runTask: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?
     private let inputQueue: InputQueue
@@ -137,6 +138,7 @@ public actor EmulatorConnection {
     }
 
     public func close() async {
+        closed = true
         inputContinuation.finish()
         inputTask?.cancel()
         inputTask = nil
@@ -153,6 +155,7 @@ public actor EmulatorConnection {
     }
 
     private func connectedClient() throws -> EmulatorClient {
+        if closed { throw CancellationError() }
         if let grpc {
             return Android_Emulation_Control_EmulatorController.Client(wrapping: grpc)
         }

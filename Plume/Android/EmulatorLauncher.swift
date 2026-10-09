@@ -22,7 +22,22 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
 
     var hasExited: Bool { lock.withLock { exited } }
 
-    fileprivate func markExited() { lock.withLock { exited = true } }
+    /// Reaps the child once. The lock keeps the exit handler and the post-spawn check from both calling `waitpid`.
+    fileprivate func reap(blocking: Bool) -> Bool {
+        lock.withLock {
+            if exited { return true }
+            var status: Int32 = 0
+            while true {
+                let result = waitpid(pid, &status, blocking ? 0 : WNOHANG)
+                if result == pid || (result == -1 && errno == ECHILD) {
+                    exited = true
+                    return true
+                }
+                if result == -1 && errno == EINTR { continue }
+                return false
+            }
+        }
+    }
 
     func logTail(lines: Int = 20) -> String {
         guard let text = try? String(contentsOf: logURL, encoding: .utf8) else { return "" }
@@ -60,7 +75,18 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+        // CLOEXEC_DEFAULT keeps Plume's pipes and PTY masters out of the emulator; the dup2'd 0/1/2 survive.
+        // The signal mask and dispositions are reset because ignored signals survive exec.
+        posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK)
+        )
+        var allSignals = sigset_t()
+        sigfillset(&allSignals)
+        posix_spawnattr_setsigdefault(&attributes, &allSignals)
+        var noSignals = sigset_t()
+        sigemptyset(&noSignals)
+        posix_spawnattr_setsigmask(&attributes, &noSignals)
 
         let argv = [sdk.emulatorURL.path] + arguments(avdID: avdID)
         let environment = ProcessInfo.processInfo.environment
@@ -84,12 +110,12 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         let launch = EmulatorLaunch(pid: pid, logURL: logURL, launchedAt: launchedAt)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .utility))
         source.setEventHandler {
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            launch.markExited()
+            _ = launch.reap(blocking: true)
             source.cancel()
         }
         source.resume()
+        // An exit before `resume()` may never be delivered to the source.
+        if launch.reap(blocking: false) { source.cancel() }
         return launch
     }
 }

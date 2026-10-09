@@ -130,7 +130,7 @@ final class EmulatorSession {
         let deadline = ContinuousClock.now + .seconds(180)
         while ContinuousClock.now < deadline, !Task.isCancelled {
             await discovery.refresh()
-            if let running = discovery.running.first(where: { $0.avdID == avdID && $0.grpcToken != nil }) {
+            if let running = discovery.running.first(where: { isBoot(of: launch, avdID: avdID, $0) }) {
                 connect(to: running)
                 return
             }
@@ -146,8 +146,17 @@ final class EmulatorSession {
         }
     }
 
+    /// A file older than the launch belongs to an instance still shutting down.
+    private func isBoot(of launch: EmulatorLaunch, avdID: String, _ emulator: RunningEmulator) -> Bool {
+        guard emulator.avdID == avdID, emulator.grpcToken != nil else { return false }
+        guard let written = EmulatorScanner.modificationDate(of: emulator) else { return false }
+        return written >= launch.launchedAt.addingTimeInterval(-1)
+    }
+
     /// Forgets the device so the tab shows the picker again.
     func changeDevice() {
+        workTask?.cancel()
+        workTask = nil
         disconnect()
         choose(avdID: nil, displayName: nil)
         state = .needsDevice
@@ -155,12 +164,14 @@ final class EmulatorSession {
 
     func shutDownEmulator() {
         guard let connection else { return }
+        workTask?.cancel()
+        workTask = nil
         stopStreaming()
+        self.connection = nil
         state = .notRunning
-        runWork { [weak self] in
+        Task {
             try? await connection.shutDown()
             await connection.close()
-            if self?.connection === connection { self?.connection = nil }
         }
     }
 
@@ -250,13 +261,9 @@ final class EmulatorSession {
         state = .disconnected(reason)
     }
 
-    private var liveSinks: [EmulatorFrameSink] {
-        sinks = sinks.filter { $0.value.sink != nil }
-        return sinks.values.compactMap(\.sink)
-    }
-
     private func updateStreaming() {
-        let sinks = liveSinks
+        sinks = sinks.filter { $0.value.sink != nil }
+        let sinks = sinks.values.compactMap(\.sink)
         guard isConnected, let connection, !sinks.isEmpty else {
             stopStreaming()
             return
@@ -279,7 +286,7 @@ final class EmulatorSession {
                     guard let self else { return }
                     let rotation = DeviceRotation(frame.rotation)
                     if rotation != self.rotation { self.rotation = rotation }
-                    for sink in liveSinks { sink.present(frame) }
+                    for entry in self.sinks.values { entry.sink?.present(frame) }
                 }
                 guard !Task.isCancelled else { return }
                 self?.lose(connection, reason: "The emulator stopped sending frames.")
