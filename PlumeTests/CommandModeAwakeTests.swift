@@ -39,9 +39,10 @@ struct CommandModeAwakeTests {
         let tab = UUID(), task = UUID()
         let reasons = KeepAwakeCoordinator.deriveReasons(
             activeTabs: [], remoteControlledTabs: [],
-            backgroundTaskTabs: [(task, tab, .backgroundCommand, "agent build")],
+            backgroundTaskTabs: [BackgroundTaskTab(taskID: task, tabID: tab, kind: .backgroundCommand, description: "agent build")],
             commandTabs: [(task, tab, "local test"), (task, tab, "local lint")]
         )
         #expect(reasons.count == 1)
+        #expect(reasons.first?.kind == .backgroundTask(.backgroundCommand, description: "agent build", count: 3))
     }
 }

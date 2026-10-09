@@ -143,10 +143,10 @@ final class StatusEngine {
     /// Every tab with a background task still running, with the task it
     /// belongs to. A tab whose task never registered is dropped, the way
     /// `setSubagentActivity` drops one.
-    var backgroundTaskTabs: [(taskID: UUID, tabID: UUID, kind: BackgroundTaskTracker.Kind, description: String?)] {
-        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind, description in
+    var backgroundTaskTabs: [BackgroundTaskTab] {
+        backgroundTasks.tabsWithBackgroundTasks.compactMap { tabID, kind, description, count in
             guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return nil }
-            return (taskID, tabID, kind, description)
+            return BackgroundTaskTab(taskID: taskID, tabID: tabID, kind: kind, description: description, count: count)
         }
     }
 
@@ -324,4 +324,14 @@ final class StatusEngine {
             nil
         }
     }
+}
+
+/// A tab running background tasks, with the task it belongs to. `kind` and
+/// `description` are its oldest task's; `count` is how many it runs.
+struct BackgroundTaskTab: Equatable {
+    let taskID: UUID
+    let tabID: UUID
+    let kind: BackgroundTaskTracker.Kind
+    let description: String?
+    var count = 1
 }

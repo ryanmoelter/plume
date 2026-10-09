@@ -151,6 +151,7 @@ enum AccessibilityID {
     static let infoPaneFloatingDismiss = "info-pane-floating-dismiss"
     static let infoPaneSubagentsToggle = "info-pane-subagents-toggle"
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
+    static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
@@ -166,6 +167,11 @@ enum AccessibilityID {
     static let rewindFailureToast = "rewind-failure-toast"
     static let messageForkMarker = "message-fork-marker"
     static let chatForkFailureCloseTab = "chat-fork-failure-close-tab"
+    /// The title of a collapsible agent message, labelled with the message's
+    /// key; clicking it collapses or expands the message.
+    static let agentMessageToggle = "agent-message-toggle"
+    static let agentMessageShowMore = "agent-message-show-more"
+    static let agentMessageHide = "agent-message-hide"
 
     // MARK: Minimap
 

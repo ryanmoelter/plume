@@ -23,33 +23,35 @@ final class GitStateStore {
     static let debounce: Duration = .milliseconds(250)
 
     private struct Watch {
-        var state: GitState?
         var watcher: FileWatcher?
         var refCount: Int
     }
 
-    private var watches: [String: Watch] = [:]
-    private var pollTimer: Timer?
+    /// Bookkeeping, deliberately not what rows read: `@Observable` tracks a
+    /// whole dictionary, so a refcount or watcher write here would invalidate
+    /// every row even when its answer is unchanged.
+    @ObservationIgnored private var watches: [String: Watch] = [:]
+    /// What the rows read, written only when the answer actually changes.
+    ///
+    /// Outlives a directory's watch. A sidebar row releases its watch when it
+    /// scrolls out of the lazy list or its task is deselected, and it remounts
+    /// often; dropping the answer there would blank the branch on every switch
+    /// until a `git` call refilled it.
+    private var states: [String: GitState] = [:]
+    @ObservationIgnored private var pollTimer: Timer?
 #if DEBUG
     /// Seeded states, for directories that have no repository on disk — a
     /// real `git` call there fails and would clear the fixture's branch.
-    private var fixtureStates: [String: GitState] = [:]
+    @ObservationIgnored private var fixtureStates: [String: GitState] = [:]
 #endif
-    private var pending: [String: Task<Void, Never>] = [:]
-    private var inFlight: Set<String> = []
-    /// The last answer for a directory nothing watches any more.
-    ///
-    /// A sidebar row releases its watch when it scrolls out of the lazy list
-    /// or its task is deselected, and it remounts often. Without this the
-    /// branch blanks on every switch and refills a `git` call later, which
-    /// reads as the branch being lost rather than reloaded.
-    private var lastKnown: [String: GitState] = [:]
+    @ObservationIgnored private var pending: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var inFlight: Set<String> = []
 
     init() {}
 
     func state(for directory: String?) -> GitState? {
         guard let directory else { return nil }
-        return watches[directory]?.state ?? lastKnown[directory]
+        return states[directory]
     }
 
     /// Begins watching a directory, or takes another reference to one already
@@ -63,13 +65,12 @@ final class GitStateStore {
 
 #if DEBUG
         if let seeded = fixtureStates[directory] {
-            watches[directory] = Watch(state: seeded, watcher: nil, refCount: 1)
+            watches[directory] = Watch(watcher: nil, refCount: 1)
+            publish(seeded, for: directory)
             return
         }
 #endif
-        // Starts from the last answer rather than nil, so a remounted row
-        // renders its branch now and the refresh only corrects it.
-        watches[directory] = Watch(state: lastKnown[directory], watcher: nil, refCount: 1)
+        watches[directory] = Watch(watcher: nil, refCount: 1)
         refresh(directory)
         startWatching(directory)
         startPollingIfNeeded()
@@ -81,7 +82,6 @@ final class GitStateStore {
         if existing.refCount <= 0 {
             existing.watcher?.stop()
             pending.removeValue(forKey: directory)?.cancel()
-            if let state = existing.state { lastKnown[directory] = state }
             watches.removeValue(forKey: directory)
         } else {
             watches[directory] = existing
@@ -153,14 +153,17 @@ final class GitStateStore {
         Task {
             let state = await GitService.shared.state(in: directory)
             inFlight.remove(directory)
-            guard let existing = watches[directory] else { return }
-            // The `.git` watcher fires on every write inside `.git`, and an
-            // agent working in the repo makes many that leave this answer
-            // unchanged. Assigning anyway would publish an observable change
-            // and invalidate every view reading it.
-            guard existing.state != state else { return }
-            watches[directory]?.state = state
+            guard watches[directory] != nil else { return }
+            publish(state, for: directory)
         }
+    }
+
+    /// The `.git` watcher fires on every write inside `.git`, and an agent
+    /// working in the repo makes many that leave the answer unchanged.
+    /// Assigning anyway would invalidate every view reading `states`.
+    private func publish(_ state: GitState?, for directory: String) {
+        guard states[directory] != state else { return }
+        states[directory] = state
     }
 
 #if DEBUG
@@ -169,7 +172,7 @@ final class GitStateStore {
     /// branch stable; `refresh` skips these directories thereafter.
     func seedFixture(directory: String, state: GitState) {
         fixtureStates[directory] = state
-        if watches[directory] != nil { watches[directory]?.state = state }
+        if watches[directory] != nil { publish(state, for: directory) }
     }
 #endif
 
@@ -179,7 +182,7 @@ final class GitStateStore {
     func forget(directory: String) {
         watches.removeValue(forKey: directory)?.watcher?.stop()
         pending.removeValue(forKey: directory)?.cancel()
-        lastKnown.removeValue(forKey: directory)
+        states.removeValue(forKey: directory)
         if watches.isEmpty {
             pollTimer?.invalidate()
             pollTimer = nil
@@ -193,7 +196,7 @@ final class GitStateStore {
         pending.removeAll()
         inFlight.removeAll()
         watches.removeAll()
-        lastKnown.removeAll()
+        states.removeAll()
 #if DEBUG
         fixtureStates.removeAll()
 #endif

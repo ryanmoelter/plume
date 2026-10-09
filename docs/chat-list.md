@@ -46,6 +46,8 @@ Past those, a bounds change whose size still matches the model's `viewportHeight
 
 `realizeWindow(around:)` asks the model for `realizedRange(offset:)`: everything whose slot falls within the viewport plus **overscan** of half a viewport on each side, capped at `maxRealized` (120) hosts by trimming alternately from whichever end is farther from the offset. It realizes anything in that window without a host, but frees only what has left a window three times as wide. The hysteresis matters: a sustained fast scroll otherwise builds and tears down every host at the window's edge once per frame, which was the difference between 63% and 39% main-thread CPU under the synthetic wheel harness.
 
+A pass realizes around the offset it started at, then again around the offset it resolved if the two windows differ. The second call matters when the document shrinks enough to move the offset, such as a long agent message collapsing: without it the rows at the new offset stayed blank, because the `needsLayout` request made from inside the pass did not bring another one.
+
 Both numbers come from measuring the real cost. Creating and measuring one host for a real piece is about 1.3 ms, and laying out 150 of them costs about 50 ms more on top of that. Half a viewport of overscan each side is enough headroom that a normal scroll never outruns realization; the 120-host cap exists so a pathological case, a huge viewport, or many tiny pieces, can't make a single pass do unbounded work.
 
 ## Measurement
@@ -70,6 +72,15 @@ Hosts are pooled. `dequeueHost()` pops a spare `NSHostingView` before creating o
 ## The environment a fresh root needs
 
 A fresh `NSHostingView` root starts with none of the ambient SwiftUI environment a view mounted inside `ChatMessageList` would normally inherit. `ChatListItemRoot` (bottom of `ChatListController.swift`) puts back everything a row reads: `plumeTheme(bodySize:)`, `\.chatFontSize`, `\.chatRevealModel`, and `\.workStartedAt`. **Any new environment key a chat row starts reading has to be added here too**, or the row silently renders with SwiftUI's default for that key instead of failing loudly.
+
+## Collapsing an agent message
+
+A long message from another agent collapses to its first few pieces, about ten lines, with the last one faded (and clipped, when one block alone runs past the budget) and a "Show more" row below. Expanded, it shows every piece and the same row reads "Hide message". `ChatPieceSplitter` builds both states from the same pieces with the same ids, and the row keeps one id (`<message>/<block>/toggle`) in both, so a toggle only adds or removes rows between the faded piece and the row:
+
+- **Expanding** inserts pieces, which grow in through the ordinary arrival path.
+- **Collapsing** removes them. Realized ones leave as departures, the same fade-and-collapse a working indicator gets, keyed after the nearest piece that stays and kept in their original order. An unrealized one simply goes.
+- **The reader is held on the row that changes least.** `ChatListCommands.hold(pieceID:overridingFollow:)` sets the reader anchor on a visible piece: the faded piece when expanding, so the new text opens below it even for a reader following the bottom, and the toggle row when collapsing, so closing a long message from its foot slides its title down into view instead of leaving the reader below it. A collapse leaves a reader who is following the bottom following it.
+- **An anchor on a removed piece moves up** to the nearest piece that stays, at the same place on screen (`keepReaderAnchor`). Otherwise it would resolve against an id the model no longer has, and the list would jump to the top.
 
 ## Send-to-top and slack
 

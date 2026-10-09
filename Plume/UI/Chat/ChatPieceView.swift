@@ -23,6 +23,9 @@ struct ChatPieceView: View, ThemedView {
     /// open, as inside a subagent's own transcript, or where there is no
     /// plan to show.
     var onOpenPlan: (() -> Void)? = nil
+    /// Collapses or expands the agent message keyed by the argument. Nil
+    /// leaves every agent message as the splitter laid it out.
+    var onToggleAgentMessage: ((String) -> Void)? = nil
 
     @State private var isHovered = false
     @Environment(\.chatRevealModel) private var revealModel
@@ -36,6 +39,7 @@ struct ChatPieceView: View, ThemedView {
             content
                 .environment(\.chatReveal, piece.revealLength > 0 ? reveal : nil)
                 .revealGate(piece.revealLength == 0 ? reveal : nil)
+                .collapsedTail(piece.collapsedTail)
             footer
         }
             .environment(\.chatHugsContent, piece.wash.isBubble)
@@ -151,8 +155,26 @@ struct ChatPieceView: View, ThemedView {
             } else {
                 InjectedContentRow(kind: kind, text: text)
             }
-        case let .agentMessageTitle(name):
-            AgentMessageTitle(name: name)
+        case let .agentMessageTitle(name, isSubagent, isExpanded):
+            let title = AgentMessageTitle(name: name, isSubagent: isSubagent, isExpanded: isExpanded)
+            if let toggle = agentMessageToggle, let key = piece.agentMessageKey {
+                Button(action: toggle) {
+                    title
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .plumeID(
+                    AccessibilityID.agentMessageToggle,
+                    label: key,
+                    value: isExpanded ? "expanded" : "collapsed",
+                    invoke: toggle
+                )
+            } else {
+                title
+            }
+        case let .agentMessageToggle(isExpanded):
+            AgentMessageToggleRow(isExpanded: isExpanded, key: piece.agentMessageKey ?? piece.id, toggle: agentMessageToggle)
         case let .notice(notice):
             ChatNoticeRow(notice: notice)
         case let .image(image):
@@ -162,6 +184,13 @@ struct ChatPieceView: View, ThemedView {
         case .waitingOnSubagents:
             ChatWorkingIndicator(isWaitingOnSubagents: true)
         }
+    }
+
+    /// Collapses or expands the agent message this piece belongs to. Nil
+    /// for a piece of any other message, or where nothing can toggle it.
+    private var agentMessageToggle: (() -> Void)? {
+        guard let key = piece.agentMessageKey, let onToggleAgentMessage else { return nil }
+        return { onToggleAgentMessage(key) }
     }
 
     /// Where this piece sits along its message's reveal. Nil for the

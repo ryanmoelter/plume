@@ -57,6 +57,9 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// list draws: a piece takes room only once its text starts appearing.
     @State private var shownPieces: [ChatPiece] = []
     @State private var cache = ChatPieceCache()
+    /// The agent messages the reader has opened past their preview. View
+    /// state only: every message starts collapsed again in a new view.
+    @State private var expandedAgentMessages: Set<String> = []
 
     /// The ids the last rebuild produced, so the next one can name what
     /// arrived. See `ChatListMotion`.
@@ -164,6 +167,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             onOpenSubagent: onOpenSubagent,
             onOpenPlan: onOpenPlan,
             onOpenSideChat: onOpenSideChat,
+            onToggleAgentMessage: toggleAgentMessage,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }
         )
@@ -199,6 +203,19 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         commands.jump(to: id)
     }
 
+    /// Holds the reader on the row that changes least: the last row showing
+    /// as the message opens, and the toggle row as it closes, so closing a
+    /// long message from its foot leaves its title in view.
+    private func toggleAgentMessage(_ key: String) {
+        if expandedAgentMessages.contains(key) {
+            commands.hold(pieceID: ChatPieceSplitter.agentMessageToggleID(key), overridingFollow: false)
+        } else if let tail = pieces.last(where: { $0.agentMessageKey == key && $0.collapsedTail != nil }) {
+            commands.hold(pieceID: tail.id, overridingFollow: true)
+        }
+        expandedAgentMessages.formSymmetricDifference([key])
+        rebuildPieces()
+    }
+
     private func scheduleStreamRebuild() {
         guard pendingStreamRebuild == nil else { return }
         pendingStreamRebuild = Task { @MainActor in
@@ -212,7 +229,13 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     private func rebuildPieces() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
         let split = { (status: TaskStatus) in
-            cache.pieces(for: merged, status: status, hiddenToolUseIDs: pendingToolUseIDs, dimensions: dimensions)
+            cache.pieces(
+                for: merged,
+                status: status,
+                hiddenToolUseIDs: pendingToolUseIDs,
+                expandedAgentMessages: expandedAgentMessages,
+                dimensions: dimensions
+            )
         }
         var rebuilt = split(status)
         // Before the pieces reach the list, so a new message's rows mount

@@ -16,6 +16,7 @@ struct ChatListView: NSViewRepresentable {
     var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenPlan: (() -> Void)?
     var onOpenSideChat: () -> Void = {}
+    var onToggleAgentMessage: (String) -> Void = { _ in }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
 
@@ -44,6 +45,7 @@ struct ChatListView: NSViewRepresentable {
         controller.onOpenSubagent = onOpenSubagent
         controller.onOpenPlan = onOpenPlan
         controller.onOpenSideChat = onOpenSideChat
+        controller.onToggleAgentMessage = onToggleAgentMessage
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
         controller.revealModel = revealModel

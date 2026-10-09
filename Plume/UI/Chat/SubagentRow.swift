@@ -64,7 +64,6 @@ struct SubagentRow: View, ThemedView {
                     .frame(width: columns.badgeWidth, alignment: .center)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(typography.body.font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     // Rendered even while empty, so a row keeps its height as
@@ -78,7 +77,8 @@ struct SubagentRow: View, ThemedView {
                 // Rendered even while empty, for the same reason the caption
                 // is: a row that gains its start time shouldn't reflow.
                 Text(caption.elapsedText ?? "")
-                    .font(typography.caption.mono)
+                    .font(typography.caption.font)
+                    .monospacedDigit()
                     .emphasis(.subtle)
                 Image(systemName: "chevron.right")
                     .font(typography.caption.font)

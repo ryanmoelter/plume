@@ -12,6 +12,8 @@ struct StatusBadge: View {
             if status.isActive, let workStartedAt {
                 HStack(spacing: 4) {
                     ElapsedLabel(since: workStartedAt)
+                        .font(.caption)
+                        .emphasis(.secondary)
                     symbol
                 }
             } else {
@@ -82,9 +84,7 @@ struct ElapsedLabel: View {
     var body: some View {
         TimelineView(ElapsedSchedule(since: since)) { context in
             Text(ElapsedTime.formatted(context.date.timeIntervalSince(since)))
-                .font(.caption)
                 .monospacedDigit()
-                .foregroundStyle(Emphasis.secondary.textHierarchy)
         }
     }
 }

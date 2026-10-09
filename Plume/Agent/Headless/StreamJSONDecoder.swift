@@ -24,6 +24,9 @@ enum StreamJSONDecoder {
             case "control_request_progress":
                 guard let id = root["request_id"]?.stringValue else { return .unknown(type: "system") }
                 return .controlRequestProgress(requestID: id)
+            case "background_tasks_changed":
+                guard let tasks = root["tasks"]?.arrayValue else { return .unknown(type: "system") }
+                return .backgroundTasksChanged(tasks.compactMap { liveBackgroundTask(from: $0) })
             default: return .unknown(type: "system")
             }
         case "stream_event":
@@ -80,6 +83,19 @@ enum StreamJSONDecoder {
             permissionMode: root["permissionMode"]?.stringValue,
             tools: (root["tools"]?.arrayValue ?? []).compactMap(\.stringValue),
             slashCommands: (root["slash_commands"]?.arrayValue ?? []).compactMap(\.stringValue)
+        )
+    }
+
+    private static func liveBackgroundTask(from value: JSONValue) -> LiveBackgroundTask? {
+        guard let object = value.objectValue,
+              let id = object["task_id"]?.stringValue, !id.isEmpty
+        else { return nil }
+        let description = object["description"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return LiveBackgroundTask(
+            id: id,
+            taskType: object["task_type"]?.stringValue ?? "",
+            description: description?.isEmpty == false ? description : nil
         )
     }
 

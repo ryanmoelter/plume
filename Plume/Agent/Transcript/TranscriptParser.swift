@@ -411,7 +411,41 @@ nonisolated enum TranscriptParser {
             logicalParentByUUID: logicalParentByUUID,
             tipUUID: tipUUID
         )
+        nameSubagentMessages(in: &transcript.messages)
         return transcript
+    }
+
+    /// Names each subagent's message by the call that spawned it, which is
+    /// the only place the transcript describes the agent its id stands for.
+    static func nameSubagentMessages(in messages: inout [ChatMessage]) {
+        let hasUnnamed = messages.contains { message in
+            message.blocks.contains { block in
+                if case .injected(.agentMessage(nil, _?), _) = block { return true }
+                return false
+            }
+        }
+        guard hasUnnamed else { return }
+
+        var labelByAgentID: [String: String] = [:]
+        for message in messages {
+            for case .toolCall(let call) in message.blocks where call.name == "Agent" || call.name == "Task" {
+                guard let result = call.result,
+                      let agentID = SubagentSpawnScanner.agentID(in: result),
+                      let label = call.summary.detail
+                else { continue }
+                labelByAgentID[agentID] = label
+            }
+        }
+        guard !labelByAgentID.isEmpty else { return }
+
+        for messageIndex in messages.indices {
+            for blockIndex in messages[messageIndex].blocks.indices {
+                guard case .injected(.agentMessage(nil, let id?), let text) = messages[messageIndex].blocks[blockIndex],
+                      let label = labelByAgentID[id]
+                else { continue }
+                messages[messageIndex].blocks[blockIndex] = .injected(.agentMessage(name: label, subagentID: id), text: text)
+            }
+        }
     }
 
     /// The uuids on the path from the root down to `tip` — the branch

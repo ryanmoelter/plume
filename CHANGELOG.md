@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.0 (33)
+
+- Support `/btw` to have a side chat without interrupting the agent
+- Add an info pane beside the chat
+  - Shows the task's subagents, background tasks, and a link to the PR
+  - Collapses in narrow windows
+  - Replaces the subagent statuses below the latest chat message
+- Track background tasks more accurately
+- Show messages from subagents and other agents as agent messages
+- Misc fixes
+  - Widen tab titles, and truncate them at the end like the sidebar
+  - Use a clearer "merged" PR icon
+  - Bold the sidebar's PR status icons for legibility
+  - Remove extra space around skill and system note rows in the chat
+  - Reduce sidebar redraws when a branch's git state updates
+
+### Recently
+
+- Run Codex agents (beta)
+- Auto-update Plume via Homebrew or the DMG file
+- Press Esc to interrupt the agent
+- Run shell commands with a leading `!`
+- Create and delete worktrees for tasks, and drag + drop tabs and tasks
+
 ## 0.13.4 (32)
 
 - Fix chat issues

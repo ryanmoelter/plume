@@ -68,7 +68,7 @@ nonisolated enum PullRequestChipContent {
         )
         switch pullRequest.state {
         case .merged:
-            return [number, PullRequestGlyph(symbol: "arrow.triangle.merge", tint: .merged, label: "merged")]
+            return [number, PullRequestGlyph(symbol: "arrow.trianglehead.pull", tint: .merged, label: "merged")]
         case .closed:
             return [number, PullRequestGlyph(symbol: "nosign", tint: .danger, label: "closed")]
         case .open:
@@ -135,6 +135,8 @@ struct PullRequestChip: View {
     /// The point size of `font`, for centering the number on its digits.
     var fontSize: CGFloat = NSFont.preferredFont(forTextStyle: .caption1).pointSize
     var imageScale: Image.Scale = .small
+    /// Symbols carry little ink at the sidebar's size, so it asks for bold.
+    var symbolWeight: Font.Weight = .regular
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -154,6 +156,7 @@ struct PullRequestChip: View {
                     Group {
                         if let symbol = glyph.symbol {
                             Image(systemName: symbol)
+                                .fontWeight(symbolWeight)
                         } else if let text = glyph.text {
                             // The number is digits and a pound sign, with
                             // nothing below the baseline, so it centers on its

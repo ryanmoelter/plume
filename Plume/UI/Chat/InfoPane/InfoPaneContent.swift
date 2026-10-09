@@ -124,22 +124,67 @@ struct InfoPaneContent: View, ThemedView {
     // MARK: Background tasks
 
     private var backgroundTasks: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(facts.backgroundTasks) { entry in
+        let isGrouped = facts.backgroundTasks.count > 1
+        return Group {
+            if !isGrouped, let entry = facts.backgroundTasks.first {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: "clock.arrow.circlepath") }
+                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
                         .emphasis(.secondary)
-                    Text(entry.description ?? entry.kind.label)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    ElapsedLabel(since: entry.startedAt)
-                        .emphasis(.subtle)
+                    backgroundTaskRow(entry)
                 }
-                .help(entry.kind.label)
-                .plumeID(AccessibilityID.infoPaneBackgroundTask, label: entry.description ?? entry.kind.label)
+            } else {
+                backgroundTaskSection
             }
         }
+        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
+        // Folding a lone task's row under a collapsed header would read as
+        // the task vanishing, so a section that just formed opens.
+        .onChange(of: isGrouped) { _, isGrouped in
+            if isGrouped { settings.infoPaneBackgroundTasksExpanded = true }
+        }
+    }
+
+    private var backgroundTaskSection: some View {
+        let isExpanded = settings.infoPaneBackgroundTasksExpanded
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneBackgroundTasksExpanded.toggle() }
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
+                    Text("Background Tasks")
+                    Text("\(facts.backgroundTasks.count)")
+                    DisclosureChevron(isExpanded: isExpanded)
+                    Spacer(minLength: 0)
+                }
+                .emphasis(.secondary)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.infoPaneBackgroundTasksToggle, value: isExpanded ? "expanded" : "collapsed")
+
+            if isExpanded {
+                ForEach(facts.backgroundTasks) { entry in
+                    HStack(spacing: InfoPaneLayout.columnSpacing) {
+                        InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name).hidden() }
+                        backgroundTaskRow(entry)
+                    }
+                }
+            }
+        }
+    }
+
+    private func backgroundTaskRow(_ entry: BackgroundTaskTracker.Entry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: InfoPaneLayout.columnSpacing) {
+            Text(entry.description ?? entry.kind.label)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            ElapsedLabel(since: entry.startedAt)
+                .emphasis(.subtle)
+        }
+        .help(entry.kind.label)
+        .plumeID(AccessibilityID.infoPaneBackgroundTask, label: entry.description ?? entry.kind.label)
     }
 
     // MARK: Plan
@@ -148,6 +193,7 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenPlan) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: StatusSymbol.plan.name) }
+                    .emphasis(.secondary)
                 Text(facts.planTitle ?? "Plan")
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -246,7 +292,6 @@ struct InfoPaneContent: View, ThemedView {
                             imageScale: .medium
                         )
                         Image(systemName: "arrow.up.forward.square")
-                            .emphasis(.secondary)
                             .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
                             .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
                     }
@@ -354,7 +399,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             }
         case .backgroundTasks:
             HStack(spacing: 2) {
-                Image(systemName: "clock.arrow.circlepath")
+                Image(systemName: StatusSymbol.backgroundTasks.name)
                 Text("\(facts.backgroundTasks.count)")
             }
             .emphasis(.secondary)

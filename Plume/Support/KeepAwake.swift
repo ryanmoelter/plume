@@ -40,10 +40,10 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         case remoteControl
         /// Something the agent started that outlives its turn — a monitor, a
         /// backgrounded command, a workflow. One per tab however many are
-        /// running, since the panel lists reasons rather than counting tasks.
-        /// The description is what the call said the task was for, absent
-        /// when it named nothing.
-        case backgroundTask(BackgroundTaskTracker.Kind, description: String?)
+        /// running, since the panel lists reasons; `count` is how many, for
+        /// the totals that count tasks. The description is what the oldest
+        /// call said its task was for, absent when it named nothing.
+        case backgroundTask(BackgroundTaskTracker.Kind, description: String?, count: Int = 1)
     }
 
     let taskID: UUID
@@ -57,6 +57,19 @@ struct KeepAwakeReason: Identifiable, Equatable, Sendable {
         case .backgroundTask: "background-task"
         }
         return "\(tabID.uuidString)-\(discriminator)"
+    }
+
+    /// One tab's agent tasks and its command-mode runs share a reason, so
+    /// their counts add up.
+    func merging(_ other: KeepAwakeReason) -> KeepAwakeReason {
+        guard case .backgroundTask(let kind, let description, let count) = kind,
+              case .backgroundTask(_, _, let otherCount) = other.kind
+        else { return self }
+        return KeepAwakeReason(
+            taskID: taskID,
+            tabID: tabID,
+            kind: .backgroundTask(kind, description: description, count: count + otherCount)
+        )
     }
 }
 

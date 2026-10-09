@@ -14,8 +14,9 @@ struct ChatPiece: Identifiable, Equatable {
     /// kind: `<message>/<block>` for a whole block, one component deeper for a
     /// markdown block within it, one deeper again for a segment of a split
     /// one. Every component is an `Int`, so no shorter path can collide with a
-    /// longer one. A duplicate here is a hang rather than a visible glitch, so
-    /// `ChatPieceSplitterTests` asserts it.
+    /// longer one — except a collapsible agent message's `<message>/<block>/toggle`,
+    /// whose last component no index can equal. A duplicate here is a hang
+    /// rather than a visible glitch, so `ChatPieceSplitterTests` asserts it.
     var id: String
     var messageID: String
     var role: ChatMessage.Role
@@ -42,6 +43,17 @@ struct ChatPiece: Identifiable, Equatable {
     /// Set on the same piece as `messageCopySource`, and nil where the
     /// transcript recorded no time.
     var timestamp: Date?
+    /// Set on every piece of another agent's message: the key its collapsed
+    /// or expanded state is kept under, shared by all of the message's pieces.
+    var agentMessageKey: String?
+    /// Set on the last piece a collapsed agent message shows.
+    var collapsedTail: CollapsedTail?
+
+    /// The last piece of a collapsed agent message: faded out toward the
+    /// "Show more" row, and clipped where it alone runs past the budget.
+    struct CollapsedTail: Equatable {
+        var lineLimit: Int?
+    }
 
     enum Content: Equatable {
         case markdown(MarkdownBlock, index: Int)
@@ -51,7 +63,11 @@ struct ChatPiece: Identifiable, Equatable {
         case toolCall(ToolCall, isPending: Bool)
         case injected(InjectedContent, text: String)
         /// Names the agent whose message the pieces below it are.
-        case agentMessageTitle(name: String?)
+        /// `isExpanded` is set only on a message that can collapse and
+        /// currently doesn't.
+        case agentMessageTitle(name: String?, isSubagent: Bool = false, isExpanded: Bool = false)
+        /// "Show more" or "Hide message", closing a collapsible agent message.
+        case agentMessageToggle(isExpanded: Bool)
         case notice(ChatNotice)
         case image(ChatImage)
         case working
@@ -91,9 +107,9 @@ struct ChatPiece: Identifiable, Equatable {
         var isLast: Bool { self == .single || self == .last }
     }
 
-    /// The agent's voice earns the serif; the user's own words and a tool's
-    /// output stay in the system face.
-    var isAgentVoice: Bool { role == .assistant }
+    /// An agent's voice earns the serif — this session's or another agent's;
+    /// the user's own words and a tool's output stay in the system face.
+    var isAgentVoice: Bool { role == .assistant || wash == .agentBubble }
 
     /// A short name for the kind of content, for the stats probe's log.
     var kindName: String {
@@ -105,6 +121,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .toolCall: "toolCall"
         case .injected: "injected"
         case .agentMessageTitle: "agentMessageTitle"
+        case .agentMessageToggle: "agentMessageToggle"
         case .notice: "notice"
         case .image: "image"
         case .working: "working"

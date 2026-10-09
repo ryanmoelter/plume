@@ -34,6 +34,7 @@ final class AppSettings {
         static let infoPanePresentationRaw = "infoPanePresentationRaw"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
+        static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
@@ -154,6 +155,9 @@ final class AppSettings {
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
+        self.infoPaneBackgroundTasksExpanded = defaults.object(forKey: Key.infoPaneBackgroundTasksExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneBackgroundTasksExpanded)
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
@@ -434,6 +438,14 @@ final class AppSettings {
     var infoPaneSubagentsExpanded: Bool {
         didSet {
             defaults.set(infoPaneSubagentsExpanded, forKey: Key.infoPaneSubagentsExpanded)
+        }
+    }
+
+    /// Whether the info pane lists its background tasks when there is more
+    /// than one; a single task always shows as its own row.
+    var infoPaneBackgroundTasksExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneBackgroundTasksExpanded, forKey: Key.infoPaneBackgroundTasksExpanded)
         }
     }
 

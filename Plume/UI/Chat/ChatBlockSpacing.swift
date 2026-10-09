@@ -14,9 +14,15 @@ enum ChatBlockSpacing {
         case other
     }
 
+    /// A skill body or system note the harness slips in mid-turn draws as the
+    /// same one-line disclosure as a call, so it joins the run rather than
+    /// opening a message-sized gap in the middle of it.
     static func kind(of block: ChatBlock) -> Kind {
-        if case .toolCall = block { return .toolCall }
-        return .other
+        switch block {
+        case .toolCall: return .toolCall
+        case .injected(.skill, _), .injected(.systemNote, _): return .toolCall
+        default: return .other
+        }
     }
 
     /// Gap above each message in the list, in order.

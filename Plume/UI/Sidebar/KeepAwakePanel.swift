@@ -233,7 +233,7 @@ private struct KeepAwakeReasonRow: View {
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(ChatRole.attention(for: colorScheme))
         case .backgroundTask:
-            Image(systemName: "clock.arrow.circlepath")
+            Image(systemName: StatusSymbol.backgroundTasks.name)
                 .foregroundStyle(ChatRole.attention(for: colorScheme))
         }
     }
@@ -247,7 +247,7 @@ private struct KeepAwakeReasonRow: View {
         case .working(.needsTerminalInput): "Waiting"
         case .working: "Active"
         case .remoteControl: "Remote"
-        case .backgroundTask(let kind, let description): description ?? kind.label
+        case .backgroundTask(let kind, let description, _): description ?? kind.label
         }
     }
 }

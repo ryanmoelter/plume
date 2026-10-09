@@ -21,14 +21,15 @@ enum ChatPieceEstimate {
             lines(in: segment.code) * 17 + 56
         case let .listSegment(segment):
             CGFloat(segment.items.count) * 24
-        case .thinking, .toolCall, .injected, .working, .waitingOnSubagents, .agentMessageTitle:
+        case .thinking, .toolCall, .injected, .working, .waitingOnSubagents, .agentMessageTitle, .agentMessageToggle:
             27
         case .notice:
             30
         case .image:
             200
         }
-        return max(1, base) + (piece.wash == .none ? 0 : 20)
+        let clipped = piece.collapsedTail?.lineLimit.map { min(base, CGFloat($0) * 22) } ?? base
+        return max(1, clipped) + (piece.wash == .none ? 0 : 20)
     }
 
     private static func prose(_ text: String, width: CGFloat) -> CGFloat {
