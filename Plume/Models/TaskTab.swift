@@ -62,6 +62,11 @@ final class TaskTab {
     /// would otherwise override the model the conversation restores.
     var isModelUserChosen: Bool = false
 
+    var devicePlatformRaw: String? = nil
+
+    /// The AVD name of the emulator a device tab mirrors.
+    var deviceIdentifier: String? = nil
+
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
 
@@ -77,6 +82,11 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
+    }
+
+    var devicePlatform: DevicePlatform? {
+        get { devicePlatformRaw.flatMap(DevicePlatform.init(rawValue:)) }
+        set { devicePlatformRaw = newValue?.rawValue }
     }
 
     var titleSource: TitleSource? {
@@ -142,7 +152,11 @@ final class TaskTab {
 
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
-        return kind == .agent ? "Agent" : "Terminal"
+        switch kind {
+        case .agent: return "Agent"
+        case .terminal: return "Terminal"
+        case .device: return "Emulator"
+        }
     }
 }
 

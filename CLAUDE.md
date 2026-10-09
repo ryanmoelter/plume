@@ -44,10 +44,13 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
+  Android/    SDK and AVD discovery, running-emulator discovery, EmulatorLauncher, EmulatorSession(Manager), input mappers
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
-  UI/         Sidebar/, Task/, Settings/
+  UI/         Sidebar/, Task/, Settings/, Device/
+Packages/
+  EmulatorControl/  The emulator's gRPC client: generated code plus a small public facade
 ```
 
 ## Terminals
@@ -118,6 +121,14 @@ for l in $(pgrep -P $PID); do pgrep -P $l; done   # shell pids, stable across sw
 Stable PIDs across many switches is the real proof that hide/show doesn't kill processes. Compare the PID *sets* and ttys, not the counts: a teardown and respawn keeps the count identical. Take the PID from `$!` or from `pgrep -f` on the bundle path, never `pgrep -x Plume`, which has come back empty with Plume running. `SmokeHarness` (DEBUG only) drives this from env vars.
 
 Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matches the Claude desktop app's helper processes and will convince you an agent launched when none did.
+
+## Android emulator tabs
+
+A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service. **`docs/android-emulator.md` is the reference** — discovery, auth, launch flags, the frame pipeline and the measured input quirks. Read it before touching `Plume/Android/`, `Plume/UI/Device/` or `Packages/EmulatorControl/`.
+
+- **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
+- `EmulatorSessionManager.shared` owns one `EmulatorSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that.
+- **Frames never pass through `@Observable` state.** `EmulatorSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing.
 
 ## Ghostty
 

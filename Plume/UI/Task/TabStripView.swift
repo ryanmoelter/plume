@@ -56,6 +56,12 @@ struct TabStripView: View {
                     TaskStore.addTab(to: task, kind: .agent, pane: pane, in: context)
                 }
                 Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, pane: pane, in: context) }
+                Button {
+                    TaskStore.addTab(to: task, kind: .device, pane: pane, in: context)
+                } label: {
+                    Label("Android Emulator Tab", systemImage: "smartphone")
+                }
+                .plumeID(AccessibilityID.newAndroidEmulatorTabMenuItem)
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -139,6 +145,7 @@ private struct TabChip: View {
     @State private var isHovering = false
     @State private var isConfirmingStartFresh = false
     @State private var isConfirmingTransportSwitch = false
+    @State private var isConfirmingEmulatorShutDown = false
 
     /// The live title wins over the snapshot on the tab, which is only there
     /// to label the chip before anything reconnects.
@@ -160,7 +167,8 @@ private struct TabChip: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            if tab.kind == .agent {
+            switch tab.kind {
+            case .agent:
                 if hasConversation {
                     AgentProviderIcon(provider: tab.provider, size: 12)
                 } else {
@@ -168,8 +176,12 @@ private struct TabChip: View {
                         .font(.caption)
                         .accessibilityHidden(true)
                 }
-            } else {
+            case .terminal:
                 Image(systemName: "terminal")
+                    .font(.caption)
+                    .accessibilityHidden(true)
+            case .device:
+                Image(systemName: "smartphone")
                     .font(.caption)
                     .accessibilityHidden(true)
             }
@@ -215,6 +227,12 @@ private struct TabChip: View {
             invoke: select
         )
         .contextMenu {
+            if tab.kind == .device {
+                Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
+                    .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
+                    .disabled(!EmulatorSessionManager.shared.canShutDownEmulator(for: tab.id))
+                Divider()
+            }
             if paneCount > 1 {
                 Button("Move to Other Pane") {
                     TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task)
@@ -238,6 +256,17 @@ private struct TabChip: View {
                 .disabled(task.tabs.count < 2)
             Divider()
             ReadStateButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
+        }
+        .confirmationDialog(
+            "Shut down the emulator?",
+            isPresented: $isConfirmingEmulatorShutDown
+        ) {
+            Button("Shut Down", role: .destructive) {
+                EmulatorSessionManager.shared.shutDownEmulator(for: tab.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This powers off the emulator and ends anything running on it. Closing the tab alone leaves it running.")
         }
         .confirmationDialog(
             "Start a fresh conversation?",
