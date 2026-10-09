@@ -136,7 +136,9 @@ Sparkle checks for updates in the background, and **an available update never in
 
 ## Commits
 
-One line, no body. Imperative mood, capitalized, no trailing period, 50 characters at most — `Add image paste to the composer`, `Fix stale title after fork`. Name the behavior, not the files, and write identifiers in their source casing. No `feat:`-style prefixes, no gitmoji, no bracketed tags. Join two related changes with a comma; if they don't fit, lead with the main one. A body, when there is one, is only the issue identifier (`PLUME-123`).
+A one-line subject, no prose body. Imperative mood, capitalized, no trailing period, 50 characters at most — `Add image paste to the composer`, `Fix stale title after fork`. Name the behavior, not the files, and write identifiers in their source casing. No `feat:`-style prefixes, no gitmoji, no bracketed tags. Join two related changes with a comma; if they don't fit, lead with the main one. A body, when there is one, is only the issue identifier (`PLUME-123`).
+
+Every commit an agent creates ends with a `Co-Authored-By:` trailer naming the model. This includes subagent commits, merges and version bumps. Older history lacks the trailer, so don't copy that, and never strip the trailer to fit the one-line style.
 
 ## Debugging
 
