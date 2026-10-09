@@ -221,13 +221,16 @@ struct TaskRowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let companion {
-                    PullRequestChip(state: companion, emphasis: .secondary)
+                    PullRequestChip(state: companion, emphasis: .secondary, symbolWeight: .bold)
                 }
             }
         case .pullRequest(let directory, let state):
-            PullRequestChip(state: state, forge: PullRequestStore.shared.forge(for: directory)) {
-                PullRequestStore.shared.checkRollup(for: directory, of: $0)
-            }
+            PullRequestChip(
+                state: state,
+                forge: PullRequestStore.shared.forge(for: directory),
+                checkRollup: { PullRequestStore.shared.checkRollup(for: directory, of: $0) },
+                symbolWeight: .bold
+            )
         }
     }
 
