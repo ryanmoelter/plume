@@ -5,6 +5,9 @@ struct StatusBadge: View {
     /// When the current stretch of work began. An active badge counts up from
     /// it; every other status ignores it.
     var workStartedAt: Date?
+    /// Replaces the status glyph with a dot. The elapsed time stays, since a
+    /// task can be reading unread in one tab while still working in another.
+    var isUnread = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -14,13 +17,27 @@ struct StatusBadge: View {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
                         .emphasis(.secondary)
-                    symbol
+                    glyph
                 }
             } else {
-                symbol
+                glyph
             }
         }
         .animation(.default, value: status)
+        .animation(.default, value: isUnread)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        if isUnread {
+            Circle()
+                .fill(.tint)
+                .frame(width: 8, height: 8)
+                .help("Finished a turn you haven't read")
+                .transition(.opacity)
+        } else {
+            symbol
+        }
     }
 
     // Each case is its own branch, so a status change replaces the view

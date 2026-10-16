@@ -92,7 +92,11 @@ struct TaskRowView: View {
                     }
                 }
                 Spacer(minLength: 4)
-                StatusBadge(status: status, workStartedAt: StatusEngine.shared.workStarted(forTask: task.id))
+                StatusBadge(
+                    status: status,
+                    workStartedAt: StatusEngine.shared.workStarted(forTask: task.id),
+                    isUnread: isUnread
+                )
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
@@ -234,8 +238,16 @@ struct TaskRowView: View {
         }
     }
 
+    private var isUnread: Bool {
+        UnreadStore.showsUnread(
+            taskStatus: status,
+            hasUnreadTab: UnreadStore.shared.hasUnread(among: task.tabs.map(\.id))
+        )
+    }
+
     private var accessibilityLabel: String {
         ([TitleStore.shared.displayTitle(for: task)]
+            + (isUnread ? ["unread"] : [])
             + detailLines.compactMap(TaskRowDetails.accessibilityText)
             + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
     }
