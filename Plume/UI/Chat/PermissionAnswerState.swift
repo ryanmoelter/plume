@@ -8,9 +8,9 @@ import Foundation
 struct PermissionAnswerState: Equatable {
     /// Question text -> chosen option labels, in the order they were picked.
     private(set) var selections: [String: [String]] = [:]
-    /// Question text -> typed free-text answer. A question is answered by
-    /// either this or `selections`, never both — setting one clears the
-    /// other, so there's exactly one source of truth per question.
+    /// Question text -> typed free-text answer. On a single-select question it
+    /// excludes `selections`; on a multi-select one it counts as one more
+    /// selection alongside them.
     private(set) var freeText: [String: String] = [:]
 
     init() {}
@@ -27,11 +27,11 @@ struct PermissionAnswerState: Equatable {
         freeText[question.question] ?? ""
     }
 
-    /// Single-select replaces; multi-select toggles. Choosing an option is
-    /// changing your mind away from typed text, so it clears any free text.
+    /// Single-select replaces and clears free text; multi-select toggles and
+    /// keeps it.
     mutating func toggle(_ label: String, for question: InteractiveToolPayload.AskedQuestion) {
-        freeText[question.question] = nil
         guard question.multiSelect else {
+            freeText[question.question] = nil
             selections[question.question] = [label]
             return
         }
@@ -44,10 +44,9 @@ struct PermissionAnswerState: Equatable {
         selections[question.question] = labels.isEmpty ? nil : labels
     }
 
-    /// Typing free text is changing your mind away from any chosen options,
-    /// so it clears them.
+    /// On a single-select question, typing clears any chosen option.
     mutating func setFreeText(_ text: String, for question: InteractiveToolPayload.AskedQuestion) {
-        selections[question.question] = nil
+        if !question.multiSelect { selections[question.question] = nil }
         freeText[question.question] = text.isEmpty ? nil : text
     }
 
@@ -60,19 +59,16 @@ struct PermissionAnswerState: Equatable {
         questions.allSatisfy(isAnswered)
     }
 
-    /// The wire shape: question text -> comma-separated option labels, or the
-    /// typed free text when that's what the question was answered with.
+    /// The wire shape: question text -> comma-separated option labels, with
+    /// any typed free text as the last entry.
     func answers(for questions: [InteractiveToolPayload.AskedQuestion]) -> [String: String] {
         var answers: [String: String] = [:]
         for question in questions {
-            let labels = selectedLabels(for: question)
-            if !labels.isEmpty {
-                answers[question.question] = labels.joined(separator: ", ")
-                continue
-            }
+            var parts = selectedLabels(for: question)
             let text = freeText(for: question).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            answers[question.question] = text
+            if !text.isEmpty { parts.append(text) }
+            guard !parts.isEmpty else { continue }
+            answers[question.question] = parts.joined(separator: ", ")
         }
         return answers
     }

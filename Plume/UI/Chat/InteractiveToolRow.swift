@@ -188,11 +188,8 @@ struct InteractiveToolRow: View, ThemedView {
                         .emphasis(.secondary)
                     let liveChosen = answerState.selectedLabels(for: question)
                     let liveTyped = answerState.freeText(for: question)
-                    if !liveChosen.isEmpty {
-                        Text(liveChosen.joined(separator: ", "))
-                            .font(typography.caption.semibold)
-                    } else if !liveTyped.isEmpty {
-                        Text(liveTyped)
+                    if !liveChosen.isEmpty || !liveTyped.isEmpty {
+                        Text((liveChosen + (liveTyped.isEmpty ? [] : [liveTyped])).joined(separator: ", "))
                             .font(typography.caption.semibold)
                     } else if let recorded = recordedAnswers[question.question] {
                         Text(recorded)

@@ -101,6 +101,18 @@ struct PermissionAnswerStateTests {
         #expect(state.answers(for: [question]) == ["Pick one": "Something else"])
     }
 
+    @Test func multiSelectFreeTextCountsAlongsideTheChosenOptions() {
+        let question = question("Pick any", multiSelect: true)
+        var state = PermissionAnswerState()
+        state.toggle("A", for: question)
+        state.toggle("B", for: question)
+        state.setFreeText("  Something else ", for: question)
+        #expect(state.selectedLabels(for: question) == ["A", "B"])
+        #expect(state.answers(for: [question]) == ["Pick any": "A, B, Something else"])
+        state.toggle("C", for: question)
+        #expect(state.freeText(for: question) == "  Something else ")
+    }
+
     @Test func settingFreeTextToEmptyStringClearsTheAnswer() {
         let question = question("Pick one")
         var state = PermissionAnswerState()
