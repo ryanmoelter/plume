@@ -16,9 +16,6 @@ enum LidSleepOverrideStatus: Equatable, Sendable {
     /// fix to offer.
     case unresponsive
 
-    static let unresponsiveReason =
-        "The sleep helper isn't responding. Reinstall it from Settings → Keep Awake."
-
     /// Whether an `apply(true)` can take effect right now.
     var canEngage: Bool { self == .ready || self == .engaged }
 }
@@ -50,4 +47,8 @@ protocol LidSleepOverride: AnyObject {
     /// Re-reads registration state, for the panel opening or the app coming
     /// back from System Settings.
     func refreshStatus()
+
+    /// Asks a registered helper once whether it answers, reading
+    /// `.unresponsive` if it does not. For the panel or Settings opening.
+    func verifyReachable()
 }

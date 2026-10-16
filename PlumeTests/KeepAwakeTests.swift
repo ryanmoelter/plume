@@ -54,6 +54,12 @@ struct KeepAwakeTests {
 
         func refreshStatus() {}
 
+        private(set) var verifyCalls = 0
+
+        func verifyReachable() {
+            verifyCalls += 1
+        }
+
         func unregister() {
             unregisterCalls += 1
             if isEngaged { applications.append(false) }
@@ -735,6 +741,15 @@ struct KeepAwakeTests {
         #expect(assertion.held != nil, "the plain hold is untouched")
     }
 
+    @Test func verifyingTheLidHelperAsksTheOverrideOnce() {
+        let lid = FakeLidSleepOverride()
+        lid.status = .ready
+        let (coordinator, _, _) = makeCoordinator(engine: StatusEngine(), lidOverride: lid)
+
+        coordinator.verifyLidHelper()
+        #expect(lid.verifyCalls == 1)
+    }
+
     @Test func reinstallingAnUnresponsiveHelperKeepsTheSettingOn() {
         let lid = FakeLidSleepOverride()
         lid.status = .unresponsive
@@ -1137,9 +1152,11 @@ struct LidCloseGuidanceTests {
         #expect(guidance.note == "nope")
     }
 
-    @Test func anUnresponsiveHelperPointsAtReinstall() {
+    @Test func anUnresponsiveHelperShowsAsBrokenWithRepair() {
         let guidance = LidCloseGuidance.resolve(mode: .auto, wantsLidClosed: true, override: .unresponsive)
-        #expect(guidance.note?.contains("Reinstall") == true)
+        #expect(guidance == .helperBroken)
+        #expect(guidance.offersRepair)
+        #expect(guidance.note?.contains("broken") == true)
         #expect(!LidSleepOverrideStatus.unresponsive.canEngage)
     }
 

@@ -40,6 +40,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     @ObservationIgnored private var deferredCheckTimer: Timer?
     @ObservationIgnored private var lastRelease: Date?
     @ObservationIgnored private var lastReadingSawOverride = false
+    @ObservationIgnored private var reachability = SleepHelperReachabilityCheck()
 
     /// The daemon's designated identity, so a process squatting on the Mach
     /// service name cannot impersonate it.
@@ -83,7 +84,37 @@ final class DaemonLidSleepOverride: LidSleepOverride {
     func refreshStatus() {
         guard !isInert else { return }
         readStatus()
-        if status == .unresponsive, !wantsEngaged { checkResponsive() }
+        // Only a helper that failed an engage is re-asked here. One that failed
+        // `verifyReachable` waits for the next opening, so app activation never
+        // makes launchd respawn a broken daemon.
+        if retryPolicy.isUnresponsive, !wantsEngaged { checkResponsive() }
+    }
+
+    func verifyReachable() {
+        guard !isInert,
+              reachability.beginCheck(
+                  serviceEnabled: service.status == .enabled,
+                  isEngaged: isEngaged || engagePending,
+                  isRecovering: isRecovering
+              )
+        else { return }
+        let generation = generation
+        Task {
+            let reading = await SleepHelperVersionQuery.ask(
+                timeout: 5,
+                connect: { Self.makeConnection() },
+                legacyBundlePath: { nil }
+            )
+            guard generation == self.generation else {
+                reachability.abandonCheck()
+                return
+            }
+            reachability.record(reading.answer)
+            if reachability.isUnreachable {
+                Log.app.error("Sleep helper is registered but did not answer")
+            }
+            readStatus()
+        }
     }
 
     func ensureRegistered() {
@@ -137,6 +168,8 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             guard generation == self.generation else { return }
             isRecovering = false
             readStatus()
+            // A repair only shows as working once the new helper answers.
+            if status == .ready { verifyReachable() }
         }
     }
 
@@ -165,7 +198,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
             set(.needsApproval)
             startApprovalPoll()
         case .enabled:
-            if retryPolicy.isUnresponsive {
+            if retryPolicy.isUnresponsive || reachability.isUnreachable {
                 set(.unresponsive)
             } else {
                 set(isEngaged ? .engaged : .ready)
@@ -194,8 +227,9 @@ final class DaemonLidSleepOverride: LidSleepOverride {
 
     private func didEngage(now: Bool, error: String?) {
         engagePending = false
-        let wasUnresponsive = retryPolicy.isUnresponsive
+        let wasUnresponsive = retryPolicy.isUnresponsive || reachability.isUnreachable
         retryPolicy.recordSuccess()
+        reachability.recordReached()
         guard wantsEngaged else {
             // The hold ended while the request was in flight.
             if now { proxy()?.setSleepDisabled(false) { _, _ in } }
@@ -270,6 +304,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         generation += 1
         stopRetry()
         retryPolicy = SleepHelperRetryPolicy()
+        reachability = SleepHelperReachabilityCheck()
         isRecovering = false
         connection?.invalidate()
         connection = nil
@@ -290,6 +325,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
                 self.probePending = false
                 guard generation == self.generation else { return }
                 self.retryPolicy.recordSuccess()
+                self.reachability.recordReached()
                 self.readStatus()
             }
         }
