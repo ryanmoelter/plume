@@ -7,7 +7,7 @@ import SwiftUI
 /// rather than replacing them.
 enum AgentMessageCollapse {
     /// Lines a collapsed message shows.
-    static let lineLimit = 10
+    static let lineLimit = 5
     /// A message that would hide fewer lines than this stays whole: the
     /// "Show more" row would take nearly the room it saves.
     static let minimumHiddenLines = 4

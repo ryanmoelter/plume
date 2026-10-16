@@ -208,7 +208,7 @@ struct ChatPieceSplitterTests {
         #expect(result.last?.segment == .last)
     }
 
-    /// Twenty one-line paragraphs: well past the ten lines a collapsed
+    /// Twenty one-line paragraphs: well past the five lines a collapsed
     /// message shows, at any width.
     private let longAgentMessage = """
         <agent-message from="a1">
@@ -228,11 +228,11 @@ struct ChatPieceSplitterTests {
 
     @Test func aLongAgentMessageStartsCollapsedToItsLeadingPieces() {
         let result = agentPieces(longAgentMessage)
-        #expect(result.map(\.id) == ["m/0"] + (0..<10).map { "m/0/\($0)" } + ["m/0/toggle"])
+        #expect(result.map(\.id) == ["m/0"] + (0..<5).map { "m/0/\($0)" } + ["m/0/toggle"])
         #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: false))
         #expect(result.last?.content == .agentMessageToggle(isExpanded: false))
-        #expect(result.filter { $0.collapsedTail != nil }.map(\.id) == ["m/0/9"])
-        #expect(result[10].collapsedTail == ChatPiece.CollapsedTail(lineLimit: nil))
+        #expect(result.filter { $0.collapsedTail != nil }.map(\.id) == ["m/0/4"])
+        #expect(result[5].collapsedTail == ChatPiece.CollapsedTail(lineLimit: nil))
         #expect(result.allSatisfy { $0.agentMessageKey == "m/0" })
         #expect(result.allSatisfy { $0.wash == .agentBubble })
         #expect(result.last?.segment == .last)
@@ -273,6 +273,14 @@ struct ChatPieceSplitterTests {
         #expect(result[1].collapsedTail == ChatPiece.CollapsedTail(lineLimit: AgentMessageCollapse.lineLimit))
     }
 
+    @Test func aCollapsedMessageDoesNotEndOnALoneHeading() {
+        let body = "One.\nTwo.\nThree.\nFour.\n\n## Findings\n\n" + (1...6).map { "Line \($0) of the findings." }.joined(separator: "\n")
+            + "\n\n" + (1...6).map { "More \($0)." }.joined(separator: "\n")
+        let result = agentPieces("<agent-message from=\"a1\">\n\(body)\n</agent-message>")
+        let tail = result.first { $0.collapsedTail != nil }
+        #expect(tail?.id == "m/0/0")
+    }
+
     /// A message short enough to read whole has nothing to collapse.
     @Test func aShortAgentMessageIsNotCollapsible() {
         let text = "<agent-message from=\"a1\">\nDone.\n</agent-message>"
@@ -282,23 +290,23 @@ struct ChatPieceSplitterTests {
         #expect(result.first?.content == .agentMessageTitle(name: "Explore: look", isSubagent: true, isExpanded: false))
     }
 
-    /// Past ten lines but not by enough to be worth a "Show more" row.
+    /// Past five lines but not by enough to be worth a "Show more" row.
     @Test func anAgentMessageJustPastTheLimitStaysWhole() {
-        let text = "<agent-message from=\"a1\">\n\((1...12).map { "Line \($0)." }.joined(separator: "\n\n"))\n</agent-message>"
+        let text = "<agent-message from=\"a1\">\n\((1...8).map { "Line \($0)." }.joined(separator: "\n\n"))\n</agent-message>"
         let result = agentPieces(text)
-        #expect(result.count == 13)
+        #expect(result.count == 9)
         #expect(result.allSatisfy { $0.agentMessageKey == nil })
     }
 
     @Test func theCutFadesTheLastWholePieceOrClipsALongOne() {
         // Exactly fills the budget.
-        #expect(AgentMessageCollapse.cut(lineCounts: [4, 6, 5]) == (2, nil))
-        // Room for 6 more lines of an 8-line block: clipped to them.
-        #expect(AgentMessageCollapse.cut(lineCounts: [4, 8, 5]) == (2, 6))
+        #expect(AgentMessageCollapse.cut(lineCounts: [2, 3, 5]) == (2, nil))
+        // Room for 3 more lines of an 8-line block: clipped to them.
+        #expect(AgentMessageCollapse.cut(lineCounts: [2, 8, 5]) == (2, 3))
         // Room for only one line of the next block: it is dropped instead.
-        #expect(AgentMessageCollapse.cut(lineCounts: [9, 8]) == (1, nil))
+        #expect(AgentMessageCollapse.cut(lineCounts: [4, 8]) == (1, nil))
         // The first block alone overflows.
-        #expect(AgentMessageCollapse.cut(lineCounts: [30, 2]) == (1, 10))
+        #expect(AgentMessageCollapse.cut(lineCounts: [30, 2]) == (1, 5))
     }
 
     /// An injected line is not the user speaking, so it skips the bubble.
