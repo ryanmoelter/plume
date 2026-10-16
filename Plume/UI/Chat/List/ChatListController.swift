@@ -125,6 +125,12 @@ final class ChatListController: NSObject {
     /// when its policy asks for a different one, so a reader mid-gesture —
     /// rubber-banding past the end included — is left where they are.
     private var lastResolvedOffset: CGFloat?
+    /// Where the last layout pass left the viewport. A bounds change that
+    /// leaves the offset here moved nothing, whatever posted it.
+    private var lastPlacedOffset: CGFloat?
+    var readingPositions = ChatReadingPositions.shared
+    /// The position this tab was left at, held until its pieces arrive.
+    private var pendingRestore: ChatReadingPosition?
     private var consumedArrivals: Set<String> = []
     private var arriving: Set<String> = []
     /// Pieces that fade and collapse in place of vanishing — a working
@@ -203,6 +209,7 @@ final class ChatListController: NSObject {
     /// Breaks the display link's hold on the animator; nothing else keeps
     /// the controller alive once its view is gone.
     func tearDown() {
+        if let tabID = inputs.tabID { readingPositions[tabID] = readingPosition }
         animator.invalidate()
         NotificationCenter.default.removeObserver(self)
         if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
@@ -253,6 +260,10 @@ final class ChatListController: NSObject {
 
     func update(_ new: ChatListInputs) {
         let old = inputs
+        if new.tabID != old.tabID {
+            if let tabID = old.tabID { readingPositions[tabID] = readingPosition }
+            pendingRestore = new.tabID.flatMap { readingPositions[$0] } ?? .bottom
+        }
         inputs = new
         var stale: Set<String> = []
 
@@ -261,6 +272,7 @@ final class ChatListController: NSObject {
             || (new.leadingInset == 0) != (old.leadingInset == 0) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
+        restorePendingPosition()
         if new.trailingInset != old.trailingInset {
             if new.animate, model.viewportHeight > 0, documentView.window != nil {
                 animator.ease(Self.insetEaseKey, from: model.trailingInset, to: new.trailingInset, duration: 0.2)
@@ -409,9 +421,45 @@ final class ChatListController: NSObject {
         model.updateEstimates(estimates)
     }
 
+    // MARK: - Reading position
+
+    /// Where the reader is, or is headed if a scroll is in flight.
+    var readingPosition: ChatReadingPosition {
+        if let target = animator.scroll?.target {
+            switch target {
+            case .bottom: return .bottom
+            case let .item(id): return .anchor(id: id, distance: -inputs.leadingInset)
+            }
+        }
+        if let pendingRestore { return pendingRestore }
+        if isFollowing { return .bottom }
+        let anchor = readerAnchor ?? model.readerAnchor(offset: scrollView.contentView.bounds.origin.y)
+        return anchor.map { .anchor(id: $0.id, distance: $0.distance) } ?? .bottom
+    }
+
+    /// Waits for the pieces, since a remounted chat builds them after its
+    /// list exists. An anchor on a piece that has since gone falls back to
+    /// the bottom.
+    private func restorePendingPosition() {
+        guard let position = pendingRestore, !inputs.pieces.isEmpty else { return }
+        pendingRestore = nil
+        animator.cancelScroll()
+        easedOffset = nil
+        followDistance = 0
+        lastResolvedOffset = nil
+        if case let .anchor(id, distance) = position, items[id] != nil {
+            isFollowing = false
+            readerAnchor = (id: id, distance: distance)
+        } else {
+            isFollowing = true
+            readerAnchor = nil
+        }
+    }
+
     // MARK: - Commands
 
     func scroll(to target: ChatListScrollTarget, animated: Bool) {
+        pendingRestore = nil
         animator.cancelScroll()
         easedOffset = nil
         let clip = scrollView.contentView
@@ -478,12 +526,20 @@ final class ChatListController: NSObject {
             documentView.needsLayout = true
             return
         }
+        // Moving the list into a window posts a bounds change with the
+        // offset unchanged, after the content under it may have moved.
+        let offset = clip.bounds.origin.y
+        guard offset != lastPlacedOffset else {
+            documentView.needsLayout = true
+            return
+        }
         // Anything else not written by a layout pass is the reader's: a
         // wheel, a momentum tail, a keyboard page.
         animator.cancelScroll()
         easedOffset = nil
         pendingPin = nil
-        let offset = clip.bounds.origin.y
+        pendingRestore = nil
+        lastPlacedOffset = offset
         let distance = max(0, model.followOffset - offset)
         isFollowing = distance <= ChatScrollAnchor.bottomTolerance
         followDistance = isFollowing ? distance : 0
@@ -663,33 +719,25 @@ final class ChatListController: NSObject {
             realizeWindow(around: easedOffset ?? actual)
         }
 
-        let desired = min(max(0, resolvedOffset()), model.maxOffset)
-        let writes = easedOffset != nil || desired != lastResolvedOffset
-        let offset = writes ? desired : actual
-
-        documentView.setFrameSize(NSSize(width: clip.bounds.width, height: max(model.totalHeight, viewport)))
-        if writes {
-            lastResolvedOffset = desired
-            if actual != desired {
-                isOwnScroll = true
-                clip.scroll(to: NSPoint(x: 0, y: desired))
-                scrollView.reflectScrolledClipView(clip)
-                isOwnScroll = false
-            }
+        var offset = commitOffset(in: clip, viewport: viewport)
+        // The window was realized around the offset the pass started at. A
+        // document that moved the offset — a long message collapsing, or
+        // estimates under a chat that just mounted — would otherwise leave
+        // rows at the new offset blank until something else asks for a pass;
+        // the request below, made from inside layout, does not reliably bring
+        // one. Realizing measures, which can move the offset again.
+        for _ in 0..<3 {
+            guard width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange else { break }
+            realizeWindow(around: offset)
+            offset = commitOffset(in: clip, viewport: viewport)
         }
+        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
+            documentView.needsLayout = true
+        }
+        lastPlacedOffset = clip.bounds.origin.y
         if !isFollowing, easedOffset == nil {
             let distance = max(0, model.followOffset - offset)
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
-        }
-
-        // The window was realized around the offset the pass started at. A
-        // document that shrank enough to move the offset — a long message
-        // collapsing — would otherwise leave rows at the new offset blank
-        // until something else asks for a pass; the request below, made from
-        // inside layout, does not reliably bring one.
-        if width > 0, viewport > 0, model.realizedRange(offset: offset) != lastRealizedRange {
-            realizeWindow(around: offset)
-            documentView.needsLayout = true
         }
 
         for (id, host) in hosts {
@@ -698,6 +746,24 @@ final class ChatListController: NSObject {
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
+    }
+
+    /// Sizes the document and writes the offset the policy resolves, when
+    /// that answer changed. Returns the offset the viewport is left at.
+    private func commitOffset(in clip: NSClipView, viewport: CGFloat) -> CGFloat {
+        let actual = clip.bounds.origin.y
+        let desired = min(max(0, resolvedOffset()), model.maxOffset)
+        let writes = easedOffset != nil || desired != lastResolvedOffset
+        documentView.setFrameSize(NSSize(width: clip.bounds.width, height: max(model.totalHeight, viewport)))
+        guard writes else { return actual }
+        lastResolvedOffset = desired
+        if actual != desired {
+            isOwnScroll = true
+            clip.scroll(to: NSPoint(x: 0, y: desired))
+            scrollView.reflectScrolledClipView(clip)
+            isOwnScroll = false
+        }
+        return desired
     }
 
     private var lastLog: TimeInterval = 0
