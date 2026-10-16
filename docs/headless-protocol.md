@@ -199,6 +199,8 @@ The user turn is queued while the approved turn runs and is sent when that turn'
 
 Answered with `{"still_queued":[…]}`, and the in-flight turn stops and emits its `result`. Verified mid-count: output truncated and the process stayed healthy for the next turn. **Prefer this to signals** — it keeps the process alive, where SIGTERM exits 143 and abandons the turn. Add `cancel_queued: true` to also drop queued messages.
 
+Plume sends `cancel_queued: true` for send-now (⌃↩, or a queued row's Send now). Plume holds the queue itself and writes a user turn only between turns, so the flag drops nothing in practice; it guarantees nothing the CLI held runs again after the merged turn. That turn — every queued message, then the composer's text — is written when the interrupted turn's `result` arrives.
+
 Sent between turns while a background subagent runs, it kills that subagent instead: `task_updated` (`status: "killed"`), a `task_notification` with `status: "stopped"`, the reply, and the subagent's `[Request interrupted by user for tool use]` line. **No `result` follows**, because no turn was running. Verified on 2.1.280.
 
 ## Background subagents between turns

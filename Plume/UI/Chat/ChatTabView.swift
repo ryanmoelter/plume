@@ -51,6 +51,7 @@ struct ChatTabView: View, ThemedView {
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
+    @State private var sendNowRequested = false
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
     /// message starts below it.
@@ -486,6 +487,7 @@ struct ChatTabView: View, ThemedView {
                 QueuedMessageChip(
                     text: message.plainText,
                     imageCount: message.count { if case .image = $0 { true } else { false } },
+                    onSendNow: { sendNowRequested = true },
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
@@ -556,7 +558,8 @@ struct ChatTabView: View, ThemedView {
                 tab: tab,
                 isVisible: isVisible && !planPresentation.isExpanded,
                 hasContentAbove: isDocked,
-                editQueuedMessageIndex: $editQueuedMessageIndex
+                editQueuedMessageIndex: $editQueuedMessageIndex,
+                sendNowRequested: $sendNowRequested
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -1389,15 +1392,16 @@ struct ChatTabView: View, ThemedView {
 }
 
 /// One queued message, styled like the user bubble it's about to become.
-/// Edit and remove are always visible rather than hover-revealed: reserving
+/// Its buttons are always visible rather than hover-revealed: reserving
 /// their width while they're invisible most of the time reads as a layout
 /// bug, and always showing them costs nothing here since a chip only ever
-/// holds two small icon buttons.
+/// holds three small icon buttons.
 private struct QueuedMessageChip: View, ThemedView {
     @Environment(\.theme) var theme
 
     let text: String
     var imageCount = 0
+    let onSendNow: () -> Void
     let onEdit: () -> Void
     let onRemove: () -> Void
 
@@ -1437,6 +1441,14 @@ private struct QueuedMessageChip: View, ThemedView {
 
     private var controls: some View {
         HStack(spacing: 4) {
+            Button(action: onSendNow) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Send now (⌃↩)")
+            .accessibilityLabel("Send now")
+            .plumeID(AccessibilityID.queuedMessageSendNowButton, invoke: onSendNow)
             Button(action: onEdit) {
                 Image(systemName: "pencil.circle.fill")
                     .emphasis(.secondary)

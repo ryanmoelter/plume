@@ -42,6 +42,8 @@ final class CodexSession: AgentSession {
     private var accountRateLimits = CodexRateLimits()
     var quotaWindows: [CodexQuotaWindow] { CodexQuotaStore.shared.windows }
     private var queuePaused = false
+    /// Set by `sendNow`, so the next turn to go out is the whole queue as one.
+    private var sendsQueueAsOneTurn = false
     private var selectedPermissionProfile: String?
     /// Codex reports tokens, never dollars.
     let sessionCostUSD: Double? = nil
@@ -544,7 +546,14 @@ final class CodexSession: AgentSession {
               !isWorking,
               !queuedMessages.isEmpty
         else { return }
-        send(blocks: queuedMessages.removeFirst(), threadID: threadID)
+        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queuedMessages.removeFirst()
+        send(blocks: next, threadID: threadID)
+    }
+
+    private func takeQueueAsOneTurn() -> [UserContentBlock] {
+        sendsQueueAsOneTurn = false
+        defer { queuedMessages = [] }
+        return queuedMessages.mergedIntoOneTurn
     }
 
     private func finishTurnStart(sequence: Int, result: JSONValue) {
@@ -576,6 +585,20 @@ final class CodexSession: AgentSession {
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
         return queuedMessages.remove(at: index)
+    }
+
+    /// The merged turn goes out when the interrupted turn completes, which
+    /// otherwise pauses the queue.
+    func sendNow(appending blocks: [UserContentBlock]) {
+        let normalized = blocks.normalized
+        if normalized.hasContent {
+            hasUserSubmitted = true
+            queuedMessages.append(normalized)
+        }
+        guard !queuedMessages.isEmpty else { return }
+        sendsQueueAsOneTurn = true
+        queuePaused = false
+        if isWorking { interrupt() } else { flushQueue() }
     }
 
     /// A control request, never a signal — a signal abandons the turn instead
@@ -1068,11 +1091,13 @@ final class CodexSession: AgentSession {
         switch turn["status"]?.stringValue {
         case "failed":
             queuePaused = true
+            sendsQueueAsOneTurn = false
             lastError = turn["error"]?["message"]?.stringValue
             StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
         case "interrupted":
-            queuePaused = true
             StatusEngine.shared.setStatus(.interrupted, taskID: taskID, tabID: tabID)
+            queuePaused = !sendsQueueAsOneTurn
+            if pendingTurnStartSequence == nil { flushQueue() }
         default:
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
             if pendingTurnStartSequence == nil { flushQueue() }
@@ -1396,6 +1421,7 @@ final class CodexSession: AgentSession {
         isWorking = false
         interruptRequested = false
         queuePaused = true
+        sendsQueueAsOneTurn = false
         lastError = (error as? CodexAppServerClient.Failure).map(String.init(describing:))
             ?? error.localizedDescription
         StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
@@ -1414,6 +1440,7 @@ final class CodexSession: AgentSession {
         isReady = false
         pendingTurnStartSequence = nil
         interruptRequested = false
+        sendsQueueAsOneTurn = false
         pendingPermissions.removeAll()
         permissionRequestIDs.removeAll()
         permissionKinds.removeAll()

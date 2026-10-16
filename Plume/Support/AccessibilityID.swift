@@ -177,4 +177,8 @@ enum AccessibilityID {
 
     static let chatMinimap = "chat-minimap"
     static let chatMinimapEntry = "chat-minimap-entry"
+
+    // MARK: Queued messages
+
+    static let queuedMessageSendNowButton = "queued-message-send-now-button"
 }
