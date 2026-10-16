@@ -20,6 +20,8 @@ enum LidCloseGuidance: Equatable, Sendable {
     case helperNotInstalled
     /// The helper failed, with the reason.
     case helperUnavailable(String)
+    /// Registered, but the helper does not answer; a reinstall repairs it.
+    case helperBroken
     /// The override would otherwise be in effect, but the Mac is running hot
     /// enough to trip the thermal cutoff.
     case pausedForHeat
@@ -48,7 +50,7 @@ enum LidCloseGuidance: Equatable, Sendable {
         case .unavailable(let reason):
             return .helperUnavailable(reason)
         case .unresponsive:
-            return .helperUnavailable(LidSleepOverrideStatus.unresponsiveReason)
+            return .helperBroken
         case .ready where wantsLidClosed:
             return .staysAwakeWhileHolding
         case .notRegistered:
@@ -68,6 +70,8 @@ enum LidCloseGuidance: Equatable, Sendable {
             "Paused while the Mac is running hot."
         case .helperUnavailable(let reason):
             reason
+        case .helperBroken:
+            "The sleep helper is broken: it's installed but not responding."
         case .sleepsOnLidClose, .helperNeedsApproval, .helperNotInstalled, .notApplicable:
             nil
         }
@@ -78,4 +82,6 @@ enum LidCloseGuidance: Equatable, Sendable {
 
     /// Whether to offer the Login Items shortcut.
     var offersLoginItems: Bool { self == .helperNeedsApproval }
+
+    var offersRepair: Bool { self == .helperBroken }
 }

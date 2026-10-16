@@ -133,6 +133,14 @@ final class KeepAwakeCoordinator {
         mirrorLidOverrideStatus()
     }
 
+    /// For the panel or Settings opening, once each: `.enabled` in launchd
+    /// does not mean the helper can run.
+    func verifyLidHelper() {
+        lidOverride.refreshStatus()
+        lidOverride.verifyReachable()
+        mirrorLidOverrideStatus()
+    }
+
     /// Registration prompts for approval, so it only ever runs from the
     /// install button, never from a setting or at launch.
     func installLidHelper() {

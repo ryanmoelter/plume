@@ -245,11 +245,13 @@ private struct SidebarFooterRow: View {
 
     var body: some View {
         // Stacks only when the title and its detail cannot share a line,
-        // rather than at a guessed sidebar width.
+        // rather than at a guessed sidebar width. The title is held at its
+        // full width so a layout that cannot fit it is skipped instead of
+        // truncating it; only the last one lets the subtitle wrap.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
                 glyph
-                titleBlock
+                titleBlock().fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 4)
                 detailLabel
                 chevron
@@ -257,7 +259,16 @@ private struct SidebarFooterRow: View {
             HStack(spacing: 8) {
                 glyph
                 VStack(alignment: .leading, spacing: 0) {
-                    titleBlock
+                    titleBlock().fixedSize(horizontal: true, vertical: false)
+                    detailLabel
+                }
+                Spacer(minLength: 0)
+                chevron
+            }
+            HStack(spacing: 8) {
+                glyph
+                VStack(alignment: .leading, spacing: 0) {
+                    titleBlock(wrapsSubtitle: true)
                     detailLabel
                 }
                 Spacer(minLength: 0)
@@ -279,13 +290,15 @@ private struct SidebarFooterRow: View {
     }
 
     @ViewBuilder
-    private var titleBlock: some View {
+    private func titleBlock(wrapsSubtitle: Bool = false) -> some View {
         if let subtitle {
             VStack(alignment: .leading, spacing: 0) {
                 Text(title).contentTransition(.numericText())
                 Text(subtitle)
                     .font(.caption)
                     .emphasis(.secondary)
+                    .lineLimit(wrapsSubtitle ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: wrapsSubtitle)
             }
         } else {
             Text(title).contentTransition(.numericText())

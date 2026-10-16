@@ -403,6 +403,8 @@ struct QuotaDetailsPopover: View, ThemedView {
                 if index > 0 { Divider() }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(summary.title).font(.headline)
+                    bar(for: summary)
+                        .padding(.vertical, 4)
                     Text("\(summary.usagePercent)%").bold() + Text(" used")
                     if let elapsedPercent = summary.elapsedPercent {
                         Text("\(elapsedPercent)%").bold() + Text(" of time elapsed")
@@ -419,6 +421,21 @@ struct QuotaDetailsPopover: View, ThemedView {
         .font(typography.caption.font)
         .padding(12)
         .frame(minWidth: 200, alignment: .leading)
+    }
+
+    /// Drawn from the summary's whole percents, which at popover width is
+    /// finer than a pixel matters.
+    private func bar(for summary: QuotaWindowSummary) -> some View {
+        let percent = Double(summary.usagePercent)
+        let attention = StatuslineAttention.attention(percent: percent)
+        return MeterView(
+            fraction: StatuslineMeterMath.fraction(percent: percent),
+            color: StatuslineColors.meter(for: attention, colors: colors),
+            attention: attention,
+            pacing: summary.elapsedPercent.map { Double($0) / 100 },
+            isStale: summary.lastHeard != nil
+        )
+        .frame(maxWidth: .infinity)
     }
 }
 

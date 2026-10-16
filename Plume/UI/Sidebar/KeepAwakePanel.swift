@@ -94,7 +94,7 @@ struct KeepAwakePanel: View {
         .padding(12)
         .frame(width: 340)
         .plumeID(AccessibilityID.keepAwakePanel)
-        .onAppear { coordinator.refreshLidOverride() }
+        .onAppear { coordinator.verifyLidHelper() }
     }
 
     private var guidance: LidCloseGuidance {
@@ -122,6 +122,22 @@ struct KeepAwakePanel: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .plumeID(AccessibilityID.keepAwakeLidApprovalButton)
+        } else if guidance.offersRepair {
+            VStack(alignment: .leading, spacing: 6) {
+                if let note = guidance.note {
+                    Text(note)
+                        .font(.callout)
+                        .foregroundStyle(ChatRole.danger(for: colorScheme))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .plumeID(AccessibilityID.keepAwakeLidNote)
+                }
+                Button("Repair Sleep Helper") {
+                    coordinator.reinstallLidHelper()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .plumeID(AccessibilityID.keepAwakeLidReinstallButton)
+            }
         } else if let note = guidance.note {
             Text(note)
                 .font(.callout)
