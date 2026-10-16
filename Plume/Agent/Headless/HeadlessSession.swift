@@ -111,6 +111,9 @@ final class HeadlessSession: AgentSession {
     /// that turn is accounted for.
     private var wasInterrupted = false
 
+    /// Set by `sendNow`, so the next turn to go out is the whole queue as one.
+    private var sendsQueueAsOneTurn = false
+
     /// Set once the manager drops this session. The process's exit and any
     /// line still in flight land after that, and a status written then would
     /// re-register a tab that `StatusEngine.forget` already cleared.
@@ -385,6 +388,28 @@ final class HeadlessSession: AgentSession {
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
         return queuedMessages.remove(at: index)
+    }
+
+    /// The queue stays visible until the interrupted turn's `result`, which is
+    /// what sends it. Plume holds the queue itself, so `cancel_queued` only
+    /// guarantees nothing the CLI might hold runs after the merged turn too.
+    func sendNow(appending blocks: [UserContentBlock]) {
+        let normalized = blocks.normalized
+        if normalized.hasContent { queuedMessages.append(normalized) }
+        guard !queuedMessages.isEmpty else { return }
+        guard isWorking else {
+            submit(blocks: takeQueueAsOneTurn())
+            return
+        }
+        sendsQueueAsOneTurn = true
+        wasInterrupted = true
+        send(StreamJSONEncoder.interrupt(requestID: nextRequestID(), cancelQueued: true))
+    }
+
+    private func takeQueueAsOneTurn() -> [UserContentBlock] {
+        sendsQueueAsOneTurn = false
+        defer { queuedMessages = [] }
+        return queuedMessages.mergedIntoOneTurn
     }
 
     /// Ends the turn in flight but keeps the session alive, unlike a signal.
@@ -974,7 +999,7 @@ final class HeadlessSession: AgentSession {
 
     private func sendNextQueuedMessage() {
         guard !queuedMessages.isEmpty else { return }
-        let next = queuedMessages.removeFirst()
+        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queuedMessages.removeFirst()
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
             queuedMessages.insert(next, at: 0)
@@ -986,6 +1011,7 @@ final class HeadlessSession: AgentSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         isWorking = false
+        sendsQueueAsOneTurn = false
         streamingText = ""
         streamingThinking = ""
         streamingMessageID = nil

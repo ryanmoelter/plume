@@ -23,6 +23,9 @@ struct ChatComposer: View, ThemedView {
     /// Up-arrow recall path below already does, since only this view knows
     /// how to keep `hasSendableText` in sync with the draft it writes.
     var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
+    /// Set by `ChatTabView`'s queued rows to run `sendNow`, which takes the
+    /// draft along.
+    var sendNowRequested: Binding<Bool> = .constant(false)
     /// The message that just launched the agent, so the caller can open the
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
@@ -216,6 +219,7 @@ struct ChatComposer: View, ThemedView {
                     isFocused: $inputFocused,
                     sendKey: settings.composerSendKey,
                     onSend: send,
+                    onControlReturn: sendNow,
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
@@ -293,6 +297,11 @@ struct ChatComposer: View, ThemedView {
             guard let index else { return }
             editQueuedMessage(at: index)
             editQueuedMessageIndex.wrappedValue = nil
+        }
+        .onChange(of: sendNowRequested.wrappedValue) { _, requested in
+            guard requested else { return }
+            sendNow()
+            sendNowRequested.wrappedValue = false
         }
         .task(id: skillDirectory) {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
@@ -470,6 +479,34 @@ struct ChatComposer: View, ThemedView {
         let blocks: [UserContentBlock] =
             [.text(CommandModeMatcher.unescaped(text))] + images.map { .image($0) }
         dispatch(blocks)
+    }
+
+    /// Cuts off the running turn and sends the queue, then the draft, as one
+    /// turn. A shell command or a Plume command in the draft stays put: each
+    /// runs on its own, so neither can ride along as prose.
+    private func sendNow() {
+        guard let headlessSession, headlessSession.isSteering != true,
+              headlessSession.isWorking || !headlessSession.queuedMessages.isEmpty
+        else {
+            send()
+            return
+        }
+        let text = drafts.draft(forTab: tab.id)
+        var draftBlocks: [UserContentBlock] = []
+        if canSend, !isCommandMode, PlumeSlashCommand.parse(text) == nil {
+            draftBlocks = [.text(CommandModeMatcher.unescaped(text))] + attachedImages.map { .image($0) }
+            drafts.setDraft("", forTab: tab.id)
+            drafts.clearAttachments(forTab: tab.id)
+            hasSendableText = false
+        }
+        guard headlessSession.hasExited else {
+            headlessSession.sendNow(appending: draftBlocks)
+            return
+        }
+        var messages: [[UserContentBlock]] = []
+        while let queued = headlessSession.removeQueuedMessage(at: 0) { messages.append(queued) }
+        let merged = (messages + [draftBlocks]).mergedIntoOneTurn
+        if !merged.isEmpty { dispatch(merged) }
     }
 
     /// Runs a command-mode command and hands the agent what it printed, so

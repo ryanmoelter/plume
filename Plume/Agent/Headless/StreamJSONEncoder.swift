@@ -31,8 +31,12 @@ enum StreamJSONEncoder {
         ])
     }
 
-    static func interrupt(requestID: String) -> String? {
-        controlRequest(id: requestID, body: ["subtype": .string("interrupt")])
+    /// `cancelQueued` also drops the user turns the CLI holds behind the
+    /// running one.
+    static func interrupt(requestID: String, cancelQueued: Bool = false) -> String? {
+        var body: [String: JSONValue] = ["subtype": .string("interrupt")]
+        if cancelQueued { body["cancel_queued"] = .bool(true) }
+        return controlRequest(id: requestID, body: body)
     }
 
     static func setPermissionMode(_ mode: String, requestID: String) -> String? {

@@ -27,6 +27,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on ⌥↩, when the caller has a third action for it. Nil (the
     /// default) leaves ⌥↩ inserting a newline as it otherwise would.
     var onOptionReturn: (() -> Void)?
+    /// Called on ⌃↩. Nil leaves the key to `NSTextView`.
+    var onControlReturn: (() -> Void)?
     /// Called on every keystroke, so the composer can react to the text
     /// without the text itself flowing through SwiftUI state per character.
     var onTextChange: (String) -> Void = { _ in }
@@ -92,6 +94,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onEscape = onEscape
         textView.onOptionReturn = onOptionReturn
+        textView.onControlReturn = onControlReturn
         textView.onAttachImages = onAttachImages
         textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
 
@@ -313,6 +316,8 @@ final class ComposerNSTextView: NSTextView {
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
 
+    var onControlReturn: (() -> Void)?
+
     /// Called with images dropped on or pasted into the composer. Nil leaves
     /// both gestures to `NSTextView`'s own handling.
     var onAttachImages: (([ChatImage]) -> Void)?
@@ -426,6 +431,11 @@ final class ComposerNSTextView: NSTextView {
 
         if event.modifierFlags.contains(.option), let onOptionReturn {
             onOptionReturn()
+            return
+        }
+
+        if event.modifierFlags.contains(.control), let onControlReturn {
+            onControlReturn()
             return
         }
 
