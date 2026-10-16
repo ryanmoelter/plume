@@ -11,7 +11,7 @@ A debug build serves a Unix-socket control server; `scripts/debug/plume-control.
 
 Never drive the instance the user is working in. Give the scratch instance its own `PLUME_APP_SUPPORT` so it has its own store, and its own socket path so the client finds it without guessing.
 
-**`--env HOME=...` does not isolate a scratch instance.** `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so an instance launched with a fake `HOME` still opens `~/Library/Application Support/Plume.debug` — the user's real tasks and terminals. `PLUME_APP_SUPPORT` is a `#if DEBUG`-only override built for exactly this; it redirects the whole Application Support directory (store, hooks, events, control socket) in one shot. `docs/control-server.md` has the reference.
+**`--env HOME=...` does not isolate a scratch instance.** `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so an instance launched with a fake `HOME` still opens `~/Library/Application Support/Plume.debug*` (the primary checkout's, or a worktree's `Plume.debug-<worktree>`) — the user's real tasks and terminals. `PLUME_APP_SUPPORT` is a `#if DEBUG`-only override built for exactly this; it redirects the whole Application Support directory (store, hooks, events, control socket) in one shot. `docs/control-server.md` has the reference.
 
 ```
 APP=$(xcodebuild -scheme Plume -destination 'platform=macOS' -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Plume.app

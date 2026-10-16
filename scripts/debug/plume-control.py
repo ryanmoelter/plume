@@ -25,7 +25,15 @@ import subprocess
 import sys
 import time
 
-DEBUG_DIR = "Library/Application Support/Plume.debug/control"
+SUPPORT_DIR = "Library/Application Support"
+
+
+def own_directory_name():
+    """The data directory this checkout's debug build writes to."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if os.path.isdir(os.path.join(root, ".git")):
+        return "Plume.debug"
+    return f"Plume.debug-{os.path.basename(root)}"
 
 
 def discover(args):
@@ -35,7 +43,8 @@ def discover(args):
         return os.environ["PLUME_CONTROL_SOCKET"]
     home = args.home or os.path.expanduser("~")
     candidates = []
-    for path in glob.glob(os.path.join(home, DEBUG_DIR, "*.sock")):
+    own = os.path.join(home, SUPPORT_DIR, own_directory_name(), "control")
+    for path in glob.glob(os.path.join(home, SUPPORT_DIR, "Plume.debug*", "control", "*.sock")):
         try:
             pid = int(os.path.basename(path)[: -len(".sock")])
         except ValueError:
@@ -47,6 +56,9 @@ def discover(args):
         candidates.append((os.path.getmtime(path), pid, path))
     if not candidates:
         return None
+    mine = [c for c in candidates if os.path.dirname(c[2]) == own]
+    if mine and not args.pid:
+        candidates = mine
     if len(candidates) > 1 and not args.latest and not args.pid:
         pids = ", ".join(str(pid) for _, pid, _ in sorted(candidates))
         sys.exit(f"several debug instances are running (pids {pids}); pass --pid or --latest")

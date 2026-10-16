@@ -10,6 +10,42 @@ struct AppPathsTests {
         #expect(AppPaths.directoryName(forBundleID: "com.ryanmoelter.Plume.debug") == "Plume.debug")
     }
 
+    @Test func primaryCheckoutKeepsTheDebugDirectory() {
+        let name = AppPaths.directoryName(
+            forBundleID: "com.ryanmoelter.Plume.debug",
+            sourceRoot: "/Users/x/Plume",
+            isPrimaryCheckout: true
+        )
+        #expect(name == "Plume.debug")
+    }
+
+    @Test func worktreeGetsADirectoryNamedForIt() {
+        let name = AppPaths.directoryName(
+            forBundleID: "com.ryanmoelter.Plume.debug",
+            sourceRoot: "/Users/x/Plume/.claude/worktrees/agent-1",
+            isPrimaryCheckout: false
+        )
+        #expect(name == "Plume.debug-agent-1")
+    }
+
+    @Test func worktreeWithoutASourceRootKeepsTheDebugDirectory() {
+        let name = AppPaths.directoryName(
+            forBundleID: "com.ryanmoelter.Plume.debug",
+            sourceRoot: nil,
+            isPrimaryCheckout: false
+        )
+        #expect(name == "Plume.debug")
+    }
+
+    @Test func releaseIgnoresTheSourceRoot() {
+        let name = AppPaths.directoryName(
+            forBundleID: "com.ryanmoelter.Plume",
+            sourceRoot: "/Users/x/wt",
+            isPrimaryCheckout: false
+        )
+        #expect(name == "Plume")
+    }
+
     @Test func releaseBundleUsesThePlainDirectory() {
         #expect(AppPaths.directoryName(forBundleID: "com.ryanmoelter.Plume") == "Plume")
     }
