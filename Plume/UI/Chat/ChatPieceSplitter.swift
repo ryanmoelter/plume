@@ -266,7 +266,12 @@ enum ChatPieceSplitter {
             if !isExpanded {
                 let cut = AgentMessageCollapse.cut(lineCounts: lineCounts)
                 body.removeSubrange(cut.count...)
-                body[body.count - 1].collapsedTail = ChatPiece.CollapsedTail(lineLimit: cut.tailLineLimit)
+                var tailLineLimit = cut.tailLineLimit
+                if body.count > 1, body[body.count - 1].copySource?.hasPrefix("#") == true {
+                    body.removeLast()
+                    tailLineLimit = nil
+                }
+                body[body.count - 1].collapsedTail = ChatPiece.CollapsedTail(lineLimit: tailLineLimit)
             }
             let toggle = ChatPiece(
                 id: agentMessageToggleID(base),
