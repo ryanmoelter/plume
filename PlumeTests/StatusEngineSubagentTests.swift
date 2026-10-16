@@ -97,7 +97,7 @@ struct StatusEngineSubagentTests {
         let (engine, task, tab) = engineWithTab()
         var seen: [TaskStatus] = []
         engine.setSubagentActivity(tabID: tab, working: true)
-        engine.onTabStatusChanged = { _, _, status, _ in seen.append(status) }
+        engine.setTabStatusObserver("test") { _, _, status, _ in seen.append(status) }
 
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
         #expect(seen == [])
@@ -109,7 +109,7 @@ struct StatusEngineSubagentTests {
     @Test func theNotifierWouldFireOnceOnTheFinalSettle() {
         let (engine, task, tab) = engineWithTab()
         var bodies: [String] = []
-        engine.onTabStatusChanged = { _, _, status, _ in
+        engine.setTabStatusObserver("test") { _, _, status, _ in
             if let body = StatusNotifier.body(for: status, notifiesOnTurnEnd: true) { bodies.append(body) }
         }
 
@@ -129,7 +129,7 @@ struct StatusEngineSubagentTests {
         engine.setStatus(.permissionNeeded, taskID: task, tabID: tab)
 
         var seen = 0
-        engine.onTabStatusChanged = { _, _, _, _ in seen += 1 }
+        engine.setTabStatusObserver("test") { _, _, _, _ in seen += 1 }
         engine.setSubagentActivity(tabID: tab, working: true)
         engine.setSubagentActivity(tabID: tab, working: false)
 

@@ -25,7 +25,7 @@ struct HeadlessSessionErrorNotificationTests {
     private func makeSession() -> (HeadlessSession, Recorder) {
         let engine = StatusEngine()
         let recorder = Recorder()
-        engine.onTabStatusChanged = { _, _, status, notifiable in
+        engine.setTabStatusObserver("test") { _, _, status, notifiable in
             recorder.reported.append((status, notifiable))
         }
         let session = HeadlessSession(tabID: UUID(), taskID: UUID(), statusEngine: engine)

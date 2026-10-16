@@ -47,7 +47,7 @@ struct AgentLifecycleParityTests {
             .init(id: "command", kind: .backgroundCommand, description: "build", startedAt: Date(), expiresAt: nil)
         ])
         var notifiedTasks: [UUID] = []
-        engine.onTabStatusChanged = { task, _, _, _ in notifiedTasks.append(task) }
+        engine.setTabStatusObserver("test") { task, _, _, _ in notifiedTasks.append(task) }
         engine.reparent(tabID: tab, taskID: destination)
         #expect(engine.status(forTask: source) == .notStarted)
         #expect(engine.status(forTask: destination) == .working)

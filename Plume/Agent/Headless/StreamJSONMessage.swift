@@ -83,9 +83,9 @@ struct LiveBackgroundTask: Equatable {
     let taskType: String
     let description: String?
 
-    /// Nil for a subagent, which `setSubagentActivity` already answers for,
-    /// and for any type not known to be a task worth staying awake for. A
-    /// `Monitor` arrives as `local_bash`; the transcript corrects its kind.
+    /// Nil for a subagent, which `isSubagent` covers, and for any type not
+    /// known to be a task worth staying awake for. A `Monitor` arrives as
+    /// `local_bash`; the transcript corrects its kind.
     var trackedKind: BackgroundTaskTracker.Kind? {
         switch taskType {
         case "local_bash": .backgroundCommand
@@ -93,6 +93,10 @@ struct LiveBackgroundTask: Equatable {
         case "local_workflow": .workflow
         default: nil
         }
+    }
+
+    var isSubagent: Bool {
+        ["local_agent", "remote_agent", "in_process_teammate"].contains(taskType)
     }
 }
 

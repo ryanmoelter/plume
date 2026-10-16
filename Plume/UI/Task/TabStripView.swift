@@ -120,6 +120,12 @@ private struct TabChip: View {
         TitleStore.shared.title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
     }
 
+    private var unseenHelp: String? {
+        if BellStore.shared.hasUnseenBell(tabID: tab.id) { return "This terminal rang a bell" }
+        if UnreadStore.shared.isUnread(tabID: tab.id) { return "Finished a turn you haven't read" }
+        return nil
+    }
+
     private var hasConversation: Bool {
         tab.agentSessionID?.isEmpty == false || tab.sessionJSONLPath?.isEmpty == false
             || AgentSessionManager.shared.existingSession(for: tab.id) != nil
@@ -147,11 +153,11 @@ private struct TabChip: View {
                 .font(.callout)
                 .frame(maxWidth: 180, alignment: .leading)
 
-            if BellStore.shared.hasUnseenBell(tabID: tab.id) {
+            if let unseenHelp {
                 Circle()
                     .fill(.tint)
                     .frame(width: 6, height: 6)
-                    .help("This terminal rang a bell")
+                    .help(unseenHelp)
                     .transition(.opacity)
             }
 

@@ -119,6 +119,9 @@ final class HeadlessSession: AgentSession {
     /// re-register a tab that `StatusEngine.forget` already cleared.
     private var isClosed = false
 
+    @ObservationIgnored private var subagentWakeHold: Task<Void, Never>?
+    @ObservationIgnored var subagentWakeGrace: Duration = .seconds(2)
+
     /// `/btw` exchanges, in-memory only — see `SideQuestion`.
     private(set) var sideQuestions: [SideQuestion] = []
 
@@ -294,6 +297,7 @@ final class HeadlessSession: AgentSession {
         // A new process runs nothing yet, whatever a resumed transcript says
         // the last one left running.
         backgroundTasks.replaceLive(tabID: tabID, entries: [])
+        endSubagentWakeHold()
         // Registers this host as a capable client, and returns the session's
         // slash commands.
         let requestID = nextRequestID()
@@ -312,6 +316,7 @@ final class HeadlessSession: AgentSession {
         // Forgotten rather than emptied, so a tab switched to the terminal
         // transport reads its tasks from the transcript again.
         backgroundTasks.forget(tabID: tabID)
+        endSubagentWakeHold()
     }
 
     /// Records a failure found before any process was spawned — a failed
@@ -726,6 +731,7 @@ final class HeadlessSession: AgentSession {
                     )
                 }
             })
+            reportLiveSubagents(running: tasks.contains(where: \.isSubagent))
 
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
@@ -927,6 +933,34 @@ final class HeadlessSession: AgentSession {
         lastError = nil
         wasInterrupted = false
         reportStatus(.working)
+        endSubagentWakeHold()
+    }
+
+    /// The CLI lists a subagent from launch, well before the turn that
+    /// spawned it reports its `result`, so this keeps that turn's end from
+    /// reading as settled while the transcript scan catches up.
+    ///
+    /// A finished background subagent wakes the main agent, whose turn starts
+    /// about a tenth of a second after the list drops it. Between turns the
+    /// drop is held for `subagentWakeGrace`, so that gap never reads as the
+    /// turn being over; the woken turn starting ends the hold early.
+    private func reportLiveSubagents(running: Bool) {
+        if running || isWorking {
+            endSubagentWakeHold(running: running)
+            return
+        }
+        guard statusEngine.hasLiveSubagents(tabID: tabID), subagentWakeHold == nil else { return }
+        subagentWakeHold = Task { [weak self, grace = subagentWakeGrace] in
+            try? await Task.sleep(for: grace)
+            guard !Task.isCancelled else { return }
+            self?.endSubagentWakeHold()
+        }
+    }
+
+    private func endSubagentWakeHold(running: Bool = false) {
+        subagentWakeHold?.cancel()
+        subagentWakeHold = nil
+        statusEngine.setLiveSubagentActivity(tabID: tabID, working: running)
     }
 
     /// Shown for an error result that carries no text, until the CLI's own
@@ -1029,6 +1063,7 @@ final class HeadlessSession: AgentSession {
         // The CLI reports nothing on its way out, and a task it orphans is
         // beyond anything Plume can see.
         if !isClosed { backgroundTasks.replaceLive(tabID: tabID, entries: []) }
+        endSubagentWakeHold()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
         // A process the user stopped exits non-zero, which is not a failure

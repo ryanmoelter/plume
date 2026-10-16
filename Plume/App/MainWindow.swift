@@ -166,6 +166,7 @@ struct MainWindow: View {
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
+        .clearsUnreadOnView(selectedTabID: selectedTask?.selectedTabID)
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
             guard let route else { return }
             follow(route)
@@ -201,6 +202,7 @@ struct MainWindow: View {
                 ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
                 ?? AppIdentity.displayName
         }
+        UnreadStore.shared.observe(StatusEngine.shared) { Notifier.shared.audience() }
     }
 
     /// A notification click selects its task, then its tab within that task.

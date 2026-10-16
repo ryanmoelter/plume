@@ -240,6 +240,8 @@ Every event also carries `uuid` and `session_id`. What the run showed:
 
 `HeadlessSession` therefore treats the list as the source of truth for its tab's background tasks, and clears them when its process exits.
 
+A background `Agent` appears in the list as `local_agent`, before the `result` of the turn that launched it. Measured on **2.1.296** with Plume's flags: the list named the agent 1.0 s before the `result`, and the subagent's first envelope came 1.3 s *after* it. The transcript scan cannot be relied on to see the subagent by then, so `HeadlessSession` reports the list's subagents to `StatusEngine.setLiveSubagentActivity`, and a turn ending with one listed reads `waitingOnSubagents` rather than `awaitingReply`. When the subagent finishes, the list drops it 0.06 s before the woken turn's `status` `requesting`. The session holds that drop for a short grace between turns, so the gap never reads as a finished turn.
+
 ## Other host-to-CLI control requests
 
 Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_model` were exercised, the rest are listed as available:
