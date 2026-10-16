@@ -4,16 +4,32 @@ import os
 enum AppPaths {
     /// `Plume.debug` for the debug build, whose bundle ID carries that
     /// suffix, and `Plume` otherwise — so a debug run never writes the store,
-    /// hooks and events the installed app reads.
+    /// hooks and events the installed app reads. A debug build from a
+    /// worktree appends the worktree's name, so concurrent worktrees don't
+    /// share a store.
     static let debugBundleSuffix = ".debug"
 
-    static func directoryName(forBundleID bundleID: String?) -> String {
+    static func directoryName(
+        forBundleID bundleID: String?,
+        sourceRoot: String? = nil,
+        isPrimaryCheckout: Bool = true
+    ) -> String {
         guard let bundleID, bundleID.hasSuffix(debugBundleSuffix) else { return "Plume" }
-        return "Plume.debug"
+        guard !isPrimaryCheckout, let sourceRoot else { return "Plume.debug" }
+        let name = URL(fileURLWithPath: sourceRoot).lastPathComponent
+        return name.isEmpty || name == "/" ? "Plume.debug" : "Plume.debug-\(name)"
     }
 
     static var directoryName: String {
+        #if DEBUG
+        directoryName(
+            forBundleID: Bundle.main.bundleIdentifier,
+            sourceRoot: BuildInfo.sourceRoot?.path,
+            isPrimaryCheckout: BuildInfo.isPrimaryCheckout
+        )
+        #else
         directoryName(forBundleID: Bundle.main.bundleIdentifier)
+        #endif
     }
 
     static var applicationSupport: URL {
@@ -22,7 +38,7 @@ enum AppPaths {
 
     /// `PLUME_APP_SUPPORT` (`#if DEBUG` only) replaces the whole directory
     /// rather than nesting under it, so a scratch instance's data lands
-    /// exactly where the agent pointed it — no `Plume.debug` subfolder to
+    /// exactly where the agent pointed it — no `Plume.debug*` subfolder to
     /// also account for. Takes `environment` as a parameter, not read
     /// directly, so a test can exercise both branches without mutating
     /// process-global state that other tests read concurrently.

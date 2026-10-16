@@ -90,7 +90,7 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 
 - Debug build, then `PlumeTests`. Report failures verbatim.
-- Launch the built `Plume.app` from DerivedData (`-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`). Debug writes to `Plume.debug/`, so it runs beside the installed app.
+- Launch the built `Plume.app` from DerivedData (`-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`). Debug writes to `Plume.debug/` (`Plume.debug-<worktree>/` from a worktree), so it runs beside the installed app.
 - **Launch it with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE`.** The app inherits the shell that started it and passes that to every terminal tab it spawns, so launching from an agent's shell leaves each tab's `claude` reading itself as a nested session and skipping its transcript — the chat UI then shows nothing.
 - Walk the process tree from Plume's own PID and read the unified log for errors. Never `pgrep -x Plume` or global-grep `claude`.
 

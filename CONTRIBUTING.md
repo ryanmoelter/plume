@@ -15,7 +15,7 @@ xcodebuild -scheme Plume -destination 'platform=macOS' build
 xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests
 ```
 
-A Debug build keeps its data in `~/Library/Application Support/Plume.debug/`, so it runs beside an installed Plume without sharing a store.
+A Debug build keeps its data in `~/Library/Application Support/Plume.debug/` (`Plume.debug-<worktree>/` when built from a worktree), so it runs beside an installed Plume without sharing a store.
 
 Some tests depend on the machine that runs them, so a fresh clone fails them for environmental reasons:
 

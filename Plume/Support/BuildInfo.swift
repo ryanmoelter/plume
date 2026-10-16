@@ -10,6 +10,14 @@ enum BuildInfo {
         return URL(fileURLWithPath: raw)
     }
 
+    /// The primary checkout's `.git` is a directory; a worktree's is a file.
+    static var isPrimaryCheckout: Bool {
+        guard let root = sourceRoot else { return true }
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: root.appending(path: ".git").path, isDirectory: &isDirectory)
+        return !exists || isDirectory.boolValue
+    }
+
     static var worktreeName: String? { sourceRoot?.lastPathComponent }
 
     /// The source root's branch at launch, not at build time — a checkout
