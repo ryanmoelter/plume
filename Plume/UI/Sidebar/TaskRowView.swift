@@ -7,8 +7,10 @@ struct TaskRowView: View {
     var onSelect: (() -> Void)? = nil
     /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
+    @Binding var editingSummaryTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
+    @FocusState private var summaryFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     /// What this row currently holds watches on, so a directory leaving the
     /// set releases the watch it took rather than whatever the task points at
@@ -16,6 +18,14 @@ struct TaskRowView: View {
     @State private var watched = DirectoryWatchSet()
 
     private var isEditing: Bool { renamingTaskID == task.id }
+    private var isEditingSummary: Bool { editingSummaryTaskID == task.id }
+
+    /// The session's color, while it fills the name line of a selected row.
+    /// Gray is close enough to the system highlight to need no fill.
+    private var selectedFill: TaskColor? {
+        guard isSelected, let color = task.color, color != .gray else { return nil }
+        return color
+    }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.
@@ -87,6 +97,7 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title
+                    summary
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         detailLine(line, at: index)
                     }
@@ -170,11 +181,60 @@ struct TaskRowView: View {
                 // race silently; the next run loop turn wins it.
                 .onAppear { DispatchQueue.main.async { titleFocused = true } }
         } else {
-            Text(TitleStore.shared.displayTitle(for: task))
+            HStack(spacing: 5) {
+                if let color = task.color {
+                    Circle()
+                        .fill(selectedFill == nil ? color.color : .black)
+                        .frame(width: 8, height: 8)
+                        .accessibilityLabel(color.name)
+                }
+                Text(TitleStore.shared.displayTitle(for: task))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fontWeight(task.color == nil ? nil : .semibold)
+                    .foregroundStyle(titleStyle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if let selectedFill {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(selectedFill.color)
+                        .padding(.horizontal, -5)
+                        .padding(.vertical, -1)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var summary: some View {
+        if isEditingSummary {
+            TextField("Description", text: $task.summary)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .focused($summaryFocused)
+                .onSubmit(endEditingSummary)
+                .onChange(of: summaryFocused) { _, focused in
+                    if !focused { endEditingSummary() }
+                }
+                .onAppear { DispatchQueue.main.async { summaryFocused = true } }
+        } else if !task.summary.isEmpty {
+            Text(task.summary)
+                .font(.caption)
+                .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .emphasis(isInactive ? .secondary : .primary)
+                .help(task.summary)
+                .plumeID(AccessibilityID.taskSummary, label: task.summary)
         }
+    }
+
+    private var titleStyle: AnyShapeStyle {
+        if selectedFill != nil { return AnyShapeStyle(Color.black.opacity(isInactive ? 0.7 : 1)) }
+        guard let color = task.color else {
+            return AnyShapeStyle((isInactive ? Emphasis.secondary : .primary).textHierarchy)
+        }
+        return AnyShapeStyle(color.color.opacity(isInactive ? 0.7 : 1))
     }
 
     /// The project header shares the status badge's lines, so a badge glyph
@@ -235,9 +295,14 @@ struct TaskRowView: View {
     }
 
     private var accessibilityLabel: String {
-        ([TitleStore.shared.displayTitle(for: task)]
+        ([TitleStore.shared.displayTitle(for: task), task.summary.isEmpty ? nil : task.summary].compactMap { $0 }
             + detailLines.compactMap(TaskRowDetails.accessibilityText)
             + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
+    }
+
+    private func endEditingSummary() {
+        task.summary = task.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        editingSummaryTaskID = nil
     }
 
     /// Clearing the name is how the user goes back to showing the agent's own

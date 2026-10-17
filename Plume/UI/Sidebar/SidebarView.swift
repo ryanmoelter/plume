@@ -20,6 +20,7 @@ struct SidebarView: View {
     let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
+    @State private var editingSummaryTaskID: UUID?
     /// Each row and header's height, so a drop can tell which half it is over.
     @State private var dropTargetHeights: [UUID: CGFloat] = [:]
 
@@ -60,15 +61,6 @@ struct SidebarView: View {
                 }
             }
             .listStyle(.sidebar)
-            // Arrow keys came free with the list's selection; `.selectionDisabled`
-            // on the rows takes them with it, so they are wired up by hand.
-            .onMoveCommand { direction in
-                switch direction {
-                case .up: moveSelection(by: -1)
-                case .down: moveSelection(by: 1)
-                default: break
-                }
-            }
             .onDeleteCommand {
                 guard let task = tasks.first(where: { $0.id == selection }) else { return }
                 switch KeyboardRemoval.verbForDeleteKey(hasNeverStarted: task.hasNeverStarted) {
@@ -118,22 +110,25 @@ struct SidebarView: View {
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
-            TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
+            TaskRowView(
+                task: task,
+                isSelected: selection == task.id,
+                onSelect: { select(task) },
+                renamingTaskID: $renamingTaskID,
+                editingSummaryTaskID: $editingSummaryTaskID
+            )
                 .tag(task.id)
-                .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
-                // The list's own selection is turned off because
-                // `.listRowBackground` draws *behind* its fill, so the accent
-                // rectangle would show on top of the wash as a second
-                // selection state. Selection therefore comes from the tap.
-                .selectionDisabled()
-                // Simultaneous, not exclusive: a plain `.onTapGesture` claims
-                // the mouse-down, and the row's drag never starts.
-                //
-                // Not while renaming: the row's `TextField` needs the click
-                // to place its cursor.
+                // `.onDrag` keeps a click from reaching the list, so the tap
+                // selects. Simultaneous, not exclusive: an exclusive tap would
+                // claim the mouse-down and the drag would never start.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
+                    Button(task.summary.isEmpty ? "Add Description" : "Edit Description") {
+                        editingSummaryTaskID = task.id
+                    }
+                    .plumeID(AccessibilityID.taskEditDescriptionButton)
+                    colorMenu(for: task)
                     taskContextMenu(for: task)
                 }
                 .sidebarDragAndDrop(
@@ -193,8 +188,24 @@ struct SidebarView: View {
     }
 
     private func select(_ task: WorkTask) {
-        guard renamingTaskID != task.id else { return }
+        guard renamingTaskID != task.id, editingSummaryTaskID != task.id else { return }
         selection = task.id
+    }
+
+    private func colorMenu(for task: WorkTask) -> some View {
+        Picker("Color", selection: Binding(get: { task.color }, set: { task.color = $0 })) {
+            Text("None").tag(TaskColor?.none)
+            ForEach(TaskColor.allCases) { color in
+                Label {
+                    Text(color.name)
+                } icon: {
+                    Image(nsImage: color.menuSwatch)
+                }
+                .tag(TaskColor?.some(color))
+            }
+        }
+        .pickerStyle(.menu)
+        .plumeID(AccessibilityID.taskColorPicker)
     }
 
     @ViewBuilder
@@ -222,21 +233,6 @@ struct SidebarView: View {
         }
         Divider()
         Button("Delete", role: .destructive) { requestDelete(task) }
-    }
-
-    /// Every task in the order the sidebar shows them, which is what the
-    /// arrow keys walk.
-    private var navigableTasks: [WorkTask] {
-        groups.flatMap(tasksFor) + ungroupedTasks
-    }
-
-    private func moveSelection(by offset: Int) {
-        let destination = SidebarKeyboardNavigation.destination(
-            from: selection,
-            in: navigableTasks.map(\.id),
-            offset: offset
-        )
-        if let destination { selection = destination }
     }
 
     private func tasksFor(_ group: TaskGroup) -> [WorkTask] {

@@ -5,6 +5,9 @@ import SwiftData
 final class WorkTask {
     var id: UUID = UUID()
     var title: String = ""
+    var summary: String = ""
+    /// Nil means no color.
+    var colorRaw: String?
     var orderIndex: Int = 0
     var createdAt: Date = Date()
 
@@ -56,6 +59,11 @@ final class WorkTask {
     var permissionMode: PermissionMode? {
         get { permissionModeRaw.flatMap(PermissionMode.init(rawValue:)) }
         set { permissionModeRaw = newValue?.rawValue }
+    }
+
+    var color: TaskColor? {
+        get { colorRaw.flatMap(TaskColor.init(rawValue:)) }
+        set { colorRaw = newValue?.rawValue }
     }
 
     var workspaceKind: WorkspaceKind {

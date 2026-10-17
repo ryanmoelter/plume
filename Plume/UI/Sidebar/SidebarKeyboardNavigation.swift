@@ -1,10 +1,9 @@
 import Foundation
 
-/// Which task an arrow key moves the sidebar selection to.
+/// Which task Next Task and Previous Task move the sidebar selection to.
 ///
-/// Kept out of `SidebarView` so it is testable without SwiftData: the view's
-/// task lists come from `@Query`. The list's own selection used to provide
-/// this, but the rows disable it so the selection fill can be drawn by hand.
+/// Kept out of `MainWindow` so it is testable without SwiftData: the task
+/// lists come from `@Query`.
 enum SidebarKeyboardNavigation {
     /// The id to select after moving `offset` rows, or `nil` to stay put.
     ///
