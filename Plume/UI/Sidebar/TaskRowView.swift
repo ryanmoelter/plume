@@ -186,6 +186,7 @@ struct TaskRowView: View {
                     Circle()
                         .fill(selectedFill == nil ? color.color : .black)
                         .frame(width: 8, height: 8)
+                        .padding(.leading, 6)
                         .accessibilityLabel(color.name)
                 }
                 Text(TitleStore.shared.displayTitle(for: task))
@@ -197,9 +198,10 @@ struct TaskRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if let selectedFill {
-                    RoundedRectangle(cornerRadius: 4)
+                    // Not past the leading edge, where the row clips.
+                    Capsule()
                         .fill(selectedFill.color)
-                        .padding(.horizontal, -5)
+                        .padding(.trailing, -5)
                         .padding(.vertical, -1)
                 }
             }
