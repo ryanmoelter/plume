@@ -35,6 +35,7 @@ final class AppSettings {
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
+        static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
@@ -167,6 +168,9 @@ final class AppSettings {
         self.infoPaneBackgroundTasksExpanded = defaults.object(forKey: Key.infoPaneBackgroundTasksExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneBackgroundTasksExpanded)
+        self.infoPaneArtifactsExpanded = defaults.object(forKey: Key.infoPaneArtifactsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneArtifactsExpanded)
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
@@ -463,6 +467,12 @@ final class AppSettings {
     var infoPaneBackgroundTasksExpanded: Bool {
         didSet {
             defaults.set(infoPaneBackgroundTasksExpanded, forKey: Key.infoPaneBackgroundTasksExpanded)
+        }
+    }
+
+    var infoPaneArtifactsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneArtifactsExpanded, forKey: Key.infoPaneArtifactsExpanded)
         }
     }
 

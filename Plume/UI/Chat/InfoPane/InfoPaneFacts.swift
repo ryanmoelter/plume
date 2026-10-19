@@ -62,6 +62,7 @@ struct InfoPaneFacts: Equatable {
     var pullRequest: PullRequestFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
+    var artifacts: [ConversationArtifact] = []
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
@@ -69,6 +70,7 @@ struct InfoPaneFacts: Equatable {
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
         if planTitle != nil { sections.append(.plan) }
+        if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
@@ -83,7 +85,7 @@ struct InfoPaneFacts: Equatable {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
             case .folder, .sideChat: false
-            case .backgroundTasks, .plan, .pullRequest: true
+            case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
         }
     }
@@ -122,6 +124,7 @@ enum InfoPaneSection: Equatable {
     case subagents
     case backgroundTasks
     case plan
+    case artifacts
     case sideChat
     case folder
     case branch
@@ -135,6 +138,9 @@ enum InfoPaneLayout {
     /// icons starts on one edge.
     static let iconColumnWidth: CGFloat = 16
     static let columnSpacing: CGFloat = 6
+    /// Above and below every row, so a clickable row's hover wash has room
+    /// and plain rows keep the same rhythm.
+    static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,

@@ -195,7 +195,8 @@ struct ChatTabView: View, ThemedView {
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
             pullRequest: pullRequest,
-            sideChatCount: claudeSession?.sideQuestions.count ?? 0
+            sideChatCount: claudeSession?.sideQuestions.count ?? 0,
+            artifacts: ConversationArtifact.artifacts(in: conversationMessages)
         )
     }
 

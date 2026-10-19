@@ -160,7 +160,7 @@ enum AgentLauncher {
             settingsPath: settingsPath,
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
-            environment: LoginShellCommand.plumeEnvironment,
+            environment: HeadlessCommand.environment,
             fork: fork
         )
         if blocks.hasContent {

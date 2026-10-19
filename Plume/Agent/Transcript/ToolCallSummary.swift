@@ -68,6 +68,11 @@ nonisolated struct ToolCallSummary: Equatable {
         case "Skill":
             guard let skill = input["skill"]?.stringValue else { return nil }
             return (skill, .code)
+        case "Artifact":
+            let action = input["action"]?.stringValue ?? "publish"
+            guard action == "publish" else { return (action, .code) }
+            guard let title = input["title"]?.stringValue else { return nil }
+            return (title, .prose)
         case "WebFetch":
             guard let urlString = input["url"]?.stringValue else { return nil }
             return (URL(string: urlString)?.host ?? urlString, .code)

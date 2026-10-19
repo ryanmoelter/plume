@@ -108,6 +108,22 @@ struct ToolCallSummaryTests {
         #expect(summary.detail == nil)
         #expect(summary.plainText == "Bash")
     }
+
+    @Test func anArtifactPublishShowsItsTitleAsProse() {
+        let summary = ToolCallSummary(name: "Artifact", input: ["file_path": .string("/tmp/notes.html"), "title": .string("Release notes")])
+        #expect(summary.detail == "Release notes")
+        #expect(summary.detailStyle == .prose)
+    }
+
+    @Test func anUntitledArtifactPublishShowsNoFileName() {
+        let summary = ToolCallSummary(name: "Artifact", input: ["file_path": .string("/tmp/notes.html")])
+        #expect(summary.detail == nil)
+    }
+
+    @Test func anyOtherArtifactActionShowsTheAction() {
+        let summary = ToolCallSummary(name: "Artifact", input: ["action": .string("list")])
+        #expect(summary.detail == "list")
+    }
 }
 
 struct ToolCallInputRenderingTests {
