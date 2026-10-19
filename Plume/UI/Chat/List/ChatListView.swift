@@ -8,6 +8,7 @@ import SwiftUI
 struct ChatListView: NSViewRepresentable {
     var inputs: ChatListInputs
     var revealModel: ChatRevealModel?
+    var paneFocus: PaneFocusState?
     var commands: ChatListCommands
     /// Passed beside `inputs` rather than within it: it carries a closure, so
     /// it cannot be compared. The controller restages rows itself when what
@@ -45,6 +46,7 @@ struct ChatListView: NSViewRepresentable {
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
         controller.revealModel = revealModel
+        controller.paneFocus = paneFocus
         controller.redoContext = redoContext
         if controller.inputs != inputs {
             controller.update(inputs)

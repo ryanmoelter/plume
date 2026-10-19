@@ -41,10 +41,11 @@ final class UnreadStore {
         }
     }
 
-    /// Clears whichever tab the user is looking at now.
+    /// Clears whichever tabs the user is looking at now — both panes of a
+    /// split task.
     func markViewed(_ audience: NotificationAudience) {
-        guard audience.isAppActive, let tabID = audience.selectedTabID else { return }
-        unreadTabs.remove(tabID)
+        guard audience.isAppActive else { return }
+        unreadTabs.subtract(audience.onScreenTabIDs)
     }
 
     func forget(tabID: UUID) {

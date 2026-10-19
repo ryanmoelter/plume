@@ -10,7 +10,10 @@ final class TaskTab {
     /// restore each tab's rank before anything re-reads a transcript — see
     /// `TitleSource` and `TitleStore.setTitle(_:forTab:source:)`.
     var titleSourceRaw: String?
+    /// Dense within the tab's pane, not across the task.
     var orderIndex: Int = 0
+    /// Which of its task's panes the tab sits in, counted from the left.
+    var paneIndex: Int = 0
     var task: WorkTask?
 
     /// Tombstone: `TabRenderMode` was removed (transport alone now decides a

@@ -1,4 +1,3 @@
-import Dispatch
 import SwiftUI
 
 /// An agent tab before its first message: no `claude` process exists yet, so
@@ -7,6 +6,7 @@ struct AgentFirstMessageView: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
+    var isFocused = true
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var message = ""
@@ -66,17 +66,8 @@ struct AgentFirstMessageView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
-        // Only the visible tab takes focus; hidden tabs stay mounted, and
-        // focusing every one of them makes them fight over the input.
-        //
-        // Deferred a tick: switching *tasks* replaces this whole subtree
-        // (tabs are keyed by id, and a new task's tabs share none with the
-        // old one's), so the outgoing tab's view is still resigning real
-        // first responder when this fires. Claiming it in the same
-        // transaction loses the race silently; the next run loop turn wins it.
-        .onChange(of: isVisible, initial: true) { _, visible in
-            guard visible else { return }
-            DispatchQueue.main.async { inputFocused = true }
+        .claimsPaneFocus(isFocused: isVisible && isFocused) {
+            inputFocused = true
         }
         .sheet(isPresented: $resumeSheetShown) {
             if let path = task.workingDirectoryPath {

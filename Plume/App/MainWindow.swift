@@ -54,7 +54,10 @@ struct MainWindow: View {
             windowWidth = newWidth
         }
         .frame(
-            minWidth: WindowMetrics.minimumWidth(sidebarVisible: columnVisibility != .detailOnly),
+            minWidth: WindowMetrics.minimumWidth(
+                sidebarVisible: columnVisibility != .detailOnly,
+                paneCount: selectedTask?.paneCount ?? 1
+            ),
             minHeight: WindowMetrics.minimumHeight
         )
         .sheet(isPresented: $archiveShown) {
@@ -113,19 +116,8 @@ struct MainWindow: View {
         .focusedSceneValue(\.taskCommands, selectedTask.map { task in
             TaskCommands(
                 addTab: { kind in TaskStore.addTab(to: task, kind: kind, in: context) },
-                selectTab: { index in
-                    let tabs = task.orderedTabs
-                    guard tabs.indices.contains(index) else { return }
-                    TaskStore.selectTab(tabs[index], in: task)
-                },
-                cycleTab: { offset in
-                    let tabs = task.orderedTabs
-                    guard !tabs.isEmpty,
-                          let current = tabs.firstIndex(where: { $0.id == task.selectedTabID })
-                    else { return }
-                    let next = (current + offset + tabs.count) % tabs.count
-                    TaskStore.selectTab(tabs[next], in: task)
-                },
+                selectTab: { index in TaskStore.selectTab(atIndex: index, in: task) },
+                cycleTab: { offset in TaskStore.cycleTab(by: offset, in: task) },
                 closeSelectedTab: {
                     if KeyboardRemoval.deletesTaskOnClose(tabCount: task.tabs.count) {
                         requestRemoval(of: task, verb: .delete)
@@ -141,7 +133,12 @@ struct MainWindow: View {
                 },
                 startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
                     { tabPendingStartFresh = tab }
-                }
+                },
+                isSplit: task.isSplit,
+                toggleSplit: task.isSplit
+                    ? { TaskStore.closeSplit(in: task) }
+                    : TaskStore.canSplitRight(in: task) ? { TaskStore.splitRight(in: task) } : nil,
+                focusOtherPane: task.isSplit ? { TaskStore.focusOtherPane(in: task) } : nil
             )
         })
         .confirmationDialog(
@@ -166,7 +163,7 @@ struct MainWindow: View {
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
-        .clearsUnreadOnView(selectedTabID: selectedTask?.selectedTabID)
+        .clearsUnreadOnView(onScreenTabIDs: selectedTask?.paneTabIDs ?? [])
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
             guard let route else { return }
             follow(route)
@@ -194,7 +191,7 @@ struct MainWindow: View {
             NotificationAudience(
                 isAppActive: NSApp.isActive,
                 selectedTaskID: selection,
-                selectedTabID: selectedTask?.selectedTabID
+                onScreenTabIDs: Set(selectedTask?.paneTabIDs ?? [])
             )
         }
         statusNotifier = StatusNotifier { tabID in
@@ -229,6 +226,7 @@ struct MainWindow: View {
             renamingTaskID: $renamingTaskID,
             archiveShown: $archiveShown,
             windowWidth: windowWidth,
+            paneCount: selectedTask?.paneCount ?? 1,
             requestArchive: { requestRemoval(of: $0, verb: .archive) },
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
         )

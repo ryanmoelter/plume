@@ -116,6 +116,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     @State private var viewportWidth: CGFloat = 0
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
+    @Environment(\.paneFocus) private var paneFocus
 
     /// The minimap overlays the list rather than taking a column beside it, so
     /// the list gets the whole viewport and centers its columns in the same
@@ -157,6 +158,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                 arrivals: arrivals
             ),
             revealModel: revealModel,
+            paneFocus: paneFocus,
             commands: commands,
             redoContext: redoContext,
             onOpenPlan: onOpenPlan,

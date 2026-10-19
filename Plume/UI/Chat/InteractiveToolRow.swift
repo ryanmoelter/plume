@@ -164,7 +164,7 @@ struct InteractiveToolRow: View, ThemedView {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+                .paneKeyboardShortcut(.defaultAction)
                 .disabled(!answerState.isComplete(for: [question]))
             }
             .font(typography.caption.font)

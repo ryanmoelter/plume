@@ -13,6 +13,8 @@ struct SidebarView: View {
     @Binding var renamingTaskID: UUID?
     @Binding var archiveShown: Bool
     let windowWidth: CGFloat
+    /// The selected task's, which sets how much width the detail column needs.
+    let paneCount: Int
     /// Both delete and archive can touch a Plume-owned worktree, so
     /// `MainWindow` owns the shared confirmation dialog and this view only
     /// asks it to run one.
@@ -108,7 +110,7 @@ struct SidebarView: View {
         .navigationSplitViewColumnWidth(
             min: WindowMetrics.sidebarMinimumWidth,
             ideal: WindowMetrics.sidebarIdealWidth,
-            max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth)
+            max: WindowMetrics.sidebarMaximumWidth(windowWidth: windowWidth, paneCount: paneCount)
         )
     }
 

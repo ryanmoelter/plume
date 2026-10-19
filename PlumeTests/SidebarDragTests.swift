@@ -89,20 +89,20 @@ struct InAppDragTests {
         let drag = InAppDrag()
         drag.begin(.task(a))
         drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .before))
-        drag.showTabStripGap(TabStripGap(taskID: task, gap: 1))
+        drag.showTabStripGap(TabStripGap(taskID: task, pane: 0, gap: 1))
         return drag
     }
 
     @Test func updatesDrawFeedbackDuringADrag() {
         let drag = dragWithFeedback()
         #expect(drag.sidebarIndicator == SidebarDropIndicator(target: .task(b), placement: .before))
-        #expect(drag.tabStripGap == TabStripGap(taskID: task, gap: 1))
+        #expect(drag.tabStripGap == TabStripGap(taskID: task, pane: 0, gap: 1))
     }
 
     @Test func aForeignDragDrawsNothing() {
         let drag = InAppDrag()
         drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .into))
-        drag.showTabStripGap(TabStripGap(taskID: task, gap: 0))
+        drag.showTabStripGap(TabStripGap(taskID: task, pane: 0, gap: 0))
         #expect(drag.sidebarIndicator == nil)
         #expect(drag.tabStripGap == nil)
     }
@@ -110,12 +110,12 @@ struct InAppDragTests {
     @Test func exitClearsOnlyItsOwnTarget() {
         let drag = dragWithFeedback()
         drag.clearSidebarIndicator(on: .task(a))
-        drag.clearTabStripGap(in: otherTask)
+        drag.clearTabStripGap(in: otherTask, pane: 0)
         #expect(drag.sidebarIndicator != nil)
         #expect(drag.tabStripGap != nil)
 
         drag.clearSidebarIndicator(on: .task(b))
-        drag.clearTabStripGap(in: task)
+        drag.clearTabStripGap(in: task, pane: 0)
         #expect(drag.sidebarIndicator == nil)
         #expect(drag.tabStripGap == nil)
     }
@@ -133,7 +133,7 @@ struct InAppDragTests {
         let drag = dragWithFeedback()
         _ = drag.takeForDrop()
         drag.showSidebarIndicator(SidebarDropIndicator(target: .task(b), placement: .after))
-        drag.showTabStripGap(TabStripGap(taskID: task, gap: 2))
+        drag.showTabStripGap(TabStripGap(taskID: task, pane: 0, gap: 2))
         #expect(drag.sidebarIndicator == nil)
         #expect(drag.tabStripGap == nil)
     }
@@ -141,7 +141,7 @@ struct InAppDragTests {
     @Test func releaseClearsFeedbackAtOnceAndTheItemAfterTheGrace() async {
         let drag = InAppDrag(releaseGrace: .milliseconds(1))
         drag.begin(.tab(a))
-        drag.showTabStripGap(TabStripGap(taskID: task, gap: 0))
+        drag.showTabStripGap(TabStripGap(taskID: task, pane: 0, gap: 0))
         let release = drag.buttonReleased()
         #expect(drag.tabStripGap == nil)
         #expect(drag.item == .tab(a))

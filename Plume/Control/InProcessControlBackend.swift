@@ -208,7 +208,7 @@ final class InProcessControlBackend: ControlBackend {
         var out: [String] = []
         if let item = drag.item { out.append("item \(item.payload)") }
         if let indicator = drag.sidebarIndicator { out.append("sidebar \(indicator.target) \(indicator.placement)") }
-        if let gap = drag.tabStripGap { out.append("tabStrip gap \(gap.gap)") }
+        if let gap = drag.tabStripGap { out.append("tabStrip pane \(gap.pane) gap \(gap.gap)") }
         return out
     }
 
@@ -419,18 +419,34 @@ final class InProcessControlBackend: ControlBackend {
 
     private func composerTextView() throws -> ComposerNSTextView {
         let window = try window(for: nil)
-        guard let content = window.contentView, let composer = ViewFinder.first(ComposerNSTextView.self, in: content) else {
-            throw ControlError.noComposer
-        }
+        guard let content = window.contentView,
+              let composer = inFocusedPane(ViewFinder.all(ComposerNSTextView.self, in: content), of: window)
+        else { throw ControlError.noComposer }
         return composer
     }
 
     private func chatListDocumentView() throws -> ChatListDocumentView {
         let window = try window(for: nil)
-        guard let content = window.contentView, let list = ViewFinder.first(ChatListDocumentView.self, in: content) else {
-            throw ControlError.notFound("chat list")
-        }
+        guard let content = window.contentView,
+              let list = inFocusedPane(ViewFinder.all(ChatListDocumentView.self, in: content), of: window)
+        else { throw ControlError.notFound("chat list") }
         return list
+    }
+
+    /// A split shows two chats, so the composer and chat list surfaces
+    /// resolve to the focused pane's. The first match in tree order is the
+    /// fallback, which is the only match without a split.
+    private func inFocusedPane<View: NSView>(_ candidates: [View], of window: NSWindow) -> View? {
+        guard candidates.count > 1,
+              let pane = registry.entries(id: AccessibilityID.tabPane)
+                  .first(where: { $0.entry.value == "focused" && $0.entry.window === window })?.entry
+        else { return candidates.first }
+        let height = contentHeight(of: window)
+        // `visibleRect`: a chat list's document view runs far past its pane.
+        return candidates.first { view in
+            let frame = WindowGeometry.topLeftRect(fromAppKit: view.convert(view.visibleRect, to: nil), contentHeight: height)
+            return pane.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
+        } ?? candidates.first
     }
 
     /// Text-bearing views under `root`, top to bottom.

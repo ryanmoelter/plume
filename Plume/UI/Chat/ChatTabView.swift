@@ -9,11 +9,13 @@ struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
+    var isFocused = true
 
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var settings = AppSettings.shared
+    @State private var paneFocus = PaneFocusState()
     @State private var planPresentation = PlanPresentation.hidden(.closed)
     /// The last plan proposal the user answered here, so the footer can say
     /// where it landed once the live request is gone. Nil until they answer
@@ -289,6 +291,8 @@ struct ChatTabView: View, ThemedView {
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+        .environment(\.paneFocus, paneFocus)
+        .onChange(of: isFocused, initial: true) { _, focused in paneFocus.isFocused = focused }
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
@@ -557,6 +561,7 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible && !planPresentation.isExpanded,
+                isFocused: isFocused,
                 hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 sendNowRequested: $sendNowRequested
@@ -736,7 +741,7 @@ struct ChatTabView: View, ThemedView {
                 .emphasis(.secondary)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        .paneKeyboardShortcut(.cancelAction)
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
         .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
@@ -1112,6 +1117,7 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
+                isFocused: isFocused,
                 onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
             )
             .disabled(!isComposerEnabled)

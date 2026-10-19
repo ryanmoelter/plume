@@ -1,6 +1,8 @@
 # Keyboard shortcuts
 
-Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+
+In a split task, each pane has its own strip, and the tab chords act on the focused pane only. ⌘1…⌘9 count within its strip, and Next and Previous Tab wrap within it. `TaskStore.selectTab(atIndex:in:)` and `TaskStore.cycleTab(by:in:)` own this. `⌘\` while unsplit moves the focused tab into a new right pane, and is disabled when the task has one tab. `⇧⌘\` is left alone because AppKit's Show All Tabs uses it.
 
 Three layers have to agree for a chord to work.
 

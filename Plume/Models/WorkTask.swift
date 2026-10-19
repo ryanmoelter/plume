@@ -44,6 +44,12 @@ final class WorkTask {
     /// Which agent tab's title stands in for the task in the sidebar, so
     /// dipping into a terminal tab doesn't relabel the row.
     var lastFocusedAgentTabID: UUID?
+    /// Each pane's selected tab, left to right, as comma-separated UUIDs.
+    /// `selectedTabID` is the focused pane's and wins over its entry here.
+    /// Only `TaskStore` writes it.
+    var paneSelectedTabIDsRaw: String = ""
+    /// The leading pane's share of the detail width.
+    var splitFraction: Double = 0.5
 
     init(title: String, orderIndex: Int, group: TaskGroup? = nil) {
         self.id = UUID()
@@ -68,8 +74,60 @@ final class WorkTask {
         set { lastStatusRaw = newValue.rawValue }
     }
 
+    /// Every tab, pane by pane, each pane in strip order.
     var orderedTabs: [TaskTab] {
-        tabs.sorted { $0.orderIndex < $1.orderIndex }
+        tabs.sorted { ($0.paneIndex, $0.orderIndex) < ($1.paneIndex, $1.orderIndex) }
+    }
+
+    /// `TaskStore` keeps `TaskTab.paneIndex` dense, so the highest one
+    /// counts the panes.
+    var paneCount: Int {
+        (tabs.map(\.paneIndex).max() ?? 0) + 1
+    }
+
+    var isSplit: Bool { paneCount > 1 }
+
+    var focusedPane: Int {
+        tabs.first { $0.id == selectedTabID }?.paneIndex ?? 0
+    }
+
+    /// In strip order.
+    func tabs(inPane pane: Int) -> [TaskTab] {
+        tabs.filter { $0.paneIndex == pane }.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    /// Every pane's tabs, left to right. Each read regroups, so a view body
+    /// reads it once and passes it down.
+    var panes: [[TaskTab]] {
+        let ordered = orderedTabs
+        return (0..<paneCount).map { pane in ordered.filter { $0.paneIndex == pane } }
+    }
+
+    var paneSelectedTabIDs: [UUID?] {
+        get {
+            guard !paneSelectedTabIDsRaw.isEmpty else { return [] }
+            return paneSelectedTabIDsRaw.split(separator: ",", omittingEmptySubsequences: false)
+                .map { UUID(uuidString: String($0)) }
+        }
+        set { paneSelectedTabIDsRaw = newValue.map { $0?.uuidString ?? "" }.joined(separator: ",") }
+    }
+
+    /// The tab each pane shows, left to right. Unsplit, that is the focused
+    /// tab alone, or nothing when none is selected.
+    var paneTabIDs: [UUID] {
+        paneTabIDs(in: panes)
+    }
+
+    /// `paneTabIDs` for `panes` already read from this task.
+    func paneTabIDs(in panes: [[TaskTab]]) -> [UUID] {
+        guard panes.count > 1 else { return selectedTabID.map { [$0] } ?? [] }
+        let remembered = paneSelectedTabIDs
+        return panes.enumerated().compactMap { index, tabs in
+            let ids = tabs.map(\.id)
+            if let selectedTabID, ids.contains(selectedTabID) { return selectedTabID }
+            if remembered.indices.contains(index), let id = remembered[index], ids.contains(id) { return id }
+            return ids.first
+        }
     }
 
     /// Never had an agent session — not merely idle right now.
