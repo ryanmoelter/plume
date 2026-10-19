@@ -246,7 +246,7 @@ struct InteractiveToolRow: View, ThemedView {
                 }
             }
         }
-        .decisionField(isFilled: isSelected && isAnswerable, colors: colors)
+        .decisionField(isFilled: isSelected && isAnswerable)
         .contentShape(.rect)
         .chatTextColumn()
 
@@ -275,10 +275,7 @@ struct InteractiveToolRow: View, ThemedView {
             ), axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(typography.body.medium)
-                .decisionField(
-                    isFilled: !answerState.freeText(for: question).isEmpty,
-                    colors: colors
-                )
+                .decisionField(isFilled: !answerState.freeText(for: question).isEmpty)
                 .chatTextColumn()
                 .plumeID(
                     AccessibilityID.questionFreeTextField,

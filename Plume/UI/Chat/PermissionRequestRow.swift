@@ -79,7 +79,7 @@ struct PermissionRequestRow: View, ThemedView {
         TextField("Reason (optional, sent on deny)", text: $denialReason, axis: .vertical)
             .textFieldStyle(.plain)
             .font(typography.body.medium)
-            .decisionField(isFilled: !denialReason.isEmpty, colors: colors)
+            .decisionField(isFilled: !denialReason.isEmpty)
             .chatTextColumn()
             .plumeID(
                 AccessibilityID.permissionDenialReasonField,
