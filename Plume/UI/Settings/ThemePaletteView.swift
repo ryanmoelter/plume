@@ -2,7 +2,7 @@ import GhosttyTheme
 import SwiftUI
 
 /// One terminal theme's palette on its own background: the regular colors
-/// over their bright variants, the system accent, then the text color. Every
+/// over their bright variants, the text color, then the system accent. Every
 /// swatch but the text color picks the accent color; nil is the system accent.
 struct ThemePaletteView: View {
     let definition: GhosttyThemeDefinition
@@ -26,6 +26,11 @@ struct ThemePaletteView: View {
                     swatchRow(slots: 0..<8)
                     swatchRow(slots: 8..<16)
                 }
+                captioned("Text") {
+                    Circle()
+                        .fill(foreground)
+                        .frame(width: Self.swatchSize, height: Self.swatchSize)
+                }
                 captioned("System") {
                     swatch(
                         color: Color(nsColor: .controlAccentColor),
@@ -34,11 +39,6 @@ struct ThemePaletteView: View {
                         id: "system",
                         select: { onSelect(nil) }
                     )
-                }
-                captioned("Text") {
-                    Circle()
-                        .fill(foreground)
-                        .frame(width: Self.swatchSize, height: Self.swatchSize)
                 }
             }
         }
