@@ -22,46 +22,43 @@ struct SidebarView: View {
     @State private var renamingGroupID: UUID?
     /// Each row and header's height, so a drop can tell which half it is over.
     @State private var dropTargetHeights: [UUID: CGFloat] = [:]
+    /// Only ever set true. Setting a `FocusState` false resigns whatever is
+    /// first responder at that moment.
+    @FocusState private var isListFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: $selection) {
-                ForEach(groups) { group in
-                    Section {
-                        if group.isExpanded {
-                            taskRows(in: tasksFor(group))
-                        }
-                    } header: {
-                        GroupSectionHeader(
-                            group: group,
-                            isRenaming: renamingGroupID == group.id,
-                            onDoneRenaming: { renamingGroupID = nil },
-                            onCreateTask: { createTask(in: group) }
-                        )
-                        .plumeID(AccessibilityID.groupHeader, label: group.name)
-                        .contextMenu {
-                            Button("Rename Group") { renamingGroupID = group.id }
-                            Button("New Task in Group") { createTask(in: group) }
-                            Divider()
-                            Button("Delete Group", role: .destructive) {
-                                TaskStore.deleteGroup(group, in: context)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups) { group in
+                            groupHeader(group)
+                                .padding(.top, group.id == groups.first?.id ? 0 : SidebarMetrics.headerTopSpacing)
+                            if group.isExpanded {
+                                taskRows(in: tasksFor(group))
                             }
                         }
-                        .sidebarDragAndDrop(
-                            .group(group.id),
-                            target: .group(group.id),
-                            heights: $dropTargetHeights
-                        ) { handleDrop($0, $1, onto: group) }
-                    }
-                }
 
-                Section("Ungrouped") {
-                    taskRows(in: ungroupedTasks)
+                        Text("Ungrouped")
+                            .sidebarSectionHeader()
+                            .padding(.top, groups.isEmpty ? 0 : SidebarMetrics.headerTopSpacing)
+                        taskRows(in: ungroupedTasks)
+                    }
+                    .padding(.horizontal, SidebarMetrics.listHorizontalInset)
+                    .padding(.bottom, SidebarMetrics.rowVerticalPadding)
+                }
+                .onChange(of: selection) { _, id in
+                    guard let id else { return }
+                    withAnimation { proxy.scrollTo(id) }
                 }
             }
-            .listStyle(.sidebar)
-            // Arrow keys came free with the list's selection; `.selectionDisabled`
-            // on the rows takes them with it, so they are wired up by hand.
+            // Hand-built because `List(.sidebar)` paints its own accent
+            // highlight on a row selected from code or right-clicked, with no
+            // way to turn it off. The arrow keys and Delete need focus, so a
+            // row claims it on tap.
+            .focusable()
+            .focused($isListFocused)
+            .focusEffectDisabled()
             .onMoveCommand { direction in
                 switch direction {
                 case .up: moveSelection(by: -1)
@@ -115,17 +112,35 @@ struct SidebarView: View {
         )
     }
 
+    private func groupHeader(_ group: TaskGroup) -> some View {
+        GroupSectionHeader(
+            group: group,
+            isRenaming: renamingGroupID == group.id,
+            onDoneRenaming: { renamingGroupID = nil },
+            onCreateTask: { createTask(in: group) }
+        )
+        .sidebarSectionHeader()
+        .plumeID(AccessibilityID.groupHeader, label: group.name)
+        .contextMenu {
+            Button("Rename Group") { renamingGroupID = group.id }
+            Button("New Task in Group") { createTask(in: group) }
+            Divider()
+            Button("Delete Group", role: .destructive) {
+                TaskStore.deleteGroup(group, in: context)
+            }
+        }
+        .sidebarDragAndDrop(
+            .group(group.id),
+            target: .group(group.id),
+            heights: $dropTargetHeights
+        ) { handleDrop($0, $1, onto: group) }
+    }
+
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
             TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
-                .tag(task.id)
-                .listRowBackground(SidebarSelectionFill(isSelected: selection == task.id))
-                // The list's own selection is turned off because
-                // `.listRowBackground` draws *behind* its fill, so the accent
-                // rectangle would show on top of the wash as a second
-                // selection state. Selection therefore comes from the tap.
-                .selectionDisabled()
+                .sidebarRow(isSelected: selection == task.id)
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
                 //
@@ -195,6 +210,7 @@ struct SidebarView: View {
     private func select(_ task: WorkTask) {
         guard renamingTaskID != task.id else { return }
         selection = task.id
+        isListFocused = true
     }
 
     @ViewBuilder

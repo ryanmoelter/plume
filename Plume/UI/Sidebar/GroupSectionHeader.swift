@@ -50,10 +50,6 @@ struct GroupSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .plumeID(AccessibilityID.groupHeaderNewTaskButton)
-                // A sidebar section header gets less trailing inset than its
-                // rows, so the button pays the difference to line up with the
-                // status icons below it.
-                .padding(.trailing, 15)
             }
         }
         .contentShape(Rectangle())

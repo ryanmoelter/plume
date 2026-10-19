@@ -308,8 +308,7 @@ extension SidebarDropTarget {
 
 /// Where a drag over a row or header would land: an outline for a drop into
 /// it, or a line along its top or bottom edge for a reorder. An overlay, so
-/// it never changes the row's height, and not `.listRowBackground`, which the
-/// list does not reliably redraw while the row's content stays the same.
+/// it never changes the row's height.
 private struct SidebarDropMarker: View {
     let target: SidebarDropTarget
 

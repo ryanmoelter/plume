@@ -4,34 +4,53 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("settingsSelectedPane") private var selectedPaneRaw = SettingsPane.general.rawValue
     @State private var cliRefresh = 0
+    /// Only ever set true. Setting a `FocusState` false resigns whatever is
+    /// first responder at that moment.
+    @FocusState private var isPaneListFocused: Bool
 
     private var displayedProviders: Set<AgentProviderKind>? {
         AgentCLIAvailability.shared.providers.map { AgentCLIInstallation.displayedProviders($0) }
     }
 
-    private var selectedPane: Binding<SettingsPane?> {
-        Binding(
-            get: { SettingsPane(rawValue: selectedPaneRaw) ?? .general },
-            set: { if let newValue = $0 { selectedPaneRaw = newValue.rawValue } }
-        )
+    private var selectedPane: SettingsPane {
+        SettingsPane(rawValue: selectedPaneRaw) ?? .general
     }
 
-    private var drawsOwnSelection: Bool { AppSettings.shared.accentPaletteSlot != nil }
+    private func select(_ pane: SettingsPane) {
+        selectedPaneRaw = pane.rawValue
+        isPaneListFocused = true
+    }
+
+    private func moveSelection(by offset: Int) {
+        let panes = SettingsPane.allCases
+        guard let index = panes.firstIndex(of: selectedPane) else { return }
+        let destination = index + offset
+        guard panes.indices.contains(destination) else { return }
+        selectedPaneRaw = panes[destination].rawValue
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: selectedPane) {
-                ForEach(SettingsPane.allCases) { pane in
-                    Label(pane.title, systemImage: pane.symbol)
-                        .plumeID(AccessibilityID.settingsPane, label: pane.rawValue, invoke: { selectedPaneRaw = pane.rawValue })
-                        // With a palette accent the row draws its own fill,
-                        // which the list's selection would cover in the
-                        // system accent, so selection comes from the tap.
-                        .listRowBackground(SidebarSelectionFill(isSelected: drawsOwnSelection && selectedPaneRaw == pane.rawValue))
-                        .selectionDisabled(drawsOwnSelection)
-                        .simultaneousGesture(TapGesture().onEnded { selectedPaneRaw = pane.rawValue })
-                        // Outermost: a List reads the tag only from the row's top-level view.
-                        .tag(pane)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(SettingsPane.allCases) { pane in
+                        Label(pane.title, systemImage: pane.symbol)
+                            .labelStyle(SidebarIconLabelStyle())
+                            .sidebarRow(isSelected: selectedPane == pane)
+                            .onTapGesture { select(pane) }
+                            .plumeID(AccessibilityID.settingsPane, label: pane.rawValue, value: selectedPane == pane ? "selected" : nil, invoke: { select(pane) })
+                    }
+                }
+                .padding(.horizontal, SidebarMetrics.listHorizontalInset)
+            }
+            .focusable()
+            .focused($isPaneListFocused)
+            .focusEffectDisabled()
+            .onMoveCommand { direction in
+                switch direction {
+                case .up: moveSelection(by: -1)
+                case .down: moveSelection(by: 1)
+                default: break
                 }
             }
             .navigationSplitViewColumnWidth(180)
@@ -56,7 +75,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        switch SettingsPane(rawValue: selectedPaneRaw) ?? .general {
+        switch selectedPane {
         case .general: GeneralSettingsPane()
         case .agents: AgentsSettingsPane()
         case .visuals: VisualsSettingsPane()

@@ -1,15 +1,11 @@
 import SwiftUI
 
-/// The selected sidebar row's fill, drawn by hand so it stays a dim wash
-/// instead of the system accent's solid fill.
-///
-/// `List(selection:)` would otherwise fill a selected row with the accent
-/// color, which reads as bright blue over a `themeTint`ed sidebar. Taking the
-/// row background over replaces that fill.
+/// The selected sidebar row's fill: a dim wash rather than the system
+/// accent's solid fill, which reads as bright blue over a `themeTint`ed
+/// sidebar.
 ///
 /// The wash does not change with focus: one selected appearance, whether or
-/// not the sidebar is the active pane. `.tint` is not the seam for this — on a
-/// sidebar list it recolors the row's accent *content*, not the rectangle.
+/// not the sidebar is the active pane.
 ///
 /// The wash is the foreground until a palette accent is chosen, then that
 /// accent — so the system-accent default keeps the neutral look.
@@ -27,9 +23,7 @@ struct SidebarSelectionFill: View {
     var body: some View {
         fill
             .opacity(isSelected ? fillOpacity : 0)
-            .clipShape(.rect(cornerRadius: 6))
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
+            .clipShape(.rect(cornerRadius: SidebarMetrics.selectionCornerRadius))
     }
 
     private var usesAccent: Bool { AppSettings.shared.accentPaletteSlot != nil }
