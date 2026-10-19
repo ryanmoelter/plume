@@ -100,6 +100,7 @@ struct TabStripView: View {
 private struct TabChip: View {
     let task: WorkTask
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appearsActive) private var appearsActive
 
     let tab: TaskTab
     let isSelected: Bool
@@ -213,7 +214,7 @@ private struct TabChip: View {
     }
 
     private var chipBackground: Color {
-        isSelected ? SidebarSelectionFill.wash(for: colorScheme) : .clear
+        isSelected ? SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive) : .clear
     }
 }
 

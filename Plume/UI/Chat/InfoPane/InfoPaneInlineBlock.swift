@@ -23,7 +23,8 @@ struct InfoPaneInlineBlock: View, ThemedView {
                     headerButton: InfoPaneHeaderButton(
                         systemImage: "chevron.up",
                         help: "Collapse the info pane",
-                        value: "expanded"
+                        value: "expanded",
+                        isDisclosure: true
                     ) { settings.infoPaneState = .collapsed },
                     onOpenSubagent: onOpenSubagent,
                     onOpenPlan: onOpenPlan,
@@ -35,7 +36,8 @@ struct InfoPaneInlineBlock: View, ThemedView {
                     button: InfoPaneHeaderButton(
                         systemImage: "chevron.down",
                         help: "Expand the info pane",
-                        value: "collapsed"
+                        value: "collapsed",
+                        isDisclosure: true
                     ) { settings.infoPaneState = .expanded }
                 ) {
                     InfoPaneCollapsedIcons(facts: facts)

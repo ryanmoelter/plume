@@ -31,15 +31,15 @@ struct ThemeSettingsSection: View {
                 ThemePaletteView(
                     definition: palette.definition,
                     label: palette.label,
-                    selectedSlot: settings.accentPaletteSlot,
+                    selectedSlot: ThemeChrome.accentSlot,
                     onSelect: { settings.accentPaletteSlot = $0 }
                 )
             }
             LabeledContent {
                 HStack {
-                    Text(settings.accentPaletteSlot.map { ThemeChrome.paletteSlotNames[$0] } ?? "System")
+                    Text(accentDescription)
                         .foregroundStyle(.secondary)
-                    Button("Use System", action: useSystemAccent)
+                    Button("Match System", action: useSystemAccent)
                         .plumeID(AccessibilityID.settingsAccentSystemButton, invoke: useSystemAccent)
                         .disabled(settings.accentPaletteSlot == nil)
                 }
@@ -63,6 +63,12 @@ struct ThemeSettingsSection: View {
             return [("light", light), ("dark", dark)]
         }
         return (light ?? dark).map { [("theme", $0)] } ?? []
+    }
+
+    private var accentDescription: String {
+        if let slot = settings.accentPaletteSlot { return ThemeChrome.paletteSlotNames[slot] }
+        guard let slot = SystemAccent.shared.paletteSlot else { return "System" }
+        return "\(ThemeChrome.paletteSlotNames[slot]), from the system accent"
     }
 
     private func useSystemAccent() {

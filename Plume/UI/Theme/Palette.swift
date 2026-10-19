@@ -34,7 +34,8 @@ struct Palette {
     let success: Color
 
     /// The user's own choice, and only that. The accent color chosen in
-    /// settings, which defaults to the system accent.
+    /// settings, which defaults to the palette color closest to the system
+    /// accent. The text color while the window is inactive.
     let selection: Color
 
     /// A turn in flight. Shares `attention`'s hue because it carries the same
@@ -61,7 +62,8 @@ struct Palette {
     init(
         colorScheme: ColorScheme,
         definitions: GhosttyThemeResolver.ResolvedDefinitions?,
-        accentSlot: Int? = nil
+        accentSlot: Int? = nil,
+        isActive: Bool = true
     ) {
         background = ThemeChrome.background(for: colorScheme, in: definitions)
         foreground = ThemeChrome.foreground(for: colorScheme, in: definitions) ?? .primary
@@ -69,7 +71,9 @@ struct Palette {
         warning = ThemeChrome.paletteAccent(.warning, for: colorScheme, in: definitions) ?? .orange
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
-        selection = ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
+        selection = isActive
+            ? ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
+            : foreground
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
     }
 }

@@ -62,6 +62,7 @@ extension ThemedView {
 /// instead of every color re-resolving on every `body` pass of every row.
 private struct ThemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appearsActive) private var appearsActive
 
     let bodySize: CGFloat
     let setsAmbientFont: Bool
@@ -72,7 +73,8 @@ private struct ThemeModifier: ViewModifier {
             colors: Palette(
                 colorScheme: colorScheme,
                 definitions: GhosttyRuntime.shared.resolvedThemeDefinitions,
-                accentSlot: AppSettings.shared.accentPaletteSlot
+                accentSlot: ThemeChrome.accentSlot,
+                isActive: appearsActive
             ),
             dimensions: Dimensions(bodySize: bodySize),
             typography: typography

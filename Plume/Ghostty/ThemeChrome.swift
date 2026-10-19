@@ -142,14 +142,18 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(Color.init(hex:))
     }
 
-    /// The accent color: the palette slot chosen in settings, or the system
-    /// accent when none is chosen or the theme lacks that slot.
-    static func accent(for colorScheme: ColorScheme) -> Color {
-        accent(
-            slot: AppSettings.shared.accentPaletteSlot,
-            for: colorScheme,
-            in: GhosttyRuntime.shared.resolvedThemeDefinitions
-        )
+    /// The palette slot the accent comes from: the one chosen in settings,
+    /// or the one closest to the system accent.
+    static var accentSlot: Int? {
+        AppSettings.shared.accentPaletteSlot ?? SystemAccent.shared.paletteSlot
+    }
+
+    /// The accent color, or the system accent when the theme lacks the slot.
+    /// An inactive window draws it in the text color instead, the way the
+    /// system grays its own accent.
+    static func accent(for colorScheme: ColorScheme, isActive: Bool = true) -> Color {
+        guard isActive else { return foreground(for: colorScheme) ?? .primary }
+        return accent(slot: accentSlot, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
     }
 
     static func accent(
@@ -160,17 +164,31 @@ enum ThemeChrome {
         slot.flatMap { paletteColor(slot: $0, for: colorScheme, in: definitions) } ?? .accentColor
     }
 
-    /// `accent(for:)` for AppKit drawing, resolving per appearance at draw time.
-    static func accentNSColor() -> NSColor {
-        let slot = AppSettings.shared.accentPaletteSlot
+    /// `accent(for:isActive:)` for AppKit drawing, resolving per appearance at
+    /// draw time.
+    static func accentNSColor(isActive: Bool = true) -> NSColor {
         let definitions = GhosttyRuntime.shared.resolvedThemeDefinitions
-        let light = slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) }
-        let dark = slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) }
-        guard light != nil || dark != nil else { return .controlAccentColor }
+        guard isActive else {
+            return appearanceColor(
+                light: foreground(for: .light, in: definitions),
+                dark: foreground(for: .dark, in: definitions),
+                fallback: .labelColor
+            )
+        }
+        let slot = accentSlot
+        return appearanceColor(
+            light: slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) },
+            dark: slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) },
+            fallback: .controlAccentColor
+        )
+    }
+
+    private static func appearanceColor(light: Color?, dark: Color?, fallback: NSColor) -> NSColor {
+        guard light != nil || dark != nil else { return fallback }
 
         return NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return (isDark ? dark : light).map { NSColor($0) } ?? .controlAccentColor
+            return (isDark ? dark : light).map { NSColor($0) } ?? fallback
         }
     }
 
@@ -216,9 +234,10 @@ private struct ThemeTintModifier: ViewModifier {
 
 private struct AccentTintModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appearsActive) private var appearsActive
 
     func body(content: Content) -> some View {
-        content.tint(ThemeChrome.accent(for: colorScheme))
+        content.tint(ThemeChrome.accent(for: colorScheme, isActive: appearsActive))
     }
 }
 

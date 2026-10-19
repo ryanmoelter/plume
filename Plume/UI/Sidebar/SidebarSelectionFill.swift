@@ -4,21 +4,19 @@ import SwiftUI
 /// accent's solid fill, which reads as bright blue over a `themeTint`ed
 /// sidebar.
 ///
-/// The wash does not change with focus: one selected appearance, whether or
-/// not the sidebar is the active pane.
-///
-/// The wash is the foreground until a palette accent is chosen, then that
-/// accent — so the system-accent default keeps the neutral look.
+/// The wash does not change with the sidebar's focus, only with the
+/// window's: an inactive window draws it in the text color.
 struct SidebarSelectionFill: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appearsActive) private var appearsActive
 
     let isSelected: Bool
 
     /// The selected wash, shared with the selected tab chip in `TabStripView`.
     /// The accent takes the slash-command list's highlight strength: a hue at
     /// the foreground's wash strength reads as no selection at all.
-    static func wash(for colorScheme: ColorScheme) -> Color {
-        if AppSettings.shared.accentPaletteSlot != nil {
+    static func wash(for colorScheme: ColorScheme, isActive: Bool) -> Color {
+        if isActive {
             ThemeChrome.accent(for: colorScheme)
                 .opacity(Emphasis.divider.fillOpacity(for: colorScheme))
         } else {
@@ -28,7 +26,7 @@ struct SidebarSelectionFill: View {
     }
 
     var body: some View {
-        (isSelected ? Self.wash(for: colorScheme) : .clear)
+        (isSelected ? Self.wash(for: colorScheme, isActive: appearsActive) : .clear)
             .clipShape(.rect(cornerRadius: SidebarMetrics.selectionCornerRadius))
     }
 }

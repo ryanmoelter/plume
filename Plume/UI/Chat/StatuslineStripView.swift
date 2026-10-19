@@ -495,6 +495,7 @@ struct RemoteControlControl: View, ThemedView {
             ComposerSegmentLabel(systemImage: symbol, text: "Remote Control", showsText: false, foreground: tint)
         }
         .menuStyle(.borderlessButton)
+        .tint(colors.foreground.opacity(colors.emphasis[.secondary]))
         .font(typography.caption.font)
         .fixedSize()
         .frame(maxHeight: .infinity)
