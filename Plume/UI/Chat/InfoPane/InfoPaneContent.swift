@@ -318,14 +318,12 @@ struct InfoPaneHeaderButton {
 }
 
 /// The pane's top row: a title on the leading edge, then the button that
-/// collapses, pins or closes it, then the options menu.
+/// collapses, pins or closes it.
 struct InfoPaneHeader<Title: View>: View, ThemedView {
     @Environment(\.theme) var theme
 
     let button: InfoPaneHeaderButton?
     @ViewBuilder let title: Title
-
-    @State private var settings = AppSettings.shared
 
     var body: some View {
         HStack(spacing: InfoPaneLayout.columnSpacing) {
@@ -342,29 +340,8 @@ struct InfoPaneHeader<Title: View>: View, ThemedView {
                 .accessibilityLabel(button.help)
                 .plumeID(AccessibilityID.infoPaneCollapseButton, value: button.value)
             }
-            menu
         }
         .font(typography.caption.font)
-    }
-
-    private var menu: some View {
-        Menu {
-            Picker("Show As", selection: $settings.infoPanePresentation) {
-                ForEach(InfoPanePresentation.allCases, id: \.self) { presentation in
-                    Text(presentation.label).tag(presentation)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .emphasis(.secondary)
-        .help("Info pane options")
-        .plumeID(AccessibilityID.infoPaneMenu)
     }
 }
 

@@ -31,7 +31,6 @@ final class AppSettings {
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
         static let showsPullRequestStatus = "showsPullRequestStatus"
-        static let infoPanePresentationRaw = "infoPanePresentationRaw"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
@@ -148,8 +147,6 @@ final class AppSettings {
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
-        self.infoPanePresentation = defaults.string(forKey: Key.infoPanePresentationRaw)
-            .flatMap(InfoPanePresentation.init(rawValue:)) ?? .side
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
@@ -415,12 +412,6 @@ final class AppSettings {
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
-        }
-    }
-
-    var infoPanePresentation: InfoPanePresentation {
-        didSet {
-            defaults.set(infoPanePresentation.rawValue, forKey: Key.infoPanePresentationRaw)
         }
     }
 

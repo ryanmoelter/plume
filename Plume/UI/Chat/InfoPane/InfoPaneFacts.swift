@@ -2,20 +2,6 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-enum InfoPanePresentation: String, CaseIterable {
-    /// A glass box at the chat's top-trailing corner.
-    case side
-    /// A block after the last message, folding behind the composer.
-    case inline
-
-    var label: String {
-        switch self {
-        case .side: "Side Pane"
-        case .inline: "Inline"
-        }
-    }
-}
-
 enum InfoPaneState: String {
     case expanded
     /// One row of icons; the side pane opens over the chat while hovered.
@@ -37,9 +23,6 @@ enum InfoPaneState: String {
 
 /// Everything the info pane shows for one chat tab, resolved from the stores
 /// by `ChatTabView` so the views below it read a plain value.
-///
-/// Equatable because the inline presentation rides in `ChatListInputs`, which
-/// rebuilds an item only when its inputs change.
 struct InfoPaneFacts: Equatable {
     struct Branch: Equatable {
         let name: String

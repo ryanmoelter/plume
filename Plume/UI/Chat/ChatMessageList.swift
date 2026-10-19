@@ -12,8 +12,6 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     @Environment(\.theme) var theme
 
     let messages: [ChatMessage]
-    /// Set when the info pane is presented inline, after the last message.
-    var infoPane: InfoPaneFacts?
     let status: TaskStatus
     let bottomPadding: CGFloat
     /// How much of the list's bottom edge the floating bottom chrome covers —
@@ -27,11 +25,9 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// What a user message's redo and fork buttons act on. Nil on a tab with
     /// no live session, which leaves the buttons off.
     var redoContext: MessageRedoContext?
-    var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     /// Nil where there is no plan to open, which leaves a plan row a
     /// non-interactive summary.
     var onOpenPlan: (() -> Void)? = nil
-    var onOpenSideChat: () -> Void = {}
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
@@ -151,7 +147,6 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             inputs: ChatListInputs(
                 pieces: shownPieces,
                 tabID: tabID,
-                infoPane: infoPane,
                 leadingInset: topInset,
                 sideReserve: trailingReserve,
                 animate: settings.animateChatMotion,
@@ -164,9 +159,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             revealModel: revealModel,
             commands: commands,
             redoContext: redoContext,
-            onOpenSubagent: onOpenSubagent,
             onOpenPlan: onOpenPlan,
-            onOpenSideChat: onOpenSideChat,
             onToggleAgentMessage: toggleAgentMessage,
             onVisiblePieceIDs: { visiblePieceIDs = $0 },
             onDetachedChange: { jumpButton.isDetached = $0 }

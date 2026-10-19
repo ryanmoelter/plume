@@ -7,9 +7,6 @@ import SwiftUI
 struct ChatListInputs: Equatable {
     var pieces: [ChatPiece] = []
     var tabID: UUID?
-    /// The inline info pane, after the last message. Nil when the pane is
-    /// presented elsewhere.
-    var infoPane: InfoPaneFacts?
     /// Room above the first message for whatever floats over the list's top
     /// edge.
     var leadingInset: CGFloat = 0
@@ -68,8 +65,6 @@ final class ChatListController: NSObject {
     let scrollView = NSScrollView()
     let documentView = ChatListDocumentView()
 
-    var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
-    var onOpenSideChat: () -> Void = {}
     var onToggleAgentMessage: (String) -> Void = { _ in }
     /// Nil makes plan rows non-clickable. It sits outside the `inputs` diff,
     /// so a change between nil and non-nil refreshes mounted rows itself.
@@ -142,7 +137,6 @@ final class ChatListController: NSObject {
 
     private static let leadingInsetID = "plume.leading.inset"
     private static let dockID = "plume.trailing.dock"
-    private static let infoPaneID = "plume.trailing.infoPane"
     private static let insetEaseKey = "plume.trailingInset"
     private static let poolLimit = 40
 
@@ -155,7 +149,6 @@ final class ChatListController: NSObject {
         case leadingInset
         case piece(ChatPiece)
         case dock
-        case infoPane
     }
 
     private struct Host {
@@ -268,7 +261,6 @@ final class ChatListController: NSObject {
         var stale: Set<String> = []
 
         if new.pieces != old.pieces || new.tabID != old.tabID
-            || (new.infoPane == nil) != (old.infoPane == nil)
             || (new.leadingInset == 0) != (old.leadingInset == 0) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
         }
@@ -301,9 +293,6 @@ final class ChatListController: NSObject {
         if new.chatFontSize != old.chatFontSize || new.workStartedAt != old.workStartedAt
             || new.linkDirectory != old.linkDirectory {
             stale.formUnion(hosts.keys)
-        }
-        if new.infoPane != old.infoPane {
-            stale.insert(Self.infoPaneID)
         }
         if new.leadingInset != old.leadingInset {
             stale.insert(Self.leadingInsetID)
@@ -357,14 +346,8 @@ final class ChatListController: NSObject {
         }
         appendDepartures(after: nil)
         if inputs.tabID != nil {
-            // The dock needs a click, so it stays above the composer; the
-            // info pane folds behind it.
             next[Self.dockID] = .dock
             layoutItems.append(ChatLayoutItem(id: Self.dockID, estimatedHeight: 0))
-            if inputs.infoPane != nil {
-                next[Self.infoPaneID] = .infoPane
-                layoutItems.append(ChatLayoutItem(id: Self.infoPaneID, estimatedHeight: 0, folds: true))
-            }
         }
         items = next
         keepReaderAnchor(among: next)
@@ -511,7 +494,7 @@ final class ChatListController: NSObject {
             // Lands below whatever floats over the list's top edge.
             readerAnchor = (id: id, distance: -inputs.leadingInset)
         }
-        Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.followOffset))")
+        Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.maxOffset))")
     }
 
     // MARK: - Scroll events
@@ -540,7 +523,7 @@ final class ChatListController: NSObject {
         pendingPin = nil
         pendingRestore = nil
         lastPlacedOffset = offset
-        let distance = max(0, model.followOffset - offset)
+        let distance = max(0, model.maxOffset - offset)
         isFollowing = distance <= ChatScrollAnchor.bottomTolerance
         followDistance = isFollowing ? distance : 0
         readerAnchor = isFollowing ? nil : model.readerAnchor(offset: offset)
@@ -673,14 +656,14 @@ final class ChatListController: NSObject {
     /// The offset the current policy asks for, before clamping.
     private func resolvedOffset() -> CGFloat {
         if let easedOffset { return easedOffset }
-        if isFollowing { return model.followOffset - followDistance }
+        if isFollowing { return model.maxOffset - followDistance }
         if let readerAnchor { return model.offset(keeping: readerAnchor.id, distance: readerAnchor.distance) }
         return scrollView.contentView.bounds.origin.y
     }
 
     private func resolve(_ target: ChatListScrollTarget) -> CGFloat {
         switch target {
-        case .bottom: model.followOffset
+        case .bottom: model.maxOffset
         case let .item(id): max(0, min(model.slotTop(of: id) - inputs.leadingInset, model.maxOffset))
         }
     }
@@ -736,7 +719,7 @@ final class ChatListController: NSObject {
         }
         lastPlacedOffset = clip.bounds.origin.y
         if !isFollowing, easedOffset == nil {
-            let distance = max(0, model.followOffset - offset)
+            let distance = max(0, model.maxOffset - offset)
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
@@ -785,7 +768,7 @@ final class ChatListController: NSObject {
         }
         lastLog = now
         Log.chatList.info(
-            "pass items=\(self.model.count) realized=\(self.hosts.count) pool=\(self.pool.count) offset=\(Int(offset)) follow=\(Int(self.model.followOffset)) max=\(Int(self.model.maxOffset)) total=\(Int(self.model.totalHeight)) viewport=\(Int(viewport)) slack=\(Int(self.model.slack)) following=\(self.isFollowing) detached=\(self.isDetached) animating=\(self.animator.isAnimating)"
+            "pass items=\(self.model.count) realized=\(self.hosts.count) pool=\(self.pool.count) offset=\(Int(offset)) follow=\(Int(self.model.maxOffset)) max=\(Int(self.model.maxOffset)) total=\(Int(self.model.totalHeight)) viewport=\(Int(viewport)) slack=\(Int(self.model.slack)) following=\(self.isFollowing) detached=\(self.isDetached) animating=\(self.animator.isAnimating)"
         )
     }
 
@@ -977,23 +960,6 @@ final class ChatListController: NSObject {
                     onToggleAgentMessage: onToggleAgentMessage
                 )
                 .listItemPadding(bleed: true, vertical: false)
-            }.id(id))
-        case .infoPane:
-            let facts = inputs.infoPane
-            let onOpen = onOpenSubagent
-            let onOpenPlan = onOpenPlan ?? {}
-            let onOpenSideChat = onOpenSideChat
-            return AnyView(ChatListItemRoot(state: state, width: width, environment: environment) { state in
-                if let facts {
-                    InfoPaneInlineBlock(
-                        facts: facts,
-                        onOpenSubagent: onOpen,
-                        onOpenPlan: onOpenPlan,
-                        onOpenSideChat: onOpenSideChat
-                    )
-                        .listItemPadding(vertical: false)
-                        .containerHeight(state, onMeasure: onMeasure)
-                }
             }.id(id))
         case .dock:
             let tabID = inputs.tabID ?? UUID()
