@@ -71,13 +71,17 @@ private struct ThemeModifier: ViewModifier {
         let theme = Theme(
             colors: Palette(
                 colorScheme: colorScheme,
-                definitions: GhosttyRuntime.shared.resolvedThemeDefinitions
+                definitions: GhosttyRuntime.shared.resolvedThemeDefinitions,
+                accentSlot: AppSettings.shared.accentPaletteSlot
             ),
             dimensions: Dimensions(bodySize: bodySize),
             typography: typography
         )
         content
             .environment(\.theme, theme)
+            // Hosted chat rows are their own roots, so they never inherit
+            // the window's tint.
+            .tint(theme.colors.selection)
             .font(setsAmbientFont ? typography.body.font : nil)
     }
 }

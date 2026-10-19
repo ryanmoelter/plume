@@ -30,6 +30,7 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
+        static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let infoPanePresentationRaw = "infoPanePresentationRaw"
         static let infoPaneStateRaw = "infoPaneStateRaw"
@@ -141,6 +142,8 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
+        self.accentPaletteSlot = (defaults.object(forKey: Key.accentPaletteSlot) as? Int)
+            .flatMap { Self.accentPaletteSlotRange.contains($0) ? $0 : nil }
 
         // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
@@ -407,6 +410,21 @@ final class AppSettings {
     var animateCharacterReveal: Bool {
         didSet {
             defaults.set(animateCharacterReveal, forKey: Key.animateCharacterReveal)
+        }
+    }
+
+    static let accentPaletteSlotRange: ClosedRange<Int> = 0...15
+
+    /// The terminal palette slot the accent color comes from, or nil for the
+    /// system accent. A slot rather than a color, so a light/dark theme pair
+    /// gives each appearance its own palette's version of it.
+    var accentPaletteSlot: Int? {
+        didSet {
+            if let accentPaletteSlot {
+                defaults.set(accentPaletteSlot, forKey: Key.accentPaletteSlot)
+            } else {
+                defaults.removeObject(forKey: Key.accentPaletteSlot)
+            }
         }
     }
 

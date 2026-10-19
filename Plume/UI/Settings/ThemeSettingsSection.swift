@@ -1,8 +1,10 @@
+import GhosttyTheme
 import SwiftUI
 
 /// Where the app's colors come from, as `GhosttyRuntime` last resolved them.
 struct ThemeSettingsSection: View {
     private let runtime = GhosttyRuntime.shared
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         Section {
@@ -25,9 +27,46 @@ struct ThemeSettingsSection: View {
                         .textSelection(.enabled)
                 }
             }
+            ForEach(palettes, id: \.label) { palette in
+                ThemePaletteView(
+                    definition: palette.definition,
+                    label: palette.label,
+                    selectedSlot: settings.accentPaletteSlot,
+                    onSelect: { settings.accentPaletteSlot = $0 }
+                )
+            }
+            LabeledContent {
+                HStack {
+                    Text(settings.accentPaletteSlot.map { ThemeChrome.paletteSlotNames[$0] } ?? "System")
+                        .foregroundStyle(.secondary)
+                    Button("Use System", action: useSystemAccent)
+                        .plumeID(AccessibilityID.settingsAccentSystemButton, invoke: useSystemAccent)
+                        .disabled(settings.accentPaletteSlot == nil)
+                }
+            } label: {
+                Text("Accent color")
+                Text("Click a palette color to use it")
+                    .foregroundStyle(.secondary)
+            }
         } header: {
             Text("Theme")
         }
+    }
+
+    /// The light palette then the dark one, or just one when both sides are
+    /// the same theme.
+    private var palettes: [(label: String, definition: GhosttyThemeDefinition)] {
+        let definitions = runtime.resolvedThemeDefinitions
+        let light = definitions?.light
+        let dark = definitions?.dark
+        if let light, let dark, light.name != dark.name {
+            return [("light", light), ("dark", dark)]
+        }
+        return (light ?? dark).map { [("theme", $0)] } ?? []
+    }
+
+    private func useSystemAccent() {
+        settings.accentPaletteSlot = nil
     }
 
     private var themeDescription: String {

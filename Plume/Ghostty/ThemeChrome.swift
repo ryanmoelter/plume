@@ -125,6 +125,55 @@ enum ThemeChrome {
         return accent
     }
 
+    /// Names for the 16 ANSI slots, in slot order.
+    static let paletteSlotNames = [
+        "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
+        "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
+        "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
+    ]
+
+    /// Exactly one palette slot, with no fallthrough to its bright variant:
+    /// the user picked this color, not a role.
+    static func paletteColor(
+        slot: Int,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> Color? {
+        definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(Color.init(hex:))
+    }
+
+    /// The accent color: the palette slot chosen in settings, or the system
+    /// accent when none is chosen or the theme lacks that slot.
+    static func accent(for colorScheme: ColorScheme) -> Color {
+        accent(
+            slot: AppSettings.shared.accentPaletteSlot,
+            for: colorScheme,
+            in: GhosttyRuntime.shared.resolvedThemeDefinitions
+        )
+    }
+
+    static func accent(
+        slot: Int?,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> Color {
+        slot.flatMap { paletteColor(slot: $0, for: colorScheme, in: definitions) } ?? .accentColor
+    }
+
+    /// `accent(for:)` for AppKit drawing, resolving per appearance at draw time.
+    static func accentNSColor() -> NSColor {
+        let slot = AppSettings.shared.accentPaletteSlot
+        let definitions = GhosttyRuntime.shared.resolvedThemeDefinitions
+        let light = slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) }
+        let dark = slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) }
+        guard light != nil || dark != nil else { return .controlAccentColor }
+
+        return NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return (isDark ? dark : light).map { NSColor($0) } ?? .controlAccentColor
+        }
+    }
+
     /// Background tint for the window and its titlebar, or nil to leave them
     /// at their default system color.
     ///
@@ -165,11 +214,25 @@ private struct ThemeTintModifier: ViewModifier {
     }
 }
 
+private struct AccentTintModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content.tint(ThemeChrome.accent(for: colorScheme))
+    }
+}
+
 extension View {
     /// Tints this view with the resolved terminal theme's background, over
     /// its existing material rather than in place of it. Falls back to
     /// standard chrome when no theme is configured or its color didn't parse.
     func themeTint(colorScheme: ColorScheme) -> some View {
         modifier(ThemeTintModifier(colorScheme: colorScheme))
+    }
+
+    /// Tints stock controls below this view with the accent color chosen in
+    /// settings.
+    func plumeAccentTint() -> some View {
+        modifier(AccentTintModifier())
     }
 }

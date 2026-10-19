@@ -46,7 +46,7 @@ enum MarkdownComposerStyler {
         }
 
         if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
-            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: commandRange)
+            storage.addAttribute(.foregroundColor, value: ThemeChrome.accentNSColor(), range: commandRange)
         }
 
         storage.endEditing()
@@ -72,7 +72,7 @@ enum MarkdownComposerStyler {
         case .listMarker, .blockQuote:
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
         case .link:
-            storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+            storage.addAttribute(.foregroundColor, value: ThemeChrome.accentNSColor(), range: range)
         }
 
         if isMarkerOnly(span.style) {

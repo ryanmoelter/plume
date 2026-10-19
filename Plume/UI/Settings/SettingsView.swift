@@ -16,12 +16,20 @@ struct SettingsView: View {
         )
     }
 
+    private var drawsOwnSelection: Bool { AppSettings.shared.accentPaletteSlot != nil }
+
     var body: some View {
         NavigationSplitView {
             List(selection: selectedPane) {
                 ForEach(SettingsPane.allCases) { pane in
                     Label(pane.title, systemImage: pane.symbol)
                         .plumeID(AccessibilityID.settingsPane, label: pane.rawValue, invoke: { selectedPaneRaw = pane.rawValue })
+                        // With a palette accent the row draws its own fill,
+                        // which the list's selection would cover in the
+                        // system accent, so selection comes from the tap.
+                        .listRowBackground(SidebarSelectionFill(isSelected: drawsOwnSelection && selectedPaneRaw == pane.rawValue))
+                        .selectionDisabled(drawsOwnSelection)
+                        .simultaneousGesture(TapGesture().onEnded { selectedPaneRaw = pane.rawValue })
                         // Outermost: a List reads the tag only from the row's top-level view.
                         .tag(pane)
                 }

@@ -70,4 +70,14 @@ struct PaletteTests {
         #expect(Palette(colorScheme: .dark, definitions: definitions).selection == .accentColor)
         #expect(Palette(colorScheme: .dark, definitions: nil).selection == .accentColor)
     }
+
+    @Test func selectionTakesTheChosenSlot() {
+        let palette = Palette(colorScheme: .light, definitions: definitions, accentSlot: 2)
+        #expect(palette.selection == Color(hex: "5f9c2e"))
+    }
+
+    @Test func selectionFallsBackToTheSystemAccent() {
+        #expect(Palette(colorScheme: .light, definitions: definitions).selection == .accentColor)
+        #expect(Palette(colorScheme: .light, definitions: definitions, accentSlot: 9).selection == .accentColor)
+    }
 }

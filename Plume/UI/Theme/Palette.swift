@@ -33,8 +33,8 @@ struct Palette {
     /// Succeeded.
     let success: Color
 
-    /// The user's own choice, and only that. Follows the system accent color
-    /// rather than the terminal theme, because macOS-wide that is its job.
+    /// The user's own choice, and only that. The accent color chosen in
+    /// settings, which defaults to the system accent.
     let selection: Color
 
     /// A turn in flight. Shares `attention`'s hue because it carries the same
@@ -58,14 +58,18 @@ struct Palette {
     var divider: Color { surface(.divider) }
 
     /// Builds the palette for one appearance from a resolved terminal theme.
-    init(colorScheme: ColorScheme, definitions: GhosttyThemeResolver.ResolvedDefinitions?) {
+    init(
+        colorScheme: ColorScheme,
+        definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        accentSlot: Int? = nil
+    ) {
         background = ThemeChrome.background(for: colorScheme, in: definitions)
         foreground = ThemeChrome.foreground(for: colorScheme, in: definitions) ?? .primary
         attention = ThemeChrome.paletteAccent(.attention, for: colorScheme, in: definitions) ?? .blue
         warning = ThemeChrome.paletteAccent(.warning, for: colorScheme, in: definitions) ?? .orange
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
-        selection = .accentColor
+        selection = ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
     }
 }
