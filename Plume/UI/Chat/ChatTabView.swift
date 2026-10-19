@@ -649,12 +649,13 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
-    /// ahead/behind and dirty markers. Editable only until an agent starts,
-    /// which fixes the working directory.
+    /// ahead/behind and dirty markers. Always read-only: the statusline exists
+    /// only once the tab has a conversation, and the choice belongs to the
+    /// empty state (`workspaceChoice`).
     private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
             task: task,
-            isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            isEditable: false,
             branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory),
             stateDirectory: gitDirectory
