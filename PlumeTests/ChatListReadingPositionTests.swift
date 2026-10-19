@@ -199,7 +199,6 @@ struct ChatListReadingPositionTests {
         controller.scrollView.contentView.bounds.origin.y
     }
 
-    /// No info pane here, so nothing folds and following rests at the end.
     private func bottom(of controller: ChatListController) -> CGFloat {
         let clip = controller.scrollView.contentView
         return max(0, controller.documentView.frame.height - clip.bounds.height)

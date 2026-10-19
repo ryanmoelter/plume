@@ -932,26 +932,22 @@ struct ChatTabView: View, ThemedView {
     /// is nothing on disk to read them from yet.
     private func conversationView(messages: [ChatMessage]) -> some View {
         let transcript = transcript ?? Transcript()
-        let isSide = settings.infoPanePresentation == .side
         let geometry = sideInfoPaneGeometry
         return ChatMessageList(
             messages: messages,
-            infoPane: isSide ? nil : infoPaneFacts,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
             redoContext: redoContext(transcript: transcript),
-            onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
-            onOpenSideChat: { isSideChatShown = true },
-            topInset: isSide ? geometry.chatTopInset : 0,
-            trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
-            sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
+            topInset: geometry.chatTopInset,
+            trailingReserve: geometry.chatTrailingReserve,
+            sidePane: sideInfoPane(geometry: geometry)
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .overlay(alignment: .bottom) {
-            let reserve = isSide ? geometry.chatTrailingReserve : 0
+            let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.
             bottomChrome(transcript: transcript)
                 .padding(.trailing, reserve)
@@ -977,23 +973,20 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    @ViewBuilder
-    private func sideInfoPane(isShown: Bool, geometry: InfoPaneLayout.SideGeometry) -> some View {
-        if isShown {
-            InfoSidePane(
-                facts: infoPaneFacts,
-                glass: planGlass,
-                geometry: geometry,
-                bottomInset: panelHeight,
-                onCollapsedHeight: { height in
-                    collapsedInfoPaneHeight = height
-                    Self.lastCollapsedInfoPaneHeight = height
-                },
-                onOpenSubagent: { openSubagentID = $0.id },
-                onOpenPlan: openPlan,
-                onOpenSideChat: { isSideChatShown = true }
-            )
-        }
+    private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry) -> some View {
+        InfoSidePane(
+            facts: infoPaneFacts,
+            glass: planGlass,
+            geometry: geometry,
+            bottomInset: panelHeight,
+            onCollapsedHeight: { height in
+                collapsedInfoPaneHeight = height
+                Self.lastCollapsedInfoPaneHeight = height
+            },
+            onOpenSubagent: { openSubagentID = $0.id },
+            onOpenPlan: openPlan,
+            onOpenSideChat: { isSideChatShown = true }
+        )
     }
 
     /// What the rollback and fork buttons in a reply's footer act on.
