@@ -1,10 +1,9 @@
 import GhosttyTheme
 import SwiftUI
 
-/// One terminal theme's palette on its own background: the text color on the
-/// left, the regular colors over their bright variants, then the system
-/// accent. Every swatch but the text color picks the accent color; nil is the
-/// system accent.
+/// One terminal theme's palette on its own background: the regular colors
+/// over their bright variants, the system accent, then the text color. Every
+/// swatch but the text color picks the accent color; nil is the system accent.
 struct ThemePaletteView: View {
     let definition: GhosttyThemeDefinition
     /// Disambiguates swatches for the control server when a pair shows two
@@ -22,12 +21,7 @@ struct ThemePaletteView: View {
             Text(definition.name)
                 .font(.subheadline)
                 .foregroundStyle(foreground.opacity(0.7))
-            HStack(alignment: .top, spacing: 14) {
-                captioned("Text") {
-                    Circle()
-                        .fill(foreground)
-                        .frame(width: Self.swatchSize, height: Self.swatchSize)
-                }
+            HStack(alignment: .center, spacing: 14) {
                 VStack(spacing: 6) {
                     swatchRow(slots: 0..<8)
                     swatchRow(slots: 8..<16)
@@ -41,6 +35,11 @@ struct ThemePaletteView: View {
                         select: { onSelect(nil) }
                     )
                 }
+                captioned("Text") {
+                    Circle()
+                        .fill(foreground)
+                        .frame(width: Self.swatchSize, height: Self.swatchSize)
+                }
             }
         }
         .padding(12)
@@ -52,10 +51,10 @@ struct ThemePaletteView: View {
     }
 
     private func captioned(_ caption: String, @ViewBuilder swatch: () -> some View) -> some View {
-        VStack(spacing: 4) {
+        HStack(spacing: 6) {
             swatch()
             Text(caption)
-                .font(.caption2.weight(.regular))
+                .font(.caption.weight(.regular))
                 .foregroundStyle(foreground.opacity(0.7))
         }
     }
