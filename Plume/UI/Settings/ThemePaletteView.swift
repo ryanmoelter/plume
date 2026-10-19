@@ -20,9 +20,9 @@ struct ThemePaletteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(definition.name)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(foreground.opacity(0.7))
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
                 captioned("Text") {
                     Circle()
                         .fill(foreground)
@@ -55,7 +55,7 @@ struct ThemePaletteView: View {
         VStack(spacing: 4) {
             swatch()
             Text(caption)
-                .font(.caption2)
+                .font(.caption2.weight(.regular))
                 .foregroundStyle(foreground.opacity(0.7))
         }
     }
