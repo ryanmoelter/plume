@@ -16,10 +16,13 @@ struct ToolCallRow: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
 
     @State private var expanded = false
+    @State private var isHoveringArtifact = false
 
     var body: some View {
         if let interactive = call.interactive {
             InteractiveToolRow(payload: interactive, isPending: isPending, resultText: call.result, openPlan: onOpenPlan)
+        } else if let artifactURL = call.artifactURL {
+            artifactButton(artifactURL)
         } else {
             collapsibleBody
         }
@@ -52,7 +55,7 @@ struct ToolCallRow: View, ThemedView {
                 Label {
                     Text(summaryText)
                 } icon: {
-                    Image(systemName: glyph)
+                    icon
                 }
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -166,6 +169,47 @@ struct ToolCallRow: View, ThemedView {
             .emphasis(.subtle)
     }
 
+    /// An artifact the call published or worked on, drawn as a button that
+    /// opens it, since opening it is the reason to look at the row at all.
+    private func artifactButton(_ url: URL) -> some View {
+        Button {
+            ChatLinkOpener.open(.web(url))
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: ArtifactSymbol.filled)
+                    .emphasis(.secondary)
+                Text(call.artifact?.title ?? "Untitled artifact")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                LinkOpenIcon()
+            }
+            .font(typography.caption.font)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(isHoveringArtifact ? colors.surfaceTint : .clear, in: .rect(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(colors.divider, lineWidth: 1)
+            }
+            .contentShape(.rect(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .plumeHover { isHoveringArtifact = $0 }
+        .help(url.absoluteString)
+        .plumeID(AccessibilityID.toolCallArtifactLink, label: call.id, value: url.absoluteString) {
+            ChatLinkOpener.open(.web(url))
+        }
+        // Half the gap between prose and a tool call, so the button stands
+        // apart from the calls around it.
+        .padding(.vertical, dimensions.messageBlockSpacing / 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listItemPadding(vertical: false)
+    }
+
+    private var icon: some View {
+        Image(systemName: call.artifact != nil ? ArtifactSymbol.outline : glyph)
+    }
+
     private var glyph: String {
         switch call.name {
         case "Bash": "terminal"
@@ -195,6 +239,14 @@ struct ToolCallRow: View, ThemedView {
             summary: ToolCallSummary(name: "Read", detail: "CLAUDE.md"),
             input: .json("{\"file_path\":\"/Users/me/Plume/CLAUDE.md\"}"),
             result: nil
+        ))
+        ToolCallRow(call: ToolCall(
+            id: "4",
+            name: "Artifact",
+            summary: ToolCallSummary(name: "Artifact", detail: "Release notes", detailStyle: .prose),
+            input: .json("{\"file_path\":\"notes.html\",\"title\":\"Release notes\"}"),
+            result: "Published https://claude.ai/code/artifact/0b6f9a1e-2f4c-4d1a-9c55-3e8a7d2b1f00",
+            artifact: ArtifactToolCall(name: "Artifact", input: ["file_path": .string("notes.html")])
         ))
         ToolCallRow(
             call: ToolCall(

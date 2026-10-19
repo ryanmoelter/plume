@@ -309,7 +309,8 @@ nonisolated enum TranscriptParser {
                                 prettyJSON: prettyPrint(input)
                             ),
                             interactive: InteractiveToolPayload.decoding(name: name, input: input),
-                            result: nil
+                            result: nil,
+                            artifact: ArtifactToolCall(name: name, input: input)
                         )
                         pendingAssistantBlocks.append(.toolCall(call))
                         pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)

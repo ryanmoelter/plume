@@ -19,7 +19,6 @@ struct InfoPaneContent: View, ThemedView {
     @Binding var showsCompleted: Bool
 
     @State private var settings = AppSettings.shared
-    @State private var isHoveringPullRequest = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -42,6 +41,7 @@ struct InfoPaneContent: View, ThemedView {
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
         case .plan: plan
+        case .artifacts: artifacts
         case .sideChat: sideChat
         case .folder: folder
         case .branch: branch
@@ -208,6 +208,56 @@ struct InfoPaneContent: View, ThemedView {
         .plumeID(AccessibilityID.infoPanePlanRow)
     }
 
+    // MARK: Artifacts
+
+    private var artifacts: some View {
+        let isExpanded = settings.infoPaneArtifactsExpanded
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
+                    Text("Artifacts")
+                    Text("\(facts.artifacts.count)")
+                        .emphasis(.subtle)
+                    DisclosureChevron(isExpanded: isExpanded)
+                    Spacer(minLength: 0)
+                }
+                .emphasis(.secondary)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.infoPaneArtifactsToggle, value: isExpanded ? "expanded" : "collapsed")
+
+            if isExpanded {
+                ForEach(facts.artifacts) { artifactRow($0) }
+            }
+        }
+    }
+
+    private func artifactRow(_ artifact: ConversationArtifact) -> some View {
+        let title = artifact.title ?? "Untitled artifact"
+        return Button {
+            ChatLinkOpener.open(.web(artifact.url))
+        } label: {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: ArtifactSymbol.filled).hidden() }
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                LinkOpenIcon()
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(artifact.url.absoluteString)
+        .plumeID(AccessibilityID.infoPaneArtifactRow, label: title, value: artifact.url.absoluteString) {
+            ChatLinkOpener.open(.web(artifact.url))
+        }
+    }
+
     // MARK: Side chat
 
     private var sideChat: some View {
@@ -281,30 +331,24 @@ struct InfoPaneContent: View, ThemedView {
                         }
                     }
                     .emphasis(.secondary)
-                    // Wider than the gaps between the status marks, so the
-                    // link reads as an action rather than another status.
-                    HStack(spacing: 8) {
-                        PullRequestChip(
-                            state: pullRequest.state,
-                            checkRollup: checkRollup,
-                            font: typography.caption.font,
-                            fontSize: typography.caption.size,
-                            imageScale: .medium
-                        )
-                        Image(systemName: "arrow.up.forward.square")
-                            .foregroundStyle(colors.selection)
-                            .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
-                            .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
+                    PullRequestChip(
+                        state: pullRequest.state,
+                        checkRollup: checkRollup,
+                        font: typography.caption.font,
+                        fontSize: typography.caption.size,
+                        imageScale: .medium
+                    )
+                    Spacer(minLength: 4)
+                    if url != nil {
+                        LinkOpenIcon()
                     }
-                    Spacer(minLength: 0)
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .disabled(url == nil)
-            .plumeHover { isHoveringPullRequest = $0 }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
-            .plumeID(AccessibilityID.infoPanePullRequestRow, value: isHoveringPullRequest ? "hovered" : nil)
+            .plumeID(AccessibilityID.infoPanePullRequestRow)
         }
     }
 }
@@ -384,6 +428,12 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
         case .plan:
             Image(systemName: StatusSymbol.plan.name)
                 .emphasis(.secondary)
+        case .artifacts:
+            HStack(spacing: 2) {
+                Image(systemName: ArtifactSymbol.outline)
+                Text("\(facts.artifacts.count)")
+            }
+            .emphasis(.secondary)
         case .pullRequest:
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(

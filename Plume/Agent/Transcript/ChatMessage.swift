@@ -46,6 +46,12 @@ nonisolated struct ToolCall: Identifiable, Equatable {
     var didFail = false
     /// Images the tool returned — a screenshot tool returns exactly this.
     var resultImages: [ChatImage] = []
+    var artifact: ArtifactToolCall?
+
+    /// The claude.ai page an Artifact call worked on, to link from its row.
+    var artifactURL: URL? {
+        artifact?.url(result: result)
+    }
 }
 
 /// How a tool call's input should render. Bash's full command renders as

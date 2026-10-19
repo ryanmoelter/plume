@@ -135,6 +135,10 @@ enum AccessibilityID {
     static let mermaidExpandButton = "mermaid-expand-button"
     static let mermaidFullScreenClose = "mermaid-full-screen-close"
 
+    // MARK: Tool calls
+
+    static let toolCallArtifactLink = "tool-call-artifact-link"
+
     // MARK: Subagents
 
     static let subagentRow = "subagent-row"
@@ -156,6 +160,8 @@ enum AccessibilityID {
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
+    static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"
+    static let infoPaneArtifactRow = "info-pane-artifact-row"
 
     // MARK: Side questions (/btw)
 
