@@ -5,8 +5,10 @@ import SwiftUI
 struct LinkOpenIcon: View, ThemedView {
     @Environment(\.theme) var theme
 
+    var isFilled = false
+
     var body: some View {
-        Image(systemName: "arrow.up.forward.square")
+        Image(systemName: isFilled ? "arrow.up.forward.square.fill" : "arrow.up.forward.square")
             .foregroundStyle(colors.selection)
     }
 }

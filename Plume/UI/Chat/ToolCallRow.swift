@@ -181,7 +181,7 @@ struct ToolCallRow: View, ThemedView {
                 Text(call.artifact?.title ?? "Untitled artifact")
                     .lineLimit(1)
                     .truncationMode(.tail)
-                LinkOpenIcon()
+                LinkOpenIcon(isFilled: true)
             }
             .font(typography.body.font)
             .padding(.horizontal, 14)
