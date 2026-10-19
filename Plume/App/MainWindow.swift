@@ -380,6 +380,10 @@ struct MainWindow: View {
             AgentTitleMonitor.shared.watch(tabID: tabID, transcriptPath: path)
             TranscriptStore.shared.watch(tabID: tabID, transcriptPath: path)
         }
+        TranscriptStore.shared.onWorkingDirectoryChanged = { tabID, directory in
+            guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }) else { return }
+            TabDirectoryStore.shared.setDirectory(directory, forTab: tab)
+        }
         AgentTitleMonitor.shared.onTitleDiscovered = { tabID, title, source in
             TitleStore.shared.setTitle(title, forTab: tabID, source: source)
         }

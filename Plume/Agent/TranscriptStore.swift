@@ -66,6 +66,11 @@ final class TranscriptStore {
     /// CPU-bound suites can outlast.
     var didRead: ((UUID) -> Void)?
 
+    /// Reports each change in a tab's transcript `cwd`, which is where the
+    /// agent's shell is now. It fires for a hidden tab too, since the watch
+    /// outlives the chat view.
+    var onWorkingDirectoryChanged: ((UUID, String) -> Void)?
+
     init(
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
@@ -264,7 +269,11 @@ final class TranscriptStore {
                     self.repointIfRelocated(tabID: tabID, from: path)
                     return
                 }
+                let previousDirectory = self.transcripts[tabID]?.cwd
                 self.transcripts[tabID] = parsed.0
+                if let cwd = parsed.0.cwd, cwd != previousDirectory {
+                    self.onWorkingDirectoryChanged?(tabID, cwd)
+                }
                 self.subagentTranscripts[tabID] = self.settled(parsed.1, tabID: tabID)
                 self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 // A tab with nothing behind it has a transcript that is a

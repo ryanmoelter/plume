@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import Plume
 
 @MainActor
@@ -150,6 +151,42 @@ struct TranscriptStoreTests {
 
         store.stopWatching(tabID: tab)
         #expect(store.transcript(forTab: tab) == nil)
+    }
+
+    /// Rows shaped like Claude Code's: the CLI stamps each one with its shell's
+    /// persistent directory, so a `cd` that outlives its Bash call shows up as
+    /// a new `cwd` on the rows after it.
+    private func rowLine(type: String, cwd: String) -> String {
+        "{\"type\":\"\(type)\",\"uuid\":\"\(UUID().uuidString)\",\"isSidechain\":false,\"cwd\":\"\(cwd)\",\"message\":{\"role\":\"\(type)\",\"content\":\"x\"}}\n"
+    }
+
+    @Test func aHiddenTabFollowsItsTranscriptCwdIntoAWorktreeAndBack() async throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let task = TaskStore.createTask(in: ModelContext(container), siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let tab = task.tabs[0]
+
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(rowLine(type: "user", cwd: "/repo"), to: path)
+
+        let directories = TabDirectoryStore()
+        let store = TranscriptStore(debounce: .milliseconds(10))
+        store.onWorkingDirectoryChanged = { _, directory in directories.setDirectory(directory, forTab: tab) }
+        store.watch(tabID: tab.id, transcriptPath: path.path)
+        await waitUntil(store) { directories.directory(for: tab) == "/repo" }
+
+        append(rowLine(type: "assistant", cwd: "/repo/.worktrees/feature"), to: path)
+        await waitUntil(store) { directories.directory(for: tab) == "/repo/.worktrees/feature" }
+        #expect(tab.workingDirectoryPath == "/repo/.worktrees/feature")
+
+        append(rowLine(type: "assistant", cwd: "/repo"), to: path)
+        await waitUntil(store) { directories.directory(for: tab) == "/repo" }
+        #expect(tab.workingDirectoryPath == "/repo")
     }
 
     @Test func anUnwatchedTabReturnsNil() {

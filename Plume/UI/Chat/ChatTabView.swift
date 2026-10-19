@@ -302,7 +302,6 @@ struct ChatTabView: View, ThemedView {
                 GitStateStore.shared.watch(current)
                 CheckoutFactsStore.shared.load(current)
             }
-            TabDirectoryStore.shared.setDirectory(current, forTab: tab)
         }
         .onDisappear {
             releaseGitDirectory()
