@@ -82,7 +82,7 @@ struct SubagentRow: View, ThemedView {
                     .emphasis(.subtle)
                 Image(systemName: "chevron.right")
                     .font(typography.caption.font)
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
             .padding(.leading, columns.leadingIndent)
             .padding(.horizontal, Columns.washInset)

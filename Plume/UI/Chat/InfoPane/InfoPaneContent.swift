@@ -315,9 +315,6 @@ struct InfoPaneHeaderButton {
     /// What the control server reads back, so a driver can tell the
     /// button's forms apart.
     let value: String
-    /// Collapse and expand keep the text color; the pane's other actions
-    /// take the accent.
-    var isDisclosure = false
     let action: () -> Void
 }
 
@@ -339,9 +336,9 @@ struct InfoPaneHeader<Title: View>: View, ThemedView {
                 Button(action: button.action) {
                     Image(systemName: button.systemImage)
                         .frame(width: InfoPaneLayout.iconColumnWidth)
-                        .foregroundStyle(button.isDisclosure ? AnyShapeStyle(Emphasis.secondary.textHierarchy) : AnyShapeStyle(colors.selection))
                 }
                 .buttonStyle(.plain)
+                .emphasis(.secondary)
                 .help(button.help)
                 .accessibilityLabel(button.help)
                 .plumeID(AccessibilityID.infoPaneCollapseButton, value: button.value)
@@ -361,12 +358,12 @@ struct InfoPaneHeader<Title: View>: View, ThemedView {
             .pickerStyle(.inline)
         } label: {
             Image(systemName: "ellipsis.circle")
-                .foregroundStyle(colors.selection)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .emphasis(.secondary)
         .help("Info pane options")
         .plumeID(AccessibilityID.infoPaneMenu)
     }

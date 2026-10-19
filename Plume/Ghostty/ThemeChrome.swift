@@ -142,18 +142,13 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(Color.init(hex:))
     }
 
-    /// The palette slot the accent comes from: the one chosen in settings,
-    /// or the one closest to the system accent.
-    static var accentSlot: Int? {
-        AppSettings.shared.accentPaletteSlot ?? SystemAccent.shared.paletteSlot
-    }
-
-    /// The accent color, or the system accent when the theme lacks the slot.
+    /// The accent color: the palette slot chosen in settings, or the system
+    /// accent when none is chosen or the theme lacks that slot.
     /// An inactive window draws it in the text color instead, the way the
     /// system grays its own accent.
     static func accent(for colorScheme: ColorScheme, isActive: Bool = true) -> Color {
         guard isActive else { return foreground(for: colorScheme) ?? .primary }
-        return accent(slot: accentSlot, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+        return accent(slot: AppSettings.shared.accentPaletteSlot, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
     }
 
     static func accent(
@@ -175,7 +170,7 @@ enum ThemeChrome {
                 fallback: .labelColor
             )
         }
-        let slot = accentSlot
+        let slot = AppSettings.shared.accentPaletteSlot
         return appearanceColor(
             light: slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) },
             dark: slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) },

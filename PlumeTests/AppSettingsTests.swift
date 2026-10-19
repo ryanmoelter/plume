@@ -233,17 +233,23 @@ struct AppSettingsTests {
         #expect(reloaded.ignoredPendingChecks == ["real-check"])
     }
 
-    @Test func accentPaletteSlotDefaultsToSystemAndPersists() {
+    @Test func accentPaletteSlotStartsFromTheSystemMatchOnlyOnFirstLaunch() {
         let defaults = makeDefaults()
-        let settings = AppSettings(defaults: defaults)
-        #expect(settings.accentPaletteSlot == nil)
+        let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { 4 })
+        #expect(settings.accentPaletteSlot == 4)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == 4)
+
+        settings.accentPaletteSlot = nil
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
 
         settings.accentPaletteSlot = 12
         #expect(AppSettings(defaults: defaults).accentPaletteSlot == 12)
+    }
 
-        settings.accentPaletteSlot = nil
-        #expect(defaults.object(forKey: "accentPaletteSlot") == nil)
-        #expect(AppSettings(defaults: defaults).accentPaletteSlot == nil)
+    @Test func noSystemMatchStartsOnTheSystemAccent() {
+        let defaults = makeDefaults()
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
     }
 
     @Test func outOfRangeAccentPaletteSlotReadsAsSystem() {

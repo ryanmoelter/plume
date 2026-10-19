@@ -34,8 +34,8 @@ struct Palette {
     let success: Color
 
     /// The user's own choice, and only that. The accent color chosen in
-    /// settings, which defaults to the palette color closest to the system
-    /// accent. The text color while the window is inactive.
+    /// settings, or the system accent. The text color while the window is
+    /// inactive.
     let selection: Color
 
     /// A turn in flight. Shares `attention`'s hue because it carries the same

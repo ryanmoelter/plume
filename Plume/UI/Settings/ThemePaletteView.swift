@@ -1,16 +1,17 @@
 import GhosttyTheme
 import SwiftUI
 
-/// One terminal theme's palette on its own background: the foreground on the
-/// left, then the regular colors over their bright variants. Each palette
-/// swatch picks that slot as the accent color.
+/// One terminal theme's palette on its own background: the text color on the
+/// left, the regular colors over their bright variants, then the system
+/// accent. Every swatch but the text color picks the accent color; nil is the
+/// system accent.
 struct ThemePaletteView: View {
     let definition: GhosttyThemeDefinition
     /// Disambiguates swatches for the control server when a pair shows two
     /// palettes.
     let label: String
     let selectedSlot: Int?
-    let onSelect: (Int) -> Void
+    let onSelect: (Int?) -> Void
 
     private static let swatchSize: CGFloat = 22
 
@@ -22,13 +23,23 @@ struct ThemePaletteView: View {
                 .font(.caption)
                 .foregroundStyle(foreground.opacity(0.7))
             HStack(alignment: .center, spacing: 14) {
-                Circle()
-                    .fill(foreground)
-                    .frame(width: Self.swatchSize, height: Self.swatchSize)
-                    .help("Foreground")
+                captioned("Text") {
+                    Circle()
+                        .fill(foreground)
+                        .frame(width: Self.swatchSize, height: Self.swatchSize)
+                }
                 VStack(spacing: 6) {
                     swatchRow(slots: 0..<8)
                     swatchRow(slots: 8..<16)
+                }
+                captioned("System") {
+                    swatch(
+                        color: Color(nsColor: .controlAccentColor),
+                        isSelected: selectedSlot == nil,
+                        help: "The system accent color",
+                        id: "system",
+                        select: { onSelect(nil) }
+                    )
                 }
             }
         }
@@ -40,20 +51,37 @@ struct ThemePaletteView: View {
         )
     }
 
+    private func captioned(_ caption: String, @ViewBuilder swatch: () -> some View) -> some View {
+        VStack(spacing: 4) {
+            swatch()
+            Text(caption)
+                .font(.caption2)
+                .foregroundStyle(foreground.opacity(0.7))
+        }
+    }
+
     private func swatchRow(slots: Range<Int>) -> some View {
         HStack(spacing: 6) {
             ForEach(slots, id: \.self) { slot in
-                swatch(slot: slot)
+                swatch(
+                    color: definition.palette[slot].flatMap(Color.init(hex:)),
+                    isSelected: slot == selectedSlot,
+                    help: "\(ThemeChrome.paletteSlotNames[slot]) (\(slot))",
+                    id: "\(slot)",
+                    select: { onSelect(slot) }
+                )
             }
         }
     }
 
-    private func swatch(slot: Int) -> some View {
-        let color = definition.palette[slot].flatMap(Color.init(hex:))
-        let isSelected = slot == selectedSlot
-        return Button {
-            onSelect(slot)
-        } label: {
+    private func swatch(
+        color: Color?,
+        isSelected: Bool,
+        help: String,
+        id: String,
+        select: @escaping () -> Void
+    ) -> some View {
+        Button(action: select) {
             ZStack {
                 if let color {
                     Circle().fill(color)
@@ -72,12 +100,12 @@ struct ThemePaletteView: View {
             .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .help("\(ThemeChrome.paletteSlotNames[slot]) (\(slot))")
+        .help(help)
         .plumeID(
             AccessibilityID.settingsAccentSwatch,
-            label: "\(label) \(slot)",
+            label: "\(label) \(id)",
             value: isSelected ? "selected" : nil,
-            invoke: { onSelect(slot) }
+            invoke: select
         )
         .disabled(color == nil)
     }

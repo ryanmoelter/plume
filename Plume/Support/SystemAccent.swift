@@ -1,33 +1,11 @@
-import AppKit
-import Observation
+import Foundation
 
-/// The macOS accent color, as the terminal palette slot closest to it, so an
-/// accent left to the system still comes from the theme.
-@Observable
-final class SystemAccent {
-    static let shared = SystemAccent()
-
-    /// Nil for Graphite, which has no hue to match.
-    private(set) var paletteSlot: Int?
-
-    @ObservationIgnored private var observer: NSObjectProtocol?
-
-    private init() {
-        paletteSlot = Self.paletteSlot(forAppleAccentColor: Self.readAppleAccentColor())
-        // Posted on an accent change, after the global domain updates.
-        observer = NotificationCenter.default.addObserver(
-            forName: NSColor.systemColorsDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.paletteSlot = Self.paletteSlot(forAppleAccentColor: Self.readAppleAccentColor())
-            }
-        }
-    }
-
-    private static func readAppleAccentColor() -> Int? {
-        UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleAccentColor"] as? Int
+/// The terminal palette slot closest to the macOS accent color, which the
+/// accent setting starts from on first launch.
+enum SystemAccent {
+    static func paletteSlot() -> Int? {
+        let value = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleAccentColor"]
+        return paletteSlot(forAppleAccentColor: value as? Int)
     }
 
     /// `AppleAccentColor` is absent for Multicolor, which shows blue for an

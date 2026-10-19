@@ -27,26 +27,21 @@ struct ThemeSettingsSection: View {
                         .textSelection(.enabled)
                 }
             }
+            LabeledContent {
+                Text(settings.accentPaletteSlot.map { ThemeChrome.paletteSlotNames[$0] } ?? "System")
+                    .foregroundStyle(.secondary)
+            } label: {
+                Text("Accent color")
+                Text("Click a color below to use it")
+                    .foregroundStyle(.secondary)
+            }
             ForEach(palettes, id: \.label) { palette in
                 ThemePaletteView(
                     definition: palette.definition,
                     label: palette.label,
-                    selectedSlot: ThemeChrome.accentSlot,
+                    selectedSlot: settings.accentPaletteSlot,
                     onSelect: { settings.accentPaletteSlot = $0 }
                 )
-            }
-            LabeledContent {
-                HStack {
-                    Text(accentDescription)
-                        .foregroundStyle(.secondary)
-                    Button("Match System", action: useSystemAccent)
-                        .plumeID(AccessibilityID.settingsAccentSystemButton, invoke: useSystemAccent)
-                        .disabled(settings.accentPaletteSlot == nil)
-                }
-            } label: {
-                Text("Accent color")
-                Text("Click a palette color to use it")
-                    .foregroundStyle(.secondary)
             }
         } header: {
             Text("Theme")
@@ -63,16 +58,6 @@ struct ThemeSettingsSection: View {
             return [("light", light), ("dark", dark)]
         }
         return (light ?? dark).map { [("theme", $0)] } ?? []
-    }
-
-    private var accentDescription: String {
-        if let slot = settings.accentPaletteSlot { return ThemeChrome.paletteSlotNames[slot] }
-        guard let slot = SystemAccent.shared.paletteSlot else { return "System" }
-        return "\(ThemeChrome.paletteSlotNames[slot]), from the system accent"
-    }
-
-    private func useSystemAccent() {
-        settings.accentPaletteSlot = nil
     }
 
     private var themeDescription: String {

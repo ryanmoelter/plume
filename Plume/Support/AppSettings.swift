@@ -80,7 +80,11 @@ final class AppSettings {
     /// exposes no way to ask an instance its own suite name, so callers pass
     /// it: the app passes its bundle identifier, a test its scratch suite
     /// name.
-    init(defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? "") {
+    init(
+        defaults: UserDefaults = .standard,
+        domainName: String = Bundle.main.bundleIdentifier ?? "",
+        initialAccentPaletteSlot: () -> Int? = SystemAccent.paletteSlot
+    ) {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
@@ -142,8 +146,13 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
-        self.accentPaletteSlot = (defaults.object(forKey: Key.accentPaletteSlot) as? Int)
-            .flatMap { Self.accentPaletteSlotRange.contains($0) ? $0 : nil }
+        if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
+            self.accentPaletteSlot = Self.accentPaletteSlotRange.contains(stored) ? stored : nil
+        } else {
+            let initial = initialAccentPaletteSlot()
+            self.accentPaletteSlot = initial
+            defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+        }
 
         // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
@@ -414,17 +423,16 @@ final class AppSettings {
     }
 
     static let accentPaletteSlotRange: ClosedRange<Int> = 0...15
+    /// Stored for the system accent, so an absent key still means first launch.
+    private static let systemAccentSentinel = -1
 
     /// The terminal palette slot the accent color comes from, or nil for the
     /// system accent. A slot rather than a color, so a light/dark theme pair
-    /// gives each appearance its own palette's version of it.
+    /// gives each appearance its own palette's version of it. First launch
+    /// picks the slot closest to the system accent.
     var accentPaletteSlot: Int? {
         didSet {
-            if let accentPaletteSlot {
-                defaults.set(accentPaletteSlot, forKey: Key.accentPaletteSlot)
-            } else {
-                defaults.removeObject(forKey: Key.accentPaletteSlot)
-            }
+            defaults.set(accentPaletteSlot ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
     }
 

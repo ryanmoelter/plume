@@ -62,10 +62,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// way it was entered.
     var onDeleteBackwardWhenEmpty: (() -> Void)?
     var verticalInset: CGFloat = MarkdownComposerTextView.defaultVerticalInset
-    /// Read in the caller's body so a change in settings or in the system
-    /// accent re-runs `updateNSView`, which an `NSTextStorage` attribute
-    /// would not.
-    var accentPaletteSlot: Int? = ThemeChrome.accentSlot
+    /// Read in the caller's body so a change in settings re-runs
+    /// `updateNSView`, which an `NSTextStorage` attribute would not.
+    var accentPaletteSlot: Int? = AppSettings.shared.accentPaletteSlot
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
