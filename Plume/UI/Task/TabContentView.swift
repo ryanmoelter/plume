@@ -78,6 +78,7 @@ private struct HeadlessAgentTabContent: View {
     let isVisible: Bool
 
     @State private var hasResumed = false
+    @State private var settings = AppSettings.shared
 
     /// Only the visible tab builds its chat. Nothing here owns a process —
     /// `AgentSessionManager` does — so unmounting costs a rebuild on the
@@ -87,6 +88,7 @@ private struct HeadlessAgentTabContent: View {
         Group {
             if isVisible {
                 ChatTabView(task: task, tab: tab, isVisible: isVisible)
+                    .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
             } else {
                 Color.clear
             }
