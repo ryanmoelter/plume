@@ -67,15 +67,16 @@ struct ContextUsageSection: View, ThemedView {
             if let categories = breakdown?.displayedCategories, !categories.isEmpty {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
                     ForEach(Array(categories.enumerated()), id: \.offset) { _, category in
+                        let level: Emphasis = category.kind == "buffer" ? .subtle : .secondary
                         GridRow {
                             Text(category.name)
                             Text(TokenCount.formatted(category.tokens))
                                 .monospacedDigit()
                                 .gridColumnAlignment(.trailing)
                         }
+                        .foregroundStyle(colors.foreground.opacity(colors.emphasis[level]))
                     }
                 }
-                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                 .padding(.top, 4)
             }
         }
