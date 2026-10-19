@@ -16,6 +16,8 @@ claude -p --output-format stream-json --input-format stream-json \
 
 `--verbose` is required for `stream-json` output. Never pass `--bare`: it refuses the keychain and forces an API key.
 
+**`CLAUDE_CODE_ARTIFACT=1` in the environment is what exposes the Artifact tools.** A `-p` run's entrypoint is `sdk-cli`, and the CLI withholds `Artifact`, `ArtifactComments` and `ArtifactData` from SDK entrypoints unless that variable is set. Measured against 2.1.293: without it `system/init` lists none of them. `HeadlessCommand.environment` sets it. A claude.ai subscription login and the org's artifact policy still gate the tools, and a user's `enableArtifact: false` still turns them off.
+
 **`--permission-prompt-tool stdio` is the load-bearing flag.** Without it a headless run never asks — a tool needing approval is auto-denied with "no prompt available in headless mode", and the turn ends having done nothing. The flag's own help text says permission prompts reach the host over stdio. Its value is not validated at startup, so a wrong one fails only later, at the first tool call.
 
 **`--allow-dangerously-skip-permissions` is what lets a session switch into bypass.** Measured against 2.1.280 in a trusted directory, with a Bash call that needs approval:
