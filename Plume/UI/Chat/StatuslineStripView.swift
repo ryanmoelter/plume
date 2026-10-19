@@ -433,7 +433,8 @@ struct QuotaDetailsPopover: View, ThemedView {
             color: StatuslineColors.meter(for: attention, colors: colors),
             attention: attention,
             pacing: summary.elapsedPercent.map { Double($0) / 100 },
-            isStale: summary.lastHeard != nil
+            isStale: summary.lastHeard != nil,
+            height: PacingMark.barHeight * 2
         )
         .frame(maxWidth: .infinity)
     }
@@ -640,6 +641,9 @@ struct MeterView: View, ThemedView {
     var pacing: Double?
     /// Dims the fill alone. The track stays put — see `StackedMeter.isStale`.
     var isStale: Bool = false
+    var height: CGFloat = PacingMark.barHeight
+
+    private var dotSize: CGFloat { PacingMark.width * height / PacingMark.barHeight }
 
     /// Tracks `fraction` through an explicit animation rather than an
     /// `.animation(value:)` modifier, so a bar that has just mounted — the
@@ -655,7 +659,7 @@ struct MeterView: View, ThemedView {
         GeometryReader { geometry in
             let fillWidth = StatuslineMeterMath.fillWidth(trackWidth: geometry.size.width, fraction: animatedFraction)
             let mark = pacing.map {
-                PacingMark.offset(pacing: $0, barWidth: geometry.size.width)
+                PacingMark.offset(pacing: $0, barWidth: geometry.size.width, dotWidth: dotSize)
             }
 
             // Centred vertically as well as leading, so the dot sits on the
@@ -689,7 +693,7 @@ struct MeterView: View, ThemedView {
             }
             .clipShape(Capsule())
         }
-        .frame(height: PacingMark.barHeight)
+        .frame(height: height)
         .onAppear { animateToCurrentFraction() }
         .onChange(of: fraction) { animateToCurrentFraction() }
     }
@@ -711,7 +715,7 @@ struct MeterView: View, ThemedView {
             : StatuslineColors.foreground(for: attention, colors: colors)
         return Circle()
             .fill(ground.opacity(colors.emphasis[isOverFill ? .secondary : .subtle]))
-            .frame(width: PacingMark.width, height: PacingMark.width)
+            .frame(width: dotSize, height: dotSize)
             .offset(x: offset)
     }
 }
@@ -737,8 +741,8 @@ enum PacingMark {
     /// The travel is not inset by the dot's width: insetting would buy a
     /// whole dot at either end at the cost of reading early everywhere in
     /// between. The ends clip instead.
-    static func offset(pacing: Double, barWidth: CGFloat) -> CGFloat {
-        barWidth * pacing - width / 2
+    static func offset(pacing: Double, barWidth: CGFloat, dotWidth: CGFloat = width) -> CGFloat {
+        barWidth * pacing - dotWidth / 2
     }
 }
 
