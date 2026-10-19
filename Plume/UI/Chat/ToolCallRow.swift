@@ -175,7 +175,7 @@ struct ToolCallRow: View, ThemedView {
         Button {
             ChatLinkOpener.open(.web(url))
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: ArtifactSymbol.filled)
                     .emphasis(.secondary)
                 Text(call.artifact?.title ?? "Untitled artifact")
@@ -183,9 +183,9 @@ struct ToolCallRow: View, ThemedView {
                     .truncationMode(.tail)
                 LinkOpenIcon()
             }
-            .font(typography.caption.font)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .font(typography.body.font)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
             .background(isHoveringArtifact ? colors.surfaceTint : .clear, in: .rect(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
