@@ -33,7 +33,7 @@ What an Option chord does cost is the terminal. `MenuShortcut.isClaimable` lets 
 
 ## Removing a task from the keyboard
 
-- **Delete / Backspace** on the sidebar list archives the selected task, or deletes it when it never started (`KeyboardRemoval.verbForDeleteKey`). It is `.onDeleteCommand` on the `List`, which fires only while the list has focus, so Delete in a text field never reaches it. Both paths go through `requestRemoval`, so confirmations still appear.
+- **Delete / Backspace** on the sidebar list archives the selected task, or deletes it when it never started (`KeyboardRemoval.verbForDeleteKey`). It is `.onDeleteCommand` on the sidebar's scroll view, which fires only while the sidebar has focus, so Delete in a text field never reaches it. Clicking a row gives the sidebar focus. Both paths go through `requestRemoval`, so confirmations still appear.
 - **⌘W** on a task with no tabs deletes the task instead of closing the window (`KeyboardRemoval.deletesTaskOnClose`). With no task selected it still closes the window.
 
 ## AppKit's own menu items need claiming too

@@ -64,6 +64,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// way it was entered.
     var onDeleteBackwardWhenEmpty: (() -> Void)?
     var verticalInset: CGFloat = MarkdownComposerTextView.defaultVerticalInset
+    /// Read in the caller's body so a change in settings re-runs
+    /// `updateNSView`, which an `NSTextStorage` attribute would not.
+    var accentPaletteSlot: Int? = AppSettings.shared.accentPaletteSlot
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -78,6 +81,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         context.coordinator.isCommandMode = isCommandMode
+        context.coordinator.accentPaletteSlot = accentPaletteSlot
+        context.coordinator.isActive = context.environment.appearsActive
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         view.setVerticalInset(verticalInset)
         return view
@@ -102,11 +107,15 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         let modeChanged = context.coordinator.isCommandMode != isCommandMode
         context.coordinator.isCommandMode = isCommandMode
+        let accentChanged = context.coordinator.accentPaletteSlot != accentPaletteSlot
+            || context.coordinator.isActive != context.environment.appearsActive
+        context.coordinator.accentPaletteSlot = accentPaletteSlot
+        context.coordinator.isActive = context.environment.appearsActive
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged || accentChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
@@ -156,6 +165,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         private(set) var fontSize: CGFloat = 0
         var recognizedSlashCommandNames: Set<String> = []
         var isCommandMode = false
+        var accentPaletteSlot: Int?
+        var isActive = true
 
         init(
             text: Binding<String>,
@@ -187,12 +198,16 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 : NSFont.composerBody(ofSize: fontSize)
             textView.font = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
+            let accent = ThemeChrome.accentNSColor(isActive: isActive)
+            textView.insertionPointColor = accent
+            textView.selectedTextAttributes = [.backgroundColor: accent.withAlphaComponent(0.3)]
             MarkdownComposerStyler.style(
                 textView.textStorage!,
                 text: text,
                 fontSize: fontSize,
                 recognizedSlashCommandNames: recognizedSlashCommandNames,
-                isCommandMode: isCommandMode
+                isCommandMode: isCommandMode,
+                accent: accent
             )
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
@@ -214,7 +229,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 text: newText,
                 fontSize: fontSize,
                 recognizedSlashCommandNames: recognizedSlashCommandNames,
-                isCommandMode: isCommandMode
+                isCommandMode: isCommandMode,
+                accent: ThemeChrome.accentNSColor(isActive: isActive)
             )
             updatePlaceholderVisibility(textView)
             host?.invalidateContentHeight()

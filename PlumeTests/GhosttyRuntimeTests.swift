@@ -20,6 +20,11 @@ struct GhosttyRuntimeTests {
         #expect(resolved == Self.fallback)
     }
 
+    @Test func noConfigFallsBackToBundledDefault() {
+        let resolved = GhosttyRuntime.resolveThemeDefinitions(in: nil, bundledDefault: Self.fallback)
+        #expect(resolved == Self.fallback)
+    }
+
     @Test func themeThatResolvesToNothingFallsBackToBundledDefault() {
         let expanded = GhosttyConfigLoader.ExpandedConfig(lines: [
             .init(sourcePath: "/fake/config", content: "theme = DoesNotExist")

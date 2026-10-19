@@ -51,12 +51,6 @@ struct EmphasisScaleTests {
         #expect(Color.red.emphasized(.backgroundTint, colorScheme: .dark) == Color.red.opacity(0.15))
     }
 
-    /// Selection is the user's own choice, so it stays on the system accent
-    /// color while every status role tracks the terminal palette.
-    @Test func selectionFollowsTheSystemAccentColor() {
-        #expect(ChatRole.selection == Color.accentColor)
-    }
-
     /// A status role is either the palette's accent or the system color it
     /// used before the palette existed — never a third thing, and never nil.
     ///

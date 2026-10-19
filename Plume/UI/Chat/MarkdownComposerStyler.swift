@@ -15,7 +15,8 @@ enum MarkdownComposerStyler {
         text: String,
         fontSize: CGFloat,
         recognizedSlashCommandNames: Set<String> = [],
-        isCommandMode: Bool = false
+        isCommandMode: Bool = false,
+        accent: NSColor = ThemeChrome.accentNSColor()
     ) {
         let bodyFont = isCommandMode
             ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -38,7 +39,7 @@ enum MarkdownComposerStyler {
         let spans = MarkdownHighlighter.spans(in: text)
         for span in spans {
             guard fullRange.contains(span.range) || span.range.length == 0 else { continue }
-            apply(span, to: storage, bodyFontSize: fontSize)
+            apply(span, to: storage, bodyFontSize: fontSize, accent: accent)
         }
         for span in spans {
             guard fullRange.contains(span.range) || span.range.length == 0 else { continue }
@@ -46,13 +47,13 @@ enum MarkdownComposerStyler {
         }
 
         if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
-            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: commandRange)
+            storage.addAttribute(.foregroundColor, value: accent, range: commandRange)
         }
 
         storage.endEditing()
     }
 
-    private static func apply(_ span: MarkdownHighlighter.Span, to storage: NSTextStorage, bodyFontSize: CGFloat) {
+    private static func apply(_ span: MarkdownHighlighter.Span, to storage: NSTextStorage, bodyFontSize: CGFloat, accent: NSColor) {
         let range = span.range
         switch span.style {
         case .bold:
@@ -72,7 +73,7 @@ enum MarkdownComposerStyler {
         case .listMarker, .blockQuote:
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
         case .link:
-            storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+            storage.addAttribute(.foregroundColor, value: accent, range: range)
         }
 
         if isMarkerOnly(span.style) {

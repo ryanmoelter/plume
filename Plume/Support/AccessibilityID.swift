@@ -40,6 +40,7 @@ enum AccessibilityID {
 
     static let settingsPane = "settings-pane"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
+    static let settingsAccentSwatch = "settings-accent-swatch"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
     static let settingsAboutNotabilityLink = "settings-about-notability-link"

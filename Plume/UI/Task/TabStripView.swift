@@ -100,6 +100,7 @@ struct TabStripView: View {
 private struct TabChip: View {
     let task: WorkTask
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appearsActive) private var appearsActive
 
     let tab: TaskTab
     let isSelected: Bool
@@ -218,15 +219,8 @@ private struct TabChip: View {
         }
     }
 
-    /// `.selection` reads as a native system tint, which disappears against a
-    /// custom theme background; a translucent wash of the theme's own
-    /// foreground stays legible in both themes.
-    private var chipBackground: AnyShapeStyle {
-        guard let themeForeground else {
-            return isSelected ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear)
-        }
-        let opacity = isSelected ? SidebarSelectionFill.opacity(for: colorScheme) : 0
-        return AnyShapeStyle(themeForeground.opacity(opacity))
+    private var chipBackground: Color {
+        isSelected ? SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive) : .clear
     }
 }
 

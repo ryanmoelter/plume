@@ -199,7 +199,7 @@ struct InfoPaneContent: View, ThemedView {
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
             .contentShape(.rect)
         }
@@ -219,7 +219,7 @@ struct InfoPaneContent: View, ThemedView {
                     .emphasis(.subtle)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
             .contentShape(.rect)
         }
@@ -292,6 +292,7 @@ struct InfoPaneContent: View, ThemedView {
                             imageScale: .medium
                         )
                         Image(systemName: "arrow.up.forward.square")
+                            .foregroundStyle(colors.selection)
                             .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
                             .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
                     }
