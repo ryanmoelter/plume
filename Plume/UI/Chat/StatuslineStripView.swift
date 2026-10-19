@@ -44,6 +44,16 @@ struct StatuslineStripView: View, ThemedView {
     // Stream-derived, headless only — nil segments are simply omitted.
     let sessionCostUSD: Double?
 
+    /// Drawn only by the stacked layout, which gathers every bar into one
+    /// control; the wide layout leaves Codex quota to `CodexQuotaStrip`.
+    let codexWindows: [CodexQuotaWindow]
+
+    /// Supplies the context breakdown in the stacked layout's popover. Nil
+    /// on every tab but a headless Claude one.
+    let headlessSession: HeadlessSession?
+
+    @State private var showingUsage = false
+
     /// Account-wide, so it comes from the shared store rather than from the
     /// session this strip belongs to: a chat that has not taken a turn in an
     /// hour still shows what the account heard a moment ago.
@@ -54,13 +64,17 @@ struct StatuslineStripView: View, ThemedView {
         provider: AgentProviderKind = .claudeCode,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
-        sessionCostUSD: Double? = nil
+        sessionCostUSD: Double? = nil,
+        codexWindows: [CodexQuotaWindow] = [],
+        headlessSession: HeadlessSession? = nil
     ) {
         self.layout = layout
         self.provider = provider
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.sessionCostUSD = sessionCostUSD
+        self.codexWindows = codexWindows
+        self.headlessSession = headlessSession
     }
 
     var body: some View {
@@ -138,41 +152,96 @@ struct StatuslineStripView: View, ThemedView {
     /// — what the row falls back to once `wideLayout` no longer fits.
     /// `statuslineStackedBarSpacing` keeps the three bars within the height
     /// one reading-over-bar meter already takes.
+    ///
+    /// Bars this small are too close together to click apart, so the whole
+    /// stack is one control, opening every reading at once.
     private var stackedLayout: some View {
-        VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
-            contextSegment(showsReading: false)
-            if let fiveHour = rateLimit?.fiveHour {
-                StatuslineMeterSegment(
-                    label: "5h",
-                    utilization: fiveHour.utilization,
-                    resetsAt: fiveHour.resetsAt,
-                    now: quota.now,
-                    isStale: isStale,
-                    receivedAt: receivedAt,
-                    barWidth: StatuslineMeterWidth.shortQuota,
-                    showsReading: false,
-                    windowLength: QuotaWindowLength.fiveHour
-                )
-                .plumeID(AccessibilityID.statuslineFiveHourMeter)
-                .transition(.opacity)
+        Button {
+            showingUsage = true
+        } label: {
+            HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
+                VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
+                    contextSegment(showsReading: false)
+                    if let fiveHour = rateLimit?.fiveHour {
+                        StatuslineMeterSegment(
+                            label: "5h",
+                            utilization: fiveHour.utilization,
+                            resetsAt: fiveHour.resetsAt,
+                            now: quota.now,
+                            isStale: isStale,
+                            receivedAt: receivedAt,
+                            barWidth: StatuslineMeterWidth.shortQuota,
+                            showsReading: false,
+                            windowLength: QuotaWindowLength.fiveHour,
+                            isInteractive: false
+                        )
+                        .plumeID(AccessibilityID.statuslineFiveHourMeter)
+                        .transition(.opacity)
+                    }
+                    if let sevenDay = rateLimit?.sevenDay {
+                        StatuslineMeterSegment(
+                            label: "7d",
+                            utilization: sevenDay.utilization,
+                            resetsAt: sevenDay.resetsAt,
+                            now: quota.now,
+                            isStale: isStale,
+                            receivedAt: receivedAt,
+                            barWidth: StatuslineMeterWidth.quota,
+                            showsReading: false,
+                            windowLength: QuotaWindowLength.sevenDay,
+                            isInteractive: false
+                        )
+                        .plumeID(AccessibilityID.statuslineSevenDayMeter)
+                        .transition(.opacity)
+                    }
+                }
+                if !visibleCodexWindows.isEmpty {
+                    CodexQuotaStrip(windows: codexWindows, layout: .stacked, isInteractive: false)
+                        .transition(.opacity)
+                }
             }
-            if let sevenDay = rateLimit?.sevenDay {
-                StatuslineMeterSegment(
-                    label: "7d",
-                    utilization: sevenDay.utilization,
-                    resetsAt: sevenDay.resetsAt,
-                    now: quota.now,
-                    isStale: isStale,
-                    receivedAt: receivedAt,
-                    barWidth: StatuslineMeterWidth.quota,
-                    showsReading: false,
-                    windowLength: QuotaWindowLength.sevenDay
-                )
-                .plumeID(AccessibilityID.statuslineSevenDayMeter)
-                .transition(.opacity)
-            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Usage")
+        .plumeID(AccessibilityID.statuslineUsageButton, invoke: { showingUsage = true })
+        .popover(isPresented: $showingUsage) {
+            StatuslineUsagePopover(
+                contextUsedTokens: contextUsedTokens,
+                contextMaxTokens: contextMaxTokens,
+                quotaSummaries: quotaSummaries,
+                headlessSession: headlessSession
+            )
+            .environment(\.theme, theme)
         }
         .animation(QuotaTransition.animation, value: quotaPresence)
+        .animation(QuotaTransition.animation, value: visibleCodexWindows.map(\.id))
+    }
+
+    private var visibleCodexWindows: [CodexQuotaWindow] { codexWindows.filter { $0.usedPercent > 0 } }
+
+    private var quotaSummaries: [QuotaWindowSummary] {
+        let claude: [(String, RateLimitInfo.Window?, TimeInterval)] = [
+            ("5h", rateLimit?.fiveHour, QuotaWindowLength.fiveHour),
+            ("7d", rateLimit?.sevenDay, QuotaWindowLength.sevenDay)
+        ]
+        let claudeSummaries = claude.compactMap { label, window, length in
+            window.map {
+                QuotaDescription.summary(
+                    provider: "Claude",
+                    timeframe: label,
+                    utilization: $0.utilization,
+                    resetsAt: $0.resetsAt,
+                    windowLength: length,
+                    receivedAt: receivedAt,
+                    now: quota.now
+                )
+            }
+        }
+        let codexSummaries = visibleCodexWindows.map {
+            CodexQuotaStrip.summary($0, store: .shared, now: quota.now)
+        }
+        return claudeSummaries + codexSummaries
     }
 
     // MARK: - Segments
@@ -343,34 +412,47 @@ struct StatuslineMeterSegment: View, ThemedView {
     /// it the clock is. Nil draws no pacing band.
     var windowLength: TimeInterval?
     var readingAlignment: HorizontalAlignment = .center
+    /// False inside a control that opens its own popover for every meter.
+    var isInteractive: Bool = true
 
     var body: some View {
+        if isInteractive {
+            Button {
+                showingDetails = true
+            } label: {
+                meter
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .help(summary.text)
+            .accessibilityLabel("\(label) quota")
+            .accessibilityValue(summary.lines.joined(separator: ", "))
+            .popover(isPresented: $showingDetails) {
+                QuotaDetailsPopover(summaries: [summary])
+                    .environment(\.theme, theme)
+            }
+        } else {
+            meter
+                .help(summary.text)
+                .accessibilityLabel("\(label) quota")
+                .accessibilityValue(summary.lines.joined(separator: ", "))
+        }
+    }
+
+    private var meter: some View {
         let percent = utilization * 100
-        Button {
-            showingDetails = true
-        } label: {
-            StackedMeter(
-                reading: "\(resetLabel) \(Int(percent.rounded()))%",
-                fraction: StatuslineMeterMath.fraction(percent: percent),
-                barWidth: barWidth,
-                attention: StatuslineAttention.attention(percent: percent),
-                showsReading: showsReading,
-                pacing: windowLength.flatMap {
-                    QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0)
-                },
-                readingAlignment: readingAlignment,
-                isStale: isStale
-            )
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .help(summary.text)
-        .accessibilityLabel("\(label) quota")
-        .accessibilityValue(summary.lines.joined(separator: ", "))
-        .popover(isPresented: $showingDetails) {
-            QuotaDetailsPopover(summaries: [summary])
-                .environment(\.theme, theme)
-        }
+        return StackedMeter(
+            reading: "\(resetLabel) \(Int(percent.rounded()))%",
+            fraction: StatuslineMeterMath.fraction(percent: percent),
+            barWidth: barWidth,
+            attention: StatuslineAttention.attention(percent: percent),
+            showsReading: showsReading,
+            pacing: windowLength.flatMap {
+                QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: $0)
+            },
+            readingAlignment: readingAlignment,
+            isStale: isStale
+        )
     }
 
     private var summary: QuotaWindowSummary {
@@ -401,26 +483,35 @@ struct QuotaDetailsPopover: View, ThemedView {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(summaries.enumerated()), id: \.offset) { index, summary in
                 if index > 0 { Divider() }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(summary.title).font(.headline)
-                    bar(for: summary)
-                        .padding(.vertical, 4)
-                    Text("\(summary.usagePercent)%").bold() + Text(" used")
-                    if let elapsedPercent = summary.elapsedPercent {
-                        Text("\(elapsedPercent)%").bold() + Text(" of time elapsed")
-                    }
-                    if let lastHeard = summary.lastHeard {
-                        Text(lastHeard)
-                    }
-                    if let reset = summary.reset {
-                        Text("Resets ") + Text(reset).bold()
-                    }
-                }
+                QuotaSummarySection(summary: summary)
             }
         }
-        .font(typography.caption.font)
-        .padding(12)
-        .frame(minWidth: 200, alignment: .leading)
+        .usagePopoverStyle(typography: typography)
+    }
+}
+
+/// One quota window's section of a usage popover.
+struct QuotaSummarySection: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let summary: QuotaWindowSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(summary.title).font(.headline)
+            bar(for: summary)
+                .padding(.vertical, 4)
+            Text("\(summary.usagePercent)%").bold() + Text(" used")
+            if let elapsedPercent = summary.elapsedPercent {
+                Text("\(elapsedPercent)%").bold() + Text(" of time elapsed")
+            }
+            if let lastHeard = summary.lastHeard {
+                Text(lastHeard)
+            }
+            if let reset = summary.reset {
+                Text("Resets ") + Text(reset).bold()
+            }
+        }
     }
 
     /// Drawn from the summary's whole percents, which at popover width is
@@ -437,6 +528,14 @@ struct QuotaDetailsPopover: View, ThemedView {
             height: PacingMark.barHeight * 2
         )
         .frame(maxWidth: .infinity)
+    }
+}
+
+extension View {
+    func usagePopoverStyle(typography: Typography) -> some View {
+        font(typography.caption.font)
+            .padding(12)
+            .frame(minWidth: 200, alignment: .leading)
     }
 }
 

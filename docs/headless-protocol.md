@@ -256,6 +256,7 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 | `get_settings` / `update_settings` | | Read and write session settings |
 | `rewind_files` | `dry_run` | Undo file changes |
 | `generate_session_title` | `description` | Ask the CLI to title the session — see below |
+| `get_context_usage` | `detail` | What fills the context window, by category — see below |
 | `mcp_message` | `server_name`, `message` | Host-provided MCP servers |
 | `hook_callback` | `callback_id`, `input` | In-process hooks, no shell scripts |
 
@@ -332,6 +333,33 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
 
 **Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
+
+## Context usage — `get_context_usage`
+
+Feeds the context breakdown in the statusline's usage popover. Probed against 2.1.296 after `initialize`:
+
+```json
+{"type":"control_request","request_id":"r2",
+ "request":{"subtype":"get_context_usage","detail":"summary"}}
+```
+
+`detail` must be `summary` or `full`. Plume sends `summary`. The reply:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"r2","response":{
+  "categories":[{"name":"System prompt","tokens":2145,"color":"promptBorder","kind":"used"},
+                {"name":"System tools (deferred)","tokens":26459,"isDeferred":true,"kind":"deferred"},
+                {"name":"Autocompact buffer","tokens":33000,"kind":"buffer"},
+                {"name":"Free space","tokens":231330,"kind":"free"}, …],
+  "totalTokens":35670,"maxTokens":300000,"rawMaxTokens":300000,
+  "autocompactSource":"settings","percentage":12,"gridRows":[…]}}}
+```
+
+- `kind` is `used`, `deferred`, `buffer` or `free`. The `used` categories sum to `totalTokens`.
+- `ContextUsageBreakdown` reads `name`, `tokens`, `kind` and `isDeferred`, and ignores everything else, including `gridRows` and `color`.
+- The popover lists every category except `free` and `deferred`. Free space restates the meter's remainder, and deferred tools are not loaded into context.
+- `HeadlessSession.requestContextUsage()` sends the request each time the popover opens, never on a timer. The last reply stays cached in `contextBreakdown` meanwhile.
+- An error reply, or a reply with no readable category, clears `contextBreakdown`, and the popover shows no breakdown.
 
 ## Session titles — `generate_session_title`
 

@@ -95,6 +95,13 @@ enum StreamJSONEncoder {
         ])
     }
 
+    static func getContextUsage(requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("get_context_usage"),
+            "detail": .string("summary")
+        ])
+    }
+
     /// Cuts the conversation back to just before `targetMessageUUID`, so that
     /// message can be asked again. The reply carries the target's own text as
     /// `prefillText`, for editing and resending.

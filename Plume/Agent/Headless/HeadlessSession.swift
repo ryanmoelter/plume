@@ -154,6 +154,11 @@ final class HeadlessSession: AgentSession {
 
     private(set) var remoteControl: RemoteControlState = .disconnected
 
+    /// The last `get_context_usage` reply, kept so a reopened popover shows
+    /// something while `requestContextUsage()` refreshes it. Nil after a
+    /// refused or unreadable reply.
+    private(set) var contextBreakdown: ContextUsageBreakdown?
+
     /// The last Remote Control change worth telling the user about, until it
     /// times out. `/rc` writes no transcript line, so without this the chat
     /// looks identical whether the command worked or did nothing at all.
@@ -537,6 +542,15 @@ final class HeadlessSession: AgentSession {
         }
     }
 
+    func requestContextUsage() {
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .contextUsage
+        guard send(StreamJSONEncoder.getContextUsage(requestID: requestID)) else {
+            pendingControlRequests[requestID] = nil
+            return
+        }
+    }
+
     func dismissRewindFailure() {
         rewindFailure = nil
     }
@@ -853,6 +867,11 @@ final class HeadlessSession: AgentSession {
             applySideQuestionAnswer(in: response, id: id)
         case .rewind(let targetID):
             applyRewind(in: response, targetID: targetID)
+        case .contextUsage:
+            if response.isError {
+                Log.agent.error("Context usage request failed: \(response.errorMessage ?? "unknown", privacy: .public)")
+            }
+            contextBreakdown = response.isError ? nil : ContextUsageBreakdown(payload: response.payload)
         }
     }
 
@@ -1083,8 +1102,20 @@ final class HeadlessSession: AgentSession {
         statusEngine.setStatus(status, taskID: taskID, tabID: tabID, notifiable: notifiable)
     }
 
+    #if DEBUG
+    /// Stands in for the process in tests, so a request reaches the wire and
+    /// its reply can be correlated without spawning `claude`.
+    @ObservationIgnored var debugLineSink: ((String) -> Void)?
+    #endif
+
     @discardableResult
     private func send(_ line: String?) -> Bool {
+        #if DEBUG
+        if let line, let debugLineSink {
+            debugLineSink(line)
+            return true
+        }
+        #endif
         guard let line, let process else { return false }
         return process.send(line: line)
     }
@@ -1103,5 +1134,6 @@ final class HeadlessSession: AgentSession {
         case setPermissionMode(PermissionMode)
         case sideQuestion(id: String)
         case rewind(targetID: String)
+        case contextUsage
     }
 }
