@@ -138,6 +138,9 @@ enum InfoPaneLayout {
     /// icons starts on one edge.
     static let iconColumnWidth: CGFloat = 16
     static let columnSpacing: CGFloat = 6
+    /// Above and below every row, so a clickable row's hover wash has room
+    /// and plain rows keep the same rhythm.
+    static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,
