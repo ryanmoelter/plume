@@ -14,29 +14,21 @@ struct SidebarSelectionFill: View {
 
     let isSelected: Bool
 
-    /// The wash a selected row takes, light enough to keep the row's own text
-    /// readable over it. Matches the tab chips in `TabStripView`.
-    static func opacity(for colorScheme: ColorScheme) -> Double {
-        Emphasis.backgroundTint.fillOpacity(for: colorScheme)
+    /// The selected wash, shared with the selected tab chip in `TabStripView`.
+    /// The accent takes the slash-command list's highlight strength: a hue at
+    /// the foreground's wash strength reads as no selection at all.
+    static func wash(for colorScheme: ColorScheme) -> Color {
+        if AppSettings.shared.accentPaletteSlot != nil {
+            ThemeChrome.accent(for: colorScheme)
+                .opacity(Emphasis.divider.fillOpacity(for: colorScheme))
+        } else {
+            Color.chatSurface(.primary, colorScheme: colorScheme)
+                .opacity(Emphasis.backgroundTint.fillOpacity(for: colorScheme))
+        }
     }
 
     var body: some View {
-        fill
-            .opacity(isSelected ? fillOpacity : 0)
+        (isSelected ? Self.wash(for: colorScheme) : .clear)
             .clipShape(.rect(cornerRadius: SidebarMetrics.selectionCornerRadius))
-    }
-
-    private var usesAccent: Bool { AppSettings.shared.accentPaletteSlot != nil }
-
-    private var fill: Color {
-        usesAccent
-            ? ThemeChrome.accent(for: colorScheme)
-            : Color.chatSurface(.primary, colorScheme: colorScheme)
-    }
-
-    /// The accent takes the slash-command list's highlight strength: a hue
-    /// at the foreground's wash strength reads as no selection at all.
-    private var fillOpacity: Double {
-        usesAccent ? Emphasis.divider.fillOpacity(for: colorScheme) : Self.opacity(for: colorScheme)
     }
 }

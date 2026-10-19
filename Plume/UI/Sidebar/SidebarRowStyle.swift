@@ -1,18 +1,19 @@
 import SwiftUI
 
-/// The sidebar's spacing, measured from the macOS 26 `List(.sidebar)` it
-/// replaces so the hand-built list still reads as a system sidebar.
+/// The sidebar's spacing. Row heights and header gaps are measured from the
+/// macOS 26 `List(.sidebar)`; the selection fill takes the footer buttons'
+/// bounds, so a selected task and a hovered footer row share one shape.
 enum SidebarMetrics {
     /// From the column edge to a row's selection fill.
-    static let listHorizontalInset: CGFloat = 10
+    static let listHorizontalInset: CGFloat = SidebarFooterMetrics.inset
     /// From the selection fill to the row's content.
-    static let rowHorizontalPadding: CGFloat = 6
+    static let rowHorizontalPadding: CGFloat = 12
     /// Above and below a row's content, inside its fill.
     static let rowVerticalPadding: CGFloat = 6
-    static let selectionCornerRadius: CGFloat = 10
+    static let selectionCornerRadius: CGFloat = SidebarFooterMetrics.washCornerRadius
     /// A header sits 2 pt further out than a row's content, as the system's
     /// section headers do.
-    static let headerLeadingPadding: CGFloat = 4
+    static let headerLeadingPadding: CGFloat = 10
     static let headerMinHeight: CGFloat = 19
     /// Above every section header but the first.
     static let headerTopSpacing: CGFloat = 13
