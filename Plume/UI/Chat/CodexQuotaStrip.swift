@@ -12,27 +12,43 @@ struct CodexQuotaStrip: View, ThemedView {
     let windows: [CodexQuotaWindow]
     var layout: Layout = .wide
     var sidebar = false
+    /// False inside a control that opens its own popover for every meter.
+    var isInteractive = true
 
     private var visibleWindows: [CodexQuotaWindow] { windows.filter { $0.usedPercent > 0 } }
 
     var body: some View {
-        Button { showingDetails = true } label: {
-            Group {
-                switch layout {
-                case .wide:
-                    HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: true).transition(.opacity) }
-                    }
-                    .fixedSize()
-                case .stacked:
-                    VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
-                        ForEach(visibleWindows) { window in meter(window, showsReading: false).transition(.opacity) }
-                    }
-                    .frame(minHeight: 22)
+        if isInteractive {
+            interactiveBody
+        } else {
+            meters
+                .font(typography.caption.font)
+                .onAppear { clock.startTicking() }
+        }
+    }
+
+    private var meters: some View {
+        Group {
+            switch layout {
+            case .wide:
+                HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
+                    ForEach(visibleWindows) { window in meter(window, showsReading: true).transition(.opacity) }
                 }
+                .fixedSize()
+            case .stacked:
+                VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
+                    ForEach(visibleWindows) { window in meter(window, showsReading: false).transition(.opacity) }
+                }
+                .frame(minHeight: 22)
             }
-            .contentShape(Rectangle())
-            .animation(QuotaTransition.animation, value: visibleWindows.map(\.id))
+        }
+        .contentShape(Rectangle())
+        .animation(QuotaTransition.animation, value: visibleWindows.map(\.id))
+    }
+
+    private var interactiveBody: some View {
+        Button { showingDetails = true } label: {
+            meters
         }
         .buttonStyle(.plain)
         .font(typography.caption.font)
@@ -69,14 +85,18 @@ struct CodexQuotaStrip: View, ThemedView {
     }
 
     private func summary(_ window: CodexQuotaWindow) -> QuotaWindowSummary {
+        Self.summary(window, store: quota, now: clock.now)
+    }
+
+    static func summary(_ window: CodexQuotaWindow, store: CodexQuotaStore, now: Date) -> QuotaWindowSummary {
         QuotaDescription.summary(
             provider: "Codex",
             timeframe: window.timeframe,
             utilization: window.utilization,
             resetsAt: window.resetsAt,
             windowLength: window.windowLength,
-            receivedAt: quota.receivedAt(for: window),
-            now: clock.now
+            receivedAt: store.receivedAt(for: window),
+            now: now
         )
     }
 }

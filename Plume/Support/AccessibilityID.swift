@@ -89,6 +89,8 @@ enum AccessibilityID {
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
+    static let statuslineUsageButton = "statusline-usage-button"
+    static let statuslineUsagePopover = "statusline-usage-popover"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 

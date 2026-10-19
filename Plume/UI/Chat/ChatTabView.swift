@@ -629,11 +629,13 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    sessionCostUSD: displayedSessionCost
+                    sessionCostUSD: displayedSessionCost,
+                    codexWindows: tab.provider == .codex ? CodexQuotaStore.shared.windows : [],
+                    headlessSession: headlessSession as? HeadlessSession
                 )
-                if tab.provider == .codex,
+                if meters == .wide, tab.provider == .codex,
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
-                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows, layout: meters == .stacked ? .stacked : .wide)
+                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows)
                         .transition(.opacity)
                 }
                 if let headlessSession {
