@@ -1,6 +1,12 @@
 # Keyboard shortcuts
 
-Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — and Send Now are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+
+## An action can ship with no chord
+
+`ShortcutAction.defaultShortcut` is optional. Send Now's is nil, so its Tab menu item carries no key equivalent until the user records one, and reset leaves it unbound again. ⌃↩ is not an option for it: the composer's text view opens its context menu on that key. The item runs the focused chat tab composer's send-now through the `sendNowAction` focused scene value, which only the visible composer of the focused pane publishes, and only on a headless tab with a draft or a queue to send.
+
+In a split task, each pane has its own strip, and the tab chords act on the focused pane only. ⌘1…⌘9 count within its strip, and Next and Previous Tab wrap within it. `TaskStore.selectTab(atIndex:in:)` and `TaskStore.cycleTab(by:in:)` own this. `⌘\` while unsplit moves the focused tab into a new right pane, and is disabled when the task has one tab. `⇧⌘\` is left alone because AppKit's Show All Tabs uses it.
 
 Three layers have to agree for a chord to work.
 
@@ -33,7 +39,7 @@ What an Option chord does cost is the terminal. `MenuShortcut.isClaimable` lets 
 
 ## Removing a task from the keyboard
 
-- **Delete / Backspace** on the sidebar list archives the selected task, or deletes it when it never started (`KeyboardRemoval.verbForDeleteKey`). It is `.onDeleteCommand` on the `List`, which fires only while the list has focus, so Delete in a text field never reaches it. Both paths go through `requestRemoval`, so confirmations still appear.
+- **Delete / Backspace** on the sidebar list archives the selected task, or deletes it when it never started (`KeyboardRemoval.verbForDeleteKey`). It is `.onDeleteCommand` on the sidebar's scroll view, which fires only while the sidebar has focus, so Delete in a text field never reaches it. Clicking a row gives the sidebar focus. Both paths go through `requestRemoval`, so confirmations still appear.
 - **⌘W** on a task with no tabs deletes the task instead of closing the window (`KeyboardRemoval.deletesTaskOnClose`). With no task selected it still closes the window.
 
 ## AppKit's own menu items need claiming too

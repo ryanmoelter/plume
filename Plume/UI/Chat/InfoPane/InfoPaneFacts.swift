@@ -2,20 +2,6 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-enum InfoPanePresentation: String, CaseIterable {
-    /// A glass box at the chat's top-trailing corner.
-    case side
-    /// A block after the last message, folding behind the composer.
-    case inline
-
-    var label: String {
-        switch self {
-        case .side: "Side Pane"
-        case .inline: "Inline"
-        }
-    }
-}
-
 enum InfoPaneState: String {
     case expanded
     /// One row of icons; the side pane opens over the chat while hovered.
@@ -37,9 +23,6 @@ enum InfoPaneState: String {
 
 /// Everything the info pane shows for one chat tab, resolved from the stores
 /// by `ChatTabView` so the views below it read a plain value.
-///
-/// Equatable because the inline presentation rides in `ChatListInputs`, which
-/// rebuilds an item only when its inputs change.
 struct InfoPaneFacts: Equatable {
     struct Branch: Equatable {
         let name: String
@@ -79,6 +62,7 @@ struct InfoPaneFacts: Equatable {
     var pullRequest: PullRequestFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
+    var artifacts: [ConversationArtifact] = []
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
@@ -86,6 +70,7 @@ struct InfoPaneFacts: Equatable {
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
         if planTitle != nil { sections.append(.plan) }
+        if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
@@ -100,7 +85,7 @@ struct InfoPaneFacts: Equatable {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
             case .folder, .sideChat: false
-            case .backgroundTasks, .plan, .pullRequest: true
+            case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
         }
     }
@@ -113,7 +98,19 @@ extension InfoPaneFacts {
         _ subagents: [SubagentTranscript],
         hasSettled: (SubagentTranscript) -> Bool
     ) -> (live: [SubagentTranscript], completed: [SubagentTranscript]) {
-        (subagents.filter { !hasSettled($0) }, subagents.filter(hasSettled))
+        (subagents.filter { !hasSettled($0) }, newestFirst(subagents.filter(hasSettled)))
+    }
+
+    /// Orders by last activity, newest first. Subagents with no timestamp
+    /// follow the dated ones and keep their input order.
+    static func newestFirst(_ subagents: [SubagentTranscript]) -> [SubagentTranscript] {
+        let dated = subagents.enumerated().filter { $0.element.modifiedAt != nil }
+        let undated = subagents.filter { $0.modifiedAt == nil }
+        let sorted = dated.sorted {
+            let (a, b) = ($0.element.modifiedAt!, $1.element.modifiedAt!)
+            return a == b ? $0.offset < $1.offset : a > b
+        }
+        return sorted.map(\.element) + undated
     }
 
     /// A state with nothing to say about a pull request is left out, rather
@@ -139,6 +136,7 @@ enum InfoPaneSection: Equatable {
     case subagents
     case backgroundTasks
     case plan
+    case artifacts
     case sideChat
     case folder
     case branch
@@ -152,6 +150,9 @@ enum InfoPaneLayout {
     /// icons starts on one edge.
     static let iconColumnWidth: CGFloat = 16
     static let columnSpacing: CGFloat = 6
+    /// Above and below every row, so a clickable row's hover wash has room
+    /// and plain rows keep the same rhythm.
+    static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,

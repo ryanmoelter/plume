@@ -32,10 +32,22 @@ struct TaskCommands {
     let archiveSelectedTask: () -> Void
     /// Nil when the selected tab has no stored session to discard.
     let startFreshSelectedTab: (() -> Void)?
+    let isSplit: Bool
+    /// Closes the split, or moves the focused tab into a new right pane. Nil
+    /// when neither can happen.
+    let toggleSplit: (() -> Void)?
+    /// Nil when not split.
+    let focusOtherPane: (() -> Void)?
 }
 
 struct TaskCommandsKey: FocusedValueKey {
     typealias Value = TaskCommands
+}
+
+/// Send-now in the focused chat tab's composer. Nil unless that tab is a
+/// headless one with something to send.
+struct SendNowActionKey: FocusedValueKey {
+    typealias Value = () -> Void
 }
 
 extension FocusedValues {
@@ -63,6 +75,11 @@ extension FocusedValues {
         get { self[TaskCommandsKey.self] }
         set { self[TaskCommandsKey.self] = newValue }
     }
+
+    var sendNowAction: (() -> Void)? {
+        get { self[SendNowActionKey.self] }
+        set { self[SendNowActionKey.self] = newValue }
+    }
 }
 
 /// Every keyboard shortcut `PlumeCommands` binds, in one place.
@@ -78,11 +95,15 @@ enum PlumeShortcuts {
     static let showArchive = MenuShortcut("a", modifiers: [.command, .shift])
     static let closeTab = MenuShortcut("w")
     static let archiveTask = MenuShortcut("a", modifiers: [.command, .control])
+    /// Not ⇧⌘\, which is AppKit's Show All Tabs.
+    static let toggleSplit = MenuShortcut("\\")
+    static let focusOtherPane = MenuShortcut("\\", modifiers: [.command, .option])
     /// ⌘1 through ⌘9, selecting a tab by position.
     static let selectTab: [MenuShortcut] = (1...9).map { MenuShortcut(Character("\($0)")) }
 
     private static let fixed: [MenuShortcut] = [
         newTask, newTerminalTab, newAgentTab, showArchive, closeTab, archiveTask,
+        toggleSplit, focusOtherPane,
     ] + selectTab
 
     static var all: [MenuShortcut] {
@@ -100,6 +121,7 @@ struct PlumeCommands: Commands {
     @FocusedValue(\.showImportAction) private var showImport
     @FocusedValue(\.taskCommands) private var task
     @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
+    @FocusedValue(\.sendNowAction) private var sendNow
 
     /// The chord this menu is *built* with. SwiftUI never re-evaluates a
     /// `Commands` body for a changed binding, so `ShortcutMenuApplier` writes
@@ -177,6 +199,15 @@ struct PlumeCommands: Commands {
 
             Divider()
 
+            Button(task?.isSplit == true ? "Close Split" : "Split Right") { task?.toggleSplit?() }
+                .keyboardShortcut(PlumeShortcuts.toggleSplit)
+                .disabled(task?.toggleSplit == nil)
+            Button("Focus Other Pane") { task?.focusOtherPane?() }
+                .keyboardShortcut(PlumeShortcuts.focusOtherPane)
+                .disabled(task?.focusOtherPane == nil)
+
+            Divider()
+
             ForEach(Array(PlumeShortcuts.selectTab.enumerated()), id: \.offset) { index, shortcut in
                 Button("Tab \(index + 1)") { task?.selectTab(index) }
                     .keyboardShortcut(shortcut)
@@ -187,6 +218,12 @@ struct PlumeCommands: Commands {
 
             Button("Start Fresh Conversation…") { task?.startFreshSelectedTab?() }
                 .disabled(task?.startFreshSelectedTab == nil)
+
+            Divider()
+
+            Button("Send Now") { sendNow?() }
+                .keyboardShortcut(shortcut(for: .sendNow))
+                .disabled(sendNow == nil)
         }
     }
 }

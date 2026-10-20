@@ -17,8 +17,8 @@ struct KeepAwakeHelperRow: View {
                 case .unavailable(let reason):
                     Text(reason).foregroundStyle(.red)
                 case .unresponsive:
-                    Text("Not responding").foregroundStyle(.red)
-                    Button("Reinstall") { keepAwake.reinstallLidHelper() }
+                    Text("Broken").foregroundStyle(.red)
+                    Button("Repair") { keepAwake.reinstallLidHelper() }
                         .plumeID(AccessibilityID.keepAwakeLidReinstallButton)
                 case .ready, .engaged:
                     Text("Installed").foregroundStyle(.secondary)

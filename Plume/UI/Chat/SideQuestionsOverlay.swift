@@ -53,7 +53,7 @@ struct SideQuestionsOverlay: View, ThemedView {
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
+            .paneKeyboardShortcut(.cancelAction)
             .help("Close")
             .plumeID(AccessibilityID.sideQuestionsClose)
         }

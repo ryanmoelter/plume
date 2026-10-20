@@ -195,6 +195,29 @@ struct ThemeChromeTests {
         let darkOnly = GhosttyThemeResolver.ResolvedDefinitions(light: nil, dark: definitions.dark)
         #expect(ThemeChrome.titlebarBackground(in: darkOnly) == nil)
     }
+
+    // MARK: - Accent color
+
+    @Test func paletteColorReadsTheSlotForEachScheme() {
+        let pair = GhosttyThemeResolver.ResolvedDefinitions(
+            light: GhosttyThemeDefinition(name: "L", background: "ffffff", foreground: "000000", palette: [4: "1030a0"]),
+            dark: GhosttyThemeDefinition(name: "D", background: "000000", foreground: "ffffff", palette: [4: "68bcff"])
+        )
+        #expect(ThemeChrome.paletteColor(slot: 4, for: .light, in: pair) == Color(hex: "1030a0"))
+        #expect(ThemeChrome.paletteColor(slot: 4, for: .dark, in: pair) == Color(hex: "68bcff"))
+    }
+
+    @Test func paletteColorDoesNotFallThroughToTheBrightSlot() {
+        #expect(ThemeChrome.paletteColor(slot: 5, for: .dark, in: palettedDefinitions) == nil)
+        #expect(ThemeChrome.paletteColor(slot: 12, for: .dark, in: palettedDefinitions) == Color(hex: "5080ff"))
+    }
+
+    @Test func accentFallsBackToTheSystemAccent() {
+        #expect(ThemeChrome.accent(slot: nil, for: .dark, in: palettedDefinitions) == .accentColor)
+        #expect(ThemeChrome.accent(slot: 5, for: .dark, in: palettedDefinitions) == .accentColor)
+        #expect(ThemeChrome.accent(slot: 4, for: .dark, in: nil) == .accentColor)
+        #expect(ThemeChrome.accent(slot: 4, for: .dark, in: palettedDefinitions) == Color(hex: "1030a0"))
+    }
 }
 
 private extension NSColor {

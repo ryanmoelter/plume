@@ -65,7 +65,7 @@ struct WorkspacePickerView: View, ThemedView {
                 chipRow
             }
         }
-        .background(isTargetedForDrop ? ChatRole.selection.emphasized(.divider, colorScheme: colorScheme) : .clear)
+        .background(isTargetedForDrop ? ChatRole.selection(for: colorScheme).emphasized(.divider, colorScheme: colorScheme) : .clear)
         .onDrop(
             of: [.fileURL],
             delegate: FolderDropDelegate(

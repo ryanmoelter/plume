@@ -15,6 +15,19 @@ enum AccessibilityID {
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
+    static let taskDescription = "task-description"
+    static let taskEditButton = "task-edit-button"
+    static let groupEditButton = "group-edit-button"
+    static let groupHeaderEditButton = "group-header-edit-button"
+    static let sidebarNameField = "sidebar-name-field"
+    static let sidebarDescriptionField = "sidebar-description-field"
+    static let sidebarAppearancePopover = "sidebar-appearance-popover"
+    static let sidebarTintSwatch = "sidebar-tint-swatch"
+    static let sidebarIconSwatch = "sidebar-icon-swatch"
+    static let sidebarSFSymbolsLink = "sidebar-sf-symbols-link"
+    static let sidebarIconNameField = "sidebar-icon-name-field"
+    static let sidebarIconClearButton = "sidebar-icon-clear-button"
+    static let sidebarIconRevertButton = "sidebar-icon-revert-button"
     static let archivedTaskUnarchiveButton = "archived-task-unarchive-button"
     static let sidebarSettingsButton = "sidebar-settings-button"
     static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
@@ -40,12 +53,21 @@ enum AccessibilityID {
 
     static let settingsPane = "settings-pane"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
+    static let settingsAccentSwatch = "settings-accent-swatch"
+    static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
+    static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
+    static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
+    static let settingsSidebarColorsTaskIconsToggle = "settings-sidebar-colors-task-icons-toggle"
+    static let settingsSidebarTwoToneIconsToggle = "settings-sidebar-two-tone-icons-toggle"
+    static let settingsSidebarPreview = "settings-sidebar-preview"
+    static let settingsSidebarSuggestsFilledIconsToggle = "settings-sidebar-suggests-filled-icons-toggle"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
     static let settingsAboutNotabilityLink = "settings-about-notability-link"
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"
     static let composerSendKeyPicker = "composer-send-key-picker"
     static let escapeInterruptsTurnToggle = "escape-interrupts-turn-toggle"
+    static let queuedMessageDeliveryPicker = "queued-message-delivery-picker"
     static let shortcutRecorder = "shortcut-recorder"
     static let shortcutResetButton = "shortcut-reset-button"
     static let shortcutResetAllButton = "shortcut-reset-all-button"
@@ -65,7 +87,12 @@ enum AccessibilityID {
 
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
+    /// In both the task row's and the tab chip's context menu.
+    static let markUnreadButton = "mark-unread-button"
     static let newTabButton = "new-tab-button"
+    /// One per on-screen tab; `value` is "focused" on the focused one.
+    static let tabPane = "tab-pane"
+    static let splitDivider = "split-divider"
 
     // MARK: Composer
 
@@ -88,6 +115,8 @@ enum AccessibilityID {
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
+    static let statuslineUsageButton = "statusline-usage-button"
+    static let statuslineUsagePopover = "statusline-usage-popover"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 
@@ -134,6 +163,10 @@ enum AccessibilityID {
     static let mermaidExpandButton = "mermaid-expand-button"
     static let mermaidFullScreenClose = "mermaid-full-screen-close"
 
+    // MARK: Tool calls
+
+    static let toolCallArtifactLink = "tool-call-artifact-link"
+
     // MARK: Subagents
 
     static let subagentRow = "subagent-row"
@@ -145,7 +178,6 @@ enum AccessibilityID {
     // MARK: Info pane
 
     static let infoPane = "info-pane"
-    static let infoPaneMenu = "info-pane-menu"
     static let infoPaneCollapseButton = "info-pane-collapse-button"
     static let infoPanePill = "info-pane-pill"
     static let infoPaneFloatingDismiss = "info-pane-floating-dismiss"
@@ -156,6 +188,8 @@ enum AccessibilityID {
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
+    static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"
+    static let infoPaneArtifactRow = "info-pane-artifact-row"
 
     // MARK: Side questions (/btw)
 
@@ -177,4 +211,11 @@ enum AccessibilityID {
 
     static let chatMinimap = "chat-minimap"
     static let chatMinimapEntry = "chat-minimap-entry"
+
+    // MARK: Queued messages
+
+    static let queuedMessageSendNowButton = "queued-message-send-now-button"
+    static let queuedMessageEditButton = "queued-message-edit-button"
+    static let queuedMessageRemoveButton = "queued-message-remove-button"
+    static let deliveringMessage = "delivering-message"
 }

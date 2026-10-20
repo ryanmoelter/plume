@@ -19,16 +19,16 @@ struct InfoPaneContent: View, ThemedView {
     @Binding var showsCompleted: Bool
 
     @State private var settings = AppSettings.shared
-    @State private var isHoveringPullRequest = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             InfoPaneHeader(button: headerButton) {
                 Text("Info")
                     .font(typography.caption.font.weight(.semibold))
                     .emphasis(.secondary)
             }
+            .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
             ForEach(facts.sections, id: \.self) { section in
                 self.section(section)
             }
@@ -42,6 +42,7 @@ struct InfoPaneContent: View, ThemedView {
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
         case .plan: plan
+        case .artifacts: artifacts
         case .sideChat: sideChat
         case .folder: folder
         case .branch: branch
@@ -53,7 +54,7 @@ struct InfoPaneContent: View, ThemedView {
 
     private var subagents: some View {
         let isExpanded = settings.infoPaneSubagentsExpanded
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } label: {
@@ -70,9 +71,8 @@ struct InfoPaneContent: View, ThemedView {
                     Spacer(minLength: 0)
                 }
                 .emphasis(.secondary)
-                .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InfoPaneRowButtonStyle())
             .plumeID(AccessibilityID.infoPaneSubagentsToggle, value: isExpanded ? "expanded" : "collapsed")
 
             if isExpanded {
@@ -85,7 +85,7 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private var completedSubagents: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsCompleted.toggle() }
             } label: {
@@ -98,13 +98,8 @@ struct InfoPaneContent: View, ThemedView {
                     Spacer(minLength: 0)
                 }
                 .emphasis(.subtle)
-                .padding(.vertical, 3)
-                // Straight under the section header, it needs the room a
-                // running row would otherwise give it.
-                .padding(.top, facts.liveSubagents.isEmpty ? 3 : 0)
-                .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InfoPaneRowButtonStyle())
             .plumeID(AccessibilityID.infoPaneCompletedToggle, value: showsCompleted ? "expanded" : "collapsed")
 
             if showsCompleted {
@@ -132,6 +127,7 @@ struct InfoPaneContent: View, ThemedView {
                         .emphasis(.secondary)
                     backgroundTaskRow(entry)
                 }
+                .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
             } else {
                 backgroundTaskSection
             }
@@ -146,7 +142,7 @@ struct InfoPaneContent: View, ThemedView {
 
     private var backgroundTaskSection: some View {
         let isExpanded = settings.infoPaneBackgroundTasksExpanded
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneBackgroundTasksExpanded.toggle() }
             } label: {
@@ -158,9 +154,8 @@ struct InfoPaneContent: View, ThemedView {
                     Spacer(minLength: 0)
                 }
                 .emphasis(.secondary)
-                .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InfoPaneRowButtonStyle())
             .plumeID(AccessibilityID.infoPaneBackgroundTasksToggle, value: isExpanded ? "expanded" : "collapsed")
 
             if isExpanded {
@@ -169,6 +164,7 @@ struct InfoPaneContent: View, ThemedView {
                         InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name).hidden() }
                         backgroundTaskRow(entry)
                     }
+                    .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
                 }
             }
         }
@@ -199,13 +195,77 @@ struct InfoPaneContent: View, ThemedView {
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InfoPaneRowButtonStyle())
         .help("Open the plan this conversation produced")
         .plumeID(AccessibilityID.infoPanePlanRow)
+    }
+
+    // MARK: Artifacts
+
+    private var artifacts: some View {
+        let isGrouped = facts.artifacts.count > 1
+        return Group {
+            if !isGrouped, let artifact = facts.artifacts.first {
+                artifactRow(artifact, showsIcon: true)
+            } else {
+                artifactSection
+            }
+        }
+        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
+        .onChange(of: isGrouped) { _, isGrouped in
+            if isGrouped { settings.infoPaneArtifactsExpanded = true }
+        }
+    }
+
+    private var artifactSection: some View {
+        let isExpanded = settings.infoPaneArtifactsExpanded
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
+                    Text("Artifacts")
+                    Text("\(facts.artifacts.count)")
+                        .emphasis(.subtle)
+                    DisclosureChevron(isExpanded: isExpanded)
+                    Spacer(minLength: 0)
+                }
+                .emphasis(.secondary)
+            }
+            .buttonStyle(InfoPaneRowButtonStyle())
+            .plumeID(AccessibilityID.infoPaneArtifactsToggle, value: isExpanded ? "expanded" : "collapsed")
+
+            if isExpanded {
+                ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
+            }
+        }
+    }
+
+    private func artifactRow(_ artifact: ConversationArtifact, showsIcon: Bool) -> some View {
+        let title = artifact.title ?? "Untitled artifact"
+        return Button {
+            ChatLinkOpener.open(.web(artifact.url))
+        } label: {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
+                    .emphasis(.secondary)
+                    .opacity(showsIcon ? 1 : 0)
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                LinkOpenIcon()
+            }
+        }
+        .buttonStyle(InfoPaneRowButtonStyle())
+        .help(artifact.url.absoluteString)
+        .plumeID(AccessibilityID.infoPaneArtifactRow, label: title, value: artifact.url.absoluteString) {
+            ChatLinkOpener.open(.web(artifact.url))
+        }
     }
 
     // MARK: Side chat
@@ -219,11 +279,10 @@ struct InfoPaneContent: View, ThemedView {
                     .emphasis(.subtle)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right")
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(InfoPaneRowButtonStyle())
         .help("Open the side chats")
         .plumeID(AccessibilityID.infoPaneSideChatRow)
     }
@@ -240,6 +299,7 @@ struct InfoPaneContent: View, ThemedView {
                     .truncationMode(.middle)
             }
             .emphasis(.secondary)
+            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         }
     }
 
@@ -261,6 +321,7 @@ struct InfoPaneContent: View, ThemedView {
                 }
             }
             .emphasis(.secondary)
+            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         }
     }
 
@@ -281,29 +342,23 @@ struct InfoPaneContent: View, ThemedView {
                         }
                     }
                     .emphasis(.secondary)
-                    // Wider than the gaps between the status marks, so the
-                    // link reads as an action rather than another status.
-                    HStack(spacing: 8) {
-                        PullRequestChip(
-                            state: pullRequest.state,
-                            checkRollup: checkRollup,
-                            font: typography.caption.font,
-                            fontSize: typography.caption.size,
-                            imageScale: .medium
-                        )
-                        Image(systemName: "arrow.up.forward.square")
-                            .opacity(isHoveringPullRequest && url != nil ? 1 : 0)
-                            .animation(.easeInOut(duration: 0.15), value: isHoveringPullRequest)
+                    PullRequestChip(
+                        state: pullRequest.state,
+                        checkRollup: checkRollup,
+                        font: typography.caption.font,
+                        fontSize: typography.caption.size,
+                        imageScale: .medium
+                    )
+                    Spacer(minLength: 4)
+                    if url != nil {
+                        LinkOpenIcon()
                     }
-                    Spacer(minLength: 0)
                 }
-                .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(InfoPaneRowButtonStyle())
             .disabled(url == nil)
-            .plumeHover { isHoveringPullRequest = $0 }
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
-            .plumeID(AccessibilityID.infoPanePullRequestRow, value: isHoveringPullRequest ? "hovered" : nil)
+            .plumeID(AccessibilityID.infoPanePullRequestRow)
         }
     }
 }
@@ -318,14 +373,12 @@ struct InfoPaneHeaderButton {
 }
 
 /// The pane's top row: a title on the leading edge, then the button that
-/// collapses, pins or closes it, then the options menu.
+/// collapses, pins or closes it.
 struct InfoPaneHeader<Title: View>: View, ThemedView {
     @Environment(\.theme) var theme
 
     let button: InfoPaneHeaderButton?
     @ViewBuilder let title: Title
-
-    @State private var settings = AppSettings.shared
 
     var body: some View {
         HStack(spacing: InfoPaneLayout.columnSpacing) {
@@ -342,29 +395,8 @@ struct InfoPaneHeader<Title: View>: View, ThemedView {
                 .accessibilityLabel(button.help)
                 .plumeID(AccessibilityID.infoPaneCollapseButton, value: button.value)
             }
-            menu
         }
         .font(typography.caption.font)
-    }
-
-    private var menu: some View {
-        Menu {
-            Picker("Show As", selection: $settings.infoPanePresentation) {
-                ForEach(InfoPanePresentation.allCases, id: \.self) { presentation in
-                    Text(presentation.label).tag(presentation)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .emphasis(.secondary)
-        .help("Info pane options")
-        .plumeID(AccessibilityID.infoPaneMenu)
     }
 }
 
@@ -406,6 +438,12 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
         case .plan:
             Image(systemName: StatusSymbol.plan.name)
                 .emphasis(.secondary)
+        case .artifacts:
+            HStack(spacing: 2) {
+                Image(systemName: ArtifactSymbol.outline)
+                Text("\(facts.artifacts.count)")
+            }
+            .emphasis(.secondary)
         case .pullRequest:
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(
@@ -449,6 +487,32 @@ private struct SubagentGlyphs: View, ThemedView {
                 Text("+\(subagents.count - Self.limit)")
                     .emphasis(.subtle)
             }
+        }
+    }
+}
+
+/// A clickable pane row: insets that give its hover wash room, pulled back
+/// out so the row's icon and text stay on the pane's columns.
+private struct InfoPaneRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RowBody(configuration: configuration)
+    }
+
+    private struct RowBody: View, ThemedView {
+        @Environment(\.theme) var theme
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var isHovering = false
+        let configuration: ButtonStyleConfiguration
+
+        var body: some View {
+            let showsWash = isEnabled && (isHovering || configuration.isPressed)
+            configuration.label
+                .padding(.horizontal, SubagentRow.Columns.washInset)
+                .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+                .contentShape(.rect(cornerRadius: 6))
+                .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 6))
+                .plumeHover { isHovering = $0 }
+                .padding(.horizontal, -SubagentRow.Columns.washInset)
         }
     }
 }

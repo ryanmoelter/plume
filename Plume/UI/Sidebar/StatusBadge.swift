@@ -5,6 +5,9 @@ struct StatusBadge: View {
     /// When the current stretch of work began. An active badge counts up from
     /// it; every other status ignores it.
     var workStartedAt: Date?
+    /// Replaces the status glyph with a dot. The elapsed time stays, since a
+    /// task can be reading unread in one tab while still working in another.
+    var isUnread = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -14,13 +17,27 @@ struct StatusBadge: View {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
                         .emphasis(.secondary)
-                    symbol
+                    glyph
                 }
             } else {
-                symbol
+                glyph
             }
         }
         .animation(.default, value: status)
+        .animation(.default, value: isUnread)
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        if isUnread {
+            Circle()
+                .fill(ChatRole.attention(for: colorScheme))
+                .frame(width: 8, height: 8)
+                .help("Finished a turn you haven't read")
+                .transition(.opacity)
+        } else {
+            symbol
+        }
     }
 
     // Each case is its own branch, so a status change replaces the view
@@ -28,17 +45,15 @@ struct StatusBadge: View {
     @ViewBuilder
     private var symbol: some View {
         switch status {
-        case .notStarted:
+        // A finished turn the user has read is the resting state, so it
+        // draws nothing; an unread one draws the dot instead.
+        case .notStarted, .awaitingReply:
             EmptyView()
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .waitingOnSubagents:
             Image(systemName: StatusSymbol.subagents.filled)
                 .foregroundStyle(ChatRole.activity(for: colorScheme))
-                .transition(.symbolEffect)
-        case .awaitingReply:
-            Image(systemName: StatusSymbol.awaitingReply.filled)
-                .foregroundStyle(Emphasis.secondary.textHierarchy)
                 .transition(.symbolEffect)
         case .done:
             Image(systemName: StatusSymbol.done.filled)

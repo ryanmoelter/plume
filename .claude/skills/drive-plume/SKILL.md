@@ -11,7 +11,7 @@ A debug build serves a Unix-socket control server; `scripts/debug/plume-control.
 
 Never drive the instance the user is working in. Give the scratch instance its own `PLUME_APP_SUPPORT` so it has its own store, and its own socket path so the client finds it without guessing.
 
-**`--env HOME=...` does not isolate a scratch instance.** `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so an instance launched with a fake `HOME` still opens `~/Library/Application Support/Plume.debug` — the user's real tasks and terminals. `PLUME_APP_SUPPORT` is a `#if DEBUG`-only override built for exactly this; it redirects the whole Application Support directory (store, hooks, events, control socket) in one shot. `docs/control-server.md` has the reference.
+**`--env HOME=...` does not isolate a scratch instance.** `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so an instance launched with a fake `HOME` still opens `~/Library/Application Support/Plume.debug*` (the primary checkout's, or a worktree's `Plume.debug-<worktree>`) — the user's real tasks and terminals. `PLUME_APP_SUPPORT` is a `#if DEBUG`-only override built for exactly this; it redirects the whole Application Support directory (store, hooks, events, control socket) in one shot. `docs/control-server.md` has the reference.
 
 ```
 APP=$(xcodebuild -scheme Plume -destination 'platform=macOS' -showBuildSettings 2>/dev/null | awk '/ BUILT_PRODUCTS_DIR/{print $3}')/Plume.app
@@ -54,7 +54,7 @@ c menu
 c clear
 ```
 
-`invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. A click on a `List` row never fires its tap gesture, which is why task rows carry an `invoke` closure. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
+`invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. Task rows and settings panes also carry an `invoke` closure, which selects without moving the pointer. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
 
 **Confirm which tab is selected before every chat-list or composer read.** A hidden agent tab renders nothing, so its controls read disabled and `readText` on its chat list returns "not found". That is a correctly hidden tab, not a broken one. Forking selects the new tab on its own. Run `c list plumeID=tab-chip`, find the chip with `value: "selected"`, and say which tab each reading came from.
 

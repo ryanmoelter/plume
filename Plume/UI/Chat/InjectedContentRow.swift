@@ -36,7 +36,7 @@ struct InjectedContentRow: View, ThemedView {
                     .imageScale(.small)
             }
             .font(typography.caption.mono(when: monospacedLabel))
-            .emphasis(.secondary)
+            .modifier(LabelEmphasis(accent: isSlashCommand ? colors.selection : nil))
         }
         .listItemPadding(vertical: false)
     }
@@ -62,7 +62,24 @@ struct InjectedContentRow: View, ThemedView {
         }
     }
 
+    private var isSlashCommand: Bool {
+        if case .slashCommand = kind { return true }
+        return false
+    }
+
     private var washColor: Color {
         colors.surfaceTint
+    }
+}
+
+private struct LabelEmphasis: ViewModifier {
+    let accent: Color?
+
+    func body(content: Content) -> some View {
+        if let accent {
+            content.foregroundStyle(accent)
+        } else {
+            content.emphasis(.secondary)
+        }
     }
 }

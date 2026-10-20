@@ -9,11 +9,13 @@ struct ChatTabView: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
+    var isFocused = true
 
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var settings = AppSettings.shared
+    @State private var paneFocus = PaneFocusState()
     @State private var planPresentation = PlanPresentation.hidden(.closed)
     /// The last plan proposal the user answered here, so the footer can say
     /// where it landed once the live request is gone. Nil until they answer
@@ -51,6 +53,8 @@ struct ChatTabView: View, ThemedView {
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
+    @State private var withdrawnMessageToEdit: [UserContentBlock]?
+    @State private var sendNowRequested = false
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
     /// message starts below it.
@@ -194,7 +198,8 @@ struct ChatTabView: View, ThemedView {
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
             pullRequest: pullRequest,
-            sideChatCount: claudeSession?.sideQuestions.count ?? 0
+            sideChatCount: claudeSession?.sideQuestions.count ?? 0,
+            artifacts: ConversationArtifact.artifacts(in: conversationMessages)
         )
     }
 
@@ -287,6 +292,8 @@ struct ChatTabView: View, ThemedView {
         }
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
+        .environment(\.paneFocus, paneFocus)
+        .onChange(of: isFocused, initial: true) { _, focused in paneFocus.isFocused = focused }
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
@@ -301,7 +308,6 @@ struct ChatTabView: View, ThemedView {
                 GitStateStore.shared.watch(current)
                 CheckoutFactsStore.shared.load(current)
             }
-            TabDirectoryStore.shared.setDirectory(current, forTab: tab)
         }
         .onDisappear {
             releaseGitDirectory()
@@ -460,6 +466,9 @@ struct ChatTabView: View, ThemedView {
                 )
                 .listItemPadding(vertical: false)
             }
+            if let claudeSession, !claudeSession.deliveringMessages.isEmpty {
+                deliveringMessagesView(claudeSession)
+            }
             if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -486,9 +495,40 @@ struct ChatTabView: View, ThemedView {
                 QueuedMessageChip(
                     text: message.plainText,
                     imageCount: message.count { if case .image = $0 { true } else { false } },
+                    onSendNow: { sendNowRequested = true },
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
+            }
+        }
+        .listItemPadding(vertical: false)
+    }
+
+    /// Sent into the running turn, but not yet in the transcript: the CLI
+    /// shows the model a mid-turn message only at its next request.
+    private func chipState(_ state: DeliveringMessage.State) -> QueuedMessageChip.State {
+        switch state {
+        case .delivering: .delivering
+        case .withdrawing: .withdrawing
+        case .absorbed: .absorbed
+        }
+    }
+
+    private func deliveringMessagesView(_ session: HeadlessSession) -> some View {
+        VStack(spacing: 6) {
+            ForEach(Array(session.deliveringMessages.enumerated()), id: \.element.id) { index, message in
+                QueuedMessageChip(
+                    text: message.blocks.plainText,
+                    imageCount: message.blocks.count { if case .image = $0 { true } else { false } },
+                    state: chipState(message.state),
+                    onEdit: {
+                        session.withdrawDeliveringMessage(id: message.id) { blocks in
+                            if let blocks { withdrawnMessageToEdit = blocks }
+                        }
+                    },
+                    onRemove: { session.withdrawDeliveringMessage(id: message.id) }
+                )
+                .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.blocks.plainText)
             }
         }
         .listItemPadding(vertical: false)
@@ -555,8 +595,11 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible && !planPresentation.isExpanded,
+                isFocused: isFocused,
                 hasContentAbove: isDocked,
-                editQueuedMessageIndex: $editQueuedMessageIndex
+                editQueuedMessageIndex: $editQueuedMessageIndex,
+                withdrawnMessageToEdit: $withdrawnMessageToEdit,
+                sendNowRequested: $sendNowRequested
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -627,11 +670,13 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.contextWindowTokens
                         ?? headlessSession?.nominalContextWindow
                         ?? tab.model?.nominalContextWindow,
-                    sessionCostUSD: displayedSessionCost
+                    sessionCostUSD: displayedSessionCost,
+                    codexWindows: tab.provider == .codex ? CodexQuotaStore.shared.windows : [],
+                    headlessSession: headlessSession as? HeadlessSession
                 )
-                if tab.provider == .codex,
+                if meters == .wide, tab.provider == .codex,
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
-                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows, layout: meters == .stacked ? .stacked : .wide)
+                    CodexQuotaStrip(windows: CodexQuotaStore.shared.windows)
                         .transition(.opacity)
                 }
                 if let headlessSession {
@@ -647,12 +692,13 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// Where this runs: the folder, the worktree, and that worktree's own
-    /// ahead/behind and dirty markers. Editable only until an agent starts,
-    /// which fixes the working directory.
+    /// ahead/behind and dirty markers. Always read-only: the statusline exists
+    /// only once the tab has a conversation, and the choice belongs to the
+    /// empty state (`workspaceChoice`).
     private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
             task: task,
-            isEditable: SurfaceManager.shared.existingSession(for: tab.id) == nil && headlessSession == nil,
+            isEditable: false,
             branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory),
             stateDirectory: gitDirectory
@@ -730,7 +776,7 @@ struct ChatTabView: View, ThemedView {
                 .emphasis(.secondary)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        .paneKeyboardShortcut(.cancelAction)
         .help(isDockingOnly ? "Minimize" : "Close")
         .accessibilityLabel(isDockingOnly ? "Minimize" : "Close")
         .plumeID(isDockingOnly ? AccessibilityID.planMinimizeButton : AccessibilityID.planCloseButton)
@@ -794,7 +840,7 @@ struct ChatTabView: View, ThemedView {
                 Button(codexPlan == nil ? "Approve" : "Implement plan") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
                     .disabled(codexPlan != nil && headlessSession?.isWorking == true)
-                    .plumeID(AccessibilityID.planApproveButton)
+                    .plumeID(AccessibilityID.planApproveButton, invoke: { answerPlan(.approve) })
             }
             Text(codexPlan == nil ? "⌥↩ approves with this feedback" : "Return requests changes")
                 .font(typography.caption.font)
@@ -817,7 +863,7 @@ struct ChatTabView: View, ThemedView {
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.
         .padding(.horizontal, -Self.composerLineFragmentPadding)
-        .decisionField(isFilled: !planRejectionReason.isEmpty, isFocused: planFeedbackFocused, colors: colors)
+        .decisionField(isFilled: !planRejectionReason.isEmpty, isFocused: planFeedbackFocused)
         .plumeID(AccessibilityID.planFeedbackField, value: planRejectionReason, setValue: { planRejectionReason = $0 })
         .onAppear {
             guard planApproval.showsApprovalOptions else { return }
@@ -929,26 +975,22 @@ struct ChatTabView: View, ThemedView {
     /// is nothing on disk to read them from yet.
     private func conversationView(messages: [ChatMessage]) -> some View {
         let transcript = transcript ?? Transcript()
-        let isSide = settings.infoPanePresentation == .side
         let geometry = sideInfoPaneGeometry
         return ChatMessageList(
             messages: messages,
-            infoPane: isSide ? nil : infoPaneFacts,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
             floatingPanelHeight: panelHeight,
             tabID: tab.id,
             redoContext: redoContext(transcript: transcript),
-            onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: hasPlan ? { openPlan() } : nil,
-            onOpenSideChat: { isSideChatShown = true },
-            topInset: isSide ? geometry.chatTopInset : 0,
-            trailingReserve: isSide ? geometry.chatTrailingReserve : 0,
-            sidePane: sideInfoPane(isShown: isSide, geometry: geometry)
+            topInset: geometry.chatTopInset,
+            trailingReserve: geometry.chatTrailingReserve,
+            sidePane: sideInfoPane(geometry: geometry)
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .overlay(alignment: .bottom) {
-            let reserve = isSide ? geometry.chatTrailingReserve : 0
+            let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.
             bottomChrome(transcript: transcript)
                 .padding(.trailing, reserve)
@@ -974,23 +1016,20 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    @ViewBuilder
-    private func sideInfoPane(isShown: Bool, geometry: InfoPaneLayout.SideGeometry) -> some View {
-        if isShown {
-            InfoSidePane(
-                facts: infoPaneFacts,
-                glass: planGlass,
-                geometry: geometry,
-                bottomInset: panelHeight,
-                onCollapsedHeight: { height in
-                    collapsedInfoPaneHeight = height
-                    Self.lastCollapsedInfoPaneHeight = height
-                },
-                onOpenSubagent: { openSubagentID = $0.id },
-                onOpenPlan: openPlan,
-                onOpenSideChat: { isSideChatShown = true }
-            )
-        }
+    private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry) -> some View {
+        InfoSidePane(
+            facts: infoPaneFacts,
+            glass: planGlass,
+            geometry: geometry,
+            bottomInset: panelHeight,
+            onCollapsedHeight: { height in
+                collapsedInfoPaneHeight = height
+                Self.lastCollapsedInfoPaneHeight = height
+            },
+            onOpenSubagent: { openSubagentID = $0.id },
+            onOpenPlan: openPlan,
+            onOpenSideChat: { isSideChatShown = true }
+        )
     }
 
     /// What the rollback and fork buttons in a reply's footer act on.
@@ -1055,7 +1094,7 @@ struct ChatTabView: View, ThemedView {
               let cutAfter = transcript.parentByMessageID[target]
         else { return }
         let newSessionID = UUID().uuidString.lowercased()
-        let newTab = TaskStore.addTab(to: task, kind: .agent, in: modelContext)
+        let newTab = TaskStore.addTab(to: task, kind: .agent, pane: tab.paneIndex, in: modelContext)
         newTab.transport = .headless
         newTab.agentSessionID = newSessionID
         // Derived here, because `persistHeadlessSessionID` only derives it for
@@ -1113,6 +1152,7 @@ struct ChatTabView: View, ThemedView {
                 task: task,
                 tab: tab,
                 isVisible: isVisible,
+                isFocused: isFocused,
                 onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
             )
             .disabled(!isComposerEnabled)
@@ -1200,7 +1240,7 @@ struct ChatTabView: View, ThemedView {
             }
             .accessibilityIdentifier("agent-retry-button")
             Button("New \(tab.provider.displayName) Tab") {
-                TaskStore.addTab(to: task, kind: .agent, provider: tab.provider, in: modelContext)
+                TaskStore.addTab(to: task, kind: .agent, provider: tab.provider, pane: tab.paneIndex, in: modelContext)
             }
             .help("Start a separate conversation and keep this tab available to retry")
             Spacer()
@@ -1228,7 +1268,7 @@ struct ChatTabView: View, ThemedView {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
             Button("Open Terminal Tab") {
-                TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                TaskStore.addTab(to: task, kind: .terminal, pane: tab.paneIndex, in: modelContext)
             }
             .buttonStyle(.borderedProminent)
             Spacer()
@@ -1279,7 +1319,7 @@ struct ChatTabView: View, ThemedView {
                     .plumeID(AccessibilityID.chatForkFailureCloseTab)
                 } else if failure.remedy == .trustDirectory {
                     Button("Open Terminal Tab") {
-                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                        TaskStore.addTab(to: task, kind: .terminal, pane: tab.paneIndex, in: modelContext)
                     }
                     .buttonStyle(.borderedProminent)
                     .plumeID(AccessibilityID.chatTrustOpenTerminal)
@@ -1290,7 +1330,7 @@ struct ChatTabView: View, ThemedView {
                         .buttonStyle(.borderedProminent)
                         .plumeID(AccessibilityID.chatStartFailureRetry)
                     Button("Open Terminal Tab") {
-                        TaskStore.addTab(to: task, kind: .terminal, in: modelContext)
+                        TaskStore.addTab(to: task, kind: .terminal, pane: tab.paneIndex, in: modelContext)
                     }
                     .plumeID(AccessibilityID.chatTrustOpenTerminal)
                 }
@@ -1389,17 +1429,29 @@ struct ChatTabView: View, ThemedView {
 }
 
 /// One queued message, styled like the user bubble it's about to become.
-/// Edit and remove are always visible rather than hover-revealed: reserving
+/// Its buttons are always visible rather than hover-revealed: reserving
 /// their width while they're invisible most of the time reads as a layout
 /// bug, and always showing them costs nothing here since a chip only ever
-/// holds two small icon buttons.
+/// holds three small icon buttons.
 private struct QueuedMessageChip: View, ThemedView {
     @Environment(\.theme) var theme
 
+    enum State {
+        case queued
+        /// Sent into the running turn. Edit and remove withdraw it, which
+        /// only works until the model reads it.
+        case delivering
+        case withdrawing
+        /// The model read it before a withdrawal landed.
+        case absorbed
+    }
+
     let text: String
     var imageCount = 0
-    let onEdit: () -> Void
-    let onRemove: () -> Void
+    var state = State.queued
+    var onSendNow: () -> Void = {}
+    var onEdit: () -> Void = {}
+    var onRemove: () -> Void = {}
 
     var body: some View {
         // `.firstTextBaseline` rather than `.top`: the clock glyph and the
@@ -1408,10 +1460,10 @@ private struct QueuedMessageChip: View, ThemedView {
         // the text's first line. Baseline alignment tracks that first line
         // instead, which also reads right once the text wraps to several.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "clock")
+            Image(systemName: state == .queued ? "clock" : "arrow.up.circle")
                 .font(typography.caption.font)
                 .emphasis(.secondary)
-                .help("Queued — not sent yet")
+                .help(statusHelp)
             if !text.isEmpty {
                 Text(text)
                     .font(typography.body.font)
@@ -1427,7 +1479,12 @@ private struct QueuedMessageChip: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
             }
-            controls
+            switch state {
+            case .queued: controls
+            case .delivering: editAndRemove(removeHelp: "Withdraw")
+            case .withdrawing: ProgressView().controlSize(.mini)
+            case .absorbed: EmptyView()
+            }
         }
         .padding(10)
         .glassEffect(Glass.regular.tint(washColor), in: .rect(cornerRadius: 10))
@@ -1435,7 +1492,35 @@ private struct QueuedMessageChip: View, ThemedView {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+    private var statusHelp: String {
+        switch state {
+        case .queued: "Queued — not sent yet"
+        case .delivering: "Sent — Claude reads it after its current step"
+        case .withdrawing: "Withdrawing…"
+        case .absorbed: "Too late to withdraw — Claude already has it"
+        }
+    }
+
+    private var sendNowHelp: String {
+        guard let chord = AppSettings.shared.shortcutBindings[.sendNow] else { return "Send now" }
+        return "Send now (\(chord.displayName))"
+    }
+
     private var controls: some View {
+        HStack(spacing: 4) {
+            Button(action: onSendNow) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .emphasis(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(sendNowHelp)
+            .accessibilityLabel("Send now")
+            .plumeID(AccessibilityID.queuedMessageSendNowButton, invoke: onSendNow)
+            editAndRemove(removeHelp: "Remove from queue")
+        }
+    }
+
+    private func editAndRemove(removeHelp: String) -> some View {
         HStack(spacing: 4) {
             Button(action: onEdit) {
                 Image(systemName: "pencil.circle.fill")
@@ -1443,12 +1528,14 @@ private struct QueuedMessageChip: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Edit")
+            .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Remove from queue")
+            .help(removeHelp)
+            .plumeID(AccessibilityID.queuedMessageRemoveButton, label: text, invoke: onRemove)
         }
     }
 

@@ -8,19 +8,50 @@ enum PermissionDecision: Equatable {
     case deny(message: String)
 }
 
+/// When a user message written while a turn runs reaches the model.
+/// `docs/headless-protocol.md` has the measured behavior of each.
+enum UserTurnPriority: String {
+    /// Ends the running turn, then runs the message as a new one.
+    case now
+    /// Joins the running turn at its next API request, which is usually
+    /// after the tool call in flight returns.
+    case next
+    /// Waits for the running turn's `result`, then runs as its own turn.
+    case later
+}
+
 /// Builds the NDJSON lines Plume writes to `claude -p`'s stdin.
 enum StreamJSONEncoder {
     static func userTurn(text: String) -> String? {
         userTurn(blocks: [.text(text)])
     }
 
-    static func userTurn(blocks: [UserContentBlock]) -> String? {
-        line([
+    /// `priority` says when a message written mid-turn reaches the model —
+    /// see `UserTurnPriority`. Nil leaves it to the CLI's default. `uuid`
+    /// names the message for a later `cancelAsyncMessage`.
+    static func userTurn(
+        blocks: [UserContentBlock],
+        priority: UserTurnPriority? = nil,
+        uuid: String? = nil
+    ) -> String? {
+        var object: [String: JSONValue] = [
             "type": .string("user"),
             "message": .object([
                 "role": .string("user"),
                 "content": .array(blocks.map(\.json))
             ])
+        ]
+        if let priority { object["priority"] = .string(priority.rawValue) }
+        if let uuid { object["uuid"] = .string(uuid) }
+        return line(object)
+    }
+
+    /// Withdraws a user message the CLI has queued but not yet put in front
+    /// of the model. Answered with `cancelled`: false once it has.
+    static func cancelAsyncMessage(messageUUID: String, requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("cancel_async_message"),
+            "message_uuid": .string(messageUUID)
         ])
     }
 
@@ -31,8 +62,12 @@ enum StreamJSONEncoder {
         ])
     }
 
-    static func interrupt(requestID: String) -> String? {
-        controlRequest(id: requestID, body: ["subtype": .string("interrupt")])
+    /// `cancelQueued` also drops the user turns the CLI holds behind the
+    /// running one.
+    static func interrupt(requestID: String, cancelQueued: Bool = false) -> String? {
+        var body: [String: JSONValue] = ["subtype": .string("interrupt")]
+        if cancelQueued { body["cancel_queued"] = .bool(true) }
+        return controlRequest(id: requestID, body: body)
     }
 
     static func setPermissionMode(_ mode: String, requestID: String) -> String? {
@@ -88,6 +123,13 @@ enum StreamJSONEncoder {
         controlRequest(id: requestID, body: [
             "subtype": .string("side_question"),
             "question": .string(question)
+        ])
+    }
+
+    static func getContextUsage(requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("get_context_usage"),
+            "detail": .string("summary")
         ])
     }
 

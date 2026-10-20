@@ -56,3 +56,20 @@ extension [UserContentBlock] {
         }
     }
 }
+
+extension [[UserContentBlock]] {
+    /// These messages as one turn, in order. Text that meets across a message
+    /// boundary joins with a blank line, so the model reads the messages as
+    /// paragraphs of one turn rather than as fragments.
+    var mergedIntoOneTurn: [UserContentBlock] {
+        var merged: [UserContentBlock] = []
+        for block in flatMap(\.normalized) {
+            if case .text(let text) = block, case .text(let previous)? = merged.last {
+                merged[merged.count - 1] = .text(previous + "\n\n" + text)
+            } else {
+                merged.append(block)
+            }
+        }
+        return merged
+    }
+}

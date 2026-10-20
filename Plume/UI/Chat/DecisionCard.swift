@@ -63,9 +63,21 @@ extension View {
     /// it takes the selection color once it holds something or has focus, so
     /// a typed answer or an active field reads as chosen the way a picked
     /// option does.
-    func decisionField(isFilled: Bool, isFocused: Bool = false, colors: Palette) -> some View {
-        let isAccented = isFilled || isFocused
-        return padding(DecisionCard.nestedPadding)
+    func decisionField(isFilled: Bool, isFocused: Bool = false) -> some View {
+        modifier(DecisionFieldModifier(isAccented: isFilled || isFocused))
+    }
+}
+
+/// Reads the theme where the field sits rather than taking a palette, since
+/// a caller's own `theme` comes from above any `plumeTheme` in its body.
+private struct DecisionFieldModifier: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
+
+    let isAccented: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(DecisionCard.nestedPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay {
                 RoundedRectangle(cornerRadius: DecisionCard.nestedRadius)

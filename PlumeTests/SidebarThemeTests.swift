@@ -12,6 +12,17 @@ import GhosttyTheme
 /// a themed sidebar.
 @MainActor
 struct SidebarThemeTests {
+    @Test func tintedWashUsesTheTintAndUntintedUsesTheAccent() {
+        for scheme in [ColorScheme.light, .dark] {
+            let accent = SidebarSelectionFill.wash(for: scheme, isActive: true)
+            let tinted = SidebarSelectionFill.wash(for: scheme, isActive: true, tint: .red)
+            #expect(tinted != accent)
+            #expect(tinted == SidebarSelectionFill.wash(for: scheme, isActive: true, tint: .red))
+            #expect(SidebarSelectionFill.wash(for: scheme, isActive: false, tint: .red)
+                == SidebarSelectionFill.wash(for: scheme, isActive: false))
+        }
+    }
+
     /// This machine's own resolved theme, which is what the app draws from.
     /// Absent on a machine with no ghostty config, where there is nothing to
     /// compare against and the fallback is correct by definition.
@@ -57,5 +68,30 @@ struct SidebarThemeTests {
 
         #expect(chrome.bodySize != enlargedChat.bodySize)
         #expect(chrome.bodySize == CGFloat(AppSettings.defaultChatFontSize))
+    }
+
+    /// The unthemed default palette has no slots, so a palette tint resolves
+    /// to a color only under a theme.
+    @Test func previewColorsResolveOnlyFromAThemedPalette() throws {
+        let definitions = try #require(machineDefinitions)
+        let size = CGFloat(AppSettings.defaultChatFontSize)
+        let themed = Theme(
+            colors: Palette(colorScheme: .dark, definitions: definitions),
+            dimensions: Dimensions(bodySize: size),
+            typography: Typography(bodySize: size)
+        )
+        let unthemed = Theme(
+            colors: Palette(colorScheme: .dark, definitions: nil),
+            dimensions: Dimensions(bodySize: size),
+            typography: Typography(bodySize: size)
+        )
+        let slot = 4
+        let tint = SidebarPreviewTint.effective(accentSlot: slot)
+
+        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: themed) != nil)
+        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: unthemed) == nil)
+
+        let system = SidebarPreviewTint.effective(accentSlot: nil)
+        #expect(SidebarPreviewTint.color(for: system, accentSlot: nil, theme: themed) != nil)
     }
 }

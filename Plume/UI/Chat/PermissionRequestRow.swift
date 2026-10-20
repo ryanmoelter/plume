@@ -41,7 +41,7 @@ struct PermissionRequestRow: View, ThemedView {
                     Button("Deny") { deny(denialReason) }
                     Button("Allow", action: allow)
                         .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
+                        .paneKeyboardShortcut(.defaultAction)
                 }
                 .font(typography.caption.font)
                 .chatTextColumn()
@@ -50,7 +50,7 @@ struct PermissionRequestRow: View, ThemedView {
                     Spacer()
                     ForEach(permission.decisions) { option in
                         Button(option.label) { choose(option) }
-                            .keyboardShortcut(option.allowsAction ? .defaultAction : nil)
+                            .paneKeyboardShortcut(option.allowsAction ? .defaultAction : nil)
                     }
                 }
                 .font(typography.caption.font)
@@ -79,7 +79,7 @@ struct PermissionRequestRow: View, ThemedView {
         TextField("Reason (optional, sent on deny)", text: $denialReason, axis: .vertical)
             .textFieldStyle(.plain)
             .font(typography.body.medium)
-            .decisionField(isFilled: !denialReason.isEmpty, colors: colors)
+            .decisionField(isFilled: !denialReason.isEmpty)
             .chatTextColumn()
             .plumeID(
                 AccessibilityID.permissionDenialReasonField,

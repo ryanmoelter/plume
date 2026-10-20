@@ -92,9 +92,10 @@ struct ShortcutRecorder: NSViewRepresentable {
 
         override func draw(_ dirtyRect: NSRect) {
             let rounded = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5)
-            (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.15) : NSColor.controlBackgroundColor).setFill()
+            let accent = ThemeChrome.accentNSColor()
+            (isRecording ? accent.withAlphaComponent(0.15) : NSColor.controlBackgroundColor).setFill()
             rounded.fill()
-            (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
+            (isRecording ? accent : NSColor.separatorColor).setStroke()
             rounded.stroke()
 
             let text = isRecording ? "Press a chord…" : (shortcut?.displayName ?? "Unassigned")

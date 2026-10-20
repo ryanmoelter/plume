@@ -14,9 +14,9 @@ Reach for commands in this order. Each is cheaper than the next for an agent to 
 
 Each instance binds `<Application Support>/control/<pid>.sock`, mode `0600` in a `0700` directory, and logs the path under the `control` category at launch. Sockets of instances that have exited are unlinked the next time an instance starts. `PLUME_CONTROL_SOCKET=<path>` overrides the location directly, and a preferred path longer than 103 bytes (a long `PLUME_APP_SUPPORT` override) falls back to `/tmp/plume-control-<pid>.sock`. `PLUME_CONTROL=0` disables the server. The test host has no bundle identifier and never starts one.
 
-**`PLUME_APP_SUPPORT=<path>` redirects the whole Application Support directory** — `Plume.store`, `hooks`, `events`, and `control` all move with it. It is `#if DEBUG` only; a Release build ignores it. `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so `open --env HOME=...` does **not** isolate a scratch instance from the user's real data — it still reads `~/Library/Application Support/Plume.debug`. `PLUME_APP_SUPPORT` is the only way to get a genuinely isolated instance.
+**`PLUME_APP_SUPPORT=<path>` redirects the whole Application Support directory** — `Plume.store`, `hooks`, `events`, and `control` all move with it. It is `#if DEBUG` only; a Release build ignores it. `URL.applicationSupportDirectory` resolves from the process's security context, not `$HOME`, so `open --env HOME=...` does **not** isolate a scratch instance from the user's real data — it still reads `~/Library/Application Support/Plume.debug*`. `PLUME_APP_SUPPORT` is the only way to get a genuinely isolated instance.
 
-The client discovers the socket in this order: `--socket`, `$PLUME_CONTROL_SOCKET`, then the live `*.sock` files under the debug control directory. With several instances running pass `--pid` or `--latest`. `--wait N` waits for a socket that accepts a connection, because a killed instance leaves its file behind.
+The client discovers the socket in this order: `--socket`, `$PLUME_CONTROL_SOCKET`, then the live `*.sock` files under every `Plume.debug*/control` directory, preferring the checkout's own (`Plume.debug` for the primary checkout, `Plume.debug-<worktree>` otherwise). With several instances running pass `--pid` or `--latest`. `--wait N` waits for a socket that accepts a connection, because a killed instance leaves its file behind.
 
 ## Driving a scratch instance
 
@@ -46,6 +46,10 @@ One JSON object per line in each direction. A request is `{"id": "<any string>",
 All rects and points are in the window's content view, origin top-left, in points. That is the space SwiftUI's `.global` frames use and the space a screenshot's pixels map to (divide by `scale`). `WindowGeometry` is the one place that converts to AppKit's bottom-left space.
 
 A **target** is either a registered control — `{"id": "composer-send-button", "index"?: n, "label"?: "substring"}` — or a surface: `{"kind": "composer" | "chatList" | "window"}`. Controls sharing an id are ranked top-to-bottom then left-to-right; `index` is that rank, and `label` narrows to rows whose label contains the text (case-insensitive). A target that matches several controls without an index is an error.
+
+**A split task shows two panes, each with its own tab strip, so every control inside a pane registers twice** — two `composer-send-button`s, two `composer-field`s. Pick one with `index` (the left pane ranks first when the rows line up) or with `label` where the control carries one. Each on-screen tab registers a `tab-pane` labelled with its tab's title, with `value: "focused"` on the focused one. The `composer` and `chatList` surfaces resolve to the focused pane's, and report not found when the focused pane is a terminal; to read the other pane, focus it first (a click inside it, or `⌥⌘\`) or target a control in it.
+
+While split, a tab chip's label ends with its pane, counted from the left — `Chat (pane 2)` — and each strip's `new-tab-button` is labelled `pane 1` or `pane 2`. So `label: "(pane 2)"` picks out the right strip's chips. A chip reports `value: "selected"` for the focused tab and `"shown"` for the tab the other pane shows. Unsplit, labels are the bare title.
 
 | Command | Params | Result |
 |---|---|---|

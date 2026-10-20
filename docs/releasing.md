@@ -198,7 +198,7 @@ Plume's SwiftData store lives at `~/Library/Application Support/Plume/Plume.stor
 
 Installing a new build does not touch it — that is the point, and it is what makes upgrading safe. Two consequences:
 
-- **Debug and Release keep separate stores.** The Debug bundle identifier carries a `.debug` suffix and `AppPaths.directoryName` keys off it, so a debug run writes to `Plume.debug/` and the two can run side by side. The catch is that debug testing never exercises the installed app's store, so a schema change meets the real data for the first time when you launch the release.
+- **Debug and Release keep separate stores.** The Debug bundle identifier carries a `.debug` suffix and `AppPaths.directoryName` keys off it, so a debug run writes to `Plume.debug/` (`Plume.debug-<worktree>/` from a worktree) and the two can run side by side. The catch is that debug testing never exercises the installed app's store, so a schema change meets the real data for the first time when you launch the release.
 - **A schema change can outrun lightweight migration.** If the store fails to open, `PlumeApp` moves it aside as `Plume.store.<timestamp>.bak` and starts empty rather than refusing to launch. You get a working app and a recoverable file, not a crash loop. Watch for it:
 
   ```

@@ -16,6 +16,8 @@ claude -p --output-format stream-json --input-format stream-json \
 
 `--verbose` is required for `stream-json` output. Never pass `--bare`: it refuses the keychain and forces an API key.
 
+**`CLAUDE_CODE_ARTIFACT=1` in the environment is what exposes the Artifact tools.** A `-p` run's entrypoint is `sdk-cli`, and the CLI withholds `Artifact`, `ArtifactComments` and `ArtifactData` from SDK entrypoints unless that variable is set. Measured against 2.1.293: without it `system/init` lists none of them. `HeadlessCommand.environment` sets it. A claude.ai subscription login and the org's artifact policy still gate the tools, and a user's `enableArtifact: false` still turns them off.
+
 **`--permission-prompt-tool stdio` is the load-bearing flag.** Without it a headless run never asks — a tool needing approval is auto-denied with "no prompt available in headless mode", and the turn ends having done nothing. The flag's own help text says permission prompts reach the host over stdio. Its value is not validated at startup, so a wrong one fails only later, at the first tool call.
 
 **`--allow-dangerously-skip-permissions` is what lets a session switch into bypass.** Measured against 2.1.280 in a trusted directory, with a Bash call that needs approval:
@@ -176,6 +178,60 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
 
+### A message mid-turn
+
+A `user` line written while a turn runs takes an optional `priority`, which says when the model sees it. The field sits in the CLI's own SDK user-message schema beside `uuid` and `shouldQuery`, as `priority: "now" | "next" | "later"`, and it is not marked `@internal`. Measured on **2.1.304** with Plume's flags, in a trusted directory. The probe turn ran `sleep 3` four times through Bash, and the second line arrived just after the first tool result:
+
+```json
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Also, before you say DONE, reply with the word PINEAPPLE."}]},"parent_tool_use_id":null,"priority":"next"}
+```
+
+| `priority` | what happened |
+|---|---|
+| absent | Same as `next` on this build. The CLI picks the default behind a feature flag, so never rely on it. |
+| `next` | Joined the running turn. The model answered `PINEAPPLE\nDONE` in the same turn, and only one `result` came. |
+| `later` | Waited. The turn answered `DONE` and sent its `result`, then a fresh `system/init` began a second turn that answered `PINEAPPLE`. |
+| `now` | Cut the turn at once: a `result` with `stop_reason: "tool_use"` 20 ms later, then a new turn that carried on with the message. This is an interrupt in all but name. |
+
+What a `next` message looks like on each side:
+
+- **stdout echoes nothing.** No `user` line, no `system` event. The only sign is the next `system/status` `requesting`, which is the API request that carries it.
+- **The transcript records it as an attachment, not a `user` line**, written when that request goes out. In a probe that sent the message 1 s into a 12 s `sleep`, the row reached disk 12.7 s later. So for as long as a tool call runs, the message is in neither the chat nor Plume's queue. The row:
+
+  ```json
+  {"type":"attachment","parentUuid":"…","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"Also, before you say DONE, …"}],"source_uuid":"9b9f9a6a-…","delivery_id":"a3422f20-…","commandMode":"prompt","timestamp":"…"},"uuid":"1ec22e07-…"}
+  {"type":"queue-operation","operation":"remove","content":"Also, before you say DONE, …","reason":"absorbed_mid_turn","commandUuid":"…","deliveryId":"…"}
+  ```
+
+  The model reads it as a system reminder: "The user sent a new message while you were working: … Address the message above as you continue this turn."
+- **A message that arrives after the turn's last request runs as its own turn.** In the probe it arrived while the final reply streamed. The first turn ended with its `result`, then 0.1 s later came `system/init`, `status` `requesting`, the reply and a second `result`. Here the transcript writes an ordinary `user` row.
+- **`prompt` is a block array for a stream-json host and a plain string for the TUI.** A typed TUI message also carries `"origin":{"kind":"human"}`. Agent messages, harness reminders and task notifications ride the same attachment type. They carry `isMeta`, a non-human `origin`, or `commandMode: "task-notification"`.
+- **`--replay-user-messages` echoes the line once the CLI takes it in**, with `isReplay: true` and a `uuid` equal to the attachment's `source_uuid`. The echo comes before the `result` when the message joins the turn, and after it when the message runs as its own turn. Plume does not pass the flag. The `requesting` signal already answers the same question.
+
+**Background subagents survive it.** A turn launched a background `Agent` (a `sleep` that then replied `BGDONE`) and went on with four `sleep 3` calls. A `next` message joined that turn. No `task_updated` reported `killed`. The subagent replied `BGDONE` and ended with `task_updated` `completed` and a `task_notification` `completed`, and its wake turn followed as usual. Written between turns while a subagent ran, the message started a turn of its own (`init`, reply, `result`), and the subagent completed about 22 s later in the same way.
+
+**What Plume does with this.** Send-now (a queued row's Send now, or the Send Now menu command) writes every queued message, then the composer's text, as one `priority: "next"` line, and never sends an interrupt. With no turn running, it writes an ordinary turn. The "Deliver queued messages" setting (`QueuedMessageDelivery`) picks what an ordinary send does mid-turn: hold it until `result` (the default), or write it at once the way send-now does. Plan feedback always waits for the turn to end. `HeadlessSession.deliveringMessages` holds a sent message until the next `requesting`, so the chat can show it as sending and withdraw it (see below). A `result` that arrives while that list is not empty means the CLI is about to run the message as its own turn. The session holds that turn's end for `deliveryGrace` rather than announcing it, and the following `requesting` continues the turn. `TranscriptAttachment.userPrompt` renders a human `queued_command` as the user's message, between the replies it split.
+
+### Withdrawing a mid-turn message — `cancel_async_message`
+
+A `next` message can be withdrawn until the model takes it in. The user line has to carry a `uuid`, which the request then names:
+
+```json
+{"type":"user","uuid":"a383b9a3-…","message":{…},"priority":"next"}
+{"type":"control_request","request_id":"c-1","request":{"subtype":"cancel_async_message","message_uuid":"a383b9a3-…"}}
+```
+
+Measured on **2.1.304** with Plume's flags, in a turn of `sleep 8` then `sleep 1`, with the message sent 1 s into the first sleep:
+
+| withdrawn | reply | what happened |
+|---|---|---|
+| 1 s later, during the sleep | `{"cancelled": true}` | `command_lifecycle` `queued`, then `cancelled`. The model never saw the message, the turn answered `DONE` alone, and the transcript has no trace of it. |
+| 0.5 s after the next `requesting` | `{"cancelled": false}` | `command_lifecycle` `started` had come with that `requesting`. The model answered `PINEAPPLE\nDONE`, and `completed` came just before the `result`. |
+
+The reply is the race's answer: `true` means the message is gone, `false` means the model already has it. The binary describes `cancelled: false` as "not in the queue (already dequeued or never enqueued)". A message with a `uuid` also draws `command_lifecycle` events (`queued`, `started`, `completed`, `cancelled`) keyed by `command_uuid`. Plume does not read them yet.
+
+**What Plume does with this.** Every delivering message carries a `uuid`, and its chip keeps Edit and Remove. Both send the request and show the chip as withdrawing. On `true`, Remove drops the message and Edit puts its text in the composer, as editing a queued message does. On `false` the chip says Claude already has it, until the `requesting` that carries it clears the chip. A withdrawal that empties the list while a `result` is held ends that turn at once. Never use `interrupt` with `cancel_queued` for this: it ends the turn and can stop background subagents.
+
 ### Approving a plan with feedback
 
 There is no allow-with-message on this wire, and no plan-specific allow field. The documented allow surface is `updatedInput` and `updatedPermissions` and nothing else, and `ExitPlanMode` declares **no input fields at all** — it reads the plan from `planFilePath` — so an extra key on `updatedInput` is discarded with no diagnostic. Feedback therefore cannot ride the permission response.
@@ -198,6 +254,8 @@ The user turn is queued while the approved turn runs and is sent when that turn'
 ```
 
 Answered with `{"still_queued":[…]}`, and the in-flight turn stops and emits its `result`. Verified mid-count: output truncated and the process stayed healthy for the next turn. **Prefer this to signals** — it keeps the process alive, where SIGTERM exits 143 and abandons the turn. Add `cancel_queued: true` to also drop queued messages.
+
+Only the Stop button sends an interrupt. Send-now writes into the running turn instead — see "A message mid-turn" — because an interrupt can also stop background subagents.
 
 Sent between turns while a background subagent runs, it kills that subagent instead: `task_updated` (`status: "killed"`), a `task_notification` with `status: "stopped"`, the reply, and the subagent's `[Request interrupted by user for tool use]` line. **No `result` follows**, because no turn was running. Verified on 2.1.280.
 
@@ -238,6 +296,8 @@ Every event also carries `uuid` and `session_id`. What the run showed:
 
 `HeadlessSession` therefore treats the list as the source of truth for its tab's background tasks, and clears them when its process exits.
 
+A background `Agent` appears in the list as `local_agent`, before the `result` of the turn that launched it. Measured on **2.1.296** with Plume's flags: the list named the agent 1.0 s before the `result`, and the subagent's first envelope came 1.3 s *after* it. The transcript scan cannot be relied on to see the subagent by then, so `HeadlessSession` reports the list's subagents to `StatusEngine.setLiveSubagentActivity`, and a turn ending with one listed reads `waitingOnSubagents` rather than `awaitingReply`. When the subagent finishes, the list drops it 0.06 s before the woken turn's `status` `requesting`. The session holds that drop for a short grace between turns, so the gap never reads as a finished turn.
+
 ## Other host-to-CLI control requests
 
 Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_model` were exercised, the rest are listed as available:
@@ -252,6 +312,7 @@ Read from the CLI's own dispatcher; `interrupt`, `set_permission_mode` and `set_
 | `get_settings` / `update_settings` | | Read and write session settings |
 | `rewind_files` | `dry_run` | Undo file changes |
 | `generate_session_title` | `description` | Ask the CLI to title the session — see below |
+| `get_context_usage` | `detail` | What fills the context window, by category — see below |
 | `mcp_message` | `server_name`, `message` | Host-provided MCP servers |
 | `hook_callback` | `callback_id`, `input` | In-process hooks, no shell scripts |
 
@@ -328,6 +389,33 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
 
 **Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
+
+## Context usage — `get_context_usage`
+
+Feeds the context breakdown in the statusline's usage popover. Probed against 2.1.296 after `initialize`:
+
+```json
+{"type":"control_request","request_id":"r2",
+ "request":{"subtype":"get_context_usage","detail":"summary"}}
+```
+
+`detail` must be `summary` or `full`. Plume sends `summary`. The reply:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"r2","response":{
+  "categories":[{"name":"System prompt","tokens":2145,"color":"promptBorder","kind":"used"},
+                {"name":"System tools (deferred)","tokens":26459,"isDeferred":true,"kind":"deferred"},
+                {"name":"Autocompact buffer","tokens":33000,"kind":"buffer"},
+                {"name":"Free space","tokens":231330,"kind":"free"}, …],
+  "totalTokens":35670,"maxTokens":300000,"rawMaxTokens":300000,
+  "autocompactSource":"settings","percentage":12,"gridRows":[…]}}}
+```
+
+- `kind` is `used`, `deferred`, `buffer` or `free`. The `used` categories sum to `totalTokens`.
+- `ContextUsageBreakdown` reads `name`, `tokens`, `kind` and `isDeferred`, and ignores everything else, including `gridRows` and `color`.
+- The popover lists every category except `free` and `deferred`. Free space restates the meter's remainder, and deferred tools are not loaded into context.
+- `HeadlessSession.requestContextUsage()` sends the request each time the popover opens, never on a timer. The last reply stays cached in `contextBreakdown` meanwhile.
+- An error reply, or a reply with no readable category, clears `contextBreakdown`, and the popover shows no breakdown.
 
 ## Session titles — `generate_session_title`
 

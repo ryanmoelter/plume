@@ -21,6 +21,7 @@ final class AppSettings {
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
+        static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
         static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
@@ -30,11 +31,19 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
+        static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
-        static let infoPanePresentationRaw = "infoPanePresentationRaw"
+        static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
+        static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
+        static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
+        static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
+        static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
+        static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
+        static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
@@ -79,7 +88,11 @@ final class AppSettings {
     /// exposes no way to ask an instance its own suite name, so callers pass
     /// it: the app passes its bundle identifier, a test its scratch suite
     /// name.
-    init(defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? "") {
+    init(
+        defaults: UserDefaults = .standard,
+        domainName: String = Bundle.main.bundleIdentifier ?? "",
+        initialAccentPaletteSlot: () -> Int? = SystemAccent.paletteSlot
+    ) {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
         self.worktreeBasePath = defaults.string(forKey: Key.worktreeBasePath)
@@ -114,6 +127,8 @@ final class AppSettings {
         self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
             ? true
             : defaults.bool(forKey: Key.escapeInterruptsTurn)
+        self.queuedMessageDelivery = defaults.string(forKey: Key.queuedMessageDeliveryRaw)
+            .flatMap(QueuedMessageDelivery.init(rawValue:)) ?? .endOfTurn
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
@@ -141,6 +156,13 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
+        if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
+            self.accentPaletteSlot = Self.accentPaletteSlotRange.contains(stored) ? stored : nil
+        } else {
+            let initial = initialAccentPaletteSlot()
+            self.accentPaletteSlot = initial
+            defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+        }
 
         // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
@@ -148,8 +170,18 @@ final class AppSettings {
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
-        self.infoPanePresentation = defaults.string(forKey: Key.infoPanePresentationRaw)
-            .flatMap(InfoPanePresentation.init(rawValue:)) ?? .side
+        self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
+        self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
+        self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
+        self.sidebarSuggestsFilledIcons = defaults.bool(forKey: Key.sidebarSuggestsFilledIcons)
+        self.sidebarTwoToneIcons = defaults.bool(forKey: Key.sidebarTwoToneIcons)
+        self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
+
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
@@ -158,6 +190,9 @@ final class AppSettings {
         self.infoPaneBackgroundTasksExpanded = defaults.object(forKey: Key.infoPaneBackgroundTasksExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneBackgroundTasksExpanded)
+        self.infoPaneArtifactsExpanded = defaults.object(forKey: Key.infoPaneArtifactsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneArtifactsExpanded)
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
@@ -319,6 +354,14 @@ final class AppSettings {
         }
     }
 
+    /// When a message sent during a Claude Code chat tab's running turn
+    /// reaches the agent. Codex and terminal tabs ignore it.
+    var queuedMessageDelivery: QueuedMessageDelivery {
+        didSet {
+            defaults.set(queuedMessageDelivery.rawValue, forKey: Key.queuedMessageDeliveryRaw)
+        }
+    }
+
     /// `composerSendKey`'s startup value: an explicit stored choice always
     /// wins. Otherwise a fresh install defaults to plain Return, but an
     /// install that predates that default keeps ⌘Return — detected by the
@@ -410,6 +453,20 @@ final class AppSettings {
         }
     }
 
+    static let accentPaletteSlotRange = ThemeChrome.paletteSlots
+    /// Stored for the system accent, so an absent key still means first launch.
+    private static let systemAccentSentinel = -1
+
+    /// The terminal palette slot the accent color comes from, or nil for the
+    /// system accent. A slot rather than a color, so a light/dark theme pair
+    /// gives each appearance its own palette's version of it. First launch
+    /// picks the slot closest to the system accent.
+    var accentPaletteSlot: Int? {
+        didSet {
+            defaults.set(accentPaletteSlot ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+        }
+    }
+
     /// Master toggle for GitHub PR status in the sidebar. The feature makes
     /// network calls, so it must be opt-outable; on by default.
     var showsPullRequestStatus: Bool {
@@ -418,9 +475,51 @@ final class AppSettings {
         }
     }
 
-    var infoPanePresentation: InfoPanePresentation {
+    /// Whether a colored task draws a bar of its color at its row's leading edge.
+    var sidebarShowsTaskColorBar: Bool {
         didSet {
-            defaults.set(infoPanePresentation.rawValue, forKey: Key.infoPanePresentationRaw)
+            defaults.set(sidebarShowsTaskColorBar, forKey: Key.sidebarShowsTaskColorBar)
+        }
+    }
+
+    /// Whether a colored task's name is drawn in its color.
+    var sidebarColorsTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarColorsTaskNames, forKey: Key.sidebarColorsTaskNames)
+        }
+    }
+
+    var sidebarBoldTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Whether a colored task's icon is drawn in its color.
+    var sidebarColorsTaskIcons: Bool {
+        didSet {
+            defaults.set(sidebarColorsTaskIcons, forKey: Key.sidebarColorsTaskIcons)
+        }
+    }
+
+    /// Whether the icon picker's Popular grid offers filled symbols.
+    var sidebarSuggestsFilledIcons: Bool {
+        didSet {
+            defaults.set(sidebarSuggestsFilledIcons, forKey: Key.sidebarSuggestsFilledIcons)
+        }
+    }
+
+    /// Whether sidebar icons render with a second, lighter tone.
+    var sidebarTwoToneIcons: Bool {
+        didSet {
+            defaults.set(sidebarTwoToneIcons, forKey: Key.sidebarTwoToneIcons)
+        }
+    }
+
+    /// Custom icons last chosen for a group or task, most recent first.
+    var recentSidebarIcons: [String] {
+        didSet {
+            defaults.set(recentSidebarIcons, forKey: Key.recentSidebarIcons)
         }
     }
 
@@ -446,6 +545,12 @@ final class AppSettings {
     var infoPaneBackgroundTasksExpanded: Bool {
         didSet {
             defaults.set(infoPaneBackgroundTasksExpanded, forKey: Key.infoPaneBackgroundTasksExpanded)
+        }
+    }
+
+    var infoPaneArtifactsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneArtifactsExpanded, forKey: Key.infoPaneArtifactsExpanded)
         }
     }
 
@@ -632,3 +737,12 @@ enum ComposerSendKey: String {
     case returnKey
     case commandReturn
 }
+
+enum QueuedMessageDelivery: String, CaseIterable {
+    /// Plume holds the message and sends it as a new turn after `result`.
+    case endOfTurn
+    /// Written at once with `priority: "next"`, so the CLI folds it into the
+    /// running turn at its next model request.
+    case afterToolCall
+}
+

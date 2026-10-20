@@ -19,7 +19,7 @@ final class StatusNotifier {
         self.notifier = notifier
         self.tabTitle = tabTitle
 
-        engine.onTabStatusChanged = { [weak self] taskID, tabID, status, notifiable in
+        engine.setTabStatusObserver("StatusNotifier") { [weak self] taskID, tabID, status, notifiable in
             guard notifiable else { return }
             self?.handle(taskID: taskID, tabID: tabID, status: status)
         }

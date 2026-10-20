@@ -15,6 +15,9 @@ struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
+    /// Whether this composer's tab takes first responder: false for the
+    /// other pane of a split.
+    var isFocused = true
     /// Whether something else in the panel already sits above the composer
     /// (the docked plan bar) — the caller is the only one who knows.
     var hasContentAbove = false
@@ -23,6 +26,12 @@ struct ChatComposer: View, ThemedView {
     /// Up-arrow recall path below already does, since only this view knows
     /// how to keep `hasSendableText` in sync with the draft it writes.
     var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
+    /// Set by `ChatTabView` with a delivering message the CLI gave back, to
+    /// put in the draft the same way as a queued one.
+    var withdrawnMessageToEdit: Binding<[UserContentBlock]?> = .constant(nil)
+    /// Set by `ChatTabView`'s queued rows to run `sendNow`, which takes the
+    /// draft along.
+    var sendNowRequested: Binding<Bool> = .constant(false)
     /// The message that just launched the agent, so the caller can open the
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
@@ -75,6 +84,15 @@ struct ChatComposer: View, ThemedView {
     /// both halves of the draft.
     private var canSend: Bool {
         hasSendableText || !attachedImages.isEmpty
+    }
+
+    /// What the Send Now menu command runs. Only the visible composer of the
+    /// focused pane publishes one, so the command never acts on a hidden tab.
+    private var sendNowCommand: (() -> Void)? {
+        guard isVisible, isFocused, tab.transport == .headless else { return nil }
+        let hasQueue = !(headlessSession?.queuedMessages.isEmpty ?? true)
+        guard canSend || hasQueue else { return nil }
+        return sendNow
     }
 
     /// Images ride only on the headless transport. A terminal tab's input is
@@ -175,6 +193,10 @@ struct ChatComposer: View, ThemedView {
     /// last message so recall can later walk further back through the queue.
     private func editQueuedMessage(at index: Int) {
         guard let headlessSession, let blocks = headlessSession.removeQueuedMessage(at: index) else { return }
+        loadIntoDraft(blocks)
+    }
+
+    private func loadIntoDraft(_ blocks: [UserContentBlock]) {
         let plainText = blocks.plainText
         let text = plainText.hasPrefix("!") ? "\\" + plainText : plainText
         drafts.setCommandMode(false, forTab: tab.id)
@@ -274,26 +296,28 @@ struct ChatComposer: View, ThemedView {
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
         .padding(dimensions.composerFieldInset)
-        // Only the visible tab takes focus; hidden tabs stay mounted, and
-        // focusing every one of them makes them fight over the input.
-        //
-        // Deferred a tick: a new tab replaces the previous one in the same
-        // `ForEach` update (headless chat unmounts a hidden tab rather than
-        // just hiding it), so the outgoing view is still resigning real
-        // first responder when this fires. Claiming it in the same
-        // transaction loses the race silently; the next run loop turn wins it.
         .onChange(of: isVisible, initial: true) { _, visible in
-            guard visible else {
-                inputFocused = false
-                return
-            }
-            DispatchQueue.main.async { inputFocused = true }
+            if !visible { inputFocused = false }
+        }
+        .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
+            inputFocused = true
         }
         .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
             guard let index else { return }
             editQueuedMessage(at: index)
             editQueuedMessageIndex.wrappedValue = nil
         }
+        .onChange(of: withdrawnMessageToEdit.wrappedValue) { _, blocks in
+            guard let blocks else { return }
+            loadIntoDraft(blocks)
+            withdrawnMessageToEdit.wrappedValue = nil
+        }
+        .onChange(of: sendNowRequested.wrappedValue) { _, requested in
+            guard requested else { return }
+            sendNow()
+            sendNowRequested.wrappedValue = false
+        }
+        .focusedSceneValue(\.sendNowAction, sendNowCommand)
         .task(id: skillDirectory) {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
         }
@@ -315,6 +339,14 @@ struct ChatComposer: View, ThemedView {
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
 
+    private var sendButtonHelp: String {
+        guard headlessSession?.isWorking == true else { return "Send" }
+        if headlessSession is HeadlessSession, settings.queuedMessageDelivery == .afterToolCall {
+            return "Send after the current tool call"
+        }
+        return "Queue for the next turn"
+    }
+
     private var sendButton: some View {
         Button(action: send) {
             Image(systemName: "arrow.up")
@@ -325,7 +357,7 @@ struct ChatComposer: View, ThemedView {
         .buttonBorderShape(.circle)
         .plumeID(AccessibilityID.composerSendButton, invoke: send)
         .disabled(!canSend || headlessSession?.isSteering == true)
-        .help(headlessSession?.isWorking == true ? "Queue for the next turn" : "Send")
+        .help(sendButtonHelp)
         .accessibilityLabel(headlessSession?.isWorking == true ? "Queue" : "Send")
     }
 
@@ -470,6 +502,35 @@ struct ChatComposer: View, ThemedView {
         let blocks: [UserContentBlock] =
             [.text(CommandModeMatcher.unescaped(text))] + images.map { .image($0) }
         dispatch(blocks)
+    }
+
+    /// Sends the queue, then the draft, as one message, without waiting for
+    /// the running turn (`AgentSession.sendNow`). A shell command or a Plume
+    /// command in the draft stays put: each runs on its own, so neither can
+    /// ride along as prose.
+    private func sendNow() {
+        guard let headlessSession, headlessSession.isSteering != true,
+              headlessSession.isWorking || !headlessSession.queuedMessages.isEmpty
+        else {
+            send()
+            return
+        }
+        let text = drafts.draft(forTab: tab.id)
+        var draftBlocks: [UserContentBlock] = []
+        if canSend, !isCommandMode, PlumeSlashCommand.parse(text) == nil {
+            draftBlocks = [.text(CommandModeMatcher.unescaped(text))] + attachedImages.map { .image($0) }
+            drafts.setDraft("", forTab: tab.id)
+            drafts.clearAttachments(forTab: tab.id)
+            hasSendableText = false
+        }
+        guard headlessSession.hasExited else {
+            headlessSession.sendNow(appending: draftBlocks)
+            return
+        }
+        var messages: [[UserContentBlock]] = []
+        while let queued = headlessSession.removeQueuedMessage(at: 0) { messages.append(queued) }
+        let merged = (messages + [draftBlocks]).mergedIntoOneTurn
+        if !merged.isEmpty { dispatch(merged) }
     }
 
     /// Runs a command-mode command and hands the agent what it printed, so

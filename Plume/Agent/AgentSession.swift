@@ -68,6 +68,10 @@ protocol AgentSession: AnyObject, Observable {
     func steer(blocks: [UserContentBlock]) async -> Bool
     func steer(text: String) async -> Bool
     @discardableResult func removeQueuedMessage(at index: Int) -> [UserContentBlock]?
+    /// Sends every queued message and `blocks`, last, as one message. With no
+    /// turn running it starts a turn. Mid-turn, Claude Code joins it to the
+    /// running turn; Codex ends that turn first.
+    func sendNow(appending blocks: [UserContentBlock])
     func interrupt()
     func setPermissionMode(_ mode: PermissionMode)
     func setModel(_ newModel: AgentModel)

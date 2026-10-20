@@ -262,6 +262,27 @@ nonisolated enum TranscriptParser {
                 continue
             }
 
+            if let prompt = entry.attachment?.userPrompt {
+                let blocks: [ChatBlock] = prompt.compactMap { block in
+                    switch block {
+                    case .text(let text):
+                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : .markdown(text)
+                    case .image(let image): .image(image)
+                    default: nil
+                    }
+                }
+                guard !blocks.isEmpty else { continue }
+                flushPendingAssistant()
+                if let uuid = entry.uuid { messageIndexByUUID[uuid] = transcript.messages.count }
+                transcript.messages.append(ChatMessage(
+                    id: entry.uuid ?? UUID().uuidString,
+                    role: .user,
+                    blocks: blocks,
+                    timestamp: entry.timestamp
+                ))
+                continue
+            }
+
             guard let message = entry.message, let role = message.role else { continue }
             let contentBlocks = message.content?.blocks ?? []
 
@@ -309,7 +330,8 @@ nonisolated enum TranscriptParser {
                                 prettyJSON: prettyPrint(input)
                             ),
                             interactive: InteractiveToolPayload.decoding(name: name, input: input),
-                            result: nil
+                            result: nil,
+                            artifact: ArtifactToolCall(name: name, input: input)
                         )
                         pendingAssistantBlocks.append(.toolCall(call))
                         pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)

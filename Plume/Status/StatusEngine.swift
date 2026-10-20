@@ -20,6 +20,12 @@ final class StatusEngine {
     /// "done" invites the user back to a task that is still moving.
     private var tabsWithWorkingSubagents: Set<UUID> = []
 
+    /// Tabs whose CLI lists a running subagent among its live background
+    /// tasks. Kept apart from `tabsWithWorkingSubagents` because the
+    /// transcript scan lags the stream: a turn's `result` routinely lands
+    /// before the scan has seen the background agent it just spawned.
+    private var tabsWithLiveSubagents: Set<UUID> = []
+
     /// Tabs restored from disk with no process behind them. Their transcripts
     /// still describe whatever was in flight when the app last quit, so until
     /// a live session reports, nothing read from those files may claim the tab
@@ -30,13 +36,19 @@ final class StatusEngine {
     /// snapshot can be persisted without this type depending on SwiftData.
     @ObservationIgnored var onTaskStatusChanged: ((UUID, TaskStatus) -> Void)?
 
-    /// Called with the task and tab whenever a tab's own status changes.
-    /// Both transports funnel through `setStatus`, so this is the one place a
-    /// notification layer has to hook.
-    ///
     /// `notifiable` is false for a change the user did not ask for, which is
     /// worth showing but not worth interrupting over.
-    @ObservationIgnored var onTabStatusChanged: ((UUID, UUID, TaskStatus, _ notifiable: Bool) -> Void)?
+    typealias TabStatusObserver = (_ taskID: UUID, _ tabID: UUID, TaskStatus, _ notifiable: Bool) -> Void
+
+    @ObservationIgnored private var tabStatusObservers: [String: TabStatusObserver] = [:]
+
+    /// Called with the task and tab whenever a tab's effective status changes.
+    /// Both transports funnel through here, so this is the one place a
+    /// notification layer has to hook. Registering again under the same `key`
+    /// replaces that observer.
+    func setTabStatusObserver(_ key: String, _ observer: TabStatusObserver?) {
+        tabStatusObservers[key] = observer
+    }
 
     /// When each active tab started working, for the elapsed time the
     /// sidebar shows. Kept here rather than on the session so it covers both
@@ -59,7 +71,7 @@ final class StatusEngine {
     func status(forTab id: UUID) -> TaskStatus {
         Self.effectiveStatus(
             own: ownStatus(forTab: id),
-            subagentsWorking: tabsWithWorkingSubagents.contains(id),
+            subagentsWorking: subagentsWorking(tabID: id),
             dormant: dormantTabs.contains(id)
         )
     }
@@ -72,7 +84,15 @@ final class StatusEngine {
     }
 
     func hasWorkingSubagents(tabID: UUID) -> Bool {
-        tabsWithWorkingSubagents.contains(tabID) && !dormantTabs.contains(tabID)
+        subagentsWorking(tabID: tabID) && !dormantTabs.contains(tabID)
+    }
+
+    func hasLiveSubagents(tabID: UUID) -> Bool {
+        tabsWithLiveSubagents.contains(tabID)
+    }
+
+    private func subagentsWorking(tabID: UUID) -> Bool {
+        tabsWithWorkingSubagents.contains(tabID) || tabsWithLiveSubagents.contains(tabID)
     }
 
     /// Every tab's status as the user sees it.
@@ -204,15 +224,32 @@ final class StatusEngine {
     /// IDs. A tab that never registered has no task to aggregate into, so its
     /// activity is dropped rather than inventing one.
     func setSubagentActivity(tabID: UUID, working: Bool) {
+        updateSubagents(.transcript, tabID: tabID, working: working)
+    }
+
+    /// Records whether a headless tab's CLI lists a subagent among its live
+    /// background tasks. Either source keeps the tab from reading as settled.
+    func setLiveSubagentActivity(tabID: UUID, working: Bool) {
+        updateSubagents(.liveList, tabID: tabID, working: working)
+    }
+
+    private enum SubagentSource { case transcript, liveList }
+
+    private func updateSubagents(_ source: SubagentSource, tabID: UUID, working: Bool) {
         guard let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key else { return }
-        guard tabsWithWorkingSubagents.contains(tabID) != working else { return }
+        let current = switch source {
+        case .transcript: tabsWithWorkingSubagents.contains(tabID)
+        case .liveList: tabsWithLiveSubagents.contains(tabID)
+        }
+        guard current != working else { return }
 
         let previousTabStatus = self.status(forTab: tabID)
         let previousTaskStatus = self.status(forTask: taskID)
-        if working {
-            tabsWithWorkingSubagents.insert(tabID)
-        } else {
-            tabsWithWorkingSubagents.remove(tabID)
+        switch (source, working) {
+        case (.transcript, true): tabsWithWorkingSubagents.insert(tabID)
+        case (.transcript, false): tabsWithWorkingSubagents.remove(tabID)
+        case (.liveList, true): tabsWithLiveSubagents.insert(tabID)
+        case (.liveList, false): tabsWithLiveSubagents.remove(tabID)
         }
         report(taskID: taskID, tabID: tabID, previousTabStatus: previousTabStatus, previousTaskStatus: previousTaskStatus)
     }
@@ -250,7 +287,9 @@ final class StatusEngine {
             } else if !previousTabStatus.isActive {
                 workStartedAt[tabID] = Date()
             }
-            onTabStatusChanged?(taskID, tabID, newTabStatus, notifiable)
+            for observer in tabStatusObservers.values {
+                observer(taskID, tabID, newTabStatus, notifiable)
+            }
         }
         let newTaskStatus = status(forTask: taskID)
         if newTaskStatus != previousTaskStatus {
@@ -290,6 +329,7 @@ final class StatusEngine {
         backgroundTasks.forget(tabID: tabID)
         tabStatuses.removeValue(forKey: tabID)
         tabsWithWorkingSubagents.remove(tabID)
+        tabsWithLiveSubagents.remove(tabID)
         dormantTabs.remove(tabID)
         workStartedAt.removeValue(forKey: tabID)
         tabsByTask[taskID]?.remove(tabID)
@@ -302,6 +342,7 @@ final class StatusEngine {
         backgroundTasks.reset()
         tabStatuses.removeAll()
         tabsWithWorkingSubagents.removeAll()
+        tabsWithLiveSubagents.removeAll()
         dormantTabs.removeAll()
         workStartedAt.removeAll()
         tabsByTask.removeAll()

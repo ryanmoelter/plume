@@ -1,47 +1,204 @@
+import AppKit
 import GhosttyTerminal
 import SwiftUI
 
-/// Hosts every tab's terminal at once, showing only the selected one.
+/// Hosts every tab's terminal at once, showing each pane's selected tab.
 ///
-/// Keeping non-selected tabs mounted (rather than unmounting them) is what
-/// keeps their processes alive across tab switches.
+/// Keeping off-screen tabs mounted (rather than unmounting them) is what
+/// keeps their processes alive across tab switches. Panes are placed by
+/// frame and padding within one `ForEach`, so a tab moving between panes, or
+/// a split opening or closing, never moves a tab's view to another container.
 struct TabContentView: View {
     @Bindable var task: WorkTask
+    let panes: [[TaskTab]]
+    let shown: [UUID]
+    /// Follows a divider drag; only on-screen tabs take it, since every
+    /// resize of a terminal is a SIGWINCH and a redraw.
+    let layout: SplitLayout
+    let committedLayout: SplitLayout
+    @Binding var draggedFraction: Double?
     @Environment(\.colorScheme) private var colorScheme
 
+    @State private var dropSide: TaskStore.SplitSide?
+    @State private var drag = InAppDrag.shared
+
+    static let coordinateSpace = "tabContent"
+
     var body: some View {
-        ZStack {
-            if task.tabs.isEmpty {
-                ContentUnavailableView {
-                    Label("No Tabs", systemImage: "square.on.square")
-                } description: {
-                    Text("Use the + button above to add an agent or terminal tab.")
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                if task.tabs.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Tabs", systemImage: "square.on.square")
+                    } description: {
+                        Text("Use the + button above to add an agent or terminal tab.")
+                    }
+                    .themeTint(colorScheme: colorScheme)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-                .themeTint(colorScheme: colorScheme)
-            }
-            ForEach(task.orderedTabs) { tab in
-                let isVisible = TabVisibility.isOnScreen(
-                    tabID: tab.id, selectedTabID: task.selectedTabID
-                )
-                tabContent(for: tab, isVisible: isVisible)
-                    .opacity(isVisible ? 1 : 0)
-                    .allowsHitTesting(isVisible)
-                    .plumeControlsHidden(!isVisible)
+                ForEach(panes.flatMap { $0 }) { tab in
+                    pane(for: tab, size: proxy.size)
+                }
+                if let dividerX = layout.dividerX {
+                    SplitDivider(x: dividerX) { x in
+                        draggedFraction = layout.fraction(forDividerAt: x)
+                    } onEnded: {
+                        if let draggedFraction { TaskStore.setSplitFraction(draggedFraction, in: task) }
+                        draggedFraction = nil
+                    } onReset: {
+                        draggedFraction = nil
+                        TaskStore.setSplitFraction(0.5, in: task)
+                    }
+                    .frame(height: proxy.size.height)
+                    .offset(x: dividerX - SplitDivider.hitWidth / 2)
+                }
+                if let dropSide {
+                    dropHighlight(side: dropSide, size: proxy.size)
+                }
+                if let draggedTab {
+                    SplitDropCatcher(
+                        update: { x in
+                            let accepts = panes.count > 1 || TaskStore.canOpenInSplit(draggedTab, in: task)
+                            dropSide = accepts ? layout.side(forX: x) : nil
+                            return accepts
+                        },
+                        exit: { dropSide = nil },
+                        perform: { item, x in
+                            guard case .tab(let id) = item,
+                                  let tab = task.tabs.first(where: { $0.id == id })
+                            else { return }
+                            TaskStore.openInSplit(tab, side: layout.side(forX: x), in: task)
+                        }
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                }
             }
         }
+        .coordinateSpace(.named(Self.coordinateSpace))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: draggedTab == nil) { _, notDragging in
+            if notDragging { dropSide = nil }
+        }
+    }
+
+    private var draggedTab: TaskTab? {
+        guard case .tab(let id) = drag.item else { return nil }
+        return task.tabs.first { $0.id == id }
+    }
+
+    /// Off-screen tabs keep their pane's committed frame, the size they next
+    /// show at.
+    private func pane(for tab: TaskTab, size: CGSize) -> some View {
+        let isVisible = TabVisibility.isOnScreen(tabID: tab.id, paneTabIDs: shown)
+        let placement = (isVisible ? layout : committedLayout).pane(tab.paneIndex)
+        let isFocused = TabVisibility.isFocused(tabID: tab.id, selectedTabID: task.selectedTabID)
+        let isUnfocusedPane = layout.isSplit && isVisible && !isFocused
+        return tabContent(for: tab, isVisible: isVisible, isFocused: isFocused)
+            .frame(width: placement?.width ?? size.width, height: size.height)
+            .paneAnchored()
+            .overlay(alignment: .top) {
+                if layout.isSplit, isFocused {
+                    Rectangle()
+                        .fill(.tint.opacity(0.7))
+                        .frame(height: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .background {
+                if isUnfocusedPane {
+                    PaneClickProbe(gripXRange: gripXRange(for: placement)) {
+                        TaskStore.selectTab(tab, in: task)
+                    }
+                }
+            }
+            .plumeID(
+                AccessibilityID.tabPane,
+                label: tab.displayTitle,
+                value: isFocused ? "focused" : nil
+            )
+            .padding(.leading, placement?.x ?? 0)
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .plumeControlsHidden(!isVisible)
+    }
+
+    private func gripXRange(for placement: SplitLayout.Pane?) -> ClosedRange<CGFloat>? {
+        guard let placement, let dividerX = layout.dividerX else { return nil }
+        let center = dividerX - placement.x
+        return (center - SplitDivider.hitWidth / 2)...(center + SplitDivider.hitWidth / 2)
+    }
+
+    private func dropHighlight(side: TaskStore.SplitSide, size: CGSize) -> some View {
+        let split = layout.dividerX ?? (size.width / 2).rounded()
+        let x = side == .left ? 0 : split
+        let width = side == .left ? split : size.width - split
+        return RoundedRectangle(cornerRadius: 6)
+            .strokeBorder(.tint, lineWidth: 2)
+            .background(.tint.opacity(0.15), in: .rect(cornerRadius: 6))
+            .padding(4)
+            .frame(width: width, height: size.height)
+            .offset(x: x)
+            .allowsHitTesting(false)
     }
 
     /// Only `AgentLauncher` may create an agent tab's surface, since it alone
     /// knows the `claude` command. Creating one here would win the race and
     /// leave the tab running a bare shell.
     @ViewBuilder
-    private func tabContent(for tab: TaskTab, isVisible: Bool) -> some View {
+    private func tabContent(for tab: TaskTab, isVisible: Bool, isFocused: Bool) -> some View {
         if tab.kind == .agent {
-            AgentTabContent(task: task, tab: tab, isVisible: isVisible)
+            AgentTabContent(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         } else {
-            TerminalTabHost(task: task, tab: tab, isVisible: isVisible)
+            TerminalTabHost(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         }
+    }
+}
+
+/// The line between two panes, with a wider invisible grip to drag it by.
+private struct SplitDivider: View {
+    static let hitWidth: CGFloat = 9
+
+    let x: CGFloat
+    let onChanged: (CGFloat) -> Void
+    let onEnded: () -> Void
+    let onReset: () -> Void
+
+    @State private var isHovering = false
+    @State private var dragStartX: CGFloat?
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.separator)
+                .frame(width: SplitLayout.dividerWidth)
+        }
+        .frame(width: Self.hitWidth)
+        .contentShape(.rect)
+        .gesture(
+            // Past a double-click's wobble, so a reset never starts a drag.
+            // Measured in the content's space, not the divider's own: the
+            // divider moves with the drag, so a local translation feeds back.
+            DragGesture(minimumDistance: 3, coordinateSpace: .named(TabContentView.coordinateSpace))
+                .onChanged { value in
+                    let start = dragStartX ?? x
+                    dragStartX = start
+                    onChanged(start + value.translation.width)
+                }
+                .onEnded { _ in
+                    dragStartX = nil
+                    onEnded()
+                }
+        )
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onReset))
+        .plumeHover { hovering in
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+            if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        }
+        .onDisappear {
+            if isHovering { NSCursor.pop() }
+        }
+        .plumeID(AccessibilityID.splitDivider, invoke: onReset)
     }
 }
 
@@ -52,18 +209,19 @@ private struct AgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
+    let isFocused: Bool
 
     var body: some View {
         switch tab.transport {
         case .headless:
-            HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible)
+            HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         case .terminal:
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible)
+                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
             } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
-                AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible)
+                AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible, isFocused: isFocused)
             } else {
-                AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible)
+                AgentFirstMessageView(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
             }
         }
     }
@@ -76,17 +234,20 @@ private struct HeadlessAgentTabContent: View {
     @Bindable var task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
+    let isFocused: Bool
 
     @State private var hasResumed = false
+    @State private var settings = AppSettings.shared
 
-    /// Only the visible tab builds its chat. Nothing here owns a process —
+    /// Only on-screen tabs build their chat. Nothing here owns a process —
     /// `AgentSessionManager` does — so unmounting costs a rebuild on the
     /// way back, where staying mounted costs a live `ScrollView` per hidden
     /// tab, each still laying out against a zero-height viewport.
     var body: some View {
         Group {
             if isVisible {
-                ChatTabView(task: task, tab: tab, isVisible: isVisible)
+                ChatTabView(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
+                    .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
             } else {
                 Color.clear
             }
@@ -157,13 +318,14 @@ private struct TerminalTabHost: View {
     let task: WorkTask
     let tab: TaskTab
     let isVisible: Bool
+    let isFocused: Bool
 
     @State private var session: TerminalSession?
 
     var body: some View {
         Group {
             if let session {
-                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible)
+                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
                     .onChange(of: session.title, initial: true) { _, title in
                         // A shell tab's own escape-sequence title is as
                         // authoritative as a source gets, so it ranks the

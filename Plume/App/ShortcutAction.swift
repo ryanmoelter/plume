@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A menu command whose chord the user can reassign.
 ///
-/// Only the four cycling commands are rebindable. Every other chord
+/// The four cycling commands and Send Now are rebindable. Every other chord
 /// `PlumeCommands` binds stays fixed, because it either matches a macOS-wide
 /// convention (⌘N, ⌘T, ⌘W) or is positional (⌘1…⌘9).
 enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
@@ -11,6 +11,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
     case previousTab
     case nextTask
     case previousTask
+    case sendNow
 
     var id: String { rawValue }
 
@@ -20,15 +21,19 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
         case .previousTab: "Previous Tab"
         case .nextTask: "Next Task"
         case .previousTask: "Previous Task"
+        case .sendNow: "Send Now"
         }
     }
 
-    var defaultShortcut: MenuShortcut {
+    /// Nil for an action that ships unbound and gets a chord only when the
+    /// user records one.
+    var defaultShortcut: MenuShortcut? {
         switch self {
         case .nextTab: MenuShortcut("]", modifiers: [.command, .shift])
         case .previousTab: MenuShortcut("[", modifiers: [.command, .shift])
         case .nextTask: MenuShortcut("]")
         case .previousTask: MenuShortcut("[")
+        case .sendNow: nil
         }
     }
 }

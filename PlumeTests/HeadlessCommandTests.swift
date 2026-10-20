@@ -67,6 +67,12 @@ struct HeadlessCommandTests {
         #expect(arguments.contains("--allow-dangerously-skip-permissions"))
         #expect(!arguments.contains("--dangerously-skip-permissions"))
     }
+
+    @Test func environmentOptsIntoArtifactsAndKeepsThePlumeMarker() {
+        #expect(HeadlessCommand.environment["CLAUDE_CODE_ARTIFACT"] == "1")
+        #expect(HeadlessCommand.environment["PLUME"] == "1")
+        #expect(LoginShellCommand.plumeEnvironment["CLAUDE_CODE_ARTIFACT"] == nil)
+    }
 }
 
 /// `--model` carries the tab's pre-launch choice, so the first turn runs on

@@ -1,14 +1,17 @@
 import Foundation
 
-/// Which tab the user is actually looking at, and so which alerts are
+/// Which tabs the user is actually looking at, and so which alerts are
 /// redundant.
 struct NotificationAudience: Equatable {
     /// Whether Plume is the frontmost application.
     var isAppActive: Bool
     /// The task shown in the detail pane, if any.
     var selectedTaskID: UUID?
-    /// The tab on screen within that task, if any.
-    var selectedTabID: UUID?
+    /// The tabs on screen within that task — two while it is split.
+    var onScreenTabIDs: Set<UUID> = []
+    /// The on-screen tab that has focus. In a split, the other pane is on
+    /// screen without having been read.
+    var focusedTabID: UUID?
 
     static let inactive = NotificationAudience(isAppActive: false)
 }
@@ -27,6 +30,6 @@ enum NotificationSuppression {
     static func isOnScreen(tabID: UUID, taskID: UUID, audience: NotificationAudience) -> Bool {
         audience.isAppActive
             && audience.selectedTaskID == taskID
-            && audience.selectedTabID == tabID
+            && audience.onScreenTabIDs.contains(tabID)
     }
 }

@@ -1,4 +1,3 @@
-import Dispatch
 import GhosttyTerminal
 import SwiftUI
 
@@ -13,10 +12,13 @@ struct TerminalTabView: View {
     /// where a caller has no tab context, which only skips those.
     var taskID: UUID?
     var tabID: UUID?
-    /// Whether this tab is the one on screen. Hidden tabs stay mounted at
-    /// zero opacity, so without this every one of them keeps drawing frames
+    /// Whether this tab is on screen. Hidden tabs stay mounted at zero
+    /// opacity, so without this every one of them keeps drawing frames
     /// nobody sees.
     var isVisible = true
+    /// Whether this tab takes first responder — the visible tab, or the
+    /// focused pane of a split.
+    var isFocused = true
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -29,14 +31,10 @@ struct TerminalTabView: View {
             .onChange(of: isVisible, initial: true) { _, visible in
                 session.state.isSurfaceVisible = visible
                 guard visible else { return }
-                // Deferred a tick: switching *tasks* replaces this whole
-                // subtree (tabs are keyed by id, and a new task's tabs share
-                // none with the old one's), so the outgoing tab's view is
-                // still resigning real first responder when this fires.
-                // Claiming it in the same transaction loses the race
-                // silently; the next run loop turn wins it.
-                DispatchQueue.main.async { session.state.requestFocus() }
                 markBellSeen()
+            }
+            .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
+                session.state.requestFocus()
             }
             .onChange(of: session.bellCount) { previous, current in
                 guard current > previous else { return }

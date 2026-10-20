@@ -19,7 +19,7 @@ final class GhosttyRuntime {
     private(set) var startupError: String?
 
     /// Path of the user's ghostty config that was loaded, if any. Nil means
-    /// the wrapper's built-in defaults are in use.
+    /// the wrapper's built-in defaults are in use, under the bundled theme.
     private(set) var loadedConfigPath: String?
 
     /// The same theme resolution passed to the controller, kept in its raw
@@ -95,10 +95,13 @@ final class GhosttyRuntime {
     /// Sets `resolvedThemeDefinitions` and `configThemeNames` from the config,
     /// returning the theme to hand the controller.
     private func resolveTheme(in expanded: GhosttyConfigLoader.ExpandedConfig?) -> TerminalTheme {
-        resolvedThemeDefinitions = expanded.flatMap { resolveThemeDefinitions(in: $0) }
+        resolvedThemeDefinitions = Self.resolveThemeDefinitions(
+            in: expanded,
+            bundledDefault: Self.bundledLumDefinitions
+        )
         configThemeNames = nil
-        guard let expanded, let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
-        if GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {
+        guard let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
+        if let expanded, GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {
             configThemeNames = GhosttyThemeResolver.ThemeNames(
                 light: definitions.light?.name,
                 dark: definitions.dark?.name
@@ -115,21 +118,17 @@ final class GhosttyRuntime {
     /// controller. Themes resolve against the directory of the file that
     /// declared the directive, which an including config's own directory need
     /// not be.
-    private func resolveThemeDefinitions(
-        in expanded: GhosttyConfigLoader.ExpandedConfig
-    ) -> GhosttyThemeResolver.ResolvedDefinitions? {
-        Self.resolveThemeDefinitions(
-            in: expanded,
-            bundledDefault: Self.bundledLumDefinitions
-        )
-    }
-
-    /// Pure form of the above, taking the bundled default as a parameter so
-    /// tests can exercise the fallback logic without touching `Bundle.main`.
+    ///
+    /// Takes the bundled default as a parameter so tests can exercise the
+    /// fallback without touching `Bundle.main`.
     static func resolveThemeDefinitions(
-        in expanded: GhosttyConfigLoader.ExpandedConfig,
+        in expanded: GhosttyConfigLoader.ExpandedConfig?,
         bundledDefault: GhosttyThemeResolver.ResolvedDefinitions?
     ) -> GhosttyThemeResolver.ResolvedDefinitions? {
+        guard let expanded else {
+            Log.ghostty.info("No Ghostty config; defaulting to the bundled Lum palette")
+            return bundledDefault
+        }
         guard let themeSourcePath = GhosttyConfigLoader.winningThemeSourcePath(in: expanded) else {
             Log.ghostty.info("Ghostty config declares no theme; defaulting to the bundled Lum palette")
             return bundledDefault
@@ -147,8 +146,8 @@ final class GhosttyRuntime {
         return definitions
     }
 
-    /// Plume's default palette when the user's config names no theme (or
-    /// names one that fails to resolve). Vendored from Ryan's own ghostty
+    /// Plume's default palette when there is no config, or it names no theme,
+    /// or it names one that fails to resolve. Vendored from Ryan's own ghostty
     /// themes rather than referencing `~/dotfiles`, which would not exist on
     /// another machine.
     ///

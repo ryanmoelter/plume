@@ -9,7 +9,7 @@ struct NotificationSuppressionTests {
     private func audience(
         active: Bool = true, task: UUID?, tab: UUID?
     ) -> NotificationAudience {
-        NotificationAudience(isAppActive: active, selectedTaskID: task, selectedTabID: tab)
+        NotificationAudience(isAppActive: active, selectedTaskID: task, onScreenTabIDs: Set([tab].compactMap { $0 }))
     }
 
     @Test func theTabTheUserIsWatchingIsNotNotified() {
@@ -36,6 +36,15 @@ struct NotificationSuppressionTests {
         #expect(NotificationSuppression.shouldNotify(
             tabID: tab, taskID: task, audience: audience(active: false, task: task, tab: tab)
         ))
+    }
+
+    @Test func bothPanesOfASplitAreWatched() {
+        let other = UUID()
+        let split = NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab, other])
+
+        #expect(!NotificationSuppression.shouldNotify(tabID: tab, taskID: task, audience: split))
+        #expect(!NotificationSuppression.shouldNotify(tabID: other, taskID: task, audience: split))
+        #expect(NotificationSuppression.shouldNotify(tabID: UUID(), taskID: task, audience: split))
     }
 
     @Test func noSelectionMeansNothingIsOnScreen() {
@@ -138,7 +147,7 @@ struct StatusEngineTabCallbackTests {
         let engine = StatusEngine()
         let (task, tab) = (UUID(), UUID())
         var seen: [(UUID, UUID, TaskStatus)] = []
-        engine.onTabStatusChanged = { task, tab, status, _ in seen.append((task, tab, status)) }
+        engine.setTabStatusObserver("test") { task, tab, status, _ in seen.append((task, tab, status)) }
 
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
@@ -156,7 +165,7 @@ struct StatusEngineTabCallbackTests {
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
         var seen = 0
-        engine.onTabStatusChanged = { _, _, _, _ in seen += 1 }
+        engine.setTabStatusObserver("test") { _, _, _, _ in seen += 1 }
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: task, tabID: tab)
 
         #expect(seen == 0)
@@ -167,7 +176,7 @@ struct StatusEngineTabCallbackTests {
     @Test func aHookEventIsNotifiable() {
         let engine = StatusEngine()
         var notifiable: [Bool] = []
-        engine.onTabStatusChanged = { _, _, _, flag in notifiable.append(flag) }
+        engine.setTabStatusObserver("test") { _, _, _, flag in notifiable.append(flag) }
 
         engine.apply(HookEvent(hookEventName: "Notification"), taskID: UUID(), tabID: UUID())
 
@@ -182,7 +191,7 @@ struct StatusEngineTabCallbackTests {
         engine.setStatus(.working, taskID: task, tabID: tab)
 
         var notifiable: [Bool] = []
-        engine.onTabStatusChanged = { _, _, _, flag in notifiable.append(flag) }
+        engine.setTabStatusObserver("test") { _, _, _, flag in notifiable.append(flag) }
         engine.restore(tabID: tab, taskID: task)
 
         #expect(notifiable == [false])

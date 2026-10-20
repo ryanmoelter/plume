@@ -170,9 +170,8 @@ struct AppSettingsTests {
         #expect(!reloaded.showsPullRequestStatus)
     }
 
-    @Test func infoPaneDefaultsToAnExpandedSidePane() {
+    @Test func infoPaneDefaultsToExpanded() {
         let settings = AppSettings(defaults: makeDefaults())
-        #expect(settings.infoPanePresentation == .side)
         #expect(settings.infoPaneState == .expanded)
         #expect(settings.infoPaneSubagentsExpanded)
         #expect(settings.infoPaneBackgroundTasksExpanded)
@@ -181,13 +180,11 @@ struct AppSettingsTests {
     @Test func infoPaneSettingsPersist() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
-        settings.infoPanePresentation = .inline
         settings.infoPaneState = .collapsed
         settings.infoPaneSubagentsExpanded = false
         settings.infoPaneBackgroundTasksExpanded = false
 
         let reloaded = AppSettings(defaults: defaults)
-        #expect(reloaded.infoPanePresentation == .inline)
         #expect(reloaded.infoPaneState == .collapsed)
         #expect(!reloaded.infoPaneSubagentsExpanded)
         #expect(!reloaded.infoPaneBackgroundTasksExpanded)
@@ -231,6 +228,31 @@ struct AppSettingsTests {
         #expect(settings.ignoredPendingChecks == ["real-check"])
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.ignoredPendingChecks == ["real-check"])
+    }
+
+    @Test func accentPaletteSlotStartsFromTheSystemMatchOnlyOnFirstLaunch() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { 4 })
+        #expect(settings.accentPaletteSlot == 4)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == 4)
+
+        settings.accentPaletteSlot = nil
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+
+        settings.accentPaletteSlot = 12
+        #expect(AppSettings(defaults: defaults).accentPaletteSlot == 12)
+    }
+
+    @Test func noSystemMatchStartsOnTheSystemAccent() {
+        let defaults = makeDefaults()
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+    }
+
+    @Test func outOfRangeAccentPaletteSlotReadsAsSystem() {
+        let defaults = makeDefaults()
+        defaults.set(16, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentPaletteSlot == nil)
     }
 }
 

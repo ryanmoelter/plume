@@ -4,8 +4,10 @@ import SwiftUI
 ///
 /// Built once per appearance change by `ThemeModifier`, which is the only
 /// place that reads `ColorScheme` or reaches into `ThemeChrome`. Views take
-/// plain `Color`s off it, so a color costs a struct field read rather than a
-/// palette lookup and a hex parse on every `body` pass.
+/// plain `Color`s off it, so a named color costs a struct field read rather
+/// than a palette lookup and a hex parse on every `body` pass. Terminal palette
+/// slots are the exception: `color(forSlot:)` resolves on demand, because a
+/// `Palette` is built for every chat row and most never ask for a slot.
 ///
 /// Status hues come from the terminal theme's ANSI palette, which is what
 /// makes the chat read as part of the same surface as the terminal beside it.
@@ -33,8 +35,9 @@ struct Palette {
     /// Succeeded.
     let success: Color
 
-    /// The user's own choice, and only that. Follows the system accent color
-    /// rather than the terminal theme, because macOS-wide that is its job.
+    /// The user's own choice, and only that. The accent color chosen in
+    /// settings, or the system accent. The text color while the window is
+    /// inactive.
     let selection: Color
 
     /// A turn in flight. Shares `attention`'s hue because it carries the same
@@ -44,6 +47,22 @@ struct Palette {
 
     /// Alpha levels for fills and washes, which vary by appearance.
     let emphasis: EmphasisOpacities
+
+    private let colorScheme: ColorScheme
+    private let definitions: GhosttyThemeResolver.ResolvedDefinitions?
+
+    /// One terminal palette slot, nil where the theme has none.
+    func color(forSlot slot: Int) -> Color? {
+        ThemeChrome.paletteColor(slot: slot, for: colorScheme, in: definitions)
+    }
+
+    /// A sidebar tint's color, or nil when the theme lacks its slot.
+    func color(for tint: SidebarTint) -> Color? {
+        switch tint {
+        case .text: foreground
+        case .palette(let slot): color(forSlot: slot)
+        }
+    }
 
     /// `foreground` at the given emphasis, for washes and hairlines drawn on
     /// the app's surface.
@@ -58,15 +77,24 @@ struct Palette {
     var divider: Color { surface(.divider) }
 
     /// Builds the palette for one appearance from a resolved terminal theme.
-    init(colorScheme: ColorScheme, definitions: GhosttyThemeResolver.ResolvedDefinitions?) {
+    init(
+        colorScheme: ColorScheme,
+        definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        accentSlot: Int? = nil,
+        isActive: Bool = true
+    ) {
         background = ThemeChrome.background(for: colorScheme, in: definitions)
         foreground = ThemeChrome.foreground(for: colorScheme, in: definitions) ?? .primary
         attention = ThemeChrome.paletteAccent(.attention, for: colorScheme, in: definitions) ?? .blue
         warning = ThemeChrome.paletteAccent(.warning, for: colorScheme, in: definitions) ?? .orange
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
-        selection = .accentColor
+        selection = isActive
+            ? ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
+            : foreground
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
+        self.colorScheme = colorScheme
+        self.definitions = definitions
     }
 }
 

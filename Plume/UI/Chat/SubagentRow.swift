@@ -68,21 +68,15 @@ struct SubagentRow: View, ThemedView {
                         .truncationMode(.tail)
                     // Rendered even while empty, so a row keeps its height as
                     // the facts arrive on the next read.
-                    Text(caption.text)
+                    captionLine(caption)
                         .font(typography.caption.font)
                         .emphasis(.subtle)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                // Rendered even while empty, for the same reason the caption
-                // is: a row that gains its start time shouldn't reflow.
-                Text(caption.elapsedText ?? "")
-                    .font(typography.caption.font)
-                    .monospacedDigit()
-                    .emphasis(.subtle)
                 Image(systemName: "chevron.right")
                     .font(typography.caption.font)
-                    .emphasis(.subtle)
+                    .foregroundStyle(colors.selection)
             }
             .padding(.leading, columns.leadingIndent)
             .padding(.horizontal, Columns.washInset)
@@ -98,6 +92,13 @@ struct SubagentRow: View, ThemedView {
         .help(subagent.descriptor?.description ?? subagent.id)
         .plumeID(AccessibilityID.subagentRow, label: subagent.title)
         .contextMenu { menu }
+    }
+
+    /// Elapsed time leads, in tabular digits, so it doesn't jitter as it ticks.
+    private func captionLine(_ caption: SubagentCaption) -> Text {
+        guard let elapsed = caption.elapsedText else { return Text(caption.text) }
+        let elapsedText = Text(elapsed).monospacedDigit()
+        return caption.text.isEmpty ? elapsedText : elapsedText + Text(" · \(caption.text)")
     }
 
     /// The escape hatch for a row nothing can settle on its own. Offered only

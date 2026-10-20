@@ -296,4 +296,27 @@ struct CodexRecoveryTests {
         #expect(session.queuedMessages == [blocks])
     }
 
+    /// An interrupted turn otherwise pauses the queue, so send-now has to
+    /// override that, and send the queue then the draft as one turn.
+    @Test func sendNowInterruptsThenSendsTheQueueAsOneTurn() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        session.submit(text: "one")
+        try await waitFor { h.turns.count == 1 }
+        h.reply(id: try #require(h.turns.first?["id"]), result: .object(["turn": .object(["id": .string("t1")])]))
+        try await waitFor { session.canSteer }
+        session.submit(text: "two")
+
+        session.sendNow(appending: [.text("draft")])
+        try await waitFor { h.interrupts.count == 1 }
+        #expect(h.turns.count == 1)
+        #expect(session.queuedMessages.map(\.plainText) == ["two", "draft"])
+
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t1","status":"interrupted"}}}"#)
+        try await waitFor { h.turns.count == 2 }
+        #expect(h.turns.last?["params"]?["input"]?.arrayValue?.first?["text"] == .string("two\n\ndraft"))
+        #expect(session.queuedMessages.isEmpty)
+    }
 }

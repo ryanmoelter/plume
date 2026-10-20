@@ -5,6 +5,12 @@ import SwiftData
 final class WorkTask {
     var id: UUID = UUID()
     var title: String = ""
+    /// One line the sidebar shows under the title. Empty hides it.
+    var taskDescription: String = ""
+    /// A `SidebarTint` raw value. Nil inherits the group's color.
+    var tintRaw: String? = nil
+    /// An SF Symbol name. Unlike the color, never inherited from the group.
+    var iconName: String? = nil
     var orderIndex: Int = 0
     var createdAt: Date = Date()
 
@@ -44,6 +50,12 @@ final class WorkTask {
     /// Which agent tab's title stands in for the task in the sidebar, so
     /// dipping into a terminal tab doesn't relabel the row.
     var lastFocusedAgentTabID: UUID?
+    /// Each pane's selected tab, left to right, as comma-separated UUIDs.
+    /// `selectedTabID` is the focused pane's and wins over its entry here.
+    /// Only `TaskStore` writes it.
+    var paneSelectedTabIDsRaw: String = ""
+    /// The leading pane's share of the detail width.
+    var splitFraction: Double = 0.5
 
     init(title: String, orderIndex: Int, group: TaskGroup? = nil) {
         self.id = UUID()
@@ -51,6 +63,11 @@ final class WorkTask {
         self.orderIndex = orderIndex
         self.createdAt = Date()
         self.group = group
+    }
+
+    var tint: SidebarTint? {
+        get { tintRaw.flatMap(SidebarTint.init(rawValue:)) }
+        set { tintRaw = newValue?.rawValue }
     }
 
     var permissionMode: PermissionMode? {
@@ -68,8 +85,75 @@ final class WorkTask {
         set { lastStatusRaw = newValue.rawValue }
     }
 
+    /// Every tab, pane by pane, each pane in strip order.
     var orderedTabs: [TaskTab] {
-        tabs.sorted { $0.orderIndex < $1.orderIndex }
+        Self.inPaneOrder(tabs)
+    }
+
+    /// `tabs` without any tab that is deleted or outside a context. Deleting
+    /// a task leaves its cascade-deleted tabs listed in `tabs`, and reading a
+    /// property of one can trap, so the sidebar reads this instead.
+    var liveTabs: [TaskTab] {
+        tabs.filter(\.isLive)
+    }
+
+    var orderedLiveTabs: [TaskTab] {
+        Self.inPaneOrder(liveTabs)
+    }
+
+    private static func inPaneOrder(_ tabs: [TaskTab]) -> [TaskTab] {
+        tabs.sorted { ($0.paneIndex, $0.orderIndex) < ($1.paneIndex, $1.orderIndex) }
+    }
+
+    /// `TaskStore` keeps `TaskTab.paneIndex` dense, so the highest one
+    /// counts the panes.
+    var paneCount: Int {
+        (tabs.map(\.paneIndex).max() ?? 0) + 1
+    }
+
+    var isSplit: Bool { paneCount > 1 }
+
+    var focusedPane: Int {
+        tabs.first { $0.id == selectedTabID }?.paneIndex ?? 0
+    }
+
+    /// In strip order.
+    func tabs(inPane pane: Int) -> [TaskTab] {
+        tabs.filter { $0.paneIndex == pane }.sorted { $0.orderIndex < $1.orderIndex }
+    }
+
+    /// Every pane's tabs, left to right. Each read regroups, so a view body
+    /// reads it once and passes it down.
+    var panes: [[TaskTab]] {
+        let ordered = orderedTabs
+        return (0..<paneCount).map { pane in ordered.filter { $0.paneIndex == pane } }
+    }
+
+    var paneSelectedTabIDs: [UUID?] {
+        get {
+            guard !paneSelectedTabIDsRaw.isEmpty else { return [] }
+            return paneSelectedTabIDsRaw.split(separator: ",", omittingEmptySubsequences: false)
+                .map { UUID(uuidString: String($0)) }
+        }
+        set { paneSelectedTabIDsRaw = newValue.map { $0?.uuidString ?? "" }.joined(separator: ",") }
+    }
+
+    /// The tab each pane shows, left to right. Unsplit, that is the focused
+    /// tab alone, or nothing when none is selected.
+    var paneTabIDs: [UUID] {
+        paneTabIDs(in: panes)
+    }
+
+    /// `paneTabIDs` for `panes` already read from this task.
+    func paneTabIDs(in panes: [[TaskTab]]) -> [UUID] {
+        guard panes.count > 1 else { return selectedTabID.map { [$0] } ?? [] }
+        let remembered = paneSelectedTabIDs
+        return panes.enumerated().compactMap { index, tabs in
+            let ids = tabs.map(\.id)
+            if let selectedTabID, ids.contains(selectedTabID) { return selectedTabID }
+            if remembered.indices.contains(index), let id = remembered[index], ids.contains(id) { return id }
+            return ids.first
+        }
     }
 
     /// Never had an agent session — not merely idle right now.
@@ -79,6 +163,6 @@ final class WorkTask {
     /// record of a session ever having run; its absence on every agent tab is
     /// what "never started" actually means.
     var hasNeverStarted: Bool {
-        !tabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
+        !liveTabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
     }
 }

@@ -44,7 +44,7 @@ struct AgentsSettingsPane: View {
                 Section(AgentProviderKind.claudeCode.displayName) {
                     Picker("New tabs start in", selection: $settings.defaultPermissionMode) {
                         ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(label(for: mode)).tag(mode)
                         }
                     }
                     Picker("New tabs use", selection: $settings.defaultClaudeModel) {
@@ -53,6 +53,18 @@ struct AgentsSettingsPane: View {
                         }
                     }
                     Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
+                    Picker("Deliver queued messages", selection: $settings.queuedMessageDelivery) {
+                        Text("At the end of the turn").tag(QueuedMessageDelivery.endOfTurn)
+                        Text("After the current tool call (sooner)").tag(QueuedMessageDelivery.afterToolCall)
+                    }
+                    .plumeID(
+                        AccessibilityID.queuedMessageDeliveryPicker,
+                        value: settings.queuedMessageDelivery.rawValue,
+                        setValue: { raw in
+                            guard let delivery = QueuedMessageDelivery(rawValue: raw) else { return }
+                            settings.queuedMessageDelivery = delivery
+                        }
+                    )
                 }
             }
 
@@ -114,6 +126,13 @@ struct AgentsSettingsPane: View {
         case .model(let model):
             return model.label
         }
+    }
+
+    private func label(for mode: PermissionModeDefault) -> String {
+        guard mode == .followClaudeCode,
+              let resolved = ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode()
+        else { return mode.label }
+        return "Follow Claude Code (\(resolved.label))"
     }
 
     private func isInstalled(_ provider: AgentProviderKind) -> Bool {

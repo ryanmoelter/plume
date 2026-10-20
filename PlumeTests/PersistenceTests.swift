@@ -49,6 +49,79 @@ struct PersistenceTests {
         #expect(restored.branchName == "plume/ship-it-a1b2")
     }
 
+    @Test func aSplitSurvivesReopeningTheStore() throws {
+        let url = storeURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let taskID: UUID
+        let shown: [UUID]
+        let panes: [[UUID]]
+        do {
+            let context = ModelContext(try container(at: url))
+            let task = TaskStore.createTask(in: context, siblings: [])
+            let second = TaskStore.addTab(to: task, kind: .terminal, in: context)
+            let third = TaskStore.addTab(to: task, kind: .terminal, in: context)
+            TaskStore.openInSplit(second, side: .right, in: task)
+            TaskStore.selectTab(third, in: task)
+            TaskStore.setSplitFraction(0.3, in: task)
+            taskID = task.id
+            shown = task.paneTabIDs
+            panes = task.panes.map { $0.map(\.id) }
+            try context.save()
+        }
+
+        let context = ModelContext(try container(at: url))
+        let restored = try #require(try context.fetch(FetchDescriptor<WorkTask>()).first { $0.id == taskID })
+
+        #expect(restored.panes.map { $0.map(\.id) } == panes)
+        #expect(restored.paneTabIDs == shown)
+        #expect(restored.isSplit)
+        #expect(restored.splitFraction == 0.3)
+    }
+
+    @Test func appearanceFieldsDefaultEmpty() throws {
+        let context = ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+        let group = TaskStore.createGroup(in: context, existing: [])
+        let task = TaskStore.createTask(in: context, group: group, siblings: [])
+
+        #expect(group.tintRaw == nil)
+        #expect(group.iconName == nil)
+        #expect(task.tintRaw == nil)
+        #expect(task.taskDescription == "")
+        #expect(task.iconName == nil)
+    }
+
+    @Test func appearanceFieldsSurviveReopeningTheStore() throws {
+        let url = storeURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let taskID: UUID
+        do {
+            let context = ModelContext(try container(at: url))
+            let group = TaskStore.createGroup(in: context, existing: [])
+            group.tint = .palette(slot: 3)
+            group.iconName = "leaf"
+            let task = TaskStore.createTask(in: context, group: group, siblings: [])
+            task.tint = .text
+            task.iconName = "bolt"
+            task.taskDescription = "Fix the flaky test"
+            taskID = task.id
+            try context.save()
+        }
+
+        let context = ModelContext(try container(at: url))
+        let restored = try #require(try context.fetch(FetchDescriptor<WorkTask>()).first { $0.id == taskID })
+
+        #expect(restored.tint == .text)
+        #expect(restored.iconName == "bolt")
+        #expect(restored.taskDescription == "Fix the flaky test")
+        #expect(restored.group?.tint == .palette(slot: 3))
+        #expect(restored.group?.iconName == "leaf")
+    }
+
     @Test func deletingTaskCascadesToItsTabs() throws {
         let url = storeURL()
         defer { try? FileManager.default.removeItem(at: url) }

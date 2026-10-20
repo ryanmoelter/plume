@@ -164,7 +164,7 @@ struct InteractiveToolRow: View, ThemedView {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+                .paneKeyboardShortcut(.defaultAction)
                 .disabled(!answerState.isComplete(for: [question]))
             }
             .font(typography.caption.font)
@@ -188,11 +188,8 @@ struct InteractiveToolRow: View, ThemedView {
                         .emphasis(.secondary)
                     let liveChosen = answerState.selectedLabels(for: question)
                     let liveTyped = answerState.freeText(for: question)
-                    if !liveChosen.isEmpty {
-                        Text(liveChosen.joined(separator: ", "))
-                            .font(typography.caption.semibold)
-                    } else if !liveTyped.isEmpty {
-                        Text(liveTyped)
+                    if !liveChosen.isEmpty || !liveTyped.isEmpty {
+                        Text((liveChosen + (liveTyped.isEmpty ? [] : [liveTyped])).joined(separator: ", "))
                             .font(typography.caption.semibold)
                     } else if let recorded = recordedAnswers[question.question] {
                         Text(recorded)
@@ -249,7 +246,7 @@ struct InteractiveToolRow: View, ThemedView {
                 }
             }
         }
-        .decisionField(isFilled: isSelected && isAnswerable, colors: colors)
+        .decisionField(isFilled: isSelected && isAnswerable)
         .contentShape(.rect)
         .chatTextColumn()
 
@@ -278,10 +275,7 @@ struct InteractiveToolRow: View, ThemedView {
             ), axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(typography.body.medium)
-                .decisionField(
-                    isFilled: !answerState.freeText(for: question).isEmpty,
-                    colors: colors
-                )
+                .decisionField(isFilled: !answerState.freeText(for: question).isEmpty)
                 .chatTextColumn()
                 .plumeID(
                     AccessibilityID.questionFreeTextField,

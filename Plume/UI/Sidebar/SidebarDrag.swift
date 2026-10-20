@@ -146,8 +146,8 @@ final class InAppDrag {
         tabStripGap = gap
     }
 
-    func clearTabStripGap(in taskID: UUID) {
-        if tabStripGap?.taskID == taskID { tabStripGap = nil }
+    func clearTabStripGap(in taskID: UUID, pane: Int) {
+        if tabStripGap?.taskID == taskID, tabStripGap?.pane == pane { tabStripGap = nil }
     }
 
     private func clearFeedback() {
@@ -168,9 +168,11 @@ final class InAppDrag {
     }
 }
 
-/// The gap a dragged tab would land in, in the strip of task `taskID`.
+/// The gap a dragged tab would land in, in the strip of task `taskID`'s
+/// pane `pane`.
 struct TabStripGap: Equatable {
     let taskID: UUID
+    let pane: Int
     let gap: Int
 }
 
@@ -308,8 +310,7 @@ extension SidebarDropTarget {
 
 /// Where a drag over a row or header would land: an outline for a drop into
 /// it, or a line along its top or bottom edge for a reorder. An overlay, so
-/// it never changes the row's height, and not `.listRowBackground`, which the
-/// list does not reliably redraw while the row's content stays the same.
+/// it never changes the row's height.
 private struct SidebarDropMarker: View {
     let target: SidebarDropTarget
 

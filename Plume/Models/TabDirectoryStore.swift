@@ -27,8 +27,8 @@ final class TabDirectoryStore {
         directories[id] = trimmed
     }
 
-    /// Both writers report through a view, which holds the model object — so
-    /// the write-through takes the tab rather than looking it up.
+    /// Takes the model object, which every caller already holds, so the
+    /// write-through needs no lookup.
     func setDirectory(_ path: String?, forTab tab: TaskTab) {
         setDirectory(path, forTab: tab.id)
         guard let resolved = directories[tab.id], tab.workingDirectoryPath != resolved else { return }

@@ -8,14 +8,13 @@ import SwiftUI
 struct ChatListView: NSViewRepresentable {
     var inputs: ChatListInputs
     var revealModel: ChatRevealModel?
+    var paneFocus: PaneFocusState?
     var commands: ChatListCommands
     /// Passed beside `inputs` rather than within it: it carries a closure, so
     /// it cannot be compared. The controller restages rows itself when what
     /// they draw from it changes.
     var redoContext: MessageRedoContext?
-    var onOpenSubagent: (SubagentTranscript) -> Void = { _ in }
     var onOpenPlan: (() -> Void)?
-    var onOpenSideChat: () -> Void = {}
     var onToggleAgentMessage: (String) -> Void = { _ in }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
@@ -42,13 +41,12 @@ struct ChatListView: NSViewRepresentable {
     private func apply(to controller: ChatListController) {
         // Callbacks first, unconditionally: they capture state the value
         // comparison below cannot see.
-        controller.onOpenSubagent = onOpenSubagent
         controller.onOpenPlan = onOpenPlan
-        controller.onOpenSideChat = onOpenSideChat
         controller.onToggleAgentMessage = onToggleAgentMessage
         controller.onVisiblePieceIDs = onVisiblePieceIDs
         controller.onDetachedChange = onDetachedChange
         controller.revealModel = revealModel
+        controller.paneFocus = paneFocus
         controller.redoContext = redoContext
         if controller.inputs != inputs {
             controller.update(inputs)

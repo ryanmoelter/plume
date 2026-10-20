@@ -112,8 +112,10 @@ enum ChatRole {
         ThemeChrome.mergedAccent(for: colorScheme) ?? .purple
     }
 
-    /// The user's choice, and only that. Follows the system accent color.
-    static let selection = Color.accentColor
+    /// The user's choice, and only that. The accent color chosen in settings.
+    static func selection(for colorScheme: ColorScheme) -> Color {
+        ThemeChrome.accent(for: colorScheme)
+    }
 
     /// A turn in flight. Shares `attention`'s hue because it carries the same
     /// news — the agent, nothing wrong — and the shape tells them apart: a

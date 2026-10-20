@@ -49,7 +49,7 @@ struct KeepAwakeSettingsPane: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            keepAwake.refreshLidOverride()
+            keepAwake.verifyLidHelper()
         }
     }
 

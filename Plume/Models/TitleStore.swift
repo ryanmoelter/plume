@@ -145,11 +145,18 @@ final class TitleStore {
     func displayTitle(for task: WorkTask) -> String {
         let name = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { return name }
+        return generatedTitle(for: task) ?? "New task"
+    }
 
-        if let tab = Self.representativeTab(of: task) {
-            if let live = titles[tab.id], !live.isEmpty { return live }
-            if let stored = tab.title, !stored.isEmpty { return stored }
-        }
-        return "New task"
+    /// The agent's title for a task, ignoring the name the user gave it.
+    func generatedTitle(for task: WorkTask) -> String? {
+        guard let tab = Self.representativeTab(of: task) else { return nil }
+        if let live = titles[tab.id], !live.isEmpty { return live }
+        if let stored = tab.title, !stored.isEmpty { return stored }
+        return nil
+    }
+
+    static func namePlaceholder(generatedTitle: String?) -> String {
+        generatedTitle ?? "Named by the agent"
     }
 }

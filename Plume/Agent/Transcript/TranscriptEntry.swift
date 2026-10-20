@@ -365,36 +365,58 @@ nonisolated struct TranscriptTaskNotification: Equatable {
 }
 
 /// A top-level `attachment` line's payload. Only `plan_mode`,
-/// `plan_mode_exit` and `task_status` are modeled — the first two carry a
-/// `planFilePath` recording where Claude Code intended to write the plan,
-/// whether or not it exists on disk at the time the line was written.
+/// `plan_mode_exit`, `task_status` and `queued_command` are modeled — the
+/// first two carry a `planFilePath` recording where Claude Code intended to
+/// write the plan, whether or not it exists on disk at the time the line was
+/// written.
 nonisolated struct TranscriptAttachment: Decodable {
     let planFilePath: String?
     let taskStatus: TranscriptTaskStatus?
+    /// A message the user sent while a turn ran, which the CLI records as a
+    /// `queued_command` attachment rather than a `user` line when it joins
+    /// the running turn. Nil for every other queued command: task
+    /// notifications, and messages from agents or the harness.
+    let userPrompt: [TranscriptBlock]?
 
     private enum CodingKeys: String, CodingKey {
         case type, planFilePath, taskId, status
+        case prompt, commandMode, isMeta, origin
+    }
+
+    private enum OriginKeys: String, CodingKey {
+        case kind
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decodeIfPresent(String.self, forKey: .type)
-        switch type {
-        case "plan_mode", "plan_mode_exit":
-            planFilePath = try container.decodeIfPresent(String.self, forKey: .planFilePath)
-            taskStatus = nil
-        case "task_status":
-            planFilePath = nil
-            taskStatus = try container.decodeIfPresent(String.self, forKey: .taskId).map {
+        planFilePath = type == "plan_mode" || type == "plan_mode_exit"
+            ? try container.decodeIfPresent(String.self, forKey: .planFilePath)
+            : nil
+        taskStatus = type == "task_status"
+            ? try container.decodeIfPresent(String.self, forKey: .taskId).map {
                 TranscriptTaskStatus(
                     taskID: $0,
                     status: try? container.decodeIfPresent(String.self, forKey: .status)
                 )
             }
-        default:
-            planFilePath = nil
-            taskStatus = nil
+            : nil
+        userPrompt = type == "queued_command" ? Self.userPrompt(in: container) : nil
+    }
+
+    /// An absent `origin` is what a stream-json host's message carries; the
+    /// TUI stamps a typed one `human`.
+    private static func userPrompt(in container: KeyedDecodingContainer<CodingKeys>) -> [TranscriptBlock]? {
+        guard (try? container.decodeIfPresent(String.self, forKey: .commandMode)) == "prompt",
+              (try? container.decodeIfPresent(Bool.self, forKey: .isMeta)) != true
+        else { return nil }
+        if let origin = try? container.nestedContainer(keyedBy: OriginKeys.self, forKey: .origin),
+           (try? origin.decodeIfPresent(String.self, forKey: .kind)) != "human" {
+            return nil
         }
+        if let blocks = try? container.decode([TranscriptBlock].self, forKey: .prompt) { return blocks }
+        if let text = try? container.decode(String.self, forKey: .prompt) { return [.text(text)] }
+        return nil
     }
 }
 

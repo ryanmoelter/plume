@@ -2,8 +2,7 @@ import Foundation
 
 /// The dim second line of a subagent row: what it runs on, what kind of
 /// agent it is, and how much of its context it has spent. How long it has
-/// been going is kept here too, but shown elsewhere on the row, beside the
-/// chevron.
+/// been going is kept here too, but the row leads with it separately.
 ///
 /// Every part is optional and the caption drops whatever it cannot state, so a
 /// row that has only just appeared says less rather than something wrong.

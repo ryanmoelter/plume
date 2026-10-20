@@ -75,6 +75,7 @@ struct PlumeApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindow()
+                .plumeAccentTint()
         }
         .modelContainer(modelContainer)
         .commands {
@@ -83,6 +84,7 @@ struct PlumeApp: App {
 
         Settings {
             SettingsView()
+                .plumeAccentTint()
         }
         .modelContainer(modelContainer)
         .defaultSize(width: 796, height: 492)

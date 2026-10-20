@@ -6,6 +6,11 @@ import Foundation
 /// here. `AgentProcess` quotes and wraps it in a login shell, which is what
 /// puts `claude` on PATH.
 enum HeadlessCommand {
+    /// The CLI withholds its Artifact tools from SDK entrypoints, which `-p`
+    /// with stream-json is, unless `CLAUDE_CODE_ARTIFACT` opts back in.
+    static let environment: [String: String] = LoginShellCommand.plumeEnvironment
+        .merging(["CLAUDE_CODE_ARTIFACT": "1"]) { $1 }
+
     static func launchPermissionMode(_ resolved: PermissionMode?) -> PermissionMode {
         resolved ?? .acceptEdits
     }
