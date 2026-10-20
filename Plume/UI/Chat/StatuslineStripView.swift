@@ -48,11 +48,12 @@ struct StatuslineStripView: View, ThemedView {
     /// control; the wide layout leaves Codex quota to `CodexQuotaStrip`.
     let codexWindows: [CodexQuotaWindow]
 
-    /// Supplies the context breakdown in the stacked layout's popover. Nil
+    /// Supplies the context breakdown in the context popovers. Nil
     /// on every tab but a headless Claude one.
     let headlessSession: HeadlessSession?
 
     @State private var showingUsage = false
+    @State private var showingContext = false
 
     /// Account-wide, so it comes from the shared store rather than from the
     /// session this strip belongs to: a chat that has not taken a turn in an
@@ -110,7 +111,7 @@ struct StatuslineStripView: View, ThemedView {
         // Top-aligned: a meter's reading is its first line, so the meters line
         // up along it whether or not a bar follows. The cost opts back out.
         HStack(alignment: .top, spacing: dimensions.statuslineSegmentSpacing) {
-            contextSegment(showsReading: true)
+            contextSegment(showsReading: true, isInteractive: true)
             if let fiveHour = rateLimit?.fiveHour {
                 StatuslineMeterSegment(
                     label: "5h",
@@ -161,7 +162,7 @@ struct StatuslineStripView: View, ThemedView {
         } label: {
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
                 VStack(alignment: .leading, spacing: dimensions.statuslineStackedBarSpacing) {
-                    contextSegment(showsReading: false)
+                    contextSegment(showsReading: false, isInteractive: false)
                     if let fiveHour = rateLimit?.fiveHour {
                         StatuslineMeterSegment(
                             label: "5h",
@@ -247,21 +248,43 @@ struct StatuslineStripView: View, ThemedView {
     // MARK: - Segments
 
     @ViewBuilder
-    private func contextSegment(showsReading: Bool) -> some View {
+    private func contextSegment(showsReading: Bool, isInteractive: Bool) -> some View {
         let percent = percentage(used: contextUsedTokens, max: contextMaxTokens)
 
         if contextUsedTokens != nil || percent != nil {
             let attention = StatuslineAttention.attention(contextTokens: contextUsedTokens, percent: percent)
-            StackedMeter(
+            let meter = StackedMeter(
                 reading: tokenLabel(used: contextUsedTokens, max: contextMaxTokens),
                 fraction: StatuslineMeterMath.fraction(percent: percent),
                 barWidth: StatuslineMeterWidth.context,
                 attention: attention,
                 showsReading: showsReading
             )
-            .help("Context window used")
-            .accessibilityLabel("Context window")
-            .plumeID(AccessibilityID.statuslineContextMeter)
+            if isInteractive {
+                Button {
+                    showingContext = true
+                } label: {
+                    meter
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .help("Context window used")
+                .accessibilityLabel("Context window")
+                .plumeID(AccessibilityID.statuslineContextMeter, invoke: { showingContext = true })
+                .popover(isPresented: $showingContext) {
+                    ContextDetailsPopover(
+                        contextUsedTokens: contextUsedTokens,
+                        contextMaxTokens: contextMaxTokens,
+                        headlessSession: headlessSession
+                    )
+                    .environment(\.theme, theme)
+                }
+            } else {
+                meter
+                    .help("Context window used")
+                    .accessibilityLabel("Context window")
+                    .plumeID(AccessibilityID.statuslineContextMeter)
+            }
         }
     }
 
