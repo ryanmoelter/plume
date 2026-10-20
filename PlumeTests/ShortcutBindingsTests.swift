@@ -47,6 +47,38 @@ struct ShortcutBindingsTests {
         }
     }
 
+    @Test func sendNowIsBindableButShipsWithNoChord() {
+        let defaults = ShortcutBindings()
+
+        #expect(ShortcutAction.allCases.contains(.sendNow))
+        #expect(ShortcutAction.sendNow.defaultShortcut == nil)
+        #expect(defaults[.sendNow] == nil)
+        #expect(defaults.all.count == ShortcutAction.allCases.count - 1)
+    }
+
+    @Test func aRecordedSendNowChordJoinsTheClaimedShortcuts() {
+        let chord = MenuShortcut("j", modifiers: [.command, .shift])
+        var bindings = ShortcutBindings()
+        bindings.assign(chord, to: .sendNow)
+
+        #expect(bindings[.sendNow] == chord)
+        #expect(bindings.isCustomized(.sendNow))
+        #expect(PlumeShortcuts.all(with: bindings).contains(chord))
+        #expect(!PlumeShortcuts.all(with: ShortcutBindings()).contains(chord))
+
+        bindings.reset(.sendNow)
+        #expect(bindings[.sendNow] == nil)
+    }
+
+    @Test func aRecordedSendNowChordSurvivesAReload() {
+        let defaults = UserDefaults(suiteName: "ShortcutBindingsTests-\(UUID().uuidString)")!
+        let chord = MenuShortcut("j", modifiers: [.command, .shift])
+        AppSettings(defaults: defaults).shortcutBindings.assign(chord, to: .sendNow)
+
+        #expect(AppSettings(defaults: defaults).shortcutBindings[.sendNow] == chord)
+        #expect(AppSettings(defaults: UserDefaults(suiteName: "ShortcutBindingsTests-\(UUID().uuidString)")!).shortcutBindings[.sendNow] == nil)
+    }
+
     @Test func assigningOverridesOnlyThatAction() {
         var bindings = ShortcutBindings()
         let chord = MenuShortcut("j", modifiers: [.option])
@@ -59,11 +91,11 @@ struct ShortcutBindingsTests {
 
     @Test func assigningAChordAnotherActionHoldsUnbindsThatAction() {
         var bindings = ShortcutBindings()
-        bindings.assign(ShortcutAction.nextTask.defaultShortcut, to: .nextTab)
+        bindings.assign(ShortcutAction.nextTask.defaultShortcut!, to: .nextTab)
 
         #expect(bindings[.nextTab] == ShortcutAction.nextTask.defaultShortcut)
         #expect(bindings[.nextTask] == nil)
-        #expect(bindings.all.count == ShortcutAction.allCases.count - 1)
+        #expect(bindings.all.count == ShortcutBindings().all.count - 1)
     }
 
     @Test func resettingRestoresTheDefault() {
@@ -87,7 +119,7 @@ struct ShortcutBindingsTests {
     @Test func bindingsRoundTripThroughJSONIncludingUnboundActions() throws {
         var bindings = ShortcutBindings()
         bindings.assign(MenuShortcut("j", modifiers: [.option]), to: .nextTab)
-        bindings.assign(ShortcutAction.nextTask.defaultShortcut, to: .previousTab)
+        bindings.assign(ShortcutAction.nextTask.defaultShortcut!, to: .previousTab)
 
         let decoded = try JSONDecoder().decode(
             ShortcutBindings.self,
@@ -99,7 +131,7 @@ struct ShortcutBindingsTests {
 
     @Test func conflictNamesTheActionAlreadyHoldingAChord() {
         let bindings = ShortcutBindings()
-        #expect(bindings.conflict(for: ShortcutAction.nextTab.defaultShortcut, excluding: .nextTask) == .nextTab)
+        #expect(bindings.conflict(for: ShortcutAction.nextTab.defaultShortcut!, excluding: .nextTask) == .nextTab)
         #expect(bindings.conflict(for: MenuShortcut("j", modifiers: [.option]), excluding: .nextTab) == nil)
     }
 

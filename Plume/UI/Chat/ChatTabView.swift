@@ -1471,6 +1471,11 @@ private struct QueuedMessageChip: View, ThemedView {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+    private var sendNowHelp: String {
+        guard let chord = AppSettings.shared.shortcutBindings[.sendNow] else { return "Send now" }
+        return "Send now (\(chord.displayName))"
+    }
+
     private var controls: some View {
         HStack(spacing: 4) {
             Button(action: onSendNow) {
@@ -1478,7 +1483,7 @@ private struct QueuedMessageChip: View, ThemedView {
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Send now (⌃↩)")
+            .help(sendNowHelp)
             .accessibilityLabel("Send now")
             .plumeID(AccessibilityID.queuedMessageSendNowButton, invoke: onSendNow)
             Button(action: onEdit) {

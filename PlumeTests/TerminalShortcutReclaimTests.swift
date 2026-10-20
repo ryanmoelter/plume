@@ -105,7 +105,7 @@ import Testing
 
         #expect(bindings[.nextTab] == chord)
         #expect(shortcuts.contains(chord))
-        #expect(!shortcuts.contains(ShortcutAction.nextTab.defaultShortcut))
+        #expect(!shortcuts.contains(ShortcutAction.nextTab.defaultShortcut!))
         #expect(TerminalShortcutMonitor.isClaimed(shortcuts: shortcuts, characters: "j", flags: [.option]))
 
         let menu = NSMenu()

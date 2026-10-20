@@ -44,6 +44,12 @@ struct TaskCommandsKey: FocusedValueKey {
     typealias Value = TaskCommands
 }
 
+/// Send-now in the focused chat tab's composer. Nil unless that tab is a
+/// headless one with something to send.
+struct SendNowActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var newTaskAction: (() -> Void)? {
         get { self[NewTaskActionKey.self] }
@@ -68,6 +74,11 @@ extension FocusedValues {
     var taskCommands: TaskCommands? {
         get { self[TaskCommandsKey.self] }
         set { self[TaskCommandsKey.self] = newValue }
+    }
+
+    var sendNowAction: (() -> Void)? {
+        get { self[SendNowActionKey.self] }
+        set { self[SendNowActionKey.self] = newValue }
     }
 }
 
@@ -110,6 +121,7 @@ struct PlumeCommands: Commands {
     @FocusedValue(\.showImportAction) private var showImport
     @FocusedValue(\.taskCommands) private var task
     @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
+    @FocusedValue(\.sendNowAction) private var sendNow
 
     /// The chord this menu is *built* with. SwiftUI never re-evaluates a
     /// `Commands` body for a changed binding, so `ShortcutMenuApplier` writes
@@ -206,6 +218,12 @@ struct PlumeCommands: Commands {
 
             Button("Start Fresh Conversation…") { task?.startFreshSelectedTab?() }
                 .disabled(task?.startFreshSelectedTab == nil)
+
+            Divider()
+
+            Button("Send Now") { sendNow?() }
+                .keyboardShortcut(shortcut(for: .sendNow))
+                .disabled(sendNow == nil)
         }
     }
 }

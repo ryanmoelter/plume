@@ -83,6 +83,15 @@ struct ChatComposer: View, ThemedView {
         hasSendableText || !attachedImages.isEmpty
     }
 
+    /// What the Send Now menu command runs. Only the visible composer of the
+    /// focused pane publishes one, so the command never acts on a hidden tab.
+    private var sendNowCommand: (() -> Void)? {
+        guard isVisible, isFocused, tab.transport == .headless else { return nil }
+        let hasQueue = !(headlessSession?.queuedMessages.isEmpty ?? true)
+        guard canSend || hasQueue else { return nil }
+        return sendNow
+    }
+
     /// Images ride only on the headless transport. A terminal tab's input is
     /// a paste into a real TUI, which has no way to carry one.
     private var acceptsImages: Bool {
@@ -222,7 +231,6 @@ struct ChatComposer: View, ThemedView {
                     isFocused: $inputFocused,
                     sendKey: settings.composerSendKey,
                     onSend: send,
-                    onControlReturn: sendNow,
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
@@ -297,6 +305,7 @@ struct ChatComposer: View, ThemedView {
             sendNow()
             sendNowRequested.wrappedValue = false
         }
+        .focusedSceneValue(\.sendNowAction, sendNowCommand)
         .task(id: skillDirectory) {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
         }
