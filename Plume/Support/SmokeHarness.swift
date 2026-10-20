@@ -50,6 +50,21 @@ enum SmokeHarness {
             }
         }
 
+        // PLUME_SEED_GROUPS=<n> creates n colored groups and puts the first
+        // task in the first one, so moves between groups can be driven by a
+        // replayed drop.
+        if let groupsValue = environment["PLUME_SEED_GROUPS"], let groupCount = Int(groupsValue) {
+            var groups = (try? context.fetch(FetchDescriptor<TaskGroup>())) ?? []
+            for index in 0..<groupCount {
+                let group = TaskStore.createGroup(in: context, name: "Group \(index + 1)", existing: groups)
+                group.tint = .palette(slot: ThemeChrome.paletteSlots.lowerBound + index + 1)
+                groups.append(group)
+            }
+            if let first = tasks.first, let group = groups.last(where: { $0.name == "Group 1" }) {
+                TaskStore.move(first, to: group, siblings: [])
+            }
+        }
+
         // PLUME_SEED_CWD gives the first task a working directory, so agent
         // tabs can launch without a folder picker.
         if let cwd = environment["PLUME_SEED_CWD"], let first = tasks.first {

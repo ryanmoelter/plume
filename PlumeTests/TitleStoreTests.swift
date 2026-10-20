@@ -317,3 +317,14 @@ struct TabFocusTrackingTests {
         #expect(task.title.isEmpty)
     }
 }
+
+@MainActor
+struct TaskNamePlaceholderTests {
+    @Test func aGeneratedTitleIsThePlaceholder() {
+        #expect(TitleStore.namePlaceholder(generatedTitle: "Debugging auth") == "Debugging auth")
+    }
+
+    @Test func noGeneratedTitleSaysTheAgentWillName() {
+        #expect(TitleStore.namePlaceholder(generatedTitle: nil) == "Named by the agent")
+    }
+}

@@ -10,7 +10,6 @@ struct SidebarView: View {
     @Query(sort: \TaskGroup.orderIndex)
     private var groups: [TaskGroup]
 
-    @Binding var renamingTaskID: UUID?
     @Binding var archiveShown: Bool
     /// Both delete and archive can touch a Plume-owned worktree, so
     /// `MainWindow` owns the shared confirmation dialog and this view only
@@ -19,6 +18,9 @@ struct SidebarView: View {
     let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
+    /// The group or task whose appearance popover is open.
+    @State private var appearanceEditingID: UUID?
+    @Environment(\.theme) private var theme
     /// Each row and header's height, so a drop can tell which half it is over.
     @State private var dropTargetHeights: [UUID: CGFloat] = [:]
     /// Only ever set true. Setting a `FocusState` false resigns whatever is
@@ -47,8 +49,8 @@ struct SidebarView: View {
                     .padding(.bottom, SidebarMetrics.rowVerticalPadding)
                 }
                 .onChange(of: selection) { _, id in
-                    guard let id else { return }
-                    withAnimation { proxy.scrollTo(id) }
+                    guard let task = tasks.first(where: { $0.id == id }) else { return }
+                    withAnimation { proxy.scrollTo(task.sidebarRowID) }
                 }
             }
             // Hand-built because `List(.sidebar)` paints its own accent
@@ -110,13 +112,21 @@ struct SidebarView: View {
         GroupSectionHeader(
             group: group,
             isRenaming: renamingGroupID == group.id,
-            onDoneRenaming: { renamingGroupID = nil },
-            onCreateTask: { createTask(in: group) }
+            onDoneRenaming: {
+                if group.isLive { group.settleName(fallback: TaskStore.defaultGroupName) }
+                renamingGroupID = nil
+            },
+            onCreateTask: { createTask(in: group) },
+            onEdit: { appearanceEditingID = group.id }
         )
         .sidebarSectionHeader()
         .plumeID(AccessibilityID.groupHeader, label: group.name)
+        .popover(isPresented: isEditingAppearance(of: group.id), arrowEdge: .trailing) {
+            GroupAppearancePopover(group: group)
+        }
         .contextMenu {
-            Button("Rename Group") { renamingGroupID = group.id }
+            Button("Edit…") { appearanceEditingID = group.id }
+                .plumeID(AccessibilityID.groupEditButton, label: group.name)
             Button("New Task in Group") { createTask(in: group) }
             Divider()
             Button("Delete Group", role: .destructive) {
@@ -132,17 +142,23 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
-        ForEach(sectionTasks) { task in
-            TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
-                .sidebarRow(isSelected: selection == task.id)
+        ForEach(sectionTasks, id: \.sidebarRowID) { task in
+            TaskRowView(
+                task: task,
+                isSelected: selection == task.id,
+                onSelect: { select(task) }
+            )
+                .sidebarRow(isSelected: selection == task.id, tintBar: tintBar(for: task), washTint: washTint(for: task))
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
-                //
-                // Not while renaming: the row's `TextField` needs the click
-                // to place its cursor.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
+                .simultaneousGesture(TapGesture(count: 2).onEnded { appearanceEditingID = task.id })
+                .popover(isPresented: isEditingAppearance(of: task.id), arrowEdge: .trailing) {
+                    TaskAppearancePopover(task: task)
+                }
                 .contextMenu {
-                    Button("Rename") { renamingTaskID = task.id }
+                    Button("Edit…") { appearanceEditingID = task.id }
+                        .plumeID(AccessibilityID.taskEditButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }
                 .sidebarDragAndDrop(
@@ -202,9 +218,26 @@ struct SidebarView: View {
     }
 
     private func select(_ task: WorkTask) {
-        guard renamingTaskID != task.id else { return }
         selection = task.id
         isListFocused = true
+    }
+
+    private func tintBar(for task: WorkTask) -> Color? {
+        SidebarTaskAppearance(task: task, settings: .shared).barTint
+            .flatMap(theme.colors.color(for:))
+    }
+
+    private func washTint(for task: WorkTask) -> Color? {
+        SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+    }
+
+    private func isEditingAppearance(of id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { appearanceEditingID == id },
+            set: { isPresented in
+                if !isPresented, appearanceEditingID == id { appearanceEditingID = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -263,5 +296,19 @@ struct SidebarView: View {
             in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
         )
         selection = task.id
+    }
+}
+
+/// A task row's identity in the sidebar. Scoped to the row's section because
+/// a `LazyVStack` keeps showing a row whose id moves from one of its
+/// `ForEach`es to another, and stops updating it.
+struct SidebarTaskRowID: Hashable {
+    let groupID: UUID?
+    let taskID: UUID
+}
+
+extension WorkTask {
+    var sidebarRowID: SidebarTaskRowID {
+        SidebarTaskRowID(groupID: group?.id, taskID: id)
     }
 }

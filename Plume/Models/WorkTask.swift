@@ -5,6 +5,12 @@ import SwiftData
 final class WorkTask {
     var id: UUID = UUID()
     var title: String = ""
+    /// One line the sidebar shows under the title. Empty hides it.
+    var taskDescription: String = ""
+    /// A `SidebarTint` raw value. Nil inherits the group's color.
+    var tintRaw: String? = nil
+    /// An SF Symbol name. Unlike the color, never inherited from the group.
+    var iconName: String? = nil
     var orderIndex: Int = 0
     var createdAt: Date = Date()
 
@@ -57,6 +63,11 @@ final class WorkTask {
         self.orderIndex = orderIndex
         self.createdAt = Date()
         self.group = group
+    }
+
+    var tint: SidebarTint? {
+        get { tintRaw.flatMap(SidebarTint.init(rawValue:)) }
+        set { tintRaw = newValue?.rawValue }
     }
 
     var permissionMode: PermissionMode? {

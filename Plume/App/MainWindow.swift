@@ -6,7 +6,6 @@ struct MainWindow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
     @State private var selection: UUID?
-    @State private var renamingTaskID: UUID?
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
@@ -221,7 +220,6 @@ struct MainWindow: View {
     private var sidebar: some View {
         SidebarView(
             selection: $selection,
-            renamingTaskID: $renamingTaskID,
             archiveShown: $archiveShown,
             requestArchive: { requestRemoval(of: $0, verb: .archive) },
             requestDelete: { requestRemoval(of: $0, verb: .delete) }

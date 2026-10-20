@@ -1,21 +1,22 @@
-import Dispatch
+import SwiftData
 import SwiftUI
 
 struct TaskRowView: View {
     @Bindable var task: WorkTask
     var isSelected = false
     var onSelect: (() -> Void)? = nil
-    /// Set by the context menu's Rename; creation no longer opens the editor.
-    @Binding var renamingTaskID: UUID?
-
-    @FocusState private var titleFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) private var theme
     /// What this row currently holds watches on, so a directory leaving the
     /// set releases the watch it took rather than whatever the task points at
     /// now.
     @State private var watched = DirectoryWatchSet()
 
-    private var isEditing: Bool { renamingTaskID == task.id }
+    private var appearance: SidebarTaskAppearance {
+        SidebarTaskAppearance(task: task, settings: .shared)
+    }
+
+    private var tintOpacity: Double { isInactive ? 0.7 : 1 }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.
@@ -87,6 +88,7 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title
+                    descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         detailLine(line, at: index)
                     }
@@ -156,28 +158,57 @@ struct TaskRowView: View {
         watched.apply(change)
     }
 
-    @ViewBuilder
     private var title: some View {
-        if isEditing {
-            TextField("Task name", text: $task.title)
-                .textFieldStyle(.plain)
-                .focused($titleFocused)
-                .onSubmit(endEditing)
-                .onChange(of: titleFocused) { _, focused in
-                    if !focused { endEditing() }
-                }
-                // Deferred a tick: this field replaces the row's own
-                // `Text` in the same update rather than mounting
-                // fresh, so `onAppear` fires before the row's prior
-                // content finishes resigning first responder.
-                // Claiming focus in that same transaction loses the
-                // race silently; the next run loop turn wins it.
-                .onAppear { DispatchQueue.main.async { titleFocused = true } }
+        SidebarIconTitle(
+            icon: icon,
+            iconMinWidth: SidebarMetrics.taskIconMinWidth,
+            spacing: 5
+        ) {
+            titleText
+        }
+    }
+
+    private var icon: AnyView? {
+        task.iconName.map { AnyView(taskIcon($0)) }
+    }
+
+    @ViewBuilder
+    private func taskIcon(_ name: String) -> some View {
+        let appearance = appearance
+        let icon = Image(systemName: name)
+            .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
+            .fontWeight(appearance.weight)
+        if let color = appearance.iconTint.flatMap(theme.colors.color(for:)) {
+            icon.foregroundStyle(color.opacity(tintOpacity))
         } else {
-            Text(TitleStore.shared.displayTitle(for: task))
+            icon.emphasis(isInactive ? .secondary : .primary)
+        }
+    }
+
+    @ViewBuilder
+    private var titleText: some View {
+        let text = Text(TitleStore.shared.displayTitle(for: task))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .bold(appearance.weight == .bold)
+        if let color = appearance.titleTint.flatMap(theme.colors.color(for:)) {
+            text
+                .foregroundStyle(color.opacity(tintOpacity))
+        } else {
+            text.emphasis(isInactive ? .secondary : .primary)
+        }
+    }
+
+    @ViewBuilder
+    private var descriptionLine: some View {
+        if !task.taskDescription.isEmpty {
+            Text(task.taskDescription)
+                .font(.caption)
+                .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .emphasis(isInactive ? .secondary : .primary)
+                .help(task.taskDescription)
+                .plumeID(AccessibilityID.taskDescription, label: TitleStore.shared.displayTitle(for: task), value: task.taskDescription)
         }
     }
 
@@ -247,15 +278,9 @@ struct TaskRowView: View {
 
     private var accessibilityLabel: String {
         ([TitleStore.shared.displayTitle(for: task)]
+            + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
             + detailLines.compactMap(TaskRowDetails.accessibilityText)
             + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
-    }
-
-    /// Clearing the name is how the user goes back to showing the agent's own
-    /// title, so an emptied field is left empty.
-    private func endEditing() {
-        task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        renamingTaskID = nil
     }
 }

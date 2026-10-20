@@ -32,6 +32,13 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
+        static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
+        static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
+        static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
+        static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
+        static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
@@ -159,6 +166,18 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
+
+        self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
+        self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
+        self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
+        self.sidebarSuggestsFilledIcons = defaults.bool(forKey: Key.sidebarSuggestsFilledIcons)
+        self.sidebarTwoToneIcons = defaults.bool(forKey: Key.sidebarTwoToneIcons)
+        self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
@@ -423,7 +442,7 @@ final class AppSettings {
         }
     }
 
-    static let accentPaletteSlotRange: ClosedRange<Int> = 0...15
+    static let accentPaletteSlotRange = ThemeChrome.paletteSlots
     /// Stored for the system accent, so an absent key still means first launch.
     private static let systemAccentSentinel = -1
 
@@ -442,6 +461,54 @@ final class AppSettings {
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
+        }
+    }
+
+    /// Whether a colored task draws a bar of its color at its row's leading edge.
+    var sidebarShowsTaskColorBar: Bool {
+        didSet {
+            defaults.set(sidebarShowsTaskColorBar, forKey: Key.sidebarShowsTaskColorBar)
+        }
+    }
+
+    /// Whether a colored task's name is drawn in its color.
+    var sidebarColorsTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarColorsTaskNames, forKey: Key.sidebarColorsTaskNames)
+        }
+    }
+
+    var sidebarBoldTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Whether a colored task's icon is drawn in its color.
+    var sidebarColorsTaskIcons: Bool {
+        didSet {
+            defaults.set(sidebarColorsTaskIcons, forKey: Key.sidebarColorsTaskIcons)
+        }
+    }
+
+    /// Whether the icon picker's Popular grid offers filled symbols.
+    var sidebarSuggestsFilledIcons: Bool {
+        didSet {
+            defaults.set(sidebarSuggestsFilledIcons, forKey: Key.sidebarSuggestsFilledIcons)
+        }
+    }
+
+    /// Whether sidebar icons render with a second, lighter tone.
+    var sidebarTwoToneIcons: Bool {
+        didSet {
+            defaults.set(sidebarTwoToneIcons, forKey: Key.sidebarTwoToneIcons)
+        }
+    }
+
+    /// Custom icons last chosen for a group or task, most recent first.
+    var recentSidebarIcons: [String] {
+        didSet {
+            defaults.set(recentSidebarIcons, forKey: Key.recentSidebarIcons)
         }
     }
 
@@ -659,3 +726,4 @@ enum ComposerSendKey: String {
     case returnKey
     case commandReturn
 }
+
