@@ -38,6 +38,10 @@ enum AccessibilityID {
     static let keepAwakeReasonRow = "keep-awake-reason-row"
     static let keepAwakeLidNote = "keep-awake-lid-note"
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
+    static let taskLinearIssueLine = "task-linear-issue-line"
+    static let taskLinkLinearIssueMenuItem = "task-link-linear-issue-menu-item"
+    static let linkLinearIssueField = "link-linear-issue-field"
+    static let linkLinearIssueConfirmButton = "link-linear-issue-confirm-button"
     static let keepAwakeLidApprovalButton = "keep-awake-lid-approval-button"
     static let keepAwakeLidInstallButton = "keep-awake-lid-install-button"
     static let keepAwakeLidUninstallButton = "keep-awake-lid-uninstall-button"
@@ -50,6 +54,13 @@ enum AccessibilityID {
     static let updatePanelFullReleaseNotesLink = "update-panel-full-release-notes-link"
 
     // MARK: Settings
+
+    static let linearAPIKeyField = "linear-api-key-field"
+    static let linearAddAccountButton = "linear-add-account-button"
+    static let linearRemoveAccountButton = "linear-remove-account-button"
+    static let linearAccountRow = "linear-account-row"
+    static let linearCreateKeyLink = "linear-create-key-link"
+    static let linearShowIssuesToggle = "linear-show-issues-toggle"
 
     static let settingsPane = "settings-pane"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
@@ -188,6 +199,12 @@ enum AccessibilityID {
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
+    static let infoPaneLinearIssueRow = "info-pane-linear-issue-row"
+    static let infoPaneLinearOpenButton = "info-pane-linear-open-button"
+    static let infoPaneLinearMarkWorkingButton = "info-pane-linear-mark-working-button"
+    static let infoPaneLinearUnlinkButton = "info-pane-linear-unlink-button"
+    static let infoPaneLinearLinkField = "info-pane-linear-link-field"
+    static let infoPaneLinearLinkButton = "info-pane-linear-link-button"
     static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"
     static let infoPaneArtifactRow = "info-pane-artifact-row"
 

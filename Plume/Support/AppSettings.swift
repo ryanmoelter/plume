@@ -33,6 +33,7 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let showsLinearIssues = "showsLinearIssues"
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
@@ -168,6 +169,9 @@ final class AppSettings {
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
+        self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
+            ? true
+            : defaults.bool(forKey: Key.showsLinearIssues)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
         self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
@@ -472,6 +476,14 @@ final class AppSettings {
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
+        }
+    }
+
+    /// Master toggle for Linear issue lines. Like PR status it makes network
+    /// calls, so it must be opt-outable; on by default.
+    var showsLinearIssues: Bool {
+        didSet {
+            defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
         }
     }
 

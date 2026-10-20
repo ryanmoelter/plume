@@ -170,6 +170,20 @@ struct AppSettingsTests {
         #expect(!reloaded.showsPullRequestStatus)
     }
 
+    @Test func showsLinearIssuesDefaultsToOnWhenUnset() {
+        let settings = AppSettings(defaults: makeDefaults())
+        #expect(settings.showsLinearIssues)
+    }
+
+    @Test func showsLinearIssuesPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.showsLinearIssues = false
+
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(!reloaded.showsLinearIssues)
+    }
+
     @Test func infoPaneDefaultsToExpanded() {
         let settings = AppSettings(defaults: makeDefaults())
         #expect(settings.infoPaneState == .expanded)

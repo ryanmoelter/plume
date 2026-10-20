@@ -468,6 +468,55 @@ enum TaskStore {
         context.delete(tab)
     }
 
+    // MARK: - Linear links
+
+    static func linearLinks(for task: WorkTask) -> LinearTaskLinks {
+        TaskIntegrations.decode(task.integrationsData).linear ?? LinearTaskLinks()
+    }
+
+    /// Returns false for input that is not an identifier or issue URL.
+    @discardableResult
+    static func linkLinearIssue(_ identifier: String, to task: WorkTask) -> Bool {
+        guard let id = LinearIdentifier.normalize(identifier) else { return false }
+        updateLinearLinks(of: task) { $0.link(LinearIssueRef(identifier: id)) }
+        return true
+    }
+
+    static func promoteLinearIssue(_ identifier: String, in task: WorkTask) {
+        updateLinearLinks(of: task) { $0.promote(LinearIssueRef(identifier: identifier)) }
+    }
+
+    static func unlinkLinearIssue(_ identifier: String, from task: WorkTask) {
+        updateLinearLinks(of: task) { $0.unlink(identifier) }
+    }
+
+    /// Returns whether a task owns the tab.
+    @discardableResult
+    static func recordAgentStartedLinearIssues(
+        _ identifiers: Set<String>,
+        inTaskOwningTab tabID: UUID,
+        among tasks: [WorkTask]
+    ) -> Bool {
+        guard let task = tasks.first(where: { $0.tabs.contains { $0.id == tabID } }) else { return false }
+        updateLinearLinks(of: task) { links in
+            for identifier in identifiers.sorted() {
+                links.recordAgentStarted(LinearIssueRef(identifier: identifier))
+            }
+        }
+        return true
+    }
+
+    /// Writes only a changed value, so an idempotent call costs no save.
+    private static func updateLinearLinks(of task: WorkTask, _ change: (inout LinearTaskLinks) -> Void) {
+        var integrations = TaskIntegrations.decode(task.integrationsData)
+        let before = integrations.linear ?? LinearTaskLinks()
+        var links = before
+        change(&links)
+        guard links != before else { return }
+        integrations.linear = links.isEmpty ? nil : links
+        task.integrationsData = integrations.encoded()
+    }
+
     // MARK: - Reorder
 
     static func move(_ tasks: [WorkTask], from offsets: IndexSet, to destination: Int) {

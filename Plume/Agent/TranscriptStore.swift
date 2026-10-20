@@ -52,6 +52,7 @@ final class TranscriptStore {
     private let debounce: Duration
     private let statusEngine: StatusEngine
     private let backgroundTasks: BackgroundTaskTracker
+    private let linearActivity: LinearActivitySink
     private let completionTracker: SubagentCompletionTracker
     private let statusOverrides: SubagentStatusOverrides
     /// Whether a live process backs a tab, checked across both transports. A
@@ -75,6 +76,7 @@ final class TranscriptStore {
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared,
+        linearActivity: LinearActivitySink = LinearStore.shared,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
@@ -82,6 +84,7 @@ final class TranscriptStore {
         self.debounce = debounce
         self.statusEngine = statusEngine
         self.backgroundTasks = backgroundTasks
+        self.linearActivity = linearActivity
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
         self.isTabLive = isTabLive
@@ -125,6 +128,7 @@ final class TranscriptStore {
         // the watch stopped would otherwise pin the task at working forever.
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
         backgroundTasks.forget(tabID: tabID)
+        linearActivity.forgetActivity(tabID: tabID)
     }
 
     func stopAll() {
@@ -133,6 +137,7 @@ final class TranscriptStore {
             for watcher in tabWatchers.values { watcher.stop() }
         }
         for task in pending.values { task.cancel() }
+        for tabID in paths.keys { linearActivity.forgetActivity(tabID: tabID) }
         watchers.removeAll()
         subagentWatchers.removeAll()
         pending.removeAll()
@@ -225,6 +230,18 @@ final class TranscriptStore {
         }
     }
 
+    private nonisolated static func linearEvidence(
+        transcript: Transcript,
+        subagents: [SubagentTranscript]
+    ) -> [LinearEvidence] {
+        LinearActivityScanner.scan(transcript.messages, subagent: nil) + subagents.flatMap { sub in
+            LinearActivityScanner.scan(
+                sub.transcript.messages,
+                subagent: LinearSubagentRef(id: sub.id, label: sub.title)
+            )
+        }
+    }
+
     private nonisolated static func subagentID(forPath path: String) -> String {
         (path as NSString)
             .lastPathComponent
@@ -251,11 +268,14 @@ final class TranscriptStore {
         guard let path = paths[tabID], !inFlight.contains(tabID) else { return }
         inFlight.insert(tabID)
         Task.detached(priority: .utility) {
-            let parsed = FileManager.default.contents(atPath: path).map {
-                (
-                    TranscriptParser.parse($0),
-                    Self.readSubagents(transcriptPath: path, parentData: $0),
-                    BackgroundTaskScanner.inFlight(parentData: $0)
+            let parsed = FileManager.default.contents(atPath: path).map { data in
+                let transcript = TranscriptParser.parse(data)
+                let subagents = Self.readSubagents(transcriptPath: path, parentData: data)
+                return (
+                    transcript,
+                    subagents,
+                    BackgroundTaskScanner.inFlight(parentData: data),
+                    Self.linearEvidence(transcript: transcript, subagents: subagents)
                 )
             }
             await MainActor.run { [weak self] in
@@ -282,6 +302,7 @@ final class TranscriptStore {
                     tabID: tabID,
                     entries: self.isTabLive(tabID) ? parsed.2 : []
                 )
+                self.linearActivity.replaceActivity(tabID: tabID, evidence: parsed.3)
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)

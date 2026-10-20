@@ -31,6 +31,10 @@ struct PlumeApp: App {
                 plumeSetting: setting
             )
         }
+        // A test host must never reach the real Keychain or Linear.
+        if NSClassFromString("XCTestCase") == nil {
+            LinearStore.shared.start()
+        }
     }
 
     /// Opens the store, and on failure moves it aside and starts empty rather

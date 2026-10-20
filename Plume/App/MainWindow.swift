@@ -338,6 +338,9 @@ struct MainWindow: View {
         CodexSharedAppServer.shared.adoptRemoteThread = { thread in
             await CodexRemoteThreadAdopter.adopt(thread: thread, in: context)
         }
+        LinearStore.shared.onAgentStarted = { tabID, identifiers in
+            TaskStore.recordAgentStartedLinearIssues(identifiers, inTaskOwningTab: tabID, among: tasks)
+        }
         AgentEventMonitor.shared.onSessionIDDiscovered = { tabID, sessionID in
             guard let tab = tasks.lazy.flatMap(\.tabs).first(where: { $0.id == tabID }),
                   tab.agentSessionID != sessionID
