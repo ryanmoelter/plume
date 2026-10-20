@@ -14,6 +14,8 @@ import Foundation
 /// | Delete | start of a list item's text | removes the marker, or outdents a nested item |
 /// | Delete | start of a quote line's text | removes one quote level |
 /// | Delete | start of the line after a rule | removes the rule's last character |
+/// | Space | after `- `, `1. ` or `x ` at the start of an item's text | turns the item's level of the list into bullets, numbers or tasks |
+/// | Space | after `x ` at the start of a plain line | makes the line a task |
 ///
 /// Code and fence lines are left alone. Every list edit renumbers the
 /// ordered lists it touches.
@@ -163,6 +165,119 @@ nonisolated enum ComposerMarkdownEditing {
         return nil
     }
 
+    // MARK: - Space
+
+    private enum ListTrigger {
+        case bullet(String)
+        case ordered(number: Int, delimiter: String)
+        case task
+    }
+
+    /// Typing a list marker at the start of an item's text converts every
+    /// item at that level of its list, rather than nesting a new list. A new
+    /// ordered list counts from 1, or from the typed number when it is typed
+    /// on the first item.
+    static func insertSpace(in text: String, selection: NSRange) -> Result? {
+        guard selection.length == 0 else { return nil }
+        let typed = (text as NSString).replacingCharacters(in: selection, with: " ")
+        let caret = selection.location + 1
+        let lines = MarkdownLineStructure.lines(in: typed)
+        guard let index = lineIndex(containing: caret, in: lines) else { return nil }
+        let line = lines[index]
+        guard caret > line.contentStart else { return nil }
+        let triggerRange = NSRange(location: line.contentStart, length: caret - line.contentStart)
+        guard let trigger = listTrigger((typed as NSString).substring(with: triggerRange)) else { return nil }
+
+        if line.isListItem {
+            return convertLevel(of: index, to: trigger, in: typed, lines: lines, removing: triggerRange)
+        }
+        guard line.kind == .plain, case .task = trigger else { return nil }
+        let marker = "- [ ] "
+        let converted = (typed as NSString).replacingCharacters(in: triggerRange, with: marker)
+        return Result(text: converted, selection: NSRange(location: triggerRange.location + (marker as NSString).length, length: 0))
+    }
+
+    private static func listTrigger(_ typed: String) -> ListTrigger? {
+        switch typed {
+        case "- ", "* ", "+ ": return .bullet(String(typed.prefix(1)))
+        case "x ", "X ": return .task
+        default: break
+        }
+        let digits = typed.prefix { $0.isASCII && $0.isNumber }
+        let rest = typed.dropFirst(digits.count)
+        guard (1...9).contains(digits.count), rest == ". " || rest == ") ", let number = Int(digits) else { return nil }
+        return .ordered(number: number, delimiter: String(rest.prefix(1)))
+    }
+
+    /// Replaces the marker of every item at the level of `index`, and moves
+    /// the lines nested under each item by the change in marker width so
+    /// they stay nested.
+    private static func convertLevel(
+        of index: Int,
+        to trigger: ListTrigger,
+        in text: String,
+        lines: [MarkdownLine],
+        removing triggerRange: NSRange
+    ) -> Result? {
+        let ns = text as NSString
+        let level = listRun(containing: index, in: lines) { _ in true }
+        guard let first = level.first, let last = level.last else { return nil }
+        let start = if case let .ordered(number, _) = trigger, first == index { number } else { 1 }
+
+        var replacements: [(range: NSRange, text: String)] = [(triggerRange, "")]
+        var caretMarker: (location: Int, marker: String)?
+        var widthChange = 0
+        for lineIndex in first...lastNestedLine(under: last, in: lines) {
+            let line = lines[lineIndex]
+            if let position = level.firstIndex(of: lineIndex), let marker = line.marker {
+                let newMarker = switch trigger {
+                case let .bullet(bullet): "\(bullet) "
+                case let .ordered(_, delimiter): "\(start + position)\(delimiter) "
+                case .task: line.kind == .task(isChecked: true) ? "- [x] " : "- [ ] "
+                }
+                replacements.append((marker, newMarker))
+                widthChange = nestingWidth(of: newMarker) - markerWidth(of: line)
+                if lineIndex == index { caretMarker = (marker.location, newMarker) }
+            } else if widthChange != 0, line.kind != .blank {
+                let indent = max(0, columns(of: line.indent, in: ns) + widthChange)
+                replacements.append((line.indent, String(repeating: " ", count: indent)))
+            }
+        }
+        guard let caretMarker else { return nil }
+
+        let result = NSMutableString(string: text)
+        for replacement in replacements.sorted(by: { $0.range.location > $1.range.location }) {
+            result.replaceCharacters(in: replacement.range, with: replacement.text)
+        }
+        let shiftBefore = replacements
+            .filter { $0.range.location < caretMarker.location }
+            .reduce(0) { $0 + ($1.text as NSString).length - $1.range.length }
+        let caret = caretMarker.location + shiftBefore + (caretMarker.marker as NSString).length
+        return Result(text: result as String, selection: NSRange(location: caret, length: 0))
+    }
+
+    /// The last line nested under the item at `index`: deeper items and
+    /// indented text, with blank lines inside but not after.
+    private static func lastNestedLine(under index: Int, in lines: [MarkdownLine]) -> Int {
+        let item = lines[index]
+        var last = index
+        for cursor in (index + 1)..<lines.count {
+            let line = lines[cursor]
+            guard line.quoteLevel == item.quoteLevel else { break }
+            if line.kind == .blank { continue }
+            let isNested = line.isListItem ? line.depth > item.depth : line.kind == .plain && line.indent.length > 0
+            guard isNested else { break }
+            last = cursor
+        }
+        return last
+    }
+
+    /// The columns a nested line needs to sit under a new marker's text.
+    /// A task's box is part of its text, so only its bullet counts.
+    private static func nestingWidth(of marker: String) -> Int {
+        marker.hasPrefix("- [") ? 2 : (marker as NSString).length
+    }
+
     // MARK: - Checkbox
 
     static func toggleCheckbox(_ box: NSRange, in text: String, selection: NSRange) -> Result? {
@@ -203,7 +318,7 @@ nonisolated enum ComposerMarkdownEditing {
 
         for index in indices where lines.indices.contains(index) {
             guard case .ordered = lines[index].kind, !renumbered.contains(index) else { continue }
-            let run = orderedRun(containing: index, in: lines)
+            let run = listRun(containing: index, in: lines) { if case .ordered = $0.kind { true } else { false } }
             guard case let .ordered(first)? = run.first.map({ lines[$0].kind }) else { continue }
             let start = run.first == restarting ? 1 : first
             for (offset, member) in run.enumerated() {
@@ -223,16 +338,17 @@ nonisolated enum ComposerMarkdownEditing {
         return result as String
     }
 
-    /// The ordered items at the same depth and quote level as `index`, in
-    /// the list around it. Deeper items, their nested lines and blank lines
-    /// sit inside a run; anything shallower or unindented ends it.
-    private static func orderedRun(containing index: Int, in lines: [MarkdownLine]) -> [Int] {
+    /// The items at the same depth and quote level as `index` that `isMember`
+    /// accepts, in the list around it. Deeper items, their nested lines and
+    /// blank lines sit inside a run; anything shallower, unindented or
+    /// rejected by `isMember` ends it.
+    private static func listRun(containing index: Int, in lines: [MarkdownLine], isMember: (MarkdownLine) -> Bool) -> [Int] {
         let anchor = lines[index]
         func membership(_ line: MarkdownLine) -> Bool? {
             guard line.quoteLevel == anchor.quoteLevel else { return nil }
             if line.isListItem {
                 if line.depth > anchor.depth { return false }
-                if line.depth == anchor.depth, case .ordered = line.kind { return true }
+                if line.depth == anchor.depth, isMember(line) { return true }
                 return nil
             }
             if line.kind == .blank || line.indent.length > 0 && line.kind == .plain { return false }

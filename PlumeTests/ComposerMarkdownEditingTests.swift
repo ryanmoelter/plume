@@ -130,6 +130,46 @@ struct ComposerMarkdownEditingTests {
         #expect(run(ComposerMarkdownEditing.deleteBackward, "plain\n|next") == nil)
     }
 
+    // MARK: - Space
+
+    @Test func aMarkerTypedInAnItemConvertsItsLevel() {
+        #expect(run(ComposerMarkdownEditing.insertSpace, "1. a\n2. -|b\n3. c") == "- a\n- |b\n- c")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- a\n- 1.|b") == "1. a\n2. |b")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- 3)|a\n- b") == "3) |a\n4) b")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- a\n- x|b") == "- [ ] a\n- [ ] |b")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- [x] a\n- [ ] -|b") == "- a\n- |b")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "> 1. -|a") == "> - |a")
+    }
+
+    @Test func convertingALevelLeavesOtherLevelsAlone() {
+        #expect(
+            run(ComposerMarkdownEditing.insertSpace, "- a\n  - b\n  - 1.|c\n- d")
+                == "- a\n  1. b\n  2. |c\n- d"
+        )
+    }
+
+    @Test func nestedLinesFollowTheNewMarkerWidth() {
+        #expect(
+            run(ComposerMarkdownEditing.insertSpace, "- 1.|a\n  - b\n  more\n- c")
+                == "1. |a\n   - b\n   more\n2. c"
+        )
+        #expect(run(ComposerMarkdownEditing.insertSpace, "1. -|a\n   - b") == "- |a\n  - b")
+    }
+
+    @Test func xStartsATask() {
+        #expect(run(ComposerMarkdownEditing.insertSpace, "x|") == "- [ ] |")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "> x|") == "> - [ ] |")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "x|rest") == "- [ ] |rest")
+    }
+
+    @Test func spaceIsOrdinaryElsewhere() {
+        #expect(run(ComposerMarkdownEditing.insertSpace, "a x|") == nil)
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- a -|") == nil)
+        #expect(run(ComposerMarkdownEditing.insertSpace, "-|") == nil)
+        #expect(run(ComposerMarkdownEditing.insertSpace, "# x|") == nil)
+        #expect(run(ComposerMarkdownEditing.insertSpace, "```\nx|") == nil)
+    }
+
     // MARK: - Checkbox
 
     @Test func checkboxToggles() {

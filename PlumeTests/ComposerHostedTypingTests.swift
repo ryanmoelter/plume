@@ -125,6 +125,8 @@ struct ComposerHostedTypingTests {
         (keys: "- \u{7F}", expected: ""),
         (keys: "> a\rb", expected: "> a\n> b"),
         (keys: "```\r- a\r", expected: "```\n- a\n"),
+        (keys: "- a\rx b", expected: "- [ ] a\n- [ ] b"),
+        (keys: "1. a\r- b", expected: "- a\n- b"),
     ])
     func editingKeys(keys: String, expected: String) async throws {
         let harness = try await Self.makeHarness()

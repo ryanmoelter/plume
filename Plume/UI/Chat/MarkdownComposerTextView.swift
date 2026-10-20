@@ -480,6 +480,16 @@ final class ComposerNSTextView: NSTextView {
         apply(result)
     }
 
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard editsMarkdown, replacementRange.location == NSNotFound, string as? String == " ",
+              let result = ComposerMarkdownEditing.insertSpace(in: self.string, selection: selectedRange())
+        else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        apply(result)
+    }
+
     override func insertTab(_ sender: Any?) {
         guard editsMarkdown, let result = ComposerMarkdownEditing.indent(in: string, selection: selectedRange()) else {
             super.insertTab(sender)
