@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.15.0 (34)
+
+### New
+
+- Add colors and icons to groups and tasks
+- Show two tabs side by side in a split
+- Fix artifacts not being available, and highlight artifacts in the chat and in the info pane
+- Add an "unread" state for tasks and tabs
+  - Mark one unread again from its context menu
+- Send a queued message immediately, without stopping the turn or background agents
+  - Add option to always deliver immediately in Settings > Agents
+  - Assign a Send Now shortcut in Settings > Shortcuts
+- Change the accent color used throughout the app, picked from the theme's palette in Settings > Visuals
+  - Also visually see the theme's palette in Settings > Visuals
+- See what's using your context from the statusline
+- Misc fixes
+  - Wait for running subagents before notifying that a turn finished
+  - Fix multi-select questions not allowing multiple answers alongside the free-form one
+  - Fix tasks getting stuck after moving between groups
+  - Better notify when the sleep helper is misbehaving
+  - Keep a hidden tab's directory current in the sidebar
+  - Keep the keep-awake footer text from truncating
+  - Tweak subagent presentation in info panel
+  - Shorten collapsed agent messages
+
+### Recently
+
+- Support `/btw` to have a side chat without interrupting the agent
+- Add an info pane beside the chat
+- Run Codex agents (beta)
+- Auto-update Plume via Homebrew or the DMG file
+- Run shell commands with a leading `!`
+
 ## 0.14.0 (33)
 
 - Support `/btw` to have a side chat without interrupting the agent
