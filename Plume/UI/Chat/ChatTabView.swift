@@ -182,6 +182,7 @@ struct ChatTabView: View, ThemedView {
         return InfoPaneLinearActions(
             promote: { TaskStore.promoteLinearIssue($0, in: task) },
             unlink: { TaskStore.unlinkLinearIssue($0, from: task) },
+            dismiss: { TaskStore.dismissLinearIssue($0, from: task) },
             link: { input in
                 guard TaskStore.linkLinearIssue(input, to: task) else { return false }
                 if let identifier = LinearIdentifier.normalize(input) {
@@ -229,7 +230,8 @@ struct ChatTabView: View, ThemedView {
                 isEnabled: settings.showsLinearIssues,
                 isConfigured: LinearStore.shared.isConfigured,
                 links: linearLinks,
-                state: { LinearStore.shared.state(for: $0) }
+                state: { LinearStore.shared.state(for: $0) },
+                hasSettled: { [taskID = task.id] in LinearMentionTracker.shared.hasSettled($0, taskID: taskID) }
             ),
             sideChatCount: claudeSession?.sideQuestions.count ?? 0,
             artifacts: ConversationArtifact.artifacts(in: conversationMessages)
@@ -310,6 +312,9 @@ struct ChatTabView: View, ThemedView {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
             content(linearLinks: linearLinks)
+                .onChange(of: Set(linearLinks.filter { $0.role == .mentioned }.map(\.identifier)), initial: true) { _, mentioned in
+                    LinearMentionTracker.shared.observe(mentioned: mentioned, taskID: task.id)
+                }
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,

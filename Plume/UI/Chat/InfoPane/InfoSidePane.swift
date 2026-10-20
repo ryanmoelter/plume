@@ -28,6 +28,7 @@ struct InfoSidePane: View, ThemedView {
     @State private var isHoverOpen = false
     @State private var isFloatingOpen = false
     @State private var showsCompletedSubagents = false
+    @State private var showsMentionedLinearIssues = false
     @State private var pendingHover: Task<Void, Never>?
     @State private var collapsedSize: CGSize = .zero
     @State private var expandedHeight: CGFloat = 0
@@ -134,7 +135,8 @@ struct InfoSidePane: View, ThemedView {
                 onOpenSideChat()
             },
             linearActions: linearActions,
-            showsCompleted: $showsCompletedSubagents
+            showsCompleted: $showsCompletedSubagents,
+            showsMentionedLinearIssues: $showsMentionedLinearIssues
         )
         .padding(12)
         .frame(width: InfoPaneLayout.paneWidth, alignment: .leading)

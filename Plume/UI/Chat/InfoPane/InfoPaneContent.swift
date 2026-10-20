@@ -18,6 +18,7 @@ struct InfoPaneContent: View, ThemedView {
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
+    @Binding var showsMentionedLinearIssues: Bool
 
     @State private var settings = AppSettings.shared
     @Environment(\.openURL) private var openURL
@@ -48,7 +49,8 @@ struct InfoPaneContent: View, ThemedView {
         case .folder: folder
         case .branch: branch
         case .pullRequest: pullRequest
-        case .linearIssues: LinearIssuesSection(linear: facts.linear, actions: linearActions)
+        case .linearIssues:
+            LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
         }
     }
 
@@ -466,7 +468,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
         case .linearIssues:
             HStack(spacing: 2) {
                 LinearLogo()
-                Text("\(facts.linear?.issues.count ?? 0)")
+                Text("\(facts.linear?.workingCount ?? 0)")
             }
             .emphasis(.secondary)
         case .folder, .sideChat:
@@ -501,9 +503,13 @@ private struct SubagentGlyphs: View, ThemedView {
 
 /// A clickable pane row: insets that give its hover wash room, pulled back
 /// out so the row's icon and text stay on the pane's columns.
-private struct InfoPaneRowButtonStyle: ButtonStyle {
+struct InfoPaneRowButtonStyle: ButtonStyle {
+    /// True while a control laid over the row is hovered and shows its own
+    /// wash instead.
+    var suppressesWash = false
+
     func makeBody(configuration: Configuration) -> some View {
-        RowBody(configuration: configuration)
+        RowBody(configuration: configuration, suppressesWash: suppressesWash)
     }
 
     private struct RowBody: View, ThemedView {
@@ -511,9 +517,10 @@ private struct InfoPaneRowButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var isEnabled
         @State private var isHovering = false
         let configuration: ButtonStyleConfiguration
+        let suppressesWash: Bool
 
         var body: some View {
-            let showsWash = isEnabled && (isHovering || configuration.isPressed)
+            let showsWash = isEnabled && !suppressesWash && (isHovering || configuration.isPressed)
             configuration.label
                 .padding(.horizontal, SubagentRow.Columns.washInset)
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
@@ -534,7 +541,7 @@ struct InfoPaneIcon<Icon: View>: View {
     }
 }
 
-private struct DisclosureChevron: View {
+struct DisclosureChevron: View {
     let isExpanded: Bool
 
     var body: some View {

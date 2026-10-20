@@ -143,7 +143,7 @@ struct InfoPaneFactsTests {
     @Test func linearSectionNeedsTheSettingAndAWorkspace() {
         func facts(enabled: Bool, configured: Bool) -> InfoPaneFacts {
             InfoPaneFacts(tabID: UUID(), linear: InfoPaneFacts.linear(
-                isEnabled: enabled, isConfigured: configured, links: [], state: { _ in nil }
+                isEnabled: enabled, isConfigured: configured, links: [], state: { _ in nil }, hasSettled: { _ in true }
             ))
         }
         #expect(facts(enabled: false, configured: true).sections.isEmpty)
@@ -152,10 +152,31 @@ struct InfoPaneFactsTests {
         #expect(facts(enabled: true, configured: true).collapsedSections.isEmpty)
     }
 
-    @Test func collapsedFormMarksLinearOnlyWithIssues() {
+    @Test func collapsedFormMarksLinearOnlyWithWorkingIssues() {
         let issues = InfoPaneFacts.linearIssues(links: [link("PLUME-1")], state: { _ in nil })
-        let facts = InfoPaneFacts(tabID: UUID(), linear: .init(issues: issues))
+        let facts = InfoPaneFacts(tabID: UUID(), linear: .init(main: issues, mentioned: []))
         #expect(facts.collapsedSections == [.linearIssues])
+    }
+
+    @Test func aMentionedOnlySectionIsNotCollapsed() {
+        let issues = InfoPaneFacts.linearIssues(links: [link("PLUME-1", .mentioned)], state: { _ in nil })
+        let facts = InfoPaneFacts(tabID: UUID(), linear: .init(main: [], mentioned: issues))
+        #expect(facts.linear?.workingCount == 0)
+        #expect(!facts.collapsedSections.contains(.linearIssues))
+    }
+
+    @Test func settledMentionedIssuesSplitFromTheMainList() throws {
+        let facts = try #require(InfoPaneFacts.linear(
+            isEnabled: true,
+            isConfigured: true,
+            links: [link("A-1", .mentioned), link("B-2"), link("C-3", .mentioned)],
+            state: { _ in nil },
+            hasSettled: { $0 == "C-3" }
+        ))
+        #expect(facts.main.map(\.identifier) == ["B-2", "A-1"])
+        #expect(facts.mentioned.map(\.identifier) == ["C-3"])
+        #expect(facts.workingCount == 1)
+        #expect(!facts.isEmpty)
     }
 
     @Test func workingIssuesComeBeforeMentionedOnes() {
@@ -175,20 +196,6 @@ struct InfoPaneFactsTests {
             InfoPaneFacts.attribution(of: link("A-1", subagents: ["Explore"], mainAgent: true))
                 == "via Explore and main agent"
         )
-    }
-
-    @Test func sourceHintsApplyToWorkingIssuesOnly() {
-        #expect(InfoPaneFacts.sourceHint(of: link("A-1", sources: [.branch])) == "branch")
-        #expect(InfoPaneFacts.sourceHint(of: link("A-1", sources: [.manual])) == "linked")
-        #expect(InfoPaneFacts.sourceHint(of: link("A-1", sources: [.agentStarted])) == "agent started")
-        #expect(InfoPaneFacts.sourceHint(of: link("A-1", sources: [.promoted])) == "marked working")
-        #expect(InfoPaneFacts.sourceHint(of: link("A-1", sources: [.agent])) == nil)
-        let issues = InfoPaneFacts.linearIssues(
-            links: [link("A-1", .mentioned, sources: [.agent]), link("B-2", sources: [.branch, .manual])],
-            state: { _ in nil }
-        )
-        #expect(issues.first { $0.identifier == "A-1" }?.sourceHint == nil)
-        #expect(issues.first { $0.identifier == "B-2" }?.sourceHint == "linked, branch")
     }
 
     @Test func fetchStatesReadAsWordsNeverAsNoIssue() {

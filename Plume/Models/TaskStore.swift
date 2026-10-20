@@ -361,6 +361,7 @@ enum TaskStore {
             GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
+        LinearMentionTracker.shared.forget(taskID: task.id)
         context.delete(task)
     }
 
@@ -488,6 +489,10 @@ enum TaskStore {
 
     static func unlinkLinearIssue(_ identifier: String, from task: WorkTask) {
         updateLinearLinks(of: task) { $0.unlink(identifier) }
+    }
+
+    static func dismissLinearIssue(_ identifier: String, from task: WorkTask) {
+        updateLinearLinks(of: task) { $0.dismiss(identifier) }
     }
 
     /// Returns whether a task owns the tab.

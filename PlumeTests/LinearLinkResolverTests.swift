@@ -92,6 +92,29 @@ struct LinearLinkResolverTests {
         #expect(issues.map(\.identifier) == ["PLUME-7", "PLUME-5", "PLUME-6"])
     }
 
+    @Test func anUnlinkedIssueWithNoEvidenceIsMentioned() {
+        var links = LinearTaskLinks()
+        links.unlink("PLUME-1")
+        let issues = resolve(links: links)
+        #expect(issues.map(\.identifier) == ["PLUME-1"])
+        #expect(issues.first?.role == .mentioned)
+        #expect(issues.first?.sources.contains(.unlinked) == true)
+    }
+
+    @Test func anUnlinkedBranchIssueIsMentioned() {
+        var links = LinearTaskLinks()
+        links.unlink("PLUME-1")
+        let issues = resolve(branch: ["PLUME-1"], links: links)
+        #expect(issues.first?.role == .mentioned)
+    }
+
+    @Test func anUnlinkedIssueStaysMentionedDespiteStartEvidence() {
+        var links = LinearTaskLinks()
+        links.unlink("PLUME-1")
+        let issues = resolve([evidence("PLUME-1", tool: "save_issue", state: "started")], links: links)
+        #expect(issues.map(\.role) == [.mentioned])
+    }
+
     @Test func persistedAgentStartedIsWorking() {
         var links = LinearTaskLinks()
         links.agentStarted = [LinearIssueRef(identifier: "PLUME-3")]

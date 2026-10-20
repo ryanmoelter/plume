@@ -205,6 +205,8 @@ nonisolated enum LinearLinkSource: Sendable, Equatable, Hashable, Comparable {
     case promoted
     case agentStarted
     case agent
+    /// The user unlinked it, which overrides every other source.
+    case unlinked
 }
 
 /// One issue as a task shows it, after every source has been folded together.

@@ -62,8 +62,6 @@ struct InfoPaneFacts: Equatable {
         var url: URL?
         /// Who touched the issue, when a subagent did.
         var attribution: String?
-        /// Why a working issue is linked.
-        var sourceHint: String?
         /// Set when the state has no issue to show; nil when one is drawn.
         var statusWord: String?
 
@@ -71,12 +69,14 @@ struct InfoPaneFacts: Equatable {
     }
 
     /// Nil when Linear is off or no workspace is connected. An empty list
-    /// still shows the section, for its link field.
+    /// still shows the section, for its link button.
     struct LinearFacts: Equatable {
-        var issues: [LinearIssueFacts]
+        /// Working issues, then mentioned ones still inside their linger.
+        var main: [LinearIssueFacts]
+        var mentioned: [LinearIssueFacts]
 
-        var working: [LinearIssueFacts] { issues.filter { $0.role == .working } }
-        var mentioned: [LinearIssueFacts] { issues.filter { $0.role == .mentioned } }
+        var workingCount: Int { main.count { $0.role == .working } }
+        var isEmpty: Bool { main.isEmpty && mentioned.isEmpty }
     }
 
     var tabID: UUID
@@ -115,7 +115,7 @@ struct InfoPaneFacts: Equatable {
             switch section {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
-            case .linearIssues: linear?.issues.isEmpty == false
+            case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .folder, .sideChat: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
@@ -165,14 +165,20 @@ extension InfoPaneFacts {
 }
 
 extension InfoPaneFacts {
+    /// A mentioned issue counts as working-section material until
+    /// `hasSettled` says its linger is over.
     static func linear(
         isEnabled: Bool,
         isConfigured: Bool,
         links: [LinkedLinearIssue],
-        state: (String) -> LinearIssueFetchState?
+        state: (String) -> LinearIssueFetchState?,
+        hasSettled: (String) -> Bool
     ) -> LinearFacts? {
         guard isEnabled, isConfigured else { return nil }
-        return LinearFacts(issues: linearIssues(links: links, state: state))
+        let issues = linearIssues(links: links, state: state)
+        let settled = issues.filter { $0.role == .mentioned && hasSettled($0.identifier) }
+        let settledIDs = Set(settled.map(\.identifier))
+        return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
     }
 
     /// Working issues first, then mentioned ones, each keeping its order.
@@ -193,7 +199,6 @@ extension InfoPaneFacts {
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),
-                sourceHint: link.role == .working ? sourceHint(of: link) : nil,
                 statusWord: statusWord(for: fetch)
             )
         }
@@ -204,19 +209,6 @@ extension InfoPaneFacts {
         guard !link.subagents.isEmpty else { return nil }
         let subagents = link.subagents.map(\.label).joined(separator: ", ")
         return link.touchedByMainAgent ? "via \(subagents) and main agent" : "via \(subagents)"
-    }
-
-    static func sourceHint(of link: LinkedLinearIssue) -> String? {
-        let words = link.sources.sorted().compactMap { source -> String? in
-            switch source {
-            case .branch: "branch"
-            case .manual: "linked"
-            case .agentStarted: "agent started"
-            case .promoted: "marked working"
-            case .agent: nil
-            }
-        }
-        return words.isEmpty ? nil : words.joined(separator: ", ")
     }
 
     static func statusWord(for state: LinearIssueFetchState?) -> String? {

@@ -43,6 +43,7 @@ final class AppSettings {
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
+        static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
@@ -191,6 +192,9 @@ final class AppSettings {
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
+        self.infoPaneLinearExpanded = defaults.object(forKey: Key.infoPaneLinearExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneLinearExpanded)
         self.infoPaneBackgroundTasksExpanded = defaults.object(forKey: Key.infoPaneBackgroundTasksExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneBackgroundTasksExpanded)
@@ -549,6 +553,12 @@ final class AppSettings {
     var infoPaneSubagentsExpanded: Bool {
         didSet {
             defaults.set(infoPaneSubagentsExpanded, forKey: Key.infoPaneSubagentsExpanded)
+        }
+    }
+
+    var infoPaneLinearExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneLinearExpanded, forKey: Key.infoPaneLinearExpanded)
         }
     }
 

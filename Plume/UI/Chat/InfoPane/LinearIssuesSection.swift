@@ -5,11 +5,15 @@ import SwiftUI
 /// task, so the section never sees it.
 struct InfoPaneLinearActions {
     let promote: (String) -> Void
+    /// Demotes the issue to mentioned.
     let unlink: (String) -> Void
+    let dismiss: (String) -> Void
     /// False when the text is not a Linear issue identifier or URL.
     let link: (String) -> Bool
 
-    static let none = InfoPaneLinearActions(promote: { _ in }, unlink: { _ in }, link: { _ in false })
+    static let none = InfoPaneLinearActions(
+        promote: { _ in }, unlink: { _ in }, dismiss: { _ in }, link: { _ in false }
+    )
 }
 
 struct LinearIssuesSection: View, ThemedView {
@@ -17,125 +21,295 @@ struct LinearIssuesSection: View, ThemedView {
 
     let linear: InfoPaneFacts.LinearFacts?
     let actions: InfoPaneLinearActions
+    @Binding var showsMentioned: Bool
 
+    @State private var settings = AppSettings.shared
     @State private var showsLinkPopover = false
+    @State private var isHoveringAdd = false
 
     var body: some View {
         if let linear {
+            let isExpanded = settings.infoPaneLinearExpanded
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { LinearLogo() }
-                    Text("Linear")
-                    Spacer(minLength: 0)
-                    Button { showsLinkPopover = true } label: {
-                        Image(systemName: "plus")
+                header(linear, isExpanded: isExpanded)
+                if isExpanded {
+                    ForEach(linear.main) { IssueRow(issue: $0, showsBubble: $0.role == .mentioned, actions: actions) }
+                    if linear.main.isEmpty {
+                        HStack(spacing: InfoPaneLayout.columnSpacing) {
+                            InfoPaneIcon { Color.clear }
+                            Text("No linked issues").emphasis(.subtle)
+                        }
+                        .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.selection)
-                    .help("Link a Linear issue")
-                    .plumeID(AccessibilityID.infoPaneLinearAddButton)
-                    .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
-                        LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
+                    if !linear.mentioned.isEmpty {
+                        mentioned(linear.mentioned)
                     }
                 }
-                .emphasis(.secondary)
-                .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+            }
+        }
+    }
 
-                ForEach(linear.working) { IssueRow(issue: $0, actions: actions) }
-                if !linear.mentioned.isEmpty {
+    private func header(_ linear: InfoPaneFacts.LinearFacts, isExpanded: Bool) -> some View {
+        Button {
+            withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
+        } label: {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { LinearLogo() }
+                Text("Linear")
+                if !isExpanded, linear.workingCount > 0 {
+                    Text("\(linear.workingCount)")
+                }
+                DisclosureChevron(isExpanded: isExpanded)
+                Spacer(minLength: 0)
+                OverlaidControlSpace()
+            }
+            .emphasis(.secondary)
+        }
+        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringAdd))
+        .plumeID(AccessibilityID.infoPaneLinearToggle, value: isExpanded ? "expanded" : "collapsed")
+        .overlay(alignment: .trailing) {
+            Button { showsLinkPopover = true } label: {
+                Image(systemName: "plus")
+                    .frame(width: InfoPaneLayout.iconColumnWidth)
+                    .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.colors.selection)
+            .plumeHover { isHoveringAdd = $0 }
+            .help("Link a Linear issue")
+            .plumeID(AccessibilityID.infoPaneLinearAddButton)
+            .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
+                LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
+            }
+        }
+    }
+
+    private func mentioned(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
+            } label: {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    // Holds the first column without filling the row's height.
+                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
                     Text("Mentioned")
-                        .emphasis(.subtle)
-                        .padding(.top, InfoPaneLayout.rowVerticalPadding)
-                    ForEach(linear.mentioned) { IssueRow(issue: $0, actions: actions) }
+                    Text("\(issues.count)")
+                    DisclosureChevron(isExpanded: showsMentioned)
+                    Spacer(minLength: 0)
                 }
-                if linear.issues.isEmpty {
-                    HStack(spacing: InfoPaneLayout.columnSpacing) {
-                        InfoPaneIcon { Color.clear }
-                        Text("No linked issues").emphasis(.subtle)
-                    }
-                    .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-                }
+                .emphasis(.subtle)
+            }
+            .buttonStyle(InfoPaneRowButtonStyle())
+            .plumeID(AccessibilityID.infoPaneLinearMentionedToggle, value: showsMentioned ? "expanded" : "collapsed")
+
+            if showsMentioned {
+                ForEach(issues) { IssueRow(issue: $0, showsBubble: false, actions: actions) }
             }
         }
     }
 }
 
+/// Clicking opens the issue in Linear. A mentioned issue, or one with no URL
+/// yet, opens its menu instead, since there is nothing linked to open.
 private struct IssueRow: View, ThemedView {
     @Environment(\.theme) var theme
 
     let issue: InfoPaneFacts.LinearIssueFacts
+    /// Marks a mentioned issue lingering among the working ones.
+    let showsBubble: Bool
     let actions: InfoPaneLinearActions
 
+    @State private var isHoveringMenu = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: InfoPaneLayout.columnSpacing) {
-            InfoPaneIcon {
-                if let type = issue.stateType {
-                    LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
-                } else {
-                    Image(systemName: "circle.dotted").emphasis(.subtle)
-                }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    Text(issue.identifier)
-                        .fontWeight(.medium)
-                        .layoutPriority(1)
-                    if let title = issue.title {
-                        Text(title)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                if !detail.isEmpty {
-                    Text(detail)
+        Button(action: activate) {
+            HStack(alignment: .top, spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { icon }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(issue.title ?? issue.identifier)
                         .lineLimit(2)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(.leading)
+                    detailLine
+                }
+                Spacer(minLength: 4)
+                OverlaidControlSpace()
+            }
+        }
+        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringMenu))
+        .contextMenu { menuItems }
+        .help(issue.title.map { "\(issue.identifier) \($0)" } ?? issue.identifier)
+        .plumeID(
+            AccessibilityID.infoPaneLinearIssueRow,
+            label: issue.identifier,
+            value: issue.statusWord ?? issue.stateName,
+            invoke: activate
+        )
+        .overlay(alignment: .topTrailing) { actionsMenu }
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if showsBubble {
+            Image(systemName: "bubble").emphasis(.secondary)
+        } else if let type = issue.stateType {
+            LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
+        } else {
+            Image(systemName: "circle.dotted").emphasis(.subtle)
+        }
+    }
+
+    @ViewBuilder
+    private var detailLine: some View {
+        let details = detailParts.joined(separator: " · ")
+        if issue.title != nil || !details.isEmpty {
+            HStack(spacing: 0) {
+                if issue.title != nil {
+                    Text(issue.identifier).layoutPriority(1)
+                }
+                if !details.isEmpty {
+                    Text(issue.title != nil ? " · \(details)" : details)
                         .emphasis(.subtle)
+                        .truncationMode(.tail)
                 }
             }
-            Spacer(minLength: 4)
-            actionsMenu
+            .lineLimit(1)
         }
-        .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-        .plumeID(AccessibilityID.infoPaneLinearIssueRow, label: issue.identifier, value: issue.statusWord ?? issue.stateName)
+    }
+
+    private var detailParts: [String] {
+        [issue.statusWord, issue.stateName, issue.assignee, issue.attribution].compactMap { $0 }
+    }
+
+    private func activate() {
+        if issue.role == .working, let url = issue.url {
+            NSWorkspace.shared.open(url)
+        } else {
+            // After the click's own event handling, which a modal menu
+            // tracking loop would otherwise run inside.
+            Task { @MainActor in
+                IssueMenu.make(menuEntries).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            }
+        }
     }
 
     private var actionsMenu: some View {
-        Menu {
-            Button("Open in Linear") {
-                if let url = issue.url { NSWorkspace.shared.open(url) }
-            }
-            .plumeID(AccessibilityID.infoPaneLinearOpenButton, label: issue.identifier)
-            .disabled(issue.url == nil)
-            Button("Copy Identifier") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(issue.identifier, forType: .string)
-            }
-            if issue.role == .mentioned {
-                Button("Mark as Working") { actions.promote(issue.identifier) }
-                    .plumeID(AccessibilityID.infoPaneLinearMarkWorkingButton, label: issue.identifier)
-            }
-            Divider()
-            Button(issue.role == .working ? "Unlink" : "Dismiss") { actions.unlink(issue.identifier) }
-                .plumeID(AccessibilityID.infoPaneLinearUnlinkButton, label: issue.identifier)
-        } label: {
+        Menu { menuItems } label: {
             Image(systemName: "ellipsis")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(theme.colors.selection)
+        .frame(width: InfoPaneLayout.iconColumnWidth)
+        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
+        .plumeHover { isHoveringMenu = $0 }
+        .padding(.top, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
     }
 
-    private var detail: String {
-        var parts: [String] = []
-        if let word = issue.statusWord { parts.append(word) }
-        if let state = issue.stateName { parts.append(state) }
-        if let assignee = issue.assignee { parts.append(assignee) }
-        if let attribution = issue.attribution { parts.append(attribution) }
-        if let hint = issue.sourceHint { parts.append(hint) }
-        return parts.joined(separator: " · ")
+    @ViewBuilder
+    private var menuItems: some View {
+        ForEach(Array(menuEntries.enumerated()), id: \.offset) { _, entry in
+            switch entry {
+            case .divider:
+                Divider()
+            case .action(let title, let id, let isEnabled, let perform):
+                Button(title, action: perform)
+                    .plumeID(id, label: issue.identifier, invoke: perform)
+                    .disabled(!isEnabled)
+            }
+        }
+    }
+
+    private var menuEntries: [IssueMenu.Entry] {
+        let identifier = issue.identifier
+        var entries: [IssueMenu.Entry] = [
+            .action("Open in Linear", AccessibilityID.infoPaneLinearOpenButton, isEnabled: issue.url != nil) {
+                if let url = issue.url { NSWorkspace.shared.open(url) }
+            },
+            .action("Copy Identifier", AccessibilityID.infoPaneLinearCopyButton, isEnabled: true) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(identifier, forType: .string)
+            },
+        ]
+        if issue.role == .mentioned {
+            entries.append(.action("Mark as Working", AccessibilityID.infoPaneLinearMarkWorkingButton, isEnabled: true) {
+                actions.promote(identifier)
+            })
+        }
+        entries.append(.divider)
+        if issue.role == .working {
+            entries.append(.action("Unlink", AccessibilityID.infoPaneLinearUnlinkButton, isEnabled: true) {
+                actions.unlink(identifier)
+            })
+        } else {
+            entries.append(.action("Dismiss", AccessibilityID.infoPaneLinearDismissButton, isEnabled: true) {
+                actions.dismiss(identifier)
+            })
+        }
+        return entries
+    }
+}
+
+/// One issue's actions, drawn both as SwiftUI menu items and as the AppKit
+/// menu a row click pops up.
+private enum IssueMenu {
+    enum Entry {
+        case action(String, String, isEnabled: Bool, perform: () -> Void)
+        case divider
+    }
+
+    @MainActor static func make(_ entries: [Entry]) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for entry in entries {
+            switch entry {
+            case .divider:
+                menu.addItem(.separator())
+            case .action(let title, _, let isEnabled, let perform):
+                let item = ClosureMenuItem(title: title, perform: perform)
+                item.isEnabled = isEnabled
+                menu.addItem(item)
+            }
+        }
+        return menu
+    }
+}
+
+private final class ClosureMenuItem: NSMenuItem {
+    private let perform: () -> Void
+
+    init(title: String, perform: @escaping () -> Void) {
+        self.perform = perform
+        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func invoke() { perform() }
+}
+
+/// Keeps a row's content clear of the control laid over its trailing edge.
+private struct OverlaidControlSpace: View {
+    var body: some View {
+        Color.clear.frame(width: InfoPaneLayout.iconColumnWidth, height: 1)
+    }
+}
+
+/// The hover wash of a control laid over a row, which replaces the row's own.
+private struct OverlaidControlWash: ViewModifier, ThemedView {
+    @Environment(\.theme) var theme
+    let isHovering: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(3)
+            .background(isHovering ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 4))
+            .padding(-3)
     }
 }
 
