@@ -40,8 +40,8 @@ enum SidebarTint: Hashable {
 enum SidebarIcons {
     static let columns = 8
     static let popular = [
-        "folder", "star", "flag", "bookmark", "tag", "heart", "sparkles", "bolt",
-        "flame", "leaf", "ladybug", "lightbulb", "house", "globe", "book", "doc.text",
+        "folder", "doc.text", "book", "bookmark", "flag", "star", "heart", "sparkles",
+        "bolt", "flame", "leaf", "ladybug", "lightbulb", "house", "person.2", "globe",
         "pencil.line", "paintbrush", "hammer", "wrench.and.screwdriver", "gearshape", "testtube.2", "shippingbox", "cube",
         "terminal", "cpu", "server.rack", "cloud", "desktopcomputer", "laptopcomputer", "ipad", "iphone",
     ]

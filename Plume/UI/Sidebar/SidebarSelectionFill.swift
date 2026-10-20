@@ -11,13 +11,14 @@ struct SidebarSelectionFill: View {
     @Environment(\.appearsActive) private var appearsActive
 
     let isSelected: Bool
+    var tint: Color?
 
     /// The selected wash, shared with the selected tab chip in `TabStripView`.
     /// The accent takes the slash-command list's highlight strength: a hue at
     /// the foreground's wash strength reads as no selection at all.
-    static func wash(for colorScheme: ColorScheme, isActive: Bool) -> Color {
+    static func wash(for colorScheme: ColorScheme, isActive: Bool, tint: Color? = nil) -> Color {
         if isActive {
-            ThemeChrome.accent(for: colorScheme)
+            (tint ?? ThemeChrome.accent(for: colorScheme))
                 .opacity(Emphasis.divider.fillOpacity(for: colorScheme))
         } else {
             Color.chatSurface(.primary, colorScheme: colorScheme)
@@ -26,7 +27,7 @@ struct SidebarSelectionFill: View {
     }
 
     var body: some View {
-        (isSelected ? Self.wash(for: colorScheme, isActive: appearsActive) : .clear)
+        (isSelected ? Self.wash(for: colorScheme, isActive: appearsActive, tint: tint) : .clear)
             .clipShape(.rect(cornerRadius: SidebarMetrics.selectionCornerRadius))
     }
 }

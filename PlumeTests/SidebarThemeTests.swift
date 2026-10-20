@@ -12,6 +12,17 @@ import GhosttyTheme
 /// a themed sidebar.
 @MainActor
 struct SidebarThemeTests {
+    @Test func tintedWashUsesTheTintAndUntintedUsesTheAccent() {
+        for scheme in [ColorScheme.light, .dark] {
+            let accent = SidebarSelectionFill.wash(for: scheme, isActive: true)
+            let tinted = SidebarSelectionFill.wash(for: scheme, isActive: true, tint: .red)
+            #expect(tinted != accent)
+            #expect(tinted == SidebarSelectionFill.wash(for: scheme, isActive: true, tint: .red))
+            #expect(SidebarSelectionFill.wash(for: scheme, isActive: false, tint: .red)
+                == SidebarSelectionFill.wash(for: scheme, isActive: false))
+        }
+    }
+
     /// This machine's own resolved theme, which is what the app draws from.
     /// Absent on a machine with no ghostty config, where there is nothing to
     /// compare against and the fallback is correct by definition.

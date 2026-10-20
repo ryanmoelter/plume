@@ -151,7 +151,7 @@ struct SidebarView: View {
                 isSelected: selection == task.id,
                 onSelect: { select(task) }
             )
-                .sidebarRow(isSelected: selection == task.id, tintBar: tintBar(for: task))
+                .sidebarRow(isSelected: selection == task.id, tintBar: tintBar(for: task), washTint: washTint(for: task))
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
@@ -228,6 +228,10 @@ struct SidebarView: View {
     private func tintBar(for task: WorkTask) -> Color? {
         SidebarTaskAppearance(task: task, settings: .shared).barTint
             .flatMap(theme.colors.color(for:))
+    }
+
+    private func washTint(for task: WorkTask) -> Color? {
+        SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
     }
 
     private func isEditingAppearance(of id: UUID) -> Binding<Bool> {

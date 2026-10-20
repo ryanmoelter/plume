@@ -32,12 +32,13 @@ enum SidebarMetrics {
 extension View {
     /// Lays this view out as a selectable sidebar row, with the selection
     /// fill behind it and, given a `tintBar` color, a bar at its leading edge.
-    func sidebarRow(isSelected: Bool, tintBar: Color? = nil) -> some View {
+    /// A `washTint` replaces the accent in the selection fill.
+    func sidebarRow(isSelected: Bool, tintBar: Color? = nil, washTint: Color? = nil) -> some View {
         padding(.horizontal, SidebarMetrics.rowHorizontalPadding)
             .padding(.vertical, SidebarMetrics.rowVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                SidebarSelectionFill(isSelected: isSelected)
+                SidebarSelectionFill(isSelected: isSelected, tint: washTint)
                 if let tintBar { SidebarTintBar(color: tintBar) }
             }
             .contentShape(.rect)
