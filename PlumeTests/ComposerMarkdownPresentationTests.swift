@@ -121,10 +121,12 @@ struct ComposerMarkdownPresentationTests {
 
     // MARK: - Decorations
 
-    @Test func staysOnTextKit2() {
+    @Test func staysOnTextKit2() throws {
         let view = styledView("- a\n`b`\n```\nc\n```")
-        _ = ComposerDecorations.rects(in: view, metrics: metrics)
-        view.display()
+        // `display()` draws nothing outside a window; caching the display
+        // runs the real drawing path, decorations included.
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
         #expect(view.textLayoutManager != nil)
     }
 
