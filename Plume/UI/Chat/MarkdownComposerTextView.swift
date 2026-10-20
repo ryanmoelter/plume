@@ -173,6 +173,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         /// changes made there reach the caller on the next main-queue turn,
         /// because writing SwiftUI state during a view update is undefined.
         var isUpdatingView = false
+        /// The composer's own, so replacing the text from outside can drop
+        /// steps recorded against the old text without touching the window's.
+        private let undoManager = UndoManager()
 
         init(
             text: Binding<String>,
@@ -198,6 +201,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let selectedRanges = textView.selectedRanges
             if textView.string != text {
                 textView.string = text
+                undoManager.removeAllActions()
             }
             let bodyFont = isCommandMode
                 ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -236,6 +240,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         }
 
         // MARK: NSTextViewDelegate
+
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            undoManager
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
@@ -497,6 +505,12 @@ final class ComposerNSTextView: NSTextView {
             super.insertText(string, replacementRange: replacementRange)
             return
         }
+        // The space goes in unrecorded, so undo takes back only the
+        // conversion and leaves the typed marker as text.
+        breakUndoCoalescing()
+        undoManager?.disableUndoRegistration()
+        super.insertText(string, replacementRange: replacementRange)
+        undoManager?.enableUndoRegistration()
         apply(result)
     }
 

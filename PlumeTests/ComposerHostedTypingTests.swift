@@ -10,18 +10,18 @@ import Testing
 /// update pass reads again.
 @MainActor
 struct ComposerHostedTypingTests {
-    private final class Draft {
+    @Observable
+    fileprivate final class Draft {
         var markdown = ""
     }
 
     private struct Host: View {
         let draft: Draft
-        @State private var text = ""
         @State private var isFocused = true
 
         var body: some View {
             MarkdownComposerTextView(
-                text: Binding(get: { text }, set: { text = $0; draft.markdown = $0 }),
+                text: Binding(get: { draft.markdown }, set: { draft.markdown = $0 }),
                 placeholder: "",
                 fontSize: 13,
                 isFocused: $isFocused,
@@ -170,6 +170,30 @@ struct ComposerHostedTypingTests {
         harness.view.undoManager?.undo()
 
         #expect(harness.view.string == "- a")
+    }
+
+    @Test func undoAfterAShortcutKeepsTheTypedMarker() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+
+        try await harness.type("X ")
+        #expect(harness.view.string == "- [ ] ")
+        harness.view.undoManager?.undo()
+        try await harness.type("axis")
+
+        #expect(harness.draft.markdown == "X axis")
+    }
+
+    @Test func replacingTheTextFromOutsideClearsUndo() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+        try await harness.type("hello world")
+
+        harness.draft.markdown = ""
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(harness.view.string == "")
+        #expect(harness.view.undoManager?.canUndo == false)
     }
 
     @Test func clickingACheckboxTogglesItAsOneUndoStep() async throws {
