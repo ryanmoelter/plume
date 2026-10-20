@@ -53,6 +53,7 @@ struct ChatTabView: View, ThemedView {
     /// sync (`editQueuedMessage(at:)`) since it also serves the Up-arrow
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
+    @State private var withdrawnMessageToEdit: [UserContentBlock]?
     @State private var sendNowRequested = false
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
@@ -505,15 +506,29 @@ struct ChatTabView: View, ThemedView {
 
     /// Sent into the running turn, but not yet in the transcript: the CLI
     /// shows the model a mid-turn message only at its next request.
+    private func chipState(_ state: DeliveringMessage.State) -> QueuedMessageChip.State {
+        switch state {
+        case .delivering: .delivering
+        case .withdrawing: .withdrawing
+        case .absorbed: .absorbed
+        }
+    }
+
     private func deliveringMessagesView(_ session: HeadlessSession) -> some View {
         VStack(spacing: 6) {
-            ForEach(Array(session.deliveringMessages.enumerated()), id: \.offset) { index, message in
+            ForEach(Array(session.deliveringMessages.enumerated()), id: \.element.id) { index, message in
                 QueuedMessageChip(
-                    text: message.plainText,
-                    imageCount: message.count { if case .image = $0 { true } else { false } },
-                    state: .delivering
+                    text: message.blocks.plainText,
+                    imageCount: message.blocks.count { if case .image = $0 { true } else { false } },
+                    state: chipState(message.state),
+                    onEdit: {
+                        session.withdrawDeliveringMessage(id: message.id) { blocks in
+                            if let blocks { withdrawnMessageToEdit = blocks }
+                        }
+                    },
+                    onRemove: { session.withdrawDeliveringMessage(id: message.id) }
                 )
-                .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.plainText)
+                .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.blocks.plainText)
             }
         }
         .listItemPadding(vertical: false)
@@ -583,6 +598,7 @@ struct ChatTabView: View, ThemedView {
                 isFocused: isFocused,
                 hasContentAbove: isDocked,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
+                withdrawnMessageToEdit: $withdrawnMessageToEdit,
                 sendNowRequested: $sendNowRequested
             )
             Divider()
@@ -1422,8 +1438,12 @@ private struct QueuedMessageChip: View, ThemedView {
 
     enum State {
         case queued
-        /// Already sent, so it can no longer be edited, removed or hurried.
+        /// Sent into the running turn. Edit and remove withdraw it, which
+        /// only works until the model reads it.
         case delivering
+        case withdrawing
+        /// The model read it before a withdrawal landed.
+        case absorbed
     }
 
     let text: String
@@ -1443,9 +1463,7 @@ private struct QueuedMessageChip: View, ThemedView {
             Image(systemName: state == .queued ? "clock" : "arrow.up.circle")
                 .font(typography.caption.font)
                 .emphasis(.secondary)
-                .help(state == .queued
-                    ? "Queued — not sent yet"
-                    : "Sent — Claude reads it after its current step")
+                .help(statusHelp)
             if !text.isEmpty {
                 Text(text)
                     .font(typography.body.font)
@@ -1461,14 +1479,26 @@ private struct QueuedMessageChip: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
             }
-            if state == .queued {
-                controls
+            switch state {
+            case .queued: controls
+            case .delivering: editAndRemove(removeHelp: "Withdraw")
+            case .withdrawing: ProgressView().controlSize(.mini)
+            case .absorbed: EmptyView()
             }
         }
         .padding(10)
         .glassEffect(Glass.regular.tint(washColor), in: .rect(cornerRadius: 10))
         .frame(maxWidth: dimensions.contentWidth, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var statusHelp: String {
+        switch state {
+        case .queued: "Queued — not sent yet"
+        case .delivering: "Sent — Claude reads it after its current step"
+        case .withdrawing: "Withdrawing…"
+        case .absorbed: "Too late to withdraw — Claude already has it"
+        }
     }
 
     private var sendNowHelp: String {
@@ -1486,18 +1516,26 @@ private struct QueuedMessageChip: View, ThemedView {
             .help(sendNowHelp)
             .accessibilityLabel("Send now")
             .plumeID(AccessibilityID.queuedMessageSendNowButton, invoke: onSendNow)
+            editAndRemove(removeHelp: "Remove from queue")
+        }
+    }
+
+    private func editAndRemove(removeHelp: String) -> some View {
+        HStack(spacing: 4) {
             Button(action: onEdit) {
                 Image(systemName: "pencil.circle.fill")
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
             .help("Edit")
+            .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Remove from queue")
+            .help(removeHelp)
+            .plumeID(AccessibilityID.queuedMessageRemoveButton, label: text, invoke: onRemove)
         }
     }
 

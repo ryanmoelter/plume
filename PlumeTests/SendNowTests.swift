@@ -99,7 +99,7 @@ struct HeadlessSendNowTests {
         #expect(line["priority"]?.stringValue == "next")
         #expect(line["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue == "one\n\ntwo\n\ndraft")
         #expect(session.queuedMessages.isEmpty)
-        #expect(session.deliveringMessages == [[.text("one\n\ntwo\n\ndraft")]])
+        #expect(session.deliveringMessages.map(\.blocks) == [[.text("one\n\ntwo\n\ndraft")]])
         #expect(session.isWorking)
     }
 
@@ -247,7 +247,7 @@ struct HeadlessSendNowTests {
         #expect(line["priority"]?.stringValue == "next")
         #expect(line["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue == "also this")
         #expect(session.queuedMessages.isEmpty)
-        #expect(session.deliveringMessages == [[.text("also this")]])
+        #expect(session.deliveringMessages.map(\.blocks) == [[.text("also this")]])
         session.handle(try decode(Self.requesting))
         #expect(session.deliveringMessages.isEmpty)
     }
@@ -288,5 +288,145 @@ struct HeadlessSendNowTests {
 
         #expect(session.queuedMessages.map(\.plainText) == ["Keep it small"])
         #expect(!recorder.lines.contains { $0.contains("Keep it small") })
+    }
+}
+
+/// Edit and remove on a delivering message send `cancel_async_message`. The
+/// CLI answers `cancelled: true` while the message still waits and `false`
+/// once the model has it, so only the first hands the message back.
+///
+/// Reply shapes come from a recorded `claude -p` 2.1.304 run.
+@MainActor
+struct HeadlessWithdrawTests {
+    private final class Recorder {
+        var lines: [String] = []
+    }
+
+    private func makeSession() -> (HeadlessSession, Recorder) {
+        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+        let session = HeadlessSession(tabID: UUID(), taskID: UUID(), statusEngine: engine)
+        session.queuedMessageDelivery = { .endOfTurn }
+        engine.register(tabID: session.tabID, taskID: session.taskID)
+        let recorder = Recorder()
+        session.debugLineSink = { recorder.lines.append($0) }
+        return (session, recorder)
+    }
+
+    private func decode(_ line: String) throws -> StreamJSONMessage {
+        try #require(StreamJSONDecoder.decode(line: line))
+    }
+
+    private func json(_ line: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+    }
+
+    private static let mainAssistant = #"{"type":"assistant","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}"#
+    private static let requesting = #"{"type":"system","subtype":"status","status":"requesting"}"#
+    private static let result = #"{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"#
+
+    private func reply(_ requestID: String, cancelled: Bool) -> String {
+        #"{"type":"control_response","response":{"subtype":"success","request_id":""# + requestID
+            + #"","response":{"cancelled":"# + "\(cancelled)" + "}}}"
+    }
+
+    /// Starts a turn, sends a message into it, and asks to withdraw it.
+    private func withdrawing(
+        _ session: HeadlessSession,
+        _ recorder: Recorder,
+        handedBack: @escaping ([UserContentBlock]?) -> Void
+    ) throws -> (messageID: String, requestID: String) {
+        session.handle(try decode(Self.mainAssistant))
+        session.sendNow(appending: [.text("also this")])
+        let message = try #require(session.deliveringMessages.first)
+        session.withdrawDeliveringMessage(id: message.id, completion: handedBack)
+        let request = try json(try #require(recorder.lines.last))
+        let requestID = try #require(request["request_id"]?.stringValue)
+        return (message.id, requestID)
+    }
+
+    @Test func theUserLineCarriesTheUUIDTheWithdrawalNames() throws {
+        let (session, recorder) = makeSession()
+        let (messageID, _) = try withdrawing(session, recorder) { _ in }
+
+        let userLine = try json(recorder.lines[0])
+        let request = try json(try #require(recorder.lines.last))
+        #expect(userLine["uuid"]?.stringValue == messageID)
+        #expect(request["request"]?["subtype"]?.stringValue == "cancel_async_message")
+        #expect(request["request"]?["message_uuid"]?.stringValue == messageID)
+        #expect(session.deliveringMessages.first?.state == .withdrawing)
+    }
+
+    @Test func aWithdrawnMessageIsDroppedAndHandedBack() throws {
+        let (session, recorder) = makeSession()
+        var handedBack: [UserContentBlock]?
+        let (_, requestID) = try withdrawing(session, recorder) { handedBack = $0 }
+
+        session.handle(try decode(reply(requestID, cancelled: true)))
+
+        #expect(handedBack == [.text("also this")])
+        #expect(session.deliveringMessages.isEmpty)
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.isWorking)
+    }
+
+    /// The message stays listed, marked, until the request that carries it
+    /// clears it.
+    @Test func aMessageTheModelAlreadyHasIsNotHandedBack() throws {
+        let (session, recorder) = makeSession()
+        var handedBack: [UserContentBlock]? = [.text("unset")]
+        let (_, requestID) = try withdrawing(session, recorder) { handedBack = $0 }
+
+        session.handle(try decode(reply(requestID, cancelled: false)))
+
+        #expect(handedBack == nil)
+        #expect(session.deliveringMessages.first?.state == .absorbed)
+        session.handle(try decode(Self.requesting))
+        #expect(session.deliveringMessages.isEmpty)
+    }
+
+    @Test func aRefusalAfterTheRequestClearedTheMessageHandsNothingBack() throws {
+        let (session, recorder) = makeSession()
+        var handedBack: [UserContentBlock]? = [.text("unset")]
+        let (_, requestID) = try withdrawing(session, recorder) { handedBack = $0 }
+
+        session.handle(try decode(Self.requesting))
+        session.handle(try decode(reply(requestID, cancelled: false)))
+
+        #expect(handedBack == nil)
+        #expect(session.deliveringMessages.isEmpty)
+    }
+
+    /// With the message gone, nothing follows the `result` already held for
+    /// it, so the turn ends at once rather than after the grace.
+    @Test func withdrawingDuringAHeldTurnEndEndsTheTurn() throws {
+        let (session, recorder) = makeSession()
+        let (_, requestID) = try withdrawing(session, recorder) { _ in }
+        session.handle(try decode(Self.result))
+        #expect(session.isWorking)
+
+        session.handle(try decode(reply(requestID, cancelled: true)))
+
+        #expect(!session.isWorking)
+    }
+
+    @Test func anErrorReplyLeavesTheMessageDelivering() throws {
+        let (session, recorder) = makeSession()
+        var handedBack: [UserContentBlock]? = [.text("unset")]
+        let (_, requestID) = try withdrawing(session, recorder) { handedBack = $0 }
+
+        session.handle(try decode(#"{"type":"control_response","response":{"subtype":"error","request_id":""# + requestID + #"","error":"nope"}}"#))
+
+        #expect(handedBack == nil)
+        #expect(session.deliveringMessages.first?.state == .delivering)
+    }
+
+    @Test func aSecondWithdrawalWhileOneIsInFlightSendsNothing() throws {
+        let (session, recorder) = makeSession()
+        let (messageID, _) = try withdrawing(session, recorder) { _ in }
+        let sent = recorder.lines.count
+
+        session.withdrawDeliveringMessage(id: messageID)
+
+        #expect(recorder.lines.count == sent)
     }
 }

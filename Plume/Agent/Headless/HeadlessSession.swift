@@ -190,11 +190,11 @@ final class HeadlessSession: AgentSession {
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [[UserContentBlock]] = []
 
-    /// Messages `sendNow` wrote into the running turn that the CLI has not
-    /// put in front of the model yet. It does that at the turn's next API
-    /// request, so the transcript has no row for one until then — a tool call
-    /// in flight can hold it back for minutes.
-    private(set) var deliveringMessages: [[UserContentBlock]] = []
+    /// Messages written into the running turn that the CLI has not put in
+    /// front of the model yet. It does that at the turn's next API request,
+    /// so the transcript has no row for one until then — a tool call in
+    /// flight can hold it back for minutes.
+    private(set) var deliveringMessages: [DeliveringMessage] = []
 
     /// Claude Code proposes plans through `ExitPlanMode`.
     let supportsPlanApproval = true
@@ -437,13 +437,61 @@ final class HeadlessSession: AgentSession {
     /// the queue as it was, for a process that could not take the line.
     @discardableResult
     private func sendQueueIntoRunningTurn() -> Bool {
-        let merged = takeQueueAsOneTurn()
-        guard send(StreamJSONEncoder.userTurn(blocks: merged, priority: .next)) else {
-            queuedMessages.insert(merged, at: 0)
+        let message = DeliveringMessage(id: UUID().uuidString.lowercased(), blocks: takeQueueAsOneTurn())
+        guard send(StreamJSONEncoder.userTurn(blocks: message.blocks, priority: .next, uuid: message.id)) else {
+            queuedMessages.insert(message.blocks, at: 0)
             return false
         }
-        deliveringMessages.append(merged)
+        deliveringMessages.append(message)
         return true
+    }
+
+    /// Asks the CLI to drop a delivering message before the model sees it.
+    /// `completion` gets the message's blocks once it is withdrawn, or nil
+    /// when the CLI had already taken it in, refused, or exited first.
+    func withdrawDeliveringMessage(id: String, completion: @escaping ([UserContentBlock]?) -> Void = { _ in }) {
+        guard let index = deliveringMessages.firstIndex(where: { $0.id == id }),
+              deliveringMessages[index].state == .delivering
+        else {
+            completion(nil)
+            return
+        }
+        let requestID = nextRequestID()
+        pendingControlRequests[requestID] = .withdraw(deliveringMessages[index], completion: completion)
+        guard send(StreamJSONEncoder.cancelAsyncMessage(messageUUID: id, requestID: requestID)) else {
+            pendingControlRequests[requestID] = nil
+            completion(nil)
+            return
+        }
+        deliveringMessages[index].state = .withdrawing
+    }
+
+    private func applyWithdrawal(
+        _ response: ControlResponse,
+        of message: DeliveringMessage,
+        completion: ([UserContentBlock]?) -> Void
+    ) {
+        let index = deliveringMessages.firstIndex { $0.id == message.id }
+        guard !response.isError, let cancelled = response.payload["cancelled"]?.boolValue else {
+            Log.agent.error("Withdrawing a message failed: \(response.errorMessage ?? "no cancelled field", privacy: .public)")
+            if let index { deliveringMessages[index].state = .delivering }
+            completion(nil)
+            return
+        }
+        guard cancelled else {
+            // Left listed until the request that carries it clears it, so a
+            // held turn end still waits for the turn the message starts.
+            if let index { deliveringMessages[index].state = .absorbed }
+            completion(nil)
+            return
+        }
+        if let index { deliveringMessages.remove(at: index) }
+        completion(message.blocks)
+        // Nothing is left for the CLI to run after the `result` it already sent.
+        if deliveringMessages.isEmpty, let held = heldResult {
+            endDeliveryHold()
+            finishTurn(held)
+        }
     }
 
     private func takeQueueAsOneTurn() -> [UserContentBlock] {
@@ -900,6 +948,8 @@ final class HeadlessSession: AgentSession {
             applySideQuestionAnswer(in: response, id: id)
         case .rewind(let targetID):
             applyRewind(in: response, targetID: targetID)
+        case .withdraw(let message, let completion):
+            applyWithdrawal(response, of: message, completion: completion)
         case .contextUsage:
             if response.isError {
                 Log.agent.error("Context usage request failed: \(response.errorMessage ?? "unknown", privacy: .public)")
@@ -1129,7 +1179,7 @@ final class HeadlessSession: AgentSession {
         isWorking = false
         endDeliveryHold()
         // Never delivered, so a reconnect still can.
-        queuedMessages.insert(contentsOf: deliveringMessages, at: 0)
+        queuedMessages.insert(contentsOf: deliveringMessages.map(\.blocks), at: 0)
         deliveringMessages = []
         streamingText = ""
         streamingThinking = ""
@@ -1144,6 +1194,7 @@ final class HeadlessSession: AgentSession {
         // Anything still pending will never be answered now.
         pendingPermissions.removeAll()
         failUnansweredSideQuestions()
+        for case .withdraw(_, let completion) in pendingControlRequests.values { completion(nil) }
         pendingControlRequests.removeAll()
         // The CLI reports nothing on its way out, and a task it orphans is
         // beyond anything Plume can see.
@@ -1201,5 +1252,22 @@ final class HeadlessSession: AgentSession {
         case sideQuestion(id: String)
         case rewind(targetID: String)
         case contextUsage
+        case withdraw(DeliveringMessage, completion: ([UserContentBlock]?) -> Void)
     }
+}
+
+/// A message written into the running turn with `priority: "next"`, named by
+/// the `uuid` its line carried so `cancel_async_message` can withdraw it.
+struct DeliveringMessage: Identifiable, Equatable {
+    enum State: Equatable {
+        case delivering
+        /// A withdrawal is in flight.
+        case withdrawing
+        /// The CLI refused a withdrawal because the model already has it.
+        case absorbed
+    }
+
+    let id: String
+    let blocks: [UserContentBlock]
+    var state = State.delivering
 }

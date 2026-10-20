@@ -215,5 +215,7 @@ enum AccessibilityID {
     // MARK: Queued messages
 
     static let queuedMessageSendNowButton = "queued-message-send-now-button"
+    static let queuedMessageEditButton = "queued-message-edit-button"
+    static let queuedMessageRemoveButton = "queued-message-remove-button"
     static let deliveringMessage = "delivering-message"
 }
