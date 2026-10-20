@@ -73,6 +73,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     static let defaultVerticalInset: CGFloat = 9
 
     func makeNSView(context: Context) -> ScrollableComposerTextView {
+        context.coordinator.isUpdatingView = true
+        defer { context.coordinator.isUpdatingView = false }
         let view = ScrollableComposerTextView()
         context.coordinator.host = view
         let textView = view.composerTextView
@@ -89,6 +91,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: ScrollableComposerTextView, context: Context) {
+        context.coordinator.isUpdatingView = true
+        defer { context.coordinator.isUpdatingView = false }
         let textView = view.composerTextView
         context.coordinator.onSend = onSend
         context.coordinator.placeholder = placeholder
@@ -167,6 +171,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         var isCommandMode = false
         var accentPaletteSlot: Int?
         var isActive = true
+        /// True inside `makeNSView`/`updateNSView`. Selection and focus
+        /// changes made there reach the caller on the next main-queue turn,
+        /// because writing SwiftUI state during a view update is undefined.
+        var isUpdatingView = false
 
         init(
             text: Binding<String>,
@@ -239,7 +247,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            onCaretChange(textView.selectedRange().location)
+            let location = textView.selectedRange().location
+            notifyCaller { self.onCaretChange(location) }
         }
 
         /// Driven from the text view's responder overrides rather than
@@ -247,8 +256,18 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         /// changed, so a focus loss without typing would leave the binding
         /// stale and `updateNSView` would steal focus back.
         func focusDidChange(_ focused: Bool) {
-            guard focusBinding.wrappedValue != focused else { return }
-            focusBinding.wrappedValue = focused
+            notifyCaller {
+                guard self.focusBinding.wrappedValue != focused else { return }
+                self.focusBinding.wrappedValue = focused
+            }
+        }
+
+        private func notifyCaller(_ change: @escaping @MainActor () -> Void) {
+            if isUpdatingView {
+                DispatchQueue.main.async(execute: change)
+            } else {
+                change()
+            }
         }
 
         func handleSendShortcut() {
