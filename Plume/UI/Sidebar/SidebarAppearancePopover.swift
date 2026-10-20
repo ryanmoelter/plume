@@ -139,11 +139,18 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
                 Divider()
                 Link(destination: URL(string: "https://developer.apple.com/sf-symbols/")!) {
                     HStack {
-                        Text("Download SF Symbols")
-                        Image(systemName: "arrow.up.forward.square")
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text("Download SF Symbols from Apple")
+                                Image(systemName: "arrow.up.forward.square")
+                            }
+                            .foregroundStyle(.tint)
+                            Text("to browse icon options")
+                                .font(.caption)
+                                .emphasis(.secondary)
+                        }
                         Spacer()
                     }
-                    .foregroundStyle(.tint)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .contentShape(.rect)
