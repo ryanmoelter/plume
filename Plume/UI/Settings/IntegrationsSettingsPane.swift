@@ -33,6 +33,8 @@ struct IntegrationsSettingsPane: View {
                 Text("GitHub")
             }
 
+            LinearSettingsSection()
+
             Section {
                 ForEach(settings.ignoredPendingChecks, id: \.self) { name in
                     HStack {
