@@ -65,33 +65,69 @@ struct SidebarTintTests {
     }
 }
 
-/// A task's icon is tinted under a Dot marker or colored names, and the recent
-/// list is deduplicated, capped, most recent first and custom-only.
-struct SidebarIconsTests {
+/// The resolver puts the bar under Bar, the dot under Dot without an icon, the
+/// icon under Dot or colored names, and the title under colored names only.
+struct SidebarTaskAppearanceTests {
     private let tint = SidebarTint.palette(slot: 3)
+
+    private func appearance(
+        _ marker: SidebarTaskMarker,
+        colorsNames: Bool = false,
+        bold: Bool = false,
+        hasIcon: Bool = false,
+        effective: SidebarTint? = SidebarTint.palette(slot: 3)
+    ) -> SidebarTaskAppearance {
+        SidebarTaskAppearance(
+            effective: effective, marker: marker, colorsNames: colorsNames, bold: bold, hasIcon: hasIcon
+        )
+    }
 
     @Test(arguments: [
         (SidebarTaskMarker.dot, false, true),
         (.dot, true, true),
         (.bar, true, true),
-        (.none, true, true),
+        (.off, true, true),
         (.bar, false, false),
-        (.none, false, false),
+        (.off, false, false),
     ])
-    func taskIconTintRule(marker: SidebarTaskMarker, colorsNames: Bool, tinted: Bool) {
-        let result = SidebarIcons.taskTint(effective: tint, marker: marker, colorsNames: colorsNames)
-        #expect(result == (tinted ? tint : nil))
+    func iconTintRule(marker: SidebarTaskMarker, colorsNames: Bool, tinted: Bool) {
+        #expect(appearance(marker, colorsNames: colorsNames).iconTint == (tinted ? tint : nil))
     }
 
-    @Test func taskIconWithoutColorHasNoTint() {
-        #expect(SidebarIcons.taskTint(effective: nil, marker: .dot, colorsNames: true) == nil)
+    @Test func barTintOnlyUnderBarMarker() {
+        #expect(appearance(.bar).barTint == tint)
+        #expect(appearance(.dot).barTint == nil)
+        #expect(appearance(.off).barTint == nil)
     }
 
-    @Test func taskWeightFollowsBoldSetting() {
-        #expect(SidebarIcons.taskWeight(bold: true) == .bold)
-        #expect(SidebarIcons.taskWeight(bold: false) == .regular)
+    @Test func dotTintOnlyUnderDotMarkerWithoutIcon() {
+        #expect(appearance(.dot).dotTint == tint)
+        #expect(appearance(.dot, hasIcon: true).dotTint == nil)
+        #expect(appearance(.bar).dotTint == nil)
+        #expect(appearance(.off).dotTint == nil)
     }
 
+    @Test func titleTintOnlyWithColoredNames() {
+        #expect(appearance(.off, colorsNames: true).titleTint == tint)
+        #expect(appearance(.dot).titleTint == nil)
+    }
+
+    @Test func uncoloredTaskHasNoTints() {
+        let result = appearance(.dot, colorsNames: true, effective: nil)
+        #expect(result.barTint == nil)
+        #expect(result.dotTint == nil)
+        #expect(result.iconTint == nil)
+        #expect(result.titleTint == nil)
+    }
+
+    @Test func weightFollowsBold() {
+        #expect(appearance(.off, bold: true).weight == .bold)
+        #expect(appearance(.off, bold: false).weight == .regular)
+    }
+}
+
+/// The recent list is deduplicated, capped, most recent first and custom-only.
+struct SidebarIconsTests {
     @Test func recordingPutsNewestFirst() {
         #expect(SidebarIcons.recording("moon", in: ["sun", "cloud"]) == ["moon", "sun", "cloud"])
     }

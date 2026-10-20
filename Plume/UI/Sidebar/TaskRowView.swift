@@ -1,4 +1,5 @@
 import Dispatch
+import SwiftData
 import SwiftUI
 
 struct TaskRowView: View {
@@ -21,9 +22,11 @@ struct TaskRowView: View {
     private var isEditing: Bool { renamingTaskID == task.id }
     private var isEditingDescription: Bool { editingDescriptionTaskID == task.id }
 
-    private var tintColor: Color? {
-        SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+    private var appearance: SidebarTaskAppearance {
+        SidebarTaskAppearance(task: task, settings: .shared)
     }
+
+    private var tintOpacity: Double { isInactive ? 0.7 : 1 }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.
@@ -192,9 +195,9 @@ struct TaskRowView: View {
             HStack(spacing: 5) {
                 if let iconName = task.iconName {
                     taskIcon(iconName)
-                } else if let tintColor, AppSettings.shared.sidebarTaskMarker == .dot {
+                } else if let dot = appearance.dotTint.flatMap(theme.colors.color(for:)) {
                     Circle()
-                        .fill(tintColor)
+                        .fill(dot.opacity(tintOpacity))
                         .frame(width: 7, height: 7)
                 }
                 titleText
@@ -204,16 +207,11 @@ struct TaskRowView: View {
 
     @ViewBuilder
     private func taskIcon(_ name: String) -> some View {
-        let settings = AppSettings.shared
-        let tint = SidebarIcons.taskTint(
-            effective: SidebarTint.effective(for: task),
-            marker: settings.sidebarTaskMarker,
-            colorsNames: settings.sidebarColorsTaskNames
-        )
+        let appearance = appearance
         let icon = Image(systemName: name)
-            .fontWeight(SidebarIcons.taskWeight(bold: settings.sidebarBoldTaskNames))
-        if let color = tint.flatMap(theme.colors.color(for:)) {
-            icon.foregroundStyle(color)
+            .fontWeight(appearance.weight)
+        if let color = appearance.iconTint.flatMap(theme.colors.color(for:)) {
+            icon.foregroundStyle(color.opacity(tintOpacity))
         } else {
             icon.emphasis(isInactive ? .secondary : .primary)
         }
@@ -224,10 +222,10 @@ struct TaskRowView: View {
         let text = Text(TitleStore.shared.displayTitle(for: task))
             .lineLimit(1)
             .truncationMode(.tail)
-            .bold(AppSettings.shared.sidebarBoldTaskNames)
-        if let tintColor, AppSettings.shared.sidebarColorsTaskNames {
+            .bold(appearance.weight == .bold)
+        if let color = appearance.titleTint.flatMap(theme.colors.color(for:)) {
             text
-                .foregroundStyle(tintColor.opacity(isInactive ? 0.7 : 1))
+                .foregroundStyle(color.opacity(tintOpacity))
         } else {
             text.emphasis(isInactive ? .secondary : .primary)
         }
@@ -340,12 +338,18 @@ struct TaskRowView: View {
     /// Clearing the name is how the user goes back to showing the agent's own
     /// title, so an emptied field is left empty.
     private func endEditing() {
-        task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isLive {
+            task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if renamingTaskID == task.id { renamingTaskID = nil }
     }
 
+    private var isLive: Bool { task.modelContext != nil && !task.isDeleted }
+
     private func endEditingDescription() {
-        task.taskDescription = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isLive {
+            task.taskDescription = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if editingDescriptionTaskID == task.id { editingDescriptionTaskID = nil }
     }
 }

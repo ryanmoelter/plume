@@ -28,12 +28,12 @@ struct ThemePaletteView: View {
                     plumeLabel: label,
                     onSelect: { onSelect($0) }
                 )
-                captioned("Text") {
+                CaptionedSwatch("Text", captionColor: foreground.opacity(0.7)) {
                     Circle()
                         .fill(foreground)
                         .frame(width: PaletteSwatchGrid.swatchSize, height: PaletteSwatchGrid.swatchSize)
                 }
-                captioned("System") {
+                CaptionedSwatch("System", captionColor: foreground.opacity(0.7)) {
                     PaletteSwatch(
                         color: Color(nsColor: .controlAccentColor),
                         ringColor: foreground,
@@ -54,12 +54,4 @@ struct ThemePaletteView: View {
         )
     }
 
-    private func captioned(_ caption: String, @ViewBuilder swatch: () -> some View) -> some View {
-        HStack(spacing: 6) {
-            swatch()
-            Text(caption)
-                .font(.caption.weight(.regular))
-                .foregroundStyle(foreground.opacity(0.7))
-        }
-    }
 }

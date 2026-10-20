@@ -238,8 +238,8 @@ struct SidebarView: View {
     }
 
     private func tintBar(for task: WorkTask) -> Color? {
-        guard AppSettings.shared.sidebarTaskMarker == .bar else { return nil }
-        return SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+        SidebarTaskAppearance(task: task, settings: .shared).barTint
+            .flatMap(theme.colors.color(for:))
     }
 
     private func isEditingAppearance(of id: UUID) -> Binding<Bool> {

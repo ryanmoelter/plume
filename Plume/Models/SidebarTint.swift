@@ -51,16 +51,38 @@ enum SidebarIcons {
         return Array(([icon] + recent.filter { $0 != icon }).prefix(recentLimit))
     }
 
-    /// The tint a task's icon takes, or nil for the title's untinted style.
-    static func taskTint(
+}
+
+/// Where a task's color shows, given the sidebar settings. A nil tint means
+/// that part renders untinted.
+struct SidebarTaskAppearance: Equatable {
+    let barTint: SidebarTint?
+    let dotTint: SidebarTint?
+    let iconTint: SidebarTint?
+    let titleTint: SidebarTint?
+    let weight: Font.Weight
+
+    init(
         effective: SidebarTint?,
         marker: SidebarTaskMarker,
-        colorsNames: Bool
-    ) -> SidebarTint? {
-        marker == .dot || colorsNames ? effective : nil
+        colorsNames: Bool,
+        bold: Bool,
+        hasIcon: Bool
+    ) {
+        barTint = marker == .bar ? effective : nil
+        dotTint = marker == .dot && !hasIcon ? effective : nil
+        iconTint = marker == .dot || colorsNames ? effective : nil
+        titleTint = colorsNames ? effective : nil
+        weight = bold ? .bold : .regular
     }
 
-    static func taskWeight(bold: Bool) -> Font.Weight {
-        bold ? .bold : .regular
+    init(task: WorkTask, settings: AppSettings) {
+        self.init(
+            effective: SidebarTint.effective(for: task),
+            marker: settings.sidebarTaskMarker,
+            colorsNames: settings.sidebarColorsTaskNames,
+            bold: settings.sidebarBoldTaskNames,
+            hasIcon: task.iconName != nil
+        )
     }
 }

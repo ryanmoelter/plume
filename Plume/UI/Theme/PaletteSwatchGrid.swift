@@ -108,3 +108,28 @@ extension PaletteSwatch where Content == EmptyView {
         )
     }
 }
+
+/// A swatch with a caption beside it. The caption takes secondary emphasis
+/// unless `captionColor` is given.
+struct CaptionedSwatch<Swatch: View>: View {
+    let caption: String
+    var captionColor: Color?
+    @ViewBuilder var swatch: () -> Swatch
+
+    init(_ caption: String, captionColor: Color? = nil, @ViewBuilder swatch: @escaping () -> Swatch) {
+        self.caption = caption
+        self.captionColor = captionColor
+        self.swatch = swatch
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            swatch()
+            if let captionColor {
+                Text(caption).font(.caption).foregroundStyle(captionColor)
+            } else {
+                Text(caption).font(.caption).emphasis(.secondary)
+            }
+        }
+    }
+}

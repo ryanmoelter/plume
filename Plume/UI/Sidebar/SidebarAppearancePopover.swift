@@ -22,17 +22,13 @@ struct TaskAppearancePopover: View {
     @Bindable var task: WorkTask
 
     var body: some View {
-        let settings = AppSettings.shared
+        let appearance = SidebarTaskAppearance(task: task, settings: .shared)
         SidebarAppearanceEditor(
             tint: $task.tint,
             inheritedTint: task.group?.tint,
             iconName: $task.iconName,
-            iconTint: SidebarIcons.taskTint(
-                effective: SidebarTint.effective(for: task),
-                marker: settings.sidebarTaskMarker,
-                colorsNames: settings.sidebarColorsTaskNames
-            ),
-            iconWeight: SidebarIcons.taskWeight(bold: settings.sidebarBoldTaskNames),
+            iconTint: appearance.iconTint,
+            iconWeight: appearance.weight,
             plumeLabel: TitleStore.shared.displayTitle(for: task)
         )
     }
@@ -83,7 +79,7 @@ private struct SidebarTintPicker: View {
                 .font(.subheadline.weight(.semibold))
                 .emphasis(.secondary)
             HStack(spacing: 14) {
-                captioned(inherited == nil ? "None" : "Group color") {
+                CaptionedSwatch(inherited == nil ? "None" : "Group color") {
                     PaletteSwatch(
                         color: inherited.flatMap(theme.colors.color(for:)),
                         ringColor: .primary,
@@ -101,7 +97,7 @@ private struct SidebarTintPicker: View {
                         }
                     }
                 }
-                captioned("Text") {
+                CaptionedSwatch("Text") {
                     PaletteSwatch(
                         color: theme.colors.foreground,
                         ringColor: .primary,
@@ -124,14 +120,6 @@ private struct SidebarTintPicker: View {
         }
     }
 
-    private func captioned(_ caption: String, @ViewBuilder swatch: () -> some View) -> some View {
-        HStack(spacing: 6) {
-            swatch()
-            Text(caption)
-                .font(.caption)
-                .emphasis(.secondary)
-        }
-    }
 }
 
 /// A field for any SF Symbol's name, a curated grid and the recently used custom icons.
@@ -155,6 +143,10 @@ private struct SidebarIconPicker: View {
 
     private var draftIsInvalid: Bool {
         !trimmedDraft.isEmpty && !Self.isSymbol(trimmedDraft)
+    }
+
+    private var canRevert: Bool {
+        iconName != original || draft != (original ?? "")
     }
 
     private var recent: [String] {
@@ -182,16 +174,16 @@ private struct SidebarIconPicker: View {
                 .buttonStyle(.plain)
                 .emphasis(.secondary)
                 .help("Restore the icon from when this opened")
-                .disabled(iconName == original)
                 .plumeID(AccessibilityID.sidebarIconRevertButton, label: plumeLabel, invoke: revert)
+                .disabled(!canRevert)
                 Button(action: clear) {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
                 .emphasis(.secondary)
                 .help("Remove the icon")
-                .disabled(iconName == nil && draft.isEmpty)
                 .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: clear)
+                .disabled(iconName == nil && draft.isEmpty)
             }
             if draftIsInvalid {
                 Text("No SF Symbol has that name")
@@ -219,8 +211,12 @@ private struct SidebarIconPicker: View {
             }
         }
         .onDisappear {
-            AppSettings.shared.recentSidebarIcons =
-                SidebarIcons.recording(iconName, in: AppSettings.shared.recentSidebarIcons)
+            if draftIsInvalid {
+                iconName = original
+            } else {
+                AppSettings.shared.recentSidebarIcons =
+                    SidebarIcons.recording(iconName, in: AppSettings.shared.recentSidebarIcons)
+            }
         }
     }
 

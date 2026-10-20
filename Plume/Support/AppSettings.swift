@@ -698,7 +698,7 @@ enum ComposerSendKey: String {
 }
 
 enum SidebarTaskMarker: String, CaseIterable, Identifiable {
-    case none
+    case off
     case dot
     case bar
 
@@ -706,7 +706,7 @@ enum SidebarTaskMarker: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .none: "None"
+        case .off: "None"
         case .dot: "Dot"
         case .bar: "Bar"
         }

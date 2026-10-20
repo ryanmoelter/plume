@@ -76,6 +76,7 @@ struct PersistenceTests {
             group.iconName = "leaf"
             let task = TaskStore.createTask(in: context, group: group, siblings: [])
             task.tint = .text
+            task.iconName = "bolt"
             task.taskDescription = "Fix the flaky test"
             taskID = task.id
             try context.save()
@@ -85,6 +86,7 @@ struct PersistenceTests {
         let restored = try #require(try context.fetch(FetchDescriptor<WorkTask>()).first { $0.id == taskID })
 
         #expect(restored.tint == .text)
+        #expect(restored.iconName == "bolt")
         #expect(restored.taskDescription == "Fix the flaky test")
         #expect(restored.group?.tint == .palette(slot: 3))
         #expect(restored.group?.iconName == "leaf")
