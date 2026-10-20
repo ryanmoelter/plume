@@ -840,7 +840,7 @@ struct ChatTabView: View, ThemedView {
                 Button(codexPlan == nil ? "Approve" : "Implement plan") { answerPlan(.approve) }
                     .buttonStyle(.borderedProminent)
                     .disabled(codexPlan != nil && headlessSession?.isWorking == true)
-                    .plumeID(AccessibilityID.planApproveButton)
+                    .plumeID(AccessibilityID.planApproveButton, invoke: { answerPlan(.approve) })
             }
             Text(codexPlan == nil ? "⌥↩ approves with this feedback" : "Return requests changes")
                 .font(typography.caption.font)
