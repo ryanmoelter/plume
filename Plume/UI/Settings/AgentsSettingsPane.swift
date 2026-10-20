@@ -53,6 +53,18 @@ struct AgentsSettingsPane: View {
                         }
                     }
                     Toggle("Show bypass permissions", isOn: $settings.showsBypassPermissions)
+                    Picker("Deliver queued messages", selection: $settings.queuedMessageDelivery) {
+                        Text("At the end of the turn").tag(QueuedMessageDelivery.endOfTurn)
+                        Text("After the current tool call (sooner)").tag(QueuedMessageDelivery.afterToolCall)
+                    }
+                    .plumeID(
+                        AccessibilityID.queuedMessageDeliveryPicker,
+                        value: settings.queuedMessageDelivery.rawValue,
+                        setValue: { raw in
+                            guard let delivery = QueuedMessageDelivery(rawValue: raw) else { return }
+                            settings.queuedMessageDelivery = delivery
+                        }
+                    )
                 }
             }
 

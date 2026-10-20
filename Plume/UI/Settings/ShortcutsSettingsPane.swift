@@ -22,23 +22,6 @@ struct ShortcutsSettingsPane: View {
                         value: settings.escapeInterruptsTurn ? "on" : "off",
                         invoke: { settings.escapeInterruptsTurn.toggle() }
                     )
-
-                Picker(selection: $settings.queuedMessageDelivery) {
-                    Text("At the end of the turn").tag(QueuedMessageDelivery.endOfTurn)
-                    Text("After the current tool call").tag(QueuedMessageDelivery.afterToolCall)
-                } label: {
-                    Text("Deliver queued messages")
-                    Text("In Claude chat tabs, a message sent while Claude works can wait for the turn to end, or join the turn after its current tool call")
-                        .foregroundStyle(.secondary)
-                }
-                .plumeID(
-                    AccessibilityID.queuedMessageDeliveryPicker,
-                    value: settings.queuedMessageDelivery.rawValue,
-                    setValue: { raw in
-                        guard let delivery = QueuedMessageDelivery(rawValue: raw) else { return }
-                        settings.queuedMessageDelivery = delivery
-                    }
-                )
             } header: {
                 Text("Chat")
             }
