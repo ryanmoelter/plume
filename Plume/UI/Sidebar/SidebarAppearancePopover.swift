@@ -21,7 +21,8 @@ struct GroupAppearancePopover: View {
             iconName: $group.iconName,
             iconTint: group.tint,
             iconWeight: SidebarMetrics.headerWeight,
-            plumeLabel: plumeLabel
+            plumeLabel: plumeLabel,
+            isLive: { group.isLive }
         ) {
             SidebarTextField(
                 title: "Name",
@@ -32,10 +33,8 @@ struct GroupAppearancePopover: View {
                 plumeLabel: plumeLabel
             )
         } onClose: {
-            guard group.modelContext != nil, !group.isDeleted else { return }
-            let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolved = name.isEmpty ? openingName : name
-            if resolved != group.name { group.name = resolved }
+            guard group.isLive else { return }
+            group.settleName(fallback: openingName)
         }
     }
 }
@@ -59,7 +58,8 @@ struct TaskAppearancePopover: View {
             iconName: $task.iconName,
             iconTint: appearance.iconTint,
             iconWeight: appearance.weight,
-            plumeLabel: label
+            plumeLabel: label,
+            isLive: { task.isLive }
         ) {
             SidebarTextField(
                 title: "Name",
@@ -78,7 +78,7 @@ struct TaskAppearancePopover: View {
                 plumeLabel: label
             )
         } onClose: {
-            guard task.modelContext != nil, !task.isDeleted else { return }
+            guard task.isLive else { return }
             let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title != task.title { task.title = title }
             let description = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -113,6 +113,7 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
     let iconTint: SidebarTint?
     let iconWeight: Font.Weight
     let plumeLabel: String
+    let isLive: () -> Bool
     @ViewBuilder let fields: Fields
     let onClose: () -> Void
 
@@ -128,7 +129,8 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
                 iconName: $iconName,
                 tint: iconTint,
                 weight: iconWeight,
-                plumeLabel: plumeLabel
+                plumeLabel: plumeLabel,
+                isLive: isLive
             )
         }
         .onSubmit { dismiss() }
@@ -232,6 +234,7 @@ private struct SidebarIconPicker: View {
     let tint: SidebarTint?
     let weight: Font.Weight
     let plumeLabel: String
+    let isLive: () -> Bool
 
     @Environment(\.theme) private var theme
     @State private var draft = ""
@@ -322,6 +325,7 @@ private struct SidebarIconPicker: View {
             }
         }
         .onDisappear {
+            guard isLive() else { return }
             if draftIsInvalid {
                 iconName = original
             } else {

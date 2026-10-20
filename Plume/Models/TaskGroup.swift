@@ -26,4 +26,16 @@ final class TaskGroup {
         get { tintRaw.flatMap(SidebarTint.init(rawValue:)) }
         set { tintRaw = newValue?.rawValue }
     }
+
+    /// Trims the name, restoring `fallback` when that leaves it blank.
+    func settleName(fallback: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let settled = trimmed.isEmpty ? fallback : trimmed
+        if settled != name { name = settled }
+    }
+}
+
+extension PersistentModel {
+    /// False once the model is deleted, when writing to it can trap.
+    var isLive: Bool { modelContext != nil && !isDeleted }
 }

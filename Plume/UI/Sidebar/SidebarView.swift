@@ -118,7 +118,10 @@ struct SidebarView: View {
         GroupSectionHeader(
             group: group,
             isRenaming: renamingGroupID == group.id,
-            onDoneRenaming: { renamingGroupID = nil },
+            onDoneRenaming: {
+                if group.isLive { group.settleName(fallback: TaskStore.defaultGroupName) }
+                renamingGroupID = nil
+            },
             onCreateTask: { createTask(in: group) },
             onEdit: { appearanceEditingID = group.id }
         )

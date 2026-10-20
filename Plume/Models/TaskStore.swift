@@ -7,6 +7,8 @@ import SwiftUI // Array.move(fromOffsets:toOffset:)
 /// Ordering is stored as a dense `orderIndex` per section, rewritten on every
 /// move so drag-reorder and cross-group moves share one code path.
 enum TaskStore {
+    static let defaultGroupName = "New Group"
+
     // MARK: - Create
 
     /// `defaultsToRecentFolder` seeds the workspace from the last folder used,
@@ -56,7 +58,7 @@ enum TaskStore {
     @discardableResult
     static func createGroup(
         in context: ModelContext,
-        name: String = "New Group",
+        name: String = defaultGroupName,
         existing: [TaskGroup]
     ) -> TaskGroup {
         let group = TaskGroup(name: name, orderIndex: nextIndex(after: existing))

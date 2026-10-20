@@ -186,3 +186,18 @@ struct SidebarIconsTests {
         #expect(SidebarIcons.popular(filled: true) == SidebarIcons.popularFilled)
     }
 }
+
+@MainActor
+struct GroupNameSettlingTests {
+    @Test func blankNameFallsBack() {
+        let group = TaskGroup(name: "  \n", orderIndex: 0)
+        group.settleName(fallback: "Work")
+        #expect(group.name == "Work")
+    }
+
+    @Test func nameIsTrimmed() {
+        let group = TaskGroup(name: " Work ", orderIndex: 0)
+        group.settleName(fallback: "Other")
+        #expect(group.name == "Work")
+    }
+}

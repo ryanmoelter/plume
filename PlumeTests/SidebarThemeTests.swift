@@ -70,8 +70,8 @@ struct SidebarThemeTests {
         #expect(chrome.bodySize == CGFloat(AppSettings.defaultChatFontSize))
     }
 
-    /// The Settings preview read the unthemed default, which has no palette
-    /// slots, so a palette accent drew no color at all.
+    /// The unthemed default palette has no slots, so a palette tint resolves
+    /// to a color only under a theme.
     @Test func previewColorsResolveOnlyFromAThemedPalette() throws {
         let definitions = try #require(machineDefinitions)
         let size = CGFloat(AppSettings.defaultChatFontSize)
