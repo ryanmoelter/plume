@@ -46,6 +46,8 @@ struct TabContentView: View {
                     } onEnded: {
                         if let draggedFraction { TaskStore.setSplitFraction(draggedFraction, in: task) }
                         draggedFraction = nil
+                    } onReset: {
+                        TaskStore.setSplitFraction(0.5, in: task)
                     }
                     .frame(height: proxy.size.height)
                     .offset(x: dividerX - SplitDivider.hitWidth / 2)
@@ -164,6 +166,7 @@ private struct SplitDivider: View {
 
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
+    let onReset: () -> Void
 
     @State private var isHovering = false
 
@@ -180,6 +183,7 @@ private struct SplitDivider: View {
                 .onChanged { onChanged($0.location.x) }
                 .onEnded { _ in onEnded() }
         )
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onReset))
         .plumeHover { hovering in
             guard hovering != isHovering else { return }
             isHovering = hovering
@@ -188,7 +192,7 @@ private struct SplitDivider: View {
         .onDisappear {
             if isHovering { NSCursor.pop() }
         }
-        .plumeID(AccessibilityID.splitDivider)
+        .plumeID(AccessibilityID.splitDivider, invoke: onReset)
     }
 }
 

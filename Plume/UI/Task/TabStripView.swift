@@ -253,16 +253,13 @@ private struct TabChip: View {
         }
     }
 
+    /// The unfocused pane's tab takes the gray inactive wash, so the accent
+    /// marks only the focused pane.
     private var chipBackground: Color {
-        let wash = SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive)
-        if isSelected { return wash }
-        return isInOtherPane ? wash.opacity(Self.otherPaneEmphasis) : .clear
+        if isSelected { return SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive) }
+        return isInOtherPane ? SidebarSelectionFill.wash(for: colorScheme, isActive: false) : .clear
     }
 
-    private static let otherPaneEmphasis = 0.45
-
-    /// The unfocused pane's selected tab, marked more faintly than the
-    /// focused one.
     private var isInOtherPane: Bool { isShown && !isSelected }
 
     private var chipValue: String? {
