@@ -61,6 +61,7 @@ struct PersistenceTests {
         #expect(group.iconName == nil)
         #expect(task.tintRaw == nil)
         #expect(task.taskDescription == "")
+        #expect(task.iconName == nil)
     }
 
     @Test func appearanceFieldsSurviveReopeningTheStore() throws {

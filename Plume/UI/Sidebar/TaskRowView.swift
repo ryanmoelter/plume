@@ -190,7 +190,9 @@ struct TaskRowView: View {
                 .onDisappear(perform: endEditing)
         } else {
             HStack(spacing: 5) {
-                if let tintColor, AppSettings.shared.sidebarTaskMarker == .dot {
+                if let iconName = task.iconName {
+                    taskIcon(iconName)
+                } else if let tintColor, AppSettings.shared.sidebarTaskMarker == .dot {
                     Circle()
                         .fill(tintColor)
                         .frame(width: 7, height: 7)
@@ -201,13 +203,30 @@ struct TaskRowView: View {
     }
 
     @ViewBuilder
+    private func taskIcon(_ name: String) -> some View {
+        let settings = AppSettings.shared
+        let tint = SidebarIcons.taskTint(
+            effective: SidebarTint.effective(for: task),
+            marker: settings.sidebarTaskMarker,
+            colorsNames: settings.sidebarColorsTaskNames
+        )
+        let icon = Image(systemName: name)
+            .fontWeight(SidebarIcons.taskWeight(bold: settings.sidebarBoldTaskNames))
+        if let color = tint.flatMap(theme.colors.color(for:)) {
+            icon.foregroundStyle(color)
+        } else {
+            icon.emphasis(isInactive ? .secondary : .primary)
+        }
+    }
+
+    @ViewBuilder
     private var titleText: some View {
         let text = Text(TitleStore.shared.displayTitle(for: task))
             .lineLimit(1)
             .truncationMode(.tail)
+            .bold(AppSettings.shared.sidebarBoldTaskNames)
         if let tintColor, AppSettings.shared.sidebarColorsTaskNames {
             text
-                .bold()
                 .foregroundStyle(tintColor.opacity(isInactive ? 0.7 : 1))
         } else {
             text.emphasis(isInactive ? .secondary : .primary)

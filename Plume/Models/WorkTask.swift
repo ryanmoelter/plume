@@ -9,6 +9,8 @@ final class WorkTask {
     var taskDescription: String = ""
     /// A `SidebarTint` raw value. Nil inherits the group's color.
     var tintRaw: String? = nil
+    /// An SF Symbol name. Unlike the color, never inherited from the group.
+    var iconName: String? = nil
     var orderIndex: Int = 0
     var createdAt: Date = Date()
 

@@ -17,6 +17,8 @@ enum SidebarMetrics {
     /// A header sits 2 pt further out than a row's content, as the system's
     /// section headers do.
     static let headerLeadingPadding: CGFloat = 10
+    /// The weight `sidebarSectionHeader()` gives a header's text.
+    static let headerWeight = Font.Weight.semibold
     static let headerMinHeight: CGFloat = 19
     /// Above every section header but the first.
     static let headerTopSpacing: CGFloat = 13
@@ -40,7 +42,7 @@ extension View {
     /// Styles this view as a sidebar section header: 11 pt semibold in the
     /// secondary text style.
     func sidebarSectionHeader() -> some View {
-        font(.subheadline.weight(.semibold))
+        font(.subheadline.weight(SidebarMetrics.headerWeight))
             .emphasis(.secondary)
             .padding(.leading, SidebarMetrics.headerLeadingPadding)
             .padding(.trailing, SidebarMetrics.rowHorizontalPadding)

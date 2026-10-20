@@ -29,6 +29,7 @@ struct GroupSectionHeader: View {
 
             if let iconName = group.iconName {
                 Image(systemName: iconName)
+                    .fontWeight(SidebarMetrics.headerWeight)
                     .foregroundStyle(labelStyle)
             }
 

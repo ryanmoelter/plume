@@ -163,7 +163,7 @@ struct SidebarView: View {
                 // to place its cursor.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
                 .popover(isPresented: isEditingAppearance(of: task.id), arrowEdge: .trailing) {
-                    TaskColorPopover(task: task)
+                    TaskAppearancePopover(task: task)
                 }
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
@@ -171,7 +171,7 @@ struct SidebarView: View {
                         editingDescriptionTaskID = task.id
                     }
                     .plumeID(AccessibilityID.taskEditDescriptionButton, label: TitleStore.shared.displayTitle(for: task))
-                    Button("Color…") { appearanceEditingID = task.id }
+                    Button("Icon & Color…") { appearanceEditingID = task.id }
                         .plumeID(AccessibilityID.taskColorButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }

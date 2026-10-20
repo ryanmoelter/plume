@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import SwiftUI
 @testable import Plume
 
 /// `SidebarTint` round-trips through its raw string, rejects anything else as
@@ -61,5 +62,54 @@ struct SidebarTintTests {
         let task = TaskStore.createTask(in: context, siblings: [])
 
         #expect(SidebarTint.effective(for: task) == nil)
+    }
+}
+
+/// A task's icon is tinted under a Dot marker or colored names, and the recent
+/// list is deduplicated, capped, most recent first and custom-only.
+struct SidebarIconsTests {
+    private let tint = SidebarTint.palette(slot: 3)
+
+    @Test(arguments: [
+        (SidebarTaskMarker.dot, false, true),
+        (.dot, true, true),
+        (.bar, true, true),
+        (.none, true, true),
+        (.bar, false, false),
+        (.none, false, false),
+    ])
+    func taskIconTintRule(marker: SidebarTaskMarker, colorsNames: Bool, tinted: Bool) {
+        let result = SidebarIcons.taskTint(effective: tint, marker: marker, colorsNames: colorsNames)
+        #expect(result == (tinted ? tint : nil))
+    }
+
+    @Test func taskIconWithoutColorHasNoTint() {
+        #expect(SidebarIcons.taskTint(effective: nil, marker: .dot, colorsNames: true) == nil)
+    }
+
+    @Test func taskWeightFollowsBoldSetting() {
+        #expect(SidebarIcons.taskWeight(bold: true) == .bold)
+        #expect(SidebarIcons.taskWeight(bold: false) == .regular)
+    }
+
+    @Test func recordingPutsNewestFirst() {
+        #expect(SidebarIcons.recording("moon", in: ["sun", "cloud"]) == ["moon", "sun", "cloud"])
+    }
+
+    @Test func recordingDeduplicatesByMovingToFront() {
+        #expect(SidebarIcons.recording("cloud", in: ["sun", "cloud", "moon"]) == ["cloud", "sun", "moon"])
+    }
+
+    @Test func recordingCapsAtTwelve() {
+        let recent = (0..<12).map { "custom.\($0)" }
+        let result = SidebarIcons.recording("new", in: recent)
+        #expect(result.count == 12)
+        #expect(result.first == "new")
+        #expect(!result.contains("custom.11"))
+    }
+
+    @Test func recordingIgnoresCuratedAndNil() {
+        #expect(SidebarIcons.recording("star", in: ["sun"]) == ["sun"])
+        #expect(SidebarIcons.recording(nil, in: ["sun"]) == ["sun"])
     }
 }

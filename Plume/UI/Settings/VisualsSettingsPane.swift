@@ -61,7 +61,7 @@ struct VisualsSettingsPane: View {
                 )
                 Toggle(isOn: $settings.sidebarColorsTaskNames) {
                     Text("Color task names")
-                    Text("Draws a colored task's name in bold, in its color")
+                    Text("Draws a colored task's name in its color")
                         .foregroundStyle(.secondary)
                 }
                 .plumeID(
@@ -69,6 +69,12 @@ struct VisualsSettingsPane: View {
                     value: settings.sidebarColorsTaskNames ? "on" : "off",
                     invoke: { settings.sidebarColorsTaskNames.toggle() }
                 )
+                Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarBoldTaskNamesToggle,
+                        value: settings.sidebarBoldTaskNames ? "on" : "off",
+                        invoke: { settings.sidebarBoldTaskNames.toggle() }
+                    )
             } header: {
                 Text("Sidebar")
             }

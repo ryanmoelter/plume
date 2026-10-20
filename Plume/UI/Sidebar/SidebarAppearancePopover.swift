@@ -6,33 +6,61 @@ struct GroupAppearancePopover: View {
     @Bindable var group: TaskGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SidebarTintPicker(
-                selection: $group.tint,
-                inherited: nil,
-                plumeLabel: group.name
-            )
-            Divider()
-            SidebarIconPicker(iconName: $group.iconName, plumeLabel: group.name)
-        }
-        .padding(14)
-        .frame(width: 290)
-        .plumeID(AccessibilityID.sidebarAppearancePopover, label: group.name)
+        SidebarAppearanceEditor(
+            tint: $group.tint,
+            inheritedTint: nil,
+            iconName: $group.iconName,
+            iconTint: group.tint,
+            iconWeight: SidebarMetrics.headerWeight,
+            plumeLabel: group.name
+        )
     }
 }
 
-/// A task's color, edited from its context menu.
-struct TaskColorPopover: View {
+/// A task's icon and color, edited from its context menu.
+struct TaskAppearancePopover: View {
     @Bindable var task: WorkTask
 
     var body: some View {
-        SidebarTintPicker(
-            selection: $task.tint,
-            inherited: task.group?.tint,
+        let settings = AppSettings.shared
+        SidebarAppearanceEditor(
+            tint: $task.tint,
+            inheritedTint: task.group?.tint,
+            iconName: $task.iconName,
+            iconTint: SidebarIcons.taskTint(
+                effective: SidebarTint.effective(for: task),
+                marker: settings.sidebarTaskMarker,
+                colorsNames: settings.sidebarColorsTaskNames
+            ),
+            iconWeight: SidebarIcons.taskWeight(bold: settings.sidebarBoldTaskNames),
             plumeLabel: TitleStore.shared.displayTitle(for: task)
         )
+    }
+}
+
+private struct SidebarAppearanceEditor: View {
+    @Binding var tint: SidebarTint?
+    let inheritedTint: SidebarTint?
+    @Binding var iconName: String?
+    /// The color the real icon will take, or nil when it renders untinted.
+    let iconTint: SidebarTint?
+    let iconWeight: Font.Weight
+    let plumeLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SidebarTintPicker(selection: $tint, inherited: inheritedTint, plumeLabel: plumeLabel)
+            Divider()
+            SidebarIconPicker(
+                iconName: $iconName,
+                tint: iconTint,
+                weight: iconWeight,
+                plumeLabel: plumeLabel
+            )
+        }
         .padding(14)
-        .plumeID(AccessibilityID.sidebarAppearancePopover, label: TitleStore.shared.displayTitle(for: task))
+        .frame(width: 290)
+        .plumeID(AccessibilityID.sidebarAppearancePopover, label: plumeLabel)
     }
 }
 
@@ -106,20 +134,16 @@ private struct SidebarTintPicker: View {
     }
 }
 
-/// A curated grid of SF Symbols, plus a field for any other symbol's name.
+/// A field for any SF Symbol's name, a curated grid and the recently used custom icons.
 private struct SidebarIconPicker: View {
     @Binding var iconName: String?
+    let tint: SidebarTint?
+    let weight: Font.Weight
     let plumeLabel: String
 
     @Environment(\.theme) private var theme
     @State private var draft = ""
-
-    static let curated = [
-        "folder", "star", "flag", "bookmark", "tag", "bolt",
-        "flame", "leaf", "ladybug", "hammer", "wrench.and.screwdriver", "paintbrush",
-        "doc.text", "book", "lightbulb", "sparkles", "globe", "server.rack",
-        "terminal", "cpu", "shippingbox", "cube", "testtube.2", "heart",
-    ]
+    @State private var original: String?
 
     static func isSymbol(_ name: String) -> Bool {
         NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
@@ -133,17 +157,17 @@ private struct SidebarIconPicker: View {
         !trimmedDraft.isEmpty && !Self.isSymbol(trimmedDraft)
     }
 
+    private var recent: [String] {
+        AppSettings.shared.recentSidebarIcons
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Icon")
                 .font(.subheadline.weight(.semibold))
                 .emphasis(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 6), count: 8), spacing: 6) {
-                ForEach(Self.curated, id: \.self) { name in
-                    symbolButton(name)
-                }
-            }
             HStack(spacing: 6) {
+                preview
                 TextField("Icon name", text: $draft, prompt: Text("SF Symbol name"))
                     .textFieldStyle(.roundedBorder)
                     .plumeID(
@@ -152,22 +176,40 @@ private struct SidebarIconPicker: View {
                         value: draft,
                         setValue: { draft = $0 }
                     )
+                Button(action: revert) {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .buttonStyle(.plain)
+                .emphasis(.secondary)
+                .help("Restore the icon from when this opened")
+                .disabled(iconName == original)
+                .plumeID(AccessibilityID.sidebarIconRevertButton, label: plumeLabel, invoke: revert)
                 Button(action: clear) {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
                 .emphasis(.secondary)
                 .help("Remove the icon")
-                .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: clear)
                 .disabled(iconName == nil && draft.isEmpty)
+                .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: clear)
             }
             if draftIsInvalid {
                 Text("No SF Symbol has that name")
                     .font(.caption)
                     .foregroundStyle(theme.colors.danger)
             }
+            grid(SidebarIcons.curated)
+            if !recent.isEmpty {
+                Text("Recent")
+                    .font(.subheadline.weight(.semibold))
+                    .emphasis(.secondary)
+                grid(recent)
+            }
         }
-        .onAppear { draft = iconName ?? "" }
+        .onAppear {
+            draft = iconName ?? ""
+            original = iconName
+        }
         .onChange(of: draft) { _, _ in
             let name = trimmedDraft
             if name.isEmpty {
@@ -176,10 +218,45 @@ private struct SidebarIconPicker: View {
                 iconName = name
             }
         }
+        .onDisappear {
+            AppSettings.shared.recentSidebarIcons =
+                SidebarIcons.recording(iconName, in: AppSettings.shared.recentSidebarIcons)
+        }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        Group {
+            if !trimmedDraft.isEmpty, Self.isSymbol(trimmedDraft) {
+                symbol(trimmedDraft)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: 24, height: 24)
+    }
+
+    private func grid(_ names: [String]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 6), count: 8), spacing: 6) {
+            ForEach(names, id: \.self) { name in
+                symbolButton(name)
+            }
+        }
+    }
+
+    private func symbol(_ name: String) -> some View {
+        let color = tint.flatMap(theme.colors.color(for:))
+        return Image(systemName: name)
+            .fontWeight(weight)
+            .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
     }
 
     private func clear() {
         draft = ""
+    }
+
+    private func revert() {
+        draft = original ?? ""
     }
 
     private func symbolButton(_ name: String) -> some View {
@@ -187,7 +264,7 @@ private struct SidebarIconPicker: View {
         return Button {
             draft = name
         } label: {
-            Image(systemName: name)
+            symbol(name)
                 .frame(width: 28, height: 24)
                 .background(
                     isSelected ? AnyShapeStyle(theme.colors.selection.opacity(0.25)) : AnyShapeStyle(.clear),

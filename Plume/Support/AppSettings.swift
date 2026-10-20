@@ -34,6 +34,8 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let sidebarTaskMarkerRaw = "sidebarTaskMarkerRaw"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
+        static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
@@ -165,6 +167,8 @@ final class AppSettings {
         self.sidebarTaskMarker = defaults.string(forKey: Key.sidebarTaskMarkerRaw)
             .flatMap(SidebarTaskMarker.init(rawValue:)) ?? .bar
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
+        self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
@@ -458,10 +462,23 @@ final class AppSettings {
         }
     }
 
-    /// Whether a colored task's name is drawn bold in its color.
+    /// Whether a colored task's name is drawn in its color.
     var sidebarColorsTaskNames: Bool {
         didSet {
             defaults.set(sidebarColorsTaskNames, forKey: Key.sidebarColorsTaskNames)
+        }
+    }
+
+    var sidebarBoldTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Custom icons last chosen for a group or task, most recent first.
+    var recentSidebarIcons: [String] {
+        didSet {
+            defaults.set(recentSidebarIcons, forKey: Key.recentSidebarIcons)
         }
     }
 
