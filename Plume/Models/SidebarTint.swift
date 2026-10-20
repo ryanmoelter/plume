@@ -90,22 +90,19 @@ enum SidebarPreviewTint {
 /// that part renders untinted.
 struct SidebarTaskAppearance: Equatable {
     let barTint: SidebarTint?
-    let dotTint: SidebarTint?
     let iconTint: SidebarTint?
     let titleTint: SidebarTint?
     let weight: Font.Weight
 
     init(
         effective: SidebarTint?,
-        marker: SidebarTaskMarker,
+        showsBar: Bool,
         colorsNames: Bool,
-        tintsIcons: Bool,
-        bold: Bool,
-        hasIcon: Bool
+        colorsIcons: Bool,
+        bold: Bool
     ) {
-        barTint = marker == .bar ? effective : nil
-        dotTint = marker == .dot && !hasIcon ? effective : nil
-        iconTint = tintsIcons ? effective : nil
+        barTint = showsBar ? effective : nil
+        iconTint = colorsIcons ? effective : nil
         titleTint = colorsNames ? effective : nil
         weight = bold ? .bold : .regular
     }
@@ -113,11 +110,10 @@ struct SidebarTaskAppearance: Equatable {
     init(task: WorkTask, settings: AppSettings) {
         self.init(
             effective: SidebarTint.effective(for: task),
-            marker: settings.sidebarTaskMarker,
+            showsBar: settings.sidebarShowsTaskColorBar,
             colorsNames: settings.sidebarColorsTaskNames,
-            tintsIcons: settings.sidebarTintsTaskIcons,
-            bold: settings.sidebarBoldTaskNames,
-            hasIcon: task.iconName != nil
+            colorsIcons: settings.sidebarColorsTaskIcons,
+            bold: settings.sidebarBoldTaskNames
         )
     }
 }

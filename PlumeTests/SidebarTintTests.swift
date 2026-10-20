@@ -66,59 +66,49 @@ struct SidebarTintTests {
     }
 }
 
-/// The resolver puts the bar under Bar, the dot under Dot without an icon, the
-/// icon under the icon setting, and the title under colored names only.
+/// The resolver puts the bar under the color bar setting, the icon under the
+/// icon setting, and the title under colored names only.
 struct SidebarTaskAppearanceTests {
     private let tint = SidebarTint.palette(slot: 3)
 
     private func appearance(
-        _ marker: SidebarTaskMarker,
+        showsBar: Bool = true,
         colorsNames: Bool = false,
-        tintsIcons: Bool = true,
+        colorsIcons: Bool = true,
         bold: Bool = false,
-        hasIcon: Bool = false,
         effective: SidebarTint? = SidebarTint.palette(slot: 3)
     ) -> SidebarTaskAppearance {
         SidebarTaskAppearance(
-            effective: effective, marker: marker, colorsNames: colorsNames, tintsIcons: tintsIcons, bold: bold, hasIcon: hasIcon
+            effective: effective, showsBar: showsBar, colorsNames: colorsNames, colorsIcons: colorsIcons, bold: bold
         )
     }
 
-    @Test(arguments: SidebarTaskMarker.allCases, [false, true])
-    func iconTintFollowsSettingAlone(marker: SidebarTaskMarker, colorsNames: Bool) {
-        #expect(appearance(marker, colorsNames: colorsNames, tintsIcons: true).iconTint == tint)
-        #expect(appearance(marker, colorsNames: colorsNames, tintsIcons: false).iconTint == nil)
+    @Test(arguments: [false, true])
+    func iconTintFollowsSettingAlone(colorsNames: Bool) {
+        #expect(appearance(colorsNames: colorsNames, colorsIcons: true).iconTint == tint)
+        #expect(appearance(colorsNames: colorsNames, colorsIcons: false).iconTint == nil)
     }
 
-    @Test func barTintOnlyUnderBarMarker() {
-        #expect(appearance(.bar).barTint == tint)
-        #expect(appearance(.dot).barTint == nil)
-        #expect(appearance(.off).barTint == nil)
-    }
-
-    @Test func dotTintOnlyUnderDotMarkerWithoutIcon() {
-        #expect(appearance(.dot).dotTint == tint)
-        #expect(appearance(.dot, hasIcon: true).dotTint == nil)
-        #expect(appearance(.bar).dotTint == nil)
-        #expect(appearance(.off).dotTint == nil)
+    @Test func barTintFollowsSettingAlone() {
+        #expect(appearance(showsBar: true).barTint == tint)
+        #expect(appearance(showsBar: false).barTint == nil)
     }
 
     @Test func titleTintOnlyWithColoredNames() {
-        #expect(appearance(.off, colorsNames: true).titleTint == tint)
-        #expect(appearance(.dot).titleTint == nil)
+        #expect(appearance(colorsNames: true).titleTint == tint)
+        #expect(appearance(colorsNames: false).titleTint == nil)
     }
 
     @Test func uncoloredTaskHasNoTints() {
-        let result = appearance(.dot, colorsNames: true, tintsIcons: true, effective: nil)
+        let result = appearance(colorsNames: true, colorsIcons: true, effective: nil)
         #expect(result.barTint == nil)
-        #expect(result.dotTint == nil)
         #expect(result.iconTint == nil)
         #expect(result.titleTint == nil)
     }
 
     @Test func weightFollowsBold() {
-        #expect(appearance(.off, bold: true).weight == .bold)
-        #expect(appearance(.off, bold: false).weight == .regular)
+        #expect(appearance(bold: true).weight == .bold)
+        #expect(appearance(bold: false).weight == .regular)
     }
 }
 

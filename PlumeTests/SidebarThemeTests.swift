@@ -58,4 +58,29 @@ struct SidebarThemeTests {
         #expect(chrome.bodySize != enlargedChat.bodySize)
         #expect(chrome.bodySize == CGFloat(AppSettings.defaultChatFontSize))
     }
+
+    /// The Settings preview read the unthemed default, which has no palette
+    /// slots, so a palette accent drew no color at all.
+    @Test func previewColorsResolveOnlyFromAThemedPalette() throws {
+        let definitions = try #require(machineDefinitions)
+        let size = CGFloat(AppSettings.defaultChatFontSize)
+        let themed = Theme(
+            colors: Palette(colorScheme: .dark, definitions: definitions),
+            dimensions: Dimensions(bodySize: size),
+            typography: Typography(bodySize: size)
+        )
+        let unthemed = Theme(
+            colors: Palette(colorScheme: .dark, definitions: nil),
+            dimensions: Dimensions(bodySize: size),
+            typography: Typography(bodySize: size)
+        )
+        let slot = 4
+        let tint = SidebarPreviewTint.effective(accentSlot: slot)
+
+        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: themed) != nil)
+        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: unthemed) == nil)
+
+        let system = SidebarPreviewTint.effective(accentSlot: nil)
+        #expect(SidebarPreviewTint.color(for: system, accentSlot: nil, theme: themed) != nil)
+    }
 }

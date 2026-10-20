@@ -8,6 +8,48 @@ struct VisualsSettingsPane: View {
             ThemeSettingsSection()
 
             Section {
+                SidebarTaskPreview()
+                Toggle("Show task color bar", isOn: $settings.sidebarShowsTaskColorBar)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarShowsTaskColorBarToggle,
+                        value: settings.sidebarShowsTaskColorBar ? "on" : "off",
+                        invoke: { settings.sidebarShowsTaskColorBar.toggle() }
+                    )
+                Toggle("Color task names", isOn: $settings.sidebarColorsTaskNames)
+                .plumeID(
+                    AccessibilityID.settingsSidebarColorsTaskNamesToggle,
+                    value: settings.sidebarColorsTaskNames ? "on" : "off",
+                    invoke: { settings.sidebarColorsTaskNames.toggle() }
+                )
+                Toggle("Color task icons", isOn: $settings.sidebarColorsTaskIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarColorsTaskIconsToggle,
+                        value: settings.sidebarColorsTaskIcons ? "on" : "off",
+                        invoke: { settings.sidebarColorsTaskIcons.toggle() }
+                    )
+                Toggle("Suggest filled icons", isOn: $settings.sidebarSuggestsFilledIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarSuggestsFilledIconsToggle,
+                        value: settings.sidebarSuggestsFilledIcons ? "on" : "off",
+                        invoke: { settings.sidebarSuggestsFilledIcons.toggle() }
+                    )
+                Toggle("Use two-tone icons", isOn: $settings.sidebarTwoToneIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarTwoToneIconsToggle,
+                        value: settings.sidebarTwoToneIcons ? "on" : "off",
+                        invoke: { settings.sidebarTwoToneIcons.toggle() }
+                    )
+                Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarBoldTaskNamesToggle,
+                        value: settings.sidebarBoldTaskNames ? "on" : "off",
+                        invoke: { settings.sidebarBoldTaskNames.toggle() }
+                    )
+            } header: {
+                Text("Sidebar")
+            }
+
+            Section {
                 LabeledContent {
                     HStack {
                         Slider(
@@ -43,59 +85,6 @@ struct VisualsSettingsPane: View {
                 }
             } header: {
                 Text("Chat")
-            }
-
-            Section {
-                SidebarTaskPreview()
-                Picker("Task marker", selection: $settings.sidebarTaskMarker) {
-                    ForEach(SidebarTaskMarker.allCases) { marker in
-                        Text(marker.title).tag(marker)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .plumeID(
-                    AccessibilityID.settingsSidebarTaskMarkerPicker,
-                    value: settings.sidebarTaskMarker.rawValue,
-                    setValue: { raw in
-                        if let marker = SidebarTaskMarker(rawValue: raw) { settings.sidebarTaskMarker = marker }
-                    }
-                )
-                Toggle(isOn: $settings.sidebarColorsTaskNames) {
-                    Text("Color task names")
-                    Text("Draws a colored task's name in its color")
-                        .foregroundStyle(.secondary)
-                }
-                .plumeID(
-                    AccessibilityID.settingsSidebarColorsTaskNamesToggle,
-                    value: settings.sidebarColorsTaskNames ? "on" : "off",
-                    invoke: { settings.sidebarColorsTaskNames.toggle() }
-                )
-                Toggle("Tint task icons", isOn: $settings.sidebarTintsTaskIcons)
-                    .plumeID(
-                        AccessibilityID.settingsSidebarTintsTaskIconsToggle,
-                        value: settings.sidebarTintsTaskIcons ? "on" : "off",
-                        invoke: { settings.sidebarTintsTaskIcons.toggle() }
-                    )
-                Toggle("Suggest filled icons", isOn: $settings.sidebarSuggestsFilledIcons)
-                    .plumeID(
-                        AccessibilityID.settingsSidebarSuggestsFilledIconsToggle,
-                        value: settings.sidebarSuggestsFilledIcons ? "on" : "off",
-                        invoke: { settings.sidebarSuggestsFilledIcons.toggle() }
-                    )
-                Toggle("Use two-tone icons", isOn: $settings.sidebarTwoToneIcons)
-                    .plumeID(
-                        AccessibilityID.settingsSidebarTwoToneIconsToggle,
-                        value: settings.sidebarTwoToneIcons ? "on" : "off",
-                        invoke: { settings.sidebarTwoToneIcons.toggle() }
-                    )
-                Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
-                    .plumeID(
-                        AccessibilityID.settingsSidebarBoldTaskNamesToggle,
-                        value: settings.sidebarBoldTaskNames ? "on" : "off",
-                        invoke: { settings.sidebarBoldTaskNames.toggle() }
-                    )
-            } header: {
-                Text("Sidebar")
             }
 
             Section {

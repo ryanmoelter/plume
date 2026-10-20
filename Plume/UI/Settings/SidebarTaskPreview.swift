@@ -4,6 +4,16 @@ import SwiftUI
 /// sidebar setting shows its effect.
 struct SidebarTaskPreview: View {
     static let width: CGFloat = 240
+
+    /// The Settings window installs no theme of its own, so the preview does,
+    /// as the sidebar it imitates does.
+    var body: some View {
+        SidebarTaskPreviewContent()
+            .plumeTheme(bodySize: CGFloat(AppSettings.defaultChatFontSize), setsAmbientFont: false)
+    }
+}
+
+private struct SidebarTaskPreviewContent: View {
     private static let iconName = "person.2"
 
     @Environment(\.theme) private var theme
@@ -14,11 +24,10 @@ struct SidebarTaskPreview: View {
         let slot = settings.accentPaletteSlot
         let appearance = SidebarTaskAppearance(
             effective: SidebarPreviewTint.effective(accentSlot: slot),
-            marker: settings.sidebarTaskMarker,
+            showsBar: settings.sidebarShowsTaskColorBar,
             colorsNames: settings.sidebarColorsTaskNames,
-            tintsIcons: settings.sidebarTintsTaskIcons,
-            bold: settings.sidebarBoldTaskNames,
-            hasIcon: true
+            colorsIcons: settings.sidebarColorsTaskIcons,
+            bold: settings.sidebarBoldTaskNames
         )
         let color = { (tint: SidebarTint?) in
             tint.flatMap { SidebarPreviewTint.color(for: $0, accentSlot: slot, theme: theme) }
@@ -41,7 +50,7 @@ struct SidebarTaskPreview: View {
         }
         .padding(.vertical, 2)
         .sidebarRow(isSelected: false, tintBar: color(appearance.barTint))
-        .frame(width: Self.width)
+        .frame(width: SidebarTaskPreview.width)
         .background(theme.colors.background ?? Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.colors.divider) }
         .frame(maxWidth: .infinity)

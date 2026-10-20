@@ -32,10 +32,10 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
-        static let sidebarTaskMarkerRaw = "sidebarTaskMarkerRaw"
+        static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
-        static let sidebarTintsTaskIcons = "sidebarTintsTaskIcons"
+        static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
         static let recentSidebarIcons = "recentSidebarIcons"
@@ -167,13 +167,14 @@ final class AppSettings {
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
-        self.sidebarTaskMarker = defaults.string(forKey: Key.sidebarTaskMarkerRaw)
-            .flatMap(SidebarTaskMarker.init(rawValue:)) ?? .bar
+        self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
-        self.sidebarTintsTaskIcons = defaults.object(forKey: Key.sidebarTintsTaskIcons) == nil
+        self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
-            : defaults.bool(forKey: Key.sidebarTintsTaskIcons)
+            : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
         self.sidebarSuggestsFilledIcons = defaults.bool(forKey: Key.sidebarSuggestsFilledIcons)
         self.sidebarTwoToneIcons = defaults.bool(forKey: Key.sidebarTwoToneIcons)
         self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
@@ -463,10 +464,10 @@ final class AppSettings {
         }
     }
 
-    /// How a colored task shows its color in the sidebar.
-    var sidebarTaskMarker: SidebarTaskMarker {
+    /// Whether a colored task draws a bar of its color at its row's leading edge.
+    var sidebarShowsTaskColorBar: Bool {
         didSet {
-            defaults.set(sidebarTaskMarker.rawValue, forKey: Key.sidebarTaskMarkerRaw)
+            defaults.set(sidebarShowsTaskColorBar, forKey: Key.sidebarShowsTaskColorBar)
         }
     }
 
@@ -484,9 +485,9 @@ final class AppSettings {
     }
 
     /// Whether a colored task's icon is drawn in its color.
-    var sidebarTintsTaskIcons: Bool {
+    var sidebarColorsTaskIcons: Bool {
         didSet {
-            defaults.set(sidebarTintsTaskIcons, forKey: Key.sidebarTintsTaskIcons)
+            defaults.set(sidebarColorsTaskIcons, forKey: Key.sidebarColorsTaskIcons)
         }
     }
 
@@ -726,18 +727,3 @@ enum ComposerSendKey: String {
     case commandReturn
 }
 
-enum SidebarTaskMarker: String, CaseIterable, Identifiable {
-    case off
-    case dot
-    case bar
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .off: "None"
-        case .dot: "Dot"
-        case .bar: "Bar"
-        }
-    }
-}
