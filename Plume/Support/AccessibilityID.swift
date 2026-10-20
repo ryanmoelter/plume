@@ -24,6 +24,7 @@ enum AccessibilityID {
     static let sidebarAppearancePopover = "sidebar-appearance-popover"
     static let sidebarTintSwatch = "sidebar-tint-swatch"
     static let sidebarIconSwatch = "sidebar-icon-swatch"
+    static let sidebarSFSymbolsLink = "sidebar-sf-symbols-link"
     static let sidebarIconNameField = "sidebar-icon-name-field"
     static let sidebarIconClearButton = "sidebar-icon-clear-button"
     static let sidebarIconRevertButton = "sidebar-icon-revert-button"

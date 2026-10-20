@@ -64,7 +64,8 @@ struct GroupSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .help("New task in this group")
-                .plumeID(AccessibilityID.groupHeaderNewTaskButton)
+                .accessibilityLabel("New task in group")
+                .plumeID(AccessibilityID.groupHeaderNewTaskButton, label: group.name)
 
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
@@ -72,6 +73,7 @@ struct GroupSectionHeader: View {
                 }
                 .buttonStyle(.plain)
                 .help("Edit this group")
+                .accessibilityLabel("Edit group")
                 .plumeID(AccessibilityID.groupHeaderEditButton, label: group.name)
             }
         }

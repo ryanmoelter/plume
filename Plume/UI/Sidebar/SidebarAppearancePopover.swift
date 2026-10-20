@@ -5,6 +5,14 @@ import SwiftUI
 /// A group's name, icon and color, edited from its context menu or header.
 struct GroupAppearancePopover: View {
     @Bindable var group: TaskGroup
+    @State private var plumeLabel: String
+    @State private var openingName: String
+
+    init(group: TaskGroup) {
+        self.group = group
+        _plumeLabel = State(initialValue: group.name)
+        _openingName = State(initialValue: group.name)
+    }
 
     var body: some View {
         SidebarAppearanceEditor(
@@ -13,18 +21,20 @@ struct GroupAppearancePopover: View {
             iconName: $group.iconName,
             iconTint: group.tint,
             iconWeight: SidebarMetrics.headerWeight,
-            plumeLabel: group.name
+            plumeLabel: plumeLabel
         ) {
             SidebarTextField(
                 title: "Name",
                 placeholder: "Group name",
                 text: $group.name,
                 plumeID: AccessibilityID.sidebarNameField,
-                plumeLabel: group.name
+                plumeLabel: plumeLabel
             )
         } onClose: {
             guard group.modelContext != nil, !group.isDeleted else { return }
-            group.name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolved = name.isEmpty ? openingName : name
+            if resolved != group.name { group.name = resolved }
         }
     }
 }
@@ -32,10 +42,16 @@ struct GroupAppearancePopover: View {
 /// A task's name, description, icon and color, edited from its context menu.
 struct TaskAppearancePopover: View {
     @Bindable var task: WorkTask
+    @State private var label: String
+
+    init(task: WorkTask) {
+        self.task = task
+        _label = State(initialValue: TitleStore.shared.displayTitle(for: task))
+    }
 
     var body: some View {
         let appearance = SidebarTaskAppearance(task: task, settings: .shared)
-        let label = TitleStore.shared.displayTitle(for: task)
+        let generatedTitle = TitleStore.shared.generatedTitle(for: task)
         SidebarAppearanceEditor(
             tint: $task.tint,
             inheritedTint: task.group?.tint,
@@ -46,9 +62,7 @@ struct TaskAppearancePopover: View {
         ) {
             SidebarTextField(
                 title: "Name",
-                placeholder: TitleStore.namePlaceholder(
-                    generatedTitle: TitleStore.shared.generatedTitle(for: task)
-                ),
+                placeholder: TitleStore.namePlaceholder(generatedTitle: generatedTitle),
                 text: $task.title,
                 plumeID: AccessibilityID.sidebarNameField,
                 plumeLabel: label
@@ -62,8 +76,10 @@ struct TaskAppearancePopover: View {
             )
         } onClose: {
             guard task.modelContext != nil, !task.isDeleted else { return }
-            task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            task.taskDescription = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if title != task.title { task.title = title }
+            let description = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            if description != task.taskDescription { task.taskDescription = description }
         }
     }
 }
@@ -75,8 +91,6 @@ private struct SidebarTextField: View {
     let plumeID: String
     let plumeLabel: String
 
-    @Environment(\.dismiss) private var dismiss
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
@@ -85,7 +99,6 @@ private struct SidebarTextField: View {
             TextField(title, text: $text, prompt: Text(placeholder))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
-                .onSubmit { dismiss() }
                 .plumeID(plumeID, label: plumeLabel, value: text, setValue: { text = $0 })
         }
     }
@@ -102,6 +115,8 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
     @ViewBuilder let fields: Fields
     let onClose: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             fields
@@ -117,7 +132,9 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
             Link("Download SF Symbols", destination: URL(string: "https://developer.apple.com/sf-symbols/")!)
                 .font(.footnote)
                 .emphasis(.secondary)
+                .plumeID(AccessibilityID.sidebarSFSymbolsLink)
         }
+        .onSubmit { dismiss() }
         .padding(14)
         .frame(width: 290)
         .plumeID(AccessibilityID.sidebarAppearancePopover, label: plumeLabel)
