@@ -46,6 +46,17 @@ struct Palette {
     /// Alpha levels for fills and washes, which vary by appearance.
     let emphasis: EmphasisOpacities
 
+    /// The terminal palette's 16 slots, nil where the theme has none.
+    let slots: [Color?]
+
+    /// A sidebar tint's color, or nil when the theme lacks its slot.
+    func color(for tint: SidebarTint) -> Color? {
+        switch tint {
+        case .text: foreground
+        case .palette(let slot): slots.indices.contains(slot) ? slots[slot] : nil
+        }
+    }
+
     /// `foreground` at the given emphasis, for washes and hairlines drawn on
     /// the app's surface.
     func surface(_ level: Emphasis) -> Color {
@@ -75,6 +86,9 @@ struct Palette {
             ? ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
             : foreground
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
+        slots = SidebarTint.paletteSlots.map {
+            ThemeChrome.paletteColor(slot: $0, for: colorScheme, in: definitions)
+        }
     }
 }
 

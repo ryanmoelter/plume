@@ -46,6 +46,34 @@ struct VisualsSettingsPane: View {
             }
 
             Section {
+                Picker("Task marker", selection: $settings.sidebarTaskMarker) {
+                    ForEach(SidebarTaskMarker.allCases) { marker in
+                        Text(marker.title).tag(marker)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .plumeID(
+                    AccessibilityID.settingsSidebarTaskMarkerPicker,
+                    value: settings.sidebarTaskMarker.rawValue,
+                    setValue: { raw in
+                        if let marker = SidebarTaskMarker(rawValue: raw) { settings.sidebarTaskMarker = marker }
+                    }
+                )
+                Toggle(isOn: $settings.sidebarColorsTaskNames) {
+                    Text("Color task names")
+                    Text("Draws a colored task's name in bold, in its color")
+                        .foregroundStyle(.secondary)
+                }
+                .plumeID(
+                    AccessibilityID.settingsSidebarColorsTaskNamesToggle,
+                    value: settings.sidebarColorsTaskNames ? "on" : "off",
+                    invoke: { settings.sidebarColorsTaskNames.toggle() }
+                )
+            } header: {
+                Text("Sidebar")
+            }
+
+            Section {
                 Toggle("Animate chat message motion", isOn: $settings.animateChatMotion)
                 Toggle("Fade streamed text in as it arrives", isOn: $settings.animateCharacterReveal)
             } header: {

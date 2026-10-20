@@ -32,6 +32,8 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let sidebarTaskMarkerRaw = "sidebarTaskMarkerRaw"
+        static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
@@ -159,6 +161,10 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
+
+        self.sidebarTaskMarker = defaults.string(forKey: Key.sidebarTaskMarkerRaw)
+            .flatMap(SidebarTaskMarker.init(rawValue:)) ?? .bar
+        self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
@@ -445,6 +451,20 @@ final class AppSettings {
         }
     }
 
+    /// How a colored task shows its color in the sidebar.
+    var sidebarTaskMarker: SidebarTaskMarker {
+        didSet {
+            defaults.set(sidebarTaskMarker.rawValue, forKey: Key.sidebarTaskMarkerRaw)
+        }
+    }
+
+    /// Whether a colored task's name is drawn bold in its color.
+    var sidebarColorsTaskNames: Bool {
+        didSet {
+            defaults.set(sidebarColorsTaskNames, forKey: Key.sidebarColorsTaskNames)
+        }
+    }
+
     /// The side pane's state applies only while the pane fits beside the
     /// chat. A narrower window opens it on demand instead, which this never
     /// records.
@@ -658,4 +678,20 @@ final class AppSettings {
 enum ComposerSendKey: String {
     case returnKey
     case commandReturn
+}
+
+enum SidebarTaskMarker: String, CaseIterable, Identifiable {
+    case none
+    case dot
+    case bar
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .none: "None"
+        case .dot: "Dot"
+        case .bar: "Bar"
+        }
+    }
 }

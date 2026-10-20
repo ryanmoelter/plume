@@ -20,6 +20,10 @@ struct SidebarView: View {
     let requestDelete: (WorkTask) -> Void
 
     @State private var renamingGroupID: UUID?
+    @State private var editingDescriptionTaskID: UUID?
+    /// The group or task whose appearance popover is open.
+    @State private var appearanceEditingID: UUID?
+    @Environment(\.theme) private var theme
     /// Each row and header's height, so a drop can tell which half it is over.
     @State private var dropTargetHeights: [UUID: CGFloat] = [:]
     /// Only ever set true. Setting a `FocusState` false resigns whatever is
@@ -121,8 +125,13 @@ struct SidebarView: View {
         )
         .sidebarSectionHeader()
         .plumeID(AccessibilityID.groupHeader, label: group.name)
+        .popover(isPresented: isEditingAppearance(of: group.id), arrowEdge: .trailing) {
+            GroupAppearancePopover(group: group)
+        }
         .contextMenu {
             Button("Rename Group") { renamingGroupID = group.id }
+            Button("Icon & Color…") { appearanceEditingID = group.id }
+                .plumeID(AccessibilityID.groupAppearanceButton, label: group.name)
             Button("New Task in Group") { createTask(in: group) }
             Divider()
             Button("Delete Group", role: .destructive) {
@@ -139,16 +148,31 @@ struct SidebarView: View {
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
         ForEach(sectionTasks) { task in
-            TaskRowView(task: task, isSelected: selection == task.id, onSelect: { select(task) }, renamingTaskID: $renamingTaskID)
-                .sidebarRow(isSelected: selection == task.id)
+            TaskRowView(
+                task: task,
+                isSelected: selection == task.id,
+                onSelect: { select(task) },
+                renamingTaskID: $renamingTaskID,
+                editingDescriptionTaskID: $editingDescriptionTaskID
+            )
+                .sidebarRow(isSelected: selection == task.id, tintBar: tintBar(for: task))
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
                 //
                 // Not while renaming: the row's `TextField` needs the click
                 // to place its cursor.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
+                .popover(isPresented: isEditingAppearance(of: task.id), arrowEdge: .trailing) {
+                    TaskColorPopover(task: task)
+                }
                 .contextMenu {
                     Button("Rename") { renamingTaskID = task.id }
+                    Button(task.taskDescription.isEmpty ? "Add Description" : "Edit Description") {
+                        editingDescriptionTaskID = task.id
+                    }
+                    .plumeID(AccessibilityID.taskEditDescriptionButton, label: TitleStore.shared.displayTitle(for: task))
+                    Button("Color…") { appearanceEditingID = task.id }
+                        .plumeID(AccessibilityID.taskColorButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }
                 .sidebarDragAndDrop(
@@ -208,9 +232,23 @@ struct SidebarView: View {
     }
 
     private func select(_ task: WorkTask) {
-        guard renamingTaskID != task.id else { return }
+        guard renamingTaskID != task.id, editingDescriptionTaskID != task.id else { return }
         selection = task.id
         isListFocused = true
+    }
+
+    private func tintBar(for task: WorkTask) -> Color? {
+        guard AppSettings.shared.sidebarTaskMarker == .bar else { return nil }
+        return SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+    }
+
+    private func isEditingAppearance(of id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { appearanceEditingID == id },
+            set: { isPresented in
+                if !isPresented, appearanceEditingID == id { appearanceEditingID = nil }
+            }
+        )
     }
 
     @ViewBuilder

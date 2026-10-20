@@ -8,6 +8,12 @@ struct GroupSectionHeader: View {
 
     @FocusState private var focused: Bool
     @State private var isHovering = false
+    @Environment(\.theme) private var theme
+
+    private var labelStyle: AnyShapeStyle {
+        let tintColor = group.tint.flatMap(theme.colors.color(for:))
+        return .role(tintColor ?? .clear, when: tintColor != nil, otherwise: .secondary)
+    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -21,6 +27,11 @@ struct GroupSectionHeader: View {
             .buttonStyle(.plain)
             .plumeID(AccessibilityID.groupHeaderDisclosureButton)
 
+            if let iconName = group.iconName {
+                Image(systemName: iconName)
+                    .foregroundStyle(labelStyle)
+            }
+
             Group {
                 if isRenaming {
                     TextField("Group name", text: $group.name)
@@ -33,6 +44,7 @@ struct GroupSectionHeader: View {
                         .onAppear { focused = true }
                 } else {
                     Text(group.name)
+                        .foregroundStyle(labelStyle)
                         .contentShape(Rectangle())
                         // Simultaneous, not exclusive: a plain
                         // `.onTapGesture` claims the mouse-down, and the

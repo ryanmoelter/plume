@@ -11,6 +11,9 @@ enum SidebarMetrics {
     /// Above and below a row's content, inside its fill.
     static let rowVerticalPadding: CGFloat = 6
     static let selectionCornerRadius: CGFloat = 10
+    /// From the selection fill's edge to a task's color bar.
+    static let tintBarInset: CGFloat = 3
+    static let tintBarWidth: CGFloat = 3
     /// A header sits 2 pt further out than a row's content, as the system's
     /// section headers do.
     static let headerLeadingPadding: CGFloat = 10
@@ -21,12 +24,15 @@ enum SidebarMetrics {
 
 extension View {
     /// Lays this view out as a selectable sidebar row, with the selection
-    /// fill behind it.
-    func sidebarRow(isSelected: Bool) -> some View {
+    /// fill behind it and, given a `tintBar` color, a bar at its leading edge.
+    func sidebarRow(isSelected: Bool, tintBar: Color? = nil) -> some View {
         padding(.horizontal, SidebarMetrics.rowHorizontalPadding)
             .padding(.vertical, SidebarMetrics.rowVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(SidebarSelectionFill(isSelected: isSelected))
+            .background {
+                SidebarSelectionFill(isSelected: isSelected)
+                if let tintBar { SidebarTintBar(color: tintBar) }
+            }
             .contentShape(.rect)
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -41,6 +47,23 @@ extension View {
             .frame(maxWidth: .infinity, minHeight: SidebarMetrics.headerMinHeight, alignment: .leading)
             .contentShape(.rect)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The leading sliver of a rounded rect inset inside the selection fill, so
+/// its ends curve concentrically with the fill's corners.
+private struct SidebarTintBar: View {
+    let color: Color
+
+    var body: some View {
+        let inset = SidebarMetrics.tintBarInset
+        color
+            .clipShape(.rect(cornerRadius: SidebarMetrics.selectionCornerRadius - inset))
+            .padding(inset)
+            .mask(alignment: .leading) {
+                Rectangle().frame(width: inset + SidebarMetrics.tintBarWidth)
+            }
+            .accessibilityHidden(true)
     }
 }
 

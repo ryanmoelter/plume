@@ -7,15 +7,23 @@ struct TaskRowView: View {
     var onSelect: (() -> Void)? = nil
     /// Set by the context menu's Rename; creation no longer opens the editor.
     @Binding var renamingTaskID: UUID?
+    @Binding var editingDescriptionTaskID: UUID?
 
     @FocusState private var titleFocused: Bool
+    @FocusState private var descriptionFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) private var theme
     /// What this row currently holds watches on, so a directory leaving the
     /// set releases the watch it took rather than whatever the task points at
     /// now.
     @State private var watched = DirectoryWatchSet()
 
     private var isEditing: Bool { renamingTaskID == task.id }
+    private var isEditingDescription: Bool { editingDescriptionTaskID == task.id }
+
+    private var tintColor: Color? {
+        SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+    }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.
@@ -87,6 +95,7 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title
+                    descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         detailLine(line, at: index)
                     }
@@ -166,6 +175,11 @@ struct TaskRowView: View {
                 .onChange(of: titleFocused) { _, focused in
                     if !focused { endEditing() }
                 }
+                .onKeyPress(.tab) {
+                    endEditing()
+                    editingDescriptionTaskID = task.id
+                    return .handled
+                }
                 // Deferred a tick: this field replaces the row's own
                 // `Text` in the same update rather than mounting
                 // fresh, so `onAppear` fires before the row's prior
@@ -174,10 +188,59 @@ struct TaskRowView: View {
                 // race silently; the next run loop turn wins it.
                 .onAppear { DispatchQueue.main.async { titleFocused = true } }
         } else {
-            Text(TitleStore.shared.displayTitle(for: task))
+            HStack(spacing: 5) {
+                if let tintColor, AppSettings.shared.sidebarTaskMarker == .dot {
+                    Circle()
+                        .fill(tintColor)
+                        .frame(width: 7, height: 7)
+                }
+                titleText
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var titleText: some View {
+        let text = Text(TitleStore.shared.displayTitle(for: task))
+            .lineLimit(1)
+            .truncationMode(.tail)
+        if let tintColor, AppSettings.shared.sidebarColorsTaskNames {
+            text
+                .bold()
+                .foregroundStyle(tintColor.opacity(isInactive ? 0.7 : 1))
+        } else {
+            text.emphasis(isInactive ? .secondary : .primary)
+        }
+    }
+
+    @ViewBuilder
+    private var descriptionLine: some View {
+        if isEditingDescription {
+            TextField("Description", text: $task.taskDescription)
+                .textFieldStyle(.plain)
+                .font(.caption)
+                .focused($descriptionFocused)
+                .onSubmit(endEditingDescription)
+                .onChange(of: descriptionFocused) { _, focused in
+                    if !focused { endEditingDescription() }
+                }
+                // Deferred a tick, so a title field Tab hands over from
+                // finishes resigning first responder before this claims it.
+                .onAppear { DispatchQueue.main.async { descriptionFocused = true } }
+                .plumeID(
+                    AccessibilityID.taskDescriptionField,
+                    label: TitleStore.shared.displayTitle(for: task),
+                    value: task.taskDescription,
+                    setValue: { task.taskDescription = $0 }
+                )
+        } else if !task.taskDescription.isEmpty {
+            Text(task.taskDescription)
+                .font(.caption)
+                .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .emphasis(isInactive ? .secondary : .primary)
+                .help(task.taskDescription)
+                .plumeID(AccessibilityID.taskDescription, label: TitleStore.shared.displayTitle(for: task), value: task.taskDescription)
         }
     }
 
@@ -247,6 +310,7 @@ struct TaskRowView: View {
 
     private var accessibilityLabel: String {
         ([TitleStore.shared.displayTitle(for: task)]
+            + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
             + detailLines.compactMap(TaskRowDetails.accessibilityText)
             + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
@@ -257,5 +321,10 @@ struct TaskRowView: View {
     private func endEditing() {
         task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         renamingTaskID = nil
+    }
+
+    private func endEditingDescription() {
+        task.taskDescription = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if editingDescriptionTaskID == task.id { editingDescriptionTaskID = nil }
     }
 }

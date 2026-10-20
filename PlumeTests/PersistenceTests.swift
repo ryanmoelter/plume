@@ -49,6 +49,46 @@ struct PersistenceTests {
         #expect(restored.branchName == "plume/ship-it-a1b2")
     }
 
+    @Test func appearanceFieldsDefaultEmpty() throws {
+        let context = ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+        let group = TaskStore.createGroup(in: context, existing: [])
+        let task = TaskStore.createTask(in: context, group: group, siblings: [])
+
+        #expect(group.colorRaw == nil)
+        #expect(group.iconName == nil)
+        #expect(task.colorRaw == nil)
+        #expect(task.taskDescription == "")
+    }
+
+    @Test func appearanceFieldsSurviveReopeningTheStore() throws {
+        let url = storeURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let taskID: UUID
+        do {
+            let context = ModelContext(try container(at: url))
+            let group = TaskStore.createGroup(in: context, existing: [])
+            group.tint = .palette(slot: 3)
+            group.iconName = "leaf"
+            let task = TaskStore.createTask(in: context, group: group, siblings: [])
+            task.tint = .text
+            task.taskDescription = "Fix the flaky test"
+            taskID = task.id
+            try context.save()
+        }
+
+        let context = ModelContext(try container(at: url))
+        let restored = try #require(try context.fetch(FetchDescriptor<WorkTask>()).first { $0.id == taskID })
+
+        #expect(restored.tint == .text)
+        #expect(restored.taskDescription == "Fix the flaky test")
+        #expect(restored.group?.tint == .palette(slot: 3))
+        #expect(restored.group?.iconName == "leaf")
+    }
+
     @Test func deletingTaskCascadesToItsTabs() throws {
         let url = storeURL()
         defer { try? FileManager.default.removeItem(at: url) }
