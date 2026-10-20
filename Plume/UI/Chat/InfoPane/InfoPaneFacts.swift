@@ -98,7 +98,19 @@ extension InfoPaneFacts {
         _ subagents: [SubagentTranscript],
         hasSettled: (SubagentTranscript) -> Bool
     ) -> (live: [SubagentTranscript], completed: [SubagentTranscript]) {
-        (subagents.filter { !hasSettled($0) }, subagents.filter(hasSettled))
+        (subagents.filter { !hasSettled($0) }, newestFirst(subagents.filter(hasSettled)))
+    }
+
+    /// Orders by last activity, newest first. Subagents with no timestamp
+    /// follow the dated ones and keep their input order.
+    static func newestFirst(_ subagents: [SubagentTranscript]) -> [SubagentTranscript] {
+        let dated = subagents.enumerated().filter { $0.element.modifiedAt != nil }
+        let undated = subagents.filter { $0.modifiedAt == nil }
+        let sorted = dated.sorted {
+            let (a, b) = ($0.element.modifiedAt!, $1.element.modifiedAt!)
+            return a == b ? $0.offset < $1.offset : a > b
+        }
+        return sorted.map(\.element) + undated
     }
 
     /// A state with nothing to say about a pull request is left out, rather
