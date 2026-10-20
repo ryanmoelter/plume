@@ -21,6 +21,7 @@ final class AppSettings {
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
+        static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
         static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
@@ -126,6 +127,8 @@ final class AppSettings {
         self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
             ? true
             : defaults.bool(forKey: Key.escapeInterruptsTurn)
+        self.queuedMessageDelivery = defaults.string(forKey: Key.queuedMessageDeliveryRaw)
+            .flatMap(QueuedMessageDelivery.init(rawValue:)) ?? .endOfTurn
 
         self.defaultAgentTransport = defaults.string(forKey: Key.defaultAgentTransportRaw)
             .flatMap(AgentTransport.init(rawValue:)) ?? .headless
@@ -348,6 +351,14 @@ final class AppSettings {
     var escapeInterruptsTurn: Bool {
         didSet {
             defaults.set(escapeInterruptsTurn, forKey: Key.escapeInterruptsTurn)
+        }
+    }
+
+    /// When a message sent during a Claude Code chat tab's running turn
+    /// reaches the agent. Codex and terminal tabs ignore it.
+    var queuedMessageDelivery: QueuedMessageDelivery {
+        didSet {
+            defaults.set(queuedMessageDelivery.rawValue, forKey: Key.queuedMessageDeliveryRaw)
         }
     }
 
@@ -725,5 +736,13 @@ final class AppSettings {
 enum ComposerSendKey: String {
     case returnKey
     case commandReturn
+}
+
+enum QueuedMessageDelivery: String, CaseIterable {
+    /// Plume holds the message and sends it as a new turn after `result`.
+    case endOfTurn
+    /// Written at once with `priority: "next"`, so the CLI folds it into the
+    /// running turn at its next model request.
+    case afterToolCall
 }
 

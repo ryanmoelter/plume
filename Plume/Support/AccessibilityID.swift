@@ -67,6 +67,7 @@ enum AccessibilityID {
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"
     static let composerSendKeyPicker = "composer-send-key-picker"
     static let escapeInterruptsTurnToggle = "escape-interrupts-turn-toggle"
+    static let queuedMessageDeliveryPicker = "queued-message-delivery-picker"
     static let shortcutRecorder = "shortcut-recorder"
     static let shortcutResetButton = "shortcut-reset-button"
     static let shortcutResetAllButton = "shortcut-reset-all-button"

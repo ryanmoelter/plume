@@ -125,6 +125,9 @@ final class HeadlessSession: AgentSession {
     @ObservationIgnored private var heldResult: TurnResult?
     @ObservationIgnored private var deliveryHold: Task<Void, Never>?
     @ObservationIgnored var deliveryGrace: Duration = .seconds(3)
+    @ObservationIgnored var queuedMessageDelivery: () -> QueuedMessageDelivery = {
+        AppSettings.shared.queuedMessageDelivery
+    }
 
     /// `/btw` exchanges, in-memory only — see `SideQuestion`.
     private(set) var sideQuestions: [SideQuestion] = []
@@ -380,10 +383,15 @@ final class HeadlessSession: AgentSession {
 
     @discardableResult
     func submit(blocks: [UserContentBlock]) -> Delivery {
+        submit(blocks: blocks, midTurn: queuedMessageDelivery())
+    }
+
+    private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
         guard !isWorking else {
             queuedMessages.append(normalized)
+            if delivery == .afterToolCall, sendQueueIntoRunningTurn() { return .sent }
             return .queued
         }
         if openingMessage == nil { openingMessage = normalized.plainText }
@@ -418,16 +426,24 @@ final class HeadlessSession: AgentSession {
         let normalized = blocks.normalized
         if normalized.hasContent { queuedMessages.append(normalized) }
         guard !queuedMessages.isEmpty else { return }
-        let merged = takeQueueAsOneTurn()
         guard isWorking else {
-            submit(blocks: merged)
+            submit(blocks: takeQueueAsOneTurn())
             return
         }
+        sendQueueIntoRunningTurn()
+    }
+
+    /// Writes the whole queue as one `priority: "next"` line. False leaves
+    /// the queue as it was, for a process that could not take the line.
+    @discardableResult
+    private func sendQueueIntoRunningTurn() -> Bool {
+        let merged = takeQueueAsOneTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: merged, priority: .next)) else {
             queuedMessages.insert(merged, at: 0)
-            return
+            return false
         }
         deliveringMessages.append(merged)
+        return true
     }
 
     private func takeQueueAsOneTurn() -> [UserContentBlock] {
@@ -693,13 +709,13 @@ final class HeadlessSession: AgentSession {
     /// no input fields — it reads the plan from `planFilePath` — so an extra
     /// key on `updatedInput` is dropped without a diagnostic, and there is no
     /// allow-with-message on the wire (`docs/headless-protocol.md`). A user
-    /// turn is the only path that reliably reaches the model. `submit(text:)`
-    /// queues it while the approved turn runs and flushes it when that turn
-    /// ends, which is when the note is wanted: it steers the next plan rather
-    /// than interrupting the one being approved.
+    /// turn is the only path that reliably reaches the model. It is queued
+    /// while the approved turn runs and flushed when that turn ends, whatever
+    /// `queuedMessageDelivery` says, because that is when the note is wanted:
+    /// it steers the next plan rather than interrupting the one being approved.
     func approvePlan(_ permission: PendingPermission, feedback: String) {
         approvePlan(permission)
-        submit(text: feedback)
+        submit(blocks: [.text(feedback)], midTurn: .endOfTurn)
     }
 
     /// Answers an `AskUserQuestion`, keyed by question text to chosen labels.

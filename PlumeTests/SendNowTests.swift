@@ -55,9 +55,13 @@ struct HeadlessSendNowTests {
 
     /// With `recordsLines` false there is no process, so every send fails and
     /// puts its turn back on the queue.
-    private func makeSession(recordsLines: Bool = true) -> (HeadlessSession, StatusEngine, Recorder) {
+    private func makeSession(
+        recordsLines: Bool = true,
+        delivery: QueuedMessageDelivery = .endOfTurn
+    ) -> (HeadlessSession, StatusEngine, Recorder) {
         let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
         let session = HeadlessSession(tabID: UUID(), taskID: UUID(), statusEngine: engine)
+        session.queuedMessageDelivery = { delivery }
         engine.register(tabID: session.tabID, taskID: session.taskID)
         let recorder = Recorder()
         engine.setTabStatusObserver("test") { _, _, status, _ in recorder.statuses.append(status) }
@@ -213,5 +217,76 @@ struct HeadlessSendNowTests {
 
         #expect(session.queuedMessages.isEmpty)
         #expect(!session.isWorking)
+    }
+
+    // MARK: - Deliver queued messages
+
+    @Test func atTheEndOfTheTurnAMidTurnMessageWaitsForTheResult() throws {
+        let (session, _, recorder) = makeSession(delivery: .endOfTurn)
+        try startTurn(session)
+
+        let delivery = session.submit(blocks: [.text("later")])
+
+        #expect(delivery == .queued)
+        #expect(recorder.lines.isEmpty)
+        #expect(session.queuedMessages == [[.text("later")]])
+        session.handle(try decode(Self.result))
+        let line = try json(try #require(recorder.lines.last))
+        #expect(line["priority"] == nil)
+        #expect(session.queuedMessages.isEmpty)
+    }
+
+    @Test func afterTheToolCallAMidTurnMessageJoinsTheRunningTurn() throws {
+        let (session, _, recorder) = makeSession(delivery: .afterToolCall)
+        try startTurn(session)
+
+        let delivery = session.submit(blocks: [.text("also this")])
+
+        #expect(delivery == .sent)
+        let line = try json(try #require(recorder.lines.last))
+        #expect(line["priority"]?.stringValue == "next")
+        #expect(line["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue == "also this")
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.deliveringMessages == [[.text("also this")]])
+        session.handle(try decode(Self.requesting))
+        #expect(session.deliveringMessages.isEmpty)
+    }
+
+    @Test func afterTheToolCallAMessageWithNoTurnRunningStartsOne() throws {
+        let (session, _, recorder) = makeSession(delivery: .afterToolCall)
+
+        session.submit(blocks: [.text("hello")])
+
+        let line = try json(try #require(recorder.lines.last))
+        #expect(line["priority"] == nil)
+        #expect(session.deliveringMessages.isEmpty)
+        #expect(session.isWorking)
+    }
+
+    @Test func afterTheToolCallAFailedSendKeepsTheMessageQueued() throws {
+        let (session, _, _) = makeSession(recordsLines: false, delivery: .afterToolCall)
+        try startTurn(session)
+
+        let delivery = session.submit(blocks: [.text("also this")])
+
+        #expect(delivery == .queued)
+        #expect(session.queuedMessages == [[.text("also this")]])
+        #expect(session.deliveringMessages.isEmpty)
+    }
+
+    /// Plan feedback steers the next plan, so it never joins the turn the
+    /// approval resumes.
+    @Test func afterTheToolCallPlanFeedbackStillWaitsForTheTurnToEnd() throws {
+        let (session, _, recorder) = makeSession(delivery: .afterToolCall)
+        try startTurn(session)
+        let plan = PendingPermission(
+            id: "req-1", toolName: "ExitPlanMode", displayName: "ExitPlanMode", input: [:],
+            description: nil, decisionReason: nil, toolUseID: "toolu_1", agentID: nil, interactive: nil
+        )
+
+        session.approvePlan(plan, feedback: "Keep it small")
+
+        #expect(session.queuedMessages.map(\.plainText) == ["Keep it small"])
+        #expect(!recorder.lines.contains { $0.contains("Keep it small") })
     }
 }
