@@ -278,6 +278,28 @@ nonisolated enum ComposerMarkdownEditing {
         marker.hasPrefix("- [") ? 2 : (marker as NSString).length
     }
 
+    // MARK: - Paste
+
+    /// Pastes `pasted` over the selection with each tab in a line's leading
+    /// indent written as four spaces, the width the line structure gives a
+    /// tab. A hidden marker is measured without tab stops, so a tab in one
+    /// misaligns its item's text. Code keeps its tabs, both in the pasted
+    /// text and when pasting into a code block. Nil when nothing changes.
+    static func paste(_ pasted: String, in text: String, selection: NSRange) -> Result? {
+        let target = MarkdownLineStructure.line(containing: selection.location, in: MarkdownLineStructure.lines(in: text))
+        guard target?.kind != .code, pasted.contains("\t") else { return nil }
+        let ns = pasted as NSString
+        let result = NSMutableString(string: pasted)
+        for line in MarkdownLineStructure.lines(in: pasted).reversed() where line.kind != .code && line.kind != .fence {
+            let indent = ns.substring(with: line.indent)
+            guard indent.contains("\t") else { continue }
+            result.replaceCharacters(in: line.indent, with: indent.replacingOccurrences(of: "\t", with: "    "))
+        }
+        guard result as String != pasted else { return nil }
+        let edited = (text as NSString).replacingCharacters(in: selection, with: result as String)
+        return Result(text: edited, selection: NSRange(location: selection.location + result.length, length: 0))
+    }
+
     // MARK: - Checkbox
 
     static func toggleCheckbox(_ box: NSRange, in text: String, selection: NSRange) -> Result? {

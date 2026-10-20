@@ -170,6 +170,27 @@ struct ComposerMarkdownEditingTests {
         #expect(run(ComposerMarkdownEditing.insertSpace, "```\nx|") == nil)
     }
 
+    // MARK: - Paste
+
+    private func pasted(_ pasted: String, into marked: String) -> String? {
+        run({ ComposerMarkdownEditing.paste(pasted, in: $0, selection: $1) }, marked)
+    }
+
+    @Test func pastedIndentTabsBecomeSpaces() {
+        #expect(pasted("- a\n\t- b\n\t\tc\td", into: "|") == "- a\n    - b\n        c\td|")
+        #expect(pasted("> \t- a", into: "x\n|") == "x\n>     - a|")
+    }
+
+    @Test func pastedCodeKeepsItsTabs() {
+        #expect(pasted("```\n\tfunc\n```\n\t- a", into: "|") == "```\n\tfunc\n```\n    - a|")
+        #expect(pasted("\tfunc", into: "```\n|\n```") == nil)
+    }
+
+    @Test func pasteWithoutIndentTabsIsOrdinary() {
+        #expect(pasted("- a\n  - b", into: "|") == nil)
+        #expect(pasted("a\tb", into: "|") == nil)
+    }
+
     // MARK: - Checkbox
 
     @Test func checkboxToggles() {

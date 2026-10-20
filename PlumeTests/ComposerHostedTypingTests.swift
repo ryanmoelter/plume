@@ -210,6 +210,21 @@ struct ComposerHostedTypingTests {
         #expect(clip.bounds.maxY >= harness.view.frame.maxY - 0.5, "\(clip.bounds) vs \(harness.view.frame)")
     }
 
+    @Test func aPasteWithIndentTabsIsOneUndoStep() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("ComposerHostedTypingTests.\(UUID())"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("- a\n\t- b", forType: .string)
+
+        try await harness.handle { _ = harness.view.readSelection(from: pasteboard, type: .string) }
+        #expect(harness.draft.markdown == "- a\n    - b")
+
+        harness.view.undoManager?.undo()
+        #expect(harness.view.string == "")
+    }
+
     @Test func aPasteIsOneUndoStep() async throws {
         let harness = try await Self.makeHarness()
         defer { harness.close() }

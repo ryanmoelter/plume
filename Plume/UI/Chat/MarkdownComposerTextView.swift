@@ -414,6 +414,14 @@ final class ComposerNSTextView: NSTextView {
         return true
     }
 
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard editsMarkdown, type == .string, let pasted = pasteboard.string(forType: .string),
+              let result = ComposerMarkdownEditing.paste(pasted, in: string, selection: selectedRange())
+        else { return super.readSelection(from: pasteboard, type: type) }
+        apply(result)
+        return true
+    }
+
     private func attachableImages(on pasteboard: NSPasteboard) -> [ChatImage] {
         guard onAttachImages != nil else { return [] }
         return ComposerImageAttachment.images(from: pasteboard)
@@ -540,17 +548,6 @@ final class ComposerNSTextView: NSTextView {
             in: MarkdownLineStructure.lines(in: string)
         )
         super.setSelectedRanges([NSValue(range: snapped)], affinity: affinity, stillSelecting: stillSelectingFlag)
-    }
-
-    /// ⌘⇧V pastes too. The composer holds plain markdown, so there is no
-    /// formatting for "paste as plain text" to strip.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if window?.firstResponder === self, modifiers == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "v" {
-            paste(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
     }
 
     /// Replaces only the span that differs, as one undoable change, so undo
