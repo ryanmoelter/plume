@@ -291,17 +291,18 @@ nonisolated enum ComposerMarkdownEditing {
     // MARK: - Caret
 
     /// Keeps a caret out of a hidden prefix, so it moves over `- ` or `> `
-    /// as one unit. Moving back from the item's text goes to the end of the
-    /// line above; anything else that lands inside goes to the item's text.
+    /// as one unit. Moving back one character from the item's text goes to
+    /// the end of the line above; anything else that lands inside, like
+    /// ⌘←, goes to the item's text.
     static func snappedSelection(_ proposed: NSRange, previous: NSRange?, in lines: [MarkdownLine]) -> NSRange {
         guard proposed.length == 0,
               let index = lineIndex(containing: proposed.location, in: lines),
               let prefix = lines[index].atomicPrefix,
               proposed.location >= prefix.location, proposed.location < NSMaxRange(prefix)
         else { return proposed }
-        if let previous, previous.length == 0, previous.location == NSMaxRange(prefix), proposed.location < previous.location,
-           prefix.location > 0 {
-            return NSRange(location: prefix.location - 1, length: 0)
+        if let previous, previous.length == 0, previous.location == NSMaxRange(prefix),
+           proposed.location == previous.location - 1, index > 0 {
+            return NSRange(location: NSMaxRange(lines[index - 1].range), length: 0)
         }
         return NSRange(location: NSMaxRange(prefix), length: 0)
     }
@@ -445,7 +446,12 @@ nonisolated enum ComposerMarkdownEditing {
         let oldNS = old as NSString
         let newNS = new as NSString
         let oldLine = oldNS.lineRange(for: NSRange(location: min(caret, oldNS.length), length: 0))
-        let lineNumber = oldNS.substring(to: oldLine.location).count(where: { $0 == "\n" })
+        var lineNumber = 0
+        var cursor = 0
+        while cursor < oldLine.location {
+            cursor = NSMaxRange(oldNS.lineRange(for: NSRange(location: cursor, length: 0)))
+            lineNumber += 1
+        }
         var location = 0
         for _ in 0..<lineNumber {
             let range = newNS.lineRange(for: NSRange(location: location, length: 0))

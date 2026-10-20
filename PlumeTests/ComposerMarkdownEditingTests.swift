@@ -198,6 +198,20 @@ struct ComposerMarkdownEditingTests {
 
     @Test func movingBackFromTheTextJumpsToThePreviousLine() {
         #expect(snapped("a\n- item", to: 3, from: 4) == 1)
+        #expect(snapped("a\r\n- item", to: 4, from: 5) == 1)
+    }
+
+    @Test func movingToTheLineStartStaysOnTheItem() {
+        #expect(snapped("a\n- item", to: 2, from: 4) == 4)
+    }
+
+    @Test func renumberingKeepsTheCaretAcrossCRLF() {
+        let result = ComposerMarkdownEditing.newline(
+            in: "x\r\n8. a\r\n9. b",
+            selection: NSRange(location: 7, length: 0)
+        )
+        #expect(result?.text == "x\r\n8. a\n9. \r\n10. b")
+        #expect(result?.selection == NSRange(location: 11, length: 0))
     }
 
     @Test func firstLineCannotMoveBeforeItsMarker() {

@@ -93,6 +93,19 @@ struct MarkdownLineStructureTests {
         #expect(parsed.map(\.kind) == [.fence, .code, .code])
     }
 
+    @Test func aQuoteMarkerInsideAFenceIsCode() {
+        let parsed = lines("```\n>>> print(x)\n```")
+        #expect(parsed[1].kind == .code)
+        #expect(parsed[1].quoteLevel == 0)
+        #expect(parsed[1].atomicPrefix == nil)
+    }
+
+    @Test func aQuotedFenceKeepsItsQuote() {
+        let parsed = lines("> ```\n> > x\n> ```")
+        #expect(parsed.map(\.kind) == [.fence, .code, .fence])
+        #expect(parsed.map(\.quoteLevel) == [1, 1, 1])
+    }
+
     @Test func trailingNewlineMakesAnEmptyLastLine() {
         let parsed = lines("- a\n")
         #expect(parsed.count == 2)

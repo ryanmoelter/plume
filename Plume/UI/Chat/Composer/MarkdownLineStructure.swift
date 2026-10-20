@@ -74,15 +74,17 @@ nonisolated enum MarkdownLineStructure {
     static func lines(in text: String) -> [MarkdownLine] {
         let ns = text as NSString
         var result: [MarkdownLine] = []
-        var openFence: (character: unichar, length: Int)?
+        var openFence: (character: unichar, length: Int, quoteLevel: Int)?
         var listStack: [(quoteLevel: Int, indentColumns: Int)] = []
 
         for lineRange in lineRanges(in: ns) {
             var cursor = lineRange.location
             let end = NSMaxRange(lineRange)
 
+            // Inside a fence, a `>` past the fence's own quote level is code.
+            let quoteLimit = openFence?.quoteLevel ?? .max
             var quoteMarkers: [NSRange] = []
-            while let marker = quoteMarker(in: ns, at: cursor, end: end) {
+            while quoteMarkers.count < quoteLimit, let marker = quoteMarker(in: ns, at: cursor, end: end) {
                 quoteMarkers.append(marker)
                 cursor = NSMaxRange(marker)
             }
@@ -115,7 +117,7 @@ nonisolated enum MarkdownLineStructure {
 
             if let run = fenceRun(in: ns, body) {
                 line.kind = .fence
-                openFence = (run.character, run.length)
+                openFence = (run.character, run.length, quoteMarkers.count)
                 listStack.removeAll()
                 result.append(line)
                 continue
