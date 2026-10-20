@@ -103,6 +103,10 @@ nonisolated enum MarkdownLineStructure {
             )
             let body = NSRange(location: cursor, length: end - cursor)
 
+            // Leaving the quote a fence opened in closes the fence.
+            if let fence = openFence, quoteMarkers.count < fence.quoteLevel {
+                openFence = nil
+            }
             if let fence = openFence {
                 if let run = fenceRun(in: ns, body), run.character == fence.character, run.length >= fence.length,
                    run.trailingIsBlank {

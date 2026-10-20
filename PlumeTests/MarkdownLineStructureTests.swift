@@ -106,6 +106,11 @@ struct MarkdownLineStructureTests {
         #expect(parsed.map(\.quoteLevel) == [1, 1, 1])
     }
 
+    @Test func leavingTheQuoteClosesAQuotedFence() {
+        let parsed = lines("> ```\n> code\nplain\n- item")
+        #expect(parsed.map(\.kind) == [.fence, .code, .plain, .bullet])
+    }
+
     @Test func trailingNewlineMakesAnEmptyLastLine() {
         let parsed = lines("- a\n")
         #expect(parsed.count == 2)

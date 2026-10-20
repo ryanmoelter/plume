@@ -8,7 +8,7 @@ import Foundation
 /// | --- | --- | --- |
 /// | Return | non-empty list item | a new item at the same indent, the next number for an ordered list |
 /// | Return | empty list item | one level out, or out of the list at the top level |
-/// | Return | quote line | continues the quote; an empty one leaves a level |
+/// | Return | quote line | continues the quote; an empty one leaves a level, unless it is code |
 /// | Tab | start of a list item | indents under the item above, to its text column |
 /// | Shift-Tab | list item | outdents to the parent's indent |
 /// | Delete | start of a list item's text | removes the marker, or outdents a nested item |
@@ -50,7 +50,12 @@ nonisolated enum ComposerMarkdownEditing {
             return edit(text, replacing: NSRange(location: caret, length: 0), with: continuation, caret: caretAfter, renumbering: [index + 1])
         }
 
-        if line.quoteLevel > 0, line.kind == .plain || line.kind == .blank {
+        if line.quoteLevel > 0 {
+            if line.kind == .fence || line.kind == .code {
+                let continuation = "\n" + quotePrefix(of: line, in: ns)
+                return edit(text, replacing: NSRange(location: caret, length: 0), with: continuation, caret: caret + (continuation as NSString).length)
+            }
+            guard line.kind == .plain || line.kind == .blank else { return nil }
             if isEmpty, let last = line.quoteMarkers.last {
                 return edit(text, replacing: last, with: "", caret: last.location)
             }
@@ -112,26 +117,31 @@ nonisolated enum ComposerMarkdownEditing {
         }
 
         let result = NSMutableString(string: text)
-        var selection = selection
+        var start = selection.location
+        var end = NSMaxRange(selection)
         for lineIndex in affected.reversed() {
             let indent = lines[lineIndex].indent
             let newColumns = max(0, columns(of: indent, in: ns) + delta)
             let replacement = String(repeating: " ", count: newColumns)
             let change = (replacement as NSString).length - indent.length
             result.replaceCharacters(in: indent, with: replacement)
-            selection = adjusted(selection, forChangeAt: indent, delta: change)
+            start = adjusted(start, forChangeAt: indent, delta: change)
+            end = adjusted(end, forChangeAt: indent, delta: change)
         }
         let shifted = result as String
-        // An item indented into a new sublist heads it, so it counts from 1.
+        let following = affected.last.map { $0 + 1 } ?? index
+        // An item indented into a new sublist heads it, so it counts from 1,
+        // and so do the items an outdent leaves behind as a sublist of its own.
         let renumberedText = renumbered(
             shifted,
-            around: [index, index + 1, affected.last.map { $0 + 1 } ?? index],
-            restarting: delta > 0 ? index : nil
+            around: [index, index + 1, following],
+            restarting: delta > 0 ? [index] : [following]
         )
-        if selection.length == 0, (renumberedText as NSString).length != (shifted as NSString).length {
-            selection.location = caretAfterRenumbering(selection.location, from: shifted, to: renumberedText)
+        if (renumberedText as NSString).length != (shifted as NSString).length {
+            start = caretAfterRenumbering(start, from: shifted, to: renumberedText)
+            end = caretAfterRenumbering(end, from: shifted, to: renumberedText)
         }
-        return Result(text: renumberedText, selection: selection)
+        return Result(text: renumberedText, selection: NSRange(location: start, length: max(0, end - start)))
     }
 
     // MARK: - Delete
@@ -333,8 +343,8 @@ nonisolated enum ComposerMarkdownEditing {
 
     /// Renumbers each ordered list that includes one of the lines at
     /// `indices`, counting up from its first item's number, or from 1 when
-    /// that first item is `restarting`.
-    static func renumbered(_ text: String, around indices: [Int], restarting: Int? = nil) -> String {
+    /// that first item is in `restarting`.
+    static func renumbered(_ text: String, around indices: [Int], restarting: Set<Int> = []) -> String {
         let lines = MarkdownLineStructure.lines(in: text)
         var renumbered = Set<Int>()
         var replacements: [(NSRange, String)] = []
@@ -343,7 +353,7 @@ nonisolated enum ComposerMarkdownEditing {
             guard case .ordered = lines[index].kind, !renumbered.contains(index) else { continue }
             let run = listRun(containing: index, in: lines) { if case .ordered = $0.kind { true } else { false } }
             guard case let .ordered(first)? = run.first.map({ lines[$0].kind }) else { continue }
-            let start = run.first == restarting ? 1 : first
+            let start = run.first.map(restarting.contains) == true ? 1 : first
             for (offset, member) in run.enumerated() {
                 renumbered.insert(member)
                 guard case let .ordered(number) = lines[member].kind, number != start + offset,
@@ -445,12 +455,12 @@ nonisolated enum ComposerMarkdownEditing {
         return total
     }
 
-    private static func adjusted(_ selection: NSRange, forChangeAt range: NSRange, delta: Int) -> NSRange {
-        guard selection.location >= range.location else { return selection }
-        let location = selection.location >= NSMaxRange(range)
-            ? selection.location + delta
-            : max(range.location, min(selection.location + delta, range.location + range.length + delta))
-        return NSRange(location: max(0, location), length: selection.length)
+    private static func adjusted(_ location: Int, forChangeAt range: NSRange, delta: Int) -> Int {
+        guard location >= range.location else { return location }
+        let moved = location >= NSMaxRange(range)
+            ? location + delta
+            : max(range.location, min(location + delta, range.location + range.length + delta))
+        return max(0, moved)
     }
 
     private static func edit(_ text: String, replacing range: NSRange, with replacement: String, caret: Int, renumbering indices: [Int] = []) -> Result {

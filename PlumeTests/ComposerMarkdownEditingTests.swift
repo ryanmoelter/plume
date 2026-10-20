@@ -55,6 +55,11 @@ struct ComposerMarkdownEditingTests {
         #expect(run(ComposerMarkdownEditing.newline, "> > |") == "> |")
     }
 
+    @Test func returnKeepsQuotedCodeInTheQuote() {
+        #expect(run(ComposerMarkdownEditing.newline, "> ```|") == "> ```\n> |")
+        #expect(run(ComposerMarkdownEditing.newline, "> ```\n> |") == "> ```\n> \n> |")
+    }
+
     @Test func returnIsOrdinaryElsewhere() {
         #expect(run(ComposerMarkdownEditing.newline, "plain|") == nil)
         #expect(run(ComposerMarkdownEditing.newline, "# Title|") == nil)
@@ -90,6 +95,20 @@ struct ComposerMarkdownEditingTests {
     @Test func shiftTabOutdentsToTheParent() {
         #expect(run(ComposerMarkdownEditing.outdent, "- a\n  - |b") == "- a\n- |b")
         #expect(run(ComposerMarkdownEditing.outdent, "- a\n  - b\n    - c|") == "- a\n  - b\n  - c|")
+    }
+
+    @Test func shiftTabRestartsTheItemsLeftBehind() {
+        #expect(
+            run(ComposerMarkdownEditing.outdent, "1. a\n   1. x\n   2. |y\n   3. z\n2. c")
+                == "1. a\n   1. x\n2. |y\n   1. z\n3. c"
+        )
+    }
+
+    @Test func tabAndShiftTabCarryTheWholeSelection() {
+        let indented = ComposerMarkdownEditing.indent(in: "- a\n- b\n  - c", selection: NSRange(location: 6, length: 7))
+        #expect(indented == .init(text: "- a\n  - b\n    - c", selection: NSRange(location: 8, length: 9)))
+        let outdented = ComposerMarkdownEditing.outdent(in: "- a\n  - b\n    - c", selection: NSRange(location: 8, length: 9))
+        #expect(outdented == .init(text: "- a\n- b\n  - c", selection: NSRange(location: 6, length: 7)))
     }
 
     @Test func shiftTabAtTheTopLevelIsSwallowed() {
