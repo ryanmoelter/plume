@@ -28,30 +28,34 @@ struct GroupSectionHeader: View {
             .buttonStyle(.plain)
             .plumeID(AccessibilityID.groupHeaderDisclosureButton)
 
-            if let iconName = group.iconName {
-                Image(systemName: iconName)
-                    .fontWeight(SidebarMetrics.headerWeight)
-                    .foregroundStyle(labelStyle)
-            }
-
-            Group {
-                if isRenaming {
-                    TextField("Group name", text: $group.name)
-                        .textFieldStyle(.plain)
-                        .focused($focused)
-                        .onSubmit(onDoneRenaming)
-                        .onChange(of: focused) { _, isFocused in
-                            if !isFocused { onDoneRenaming() }
-                        }
-                        .onAppear { focused = true }
-                } else {
-                    Text(group.name)
+            SidebarIconTitle(
+                icon: group.iconName.map { iconName in
+                    Image(systemName: iconName)
+                        .fontWeight(SidebarMetrics.headerWeight)
                         .foregroundStyle(labelStyle)
-                        .contentShape(Rectangle())
-                        // Simultaneous, not exclusive: a plain
-                        // `.onTapGesture` claims the mouse-down, and the
-                        // header's drag never starts.
-                        .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
+                },
+                iconMinWidth: SidebarMetrics.headerIconMinWidth,
+                spacing: 4
+            ) {
+                Group {
+                    if isRenaming {
+                        TextField("Group name", text: $group.name)
+                            .textFieldStyle(.plain)
+                            .focused($focused)
+                            .onSubmit(onDoneRenaming)
+                            .onChange(of: focused) { _, isFocused in
+                                if !isFocused { onDoneRenaming() }
+                            }
+                            .onAppear { focused = true }
+                    } else {
+                        Text(group.name)
+                            .foregroundStyle(labelStyle)
+                            .contentShape(Rectangle())
+                            // Simultaneous, not exclusive: a plain
+                            // `.onTapGesture` claims the mouse-down, and the
+                            // header's drag never starts.
+                            .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
+                    }
                 }
             }
 

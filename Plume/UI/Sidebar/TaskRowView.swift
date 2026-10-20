@@ -159,15 +159,22 @@ struct TaskRowView: View {
     }
 
     private var title: some View {
-        HStack(spacing: 5) {
-            if let iconName = task.iconName {
-                taskIcon(iconName)
-            } else if let dot = appearance.dotTint.flatMap(theme.colors.color(for:)) {
-                Circle()
-                    .fill(dot.opacity(tintOpacity))
-                    .frame(width: 7, height: 7)
-            }
+        SidebarIconTitle(
+            icon: marker,
+            iconMinWidth: SidebarMetrics.taskIconMinWidth,
+            spacing: 5
+        ) {
             titleText
+        }
+    }
+
+    private var marker: AnyView? {
+        if let iconName = task.iconName {
+            AnyView(taskIcon(iconName))
+        } else if let dot = appearance.dotTint.flatMap(theme.colors.color(for:)) {
+            AnyView(Circle().fill(dot.opacity(tintOpacity)).frame(width: 7, height: 7))
+        } else {
+            nil
         }
     }
 

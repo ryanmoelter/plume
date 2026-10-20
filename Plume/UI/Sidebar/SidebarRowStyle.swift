@@ -20,6 +20,11 @@ enum SidebarMetrics {
     /// The weight `sidebarSectionHeader()` gives a header's text.
     static let headerWeight = Font.Weight.semibold
     static let headerMinHeight: CGFloat = 19
+    /// The widest curated symbol at the task title's 13 pt regular (20 pt, 23 of
+    /// 24 fit at bold), so only a custom wide symbol pushes the title over.
+    static let taskIconMinWidth: CGFloat = 20
+    /// The widest curated symbol at the header's 11 pt semibold.
+    static let headerIconMinWidth: CGFloat = 17
     /// Above every section header but the first.
     static let headerTopSpacing: CGFloat = 13
 }
@@ -77,6 +82,27 @@ struct SidebarIconLabelStyle: LabelStyle {
             configuration.icon
                 .frame(width: 20)
             configuration.title
+        }
+    }
+}
+
+/// A leading icon or marker and a title. The icon sits in a column of at least
+/// `iconMinWidth`, leading-aligned, and has no height of its own, so a tall
+/// symbol draws past the title's line instead of changing the row's height.
+struct SidebarIconTitle<Icon: View, Title: View>: View {
+    let icon: Icon?
+    let iconMinWidth: CGFloat
+    let spacing: CGFloat
+    @ViewBuilder let title: Title
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            if let icon {
+                icon
+                    .frame(minWidth: iconMinWidth, alignment: .leading)
+                    .frame(height: 0)
+            }
+            title
         }
     }
 }

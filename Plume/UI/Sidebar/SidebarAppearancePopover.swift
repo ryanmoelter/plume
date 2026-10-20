@@ -26,6 +26,7 @@ struct GroupAppearancePopover: View {
             SidebarTextField(
                 title: "Name",
                 placeholder: "Group name",
+                font: .title3,
                 text: $group.name,
                 plumeID: AccessibilityID.sidebarNameField,
                 plumeLabel: plumeLabel
@@ -63,6 +64,7 @@ struct TaskAppearancePopover: View {
             SidebarTextField(
                 title: "Name",
                 placeholder: TitleStore.namePlaceholder(generatedTitle: generatedTitle),
+                font: .title3,
                 text: $task.title,
                 plumeID: AccessibilityID.sidebarNameField,
                 plumeLabel: label
@@ -70,6 +72,7 @@ struct TaskAppearancePopover: View {
             SidebarTextField(
                 title: "Description",
                 placeholder: "Description",
+                font: .body,
                 text: $task.taskDescription,
                 plumeID: AccessibilityID.sidebarDescriptionField,
                 plumeLabel: label
@@ -87,20 +90,18 @@ struct TaskAppearancePopover: View {
 private struct SidebarTextField: View {
     let title: String
     let placeholder: String
+    let font: Font
     @Binding var text: String
     let plumeID: String
     let plumeLabel: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .emphasis(.secondary)
-            TextField(title, text: $text, prompt: Text(placeholder))
-                .textFieldStyle(.roundedBorder)
-                .labelsHidden()
-                .plumeID(plumeID, label: plumeLabel, value: text, setValue: { text = $0 })
-        }
+        TextField(title, text: $text, prompt: Text(placeholder))
+            .textFieldStyle(.roundedBorder)
+            .labelsHidden()
+            .font(font)
+            .accessibilityLabel(title)
+            .plumeID(plumeID, label: plumeLabel, value: text, setValue: { text = $0 })
     }
 }
 
@@ -311,7 +312,8 @@ private struct SidebarIconPicker: View {
                 Color.clear
             }
         }
-        .frame(width: 24, height: 24)
+        .frame(minWidth: 24, alignment: .leading)
+        .frame(height: 24)
     }
 
     private func grid(_ names: [String]) -> some View {
