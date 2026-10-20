@@ -64,6 +64,21 @@ struct SidebarTintTests {
 
         #expect(SidebarTint.effective(for: task) == nil)
     }
+
+    @Test func movedTaskTakesItsNewGroupsTint() throws {
+        let context = ModelContext(try container())
+        let source = TaskStore.createGroup(in: context, name: "Source", existing: [])
+        source.tint = .palette(slot: 2)
+        let destination = TaskStore.createGroup(in: context, name: "Destination", existing: [source])
+        destination.tint = .palette(slot: 5)
+        let task = TaskStore.createTask(in: context, group: source, siblings: [])
+
+        TaskStore.move(task, to: destination, siblings: [])
+        #expect(SidebarTint.effective(for: task) == .palette(slot: 5))
+
+        TaskStore.move(task, to: nil, siblings: [])
+        #expect(SidebarTint.effective(for: task) == nil)
+    }
 }
 
 /// The resolver puts the bar under the color bar setting, the icon under the

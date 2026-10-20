@@ -50,8 +50,8 @@ struct SidebarView: View {
                     .padding(.bottom, SidebarMetrics.rowVerticalPadding)
                 }
                 .onChange(of: selection) { _, id in
-                    guard let id else { return }
-                    withAnimation { proxy.scrollTo(id) }
+                    guard let task = tasks.first(where: { $0.id == id }) else { return }
+                    withAnimation { proxy.scrollTo(task.sidebarRowID) }
                 }
             }
             // Hand-built because `List(.sidebar)` paints its own accent
@@ -145,7 +145,7 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func taskRows(in sectionTasks: [WorkTask]) -> some View {
-        ForEach(sectionTasks) { task in
+        ForEach(sectionTasks, id: \.sidebarRowID) { task in
             TaskRowView(
                 task: task,
                 isSelected: selection == task.id,
@@ -299,5 +299,19 @@ struct SidebarView: View {
             in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
         )
         selection = task.id
+    }
+}
+
+/// A task row's identity in the sidebar. Scoped to the row's section because
+/// a `LazyVStack` keeps showing a row whose id moves from one of its
+/// `ForEach`es to another, and stops updating it.
+struct SidebarTaskRowID: Hashable {
+    let groupID: UUID?
+    let taskID: UUID
+}
+
+extension WorkTask {
+    var sidebarRowID: SidebarTaskRowID {
+        SidebarTaskRowID(groupID: group?.id, taskID: id)
     }
 }
