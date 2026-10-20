@@ -51,10 +51,10 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        manual = (try? container.decodeIfPresent([LinearIssueRef].self, forKey: .manual)) ?? []
-        promoted = (try? container.decodeIfPresent([LinearIssueRef].self, forKey: .promoted)) ?? []
-        agentStarted = (try? container.decodeIfPresent([LinearIssueRef].self, forKey: .agentStarted)) ?? []
-        dismissed = (try? container.decodeIfPresent([String].self, forKey: .dismissed)) ?? []
+        manual = container.decodeLossyArray(LinearIssueRef.self, forKey: .manual)
+        promoted = container.decodeLossyArray(LinearIssueRef.self, forKey: .promoted)
+        agentStarted = container.decodeLossyArray(LinearIssueRef.self, forKey: .agentStarted)
+        dismissed = container.decodeLossyArray(String.self, forKey: .dismissed)
     }
 
     var isEmpty: Bool {
@@ -99,5 +99,21 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
         } else {
             list.append(ref)
         }
+    }
+}
+
+private nonisolated struct LossyElement<Element: Decodable>: Decodable {
+    let value: Element?
+
+    init(from decoder: any Decoder) throws {
+        value = try? Element(from: decoder)
+    }
+}
+
+private nonisolated extension KeyedDecodingContainer {
+    /// Skips a malformed element rather than dropping the whole list.
+    func decodeLossyArray<Element: Decodable>(_ type: Element.Type, forKey key: Key) -> [Element] {
+        let elements = try? decodeIfPresent([LossyElement<Element>].self, forKey: key)
+        return (elements ?? []).compactMap(\.value)
     }
 }

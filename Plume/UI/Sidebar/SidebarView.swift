@@ -275,15 +275,17 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func linearMenuItems(for task: WorkTask) -> some View {
-        Button("Link Linear Issue…") { linkingLinearTask = task }
-            .disabled(!LinearStore.shared.isConfigured)
-            .plumeID(AccessibilityID.taskLinkLinearIssueMenuItem, label: TitleStore.shared.displayTitle(for: task))
-        let working = LinearStore.shared.links(for: task, branches: []).filter { $0.role == .working }
-        if !working.isEmpty {
-            Menu("Unlink Linear Issue") {
-                ForEach(working) { issue in
-                    Button("Unlink \(issue.identifier)") {
-                        TaskStore.unlinkLinearIssue(issue.identifier, from: task)
+        if AppSettings.shared.showsLinearIssues {
+            Button("Link Linear Issue…") { linkingLinearTask = task }
+                .plumeID(AccessibilityID.taskLinkLinearIssueMenuItem, label: TitleStore.shared.displayTitle(for: task))
+                .disabled(!LinearStore.shared.isConfigured)
+            let working = LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
+            if !working.isEmpty {
+                Menu("Unlink Linear Issue") {
+                    ForEach(working) { issue in
+                        Button("Unlink \(issue.identifier)") {
+                            TaskStore.unlinkLinearIssue(issue.identifier, from: task)
+                        }
                     }
                 }
             }

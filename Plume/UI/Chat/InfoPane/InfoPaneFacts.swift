@@ -223,7 +223,8 @@ extension InfoPaneFacts {
         switch state {
         case .issue, .stale: nil
         case nil, .loading: "loading"
-        case .notFound, .noWorkspace: "not found"
+        case .notFound: "not found"
+        case .noWorkspace: "no workspace"
         case .failed: "offline"
         case .unauthorized: "key rejected"
         case .rateLimited: "rate limited"

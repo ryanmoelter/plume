@@ -26,8 +26,8 @@ struct LinkLinearIssueSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Link", action: link)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
                     .plumeID(AccessibilityID.linkLinearIssueConfirmButton)
+                    .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(20)

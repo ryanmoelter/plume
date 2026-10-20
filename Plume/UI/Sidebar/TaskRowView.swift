@@ -36,12 +36,7 @@ struct TaskRowView: View {
     /// terminal's cwd follows `cd`, so including terminal tabs would make the
     /// list shift as the user moves around a shell.
     private var directories: [String] {
-        TaskRowDetails.distinctDirectories(
-            agentTabDirectories: task.orderedLiveTabs
-                .filter { $0.kind == .agent }
-                .map { TabDirectoryStore.shared.directory(for: $0) },
-            taskDirectory: task.workingDirectoryPath
-        )
+        task.agentDirectories
     }
 
     private func group(for directory: String) -> TaskRowDetails.DirectoryGroup {
@@ -54,10 +49,7 @@ struct TaskRowView: View {
     }
 
     private func branch(for directory: String) -> String? {
-        GitState.displayedBranch(
-            state: GitStateStore.shared.state(for: directory),
-            taskBranchName: task.branchName
-        )
+        task.displayedBranch(in: directory)
     }
 
     private var showsLinear: Bool {
@@ -66,19 +58,18 @@ struct TaskRowView: View {
 
     private var workingLinearIssues: [LinkedLinearIssue] {
         guard showsLinear else { return [] }
-        let branches = directories.compactMap(branch(for:))
-        return LinearStore.shared.links(for: task, branches: branches).filter { $0.role == .working }
+        return LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
     }
 
-    private var detailLines: [TaskRowDetails.Line] {
+    private func detailLines(working: [LinkedLinearIssue]) -> [TaskRowDetails.Line] {
         TaskRowDetails.lines(groups: directories.map(group(for:)))
-            + TaskRowDetails.linearLines(workingLinearIssues, states: { LinearStore.shared.state(for: $0) })
+            + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
     }
 
     /// A task with several directories repeats the project header per group,
     /// and the bridge belongs to the task rather than to any one of them.
-    private var firstProjectLineIndex: Int? {
-        detailLines.firstIndex { if case .project = $0 { true } else { false } }
+    private func firstProjectLineIndex(in lines: [TaskRowDetails.Line]) -> Int? {
+        lines.firstIndex { if case .project = $0 { true } else { false } }
     }
 
     private var agentTabIDs: [UUID] {
@@ -93,15 +84,18 @@ struct TaskRowView: View {
     }
 
     var body: some View {
-        let lines = Array(detailLines.enumerated())
-        let badgeLineCount = Self.badgeLineCount(of: detailLines)
+        let working = workingLinearIssues
+        let rawLines = detailLines(working: working)
+        let lines = Array(rawLines.enumerated())
+        let badgeLineCount = Self.badgeLineCount(of: rawLines)
+        let firstProjectIndex = firstProjectLineIndex(in: rawLines)
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
-                        detailLine(line, at: index)
+                        detailLine(line, at: index, firstProjectIndex: firstProjectIndex)
                     }
                 }
                 Spacer(minLength: 4)
@@ -113,7 +107,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
-                detailLine(line, at: index)
+                detailLine(line, at: index, firstProjectIndex: firstProjectIndex)
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
@@ -121,12 +115,12 @@ struct TaskRowView: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel(lines: rawLines))
         .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: onSelect)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
         .animatedHeight(alignment: .top)
-        .linearIssueWatch(Set(workingLinearIssues.map(\.identifier)))
+        .linearIssueWatch(Set(working.map(\.identifier)))
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
             // From a lifecycle event, never `body` — the store writes when the
@@ -231,7 +225,7 @@ struct TaskRowView: View {
     }
 
     @ViewBuilder
-    private func detailLine(_ line: TaskRowDetails.Line, at index: Int) -> some View {
+    private func detailLine(_ line: TaskRowDetails.Line, at index: Int, firstProjectIndex: Int?) -> some View {
         switch line {
         case .text(let text):
             Text(text)
@@ -246,7 +240,7 @@ struct TaskRowView: View {
                     .emphasis(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if isRemoteControlled, index == firstProjectLineIndex {
+                if isRemoteControlled, index == firstProjectIndex {
                     Image(systemName: StatusSymbol.remoteControl.name)
                         .font(.caption)
                         .imageScale(.small)
@@ -294,11 +288,11 @@ struct TaskRowView: View {
         )
     }
 
-    private var accessibilityLabel: String {
+    private func accessibilityLabel(lines: [TaskRowDetails.Line]) -> String {
         ([TitleStore.shared.displayTitle(for: task)]
             + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
-            + detailLines.compactMap(TaskRowDetails.accessibilityText)
+            + lines.compactMap(TaskRowDetails.accessibilityText)
             + [TaskActivityRow.accessibilityText(tabIDs: agentTabIDs)].compactMap { $0 }).joined(separator: ", ")
     }
 }

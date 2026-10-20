@@ -198,6 +198,7 @@ struct InfoPaneFactsTests {
         #expect(InfoPaneFacts.statusWord(for: nil) == "loading")
         #expect(InfoPaneFacts.statusWord(for: .loading) == "loading")
         #expect(InfoPaneFacts.statusWord(for: .notFound) == "not found")
+        #expect(InfoPaneFacts.statusWord(for: .noWorkspace) == "no workspace")
         #expect(InfoPaneFacts.statusWord(for: .failed("x")) == "offline")
         #expect(InfoPaneFacts.statusWord(for: .unauthorized) == "key rejected")
         #expect(InfoPaneFacts.statusWord(for: .rateLimited(until: Date())) == "rate limited")

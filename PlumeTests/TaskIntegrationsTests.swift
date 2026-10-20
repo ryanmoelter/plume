@@ -33,6 +33,13 @@ struct TaskIntegrationsTests {
         #expect(TaskIntegrations.decode(Data("{}".utf8)).linear == nil)
     }
 
+    @Test func malformedElementsAreSkippedNotTheWholeList() {
+        let json = #"{"linear":{"manual":[{"identifier":"PLUME-1"},{"identifier":7},"junk",{"identifier":"PLUME-2"}],"dismissed":["A-1",3,"A-2"]}}"#
+        let decoded = TaskIntegrations.decode(Data(json.utf8))
+        #expect(decoded.linear?.manual.map(\.identifier) == ["PLUME-1", "PLUME-2"])
+        #expect(decoded.linear?.dismissed == ["A-1", "A-2"])
+    }
+
     @Test func linkUndismisses() {
         var links = LinearTaskLinks()
         links.unlink("PLUME-1")

@@ -127,7 +127,7 @@ struct LinearSettingsSection: View {
         case .unknown, .connected:
             nil
         case .unauthorized:
-            StatusLine(text: "API key rejected — remove and add a new one", isError: true)
+            StatusLine(text: "API key rejected — add a new key for this workspace", isError: true)
         case .rateLimited(let until):
             StatusLine(
                 text: "Rate limited until \(until.formatted(date: .omitted, time: .shortened))",

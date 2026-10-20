@@ -90,9 +90,10 @@ enum TaskRowDetails {
     /// Offline must never read as "no such issue", so each failure has its own.
     static func linearStatusWord(_ state: LinearIssueFetchState?) -> String? {
         switch state {
-        case .issue, .stale, .noWorkspace, nil: nil
+        case .issue, .stale, nil: nil
         case .loading: "loading"
         case .notFound: "not found"
+        case .noWorkspace: "no workspace"
         case .failed: "offline"
         case .unauthorized: "key rejected"
         case .rateLimited: "rate limited"

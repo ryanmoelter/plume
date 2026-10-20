@@ -323,7 +323,7 @@ struct TaskRowLinearLinesTests {
         #expect(TaskRowDetails.accessibilityText(.linearIssue(identifier: "PLUME-102", state: .failed("x")))
             == "Linear PLUME-102, offline")
         #expect(TaskRowDetails.accessibilityText(.linearIssue(identifier: "PLUME-102", state: .noWorkspace))
-            == "Linear PLUME-102")
+            == "Linear PLUME-102, no workspace")
         #expect(TaskRowDetails.accessibilityText(.linearOverflow(3)) == "3 more Linear issues")
     }
 
@@ -332,7 +332,7 @@ struct TaskRowLinearLinesTests {
         #expect(TaskRowDetails.linearStatusWord(.failed("x")) == "offline")
         #expect(TaskRowDetails.linearStatusWord(.unauthorized) == "key rejected")
         #expect(TaskRowDetails.linearStatusWord(.rateLimited(until: .now)) == "rate limited")
-        #expect(TaskRowDetails.linearStatusWord(.noWorkspace) == nil)
+        #expect(TaskRowDetails.linearStatusWord(.noWorkspace) == "no workspace")
         #expect(TaskRowDetails.linearStatusWord(.stale(LinearTestFixtures.issue("PLUME-1"), reason: "x")) == nil)
     }
 }

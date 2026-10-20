@@ -192,7 +192,7 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    private var infoPaneFacts: InfoPaneFacts {
+    private func infoPaneFacts(linearLinks: [LinkedLinearIssue]) -> InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
             hasSettled: { SubagentCompletionTracker.shared.hasSettled($0, tabID: tab.id) }
@@ -228,7 +228,7 @@ struct ChatTabView: View, ThemedView {
             linear: InfoPaneFacts.linear(
                 isEnabled: settings.showsLinearIssues,
                 isConfigured: LinearStore.shared.isConfigured,
-                links: linkedLinearIssues,
+                links: linearLinks,
                 state: { LinearStore.shared.state(for: $0) }
             ),
             sideChatCount: claudeSession?.sideQuestions.count ?? 0,
@@ -279,14 +279,14 @@ struct ChatTabView: View, ThemedView {
     /// enough to reach the conversation, so the transcript is not what decides
     /// it — `conversationMessages` is.
     @ViewBuilder
-    private var content: some View {
+    private func content(linearLinks: [LinkedLinearIssue]) -> some View {
         // A fork that never started has only the inherited history to show,
         // which would hide why it failed and what to do instead.
         if let startFailure = headlessSession?.startFailure, startFailure.remedy == .redoInstead,
            transcriptMessages.isEmpty {
             startFailureState(startFailure)
         } else if !conversationMessages.isEmpty || hasPlan {
-            conversationView(messages: conversationMessages)
+            conversationView(messages: conversationMessages, linearLinks: linearLinks)
         } else if let untrustedPath {
             untrustedDirectoryState(path: untrustedPath)
         } else if let startFailure = headlessSession?.startFailure {
@@ -305,10 +305,11 @@ struct ChatTabView: View, ThemedView {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let linearLinks = linkedLinearIssues
+        return VStack(spacing: 0) {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
-            content
+            content(linearLinks: linearLinks)
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,
@@ -346,7 +347,7 @@ struct ChatTabView: View, ThemedView {
             releaseGitDirectory()
         }
         .pullRequestWatch(directory: gitDirectory, isEnabled: settings.showsPullRequestStatus)
-        .linearIssueWatch(Set(linkedLinearIssues.map(\.identifier)))
+        .linearIssueWatch(Set(linearLinks.map(\.identifier)))
         .onChange(of: planFilePath, initial: true) { _, path in
             if let path { planFile.watch(path: path) } else { planFile.stop() }
         }
@@ -1007,7 +1008,7 @@ struct ChatTabView: View, ThemedView {
     /// The conversation itself. Reached with only an optimistic message too,
     /// so the session facts below it fall back to an empty transcript — there
     /// is nothing on disk to read them from yet.
-    private func conversationView(messages: [ChatMessage]) -> some View {
+    private func conversationView(messages: [ChatMessage], linearLinks: [LinkedLinearIssue]) -> some View {
         let transcript = transcript ?? Transcript()
         let geometry = sideInfoPaneGeometry
         return ChatMessageList(
@@ -1020,7 +1021,7 @@ struct ChatTabView: View, ThemedView {
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: geometry.chatTopInset,
             trailingReserve: geometry.chatTrailingReserve,
-            sidePane: sideInfoPane(geometry: geometry)
+            sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .overlay(alignment: .bottom) {
@@ -1050,9 +1051,9 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry) -> some View {
+    private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry, linearLinks: [LinkedLinearIssue]) -> some View {
         InfoSidePane(
-            facts: infoPaneFacts,
+            facts: infoPaneFacts(linearLinks: linearLinks),
             glass: planGlass,
             geometry: geometry,
             bottomInset: panelHeight,

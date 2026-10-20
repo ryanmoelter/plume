@@ -75,9 +75,9 @@ private struct IssueRow: View, ThemedView {
                 }
                 .buttonStyle(.plain)
                 .emphasis(.secondary)
-                .disabled(issue.url == nil)
                 .help("Open in Linear")
                 .plumeID(AccessibilityID.infoPaneLinearOpenButton, label: issue.identifier)
+                .disabled(issue.url == nil)
             }
             if !detail.isEmpty {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
@@ -132,8 +132,8 @@ private struct LinkIssueField: View, ThemedView {
                     .plumeID(AccessibilityID.infoPaneLinearLinkField, value: text, setValue: { text = $0 })
                 Button("Link", action: link)
                     .controlSize(.small)
-                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
                     .plumeID(AccessibilityID.infoPaneLinearLinkButton, invoke: link)
+                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             if showsError {
                 Text("Not a Linear issue identifier")
