@@ -27,10 +27,15 @@ final class TaskGroup {
         set { tintRaw = newValue?.rawValue }
     }
 
-    /// Trims the name, restoring `fallback` when that leaves it blank.
-    func settleName(fallback: String) {
+    func cancelNameEdit(restoring original: String) {
+        name = original
+        settleName()
+    }
+
+    /// Trims the name, falling back to the default group name when that leaves it blank.
+    func settleName() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let settled = trimmed.isEmpty ? fallback : trimmed
+        let settled = trimmed.isEmpty ? TaskStore.defaultGroupName : trimmed
         if settled != name { name = settled }
     }
 }
