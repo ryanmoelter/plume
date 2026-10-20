@@ -67,21 +67,12 @@ struct LinearLinkResolverTests {
         #expect(issues.map(\.identifier) == ["PLUME-2"])
     }
 
-    @Test func manualLinksSurviveUnknownTeamAndDismissal() {
+    @Test func manualLinksSurviveUnknownTeam() {
         var links = LinearTaskLinks()
         links.manual = [LinearIssueRef(identifier: "ZZZ-1")]
-        links.dismissed = ["ZZZ-1"]
         let issues = resolve(links: links)
         #expect(issues.map(\.identifier) == ["ZZZ-1"])
         #expect(issues.first?.role == .working)
-    }
-
-    @Test func dismissedRemovesNonManualSources() {
-        var links = LinearTaskLinks()
-        links.dismissed = ["PLUME-1", "PLUME-2"]
-        links.promoted = [LinearIssueRef(identifier: "PLUME-2")]
-        let issues = resolve([evidence("PLUME-1")], branch: ["PLUME-2"], links: links)
-        #expect(issues.isEmpty)
     }
 
     @Test func promotionAndBranchAreWorking() {

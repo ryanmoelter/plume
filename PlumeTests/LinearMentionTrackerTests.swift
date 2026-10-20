@@ -9,6 +9,14 @@ import Foundation
 struct LinearMentionTrackerTests {
     private let task = UUID()
 
+    private func settles(_ tracker: LinearMentionTracker, _ identifier: String) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !tracker.hasSettled(identifier, taskID: task) {
+            try #require(ContinuousClock.now < deadline, "linger never elapsed")
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     @Test func theFirstObservationPreSettlesWhatIsAlreadyMentioned() {
         let tracker = LinearMentionTracker(linger: .seconds(30))
 
@@ -24,16 +32,14 @@ struct LinearMentionTrackerTests {
         tracker.observe(mentioned: ["PLUME-2"], taskID: task)
         #expect(!tracker.hasSettled("PLUME-2", taskID: task))
 
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(tracker.hasSettled("PLUME-2", taskID: task))
+        try await settles(tracker, "PLUME-2")
     }
 
     @Test func anIssueThatLeavesAndReturnsGetsAFreshLinger() async throws {
         let tracker = LinearMentionTracker(linger: .milliseconds(50))
         tracker.observe(mentioned: [], taskID: task)
         tracker.observe(mentioned: ["PLUME-2"], taskID: task)
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(tracker.hasSettled("PLUME-2", taskID: task))
+        try await settles(tracker, "PLUME-2")
 
         tracker.observe(mentioned: [], taskID: task)
         tracker.observe(mentioned: ["PLUME-2"], taskID: task)
@@ -74,5 +80,30 @@ struct LinearMentionTrackerTests {
 
         #expect(!tracker.hasSettled("PLUME-2", taskID: task))
         #expect(tracker.hasSettled("PLUME-2", taskID: other))
+    }
+
+    @Test func settleEndsTheLingerAtOnce() {
+        let tracker = LinearMentionTracker(linger: .seconds(30))
+        tracker.observe(mentioned: [], taskID: task)
+        tracker.observe(mentioned: ["PLUME-2"], taskID: task)
+        #expect(!tracker.hasSettled("PLUME-2", taskID: task))
+
+        tracker.settle("PLUME-2", taskID: task)
+
+        #expect(tracker.hasSettled("PLUME-2", taskID: task))
+        tracker.observe(mentioned: ["PLUME-2"], taskID: task)
+        #expect(tracker.hasSettled("PLUME-2", taskID: task))
+    }
+
+    @Test func aSettledIssueThatLeavesAndReturnsLingersAgain() {
+        let tracker = LinearMentionTracker(linger: .seconds(30))
+        tracker.observe(mentioned: [], taskID: task)
+        tracker.observe(mentioned: ["PLUME-2"], taskID: task)
+        tracker.settle("PLUME-2", taskID: task)
+
+        tracker.observe(mentioned: [], taskID: task)
+        tracker.observe(mentioned: ["PLUME-2"], taskID: task)
+
+        #expect(!tracker.hasSettled("PLUME-2", taskID: task))
     }
 }

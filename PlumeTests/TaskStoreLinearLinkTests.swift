@@ -35,25 +35,10 @@ struct TaskStoreLinearLinkTests {
         TaskStore.unlinkLinearIssue("PLUME-1", from: task)
         #expect(TaskStore.linearLinks(for: task).manual.isEmpty)
         #expect(TaskStore.linearLinks(for: task).unlinked == ["PLUME-1"])
-        #expect(TaskStore.linearLinks(for: task).dismissed.isEmpty)
         #expect(TaskStore.linearLinks(for: task).promoted == [LinearIssueRef(identifier: "PLUME-2")])
 
         TaskStore.linkLinearIssue("PLUME-1", to: task)
         #expect(TaskStore.linearLinks(for: task).unlinked.isEmpty)
-    }
-
-    @Test func dismissingRecordsDismissedAndRelinkingClearsIt() throws {
-        let (task, context) = try makeTask()
-        _ = context
-        TaskStore.linkLinearIssue("PLUME-1", to: task)
-
-        TaskStore.dismissLinearIssue("PLUME-1", from: task)
-        #expect(TaskStore.linearLinks(for: task).manual.isEmpty)
-        #expect(TaskStore.linearLinks(for: task).dismissed == ["PLUME-1"])
-        #expect(TaskStore.linearLinks(for: task).unlinked.isEmpty)
-
-        TaskStore.linkLinearIssue("PLUME-1", to: task)
-        #expect(TaskStore.linearLinks(for: task).dismissed.isEmpty)
     }
 
     @Test func agentStartedIssuesLandOnTheTaskOwningTheTab() throws {

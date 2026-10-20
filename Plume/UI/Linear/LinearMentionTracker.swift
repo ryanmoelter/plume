@@ -65,6 +65,15 @@ final class LinearMentionTracker {
         return since.duration(to: .now) >= linger
     }
 
+    /// Ends the issue's linger early.
+    func settle(_ identifier: String, taskID: UUID) {
+        let key = Key(taskID: taskID, identifier: identifier)
+        mentionedAt.removeValue(forKey: key)
+        timers.removeValue(forKey: key)?.cancel()
+        preMentioned.insert(key)
+        settledGeneration += 1
+    }
+
     func forget(taskID: UUID) {
         for key in mentionedAt.keys where key.taskID == taskID {
             mentionedAt.removeValue(forKey: key)

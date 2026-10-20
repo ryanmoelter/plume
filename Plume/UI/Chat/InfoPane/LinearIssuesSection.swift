@@ -7,12 +7,13 @@ struct InfoPaneLinearActions {
     let promote: (String) -> Void
     /// Demotes the issue to mentioned.
     let unlink: (String) -> Void
-    let dismiss: (String) -> Void
+    /// Folds a lingering mentioned issue into the Mentioned section early.
+    let moveToMentioned: (String) -> Void
     /// False when the text is not a Linear issue identifier or URL.
     let link: (String) -> Bool
 
     static let none = InfoPaneLinearActions(
-        promote: { _ in }, unlink: { _ in }, dismiss: { _ in }, link: { _ in false }
+        promote: { _ in }, unlink: { _ in }, moveToMentioned: { _ in }, link: { _ in false }
     )
 }
 
@@ -128,9 +129,9 @@ private struct IssueRow: View, ThemedView {
                 InfoPaneIcon { icon }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(issue.title ?? issue.identifier)
-                        .lineLimit(2)
+                        .lineLimit(1)
                         .truncationMode(.tail)
-                        .multilineTextAlignment(.leading)
+                        .emphasis(showsBubble ? .secondary : .primary)
                     detailLine
                 }
                 Spacer(minLength: 4)
@@ -152,7 +153,7 @@ private struct IssueRow: View, ThemedView {
     @ViewBuilder
     private var icon: some View {
         if showsBubble {
-            Image(systemName: "bubble").emphasis(.secondary)
+            Image(systemName: "questionmark.bubble").emphasis(.secondary)
         } else if let type = issue.stateType {
             LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
         } else {
@@ -164,17 +165,12 @@ private struct IssueRow: View, ThemedView {
     private var detailLine: some View {
         let details = detailParts.joined(separator: " · ")
         if issue.title != nil || !details.isEmpty {
-            HStack(spacing: 0) {
-                if issue.title != nil {
-                    Text(issue.identifier).layoutPriority(1)
-                }
-                if !details.isEmpty {
-                    Text(issue.title != nil ? " · \(details)" : details)
-                        .emphasis(.subtle)
-                        .truncationMode(.tail)
-                }
-            }
-            .lineLimit(1)
+            Text([issue.title != nil ? issue.identifier : nil, details.isEmpty ? nil : details]
+                .compactMap { $0 }
+                .joined(separator: " · "))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .emphasis(.subtle)
         }
     }
 
@@ -226,28 +222,29 @@ private struct IssueRow: View, ThemedView {
 
     private var menuEntries: [IssueMenu.Entry] {
         let identifier = issue.identifier
-        var entries: [IssueMenu.Entry] = [
-            .action("Open in Linear", AccessibilityID.infoPaneLinearOpenButton, isEnabled: issue.url != nil) {
-                if let url = issue.url { NSWorkspace.shared.open(url) }
-            },
-            .action("Copy Identifier", AccessibilityID.infoPaneLinearCopyButton, isEnabled: true) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(identifier, forType: .string)
-            },
-        ]
+        var entries: [IssueMenu.Entry] = []
         if issue.role == .mentioned {
-            entries.append(.action("Mark as Working", AccessibilityID.infoPaneLinearMarkWorkingButton, isEnabled: true) {
+            entries.append(.action("Link to Conversation", AccessibilityID.infoPaneLinearLinkToConversationButton, isEnabled: true) {
                 actions.promote(identifier)
             })
+            entries.append(.divider)
         }
-        entries.append(.divider)
+        entries.append(.action("Open in Linear", AccessibilityID.infoPaneLinearOpenButton, isEnabled: issue.url != nil) {
+            if let url = issue.url { NSWorkspace.shared.open(url) }
+        })
+        entries.append(.action("Copy Identifier", AccessibilityID.infoPaneLinearCopyButton, isEnabled: true) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(identifier, forType: .string)
+        })
         if issue.role == .working {
+            entries.append(.divider)
             entries.append(.action("Unlink", AccessibilityID.infoPaneLinearUnlinkButton, isEnabled: true) {
                 actions.unlink(identifier)
             })
-        } else {
-            entries.append(.action("Dismiss", AccessibilityID.infoPaneLinearDismissButton, isEnabled: true) {
-                actions.dismiss(identifier)
+        } else if showsBubble {
+            entries.append(.divider)
+            entries.append(.action("Move to Mentioned", AccessibilityID.infoPaneLinearMoveToMentionedButton, isEnabled: true) {
+                actions.moveToMentioned(identifier)
             })
         }
         return entries

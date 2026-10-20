@@ -26,8 +26,6 @@ nonisolated enum LinearLinkResolver {
         }
 
         let teamKeys = catalogs.reduce(into: Set<String>()) { $0.formUnion($1.teamKeys) }
-        let dismissed = Set(links.dismissed.map { $0.uppercased() })
-        let manualIDs = Set(links.manual.map(\.identifier))
         let unlinked = Set(links.unlinked.map { $0.uppercased() })
 
         for ref in links.manual { update(ref.identifier) { $0.sources.insert(.manual) } }
@@ -53,8 +51,7 @@ nonisolated enum LinearLinkResolver {
             }
         }
 
-        let linked: [LinkedLinearIssue] = entries.compactMap { identifier, entry in
-            guard !dismissed.contains(identifier) || manualIDs.contains(identifier) else { return nil }
+        let linked: [LinkedLinearIssue] = entries.map { identifier, entry in
             let working = !entry.sources.contains(.unlinked)
                 && (entry.started || !entry.sources.isDisjoint(with: [.manual, .promoted, .branch, .agentStarted]))
             return LinkedLinearIssue(

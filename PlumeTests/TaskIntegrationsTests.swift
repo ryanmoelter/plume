@@ -13,7 +13,6 @@ struct TaskIntegrationsTests {
         links.promote(ref("PLUME-2"))
         links.recordAgentStarted(ref("PLUME-3"))
         links.unlink("PLUME-9")
-        links.dismiss("PLUME-8")
         let value = TaskIntegrations(linear: links)
         let decoded = TaskIntegrations.decode(value.encoded())
         #expect(decoded == value)
@@ -30,7 +29,6 @@ struct TaskIntegrationsTests {
         let decoded = TaskIntegrations.decode(Data(json.utf8))
         #expect(decoded.version == 3)
         #expect(decoded.linear?.manual.map(\.identifier) == ["PLUME-5"])
-        #expect(decoded.linear?.dismissed == [])
         #expect(decoded.linear?.unlinked == [])
         #expect(TaskIntegrations.decode(Data("{}".utf8)).linear == nil)
     }
@@ -39,32 +37,37 @@ struct TaskIntegrationsTests {
         let json = #"{"linear":{"manual":[{"identifier":"PLUME-1"},{"identifier":7},"junk",{"identifier":"PLUME-2"}],"unlinked":["U-1",null,"U-2"],"dismissed":["A-1",3,"A-2"]}}"#
         let decoded = TaskIntegrations.decode(Data(json.utf8))
         #expect(decoded.linear?.manual.map(\.identifier) == ["PLUME-1", "PLUME-2"])
-        #expect(decoded.linear?.unlinked == ["U-1", "U-2"])
-        #expect(decoded.linear?.dismissed == ["A-1", "A-2"])
+        #expect(decoded.linear?.unlinked == ["U-1", "U-2", "A-1", "A-2"])
     }
 
-    @Test func linkClearsDismissedAndUnlinked() {
-        var links = LinearTaskLinks()
-        links.dismiss("PLUME-1")
-        links.link(ref("PLUME-1"))
-        #expect(links.dismissed.isEmpty)
-        #expect(links.manual.map(\.identifier) == ["PLUME-1"])
+    @Test func legacyDismissedDecodesIntoUnlinkedWithoutDuplicates() {
+        let json = #"{"linear":{"unlinked":["A-1"],"dismissed":["A-1","A-2",5]}}"#
+        let decoded = TaskIntegrations.decode(Data(json.utf8))
+        #expect(decoded.linear?.unlinked == ["A-1", "A-2"])
+    }
 
+    @Test func encodingDropsTheLegacyDismissedKey() throws {
+        var links = LinearTaskLinks()
+        links.unlink("PLUME-1")
+        let data = try #require(TaskIntegrations(linear: links).encoded())
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(!text.contains("dismissed"))
+    }
+
+    @Test func linkClearsUnlinked() {
+        var links = LinearTaskLinks()
         links.unlink("PLUME-1")
         links.link(ref("PLUME-1"))
         #expect(links.unlinked.isEmpty)
+        #expect(links.manual.map(\.identifier) == ["PLUME-1"])
     }
 
-    @Test func promoteClearsDismissedAndUnlinked() {
+    @Test func promoteClearsUnlinked() {
         var links = LinearTaskLinks()
         links.unlink("PLUME-1")
         links.promote(ref("PLUME-1"))
         #expect(links.unlinked.isEmpty)
         #expect(links.promoted.map(\.identifier) == ["PLUME-1"])
-
-        links.dismiss("PLUME-2")
-        links.promote(ref("PLUME-2"))
-        #expect(links.dismissed.isEmpty)
     }
 
     @Test func unlinkRemovesEverywhereAndRecordsUnlinked() {
@@ -75,45 +78,18 @@ struct TaskIntegrationsTests {
         links.unlink("plume-1")
         #expect(links.manual.isEmpty && links.promoted.isEmpty && links.agentStarted.isEmpty)
         #expect(links.unlinked == ["PLUME-1"])
-        #expect(links.dismissed.isEmpty)
         links.unlink("PLUME-1")
         #expect(links.unlinked == ["PLUME-1"])
-    }
-
-    @Test func unlinkReplacesDismissal() {
-        var links = LinearTaskLinks()
-        links.dismiss("PLUME-1")
-        links.unlink("PLUME-1")
-        #expect(links.dismissed.isEmpty)
-        #expect(links.unlinked == ["PLUME-1"])
-    }
-
-    @Test func dismissRemovesEverywhereAndReplacesUnlinked() {
-        var links = LinearTaskLinks()
-        links.link(ref("PLUME-1"))
-        links.promote(ref("PLUME-1"))
-        links.recordAgentStarted(ref("PLUME-1"))
-        links.unlink("PLUME-2")
-        links.dismiss("plume-1")
-        links.dismiss("PLUME-2")
-        #expect(links.manual.isEmpty && links.promoted.isEmpty && links.agentStarted.isEmpty)
-        #expect(links.dismissed == ["PLUME-1", "PLUME-2"])
-        #expect(links.unlinked.isEmpty)
-        links.dismiss("PLUME-1")
-        #expect(links.dismissed == ["PLUME-1", "PLUME-2"])
     }
 
     @Test func recordAgentStartedReportsChange() {
         var links = LinearTaskLinks()
         let first = links.recordAgentStarted(ref("PLUME-1"))
         let repeated = links.recordAgentStarted(ref("PLUME-1"))
-        links.dismiss("PLUME-2")
-        let dismissed = links.recordAgentStarted(ref("PLUME-2"))
         links.unlink("PLUME-3")
         let unlinked = links.recordAgentStarted(ref("PLUME-3"))
         #expect(first)
         #expect(!repeated)
-        #expect(!dismissed)
         #expect(!unlinked)
         #expect(links.agentStarted.map(\.identifier) == ["PLUME-1"])
     }

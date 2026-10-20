@@ -491,10 +491,6 @@ enum TaskStore {
         updateLinearLinks(of: task) { $0.unlink(identifier) }
     }
 
-    static func dismissLinearIssue(_ identifier: String, from task: WorkTask) {
-        updateLinearLinks(of: task) { $0.dismiss(identifier) }
-    }
-
     /// Returns whether a task owns the tab.
     @discardableResult
     static func recordAgentStartedLinearIssues(

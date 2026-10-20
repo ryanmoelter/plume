@@ -37,20 +37,17 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
     var agentStarted: [LinearIssueRef] = []
     /// Shown as mentioned whatever else links them, until linked again.
     var unlinked: [String] = []
-    var dismissed: [String] = []
 
     init(
         manual: [LinearIssueRef] = [],
         promoted: [LinearIssueRef] = [],
         agentStarted: [LinearIssueRef] = [],
-        unlinked: [String] = [],
-        dismissed: [String] = []
+        unlinked: [String] = []
     ) {
         self.manual = manual
         self.promoted = promoted
         self.agentStarted = agentStarted
         self.unlinked = unlinked
-        self.dismissed = dismissed
     }
 
     init(from decoder: any Decoder) throws {
@@ -59,29 +56,31 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
         promoted = container.decodeLossyArray(LinearIssueRef.self, forKey: .promoted)
         agentStarted = container.decodeLossyArray(LinearIssueRef.self, forKey: .agentStarted)
         unlinked = container.decodeLossyArray(String.self, forKey: .unlinked)
-        dismissed = container.decodeLossyArray(String.self, forKey: .dismissed)
+        // Earlier builds hid an unlinked issue under `dismissed`.
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+        for id in legacy.decodeLossyArray(String.self, forKey: .dismissed) where !unlinked.contains(id) {
+            unlinked.append(id)
+        }
     }
 
     var isEmpty: Bool {
-        manual.isEmpty && promoted.isEmpty && agentStarted.isEmpty && unlinked.isEmpty && dismissed.isEmpty
+        manual.isEmpty && promoted.isEmpty && agentStarted.isEmpty && unlinked.isEmpty
     }
 
     mutating func link(_ ref: LinearIssueRef) {
-        undismiss(ref.identifier)
+        relink(ref.identifier)
         Self.add(ref, to: &manual)
     }
 
     mutating func promote(_ ref: LinearIssueRef) {
-        undismiss(ref.identifier)
+        relink(ref.identifier)
         Self.add(ref, to: &promoted)
     }
 
-    /// Returns whether anything changed. An unlinked or dismissed issue stays
-    /// that way.
+    /// Returns whether anything changed. An unlinked issue stays unlinked.
     @discardableResult
     mutating func recordAgentStarted(_ ref: LinearIssueRef) -> Bool {
-        guard !dismissed.contains(ref.identifier),
-              !unlinked.contains(ref.identifier),
+        guard !unlinked.contains(ref.identifier),
               !agentStarted.contains(where: { $0.identifier == ref.identifier })
         else { return false }
         agentStarted.append(ref)
@@ -93,21 +92,11 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
     mutating func unlink(_ identifier: String) {
         let id = identifier.uppercased()
         removeLinks(id)
-        dismissed.removeAll { $0 == id }
         if !unlinked.contains(id) { unlinked.append(id) }
     }
 
-    /// Hides the issue unless it is linked again.
-    mutating func dismiss(_ identifier: String) {
+    private mutating func relink(_ identifier: String) {
         let id = identifier.uppercased()
-        removeLinks(id)
-        unlinked.removeAll { $0 == id }
-        if !dismissed.contains(id) { dismissed.append(id) }
-    }
-
-    mutating func undismiss(_ identifier: String) {
-        let id = identifier.uppercased()
-        dismissed.removeAll { $0 == id }
         unlinked.removeAll { $0 == id }
     }
 
@@ -115,6 +104,10 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
         manual.removeAll { $0.identifier == id }
         promoted.removeAll { $0.identifier == id }
         agentStarted.removeAll { $0.identifier == id }
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case dismissed
     }
 
     private static func add(_ ref: LinearIssueRef, to list: inout [LinearIssueRef]) {

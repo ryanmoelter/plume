@@ -182,7 +182,7 @@ struct ChatTabView: View, ThemedView {
         return InfoPaneLinearActions(
             promote: { TaskStore.promoteLinearIssue($0, in: task) },
             unlink: { TaskStore.unlinkLinearIssue($0, from: task) },
-            dismiss: { TaskStore.dismissLinearIssue($0, from: task) },
+            moveToMentioned: { LinearMentionTracker.shared.settle($0, taskID: task.id) },
             link: { input in
                 guard TaskStore.linkLinearIssue(input, to: task) else { return false }
                 if let identifier = LinearIdentifier.normalize(input) {
