@@ -198,6 +198,18 @@ struct ComposerHostedTypingTests {
         #expect(clip.bounds.origin.y == scrolledTo)
     }
 
+    @Test(arguments: ["para", "- item"])
+    func aNewEmptyLastLineScrollsIntoView(lastLine: String) async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+        try await harness.type("a\rb\rc\rd\re\rf\rg\rh\ri\rj\r" + lastLine)
+        let clip = try #require(harness.view.enclosingScrollView?.contentView)
+
+        try await harness.type("\r")
+
+        #expect(clip.bounds.maxY >= harness.view.frame.maxY - 0.5, "\(clip.bounds) vs \(harness.view.frame)")
+    }
+
     @Test func aPasteIsOneUndoStep() async throws {
         let harness = try await Self.makeHarness()
         defer { harness.close() }

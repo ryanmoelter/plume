@@ -575,6 +575,9 @@ final class ComposerNSTextView: NSTextView {
             didChangeText()
         }
         setSelectedRange(result.selection)
+        // Typing scrolls to the caret inside `insertText`; an edit made
+        // through the text storage has to ask.
+        scrollRangeToVisible(result.selection)
         breakUndoCoalescing()
     }
 
