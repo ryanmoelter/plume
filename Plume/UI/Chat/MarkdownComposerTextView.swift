@@ -216,8 +216,18 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 accent: accent
             )
             (textView as? ComposerNSTextView)?.markdownMetrics = isCommandMode ? nil : ComposerMarkdownMetrics(fontSize: fontSize)
+            layOutAllText(in: textView)
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
+        }
+
+        /// A restyle invalidates every line's layout, and TextKit 2 then
+        /// estimates the height of lines outside the viewport. Scrolling to the
+        /// caret and placing decorations against those estimates lands them in
+        /// the wrong place, so the whole text is laid out for real.
+        private func layOutAllText(in textView: NSTextView) {
+            guard let layoutManager = textView.textLayoutManager else { return }
+            layoutManager.ensureLayout(for: layoutManager.documentRange)
         }
 
         func updatePlaceholderVisibility(_ textView: NSTextView) {
@@ -239,6 +249,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 isCommandMode: isCommandMode,
                 accent: ThemeChrome.accentNSColor(isActive: isActive)
             )
+            layOutAllText(in: textView)
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
             // bar or a code box.

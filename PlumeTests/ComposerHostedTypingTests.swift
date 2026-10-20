@@ -183,6 +183,19 @@ struct ComposerHostedTypingTests {
         #expect(harness.view.string == "- [ ] task")
     }
 
+    @Test func typingInAScrolledComposerKeepsItsPlace() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+        try await harness.type("intro\r- one\rtwo\rthree\rfour\r\r1. a\rb\rc\rd\r\r> q\rr\rs\r\rpara\rpara\rpara\rlast")
+        let clip = try #require(harness.view.enclosingScrollView?.contentView)
+        let scrolledTo = clip.bounds.origin.y
+        #expect(scrolledTo > 0)
+
+        try await harness.type(" \u{7F}")
+
+        #expect(clip.bounds.origin.y == scrolledTo)
+    }
+
     @Test func aPasteIsOneUndoStep() async throws {
         let harness = try await Self.makeHarness()
         defer { harness.close() }
