@@ -44,7 +44,7 @@ struct AgentsSettingsPane: View {
                 Section(AgentProviderKind.claudeCode.displayName) {
                     Picker("New tabs start in", selection: $settings.defaultPermissionMode) {
                         ForEach(PermissionModeDefault.offered(showsBypassPermissions: settings.showsBypassPermissions)) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(label(for: mode)).tag(mode)
                         }
                     }
                     Picker("New tabs use", selection: $settings.defaultClaudeModel) {
@@ -126,6 +126,13 @@ struct AgentsSettingsPane: View {
         case .model(let model):
             return model.label
         }
+    }
+
+    private func label(for mode: PermissionModeDefault) -> String {
+        guard mode == .followClaudeCode,
+              let resolved = ClaudeCodeSettingsResolver.resolvedDefaultPermissionMode()
+        else { return mode.label }
+        return "Follow Claude Code (\(resolved.label))"
     }
 
     private func isInstalled(_ provider: AgentProviderKind) -> Bool {
