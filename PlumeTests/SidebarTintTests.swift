@@ -195,6 +195,22 @@ struct GroupNameSettlingTests {
         #expect(group.name == "Work")
     }
 
+    @Test func newGroupIsNamedNewGroup() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let group = TaskStore.createGroup(in: ModelContext(container), existing: [])
+        #expect(group.name == "New group")
+    }
+
+    @Test(arguments: ["", " \t\n"])
+    func blankNameRevertsToNewGroup(_ blank: String) {
+        let group = TaskGroup(name: blank, orderIndex: 0)
+        group.settleName(fallback: TaskStore.defaultGroupName)
+        #expect(group.name == "New group")
+    }
+
     @Test func nameIsTrimmed() {
         let group = TaskGroup(name: " Work ", orderIndex: 0)
         group.settleName(fallback: "Other")
