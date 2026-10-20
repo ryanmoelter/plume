@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A color a group or task carries in the sidebar.
@@ -37,20 +38,32 @@ enum SidebarTint: Hashable {
 
 /// The icons the popover offers, and which custom ones it remembers.
 enum SidebarIcons {
-    static let curated = [
-        "folder", "star", "flag", "bookmark", "tag", "bolt",
-        "flame", "leaf", "ladybug", "hammer", "wrench.and.screwdriver", "paintbrush",
-        "doc.text", "book", "lightbulb", "sparkles", "globe", "server.rack",
-        "terminal", "cpu", "shippingbox", "cube", "testtube.2", "heart",
+    static let columns = 8
+    static let popular = [
+        "folder", "star", "flag", "bookmark", "tag", "heart", "sparkles", "bolt",
+        "flame", "leaf", "ladybug", "lightbulb", "house", "globe", "book", "doc.text",
+        "pencil.line", "paintbrush", "hammer", "wrench.and.screwdriver", "gearshape", "testtube.2", "shippingbox", "cube",
+        "terminal", "cpu", "server.rack", "cloud", "desktopcomputer", "laptopcomputer", "ipad", "iphone",
     ]
-    static let recentLimit = 12
+    static let recentLimit = popular.count
+
+    /// `popular` with each icon swapped for its `.fill` variant where the OS has one.
+    static let popularFilled: [String] = popular.map { name in
+        let filled = name + ".fill"
+        return NSImage(systemSymbolName: filled, accessibilityDescription: nil) != nil ? filled : name
+    }
+
+    static func popular(filled: Bool) -> [String] {
+        filled ? popularFilled : popular
+    }
+
+    private static let allPopular = Set(popular + popularFilled)
 
     /// `recent` with a custom `icon` moved to the front, deduplicated and capped.
     static func recording(_ icon: String?, in recent: [String]) -> [String] {
-        guard let icon, !curated.contains(icon) else { return recent }
+        guard let icon, !allPopular.contains(icon) else { return recent }
         return Array(([icon] + recent.filter { $0 != icon }).prefix(recentLimit))
     }
-
 }
 
 /// Where a task's color shows, given the sidebar settings. A nil tint means

@@ -36,6 +36,7 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let sidebarTintsTaskIcons = "sidebarTintsTaskIcons"
+        static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
@@ -172,6 +173,7 @@ final class AppSettings {
         self.sidebarTintsTaskIcons = defaults.object(forKey: Key.sidebarTintsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarTintsTaskIcons)
+        self.sidebarSuggestsFilledIcons = defaults.bool(forKey: Key.sidebarSuggestsFilledIcons)
         self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
@@ -483,6 +485,13 @@ final class AppSettings {
     var sidebarTintsTaskIcons: Bool {
         didSet {
             defaults.set(sidebarTintsTaskIcons, forKey: Key.sidebarTintsTaskIcons)
+        }
+    }
+
+    /// Whether the icon picker's Popular grid offers filled symbols.
+    var sidebarSuggestsFilledIcons: Bool {
+        didSet {
+            defaults.set(sidebarSuggestsFilledIcons, forKey: Key.sidebarSuggestsFilledIcons)
         }
     }
 

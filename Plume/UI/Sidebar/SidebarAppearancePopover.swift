@@ -219,7 +219,7 @@ private struct SidebarTintPicker: View {
 
 }
 
-/// A field for any SF Symbol's name, a curated grid and the recently used custom icons.
+/// A field for any SF Symbol's name, the recently used custom icons and a grid of popular ones.
 private struct SidebarIconPicker: View {
     @Binding var iconName: String?
     let tint: SidebarTint?
@@ -247,6 +247,16 @@ private struct SidebarIconPicker: View {
 
     private var canRevert: Bool {
         iconName != original || draft != (original ?? "")
+    }
+
+    private var popular: [String] {
+        SidebarIcons.popular(filled: AppSettings.shared.sidebarSuggestsFilledIcons)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .emphasis(.secondary)
     }
 
     private var recent: [String] {
@@ -285,18 +295,12 @@ private struct SidebarIconPicker: View {
                 .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: clear)
                 .disabled(iconName == nil && draft.isEmpty)
             }
-            if draftIsInvalid {
-                Text("No SF Symbol has that name")
-                    .font(.caption)
-                    .foregroundStyle(theme.colors.danger)
-            }
-            grid(SidebarIcons.curated)
             if !recent.isEmpty {
-                Text("Recent")
-                    .font(.subheadline.weight(.semibold))
-                    .emphasis(.secondary)
+                sectionHeader("Recent")
                 grid(recent)
             }
+            sectionHeader("Popular")
+            grid(popular)
         }
         .onAppear {
             draft = iconName ?? ""
@@ -323,7 +327,11 @@ private struct SidebarIconPicker: View {
     @ViewBuilder
     private var preview: some View {
         Group {
-            if !trimmedDraft.isEmpty, Self.isSymbol(trimmedDraft) {
+            if draftIsInvalid {
+                Image(systemName: "nosign")
+                    .fontWeight(weight)
+                    .emphasis(.subtle)
+            } else if !trimmedDraft.isEmpty {
                 symbol(trimmedDraft)
             } else {
                 Color.clear
@@ -333,7 +341,7 @@ private struct SidebarIconPicker: View {
     }
 
     private func grid(_ names: [String]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(Self.cellWidth), spacing: 6), count: 8), spacing: 6) {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(Self.cellWidth), spacing: 6), count: SidebarIcons.columns), spacing: 6) {
             ForEach(names, id: \.self) { name in
                 symbolButton(name)
             }

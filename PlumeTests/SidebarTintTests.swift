@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import AppKit
 import SwiftUI
 @testable import Plume
 
@@ -128,19 +129,38 @@ struct SidebarIconsTests {
     }
 
     @Test func recordingDeduplicatesByMovingToFront() {
-        #expect(SidebarIcons.recording("cloud", in: ["sun", "cloud", "moon"]) == ["cloud", "sun", "moon"])
+        #expect(SidebarIcons.recording("rain", in: ["sun", "rain", "moon"]) == ["rain", "sun", "moon"])
     }
 
-    @Test func recordingCapsAtTwelve() {
-        let recent = (0..<12).map { "custom.\($0)" }
+    @Test func recordingCapsAtThePopularCount() {
+        let limit = SidebarIcons.popular.count
+        #expect(SidebarIcons.recentLimit == limit)
+        let recent = (0..<limit).map { "custom.\($0)" }
         let result = SidebarIcons.recording("new", in: recent)
-        #expect(result.count == 12)
+        #expect(result.count == limit)
         #expect(result.first == "new")
-        #expect(!result.contains("custom.11"))
+        #expect(!result.contains("custom.\(limit - 1)"))
     }
 
-    @Test func recordingIgnoresCuratedAndNil() {
+    @Test func recordingIgnoresPopularAndNil() {
         #expect(SidebarIcons.recording("star", in: ["sun"]) == ["sun"])
         #expect(SidebarIcons.recording(nil, in: ["sun"]) == ["sun"])
+    }
+
+    @Test func recordingIgnoresFilledPopularVariants() {
+        #expect(SidebarIcons.popularFilled != SidebarIcons.popular)
+        for name in SidebarIcons.popularFilled {
+            #expect(SidebarIcons.recording(name, in: ["sun"]) == ["sun"], "\(name)")
+        }
+        #expect(SidebarIcons.recording("star.fill", in: []) == [])
+    }
+
+    @Test func popularNamesAreValidSymbolsInWholeRows() {
+        for name in SidebarIcons.popular + SidebarIcons.popularFilled {
+            #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
+        }
+        #expect(SidebarIcons.popular.count % SidebarIcons.columns == 0)
+        #expect(SidebarIcons.popular(filled: false) == SidebarIcons.popular)
+        #expect(SidebarIcons.popular(filled: true) == SidebarIcons.popularFilled)
     }
 }

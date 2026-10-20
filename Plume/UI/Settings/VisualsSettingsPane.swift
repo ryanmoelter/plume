@@ -75,6 +75,12 @@ struct VisualsSettingsPane: View {
                         value: settings.sidebarTintsTaskIcons ? "on" : "off",
                         invoke: { settings.sidebarTintsTaskIcons.toggle() }
                     )
+                Toggle("Suggest filled icons", isOn: $settings.sidebarSuggestsFilledIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarSuggestsFilledIconsToggle,
+                        value: settings.sidebarSuggestsFilledIcons ? "on" : "off",
+                        invoke: { settings.sidebarSuggestsFilledIcons.toggle() }
+                    )
                 Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
                     .plumeID(
                         AccessibilityID.settingsSidebarBoldTaskNamesToggle,

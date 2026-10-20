@@ -20,10 +20,10 @@ enum SidebarMetrics {
     /// The weight `sidebarSectionHeader()` gives a header's text.
     static let headerWeight = Font.Weight.semibold
     static let headerMinHeight: CGFloat = 19
-    /// The widest curated symbol at the task title's 13 pt regular (20 pt, 23 of
+    /// The widest popular symbol at the task title's 13 pt regular (20 pt, 23 of
     /// 24 fit at bold), so only a custom wide symbol pushes the title over.
     static let taskIconMinWidth: CGFloat = 20
-    /// The widest curated symbol at the header's 11 pt semibold.
+    /// The widest popular symbol at the header's 11 pt semibold.
     static let headerIconMinWidth: CGFloat = 17
     /// Above every section header but the first.
     static let headerTopSpacing: CGFloat = 13

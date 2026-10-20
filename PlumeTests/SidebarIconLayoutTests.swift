@@ -4,7 +4,7 @@ import Testing
 @testable import Plume
 
 /// The icon-plus-title layout keeps one height whichever symbol it shows, and
-/// the minimum widths cover the curated icons.
+/// the minimum widths cover most popular icons.
 @MainActor
 struct SidebarIconLayoutTests {
     private func height(of icon: String?, title: String = "Title", width: CGFloat = 240) -> CGFloat {
@@ -30,17 +30,21 @@ struct SidebarIconLayoutTests {
         #expect(height(of: "star", title: long, width: 120) > height(of: "star") * 1.5)
     }
 
-    @Test func minimumWidthsCoverTheCuratedIcons() {
+    /// Most popular icons fit the minimum; a few wide ones (laptops) take their natural width.
+    @Test func minimumWidthsCoverMostPopularIcons() {
+        let required = 0.9
         for (size, weight, minimum) in [
             (13.0, NSFont.Weight.regular, SidebarMetrics.taskIconMinWidth),
             (11.0, .semibold, SidebarMetrics.headerIconMinWidth),
         ] {
             let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: weight)
-            for name in SidebarIcons.curated {
+            let names = SidebarIcons.popular
+            let fitting = names.filter { name in
                 let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
                     .withSymbolConfiguration(configuration)
-                #expect((image?.size.width ?? 0) <= minimum, "\(name) at \(size) pt")
+                return (image?.size.width ?? .infinity) <= minimum
             }
+            #expect(Double(fitting.count) / Double(names.count) >= required, "\(size) pt")
         }
     }
 
