@@ -20,10 +20,7 @@ struct TabContentView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var dropSide: TaskStore.SplitSide?
-    @State private var clickFocusedTabID: UUID?
     @State private var drag = InAppDrag.shared
-
-    static let coordinateSpace = "tabContent"
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,12 +38,13 @@ struct TabContentView: View {
                     pane(for: tab, size: proxy.size)
                 }
                 if let dividerX = layout.dividerX {
-                    SplitDivider { x in
+                    SplitDivider(x: dividerX) { x in
                         draggedFraction = layout.fraction(forDividerAt: x)
                     } onEnded: {
                         if let draggedFraction { TaskStore.setSplitFraction(draggedFraction, in: task) }
                         draggedFraction = nil
                     } onReset: {
+                        draggedFraction = nil
                         TaskStore.setSplitFraction(0.5, in: task)
                     }
                     .frame(height: proxy.size.height)
@@ -74,13 +72,9 @@ struct TabContentView: View {
                 }
             }
         }
-        .coordinateSpace(.named(Self.coordinateSpace))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: draggedTab == nil) { _, notDragging in
             if notDragging { dropSide = nil }
-        }
-        .onChange(of: task.selectedTabID) { _, selected in
-            if selected != clickFocusedTabID { clickFocusedTabID = nil }
         }
     }
 
@@ -97,8 +91,8 @@ struct TabContentView: View {
         let isFocused = TabVisibility.isFocused(tabID: tab.id, selectedTabID: task.selectedTabID)
         let isUnfocusedPane = layout.isSplit && isVisible && !isFocused
         return tabContent(for: tab, isVisible: isVisible, isFocused: isFocused)
-            .environment(\.paneFocusedByClick, clickFocusedTabID == tab.id)
             .frame(width: placement?.width ?? size.width, height: size.height)
+            .paneAnchored()
             .overlay(alignment: .top) {
                 if layout.isSplit, isFocused {
                     Rectangle()
@@ -110,10 +104,7 @@ struct TabContentView: View {
             .background {
                 if isUnfocusedPane {
                     PaneClickProbe(gripXRange: gripXRange(for: placement)) {
-                        clickFocusedTabID = tab.id
                         TaskStore.selectTab(tab, in: task)
-                    } missed: {
-                        if clickFocusedTabID == tab.id { clickFocusedTabID = nil }
                     }
                 }
             }
@@ -164,11 +155,14 @@ struct TabContentView: View {
 private struct SplitDivider: View {
     static let hitWidth: CGFloat = 9
 
+    /// Where the divider sits now, which a drag moves it from.
+    let x: CGFloat
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
     let onReset: () -> Void
 
     @State private var isHovering = false
+    @State private var dragStartX: CGFloat?
 
     var body: some View {
         ZStack {
@@ -179,9 +173,17 @@ private struct SplitDivider: View {
         .frame(width: Self.hitWidth)
         .contentShape(.rect)
         .gesture(
-            DragGesture(minimumDistance: 1, coordinateSpace: .named(TabContentView.coordinateSpace))
-                .onChanged { onChanged($0.location.x) }
-                .onEnded { _ in onEnded() }
+            // Past a double-click's wobble, so a reset never starts a drag.
+            DragGesture(minimumDistance: 3)
+                .onChanged { value in
+                    let start = dragStartX ?? x
+                    dragStartX = start
+                    onChanged(start + value.translation.width)
+                }
+                .onEnded { _ in
+                    dragStartX = nil
+                    onEnded()
+                }
         )
         .simultaneousGesture(TapGesture(count: 2).onEnded(onReset))
         .plumeHover { hovering in

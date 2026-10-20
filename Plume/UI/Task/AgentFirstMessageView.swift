@@ -66,7 +66,7 @@ struct AgentFirstMessageView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
-        .claimsPaneFocus(isFocused: isVisible && isFocused) {
+        .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
             inputFocused = true
         }
         .sheet(isPresented: $resumeSheetShown) {

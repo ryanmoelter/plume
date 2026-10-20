@@ -19,9 +19,9 @@ struct MainWindow: View {
     @State private var pendingWorktreeRemoval: WorktreeRemovalPrompt.PendingRemoval?
     @State private var worktreeRemovalError: String?
     @State private var pendingLiveAgentRemoval: PendingLiveAgentRemoval?
-    /// Starts generous so the sidebar's max width is unclamped until the
-    /// first real measurement lands.
-    @State private var windowWidth: CGFloat = .infinity
+    /// Read only by the column-width modifiers, so a resize re-runs them
+    /// rather than this whole view.
+    @State private var columnWidths = WindowColumnWidths()
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
     private var tasks: [WorkTask]
@@ -51,15 +51,13 @@ struct MainWindow: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
-            windowWidth = newWidth
+            columnWidths.window = newWidth
         }
-        .frame(
-            minWidth: WindowMetrics.minimumWidth(
-                sidebarVisible: columnVisibility != .detailOnly,
-                paneCount: selectedTask?.paneCount ?? 1
-            ),
-            minHeight: WindowMetrics.minimumHeight
-        )
+        .modifier(WindowFloor(
+            task: selectedTask,
+            sidebarVisible: columnVisibility != .detailOnly,
+            widths: columnWidths
+        ))
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }
@@ -163,7 +161,7 @@ struct MainWindow: View {
         .onChange(of: selection) { _, id in
             LastOpenTask.save(id)
         }
-        .clearsUnreadOnView(onScreenTabIDs: selectedTask?.paneTabIDs ?? [])
+        .clearsUnreadOnView(of: selectedTask)
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
             guard let route else { return }
             follow(route)
@@ -225,11 +223,10 @@ struct MainWindow: View {
             selection: $selection,
             renamingTaskID: $renamingTaskID,
             archiveShown: $archiveShown,
-            windowWidth: windowWidth,
-            paneCount: selectedTask?.paneCount ?? 1,
             requestArchive: { requestRemoval(of: $0, verb: .archive) },
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
         )
+        .modifier(SidebarColumnWidth(task: selectedTask, widths: columnWidths))
     }
 
     /// Broken out of `body` for the same reason as `sidebar`: another

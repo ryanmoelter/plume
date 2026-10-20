@@ -434,19 +434,22 @@ final class InProcessControlBackend: ControlBackend {
     }
 
     /// A split shows two chats, so the composer and chat list surfaces
-    /// resolve to the focused pane's. The first match in tree order is the
-    /// fallback, which is the only match without a split.
+    /// resolve to the focused pane's — or to nothing, when the focused pane
+    /// holds no such view.
     private func inFocusedPane<View: NSView>(_ candidates: [View], of window: NSWindow) -> View? {
-        guard candidates.count > 1,
-              let pane = registry.entries(id: AccessibilityID.tabPane)
-                  .first(where: { $0.entry.value == "focused" && $0.entry.window === window })?.entry
-        else { return candidates.first }
+        let pane = registry.entries(id: AccessibilityID.tabPane)
+            .first(where: { $0.entry.value == "focused" && $0.entry.window === window })?.entry
         let height = contentHeight(of: window)
-        // `visibleRect`: a chat list's document view runs far past its pane.
-        return candidates.first { view in
-            let frame = WindowGeometry.topLeftRect(fromAppKit: view.convert(view.visibleRect, to: nil), contentHeight: height)
-            return pane.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
-        } ?? candidates.first
+        let placed = candidates.map { view in
+            (view, WindowGeometry.topLeftRect(fromAppKit: view.convert(view.shownRect, to: nil), contentHeight: height))
+        }
+        return Self.candidate(in: placed, focusedPaneFrame: pane?.frame)
+    }
+
+    /// With no pane registered, the first candidate in tree order.
+    static func candidate<View>(in candidates: [(View, CGRect)], focusedPaneFrame: CGRect?) -> View? {
+        guard let focusedPaneFrame else { return candidates.first?.0 }
+        return candidates.first { focusedPaneFrame.contains(CGPoint(x: $0.1.midX, y: $0.1.midY)) }?.0
     }
 
     /// Text-bearing views under `root`, top to bottom.

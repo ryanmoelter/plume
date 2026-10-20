@@ -20,16 +20,36 @@ enum WindowMetrics {
         return CGFloat(panes) * paneMinimumWidth + CGFloat(panes - 1) * SplitLayout.dividerWidth
     }
 
-    static func minimumWidth(sidebarVisible: Bool, paneCount: Int) -> CGFloat {
+    /// `sidebarWidth` is the sidebar's current width.
+    static func minimumWidth(
+        sidebarVisible: Bool,
+        paneCount: Int,
+        sidebarWidth: CGFloat = sidebarMinimumWidth
+    ) -> CGFloat {
         let detail = detailMinimumWidth(paneCount: paneCount)
-        return sidebarVisible ? sidebarMinimumWidth + detail : detail
+        guard sidebarVisible else { return detail }
+        return heldSidebarWidth(paneCount: paneCount, sidebarWidth: sidebarWidth) + detail
     }
 
     /// The sidebar's ceiling for a given window width, so dragging the
     /// divider can never squeeze the detail column below its own floor.
     /// Clamped to `sidebarMinimumWidth` regardless of how narrow the window
     /// gets.
-    static func sidebarMaximumWidth(windowWidth: CGFloat, paneCount: Int) -> CGFloat {
-        max(sidebarMinimumWidth, windowWidth - detailMinimumWidth(paneCount: paneCount))
+    static func sidebarMaximumWidth(
+        windowWidth: CGFloat,
+        paneCount: Int,
+        sidebarWidth: CGFloat = sidebarMinimumWidth
+    ) -> CGFloat {
+        max(
+            heldSidebarWidth(paneCount: paneCount, sidebarWidth: sidebarWidth),
+            windowWidth - detailMinimumWidth(paneCount: paneCount)
+        )
+    }
+
+    /// A split grows the window around the sidebar rather than narrowing it,
+    /// since the split view never widens a sidebar back once its ceiling has
+    /// cut it down. Unsplit, the sidebar gives way as the window shrinks.
+    private static func heldSidebarWidth(paneCount: Int, sidebarWidth: CGFloat) -> CGFloat {
+        paneCount > 1 ? max(sidebarMinimumWidth, sidebarWidth) : sidebarMinimumWidth
     }
 }

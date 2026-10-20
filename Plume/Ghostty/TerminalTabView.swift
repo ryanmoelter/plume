@@ -33,7 +33,7 @@ struct TerminalTabView: View {
                 guard visible else { return }
                 markBellSeen()
             }
-            .claimsPaneFocus(isFocused: isVisible && isFocused) {
+            .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
                 session.state.requestFocus()
             }
             .onChange(of: session.bellCount) { previous, current in

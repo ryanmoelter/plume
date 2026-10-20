@@ -284,7 +284,7 @@ struct ChatComposer: View, ThemedView {
         .onChange(of: isVisible, initial: true) { _, visible in
             if !visible { inputFocused = false }
         }
-        .claimsPaneFocus(isFocused: isVisible && isFocused) {
+        .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
             inputFocused = true
         }
         .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in

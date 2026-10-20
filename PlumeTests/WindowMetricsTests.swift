@@ -37,4 +37,24 @@ struct WindowMetricsTests {
         #expect(WindowMetrics.minimumWidth(sidebarVisible: true, paneCount: 2) == WindowMetrics.minimumWidth(sidebarVisible: true, paneCount: 1) + extra)
         #expect(WindowMetrics.minimumWidth(sidebarVisible: false, paneCount: 2) == WindowMetrics.minimumWidth(sidebarVisible: false, paneCount: 1) + extra)
     }
+
+    @Test func aSplitNeverCapsTheSidebarBelowItsCurrentWidth() {
+        let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 1000, paneCount: 2, sidebarWidth: 320)
+        #expect(width == 320)
+    }
+
+    @Test func aSplitGrowsTheWindowAroundTheSidebar() {
+        let floor = WindowMetrics.minimumWidth(sidebarVisible: true, paneCount: 2, sidebarWidth: 320)
+        #expect(floor == 320 + WindowMetrics.detailMinimumWidth(paneCount: 2))
+        #expect(WindowMetrics.sidebarMaximumWidth(windowWidth: floor, paneCount: 2, sidebarWidth: 320) == 320)
+    }
+
+    @Test func unsplitTheSidebarStillGivesWayToTheDetail() {
+        #expect(WindowMetrics.sidebarMaximumWidth(windowWidth: 600, paneCount: 1, sidebarWidth: 320) == 600 - WindowMetrics.paneMinimumWidth)
+        #expect(WindowMetrics.minimumWidth(sidebarVisible: true, paneCount: 1, sidebarWidth: 320) == WindowMetrics.sidebarMinimumWidth + WindowMetrics.paneMinimumWidth)
+    }
+
+    @Test func aHiddenSidebarAddsNothingToTheFloor() {
+        #expect(WindowMetrics.minimumWidth(sidebarVisible: false, paneCount: 2, sidebarWidth: 320) == WindowMetrics.detailMinimumWidth(paneCount: 2))
+    }
 }
