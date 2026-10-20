@@ -210,7 +210,27 @@ What a `next` message looks like on each side:
 
 **Background subagents survive it.** A turn launched a background `Agent` (a `sleep` that then replied `BGDONE`) and went on with four `sleep 3` calls. A `next` message joined that turn. No `task_updated` reported `killed`. The subagent replied `BGDONE` and ended with `task_updated` `completed` and a `task_notification` `completed`, and its wake turn followed as usual. Written between turns while a subagent ran, the message started a turn of its own (`init`, reply, `result`), and the subagent completed about 22 s later in the same way.
 
-**What Plume does with this.** Send-now (⌃↩, or a queued row's Send now) writes every queued message, then the composer's text, as one `priority: "next"` line, and never sends an interrupt. With no turn running, it writes an ordinary turn. `HeadlessSession.deliveringMessages` holds a sent message until the next `requesting`, so the chat can show it as sending. A `result` that arrives while that list is not empty means the CLI is about to run the message as its own turn. The session holds that turn's end for `deliveryGrace` rather than announcing it, and the following `requesting` continues the turn. `TranscriptAttachment.userPrompt` renders a human `queued_command` as the user's message, between the replies it split.
+**What Plume does with this.** Send-now (a queued row's Send now, or the Send Now menu command) writes every queued message, then the composer's text, as one `priority: "next"` line, and never sends an interrupt. With no turn running, it writes an ordinary turn. The "Deliver queued messages" setting (`QueuedMessageDelivery`) picks what an ordinary send does mid-turn: hold it until `result` (the default), or write it at once the way send-now does. Plan feedback always waits for the turn to end. `HeadlessSession.deliveringMessages` holds a sent message until the next `requesting`, so the chat can show it as sending and withdraw it (see below). A `result` that arrives while that list is not empty means the CLI is about to run the message as its own turn. The session holds that turn's end for `deliveryGrace` rather than announcing it, and the following `requesting` continues the turn. `TranscriptAttachment.userPrompt` renders a human `queued_command` as the user's message, between the replies it split.
+
+### Withdrawing a mid-turn message — `cancel_async_message`
+
+A `next` message can be withdrawn until the model takes it in. The user line has to carry a `uuid`, which the request then names:
+
+```json
+{"type":"user","uuid":"a383b9a3-…","message":{…},"priority":"next"}
+{"type":"control_request","request_id":"c-1","request":{"subtype":"cancel_async_message","message_uuid":"a383b9a3-…"}}
+```
+
+Measured on **2.1.304** with Plume's flags, in a turn of `sleep 8` then `sleep 1`, with the message sent 1 s into the first sleep:
+
+| withdrawn | reply | what happened |
+|---|---|---|
+| 1 s later, during the sleep | `{"cancelled": true}` | `command_lifecycle` `queued`, then `cancelled`. The model never saw the message, the turn answered `DONE` alone, and the transcript has no trace of it. |
+| 0.5 s after the next `requesting` | `{"cancelled": false}` | `command_lifecycle` `started` had come with that `requesting`. The model answered `PINEAPPLE\nDONE`, and `completed` came just before the `result`. |
+
+The reply is the race's answer: `true` means the message is gone, `false` means the model already has it. The binary describes `cancelled: false` as "not in the queue (already dequeued or never enqueued)". A message with a `uuid` also draws `command_lifecycle` events (`queued`, `started`, `completed`, `cancelled`) keyed by `command_uuid`. Plume does not read them yet.
+
+**What Plume does with this.** Every delivering message carries a `uuid`, and its chip keeps Edit and Remove. Both send the request and show the chip as withdrawing. On `true`, Remove drops the message and Edit puts its text in the composer, as editing a queued message does. On `false` the chip says Claude already has it, until the `requesting` that carries it clears the chip. A withdrawal that empties the list while a `result` is held ends that turn at once. Never use `interrupt` with `cancel_queued` for this: it ends the turn and can stop background subagents.
 
 ### Approving a plan with feedback
 

@@ -67,6 +67,7 @@ enum AccessibilityID {
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"
     static let composerSendKeyPicker = "composer-send-key-picker"
     static let escapeInterruptsTurnToggle = "escape-interrupts-turn-toggle"
+    static let queuedMessageDeliveryPicker = "queued-message-delivery-picker"
     static let shortcutRecorder = "shortcut-recorder"
     static let shortcutResetButton = "shortcut-reset-button"
     static let shortcutResetAllButton = "shortcut-reset-all-button"
@@ -214,5 +215,7 @@ enum AccessibilityID {
     // MARK: Queued messages
 
     static let queuedMessageSendNowButton = "queued-message-send-now-button"
+    static let queuedMessageEditButton = "queued-message-edit-button"
+    static let queuedMessageRemoveButton = "queued-message-remove-button"
     static let deliveringMessage = "delivering-message"
 }

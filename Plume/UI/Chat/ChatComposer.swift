@@ -26,6 +26,9 @@ struct ChatComposer: View, ThemedView {
     /// Up-arrow recall path below already does, since only this view knows
     /// how to keep `hasSendableText` in sync with the draft it writes.
     var editQueuedMessageIndex: Binding<Int?> = .constant(nil)
+    /// Set by `ChatTabView` with a delivering message the CLI gave back, to
+    /// put in the draft the same way as a queued one.
+    var withdrawnMessageToEdit: Binding<[UserContentBlock]?> = .constant(nil)
     /// Set by `ChatTabView`'s queued rows to run `sendNow`, which takes the
     /// draft along.
     var sendNowRequested: Binding<Bool> = .constant(false)
@@ -81,6 +84,15 @@ struct ChatComposer: View, ThemedView {
     /// both halves of the draft.
     private var canSend: Bool {
         hasSendableText || !attachedImages.isEmpty
+    }
+
+    /// What the Send Now menu command runs. Only the visible composer of the
+    /// focused pane publishes one, so the command never acts on a hidden tab.
+    private var sendNowCommand: (() -> Void)? {
+        guard isVisible, isFocused, tab.transport == .headless else { return nil }
+        let hasQueue = !(headlessSession?.queuedMessages.isEmpty ?? true)
+        guard canSend || hasQueue else { return nil }
+        return sendNow
     }
 
     /// Images ride only on the headless transport. A terminal tab's input is
@@ -181,6 +193,10 @@ struct ChatComposer: View, ThemedView {
     /// last message so recall can later walk further back through the queue.
     private func editQueuedMessage(at index: Int) {
         guard let headlessSession, let blocks = headlessSession.removeQueuedMessage(at: index) else { return }
+        loadIntoDraft(blocks)
+    }
+
+    private func loadIntoDraft(_ blocks: [UserContentBlock]) {
         let plainText = blocks.plainText
         let text = plainText.hasPrefix("!") ? "\\" + plainText : plainText
         drafts.setCommandMode(false, forTab: tab.id)
@@ -222,7 +238,6 @@ struct ChatComposer: View, ThemedView {
                     isFocused: $inputFocused,
                     sendKey: settings.composerSendKey,
                     onSend: send,
-                    onControlReturn: sendNow,
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
@@ -292,11 +307,17 @@ struct ChatComposer: View, ThemedView {
             editQueuedMessage(at: index)
             editQueuedMessageIndex.wrappedValue = nil
         }
+        .onChange(of: withdrawnMessageToEdit.wrappedValue) { _, blocks in
+            guard let blocks else { return }
+            loadIntoDraft(blocks)
+            withdrawnMessageToEdit.wrappedValue = nil
+        }
         .onChange(of: sendNowRequested.wrappedValue) { _, requested in
             guard requested else { return }
             sendNow()
             sendNowRequested.wrappedValue = false
         }
+        .focusedSceneValue(\.sendNowAction, sendNowCommand)
         .task(id: skillDirectory) {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
         }
@@ -318,6 +339,14 @@ struct ChatComposer: View, ThemedView {
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
 
+    private var sendButtonHelp: String {
+        guard headlessSession?.isWorking == true else { return "Send" }
+        if headlessSession is HeadlessSession, settings.queuedMessageDelivery == .afterToolCall {
+            return "Send after the current tool call"
+        }
+        return "Queue for the next turn"
+    }
+
     private var sendButton: some View {
         Button(action: send) {
             Image(systemName: "arrow.up")
@@ -328,7 +357,7 @@ struct ChatComposer: View, ThemedView {
         .buttonBorderShape(.circle)
         .plumeID(AccessibilityID.composerSendButton, invoke: send)
         .disabled(!canSend || headlessSession?.isSteering == true)
-        .help(headlessSession?.isWorking == true ? "Queue for the next turn" : "Send")
+        .help(sendButtonHelp)
         .accessibilityLabel(headlessSession?.isWorking == true ? "Queue" : "Send")
     }
 

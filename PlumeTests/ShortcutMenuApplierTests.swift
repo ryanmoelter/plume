@@ -34,9 +34,23 @@ struct ShortcutMenuApplierTests {
         ShortcutMenuApplier.apply(ShortcutBindings(), to: menu)
         for action in ShortcutAction.allCases {
             let found = item(action, in: menu)
-            #expect(found?.keyEquivalent == String(action.defaultShortcut.key))
-            #expect(found?.keyEquivalentModifierMask == MenuShortcut.appKitFlags(action.defaultShortcut.modifiers))
+            #expect(found?.keyEquivalent == action.defaultShortcut.map { String($0.key) } ?? "")
+            #expect(found?.keyEquivalentModifierMask == action.defaultShortcut.map { MenuShortcut.appKitFlags($0.modifiers) } ?? [])
         }
+    }
+
+    /// An item that ships with no chord gets the one the user records, and
+    /// loses it again on reset.
+    @Test func sendNowCarriesOnlyARecordedChord() {
+        let menu = tabMenu()
+        var bindings = ShortcutBindings()
+        bindings.assign(MenuShortcut("j", modifiers: [.command, .shift]), to: .sendNow)
+        ShortcutMenuApplier.apply(bindings, to: menu)
+        #expect(item(.sendNow, in: menu)?.keyEquivalent == "j")
+
+        bindings.reset(.sendNow)
+        ShortcutMenuApplier.apply(bindings, to: menu)
+        #expect(item(.sendNow, in: menu)?.keyEquivalent == "")
     }
 
     @Test func aRebindReplacesTheChordOnTheBuiltItem() {
@@ -59,7 +73,7 @@ struct ShortcutMenuApplierTests {
         ShortcutMenuApplier.apply(ShortcutBindings(), to: menu)
 
         var bindings = ShortcutBindings()
-        bindings.assign(ShortcutAction.nextTab.defaultShortcut, to: .previousTab)
+        bindings.assign(ShortcutAction.nextTab.defaultShortcut!, to: .previousTab)
         ShortcutMenuApplier.apply(bindings, to: menu)
 
         #expect(bindings[.nextTab] == nil)

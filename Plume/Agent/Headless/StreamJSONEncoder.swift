@@ -27,8 +27,13 @@ enum StreamJSONEncoder {
     }
 
     /// `priority` says when a message written mid-turn reaches the model —
-    /// see `UserTurnPriority`. Nil leaves it to the CLI's default.
-    static func userTurn(blocks: [UserContentBlock], priority: UserTurnPriority? = nil) -> String? {
+    /// see `UserTurnPriority`. Nil leaves it to the CLI's default. `uuid`
+    /// names the message for a later `cancelAsyncMessage`.
+    static func userTurn(
+        blocks: [UserContentBlock],
+        priority: UserTurnPriority? = nil,
+        uuid: String? = nil
+    ) -> String? {
         var object: [String: JSONValue] = [
             "type": .string("user"),
             "message": .object([
@@ -37,7 +42,17 @@ enum StreamJSONEncoder {
             ])
         ]
         if let priority { object["priority"] = .string(priority.rawValue) }
+        if let uuid { object["uuid"] = .string(uuid) }
         return line(object)
+    }
+
+    /// Withdraws a user message the CLI has queued but not yet put in front
+    /// of the model. Answered with `cancelled`: false once it has.
+    static func cancelAsyncMessage(messageUUID: String, requestID: String) -> String? {
+        controlRequest(id: requestID, body: [
+            "subtype": .string("cancel_async_message"),
+            "message_uuid": .string(messageUUID)
+        ])
     }
 
     static func initialize(requestID: String) -> String? {
