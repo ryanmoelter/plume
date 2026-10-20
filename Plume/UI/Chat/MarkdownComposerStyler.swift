@@ -262,7 +262,7 @@ struct ComposerMarkdownMetrics {
     var quoteBarWidth: CGFloat { 3 }
     var ruleThickness: CGFloat { 1 }
     var checkboxSize: CGFloat { (fontSize * 0.85).rounded() }
-    var listSpacing: CGFloat { fontSize * 0.4 }
+    var listSpacing: CGFloat { fontSize * 0.7 }
 
     /// Where a line's content starts, measured from the text column's
     /// leading edge. Zero leaves the line's own layout alone.
