@@ -188,7 +188,8 @@ struct MainWindow: View {
             NotificationAudience(
                 isAppActive: NSApp.isActive,
                 selectedTaskID: selection,
-                onScreenTabIDs: Set(selectedTask?.paneTabIDs ?? [])
+                onScreenTabIDs: Set(selectedTask?.paneTabIDs ?? []),
+                focusedTabID: selectedTask?.selectedTabID
             )
         }
         statusNotifier = StatusNotifier { tabID in

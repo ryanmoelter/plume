@@ -9,6 +9,9 @@ struct NotificationAudience: Equatable {
     var selectedTaskID: UUID?
     /// The tabs on screen within that task — two while it is split.
     var onScreenTabIDs: Set<UUID> = []
+    /// The on-screen tab that has focus. In a split, the other pane is on
+    /// screen without having been read.
+    var focusedTabID: UUID?
 
     static let inactive = NotificationAudience(isAppActive: false)
 }

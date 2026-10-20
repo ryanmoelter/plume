@@ -45,17 +45,15 @@ struct StatusBadge: View {
     @ViewBuilder
     private var symbol: some View {
         switch status {
-        case .notStarted:
+        // A finished turn the user has read is the resting state, so it
+        // draws nothing; an unread one draws the dot instead.
+        case .notStarted, .awaitingReply:
             EmptyView()
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .waitingOnSubagents:
             Image(systemName: StatusSymbol.subagents.filled)
                 .foregroundStyle(ChatRole.activity(for: colorScheme))
-                .transition(.symbolEffect)
-        case .awaitingReply:
-            Image(systemName: StatusSymbol.awaitingReply.filled)
-                .foregroundStyle(Emphasis.secondary.textHierarchy)
                 .transition(.symbolEffect)
         case .done:
             Image(systemName: StatusSymbol.done.filled)
