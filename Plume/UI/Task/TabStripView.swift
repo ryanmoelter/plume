@@ -35,7 +35,13 @@ struct TabStripView: View {
                     isSelected: task.selectedTabID == tab.id,
                     isShown: shown.contains(tab.id),
                     themeForeground: ThemeChrome.foreground(for: colorScheme),
-                    select: { TaskStore.selectTab(tab, in: task) },
+                    select: {
+                        TaskStore.selectTab(tab, in: task)
+                        // Re-selecting the focused tab leaves focus where it
+                        // was, so nothing else clears a mark set by Mark as
+                        // Unread.
+                        UnreadStore.shared.markViewed(Notifier.shared.audience())
+                    },
                     close: { TaskStore.closeTab(tab, in: context) },
                     moveToNewTask: { moveToNewTask(tab) }
                 )
@@ -230,6 +236,8 @@ private struct TabChip: View {
             }
             Button("Move to New Task") { moveToNewTask() }
                 .disabled(task.tabs.count < 2)
+            Divider()
+            MarkAsUnreadButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
         }
         .confirmationDialog(
             "Start a fresh conversation?",

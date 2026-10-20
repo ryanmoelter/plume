@@ -161,6 +161,74 @@ struct UnreadStoreTests {
         #expect(store.isUnread(tabID: tab))
     }
 
+    @Test func aReadTurnCanBeMarkedUnread() {
+        let (store, engine) = observed(audience: looking)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+
+        #expect(store.tabsToMarkUnread([tab: .awaitingReply]) == [tab])
+    }
+
+    @Test(arguments: [TaskStatus.notStarted, .working, .waitingOnSubagents, .questionAsked, .interrupted, .error])
+    func onlyAFinishedTurnCanBeMarkedUnread(status: TaskStatus) {
+        #expect(UnreadStore().tabsToMarkUnread([tab: status]).isEmpty)
+    }
+
+    @Test func anUnreadTurnCannotBeMarkedAgain() {
+        let store = UnreadStore()
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
+
+        #expect(store.tabsToMarkUnread([tab: .awaitingReply]).isEmpty)
+    }
+
+    @Test func aTaskMarksTheTabThatFinishedLast() {
+        let earlier = UUID()
+        let store = UnreadStore()
+        store.record(.awaitingReply, tabID: tab, isSeen: true)
+        store.record(.awaitingReply, tabID: earlier, isSeen: true)
+        store.record(.working, tabID: tab, isSeen: true)
+        store.record(.awaitingReply, tabID: tab, isSeen: true)
+
+        #expect(store.tabsToMarkUnread([tab: .awaitingReply, earlier: .awaitingReply, UUID(): .notStarted]) == [tab])
+    }
+
+    @Test func aTaskWithNoRecordedFinishMarksEveryReadTab() {
+        let other = UUID()
+
+        let marked = UnreadStore().tabsToMarkUnread([tab: .awaitingReply, other: .awaitingReply])
+
+        #expect(Set(marked) == [tab, other])
+    }
+
+    @Test func aTaskStillWorkingCannotBeMarkedUnread() {
+        #expect(UnreadStore().tabsToMarkUnread([tab: .awaitingReply, UUID(): .working]).isEmpty)
+    }
+
+    /// Only the next view clears a mark set on the focused tab; the tab
+    /// staying on screen does not.
+    @Test func markingTheFocusedTabUnreadLastsUntilItIsViewedAgain() {
+        let (store, engine) = observed(audience: looking)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+
+        store.markUnread([tab])
+        #expect(store.isUnread(tabID: tab))
+
+        store.markViewed(looking)
+        #expect(!store.isUnread(tabID: tab))
+    }
+
+    @Test func markingUnreadInAnUnfocusedPaneClearsOnFocusingIt() {
+        let focused = UUID()
+        let store = UnreadStore()
+        store.record(.awaitingReply, tabID: tab, isSeen: true)
+        store.markUnread([tab])
+
+        store.markViewed(split(focused: focused, other: tab))
+        #expect(store.isUnread(tabID: tab))
+
+        store.markViewed(split(focused: tab, other: focused))
+        #expect(!store.isUnread(tabID: tab))
+    }
+
     @Test(arguments: [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput])
     func aTabWantingTheUserOutranksTheDot(status: TaskStatus) {
         #expect(!UnreadStore.showsUnread(taskStatus: status, hasUnreadTab: true))

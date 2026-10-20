@@ -18,6 +18,11 @@ final class UnreadStore {
 
     private(set) var unreadTabs: Set<UUID> = []
 
+    /// The order tabs' current turns finished in, so Mark as Unread on a task
+    /// can pick the latest.
+    @ObservationIgnored private var finishOrder: [UUID: Int] = [:]
+    @ObservationIgnored private var finishCount = 0
+
     init() {}
 
     func observe(_ engine: StatusEngine, audience: @escaping () -> NotificationAudience) {
@@ -36,11 +41,38 @@ final class UnreadStore {
     }
 
     func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool) {
+        if status == .awaitingReply {
+            finishCount += 1
+            finishOrder[tabID] = finishCount
+        } else {
+            finishOrder.removeValue(forKey: tabID)
+        }
         if status == .awaitingReply, !isSeen {
             unreadTabs.insert(tabID)
         } else {
             unreadTabs.remove(tabID)
         }
+    }
+
+    /// The tabs Mark as Unread marks, given the statuses of a task's tabs, or
+    /// of one tab. Empty — and the menu item disabled — unless every turn has
+    /// finished and none is unread already. Of a task's read tabs, only the
+    /// one that finished last is marked; when no tab has a recorded finish,
+    /// all of them are.
+    func tabsToMarkUnread(_ statuses: [UUID: TaskStatus]) -> [UUID] {
+        guard TaskStatus.aggregate(statuses.values) == .awaitingReply,
+              !hasUnread(among: statuses.keys)
+        else { return [] }
+        let finished = statuses.filter { $0.value == .awaitingReply }.map(\.key)
+        let latest = finished.compactMap { id in finishOrder[id].map { (id, $0) } }.max { $0.1 < $1.1 }
+        return latest.map { [$0.0] } ?? finished
+    }
+
+    /// Survives the tab staying in view: the mark clears only on the next
+    /// `markViewed`, which runs when focus moves, the app comes forward, or
+    /// the focused tab is selected again.
+    func markUnread(_ tabIDs: some Sequence<UUID>) {
+        unreadTabs.formUnion(tabIDs)
     }
 
     /// Clears the focused tab, the only one the user is reading.
@@ -57,10 +89,12 @@ final class UnreadStore {
 
     func forget(tabID: UUID) {
         unreadTabs.remove(tabID)
+        finishOrder.removeValue(forKey: tabID)
     }
 
     func reset() {
         unreadTabs.removeAll()
+        finishOrder.removeAll()
     }
 
     /// Whether a task's badge shows the unread dot. A tab that wants the user

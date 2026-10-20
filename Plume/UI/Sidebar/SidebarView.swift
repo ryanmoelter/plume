@@ -256,6 +256,7 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
+        MarkAsUnreadButton(tabIDs: task.tabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
