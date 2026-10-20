@@ -48,6 +48,26 @@ struct InfoPaneFactsTests {
         #expect(split.completed.map(\.id) == ["settled"])
     }
 
+    @Test func completedSubagentsListNewestActivityFirst() {
+        func dated(_ id: String, _ seconds: TimeInterval?) -> SubagentTranscript {
+            SubagentTranscript(
+                id: id, transcript: Transcript(),
+                modifiedAt: seconds.map { Date(timeIntervalSince1970: $0) }, status: .done
+            )
+        }
+        let ordered = InfoPaneFacts.newestFirst([
+            dated("none1", nil), dated("old", 10), dated("tieA", 50), dated("new", 90), dated("tieB", 50), dated("none2", nil)
+        ])
+        #expect(ordered.map(\.id) == ["new", "tieA", "tieB", "old", "none1", "none2"])
+
+        let split = InfoPaneFacts.splitSubagents(
+            [dated("w2", nil), dated("old", 10), dated("w1", 99), dated("new", 90)],
+            hasSettled: { $0.id == "old" || $0.id == "new" }
+        )
+        #expect(split.live.map(\.id) == ["w2", "w1"])
+        #expect(split.completed.map(\.id) == ["new", "old"])
+    }
+
     @Test func theCollapsedFormLeavesOutWhereItRunsAndSettledSubagents() {
         let facts = InfoPaneFacts(
             tabID: UUID(),
