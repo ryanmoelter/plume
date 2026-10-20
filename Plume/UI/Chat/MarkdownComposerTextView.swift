@@ -6,7 +6,8 @@ import SwiftUI
 /// Wraps `NSTextView` because `TextField` cannot style ranges of its own
 /// text. `MarkdownHighlighter` finds the spans; this view only applies them
 /// as attributes on `NSTextStorage` — the bound `String` is always exactly
-/// what the user typed, with markers visible and merely styled in place.
+/// what the user typed. Hidden markers keep their characters, and
+/// `ComposerDecorations` draws over them.
 ///
 /// Grows with its content from `minLines` up to `maxLines` or a third of
 /// the window, whichever is taller, scrolling internally beyond that.
@@ -354,8 +355,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
 /// Draws placeholder text directly rather than via a second overlay view,
 /// and routes the configured send key to the composer's send action.
-/// Whichever key sends, that same key with Shift always inserts a literal
-/// newline — otherwise a multi-line message becomes impossible to type.
+/// Whichever key sends, that same key with Shift always inserts a newline,
+/// continuing a list or quote the way Return does in markdown editing —
+/// otherwise a multi-line message becomes impossible to type.
 final class ComposerNSTextView: NSTextView {
     var placeholderText: String? {
         didSet { needsDisplay = true }
@@ -520,7 +522,7 @@ final class ComposerNSTextView: NSTextView {
             let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics).checkboxes
             if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
                let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
-                apply(result)
+                apply(result, scrollsToSelection: false)
                 return
             }
         }
@@ -545,7 +547,7 @@ final class ComposerNSTextView: NSTextView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if window?.firstResponder === self, modifiers == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "v" {
-            pasteAsPlainText(nil)
+            paste(nil)
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -553,7 +555,7 @@ final class ComposerNSTextView: NSTextView {
 
     /// Replaces only the span that differs, as one undoable change, so undo
     /// restores exactly what the key changed.
-    private func apply(_ result: ComposerMarkdownEditing.Result) {
+    private func apply(_ result: ComposerMarkdownEditing.Result, scrollsToSelection: Bool = true) {
         let old = string as NSString
         let new = result.text as NSString
         var prefix = 0
@@ -577,7 +579,9 @@ final class ComposerNSTextView: NSTextView {
         setSelectedRange(result.selection)
         // Typing scrolls to the caret inside `insertText`; an edit made
         // through the text storage has to ask.
-        scrollRangeToVisible(result.selection)
+        if scrollsToSelection {
+            scrollRangeToVisible(result.selection)
+        }
         breakUndoCoalescing()
     }
 
@@ -690,7 +694,7 @@ final class ScrollableComposerTextView: NSView {
         composerTextView.isAutomaticLinkDetectionEnabled = false
         composerTextView.isAutomaticDataDetectionEnabled = false
         composerTextView.isGrammarCheckingEnabled = false
-        // Marks live as layout-manager temporary attributes, so
+        // Marks live as text layout manager rendering attributes, so
         // `MarkdownComposerStyler`'s per-keystroke pass over the text storage
         // neither carries nor erases them.
         composerTextView.isContinuousSpellCheckingEnabled = true
