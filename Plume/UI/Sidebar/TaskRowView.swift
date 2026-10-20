@@ -268,9 +268,13 @@ struct TaskRowView: View {
         case .linearIssue(let identifier, let state):
             LinearIssueLine(identifier: identifier, state: state)
         case .linearOverflow(let count):
-            Text("+\(count) more")
-                .font(.caption)
-                .emphasis(.secondary)
+            HStack(spacing: 4) {
+                LinearLogo(size: 10)
+                    .emphasis(.secondary)
+                Text("+\(count) more")
+                    .font(.caption)
+                    .emphasis(.secondary)
+            }
         case .pullRequest(let directory, let state):
             PullRequestChip(
                 state: state,

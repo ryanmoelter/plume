@@ -1,22 +1,31 @@
 import SwiftUI
 
-/// A working Linear issue under a task's name: state glyph, identifier, state name.
+/// A working Linear issue under a task's name: logo, identifier, state glyph, state name.
 struct LinearIssueLine: View {
     let identifier: String
     let state: LinearIssueFetchState?
 
     var body: some View {
         HStack(spacing: 4) {
+            LinearLogo(size: 10)
+                .emphasis(.secondary)
+            Text(suffix == nil ? identifier : "\(identifier) ·")
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
             if let issue = state?.issue {
                 LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
                     .font(.caption)
                     .imageScale(.small)
             }
-            Text(text)
-                .font(.caption)
-                .emphasis(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if let suffix {
+                Text(suffix)
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             if case .stale(_, let reason) = state {
                 Image(systemName: "exclamationmark.circle")
                     .font(.caption)
@@ -29,9 +38,7 @@ struct LinearIssueLine: View {
         .plumeID(AccessibilityID.taskLinearIssueLine, label: identifier)
     }
 
-    private var text: String {
-        if let issue = state?.issue { return "\(identifier) · \(issue.stateName)" }
-        if let word = TaskRowDetails.linearStatusWord(state) { return "\(identifier) · \(word)" }
-        return identifier
+    private var suffix: String? {
+        state?.issue?.stateName ?? TaskRowDetails.linearStatusWord(state)
     }
 }

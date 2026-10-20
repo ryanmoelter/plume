@@ -31,6 +31,7 @@ struct LinearIssuesSection: View, ThemedView {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.selection)
                     .help("Link a Linear issue")
                     .plumeID(AccessibilityID.infoPaneLinearAddButton)
                     .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
@@ -66,57 +67,65 @@ private struct IssueRow: View, ThemedView {
     let actions: InfoPaneLinearActions
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon {
-                    if let type = issue.stateType {
-                        LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
-                    } else {
-                        Image(systemName: "circle.dotted").emphasis(.subtle)
+        HStack(alignment: .top, spacing: InfoPaneLayout.columnSpacing) {
+            InfoPaneIcon {
+                if let type = issue.stateType {
+                    LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
+                } else {
+                    Image(systemName: "circle.dotted").emphasis(.subtle)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: InfoPaneLayout.columnSpacing) {
+                    Text(issue.identifier)
+                        .fontWeight(.medium)
+                        .layoutPriority(1)
+                    if let title = issue.title {
+                        Text(title)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
-                Text(issue.identifier)
-                    .fontWeight(.medium)
-                    .layoutPriority(1)
-                if let title = issue.title {
-                    Text(title)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Spacer(minLength: 4)
-                Button {
-                    if let url = issue.url { NSWorkspace.shared.open(url) }
-                } label: {
-                    Image(systemName: "arrow.up.right")
-                }
-                .buttonStyle(.plain)
-                .emphasis(.secondary)
-                .help("Open in Linear")
-                .plumeID(AccessibilityID.infoPaneLinearOpenButton, label: issue.identifier)
-                .disabled(issue.url == nil)
-            }
-            if !detail.isEmpty {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Color.clear }
+                if !detail.isEmpty {
                     Text(detail)
                         .lineLimit(2)
                         .emphasis(.subtle)
                 }
             }
-            HStack(spacing: 10) {
-                InfoPaneIcon { Color.clear }
-                if issue.role == .mentioned {
-                    Button("Mark as working") { actions.promote(issue.identifier) }
-                        .plumeID(AccessibilityID.infoPaneLinearMarkWorkingButton, label: issue.identifier)
-                }
-                Button(issue.role == .working ? "Unlink" : "Dismiss") { actions.unlink(issue.identifier) }
-                    .plumeID(AccessibilityID.infoPaneLinearUnlinkButton, label: issue.identifier)
-            }
-            .buttonStyle(.plain)
-            .emphasis(.secondary)
+            Spacer(minLength: 4)
+            actionsMenu
         }
         .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         .plumeID(AccessibilityID.infoPaneLinearIssueRow, label: issue.identifier, value: issue.statusWord ?? issue.stateName)
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button("Open in Linear") {
+                if let url = issue.url { NSWorkspace.shared.open(url) }
+            }
+            .plumeID(AccessibilityID.infoPaneLinearOpenButton, label: issue.identifier)
+            .disabled(issue.url == nil)
+            Button("Copy Identifier") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(issue.identifier, forType: .string)
+            }
+            if issue.role == .mentioned {
+                Button("Mark as Working") { actions.promote(issue.identifier) }
+                    .plumeID(AccessibilityID.infoPaneLinearMarkWorkingButton, label: issue.identifier)
+            }
+            Divider()
+            Button(issue.role == .working ? "Unlink" : "Dismiss") { actions.unlink(issue.identifier) }
+                .plumeID(AccessibilityID.infoPaneLinearUnlinkButton, label: issue.identifier)
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(theme.colors.selection)
+        .help("Linear issue actions")
+        .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
     }
 
     private var detail: String {
@@ -130,7 +139,9 @@ private struct IssueRow: View, ThemedView {
     }
 }
 
-private struct LinkIssuePopover: View {
+private struct LinkIssuePopover: View, ThemedView {
+    @Environment(\.theme) var theme
+
     let actions: InfoPaneLinearActions
     @Binding var isPresented: Bool
 
@@ -148,6 +159,7 @@ private struct LinkIssuePopover: View {
                     .frame(width: 220)
                     .plumeID(AccessibilityID.infoPaneLinearLinkField, value: text, setValue: { text = $0 })
                 Button("Link", action: link)
+                    .tint(theme.colors.selection)
                     .plumeID(AccessibilityID.infoPaneLinearLinkButton, invoke: link)
                     .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -171,15 +183,5 @@ private struct LinkIssuePopover: View {
         } else {
             showsError = true
         }
-    }
-}
-
-/// Linear's logomark, tinted by the surrounding foreground style.
-struct LinearLogo: View {
-    var body: some View {
-        Image("LinearLogo")
-            .resizable()
-            .scaledToFit()
-            .frame(width: 12, height: 12)
     }
 }
