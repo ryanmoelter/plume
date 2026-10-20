@@ -50,6 +50,35 @@ struct InfoPaneFacts: Equatable {
         }
     }
 
+    /// One linked Linear issue, flattened for drawing.
+    struct LinearIssueFacts: Equatable, Identifiable {
+        let identifier: String
+        let role: LinearLinkRole
+        var title: String?
+        var stateName: String?
+        var stateType: LinearStateType?
+        var stateColor: String?
+        var assignee: String?
+        var url: URL?
+        /// Who touched the issue, when a subagent did.
+        var attribution: String?
+        /// Why a working issue is linked.
+        var sourceHint: String?
+        /// Set when the state has no issue to show; nil when one is drawn.
+        var statusWord: String?
+
+        var id: String { identifier }
+    }
+
+    /// Nil when Linear is off or no workspace is connected. An empty list
+    /// still shows the section, for its link field.
+    struct LinearFacts: Equatable {
+        var issues: [LinearIssueFacts]
+
+        var working: [LinearIssueFacts] { issues.filter { $0.role == .working } }
+        var mentioned: [LinearIssueFacts] { issues.filter { $0.role == .mentioned } }
+    }
+
     var tabID: UUID
     var liveSubagents: [SubagentTranscript] = []
     var completedSubagents: [SubagentTranscript] = []
@@ -60,6 +89,7 @@ struct InfoPaneFacts: Equatable {
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
+    var linear: LinearFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
     var artifacts: [ConversationArtifact] = []
@@ -69,6 +99,7 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
+        if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
@@ -84,6 +115,7 @@ struct InfoPaneFacts: Equatable {
             switch section {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
+            case .linearIssues: linear?.issues.isEmpty == false
             case .folder, .sideChat: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
@@ -132,7 +164,75 @@ extension InfoPaneFacts {
     }
 }
 
+extension InfoPaneFacts {
+    static func linear(
+        isEnabled: Bool,
+        isConfigured: Bool,
+        links: [LinkedLinearIssue],
+        state: (String) -> LinearIssueFetchState?
+    ) -> LinearFacts? {
+        guard isEnabled, isConfigured else { return nil }
+        return LinearFacts(issues: linearIssues(links: links, state: state))
+    }
+
+    /// Working issues first, then mentioned ones, each keeping its order.
+    static func linearIssues(
+        links: [LinkedLinearIssue],
+        state: (String) -> LinearIssueFetchState?
+    ) -> [LinearIssueFacts] {
+        let facts = links.map { link -> LinearIssueFacts in
+            let fetch = state(link.identifier)
+            let issue = fetch?.issue
+            return LinearIssueFacts(
+                identifier: link.identifier,
+                role: link.role,
+                title: issue?.title,
+                stateName: issue?.stateName,
+                stateType: issue?.stateType,
+                stateColor: issue?.stateColor,
+                assignee: issue?.assigneeName,
+                url: issue.flatMap { URL(string: $0.url) },
+                attribution: attribution(of: link),
+                sourceHint: link.role == .working ? sourceHint(of: link) : nil,
+                statusWord: statusWord(for: fetch)
+            )
+        }
+        return facts.filter { $0.role == .working } + facts.filter { $0.role == .mentioned }
+    }
+
+    static func attribution(of link: LinkedLinearIssue) -> String? {
+        guard !link.subagents.isEmpty else { return nil }
+        let subagents = link.subagents.map(\.label).joined(separator: ", ")
+        return link.touchedByMainAgent ? "via \(subagents) and main agent" : "via \(subagents)"
+    }
+
+    static func sourceHint(of link: LinkedLinearIssue) -> String? {
+        let words = link.sources.sorted().compactMap { source -> String? in
+            switch source {
+            case .branch: "branch"
+            case .manual: "linked"
+            case .agentStarted: "agent started"
+            case .promoted: "marked working"
+            case .agent: nil
+            }
+        }
+        return words.isEmpty ? nil : words.joined(separator: ", ")
+    }
+
+    static func statusWord(for state: LinearIssueFetchState?) -> String? {
+        switch state {
+        case .issue, .stale: nil
+        case nil, .loading: "loading"
+        case .notFound, .noWorkspace: "not found"
+        case .failed: "offline"
+        case .unauthorized: "key rejected"
+        case .rateLimited: "rate limited"
+        }
+    }
+}
+
 enum InfoPaneSection: Equatable {
+    case linearIssues
     case subagents
     case backgroundTasks
     case plan

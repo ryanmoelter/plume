@@ -21,6 +21,7 @@ struct InfoSidePane: View, ThemedView {
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
     let onOpenSideChat: () -> Void
+    let linearActions: InfoPaneLinearActions
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -132,6 +133,7 @@ struct InfoSidePane: View, ThemedView {
                 closeTransient()
                 onOpenSideChat()
             },
+            linearActions: linearActions,
             showsCompleted: $showsCompletedSubagents
         )
         .padding(12)

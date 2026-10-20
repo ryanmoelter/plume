@@ -14,6 +14,7 @@ struct InfoPaneContent: View, ThemedView {
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
     let onOpenSideChat: () -> Void
+    let linearActions: InfoPaneLinearActions
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -47,6 +48,7 @@ struct InfoPaneContent: View, ThemedView {
         case .folder: folder
         case .branch: branch
         case .pullRequest: pullRequest
+        case .linearIssues: LinearIssuesSection(linear: facts.linear, actions: linearActions)
         }
     }
 
@@ -461,6 +463,12 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: "tree")
                 .emphasis(.secondary)
                 .help("In a worktree")
+        case .linearIssues:
+            HStack(spacing: 2) {
+                Image(systemName: "circle.lefthalf.filled")
+                Text("\(facts.linear?.issues.count ?? 0)")
+            }
+            .emphasis(.secondary)
         case .folder, .sideChat:
             EmptyView()
         }

@@ -165,6 +165,33 @@ struct ChatTabView: View, ThemedView {
         transcript?.cwd ?? TabDirectoryStore.shared.directory(for: tab)
     }
 
+    private var showsLinear: Bool {
+        settings.showsLinearIssues && LinearStore.shared.isConfigured
+    }
+
+    private var linkedLinearIssues: [LinkedLinearIssue] {
+        guard showsLinear else { return [] }
+        let gitState = GitStateStore.shared.state(for: gitDirectory)
+        let displayed = GitState.displayedBranch(state: gitState, taskBranchName: task.branchName)
+        let branches = [displayed, task.branchName].compactMap { $0 }
+        return LinearStore.shared.links(for: task, branches: Array(Set(branches)).sorted())
+    }
+
+    private var linearActions: InfoPaneLinearActions {
+        let task = task
+        return InfoPaneLinearActions(
+            promote: { TaskStore.promoteLinearIssue($0, in: task) },
+            unlink: { TaskStore.unlinkLinearIssue($0, from: task) },
+            link: { input in
+                guard TaskStore.linkLinearIssue(input, to: task) else { return false }
+                if let identifier = LinearIdentifier.normalize(input) {
+                    LinearStore.shared.refreshCatalogIfUnknown(teamKey: LinearIdentifier.teamKey(of: identifier))
+                }
+                return true
+            }
+        )
+    }
+
     private var infoPaneFacts: InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
@@ -198,6 +225,12 @@ struct ChatTabView: View, ThemedView {
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
             pullRequest: pullRequest,
+            linear: InfoPaneFacts.linear(
+                isEnabled: settings.showsLinearIssues,
+                isConfigured: LinearStore.shared.isConfigured,
+                links: linkedLinearIssues,
+                state: { LinearStore.shared.state(for: $0) }
+            ),
             sideChatCount: claudeSession?.sideQuestions.count ?? 0,
             artifacts: ConversationArtifact.artifacts(in: conversationMessages)
         )
@@ -313,6 +346,7 @@ struct ChatTabView: View, ThemedView {
             releaseGitDirectory()
         }
         .pullRequestWatch(directory: gitDirectory, isEnabled: settings.showsPullRequestStatus)
+        .linearIssueWatch(Set(linkedLinearIssues.map(\.identifier)))
         .onChange(of: planFilePath, initial: true) { _, path in
             if let path { planFile.watch(path: path) } else { planFile.stop() }
         }
@@ -1028,7 +1062,8 @@ struct ChatTabView: View, ThemedView {
             },
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
-            onOpenSideChat: { isSideChatShown = true }
+            onOpenSideChat: { isSideChatShown = true },
+            linearActions: linearActions
         )
     }
 
