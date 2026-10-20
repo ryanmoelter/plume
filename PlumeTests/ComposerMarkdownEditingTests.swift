@@ -162,6 +162,13 @@ struct ComposerMarkdownEditingTests {
         #expect(run(ComposerMarkdownEditing.insertSpace, "x|rest") == "- [ ] |rest")
     }
 
+    @Test func bracketsStartATask() {
+        #expect(run(ComposerMarkdownEditing.insertSpace, "[]|") == "- [ ] |")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "[ ]|") == "- [ ] |")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "> [ ]|") == "> - [ ] |")
+        #expect(run(ComposerMarkdownEditing.insertSpace, "- a\n- []|b") == "- [ ] a\n- [ ] |b")
+    }
+
     @Test func spaceIsOrdinaryElsewhere() {
         #expect(run(ComposerMarkdownEditing.insertSpace, "a x|") == nil)
         #expect(run(ComposerMarkdownEditing.insertSpace, "- a -|") == nil)

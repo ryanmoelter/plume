@@ -14,8 +14,8 @@ import Foundation
 /// | Delete | start of a list item's text | removes the marker, or outdents a nested item |
 /// | Delete | start of a quote line's text | removes one quote level |
 /// | Delete | start of the line after a rule | removes the rule's last character |
-/// | Space | after `- `, `1. ` or `x ` at the start of an item's text | turns the item's level of the list into bullets, numbers or tasks |
-/// | Space | after `x ` at the start of a plain line | makes the line a task |
+/// | Space | after `- `, `1. `, `x ` or `[] ` at the start of an item's text | turns the item's level of the list into bullets, numbers or tasks |
+/// | Space | after `x `, `[] ` or `[ ] ` at the start of a plain line | makes the line a task |
 ///
 /// Code and fence lines are left alone. Every list edit renumbers the
 /// ordered lists it touches.
@@ -200,7 +200,7 @@ nonisolated enum ComposerMarkdownEditing {
     private static func listTrigger(_ typed: String) -> ListTrigger? {
         switch typed {
         case "- ", "* ", "+ ": return .bullet(String(typed.prefix(1)))
-        case "x ", "X ": return .task
+        case "x ", "X ", "[] ", "[ ] ": return .task
         default: break
         }
         let digits = typed.prefix { $0.isASCII && $0.isNumber }
