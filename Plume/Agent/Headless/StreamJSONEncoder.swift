@@ -8,20 +8,36 @@ enum PermissionDecision: Equatable {
     case deny(message: String)
 }
 
+/// When a user message written while a turn runs reaches the model.
+/// `docs/headless-protocol.md` has the measured behavior of each.
+enum UserTurnPriority: String {
+    /// Ends the running turn, then runs the message as a new one.
+    case now
+    /// Joins the running turn at its next API request, which is usually
+    /// after the tool call in flight returns.
+    case next
+    /// Waits for the running turn's `result`, then runs as its own turn.
+    case later
+}
+
 /// Builds the NDJSON lines Plume writes to `claude -p`'s stdin.
 enum StreamJSONEncoder {
     static func userTurn(text: String) -> String? {
         userTurn(blocks: [.text(text)])
     }
 
-    static func userTurn(blocks: [UserContentBlock]) -> String? {
-        line([
+    /// `priority` says when a message written mid-turn reaches the model —
+    /// see `UserTurnPriority`. Nil leaves it to the CLI's default.
+    static func userTurn(blocks: [UserContentBlock], priority: UserTurnPriority? = nil) -> String? {
+        var object: [String: JSONValue] = [
             "type": .string("user"),
             "message": .object([
                 "role": .string("user"),
                 "content": .array(blocks.map(\.json))
             ])
-        ])
+        ]
+        if let priority { object["priority"] = .string(priority.rawValue) }
+        return line(object)
     }
 
     static func initialize(requestID: String) -> String? {

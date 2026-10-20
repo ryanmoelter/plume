@@ -465,6 +465,9 @@ struct ChatTabView: View, ThemedView {
                 )
                 .listItemPadding(vertical: false)
             }
+            if let claudeSession, !claudeSession.deliveringMessages.isEmpty {
+                deliveringMessagesView(claudeSession)
+            }
             if let headlessSession, !queuedProse(headlessSession).isEmpty {
                 queuedMessagesView(headlessSession)
             }
@@ -495,6 +498,22 @@ struct ChatTabView: View, ThemedView {
                     onEdit: { editQueuedMessageIndex = index },
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
+            }
+        }
+        .listItemPadding(vertical: false)
+    }
+
+    /// Sent into the running turn, but not yet in the transcript: the CLI
+    /// shows the model a mid-turn message only at its next request.
+    private func deliveringMessagesView(_ session: HeadlessSession) -> some View {
+        VStack(spacing: 6) {
+            ForEach(Array(session.deliveringMessages.enumerated()), id: \.offset) { index, message in
+                QueuedMessageChip(
+                    text: message.plainText,
+                    imageCount: message.count { if case .image = $0 { true } else { false } },
+                    state: .delivering
+                )
+                .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.plainText)
             }
         }
         .listItemPadding(vertical: false)
@@ -1401,11 +1420,18 @@ struct ChatTabView: View, ThemedView {
 private struct QueuedMessageChip: View, ThemedView {
     @Environment(\.theme) var theme
 
+    enum State {
+        case queued
+        /// Already sent, so it can no longer be edited, removed or hurried.
+        case delivering
+    }
+
     let text: String
     var imageCount = 0
-    let onSendNow: () -> Void
-    let onEdit: () -> Void
-    let onRemove: () -> Void
+    var state = State.queued
+    var onSendNow: () -> Void = {}
+    var onEdit: () -> Void = {}
+    var onRemove: () -> Void = {}
 
     var body: some View {
         // `.firstTextBaseline` rather than `.top`: the clock glyph and the
@@ -1414,10 +1440,12 @@ private struct QueuedMessageChip: View, ThemedView {
         // the text's first line. Baseline alignment tracks that first line
         // instead, which also reads right once the text wraps to several.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "clock")
+            Image(systemName: state == .queued ? "clock" : "arrow.up.circle")
                 .font(typography.caption.font)
                 .emphasis(.secondary)
-                .help("Queued — not sent yet")
+                .help(state == .queued
+                    ? "Queued — not sent yet"
+                    : "Sent — Claude reads it after its current step")
             if !text.isEmpty {
                 Text(text)
                     .font(typography.body.font)
@@ -1433,7 +1461,9 @@ private struct QueuedMessageChip: View, ThemedView {
                 .font(typography.caption.font)
                 .emphasis(.secondary)
             }
-            controls
+            if state == .queued {
+                controls
+            }
         }
         .padding(10)
         .glassEffect(Glass.regular.tint(washColor), in: .rect(cornerRadius: 10))

@@ -178,6 +178,40 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
 
+### A message mid-turn
+
+A `user` line written while a turn runs takes an optional `priority`, which says when the model sees it. The field sits in the CLI's own SDK user-message schema beside `uuid` and `shouldQuery`, as `priority: "now" | "next" | "later"`, and it is not marked `@internal`. Measured on **2.1.304** with Plume's flags, in a trusted directory. The probe turn ran `sleep 3` four times through Bash, and the second line arrived just after the first tool result:
+
+```json
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Also, before you say DONE, reply with the word PINEAPPLE."}]},"parent_tool_use_id":null,"priority":"next"}
+```
+
+| `priority` | what happened |
+|---|---|
+| absent | Same as `next` on this build. The CLI picks the default behind a feature flag, so never rely on it. |
+| `next` | Joined the running turn. The model answered `PINEAPPLE\nDONE` in the same turn, and only one `result` came. |
+| `later` | Waited. The turn answered `DONE` and sent its `result`, then a fresh `system/init` began a second turn that answered `PINEAPPLE`. |
+| `now` | Cut the turn at once: a `result` with `stop_reason: "tool_use"` 20 ms later, then a new turn that carried on with the message. This is an interrupt in all but name. |
+
+What a `next` message looks like on each side:
+
+- **stdout echoes nothing.** No `user` line, no `system` event. The only sign is the next `system/status` `requesting`, which is the API request that carries it.
+- **The transcript records it as an attachment, not a `user` line**, written when that request goes out. In a probe that sent the message 1 s into a 12 s `sleep`, the row reached disk 12.7 s later. So for as long as a tool call runs, the message is in neither the chat nor Plume's queue. The row:
+
+  ```json
+  {"type":"attachment","parentUuid":"…","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"Also, before you say DONE, …"}],"source_uuid":"9b9f9a6a-…","delivery_id":"a3422f20-…","commandMode":"prompt","timestamp":"…"},"uuid":"1ec22e07-…"}
+  {"type":"queue-operation","operation":"remove","content":"Also, before you say DONE, …","reason":"absorbed_mid_turn","commandUuid":"…","deliveryId":"…"}
+  ```
+
+  The model reads it as a system reminder: "The user sent a new message while you were working: … Address the message above as you continue this turn."
+- **A message that arrives after the turn's last request runs as its own turn.** In the probe it arrived while the final reply streamed. The first turn ended with its `result`, then 0.1 s later came `system/init`, `status` `requesting`, the reply and a second `result`. Here the transcript writes an ordinary `user` row.
+- **`prompt` is a block array for a stream-json host and a plain string for the TUI.** A typed TUI message also carries `"origin":{"kind":"human"}`. Agent messages, harness reminders and task notifications ride the same attachment type. They carry `isMeta`, a non-human `origin`, or `commandMode: "task-notification"`.
+- **`--replay-user-messages` echoes the line once the CLI takes it in**, with `isReplay: true` and a `uuid` equal to the attachment's `source_uuid`. The echo comes before the `result` when the message joins the turn, and after it when the message runs as its own turn. Plume does not pass the flag. The `requesting` signal already answers the same question.
+
+**Background subagents survive it.** A turn launched a background `Agent` (a `sleep` that then replied `BGDONE`) and went on with four `sleep 3` calls. A `next` message joined that turn. No `task_updated` reported `killed`. The subagent replied `BGDONE` and ended with `task_updated` `completed` and a `task_notification` `completed`, and its wake turn followed as usual. Written between turns while a subagent ran, the message started a turn of its own (`init`, reply, `result`), and the subagent completed about 22 s later in the same way.
+
+**What Plume does with this.** Send-now (⌃↩, or a queued row's Send now) writes every queued message, then the composer's text, as one `priority: "next"` line, and never sends an interrupt. With no turn running, it writes an ordinary turn. `HeadlessSession.deliveringMessages` holds a sent message until the next `requesting`, so the chat can show it as sending. A `result` that arrives while that list is not empty means the CLI is about to run the message as its own turn. The session holds that turn's end for `deliveryGrace` rather than announcing it, and the following `requesting` continues the turn. `TranscriptAttachment.userPrompt` renders a human `queued_command` as the user's message, between the replies it split.
+
 ### Approving a plan with feedback
 
 There is no allow-with-message on this wire, and no plan-specific allow field. The documented allow surface is `updatedInput` and `updatedPermissions` and nothing else, and `ExitPlanMode` declares **no input fields at all** — it reads the plan from `planFilePath` — so an extra key on `updatedInput` is discarded with no diagnostic. Feedback therefore cannot ride the permission response.
@@ -201,7 +235,7 @@ The user turn is queued while the approved turn runs and is sent when that turn'
 
 Answered with `{"still_queued":[…]}`, and the in-flight turn stops and emits its `result`. Verified mid-count: output truncated and the process stayed healthy for the next turn. **Prefer this to signals** — it keeps the process alive, where SIGTERM exits 143 and abandons the turn. Add `cancel_queued: true` to also drop queued messages.
 
-Plume sends `cancel_queued: true` for send-now (⌃↩, or a queued row's Send now). Plume holds the queue itself and writes a user turn only between turns, so the flag drops nothing in practice; it guarantees nothing the CLI held runs again after the merged turn. That turn — every queued message, then the composer's text — is written when the interrupted turn's `result` arrives.
+Only the Stop button sends an interrupt. Send-now writes into the running turn instead — see "A message mid-turn" — because an interrupt can also stop background subagents.
 
 Sent between turns while a background subagent runs, it kills that subagent instead: `task_updated` (`status: "killed"`), a `task_notification` with `status: "stopped"`, the reply, and the subagent's `[Request interrupted by user for tool use]` line. **No `result` follows**, because no turn was running. Verified on 2.1.280.
 

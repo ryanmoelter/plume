@@ -111,9 +111,6 @@ final class HeadlessSession: AgentSession {
     /// that turn is accounted for.
     private var wasInterrupted = false
 
-    /// Set by `sendNow`, so the next turn to go out is the whole queue as one.
-    private var sendsQueueAsOneTurn = false
-
     /// Set once the manager drops this session. The process's exit and any
     /// line still in flight land after that, and a status written then would
     /// re-register a tab that `StatusEngine.forget` already cleared.
@@ -121,6 +118,13 @@ final class HeadlessSession: AgentSession {
 
     @ObservationIgnored private var subagentWakeHold: Task<Void, Never>?
     @ObservationIgnored var subagentWakeGrace: Duration = .seconds(2)
+
+    /// A `result` that arrived while `deliveringMessages` was not empty. The
+    /// CLI runs an undelivered message as its own turn about a tenth of a
+    /// second later, so the turn's end waits for `deliveryGrace` first.
+    @ObservationIgnored private var heldResult: TurnResult?
+    @ObservationIgnored private var deliveryHold: Task<Void, Never>?
+    @ObservationIgnored var deliveryGrace: Duration = .seconds(3)
 
     /// `/btw` exchanges, in-memory only — see `SideQuestion`.
     private(set) var sideQuestions: [SideQuestion] = []
@@ -182,6 +186,12 @@ final class HeadlessSession: AgentSession {
 
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [[UserContentBlock]] = []
+
+    /// Messages `sendNow` wrote into the running turn that the CLI has not
+    /// put in front of the model yet. It does that at the turn's next API
+    /// request, so the transcript has no row for one until then — a tool call
+    /// in flight can hold it back for minutes.
+    private(set) var deliveringMessages: [[UserContentBlock]] = []
 
     /// Claude Code proposes plans through `ExitPlanMode`.
     let supportsPlanApproval = true
@@ -322,6 +332,7 @@ final class HeadlessSession: AgentSession {
         // transport reads its tasks from the transcript again.
         backgroundTasks.forget(tabID: tabID)
         endSubagentWakeHold()
+        endDeliveryHold()
     }
 
     /// Records a failure found before any process was spawned — a failed
@@ -400,24 +411,26 @@ final class HeadlessSession: AgentSession {
         return queuedMessages.remove(at: index)
     }
 
-    /// The queue stays visible until the interrupted turn's `result`, which is
-    /// what sends it. Plume holds the queue itself, so `cancel_queued` only
-    /// guarantees nothing the CLI might hold runs after the merged turn too.
+    /// Mid-turn, the merged message joins the running turn rather than
+    /// interrupting it, because an interrupt can also stop background
+    /// subagents.
     func sendNow(appending blocks: [UserContentBlock]) {
         let normalized = blocks.normalized
         if normalized.hasContent { queuedMessages.append(normalized) }
         guard !queuedMessages.isEmpty else { return }
+        let merged = takeQueueAsOneTurn()
         guard isWorking else {
-            submit(blocks: takeQueueAsOneTurn())
+            submit(blocks: merged)
             return
         }
-        sendsQueueAsOneTurn = true
-        wasInterrupted = true
-        send(StreamJSONEncoder.interrupt(requestID: nextRequestID(), cancelQueued: true))
+        guard send(StreamJSONEncoder.userTurn(blocks: merged, priority: .next)) else {
+            queuedMessages.insert(merged, at: 0)
+            return
+        }
+        deliveringMessages.append(merged)
     }
 
     private func takeQueueAsOneTurn() -> [UserContentBlock] {
-        sendsQueueAsOneTurn = false
         defer { queuedMessages = [] }
         return queuedMessages.mergedIntoOneTurn
     }
@@ -722,7 +735,11 @@ final class HeadlessSession: AgentSession {
             // Only the main thread reports this, and a notification-woken
             // turn reports it seconds before its first envelope — long enough
             // for its subagent's finish to read as the task settling.
-            if status == "requesting", !isWorking, !hasExited { beginUnpromptedTurn() }
+            guard status == "requesting", !hasExited else { break }
+            // A request carries everything queued before it, so whatever
+            // `sendNow` wrote is in front of the model from here.
+            if !deliveringMessages.isEmpty { deliveringMessages = [] }
+            if !isWorking || heldResult != nil { beginUnpromptedTurn() }
 
         case .bridgeState(let bridge):
             updateRemoteControl(remoteControl.applying(bridge))
@@ -948,11 +965,18 @@ final class HeadlessSession: AgentSession {
     /// `message_start` clears it, and clearing it now would drop the previous
     /// turn's reply before the transcript has caught up with it.
     private func beginUnpromptedTurn() {
+        endDeliveryHold()
         isWorking = true
         lastError = nil
         wasInterrupted = false
         reportStatus(.working)
         endSubagentWakeHold()
+    }
+
+    private func endDeliveryHold() {
+        deliveryHold?.cancel()
+        deliveryHold = nil
+        heldResult = nil
     }
 
     /// The CLI lists a subagent from launch, well before the turn that
@@ -987,11 +1011,34 @@ final class HeadlessSession: AgentSession {
     static let unexplainedTurnFailure = "The turn failed."
 
     private func endTurn(_ result: TurnResult) {
-        isWorking = false
-        // The streamed text is not cleared here — see its declaration.
         if let cost = result.totalCostUSD { sessionCostUSD = cost }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }
+        guard deliveringMessages.isEmpty else {
+            holdTurnEnd(result)
+            return
+        }
+        finishTurn(result)
+    }
+
+    /// The turn reads as still running through the hold, so the gap before
+    /// the CLI's next turn neither announces a finished turn nor sends the
+    /// next queued message into it.
+    private func holdTurnEnd(_ result: TurnResult) {
+        endDeliveryHold()
+        heldResult = result
+        deliveryHold = Task { [weak self, grace = deliveryGrace] in
+            try? await Task.sleep(for: grace)
+            guard !Task.isCancelled, let self, let held = self.heldResult else { return }
+            self.deliveryHold = nil
+            self.heldResult = nil
+            self.finishTurn(held)
+        }
+    }
+
+    private func finishTurn(_ result: TurnResult) {
+        isWorking = false
+        // The streamed text is not cleared here — see its declaration.
         if wasInterrupted {
             // The turn ends as an error because it was cut short, but the user
             // is who cut it — blaming the agent would send them looking for a
@@ -1052,7 +1099,7 @@ final class HeadlessSession: AgentSession {
 
     private func sendNextQueuedMessage() {
         guard !queuedMessages.isEmpty else { return }
-        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queuedMessages.removeFirst()
+        let next = queuedMessages.removeFirst()
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
             queuedMessages.insert(next, at: 0)
@@ -1064,7 +1111,10 @@ final class HeadlessSession: AgentSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         isWorking = false
-        sendsQueueAsOneTurn = false
+        endDeliveryHold()
+        // Never delivered, so a reconnect still can.
+        queuedMessages.insert(contentsOf: deliveringMessages, at: 0)
+        deliveringMessages = []
         streamingText = ""
         streamingThinking = ""
         streamingMessageID = nil

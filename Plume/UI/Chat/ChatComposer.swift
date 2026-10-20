@@ -475,9 +475,10 @@ struct ChatComposer: View, ThemedView {
         dispatch(blocks)
     }
 
-    /// Cuts off the running turn and sends the queue, then the draft, as one
-    /// turn. A shell command or a Plume command in the draft stays put: each
-    /// runs on its own, so neither can ride along as prose.
+    /// Sends the queue, then the draft, as one message, without waiting for
+    /// the running turn (`AgentSession.sendNow`). A shell command or a Plume
+    /// command in the draft stays put: each runs on its own, so neither can
+    /// ride along as prose.
     private func sendNow() {
         guard let headlessSession, headlessSession.isSteering != true,
               headlessSession.isWorking || !headlessSession.queuedMessages.isEmpty

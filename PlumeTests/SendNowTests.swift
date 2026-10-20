@@ -27,48 +27,167 @@ struct MergedTurnTests {
         #expect(root["request"]?["subtype"]?.stringValue == "interrupt")
         #expect(root["request"]?["cancel_queued"] == .bool(true))
     }
+
+    @Test func aUserTurnCarriesPriorityOnlyWhenAsked() throws {
+        let plain = try #require(StreamJSONEncoder.userTurn(blocks: [.text("hi")]))
+        let next = try #require(StreamJSONEncoder.userTurn(blocks: [.text("hi")], priority: .next))
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(next.utf8))
+
+        #expect(!plain.contains("priority"))
+        #expect(root["type"]?.stringValue == "user")
+        #expect(root["priority"]?.stringValue == "next")
+    }
 }
 
-/// Send-now on the headless transport. There is no process, so every send
-/// fails and puts its turn back on the queue — which is what makes the turn
-/// that would have gone out readable here.
+/// Send-now on the headless transport. Mid-turn, the queue and the draft go
+/// into the running turn as one `priority: "next"` message, with no interrupt,
+/// and show as delivering until the CLI's next request carries them. If the
+/// turn's `result` comes first, the CLI runs the message as its own turn
+/// straight after, so the turn's end is held rather than announced.
+///
+/// Line shapes come from a recorded `claude -p` 2.1.304 run.
 @MainActor
 struct HeadlessSendNowTests {
-    private func makeSession() -> HeadlessSession {
-        HeadlessSession(
-            tabID: UUID(),
-            taskID: UUID(),
-            statusEngine: StatusEngine(backgroundTasks: BackgroundTaskTracker())
-        )
+    private final class Recorder {
+        var lines: [String] = []
+        var statuses: [TaskStatus] = []
+    }
+
+    /// With `recordsLines` false there is no process, so every send fails and
+    /// puts its turn back on the queue.
+    private func makeSession(recordsLines: Bool = true) -> (HeadlessSession, StatusEngine, Recorder) {
+        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+        let session = HeadlessSession(tabID: UUID(), taskID: UUID(), statusEngine: engine)
+        engine.register(tabID: session.tabID, taskID: session.taskID)
+        let recorder = Recorder()
+        engine.setTabStatusObserver("test") { _, _, status, _ in recorder.statuses.append(status) }
+        if recordsLines { session.debugLineSink = { recorder.lines.append($0) } }
+        return (session, engine, recorder)
     }
 
     private func decode(_ line: String) throws -> StreamJSONMessage {
         try #require(StreamJSONDecoder.decode(line: line))
     }
 
+    private static let mainAssistant = #"{"type":"assistant","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}"#
+    private static let requesting = #"{"type":"system","subtype":"status","status":"requesting"}"#
+    private static let result = #"{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"#
+
     private func startTurn(_ session: HeadlessSession) throws {
-        session.handle(try decode(#"{"type":"assistant","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}"#))
+        session.handle(try decode(Self.mainAssistant))
     }
 
-    private func result() throws -> StreamJSONMessage {
-        try decode(#"{"type":"result","subtype":"error_during_execution","is_error":true}"#)
+    private func json(_ line: String) throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
     }
 
-    @Test func theQueueWaitsForTheInterruptedTurnsResult() throws {
-        let session = makeSession()
+    @Test func midTurnTheQueueGoesIntoTheRunningTurnAsOneMessage() throws {
+        let (session, _, recorder) = makeSession()
         try startTurn(session)
         session.submit(text: "one")
         session.submit(text: "two")
 
         session.sendNow(appending: [.text("draft")])
-        #expect(session.queuedMessages.map(\.plainText) == ["one", "two", "draft"])
 
-        session.handle(try result())
-        #expect(session.queuedMessages == [[.text("one\n\ntwo\n\ndraft")]])
+        #expect(recorder.lines.count == 1)
+        let line = try json(try #require(recorder.lines.first))
+        #expect(line["type"]?.stringValue == "user")
+        #expect(line["priority"]?.stringValue == "next")
+        #expect(line["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue == "one\n\ntwo\n\ndraft")
+        #expect(session.queuedMessages.isEmpty)
+        #expect(session.deliveringMessages == [[.text("one\n\ntwo\n\ndraft")]])
+        #expect(session.isWorking)
+    }
+
+    @Test func theNextRequestDeliversTheMessageAndTheTurnEndsNormally() throws {
+        let (session, engine, recorder) = makeSession()
+        try startTurn(session)
+        session.sendNow(appending: [.text("also this")])
+
+        session.handle(try decode(Self.requesting))
+        #expect(session.deliveringMessages.isEmpty)
+        session.handle(try decode(Self.result))
+
+        #expect(!session.isWorking)
+        #expect(engine.status(forTab: session.tabID) == .awaitingReply)
+        #expect(recorder.statuses == [.working, .awaitingReply])
+    }
+
+    /// The CLI's own turn for the message starts about 0.1 s after the
+    /// `result`; the gap must not read as the turn being over.
+    @Test func aResultBeforeDeliveryHoldsTheTurnForTheOneThatFollows() throws {
+        let (session, _, recorder) = makeSession()
+        try startTurn(session)
+        session.sendNow(appending: [.text("also this")])
+
+        session.handle(try decode(Self.result))
+        #expect(session.isWorking)
+        session.handle(try decode(Self.requesting))
+        #expect(session.deliveringMessages.isEmpty)
+        session.handle(try decode(Self.mainAssistant))
+        session.handle(try decode(Self.result))
+
+        #expect(!session.isWorking)
+        #expect(!recorder.statuses.dropLast().contains(.awaitingReply))
+        #expect(recorder.statuses.last == .awaitingReply)
+    }
+
+    @Test func aHeldTurnEndsAfterTheGraceWhenNothingFollows() async throws {
+        let (session, engine, _) = makeSession()
+        session.deliveryGrace = .milliseconds(10)
+        try startTurn(session)
+        session.sendNow(appending: [.text("also this")])
+
+        session.handle(try decode(Self.result))
+        var polls = 0
+        while session.isWorking, polls < 500 {
+            try await Task.sleep(for: .milliseconds(10))
+            polls += 1
+        }
+
+        #expect(!session.isWorking)
+        #expect(engine.status(forTab: session.tabID) == .awaitingReply)
+    }
+
+    @Test func aMessageQueuedDuringTheHoldWaitsForTheFollowingTurn() throws {
+        let (session, _, recorder) = makeSession()
+        try startTurn(session)
+        session.sendNow(appending: [.text("also this")])
+        session.submit(text: "later")
+
+        session.handle(try decode(Self.result))
+        #expect(recorder.lines.count == 1)
+        #expect(session.queuedMessages.map(\.plainText) == ["later"])
+
+        session.handle(try decode(Self.requesting))
+        session.handle(try decode(Self.result))
+        #expect(recorder.lines.count == 2)
+        #expect(session.queuedMessages.isEmpty)
+    }
+
+    @Test func sendNowNeverInterrupts() throws {
+        let (session, _, recorder) = makeSession()
+        try startTurn(session)
+        session.submit(text: "one")
+
+        session.sendNow(appending: [])
+
+        #expect(!recorder.lines.contains { $0.contains("interrupt") })
+    }
+
+    @Test func aFailedMidTurnSendKeepsTheMergedMessageQueued() throws {
+        let (session, _, _) = makeSession(recordsLines: false)
+        try startTurn(session)
+        session.submit(text: "one")
+
+        session.sendNow(appending: [.text("draft")])
+
+        #expect(session.queuedMessages == [[.text("one\n\ndraft")]])
+        #expect(session.deliveringMessages.isEmpty)
     }
 
     @Test func withNoTurnRunningTheQueueGoesAtOnceAndOnlyOnce() {
-        let session = makeSession()
+        let (session, _, _) = makeSession(recordsLines: false)
         session.submit(text: "one")
         session.submit(text: "two")
 
@@ -77,24 +196,18 @@ struct HeadlessSendNowTests {
         #expect(session.queuedMessages == [[.text("one\n\ntwo\n\ndraft")]])
     }
 
-    /// Only the turn after send-now is merged; the one after it goes back to
-    /// sending a single queued message.
-    @Test func theNextTurnSendsOneMessageAgain() throws {
-        let session = makeSession()
-        try startTurn(session)
-        session.submit(text: "one")
-        session.sendNow(appending: [])
-        session.handle(try result())
+    @Test func withNoTurnRunningTheTurnCarriesNoPriority() throws {
+        let (session, _, recorder) = makeSession()
 
-        try startTurn(session)
-        session.submit(text: "later")
-        session.handle(try result())
+        session.sendNow(appending: [.text("draft")])
 
-        #expect(session.queuedMessages.map(\.plainText) == ["one", "later"])
+        let line = try json(try #require(recorder.lines.last))
+        #expect(line["priority"] == nil)
+        #expect(session.deliveringMessages.isEmpty)
     }
 
     @Test func anEmptyDraftWithNothingQueuedDoesNothing() {
-        let session = makeSession()
+        let (session, _, _) = makeSession(recordsLines: false)
 
         session.sendNow(appending: [.text("  ")])
 
