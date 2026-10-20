@@ -37,7 +37,10 @@ struct GroupAppearancePopover: View {
             )
         } onClose: {
             guard group.isLive else { return }
-            group.settleName(fallback: openingName)
+            group.settleName()
+        } onCancel: {
+            guard group.isLive else { return }
+            group.cancelNameEdit(restoring: openingName)
         }
     }
 }
@@ -129,6 +132,7 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
     let isLive: () -> Bool
     @ViewBuilder let fields: Fields
     let onClose: () -> Void
+    var onCancel: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
 
@@ -147,6 +151,10 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
             )
         }
         .onSubmit { dismiss() }
+        .onExitCommand {
+            onCancel()
+            dismiss()
+        }
         .padding(14)
         .frame(width: 290)
         .safeAreaInset(edge: .bottom, spacing: 0) {

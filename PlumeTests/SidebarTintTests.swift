@@ -189,10 +189,10 @@ struct SidebarIconsTests {
 
 @MainActor
 struct GroupNameSettlingTests {
-    @Test func blankNameFallsBack() {
+    @Test func blankNameOnExistingGroupBecomesNewGroup() {
         let group = TaskGroup(name: "  \n", orderIndex: 0)
-        group.settleName(fallback: "Work")
-        #expect(group.name == "Work")
+        group.settleName()
+        #expect(group.name == "New group")
     }
 
     @Test func newGroupIsNamedNewGroup() throws {
@@ -205,15 +205,22 @@ struct GroupNameSettlingTests {
     }
 
     @Test(arguments: ["", " \t\n"])
-    func blankNameRevertsToNewGroup(_ blank: String) {
+    func blankNameBecomesNewGroup(_ blank: String) {
         let group = TaskGroup(name: blank, orderIndex: 0)
-        group.settleName(fallback: TaskStore.defaultGroupName)
+        group.settleName()
         #expect(group.name == "New group")
     }
 
     @Test func nameIsTrimmed() {
         let group = TaskGroup(name: " Work ", orderIndex: 0)
-        group.settleName(fallback: "Other")
+        group.settleName()
+        #expect(group.name == "Work")
+    }
+
+    @Test(arguments: ["", "Renamed"])
+    func cancelRestoresTheOpeningName(_ edited: String) {
+        let group = TaskGroup(name: edited, orderIndex: 0)
+        group.cancelNameEdit(restoring: "Work")
         #expect(group.name == "Work")
     }
 }
