@@ -1,11 +1,22 @@
-import Testing
 import Foundation
+import SwiftData
+import Testing
 @testable import Plume
 
 /// The task context menu offers Remote Control only for a task with exactly
 /// one agent tab, on the headless transport, whichever CLI it runs.
 @MainActor
 struct TaskRemoteControlTests {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
     private func makeTask(tabs: [(kind: TabKind, provider: AgentProviderKind, transport: AgentTransport)]) -> WorkTask {
         let task = WorkTask(title: "Some Task", orderIndex: 0)
         task.tabs = tabs.enumerated().map { index, spec in
@@ -14,6 +25,7 @@ struct TaskRemoteControlTests {
             tab.transport = spec.transport
             return tab
         }
+        context.insert(task)
         return task
     }
 

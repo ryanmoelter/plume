@@ -1,3 +1,4 @@
+import SwiftData
 import Testing
 @testable import Plume
 
@@ -42,19 +43,35 @@ struct TaskTabTests {
 
 @MainActor
 struct WorkTaskHasNeverStartedTests {
-    @Test func trueWithNoTabs() {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
+    private func makeTask() -> WorkTask {
         let task = WorkTask(title: "", orderIndex: 0)
+        context.insert(task)
+        return task
+    }
+
+    @Test func trueWithNoTabs() {
+        let task = makeTask()
         #expect(task.hasNeverStarted)
     }
 
     @Test func trueWhenAgentTabHasNoSessionID() {
-        let task = WorkTask(title: "", orderIndex: 0)
+        let task = makeTask()
         task.tabs = [TaskTab(kind: .agent, orderIndex: 0, task: task)]
         #expect(task.hasNeverStarted)
     }
 
     @Test func falseOnceAnAgentTabHasASessionID() {
-        let task = WorkTask(title: "", orderIndex: 0)
+        let task = makeTask()
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         tab.agentSessionID = "session-1"
         task.tabs = [tab]
@@ -62,7 +79,7 @@ struct WorkTaskHasNeverStartedTests {
     }
 
     @Test func terminalTabSessionIDDoesNotCount() {
-        let task = WorkTask(title: "", orderIndex: 0)
+        let task = makeTask()
         let tab = TaskTab(kind: .terminal, orderIndex: 0, task: task)
         tab.agentSessionID = "session-1"
         task.tabs = [tab]
@@ -72,7 +89,7 @@ struct WorkTaskHasNeverStartedTests {
     @Test func trueAfterRelaunchEvenThoughStatusCollapsesToNotStarted() {
         // The predicate must outlive a relaunch's status collapse: a task
         // that ran and lost its process is not "never started."
-        let task = WorkTask(title: "", orderIndex: 0)
+        let task = makeTask()
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         tab.agentSessionID = "session-1"
         task.tabs = [tab]

@@ -195,7 +195,7 @@ struct SidebarView: View {
     /// Moves a tab into `task`. Only the SwiftData relationship and ordering
     /// change — never the surface registry keyed by the tab's id.
     private func dropTab(_ tabID: UUID, onto task: WorkTask) {
-        guard let tab = tasks.flatMap(\.tabs).first(where: { $0.id == tabID }),
+        guard let tab = tasks.flatMap(\.liveTabs).first(where: { $0.id == tabID }),
               tab.task?.id != task.id
         else { return }
         TaskStore.moveTab(tab, to: task)
@@ -256,7 +256,7 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
-        MarkAsUnreadButton(tabIDs: task.tabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
+        MarkAsUnreadButton(tabIDs: task.liveTabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
