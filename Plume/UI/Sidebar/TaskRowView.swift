@@ -182,6 +182,7 @@ struct TaskRowView: View {
     private func taskIcon(_ name: String) -> some View {
         let appearance = appearance
         let icon = Image(systemName: name)
+            .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
             .fontWeight(appearance.weight)
         if let color = appearance.iconTint.flatMap(theme.colors.color(for:)) {
             icon.foregroundStyle(color.opacity(tintOpacity))

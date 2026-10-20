@@ -37,6 +37,7 @@ final class AppSettings {
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let sidebarTintsTaskIcons = "sidebarTintsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
+        static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
@@ -174,6 +175,7 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.sidebarTintsTaskIcons)
         self.sidebarSuggestsFilledIcons = defaults.bool(forKey: Key.sidebarSuggestsFilledIcons)
+        self.sidebarTwoToneIcons = defaults.bool(forKey: Key.sidebarTwoToneIcons)
         self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
@@ -492,6 +494,13 @@ final class AppSettings {
     var sidebarSuggestsFilledIcons: Bool {
         didSet {
             defaults.set(sidebarSuggestsFilledIcons, forKey: Key.sidebarSuggestsFilledIcons)
+        }
+    }
+
+    /// Whether sidebar icons render with a second, lighter tone.
+    var sidebarTwoToneIcons: Bool {
+        didSet {
+            defaults.set(sidebarTwoToneIcons, forKey: Key.sidebarTwoToneIcons)
         }
     }
 

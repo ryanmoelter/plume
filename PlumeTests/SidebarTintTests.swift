@@ -124,6 +124,23 @@ struct SidebarTaskAppearanceTests {
 
 /// The recent list is deduplicated, capped, most recent first and custom-only.
 struct SidebarIconsTests {
+    @Test func renderingModeIsExplicitForBothSettings() {
+        let describe = { (mode: SymbolRenderingMode) in String(describing: mode) }
+        #expect(describe(SidebarIcons.renderingMode(twoTone: true)) == describe(.hierarchical))
+        #expect(describe(SidebarIcons.renderingMode(twoTone: false)) == describe(.monochrome))
+        #expect(describe(.hierarchical) != describe(.monochrome))
+    }
+
+    @Test func filledVariantFallsBackWhenThereIsNone() {
+        #expect(SidebarIcons.filledVariant(of: "person.2") == "person.2.fill")
+        #expect(SidebarIcons.filledVariant(of: "server.rack") == "server.rack")
+    }
+
+    @Test func previewTintStandsInForTheSystemAccent() {
+        #expect(SidebarPreviewTint.effective(accentSlot: nil) == .text)
+        #expect(SidebarPreviewTint.effective(accentSlot: 4) == .palette(slot: 4))
+    }
+
     @Test func recordingPutsNewestFirst() {
         #expect(SidebarIcons.recording("moon", in: ["sun", "cloud"]) == ["moon", "sun", "cloud"])
     }

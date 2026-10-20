@@ -31,6 +31,7 @@ struct GroupSectionHeader: View {
             SidebarIconTitle(
                 icon: group.iconName.map { iconName in
                     Image(systemName: iconName)
+                        .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
                         .fontWeight(SidebarMetrics.headerWeight)
                         .foregroundStyle(labelStyle)
                 },

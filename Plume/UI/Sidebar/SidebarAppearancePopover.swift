@@ -351,6 +351,7 @@ private struct SidebarIconPicker: View {
     private func symbol(_ name: String) -> some View {
         let color = tint.flatMap(theme.colors.color(for:))
         return Image(systemName: name)
+            .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
             .fontWeight(weight)
             .foregroundStyle(color.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
     }

@@ -46,6 +46,7 @@ struct VisualsSettingsPane: View {
             }
 
             Section {
+                SidebarTaskPreview()
                 Picker("Task marker", selection: $settings.sidebarTaskMarker) {
                     ForEach(SidebarTaskMarker.allCases) { marker in
                         Text(marker.title).tag(marker)
@@ -80,6 +81,12 @@ struct VisualsSettingsPane: View {
                         AccessibilityID.settingsSidebarSuggestsFilledIconsToggle,
                         value: settings.sidebarSuggestsFilledIcons ? "on" : "off",
                         invoke: { settings.sidebarSuggestsFilledIcons.toggle() }
+                    )
+                Toggle("Use two-tone icons", isOn: $settings.sidebarTwoToneIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarTwoToneIconsToggle,
+                        value: settings.sidebarTwoToneIcons ? "on" : "off",
+                        invoke: { settings.sidebarTwoToneIcons.toggle() }
                     )
                 Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
                     .plumeID(
