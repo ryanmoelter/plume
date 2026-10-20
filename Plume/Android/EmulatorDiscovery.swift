@@ -131,7 +131,10 @@ final class EmulatorDiscovery {
     func refresh() async {
         let directories = directories
         let found = await Task.detached { EmulatorScanner.scanAll(directories: directories) }.value
-        if found != running { running = found }
+        if found != running {
+            EmulatorLog.info("running emulators: \(found.map { "\($0.avdID) (pid \($0.pid))" })")
+            running = found
+        }
     }
 
     private func scheduleRescan(after delay: Duration) {

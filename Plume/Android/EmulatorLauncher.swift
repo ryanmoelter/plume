@@ -111,6 +111,7 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .utility))
         source.setEventHandler {
             _ = launch.reap(blocking: true)
+            EmulatorLog.info("emulator launcher pid \(pid) for \(avdID) exited")
             source.cancel()
         }
         source.resume()

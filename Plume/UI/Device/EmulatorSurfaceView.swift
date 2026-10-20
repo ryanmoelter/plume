@@ -91,6 +91,7 @@ final class EmulatorSurfaceView: NSView, EmulatorFrameSink {
         let shouldStream = session != nil && window?.occlusionState.contains(.visible) == true
         guard shouldStream != isSink, let session else { return }
         isSink = shouldStream
+        EmulatorLog.info("tab \(session.tabID.uuidString.prefix(8)) surface \(shouldStream ? "visible" : "hidden")")
         if shouldStream {
             session.addSink(self)
         } else {

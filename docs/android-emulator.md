@@ -52,3 +52,11 @@ With `-no-window` the emulator runs `qemu-system-aarch64-headless` and renders w
 ## Hidden tabs
 
 A hidden tab unmounts its device view, and the view stops streaming when it leaves the window or its window is occluded. A stream exists only while a view is on screen. Nothing ticks while hidden: no frame stream, no status polling, no discovery watch.
+
+## Logging
+
+Debug builds log the session's state changes, connects, lost connections, stream starts and stops, boots and discovery changes under the `emulator` category. Release builds log nothing yet (`EmulatorLog`).
+
+```
+/usr/bin/log show --predicate 'subsystem == "com.ryanmoelter.Plume" && category == "emulator"' --last 10m --info
+```

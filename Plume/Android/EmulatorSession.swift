@@ -30,7 +30,12 @@ final class EmulatorSession {
     let tabID: UUID
     private(set) var avdID: String?
     private(set) var displayName: String?
-    private(set) var state: EmulatorSessionState
+    private(set) var state: EmulatorSessionState {
+        didSet {
+            guard state != oldValue else { return }
+            EmulatorLog.info("\(logPrefix) state \(oldValue) -> \(state)")
+        }
+    }
     /// Natural-orientation device pixels, the space touches are sent in.
     private(set) var deviceSize: CGSize?
     private(set) var rotation: DeviceRotation = .portrait
@@ -68,6 +73,8 @@ final class EmulatorSession {
     }
 
     var isConnected: Bool { state == .connected }
+
+    private var logPrefix: String { "tab \(tabID.uuidString.prefix(8)) [\(avdID ?? "no device")]" }
 
     /// Reattaches to the tab's device if it is already running. Never boots one.
     func start() {
@@ -116,7 +123,9 @@ final class EmulatorSession {
             let launch: EmulatorLaunch
             do {
                 launch = try EmulatorLauncher.boot(avdID: avdID, sdk: sdk)
+                EmulatorLog.info("\(logPrefix) booting, launcher pid \(launch.pid), log \(launch.logURL.path)")
             } catch {
+                EmulatorLog.error("\(logPrefix) boot failed: \(error.localizedDescription)")
                 state = .failed(error.localizedDescription)
                 return
             }
@@ -164,6 +173,7 @@ final class EmulatorSession {
 
     func shutDownEmulator() {
         guard let connection else { return }
+        EmulatorLog.info("\(logPrefix) shutting down the emulator")
         workTask?.cancel()
         workTask = nil
         stopStreaming()
@@ -176,6 +186,7 @@ final class EmulatorSession {
     }
 
     func close() {
+        EmulatorLog.info("\(logPrefix) closing the session")
         workTask?.cancel()
         workTask = nil
         sinks.removeAll()
@@ -234,11 +245,13 @@ final class EmulatorSession {
         state = .connecting
         let connection = makeConnection(emulator)
         self.connection = connection
+        EmulatorLog.info("\(logPrefix) connecting to qemu pid \(emulator.pid) on port \(emulator.grpcPort)")
         runWork { [weak self] in
             do {
                 let status = try await connection.status()
                 guard let self, self.connection === connection else { return }
                 deviceSize = status.displaySize
+                EmulatorLog.info("\(logPrefix) connected, booted \(status.booted), display \(String(describing: status.displaySize))")
                 state = .connected
                 updateStreaming()
             } catch {
@@ -257,6 +270,7 @@ final class EmulatorSession {
 
     private func lose(_ lost: EmulatorConnecting, reason: String) {
         guard connection === lost else { return }
+        EmulatorLog.error("\(logPrefix) lost the connection: \(reason)")
         disconnect()
         state = .disconnected(reason)
     }
@@ -279,11 +293,17 @@ final class EmulatorSession {
         stopStreaming()
         streamPixelSize = size
         isStreaming = true
+        EmulatorLog.info("\(logPrefix) streaming at \(Int(size.width))x\(Int(size.height)) to \(sinks.count) sink(s)")
         let frames = connection.frames(maxPixelSize: size)
         streamTask = Task { [weak self] in
+            var isFirstFrame = true
             do {
                 for try await frame in frames {
                     guard let self else { return }
+                    if isFirstFrame {
+                        isFirstFrame = false
+                        EmulatorLog.info("\(logPrefix) first frame \(Int(frame.pixelSize.width))x\(Int(frame.pixelSize.height))")
+                    }
                     let rotation = DeviceRotation(frame.rotation)
                     if rotation != self.rotation { self.rotation = rotation }
                     for entry in self.sinks.values { entry.sink?.present(frame) }
@@ -298,6 +318,7 @@ final class EmulatorSession {
     }
 
     private func stopStreaming() {
+        if streamTask != nil { EmulatorLog.info("\(logPrefix) stopped streaming") }
         streamTask?.cancel()
         streamTask = nil
         streamPixelSize = .zero
