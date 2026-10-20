@@ -181,7 +181,7 @@ private struct TabChip: View {
 
             if let unseenHelp {
                 Circle()
-                    .fill(.tint)
+                    .fill(ChatRole.attention(for: colorScheme))
                     .frame(width: 6, height: 6)
                     .help(unseenHelp)
                     .transition(.opacity)

@@ -31,7 +31,7 @@ struct StatusBadge: View {
     private var glyph: some View {
         if isUnread {
             Circle()
-                .fill(.tint)
+                .fill(ChatRole.attention(for: colorScheme))
                 .frame(width: 8, height: 8)
                 .help("Finished a turn you haven't read")
                 .transition(.opacity)
