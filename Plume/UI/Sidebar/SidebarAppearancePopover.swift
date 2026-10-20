@@ -140,8 +140,8 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
                 Link(destination: URL(string: "https://developer.apple.com/sf-symbols/")!) {
                     HStack {
                         Text("Download SF Symbols")
-                        Spacer()
                         Image(systemName: "arrow.up.forward.square")
+                        Spacer()
                     }
                     .foregroundStyle(.tint)
                     .padding(.horizontal, 14)
@@ -229,6 +229,9 @@ private struct SidebarIconPicker: View {
     @Environment(\.theme) private var theme
     @State private var draft = ""
     @State private var original: String?
+
+    private static let cellWidth: CGFloat = 28
+    private static let cellHeight: CGFloat = 24
 
     static func isSymbol(_ name: String) -> Bool {
         NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
@@ -323,15 +326,14 @@ private struct SidebarIconPicker: View {
             if !trimmedDraft.isEmpty, Self.isSymbol(trimmedDraft) {
                 symbol(trimmedDraft)
             } else {
-                Color.clear.frame(width: 24, height: 24)
+                Color.clear
             }
         }
-        .frame(minWidth: 24, alignment: .leading)
-        .frame(height: 24)
+        .frame(width: Self.cellWidth, height: Self.cellHeight)
     }
 
     private func grid(_ names: [String]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 6), count: 8), spacing: 6) {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(Self.cellWidth), spacing: 6), count: 8), spacing: 6) {
             ForEach(names, id: \.self) { name in
                 symbolButton(name)
             }
@@ -359,7 +361,7 @@ private struct SidebarIconPicker: View {
             draft = name
         } label: {
             symbol(name)
-                .frame(width: 28, height: 24)
+                .frame(width: Self.cellWidth, height: Self.cellHeight)
                 .background(
                     isSelected ? AnyShapeStyle(theme.colors.selection.opacity(0.25)) : AnyShapeStyle(.clear),
                     in: .rect(cornerRadius: 6)
