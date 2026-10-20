@@ -78,6 +78,7 @@ final class ChatListController: NSObject {
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
+    var paneFocus: PaneFocusState?
     /// Set on every update. Assigning it restages the rows itself when what
     /// a row draws from it has changed, because a fork marker can appear on a
     /// transcript change that leaves every piece untouched — and an untouched
@@ -934,6 +935,7 @@ final class ChatListController: NSObject {
         let environment = ChatListItemEnvironment(
             chatFontSize: inputs.chatFontSize,
             revealModel: revealModel,
+            paneFocus: paneFocus,
             workStartedAt: inputs.workStartedAt,
             linkDirectory: inputs.linkDirectory,
             redoContext: redoContext
@@ -1009,6 +1011,7 @@ final class ChatListDocumentView: NSView {
 struct ChatListItemEnvironment {
     var chatFontSize: CGFloat
     var revealModel: ChatRevealModel?
+    var paneFocus: PaneFocusState?
     var workStartedAt: Date?
     /// Resolves relative paths in a clicked link. A hosted root inherits no
     /// environment, so the link handler has to be rebuilt here rather than
@@ -1030,6 +1033,7 @@ struct ChatListItemRoot<Content: View>: View {
             .frame(width: width, alignment: .top)
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.chatRevealModel, environment.revealModel)
+            .environment(\.paneFocus, environment.paneFocus)
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.messageRedoContext, environment.redoContext)
             .chatLinkHandling(directory: environment.linkDirectory)

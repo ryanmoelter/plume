@@ -146,8 +146,8 @@ final class InAppDrag {
         tabStripGap = gap
     }
 
-    func clearTabStripGap(in taskID: UUID) {
-        if tabStripGap?.taskID == taskID { tabStripGap = nil }
+    func clearTabStripGap(in taskID: UUID, pane: Int) {
+        if tabStripGap?.taskID == taskID, tabStripGap?.pane == pane { tabStripGap = nil }
     }
 
     private func clearFeedback() {
@@ -168,9 +168,11 @@ final class InAppDrag {
     }
 }
 
-/// The gap a dragged tab would land in, in the strip of task `taskID`.
+/// The gap a dragged tab would land in, in the strip of task `taskID`'s
+/// pane `pane`.
 struct TabStripGap: Equatable {
     let taskID: UUID
+    let pane: Int
     let gap: Int
 }
 

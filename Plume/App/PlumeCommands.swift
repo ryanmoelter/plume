@@ -32,6 +32,12 @@ struct TaskCommands {
     let archiveSelectedTask: () -> Void
     /// Nil when the selected tab has no stored session to discard.
     let startFreshSelectedTab: (() -> Void)?
+    let isSplit: Bool
+    /// Closes the split, or moves the focused tab into a new right pane. Nil
+    /// when neither can happen.
+    let toggleSplit: (() -> Void)?
+    /// Nil when not split.
+    let focusOtherPane: (() -> Void)?
 }
 
 struct TaskCommandsKey: FocusedValueKey {
@@ -78,11 +84,15 @@ enum PlumeShortcuts {
     static let showArchive = MenuShortcut("a", modifiers: [.command, .shift])
     static let closeTab = MenuShortcut("w")
     static let archiveTask = MenuShortcut("a", modifiers: [.command, .control])
+    /// Not ⇧⌘\, which is AppKit's Show All Tabs.
+    static let toggleSplit = MenuShortcut("\\")
+    static let focusOtherPane = MenuShortcut("\\", modifiers: [.command, .option])
     /// ⌘1 through ⌘9, selecting a tab by position.
     static let selectTab: [MenuShortcut] = (1...9).map { MenuShortcut(Character("\($0)")) }
 
     private static let fixed: [MenuShortcut] = [
         newTask, newTerminalTab, newAgentTab, showArchive, closeTab, archiveTask,
+        toggleSplit, focusOtherPane,
     ] + selectTab
 
     static var all: [MenuShortcut] {
@@ -174,6 +184,15 @@ struct PlumeCommands: Commands {
             Button("Previous Task") { selectAdjacentTask?(-1) }
                 .keyboardShortcut(shortcut(for: .previousTask))
                 .disabled(selectAdjacentTask == nil)
+
+            Divider()
+
+            Button(task?.isSplit == true ? "Close Split" : "Split Right") { task?.toggleSplit?() }
+                .keyboardShortcut(PlumeShortcuts.toggleSplit)
+                .disabled(task?.toggleSplit == nil)
+            Button("Focus Other Pane") { task?.focusOtherPane?() }
+                .keyboardShortcut(PlumeShortcuts.focusOtherPane)
+                .disabled(task?.focusOtherPane == nil)
 
             Divider()
 

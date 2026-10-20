@@ -3,9 +3,9 @@ import Foundation
 import SwiftData
 @testable import Plume
 
-/// `TaskStore.moveTabs` rewrites `orderIndex` densely on every move — the
-/// logic `TabStripView`'s drag-to-reorder drives. Mirrors `PersistenceTests`'
-/// in-memory-container setup.
+/// `TaskStore.moveTab(_:toPane:at:in:)` within one strip rewrites
+/// `orderIndex` densely, as `TabStripView`'s drag-to-reorder drives it. The
+/// gap counts positions before the move, like `Array.move(toOffset:)`.
 @MainActor
 struct TaskStoreOrderingTests {
     private func container() throws -> ModelContainer {
@@ -29,7 +29,7 @@ struct TaskStoreOrderingTests {
         let context = ModelContext(try container())
         let (task, tabs) = makeTabs(4, in: context)
 
-        TaskStore.moveTabs(tabs, from: IndexSet(integer: 0), to: 3)
+        TaskStore.moveTab(tabs[0], toPane: 0, at: 3, in: task)
 
         let expected: [TaskTab] = [tabs[1], tabs[2], tabs[0], tabs[3], tabs[4]]
         #expect(task.orderedTabs.map(\.id) == expected.map(\.id))
@@ -39,7 +39,7 @@ struct TaskStoreOrderingTests {
         let context = ModelContext(try container())
         let (task, tabs) = makeTabs(4, in: context)
 
-        TaskStore.moveTabs(tabs, from: IndexSet(integer: 3), to: 1)
+        TaskStore.moveTab(tabs[3], toPane: 0, at: 1, in: task)
 
         let expected: [TaskTab] = [tabs[0], tabs[3], tabs[1], tabs[2], tabs[4]]
         #expect(task.orderedTabs.map(\.id) == expected.map(\.id))
@@ -49,7 +49,7 @@ struct TaskStoreOrderingTests {
         let context = ModelContext(try container())
         let (task, tabs) = makeTabs(3, in: context)
 
-        TaskStore.moveTabs(tabs, from: IndexSet(integer: 0), to: 2)
+        TaskStore.moveTab(tabs[0], toPane: 0, at: 2, in: task)
 
         let indices = task.orderedTabs.map(\.orderIndex)
         #expect(indices == Array(0..<indices.count))
@@ -60,7 +60,7 @@ struct TaskStoreOrderingTests {
         let (task, tabs) = makeTabs(2, in: context)
         let before = task.orderedTabs.map(\.id)
 
-        TaskStore.moveTabs(tabs, from: IndexSet(integer: 1), to: 1)
+        TaskStore.moveTab(tabs[1], toPane: 0, at: 1, in: task)
 
         #expect(task.orderedTabs.map(\.id) == before)
     }
@@ -69,9 +69,7 @@ struct TaskStoreOrderingTests {
         let context = ModelContext(try container())
         let (task, tabs) = makeTabs(3, in: context)
 
-        // Mirrors dropping past the last chip: destination is the count of
-        // the ordered array, one past its last valid index.
-        TaskStore.moveTabs(tabs, from: IndexSet(integer: 0), to: tabs.count)
+        TaskStore.moveTab(tabs[0], toPane: 0, at: tabs.count, in: task)
 
         #expect(task.orderedTabs.last?.id == tabs[0].id)
     }

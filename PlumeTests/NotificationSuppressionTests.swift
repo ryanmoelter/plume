@@ -9,7 +9,7 @@ struct NotificationSuppressionTests {
     private func audience(
         active: Bool = true, task: UUID?, tab: UUID?
     ) -> NotificationAudience {
-        NotificationAudience(isAppActive: active, selectedTaskID: task, selectedTabID: tab)
+        NotificationAudience(isAppActive: active, selectedTaskID: task, onScreenTabIDs: Set([tab].compactMap { $0 }))
     }
 
     @Test func theTabTheUserIsWatchingIsNotNotified() {
@@ -36,6 +36,15 @@ struct NotificationSuppressionTests {
         #expect(NotificationSuppression.shouldNotify(
             tabID: tab, taskID: task, audience: audience(active: false, task: task, tab: tab)
         ))
+    }
+
+    @Test func bothPanesOfASplitAreWatched() {
+        let other = UUID()
+        let split = NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab, other])
+
+        #expect(!NotificationSuppression.shouldNotify(tabID: tab, taskID: task, audience: split))
+        #expect(!NotificationSuppression.shouldNotify(tabID: other, taskID: task, audience: split))
+        #expect(NotificationSuppression.shouldNotify(tabID: UUID(), taskID: task, audience: split))
     }
 
     @Test func noSelectionMeansNothingIsOnScreen() {

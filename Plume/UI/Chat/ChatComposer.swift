@@ -15,6 +15,9 @@ struct ChatComposer: View, ThemedView {
     @Bindable var task: WorkTask
     let tab: TaskTab
     var isVisible = true
+    /// Whether this composer's tab takes first responder: false for the
+    /// other pane of a split.
+    var isFocused = true
     /// Whether something else in the panel already sits above the composer
     /// (the docked plan bar) — the caller is the only one who knows.
     var hasContentAbove = false
@@ -278,20 +281,11 @@ struct ChatComposer: View, ThemedView {
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
         .padding(dimensions.composerFieldInset)
-        // Only the visible tab takes focus; hidden tabs stay mounted, and
-        // focusing every one of them makes them fight over the input.
-        //
-        // Deferred a tick: a new tab replaces the previous one in the same
-        // `ForEach` update (headless chat unmounts a hidden tab rather than
-        // just hiding it), so the outgoing view is still resigning real
-        // first responder when this fires. Claiming it in the same
-        // transaction loses the race silently; the next run loop turn wins it.
         .onChange(of: isVisible, initial: true) { _, visible in
-            guard visible else {
-                inputFocused = false
-                return
-            }
-            DispatchQueue.main.async { inputFocused = true }
+            if !visible { inputFocused = false }
+        }
+        .claimsPaneFocus(isVisible: isVisible, isFocused: isFocused) {
+            inputFocused = true
         }
         .onChange(of: editQueuedMessageIndex.wrappedValue) { _, index in
             guard let index else { return }

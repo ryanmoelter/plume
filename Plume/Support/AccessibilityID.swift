@@ -67,6 +67,9 @@ enum AccessibilityID {
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
     static let newTabButton = "new-tab-button"
+    /// One per on-screen tab; `value` is "focused" on the focused one.
+    static let tabPane = "tab-pane"
+    static let splitDivider = "split-divider"
 
     // MARK: Composer
 

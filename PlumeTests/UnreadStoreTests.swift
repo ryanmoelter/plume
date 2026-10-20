@@ -18,7 +18,7 @@ struct UnreadStoreTests {
     }
 
     private var looking: NotificationAudience {
-        NotificationAudience(isAppActive: true, selectedTaskID: task, selectedTabID: tab)
+        NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab])
     }
 
     @Test func aTurnEndingOffScreenIsUnread() {
@@ -35,6 +35,28 @@ struct UnreadStoreTests {
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
 
         #expect(!store.isUnread(tabID: tab))
+    }
+
+    @Test func aTurnEndingInTheUnfocusedPaneIsNot() {
+        let focused = UUID()
+        let (store, engine) = observed(
+            audience: NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [focused, tab])
+        )
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+
+        #expect(!store.isUnread(tabID: tab))
+    }
+
+    @Test func viewingASplitClearsBothPanes() {
+        let other = UUID()
+        let store = UnreadStore()
+        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
+        store.record(.awaitingReply, tabID: other, isOnScreen: false)
+
+        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab, other]))
+
+        #expect(!store.hasUnread(among: [tab, other]))
     }
 
     @Test func theSelectedTabInABackgroundedAppIsUnread() {
@@ -90,7 +112,7 @@ struct UnreadStoreTests {
         let store = UnreadStore()
         store.record(.awaitingReply, tabID: tab, isOnScreen: false)
 
-        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, selectedTabID: UUID()))
+        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [UUID()]))
 
         #expect(store.isUnread(tabID: tab))
     }

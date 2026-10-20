@@ -208,7 +208,7 @@ final class InProcessControlBackend: ControlBackend {
         var out: [String] = []
         if let item = drag.item { out.append("item \(item.payload)") }
         if let indicator = drag.sidebarIndicator { out.append("sidebar \(indicator.target) \(indicator.placement)") }
-        if let gap = drag.tabStripGap { out.append("tabStrip gap \(gap.gap)") }
+        if let gap = drag.tabStripGap { out.append("tabStrip pane \(gap.pane) gap \(gap.gap)") }
         return out
     }
 
@@ -419,18 +419,37 @@ final class InProcessControlBackend: ControlBackend {
 
     private func composerTextView() throws -> ComposerNSTextView {
         let window = try window(for: nil)
-        guard let content = window.contentView, let composer = ViewFinder.first(ComposerNSTextView.self, in: content) else {
-            throw ControlError.noComposer
-        }
+        guard let content = window.contentView,
+              let composer = inFocusedPane(ViewFinder.all(ComposerNSTextView.self, in: content), of: window)
+        else { throw ControlError.noComposer }
         return composer
     }
 
     private func chatListDocumentView() throws -> ChatListDocumentView {
         let window = try window(for: nil)
-        guard let content = window.contentView, let list = ViewFinder.first(ChatListDocumentView.self, in: content) else {
-            throw ControlError.notFound("chat list")
-        }
+        guard let content = window.contentView,
+              let list = inFocusedPane(ViewFinder.all(ChatListDocumentView.self, in: content), of: window)
+        else { throw ControlError.notFound("chat list") }
         return list
+    }
+
+    /// A split shows two chats, so the composer and chat list surfaces
+    /// resolve to the focused pane's — or to nothing, when the focused pane
+    /// holds no such view.
+    private func inFocusedPane<View: NSView>(_ candidates: [View], of window: NSWindow) -> View? {
+        let pane = registry.entries(id: AccessibilityID.tabPane)
+            .first(where: { $0.entry.value == "focused" && $0.entry.window === window })?.entry
+        let height = contentHeight(of: window)
+        let placed = candidates.map { view in
+            (view, WindowGeometry.topLeftRect(fromAppKit: view.convert(view.shownRect, to: nil), contentHeight: height))
+        }
+        return Self.candidate(in: placed, focusedPaneFrame: pane?.frame)
+    }
+
+    /// With no pane registered, the first candidate in tree order.
+    static func candidate<View>(in candidates: [(View, CGRect)], focusedPaneFrame: CGRect?) -> View? {
+        guard let focusedPaneFrame else { return candidates.first?.0 }
+        return candidates.first { focusedPaneFrame.contains(CGPoint(x: $0.1.midX, y: $0.1.midY)) }?.0
     }
 
     /// Text-bearing views under `root`, top to bottom.

@@ -6,6 +6,12 @@ struct TabStripView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var task: WorkTask
+    let pane: Int
+    let paneCount: Int
+    /// This pane's tabs, in strip order.
+    let tabs: [TaskTab]
+    /// The tab each pane shows.
+    let shown: Set<UUID>
 
     @Query(sort: \WorkTask.orderIndex) private var allTasks: [WorkTask]
 
@@ -17,12 +23,17 @@ struct TabStripView: View {
     private static let coordinateSpace = "tabStrip"
 
     var body: some View {
+        let paneLabel = paneCount > 1 ? "pane \(pane + 1)" : nil
         HStack(spacing: Self.chipSpacing) {
-            ForEach(task.orderedTabs) { tab in
+            ForEach(tabs) { tab in
                 TabChip(
                     task: task,
                     tab: tab,
+                    pane: pane,
+                    paneCount: paneCount,
+                    paneLabel: paneLabel,
                     isSelected: task.selectedTabID == tab.id,
+                    isShown: shown.contains(tab.id),
                     themeForeground: ThemeChrome.foreground(for: colorScheme),
                     select: { TaskStore.selectTab(tab, in: task) },
                     close: { TaskStore.closeTab(tab, in: context) },
@@ -36,9 +47,9 @@ struct TabStripView: View {
 
             Menu {
                 Button("Chat Tab") {
-                    TaskStore.addTab(to: task, kind: .agent, in: context)
+                    TaskStore.addTab(to: task, kind: .agent, pane: pane, in: context)
                 }
-                Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, in: context) }
+                Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, pane: pane, in: context) }
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -48,7 +59,7 @@ struct TabStripView: View {
             .fixedSize()
             .help("New tab")
             .accessibilityLabel("New tab")
-            .plumeID(AccessibilityID.newTabButton)
+            .plumeID(AccessibilityID.newTabButton, label: paneLabel)
 
             Spacer()
         }
@@ -62,6 +73,7 @@ struct TabStripView: View {
         .overlay(alignment: .topLeading) {
             TabStripInsertionMarker(
                 taskID: task.id,
+                pane: pane,
                 chips: chipExtents,
                 spacing: Self.chipSpacing,
                 chipFrame: chipFrames.values.first
@@ -69,6 +81,7 @@ struct TabStripView: View {
         }
         .onDrop(of: [.utf8PlainText], delegate: TabStripDropDelegate(
             taskID: task.id,
+            pane: pane,
             chips: { chipExtents },
             perform: reorder
         ))
@@ -77,16 +90,15 @@ struct TabStripView: View {
 
     /// The chips' horizontal extents, in strip order.
     private var chipExtents: [ClosedRange<CGFloat>] {
-        task.orderedTabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
+        tabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
     }
 
-    /// Moves the dragged tab into `gap`. Reordering only rewrites
-    /// `orderIndex` through `TaskStore.moveTabs` — surfaces are keyed by tab
-    /// id and untouched by it.
+    /// Moves the dragged tab into `gap`, from this strip or the other
+    /// pane's. Only `orderIndex` and `paneIndex` change — surfaces are keyed
+    /// by tab id and untouched by it.
     private func reorder(_ draggedID: UUID, into gap: Int) {
-        let ordered = task.orderedTabs
-        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return }
-        TaskStore.moveTabs(ordered, from: IndexSet(integer: fromIndex), to: min(gap, ordered.count))
+        guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return }
+        TaskStore.moveTab(tab, toPane: pane, at: gap, in: task)
     }
 
     /// Splits `tab` into a new ungrouped task, as a sibling of every other
@@ -103,7 +115,14 @@ private struct TabChip: View {
     @Environment(\.appearsActive) private var appearsActive
 
     let tab: TaskTab
+    let pane: Int
+    let paneCount: Int
+    /// Names the pane in the chip's control-server label while split, since
+    /// both strips can hold chips of the same title.
+    let paneLabel: String?
     let isSelected: Bool
+    /// Showing in its pane, focused or not.
+    let isShown: Bool
     /// The theme's resolved foreground, when a theme is tinting the strip.
     /// Nil means default chrome, so text/icons keep the system foreground.
     let themeForeground: Color?
@@ -183,8 +202,23 @@ private struct TabChip: View {
         // mouse-down, and the chip's drag never starts.
         .simultaneousGesture(TapGesture().onEnded(select))
         .plumeHover { isHovering = $0 }
-        .plumeID(AccessibilityID.tabChip, label: chipTitle, value: isSelected ? "selected" : nil, invoke: select)
+        .plumeID(
+            AccessibilityID.tabChip,
+            label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle,
+            value: chipValue,
+            invoke: select
+        )
         .contextMenu {
+            if paneCount > 1 {
+                Button("Move to Other Pane") {
+                    TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task)
+                }
+                Button("Close Split") { TaskStore.closeSplit(in: task) }
+            } else {
+                Button("Open in Split") { TaskStore.openInSplit(tab, side: .right, in: task) }
+                    .disabled(!TaskStore.canOpenInSplit(tab, in: task))
+            }
+            Divider()
             if tab.kind == .agent {
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport, provider: tab.provider)) {
                     isConfirmingTransportSwitch = true
@@ -219,14 +253,25 @@ private struct TabChip: View {
         }
     }
 
+    /// The unfocused pane's tab takes the gray inactive wash, so the accent
+    /// marks only the focused pane.
     private var chipBackground: Color {
-        isSelected ? SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive) : .clear
+        if isSelected { return SidebarSelectionFill.wash(for: colorScheme, isActive: appearsActive) }
+        return isInOtherPane ? SidebarSelectionFill.wash(for: colorScheme, isActive: false) : .clear
+    }
+
+    private var isInOtherPane: Bool { isShown && !isSelected }
+
+    private var chipValue: String? {
+        if isSelected { return "selected" }
+        return isInOtherPane ? "shown" : nil
     }
 }
 
 /// Tracks which gap a dragged tab is over, and hands the drop to the strip.
 private struct TabStripDropDelegate: DropDelegate {
     let taskID: UUID
+    let pane: Int
     let chips: () -> [ClosedRange<CGFloat>]
     let perform: @MainActor (UUID, Int) -> Void
 
@@ -238,11 +283,11 @@ private struct TabStripDropDelegate: DropDelegate {
         let drag = InAppDrag.shared
         switch drag.item {
         case .task, .group:
-            drag.clearTabStripGap(in: taskID)
+            drag.clearTabStripGap(in: taskID, pane: pane)
             return DropProposal(operation: .forbidden)
         case .tab:
             let gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
-            drag.showTabStripGap(TabStripGap(taskID: taskID, gap: gap))
+            drag.showTabStripGap(TabStripGap(taskID: taskID, pane: pane, gap: gap))
             return DropProposal(operation: .move)
         case nil:
             return DropProposal(operation: .move)
@@ -250,7 +295,7 @@ private struct TabStripDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        InAppDrag.shared.clearTabStripGap(in: taskID)
+        InAppDrag.shared.clearTabStripGap(in: taskID, pane: pane)
     }
 
     func performDrop(info: DropInfo) -> Bool {
@@ -266,12 +311,13 @@ private struct TabStripDropDelegate: DropDelegate {
 /// only it redraws as the gap moves.
 private struct TabStripInsertionMarker: View {
     let taskID: UUID
+    let pane: Int
     let chips: [ClosedRange<CGFloat>]
     let spacing: CGFloat
     let chipFrame: CGRect?
 
     var body: some View {
-        if let gap = InAppDrag.shared.tabStripGap, gap.taskID == taskID,
+        if let gap = InAppDrag.shared.tabStripGap, gap.taskID == taskID, gap.pane == pane,
            let x = TabStripInsertion.markerX(gap: gap.gap, chips: chips, spacing: spacing),
            let chipFrame {
             Capsule()
