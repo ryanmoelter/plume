@@ -28,10 +28,13 @@ enum SidebarFixtures {
         let group = TaskStore.createGroup(in: context, name: groupName, existing: existingGroups)
 
         var tasks: [WorkTask] = []
-        for fixture in SidebarFixtureCatalog.cases {
-            tasks.append(seedTask(for: fixture, in: context, group: group, siblings: tasks))
+        if ProcessInfo.processInfo.environment["PLUME_SEED_SIDEBAR_FIXTURES"] != "linear" {
+            for fixture in SidebarFixtureCatalog.cases {
+                tasks.append(seedTask(for: fixture, in: context, group: group, siblings: tasks))
+            }
+            tasks.append(seedMultiDirectoryTask(in: context, group: group, siblings: tasks))
         }
-        tasks.append(seedMultiDirectoryTask(in: context, group: group, siblings: tasks))
+        tasks.append(contentsOf: seedLinearTasks(in: context, group: group, siblings: tasks))
     }
 
     private static func seedTask(
@@ -118,6 +121,55 @@ enum SidebarFixtures {
             )
         }
         return task
+    }
+
+    /// A task whose branch names an issue, and one with three manual links,
+    /// to show the line cap and the overflow count.
+    private static func seedLinearTasks(
+        in context: ModelContext,
+        group: TaskGroup,
+        siblings: [WorkTask]
+    ) -> [WorkTask] {
+        LinearStore.shared.seedFixtureTeamKeys(["PLUME"])
+        func issue(_ identifier: String, _ title: String, _ name: String, _ type: LinearStateType, _ color: String) {
+            LinearStore.shared.seedFixture(
+                identifier: identifier,
+                state: .issue(LinearIssue(
+                    identifier: identifier,
+                    title: title,
+                    url: "https://linear.app/fixture/issue/\(identifier)",
+                    stateName: name,
+                    stateType: type,
+                    stateColor: color,
+                    assigneeName: nil,
+                    teamKey: "PLUME"
+                ))
+            )
+        }
+        issue("PLUME-102", "Integrate with Linear", "In Progress", .started, "#f2c94c")
+        issue("PLUME-103", "Fixture todo", "Todo", .unstarted, "#e2e2e2")
+        issue("PLUME-104", "Fixture done", "Done", .completed, "#5e6ad2")
+        LinearStore.shared.seedFixture(identifier: "PLUME-105", state: .failed("Fixture: offline"))
+
+        func seed(_ name: String, branch: String) -> WorkTask {
+            let task = TaskStore.createTask(in: context, title: name, group: group, siblings: siblings)
+            let directory = "/tmp/plume-fixtures/fixture-\(name)"
+            task.workingDirectoryPath = directory
+            task.workspaceKind = .directory
+            task.branchName = branch
+            GitStateStore.shared.seedFixture(
+                directory: directory,
+                state: GitState(branch: branch, upstream: nil, ahead: 0, behind: 0, isDirty: false)
+            )
+            return task
+        }
+
+        let branched = seed("linear-branch", branch: "ryanm/plume-102-integrate-with-linear")
+        let overflow = seed("linear-overflow", branch: "ryanm/linear-overflow")
+        for identifier in ["PLUME-103", "PLUME-104", "PLUME-105"] {
+            _ = TaskStore.linkLinearIssue(identifier, to: overflow)
+        }
+        return [branched, overflow]
     }
 }
 #endif

@@ -18,6 +18,10 @@ enum TaskRowDetails {
         /// Carries its directory so the chip can ask the store for that
         /// repository's ignored checks, not the task's.
         case pullRequest(directory: String?, state: PullRequestFetchState)
+        /// A working Linear issue; a nil state means no fetch has been requested yet.
+        case linearIssue(identifier: String, state: LinearIssueFetchState?)
+        /// How many working issues the cap left out.
+        case linearOverflow(Int)
     }
 
     /// One open directory of a task: where it is, what it is on, and its pull
@@ -65,6 +69,34 @@ enum TaskRowDetails {
             lines.append(.pullRequest(directory: group.directory, state: pullRequest))
         }
         return lines
+    }
+
+    static let linearIssueLineCap = 2
+
+    /// One line per working issue up to `cap`, then a count of the rest.
+    /// Mentioned issues never take a line.
+    static func linearLines(
+        _ issues: [LinkedLinearIssue],
+        states: (String) -> LinearIssueFetchState?,
+        cap: Int = linearIssueLineCap
+    ) -> [Line] {
+        let working = issues.filter { $0.role == .working }
+        var lines = working.prefix(cap).map { Line.linearIssue(identifier: $0.identifier, state: states($0.identifier)) }
+        if working.count > cap { lines.append(.linearOverflow(working.count - cap)) }
+        return lines
+    }
+
+    /// The word standing in for an issue's state when there is none to show.
+    /// Offline must never read as "no such issue", so each failure has its own.
+    static func linearStatusWord(_ state: LinearIssueFetchState?) -> String? {
+        switch state {
+        case .issue, .stale, .noWorkspace, nil: nil
+        case .loading: "loading"
+        case .notFound: "not found"
+        case .failed: "offline"
+        case .unauthorized: "key rejected"
+        case .rateLimited: "rate limited"
+        }
     }
 
     /// The distinct directories a task shows a group for, in the order its
@@ -127,6 +159,15 @@ enum TaskRowDetails {
              companion.flatMap(PullRequestChipContent.accessibilityText(for:))]
                 .compactMap { $0 }.joined(separator: " ")
         case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
+        case .linearIssue(let identifier, let state):
+            if let issue = state?.issue {
+                "Linear \(identifier), \(issue.stateName), \(issue.title)"
+            } else if let word = linearStatusWord(state) {
+                "Linear \(identifier), \(word)"
+            } else {
+                "Linear \(identifier)"
+            }
+        case .linearOverflow(let count): "\(count) more Linear issues"
         }
     }
 }

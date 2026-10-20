@@ -60,8 +60,19 @@ struct TaskRowView: View {
         )
     }
 
+    private var showsLinear: Bool {
+        AppSettings.shared.showsLinearIssues && LinearStore.shared.isConfigured
+    }
+
+    private var workingLinearIssues: [LinkedLinearIssue] {
+        guard showsLinear else { return [] }
+        let branches = directories.compactMap(branch(for:))
+        return LinearStore.shared.links(for: task, branches: branches).filter { $0.role == .working }
+    }
+
     private var detailLines: [TaskRowDetails.Line] {
         TaskRowDetails.lines(groups: directories.map(group(for:)))
+            + TaskRowDetails.linearLines(workingLinearIssues, states: { LinearStore.shared.state(for: $0) })
     }
 
     /// A task with several directories repeats the project header per group,
@@ -115,6 +126,7 @@ struct TaskRowView: View {
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
         .animatedHeight(alignment: .top)
+        .linearIssueWatch(Set(workingLinearIssues.map(\.identifier)))
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
             // From a lifecycle event, never `body` — the store writes when the
@@ -259,6 +271,12 @@ struct TaskRowView: View {
                     PullRequestChip(state: companion, emphasis: .secondary, symbolWeight: .bold)
                 }
             }
+        case .linearIssue(let identifier, let state):
+            LinearIssueLine(identifier: identifier, state: state)
+        case .linearOverflow(let count):
+            Text("+\(count) more")
+                .font(.caption)
+                .emphasis(.secondary)
         case .pullRequest(let directory, let state):
             PullRequestChip(
                 state: state,

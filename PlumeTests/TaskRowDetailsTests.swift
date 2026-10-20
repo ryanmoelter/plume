@@ -283,4 +283,56 @@ struct DirectoryWatchRefcountTests {
         #expect(watched == DirectoryWatchSet())
         store.reset()
     }
+
+}
+
+struct TaskRowLinearLinesTests {
+    private func linked(_ id: String, role: LinearLinkRole = .working) -> LinkedLinearIssue {
+        LinkedLinearIssue(identifier: id, role: role, sources: [.manual], subagents: [], touchedByMainAgent: false)
+    }
+
+    @Test func linearLinesCapAtTwoWithAnOverflowCount() {
+        let lines = TaskRowDetails.linearLines(
+            [linked("PLUME-1"), linked("PLUME-2"), linked("PLUME-3"), linked("PLUME-4")],
+            states: { _ in nil }
+        )
+        #expect(lines == [
+            .linearIssue(identifier: "PLUME-1", state: nil),
+            .linearIssue(identifier: "PLUME-2", state: nil),
+            .linearOverflow(2),
+        ])
+    }
+
+    @Test func exactlyTwoIssuesHaveNoOverflowLine() {
+        let lines = TaskRowDetails.linearLines([linked("PLUME-1"), linked("PLUME-2")], states: { _ in nil })
+        #expect(lines.count == 2)
+    }
+
+    @Test func mentionedIssuesTakeNoLine() {
+        let lines = TaskRowDetails.linearLines(
+            [linked("PLUME-1", role: .mentioned), linked("PLUME-2")],
+            states: { _ in .loading }
+        )
+        #expect(lines == [.linearIssue(identifier: "PLUME-2", state: .loading)])
+    }
+
+    @Test func linearAccessibilityTextNamesStateAndTitle() {
+        let issue = LinearTestFixtures.issue("PLUME-102", title: "Integrate")
+        #expect(TaskRowDetails.accessibilityText(.linearIssue(identifier: "PLUME-102", state: .issue(issue)))
+            == "Linear PLUME-102, Todo, Integrate")
+        #expect(TaskRowDetails.accessibilityText(.linearIssue(identifier: "PLUME-102", state: .failed("x")))
+            == "Linear PLUME-102, offline")
+        #expect(TaskRowDetails.accessibilityText(.linearIssue(identifier: "PLUME-102", state: .noWorkspace))
+            == "Linear PLUME-102")
+        #expect(TaskRowDetails.accessibilityText(.linearOverflow(3)) == "3 more Linear issues")
+    }
+
+    @Test func eachFailureHasItsOwnWord() {
+        #expect(TaskRowDetails.linearStatusWord(.notFound) == "not found")
+        #expect(TaskRowDetails.linearStatusWord(.failed("x")) == "offline")
+        #expect(TaskRowDetails.linearStatusWord(.unauthorized) == "key rejected")
+        #expect(TaskRowDetails.linearStatusWord(.rateLimited(until: .now)) == "rate limited")
+        #expect(TaskRowDetails.linearStatusWord(.noWorkspace) == nil)
+        #expect(TaskRowDetails.linearStatusWord(.stale(LinearTestFixtures.issue("PLUME-1"), reason: "x")) == nil)
+    }
 }

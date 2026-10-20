@@ -106,7 +106,12 @@ final class LinearStore: LinearActivitySink {
 
     // MARK: - Reading
 
-    var isConfigured: Bool { !accounts.accounts.isEmpty }
+    var isConfigured: Bool {
+#if DEBUG
+        if !fixtureTeamKeys.isEmpty { return true }
+#endif
+        return !accounts.accounts.isEmpty
+    }
 
     var teamKeys: Set<String> {
         var keys = catalogs.values.reduce(into: Set<String>()) { $0.formUnion($1.teamKeys) }
