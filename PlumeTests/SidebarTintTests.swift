@@ -28,12 +28,12 @@ struct SidebarTintTests {
         let context = ModelContext(try container())
         let group = TaskStore.createGroup(in: context, name: "Group", existing: [])
         group.tint = .palette(slot: 4)
-        #expect(group.colorRaw == "palette:4")
+        #expect(group.tintRaw == "palette:4")
         group.tint = nil
-        #expect(group.colorRaw == nil)
+        #expect(group.tintRaw == nil)
 
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.colorRaw = "palette:99"
+        task.tintRaw = "palette:99"
         #expect(task.tint == nil)
     }
 

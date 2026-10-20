@@ -19,8 +19,10 @@ struct PaletteSwatchGrid: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            row(slots: 0..<8)
-            row(slots: 8..<16)
+            let slots = ThemeChrome.paletteSlots
+            let middle = slots.lowerBound + slots.count / 2
+            row(slots: slots.lowerBound..<middle)
+            row(slots: middle..<slots.upperBound)
         }
     }
 

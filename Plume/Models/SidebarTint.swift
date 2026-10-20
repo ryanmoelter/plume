@@ -9,8 +9,6 @@ enum SidebarTint: Hashable {
     case text
     case palette(slot: Int)
 
-    static let paletteSlots = 0...15
-
     init?(rawValue: String) {
         if rawValue == "text" {
             self = .text
@@ -19,7 +17,7 @@ enum SidebarTint: Hashable {
         let prefix = "palette:"
         guard rawValue.hasPrefix(prefix),
               let slot = Int(rawValue.dropFirst(prefix.count)),
-              Self.paletteSlots.contains(slot)
+              ThemeChrome.paletteSlots.contains(slot)
         else { return nil }
         self = .palette(slot: slot)
     }

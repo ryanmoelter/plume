@@ -187,6 +187,7 @@ struct TaskRowView: View {
                 // Claiming focus in that same transaction loses the
                 // race silently; the next run loop turn wins it.
                 .onAppear { DispatchQueue.main.async { titleFocused = true } }
+                .onDisappear(perform: endEditing)
         } else {
             HStack(spacing: 5) {
                 if let tintColor, AppSettings.shared.sidebarTaskMarker == .dot {
@@ -227,6 +228,7 @@ struct TaskRowView: View {
                 // Deferred a tick, so a title field Tab hands over from
                 // finishes resigning first responder before this claims it.
                 .onAppear { DispatchQueue.main.async { descriptionFocused = true } }
+                .onDisappear(perform: endEditingDescription)
                 .plumeID(
                     AccessibilityID.taskDescriptionField,
                     label: TitleStore.shared.displayTitle(for: task),
@@ -320,7 +322,7 @@ struct TaskRowView: View {
     /// title, so an emptied field is left empty.
     private func endEditing() {
         task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        renamingTaskID = nil
+        if renamingTaskID == task.id { renamingTaskID = nil }
     }
 
     private func endEditingDescription() {

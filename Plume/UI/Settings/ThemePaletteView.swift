@@ -21,7 +21,7 @@ struct ThemePaletteView: View {
                 .foregroundStyle(foreground.opacity(0.7))
             HStack(alignment: .center, spacing: 14) {
                 PaletteSwatchGrid(
-                    colors: SidebarTint.paletteSlots.map { definition.palette[$0].flatMap(Color.init(hex:)) },
+                    colors: ThemeChrome.paletteSlots.map { definition.palette[$0].flatMap(Color.init(hex:)) },
                     ringColor: foreground,
                     selectedSlot: selectedSlot,
                     plumeID: AccessibilityID.settingsAccentSwatch,

@@ -429,7 +429,7 @@ final class AppSettings {
         }
     }
 
-    static let accentPaletteSlotRange: ClosedRange<Int> = 0...15
+    static let accentPaletteSlotRange = ThemeChrome.paletteSlots
     /// Stored for the system accent, so an absent key still means first launch.
     private static let systemAccentSentinel = -1
 

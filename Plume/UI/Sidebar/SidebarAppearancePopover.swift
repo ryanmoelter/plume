@@ -86,7 +86,7 @@ private struct SidebarTintPicker: View {
                 }
             }
             PaletteSwatchGrid(
-                colors: theme.colors.slots,
+                colors: ThemeChrome.paletteSlots.map(theme.colors.color(forSlot:)),
                 ringColor: .primary,
                 selectedSlot: selectedSlot,
                 plumeID: AccessibilityID.sidebarTintSwatch,
@@ -152,19 +152,13 @@ private struct SidebarIconPicker: View {
                         value: draft,
                         setValue: { draft = $0 }
                     )
-                Button {
-                    iconName = nil
-                    draft = ""
-                } label: {
+                Button(action: clear) {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
                 .emphasis(.secondary)
                 .help("Remove the icon")
-                .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: {
-                    iconName = nil
-                    draft = ""
-                })
+                .plumeID(AccessibilityID.sidebarIconClearButton, label: plumeLabel, invoke: clear)
                 .disabled(iconName == nil && draft.isEmpty)
             }
             if draftIsInvalid {
@@ -182,6 +176,10 @@ private struct SidebarIconPicker: View {
                 iconName = name
             }
         }
+    }
+
+    private func clear() {
+        draft = ""
     }
 
     private func symbolButton(_ name: String) -> some View {

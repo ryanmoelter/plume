@@ -8,7 +8,7 @@ final class TaskGroup {
     var orderIndex: Int = 0
     var isExpanded: Bool = true
     /// A `SidebarTint` raw value; nil draws the group uncolored.
-    var colorRaw: String? = nil
+    var tintRaw: String? = nil
     /// An SF Symbol name.
     var iconName: String? = nil
 
@@ -23,7 +23,7 @@ final class TaskGroup {
     }
 
     var tint: SidebarTint? {
-        get { colorRaw.flatMap(SidebarTint.init(rawValue:)) }
-        set { colorRaw = newValue?.rawValue }
+        get { tintRaw.flatMap(SidebarTint.init(rawValue:)) }
+        set { tintRaw = newValue?.rawValue }
     }
 }

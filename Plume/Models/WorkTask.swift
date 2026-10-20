@@ -8,7 +8,7 @@ final class WorkTask {
     /// One line the sidebar shows under the title. Empty hides it.
     var taskDescription: String = ""
     /// A `SidebarTint` raw value. Nil inherits the group's color.
-    var colorRaw: String? = nil
+    var tintRaw: String? = nil
     var orderIndex: Int = 0
     var createdAt: Date = Date()
 
@@ -58,8 +58,8 @@ final class WorkTask {
     }
 
     var tint: SidebarTint? {
-        get { colorRaw.flatMap(SidebarTint.init(rawValue:)) }
-        set { colorRaw = newValue?.rawValue }
+        get { tintRaw.flatMap(SidebarTint.init(rawValue:)) }
+        set { tintRaw = newValue?.rawValue }
     }
 
     var permissionMode: PermissionMode? {

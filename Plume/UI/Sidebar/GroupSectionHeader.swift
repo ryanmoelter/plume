@@ -11,8 +11,8 @@ struct GroupSectionHeader: View {
     @Environment(\.theme) private var theme
 
     private var labelStyle: AnyShapeStyle {
-        let tintColor = group.tint.flatMap(theme.colors.color(for:))
-        return .role(tintColor ?? .clear, when: tintColor != nil, otherwise: .secondary)
+        group.tint.flatMap(theme.colors.color(for:)).map { AnyShapeStyle($0) }
+            ?? AnyShapeStyle(Emphasis.secondary.textHierarchy)
     }
 
     var body: some View {

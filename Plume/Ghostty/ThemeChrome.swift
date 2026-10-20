@@ -125,6 +125,8 @@ enum ThemeChrome {
         return accent
     }
 
+    static let paletteSlots = 0..<16
+
     /// Names for the 16 ANSI slots, in slot order.
     static let paletteSlotNames = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",

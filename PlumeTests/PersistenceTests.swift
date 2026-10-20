@@ -57,9 +57,9 @@ struct PersistenceTests {
         let group = TaskStore.createGroup(in: context, existing: [])
         let task = TaskStore.createTask(in: context, group: group, siblings: [])
 
-        #expect(group.colorRaw == nil)
+        #expect(group.tintRaw == nil)
         #expect(group.iconName == nil)
-        #expect(task.colorRaw == nil)
+        #expect(task.tintRaw == nil)
         #expect(task.taskDescription == "")
     }
 
