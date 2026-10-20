@@ -87,6 +87,21 @@ final class WorkTask {
 
     /// Every tab, pane by pane, each pane in strip order.
     var orderedTabs: [TaskTab] {
+        Self.inPaneOrder(tabs)
+    }
+
+    /// `tabs` without any tab that is deleted or outside a context. Deleting
+    /// a task leaves its cascade-deleted tabs listed in `tabs`, and reading a
+    /// property of one can trap, so the sidebar reads this instead.
+    var liveTabs: [TaskTab] {
+        tabs.filter(\.isLive)
+    }
+
+    var orderedLiveTabs: [TaskTab] {
+        Self.inPaneOrder(liveTabs)
+    }
+
+    private static func inPaneOrder(_ tabs: [TaskTab]) -> [TaskTab] {
         tabs.sorted { ($0.paneIndex, $0.orderIndex) < ($1.paneIndex, $1.orderIndex) }
     }
 
@@ -148,6 +163,6 @@ final class WorkTask {
     /// record of a session ever having run; its absence on every agent tab is
     /// what "never started" actually means.
     var hasNeverStarted: Bool {
-        !tabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
+        !liveTabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
     }
 }

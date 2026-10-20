@@ -37,7 +37,7 @@ struct TaskRowView: View {
     /// list shift as the user moves around a shell.
     private var directories: [String] {
         TaskRowDetails.distinctDirectories(
-            agentTabDirectories: task.orderedTabs
+            agentTabDirectories: task.orderedLiveTabs
                 .filter { $0.kind == .agent }
                 .map { TabDirectoryStore.shared.directory(for: $0) },
             taskDirectory: task.workingDirectoryPath
@@ -71,7 +71,7 @@ struct TaskRowView: View {
     }
 
     private var agentTabIDs: [UUID] {
-        task.orderedTabs.filter { $0.kind == .agent }.map(\.id)
+        task.orderedLiveTabs.filter { $0.kind == .agent }.map(\.id)
     }
 
     /// Whether any of the task's tabs can be driven from elsewhere. Only the
@@ -272,7 +272,7 @@ struct TaskRowView: View {
     private var isUnread: Bool {
         UnreadStore.showsUnread(
             taskStatus: status,
-            hasUnreadTab: UnreadStore.shared.hasUnread(among: task.tabs.map(\.id))
+            hasUnreadTab: UnreadStore.shared.hasUnread(among: task.liveTabs.map(\.id))
         )
     }
 

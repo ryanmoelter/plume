@@ -8,7 +8,7 @@ import SwiftUI
 /// tab has no single tab for the toggle to mean, so it needs exactly one.
 enum TaskRemoteControl {
     static func toggleableTab(in task: WorkTask) -> TaskTab? {
-        let agentTabs = task.orderedTabs.filter { $0.kind == .agent }
+        let agentTabs = task.orderedLiveTabs.filter { $0.kind == .agent }
         guard agentTabs.count == 1, let tab = agentTabs.first, tab.transport == .headless
         else { return nil }
         return tab
