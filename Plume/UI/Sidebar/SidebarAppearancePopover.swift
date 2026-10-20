@@ -130,14 +130,28 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
                 weight: iconWeight,
                 plumeLabel: plumeLabel
             )
-            Link("Download SF Symbols", destination: URL(string: "https://developer.apple.com/sf-symbols/")!)
-                .font(.footnote)
-                .emphasis(.secondary)
-                .plumeID(AccessibilityID.sidebarSFSymbolsLink)
         }
         .onSubmit { dismiss() }
         .padding(14)
         .frame(width: 290)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                Link(destination: URL(string: "https://developer.apple.com/sf-symbols/")!) {
+                    HStack {
+                        Text("Download SF Symbols")
+                        Spacer()
+                        Image(systemName: "arrow.up.forward.square")
+                    }
+                    .foregroundStyle(.tint)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .plumeID(AccessibilityID.sidebarSFSymbolsLink)
+            }
+        }
         .plumeID(AccessibilityID.sidebarAppearancePopover, label: plumeLabel)
         .onDisappear(perform: onClose)
     }
@@ -309,7 +323,7 @@ private struct SidebarIconPicker: View {
             if !trimmedDraft.isEmpty, Self.isSymbol(trimmedDraft) {
                 symbol(trimmedDraft)
             } else {
-                Color.clear
+                Color.clear.frame(width: 24, height: 24)
             }
         }
         .frame(minWidth: 24, alignment: .leading)

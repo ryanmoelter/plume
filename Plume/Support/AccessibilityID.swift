@@ -57,6 +57,7 @@ enum AccessibilityID {
     static let settingsSidebarTaskMarkerPicker = "settings-sidebar-task-marker-picker"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
+    static let settingsSidebarTintsTaskIconsToggle = "settings-sidebar-tints-task-icons-toggle"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
     static let settingsAboutNotabilityLink = "settings-about-notability-link"

@@ -66,12 +66,13 @@ struct SidebarTaskAppearance: Equatable {
         effective: SidebarTint?,
         marker: SidebarTaskMarker,
         colorsNames: Bool,
+        tintsIcons: Bool,
         bold: Bool,
         hasIcon: Bool
     ) {
         barTint = marker == .bar ? effective : nil
         dotTint = marker == .dot && !hasIcon ? effective : nil
-        iconTint = marker == .dot || colorsNames ? effective : nil
+        iconTint = tintsIcons ? effective : nil
         titleTint = colorsNames ? effective : nil
         weight = bold ? .bold : .regular
     }
@@ -81,6 +82,7 @@ struct SidebarTaskAppearance: Equatable {
             effective: SidebarTint.effective(for: task),
             marker: settings.sidebarTaskMarker,
             colorsNames: settings.sidebarColorsTaskNames,
+            tintsIcons: settings.sidebarTintsTaskIcons,
             bold: settings.sidebarBoldTaskNames,
             hasIcon: task.iconName != nil
         )

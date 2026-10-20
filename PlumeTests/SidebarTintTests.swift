@@ -66,32 +66,27 @@ struct SidebarTintTests {
 }
 
 /// The resolver puts the bar under Bar, the dot under Dot without an icon, the
-/// icon under Dot or colored names, and the title under colored names only.
+/// icon under the icon setting, and the title under colored names only.
 struct SidebarTaskAppearanceTests {
     private let tint = SidebarTint.palette(slot: 3)
 
     private func appearance(
         _ marker: SidebarTaskMarker,
         colorsNames: Bool = false,
+        tintsIcons: Bool = true,
         bold: Bool = false,
         hasIcon: Bool = false,
         effective: SidebarTint? = SidebarTint.palette(slot: 3)
     ) -> SidebarTaskAppearance {
         SidebarTaskAppearance(
-            effective: effective, marker: marker, colorsNames: colorsNames, bold: bold, hasIcon: hasIcon
+            effective: effective, marker: marker, colorsNames: colorsNames, tintsIcons: tintsIcons, bold: bold, hasIcon: hasIcon
         )
     }
 
-    @Test(arguments: [
-        (SidebarTaskMarker.dot, false, true),
-        (.dot, true, true),
-        (.bar, true, true),
-        (.off, true, true),
-        (.bar, false, false),
-        (.off, false, false),
-    ])
-    func iconTintRule(marker: SidebarTaskMarker, colorsNames: Bool, tinted: Bool) {
-        #expect(appearance(marker, colorsNames: colorsNames).iconTint == (tinted ? tint : nil))
+    @Test(arguments: SidebarTaskMarker.allCases, [false, true])
+    func iconTintFollowsSettingAlone(marker: SidebarTaskMarker, colorsNames: Bool) {
+        #expect(appearance(marker, colorsNames: colorsNames, tintsIcons: true).iconTint == tint)
+        #expect(appearance(marker, colorsNames: colorsNames, tintsIcons: false).iconTint == nil)
     }
 
     @Test func barTintOnlyUnderBarMarker() {
@@ -113,7 +108,7 @@ struct SidebarTaskAppearanceTests {
     }
 
     @Test func uncoloredTaskHasNoTints() {
-        let result = appearance(.dot, colorsNames: true, effective: nil)
+        let result = appearance(.dot, colorsNames: true, tintsIcons: true, effective: nil)
         #expect(result.barTint == nil)
         #expect(result.dotTint == nil)
         #expect(result.iconTint == nil)

@@ -35,6 +35,7 @@ final class AppSettings {
         static let sidebarTaskMarkerRaw = "sidebarTaskMarkerRaw"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let sidebarTintsTaskIcons = "sidebarTintsTaskIcons"
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
@@ -168,6 +169,9 @@ final class AppSettings {
             .flatMap(SidebarTaskMarker.init(rawValue:)) ?? .bar
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.sidebarTintsTaskIcons = defaults.object(forKey: Key.sidebarTintsTaskIcons) == nil
+            ? true
+            : defaults.bool(forKey: Key.sidebarTintsTaskIcons)
         self.recentSidebarIcons = defaults.stringArray(forKey: Key.recentSidebarIcons) ?? []
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
@@ -472,6 +476,13 @@ final class AppSettings {
     var sidebarBoldTaskNames: Bool {
         didSet {
             defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Whether a colored task's icon is drawn in its color.
+    var sidebarTintsTaskIcons: Bool {
+        didSet {
+            defaults.set(sidebarTintsTaskIcons, forKey: Key.sidebarTintsTaskIcons)
         }
     }
 

@@ -69,6 +69,12 @@ struct VisualsSettingsPane: View {
                     value: settings.sidebarColorsTaskNames ? "on" : "off",
                     invoke: { settings.sidebarColorsTaskNames.toggle() }
                 )
+                Toggle("Tint task icons", isOn: $settings.sidebarTintsTaskIcons)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarTintsTaskIconsToggle,
+                        value: settings.sidebarTintsTaskIcons ? "on" : "off",
+                        invoke: { settings.sidebarTintsTaskIcons.toggle() }
+                    )
                 Toggle("Bold task names", isOn: $settings.sidebarBoldTaskNames)
                     .plumeID(
                         AccessibilityID.settingsSidebarBoldTaskNamesToggle,
