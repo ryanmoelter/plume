@@ -5,6 +5,7 @@ struct GroupSectionHeader: View {
     let isRenaming: Bool
     let onDoneRenaming: () -> Void
     let onCreateTask: () -> Void
+    let onEdit: () -> Void
 
     @FocusState private var focused: Bool
     @State private var isHovering = false
@@ -62,7 +63,16 @@ struct GroupSectionHeader: View {
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)
+                .help("New task in this group")
                 .plumeID(AccessibilityID.groupHeaderNewTaskButton)
+
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .help("Edit this group")
+                .plumeID(AccessibilityID.groupHeaderEditButton, label: group.name)
             }
         }
         .contentShape(Rectangle())

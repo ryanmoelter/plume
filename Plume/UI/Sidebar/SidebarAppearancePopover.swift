@@ -1,7 +1,8 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
-/// A group's icon and color, edited from its context menu.
+/// A group's name, icon and color, edited from its context menu or header.
 struct GroupAppearancePopover: View {
     @Bindable var group: TaskGroup
 
@@ -13,28 +14,84 @@ struct GroupAppearancePopover: View {
             iconTint: group.tint,
             iconWeight: SidebarMetrics.headerWeight,
             plumeLabel: group.name
-        )
+        ) {
+            SidebarTextField(
+                title: "Name",
+                placeholder: "Group name",
+                text: $group.name,
+                plumeID: AccessibilityID.sidebarNameField,
+                plumeLabel: group.name
+            )
+        } onClose: {
+            guard group.modelContext != nil, !group.isDeleted else { return }
+            group.name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 }
 
-/// A task's icon and color, edited from its context menu.
+/// A task's name, description, icon and color, edited from its context menu.
 struct TaskAppearancePopover: View {
     @Bindable var task: WorkTask
 
     var body: some View {
         let appearance = SidebarTaskAppearance(task: task, settings: .shared)
+        let label = TitleStore.shared.displayTitle(for: task)
         SidebarAppearanceEditor(
             tint: $task.tint,
             inheritedTint: task.group?.tint,
             iconName: $task.iconName,
             iconTint: appearance.iconTint,
             iconWeight: appearance.weight,
-            plumeLabel: TitleStore.shared.displayTitle(for: task)
-        )
+            plumeLabel: label
+        ) {
+            SidebarTextField(
+                title: "Name",
+                placeholder: TitleStore.namePlaceholder(
+                    generatedTitle: TitleStore.shared.generatedTitle(for: task)
+                ),
+                text: $task.title,
+                plumeID: AccessibilityID.sidebarNameField,
+                plumeLabel: label
+            )
+            SidebarTextField(
+                title: "Description",
+                placeholder: "Description",
+                text: $task.taskDescription,
+                plumeID: AccessibilityID.sidebarDescriptionField,
+                plumeLabel: label
+            )
+        } onClose: {
+            guard task.modelContext != nil, !task.isDeleted else { return }
+            task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            task.taskDescription = task.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 }
 
-private struct SidebarAppearanceEditor: View {
+private struct SidebarTextField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    let plumeID: String
+    let plumeLabel: String
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .emphasis(.secondary)
+            TextField(title, text: $text, prompt: Text(placeholder))
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .onSubmit { dismiss() }
+                .plumeID(plumeID, label: plumeLabel, value: text, setValue: { text = $0 })
+        }
+    }
+}
+
+private struct SidebarAppearanceEditor<Fields: View>: View {
     @Binding var tint: SidebarTint?
     let inheritedTint: SidebarTint?
     @Binding var iconName: String?
@@ -42,9 +99,13 @@ private struct SidebarAppearanceEditor: View {
     let iconTint: SidebarTint?
     let iconWeight: Font.Weight
     let plumeLabel: String
+    @ViewBuilder let fields: Fields
+    let onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            fields
+            Divider()
             SidebarTintPicker(selection: $tint, inherited: inheritedTint, plumeLabel: plumeLabel)
             Divider()
             SidebarIconPicker(
@@ -53,10 +114,14 @@ private struct SidebarAppearanceEditor: View {
                 weight: iconWeight,
                 plumeLabel: plumeLabel
             )
+            Link("Download SF Symbols", destination: URL(string: "https://developer.apple.com/sf-symbols/")!)
+                .font(.footnote)
+                .emphasis(.secondary)
         }
         .padding(14)
         .frame(width: 290)
         .plumeID(AccessibilityID.sidebarAppearancePopover, label: plumeLabel)
+        .onDisappear(perform: onClose)
     }
 }
 
