@@ -33,6 +33,27 @@ struct StatuslineUsagePopover: View, ThemedView {
     private var hasContext: Bool { contextUsedTokens != nil || contextMaxTokens != nil }
 }
 
+/// The context bar's click-through in the wide layout: the context section
+/// alone.
+struct ContextDetailsPopover: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let contextUsedTokens: Int?
+    let contextMaxTokens: Int?
+    /// Asked for a fresh breakdown each time the popover opens.
+    let headlessSession: HeadlessSession?
+
+    var body: some View {
+        ContextUsageSection(
+            usedTokens: contextUsedTokens,
+            maxTokens: contextMaxTokens,
+            breakdown: headlessSession?.contextBreakdown
+        )
+        .usagePopoverStyle(typography: typography)
+        .onAppear { headlessSession?.requestContextUsage() }
+    }
+}
+
 /// The context window's section of a usage popover, with what fills it when
 /// the session can say.
 struct ContextUsageSection: View, ThemedView {
