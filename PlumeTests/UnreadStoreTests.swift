@@ -18,7 +18,11 @@ struct UnreadStoreTests {
     }
 
     private var looking: NotificationAudience {
-        NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab])
+        NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab], focusedTabID: tab)
+    }
+
+    private func split(focused: UUID, other: UUID) -> NotificationAudience {
+        NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [focused, other], focusedTabID: focused)
     }
 
     @Test func aTurnEndingOffScreenIsUnread() {
@@ -37,26 +41,45 @@ struct UnreadStoreTests {
         #expect(!store.isUnread(tabID: tab))
     }
 
-    @Test func aTurnEndingInTheUnfocusedPaneIsNot() {
-        let focused = UUID()
-        let (store, engine) = observed(
-            audience: NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [focused, tab])
-        )
+    @Test func aTurnEndingInTheUnfocusedPaneIsUnreadButNotNotified() {
+        let audience = split(focused: UUID(), other: tab)
+        let (store, engine) = observed(audience: audience)
+        engine.setStatus(.working, taskID: task, tabID: tab)
+        engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
+
+        #expect(store.isUnread(tabID: tab))
+        #expect(!NotificationSuppression.shouldNotify(tabID: tab, taskID: task, audience: audience))
+    }
+
+    @Test func aTurnEndingInTheFocusedPaneIsNot() {
+        let (store, engine) = observed(audience: split(focused: tab, other: UUID()))
         engine.setStatus(.working, taskID: task, tabID: tab)
         engine.setStatus(.awaitingReply, taskID: task, tabID: tab)
 
         #expect(!store.isUnread(tabID: tab))
     }
 
-    @Test func viewingASplitClearsBothPanes() {
+    @Test func viewingASplitClearsOnlyTheFocusedPane() {
         let other = UUID()
         let store = UnreadStore()
-        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
-        store.record(.awaitingReply, tabID: other, isOnScreen: false)
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
+        store.record(.awaitingReply, tabID: other, isSeen: false)
 
-        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab, other]))
+        store.markViewed(split(focused: tab, other: other))
 
-        #expect(!store.hasUnread(among: [tab, other]))
+        #expect(!store.isUnread(tabID: tab))
+        #expect(store.isUnread(tabID: other))
+    }
+
+    @Test func focusingTheOtherPaneClearsIt() {
+        let other = UUID()
+        let store = UnreadStore()
+        store.record(.awaitingReply, tabID: other, isSeen: false)
+        store.markViewed(split(focused: tab, other: other))
+
+        store.markViewed(split(focused: other, other: tab))
+
+        #expect(!store.isUnread(tabID: other))
     }
 
     @Test func theSelectedTabInABackgroundedAppIsUnread() {
@@ -90,7 +113,7 @@ struct UnreadStoreTests {
 
     @Test func viewingTheTabClearsIt() {
         let store = UnreadStore()
-        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
 
         store.markViewed(looking)
 
@@ -99,7 +122,7 @@ struct UnreadStoreTests {
 
     @Test func selectingItWhileTheAppIsInactiveDoesNot() {
         let store = UnreadStore()
-        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
         var audience = looking
         audience.isAppActive = false
 
@@ -110,16 +133,17 @@ struct UnreadStoreTests {
 
     @Test func viewingAnotherTabLeavesIt() {
         let store = UnreadStore()
-        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
 
-        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [UUID()]))
+        let shown = UUID()
+        store.markViewed(NotificationAudience(isAppActive: true, selectedTaskID: task, onScreenTabIDs: [shown], focusedTabID: shown))
 
         #expect(store.isUnread(tabID: tab))
     }
 
     @Test func forgettingTheTabDropsIt() {
         let store = UnreadStore()
-        store.record(.awaitingReply, tabID: tab, isOnScreen: false)
+        store.record(.awaitingReply, tabID: tab, isSeen: false)
 
         store.forget(tabID: tab)
 

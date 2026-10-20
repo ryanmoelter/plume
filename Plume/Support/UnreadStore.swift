@@ -5,8 +5,10 @@ import Observation
 ///
 /// Fed the effective status `StatusEngine` reports, so a turn that ends while
 /// its subagents still work is not unread until they stop. A turn that ends
-/// on screen has already been seen and leaves no mark; any later status
-/// replaces the mark, because that status is now what the tab has to say.
+/// in the focused tab has already been seen and leaves no mark. The other
+/// pane of a split is on screen, so it is not notified, but it stays unread
+/// until it is focused. Any later status replaces the mark, because that
+/// status is now what the tab has to say.
 ///
 /// In memory like `BellStore` — a relaunch starts with nothing unread.
 @MainActor
@@ -20,8 +22,8 @@ final class UnreadStore {
 
     func observe(_ engine: StatusEngine, audience: @escaping () -> NotificationAudience) {
         engine.setTabStatusObserver("UnreadStore") { [weak self] taskID, tabID, status, _ in
-            let onScreen = NotificationSuppression.isOnScreen(tabID: tabID, taskID: taskID, audience: audience())
-            self?.record(status, tabID: tabID, isOnScreen: onScreen)
+            let seen = Self.isSeen(tabID: tabID, taskID: taskID, audience: audience())
+            self?.record(status, tabID: tabID, isSeen: seen)
         }
     }
 
@@ -33,19 +35,24 @@ final class UnreadStore {
         tabIDs.contains { unreadTabs.contains($0) }
     }
 
-    func record(_ status: TaskStatus, tabID: UUID, isOnScreen: Bool) {
-        if status == .awaitingReply, !isOnScreen {
+    func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool) {
+        if status == .awaitingReply, !isSeen {
             unreadTabs.insert(tabID)
         } else {
             unreadTabs.remove(tabID)
         }
     }
 
-    /// Clears whichever tabs the user is looking at now — both panes of a
-    /// split task.
+    /// Clears the focused tab, the only one the user is reading.
     func markViewed(_ audience: NotificationAudience) {
-        guard audience.isAppActive else { return }
-        unreadTabs.subtract(audience.onScreenTabIDs)
+        guard audience.isAppActive, let focused = audience.focusedTabID else { return }
+        unreadTabs.remove(focused)
+    }
+
+    static func isSeen(tabID: UUID, taskID: UUID, audience: NotificationAudience) -> Bool {
+        audience.isAppActive
+            && audience.selectedTaskID == taskID
+            && audience.focusedTabID == tabID
     }
 
     func forget(tabID: UUID) {
