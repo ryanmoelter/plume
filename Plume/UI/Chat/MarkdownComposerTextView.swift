@@ -8,8 +8,8 @@ import SwiftUI
 /// as attributes on `NSTextStorage` — the bound `String` is always exactly
 /// what the user typed, with markers visible and merely styled in place.
 ///
-/// Grows with its content between `minLines` and `maxLines`, scrolling
-/// internally beyond that.
+/// Grows with its content from `minLines` up to `maxLines` or a third of
+/// the window, whichever is taller, scrolling internally beyond that.
 struct MarkdownComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
@@ -659,7 +659,7 @@ protocol ComposerAutocompleteHandler: AnyObject {
 }
 
 /// Hosts the text view in a scroll view sized to its content, between
-/// `MarkdownComposerTextView.minLines` and `maxLines`.
+/// `MarkdownComposerTextView.minLines` and `maxHeight`.
 final class ScrollableComposerTextView: NSView {
     let composerTextView = ComposerNSTextView()
     private let scrollView = NSScrollView()
@@ -728,6 +728,22 @@ final class ScrollableComposerTextView: NSView {
         ])
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResizeNotification, object: nil)
+        guard let window else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResize),
+            name: NSWindow.didResizeNotification,
+            object: window
+        )
+    }
+
+    @objc private func windowDidResize(_ notification: Notification) {
+        invalidateContentHeight()
+    }
+
     @objc private func clipViewDidScroll(_ notification: Notification) {
         guard composerTextView.markdownMetrics != nil else { return }
         composerTextView.setNeedsDisplay(composerTextView.visibleRect)
@@ -765,9 +781,10 @@ final class ScrollableComposerTextView: NSView {
         let text: String
         let fontSize: CGFloat
         let verticalInset: CGFloat
+        let maxHeight: CGFloat
     }
 
-    /// The height for `width`, clamped between `minLines` and `maxLines`.
+    /// The height for `width`, clamped between `minLines` and `maxHeight`.
     ///
     /// `NSLayoutManager.usedRect` only reflects wrapping done at the text
     /// container's *current* width, which — before this view has been given
@@ -781,11 +798,11 @@ final class ScrollableComposerTextView: NSView {
         let inset = composerTextView.textContainerInset
         let insets = inset.height * 2
         let minHeight = lineHeight * MarkdownComposerTextView.minLines + insets
-        let maxHeight = lineHeight * MarkdownComposerTextView.maxLines + insets
+        let maxHeight = max(lineHeight * MarkdownComposerTextView.maxLines + insets, (window?.frame.height ?? 0) / 3)
 
         guard let storage = composerTextView.textStorage else { return minHeight }
 
-        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize, verticalInset: inset.height)
+        let key = MeasurementKey(width: width, text: storage.string, fontSize: font.pointSize, verticalInset: inset.height, maxHeight: maxHeight)
         if key == cachedKey, let cachedHeight { return cachedHeight }
 
         if measuringLayoutManager.textContainers.isEmpty {
