@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct KeychainTests {
     @Test func readsBackWhatWasWritten() throws {
         let store = InMemorySecretStore()
@@ -27,5 +28,10 @@ struct KeychainTests {
         try store.delete(account: "never-existed")
         #expect(store.read(account: "one") == nil)
         #expect(store.read(account: "two") == "b")
+    }
+
+    @Test func debugBuildsKeepTheirOwnServiceAndAccountList() {
+        #expect(KeychainSecretStore.linearService == "com.ryanmoelter.Plume.linear.debug")
+        #expect(LinearAccounts.defaultsKey == "linearAccounts.debug")
     }
 }

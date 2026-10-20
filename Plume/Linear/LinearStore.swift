@@ -33,17 +33,37 @@ nonisolated final class LinearRateLimitBook: Sendable {
     }
 }
 
+/// One identifier's state, boxed so a row is invalidated only by the issues
+/// it reads.
+@MainActor
+@Observable
+private final class LinearStateBox {
+    var value: LinearIssueFetchState?
+}
+
+/// One tab's agent activity, boxed for the same reason as `LinearStateBox`.
+@MainActor
+@Observable
+private final class LinearActivityBox {
+    var evidence: [LinearEvidence] = []
+}
+
 /// Keeps every wanted Linear issue's state current across all connected
 /// workspaces, and folds agent activity into each task's links.
 ///
 /// An identifier is fetched only from the workspaces whose catalog has its
-/// team key, batched per workspace with one request in flight each.
+/// team key, batched per workspace with one request in flight each. A state
+/// outlives its last owner, so a row a lazy list recycles comes back showing
+/// it rather than loading.
 @MainActor
 @Observable
 final class LinearStore: LinearActivitySink {
-    static let shared = LinearStore()
+    static let shared = LinearStore(cacheDirectory: AppPaths.applicationSupport.appending(path: "linear"))
 
     static let pollInterval: TimeInterval = 180
+    /// Activation polls closer together than this are skipped, so switching
+    /// apps back and forth spends no budget.
+    static let activationPollInterval: TimeInterval = 60
     static let catalogMaxAge: TimeInterval = 6 * 60 * 60
     /// How often a manual link naming an unknown team key may refetch one
     /// workspace's catalog.
@@ -51,16 +71,18 @@ final class LinearStore: LinearActivitySink {
 
     let accounts: LinearAccounts
 
-    /// What rows read. Each is written only when its value changes.
-    private var states: [String: LinearIssueFetchState] = [:]
+    /// What rows read. Each box is written only when its value changes, and
+    /// is kept once made so a view observing it never loses it.
+    @ObservationIgnored private var stateBoxes: [String: LinearStateBox] = [:]
+    @ObservationIgnored private var activityBoxes: [UUID: LinearActivityBox] = [:]
     private var catalogs: [String: LinearCatalog] = [:]
     private var accountStatuses: [String: LinearAccountStatus] = [:]
-    private var activity: [UUID: [LinearEvidence]] = [:]
+    private(set) var teamKeys: Set<String> = []
 
     /// Persists agent-started issues on the task owning the tab. Setting it
     /// reports anything already seen.
     @ObservationIgnored var onAgentStarted: ((UUID, Set<String>) -> Void)? {
-        didSet { for tabID in activity.keys { reportStarted(tabID: tabID) } }
+        didSet { reportStartedForEveryTab() }
     }
 
     @ObservationIgnored private var wantsByOwner: [UUID: Set<String>] = [:]
@@ -69,6 +91,9 @@ final class LinearStore: LinearActivitySink {
     /// share is queried in both only until one finds it.
     @ObservationIgnored private var issueOwner: [String: String] = [:]
     @ObservationIgnored private var notFoundBy: [String: Set<String>] = [:]
+    /// When a workspace last answered for the identifier, so a row coming
+    /// back within a poll interval does not refetch.
+    @ObservationIgnored private var answeredAt: [String: Date] = [:]
     @ObservationIgnored private var pending: [String: Set<String>] = [:]
     @ObservationIgnored private var scheduled: Set<String> = []
     @ObservationIgnored private var inFlight: Set<String> = []
@@ -77,12 +102,18 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var lastCatalogDemand: [String: Date] = [:]
     @ObservationIgnored private var unauthorized: Set<String> = []
     @ObservationIgnored private var pausedUntil: [String: Date] = [:]
+    @ObservationIgnored private var lastPolledAt: [String: Date] = [:]
+    /// Bumped when an account's key changes or it is removed, so a request
+    /// sent with the old key never applies its answer.
+    @ObservationIgnored private var generations: [String: Int] = [:]
     @ObservationIgnored private var clients: [String: LinearClient] = [:]
     @ObservationIgnored private let rateLimits = LinearRateLimitBook()
     /// Write calls seen per tab, counted, so only a new one triggers an early
     /// refetch.
     @ObservationIgnored private var seenWrites: [UUID: [LinearEvidence: Int]] = [:]
     @ObservationIgnored private var reportedStarted: [UUID: Set<String>] = [:]
+    @ObservationIgnored private var decodedLinks: [UUID: (data: Data?, links: LinearTaskLinks)] = [:]
+    @ObservationIgnored private var branchCandidates: [String: [String]] = [:]
     @ObservationIgnored private var work: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var nextWorkID = 0
     @ObservationIgnored private var pollTimer: Timer?
@@ -94,7 +125,7 @@ final class LinearStore: LinearActivitySink {
 
     init(
         accounts: LinearAccounts? = nil,
-        cacheDirectory: URL? = AppPaths.applicationSupport.appending(path: "linear"),
+        cacheDirectory: URL?,
         now: @escaping () -> Date = Date.init
     ) {
         let accounts = accounts ?? LinearAccounts()
@@ -113,41 +144,73 @@ final class LinearStore: LinearActivitySink {
         return !accounts.accounts.isEmpty
     }
 
-    var teamKeys: Set<String> {
-        var keys = catalogs.values.reduce(into: Set<String>()) { $0.formUnion($1.teamKeys) }
-#if DEBUG
-        keys.formUnion(fixtureTeamKeys)
-#endif
-        return keys
-    }
-
     func state(for identifier: String) -> LinearIssueFetchState? {
-        states[identifier.uppercased()]
+        stateBox(for: identifier.uppercased()).value
     }
 
     func accountStatus(orgID: String) -> LinearAccountStatus {
         accountStatuses[orgID] ?? .unknown
     }
 
-    /// Every issue the task links, classified. Pure, so a view may call it
-    /// from `body`.
+    /// Every issue the task links, classified. A view may call it from
+    /// `body`: it writes only unobserved caches.
     func links(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
         let evidence = task.orderedTabs
             .filter { $0.kind == .agent }
-            .flatMap { activity[$0.id] ?? [] }
-        let links = TaskIntegrations.decode(task.integrationsData).linear ?? LinearTaskLinks()
+            .flatMap { activityBox(for: $0.id).evidence }
         var candidates: [String] = []
         for branch in branches {
-            for candidate in LinearIdentifier.candidates(inBranch: branch) where !candidates.contains(candidate) {
+            for candidate in identifiers(inBranch: branch) where !candidates.contains(candidate) {
                 candidates.append(candidate)
             }
         }
         return LinearLinkResolver.resolve(
             evidence: evidence,
-            branchIdentifiers: LinearIdentifier.filter(candidates, teamKeys: teamKeys),
-            links: links,
+            branchIdentifiers: candidates,
+            links: links(of: task),
             catalogs: allCatalogs
         )
+    }
+
+    private func links(of task: WorkTask) -> LinearTaskLinks {
+        let data = task.integrationsData
+        if let cached = decodedLinks[task.id], cached.data == data { return cached.links }
+        let links = TaskIntegrations.decode(data).linear ?? LinearTaskLinks()
+        decodedLinks[task.id] = (data, links)
+        return links
+    }
+
+    private func identifiers(inBranch branch: String) -> [String] {
+        if let cached = branchCandidates[branch] { return cached }
+        let candidates = LinearIdentifier.candidates(inBranch: branch)
+        branchCandidates[branch] = candidates
+        return candidates
+    }
+
+    private func stateBox(for identifier: String) -> LinearStateBox {
+        if let box = stateBoxes[identifier] { return box }
+        let box = LinearStateBox()
+        stateBoxes[identifier] = box
+        return box
+    }
+
+    private func activityBox(for tabID: UUID) -> LinearActivityBox {
+        if let box = activityBoxes[tabID] { return box }
+        let box = LinearActivityBox()
+        activityBoxes[tabID] = box
+        return box
+    }
+
+    private func currentState(_ identifier: String) -> LinearIssueFetchState? {
+        stateBoxes[identifier]?.value
+    }
+
+    private func refreshTeamKeys() {
+        var keys = catalogs.values.reduce(into: Set<String>()) { $0.formUnion($1.teamKeys) }
+#if DEBUG
+        keys.formUnion(fixtureTeamKeys)
+#endif
+        if keys != teamKeys { teamKeys = keys }
     }
 
     /// Catalogs in account order, which is the order a shared team key's
@@ -187,7 +250,7 @@ final class LinearStore: LinearActivitySink {
             },
             center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.poll()
+                    self?.pollOnActivation()
                     self?.startPolling()
                 }
             },
@@ -197,8 +260,9 @@ final class LinearStore: LinearActivitySink {
 
     private func startPolling() {
         guard pollTimer == nil else { return }
+        // A scheduled timer fires on the main run loop.
         pollTimer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.poll() }
+            MainActor.assumeIsolated { self?.poll() }
         }
     }
 
@@ -210,8 +274,18 @@ final class LinearStore: LinearActivitySink {
     /// One poll tick: refreshes stale catalogs and refetches every account
     /// with something wanted and budget to spare.
     func poll() {
+        poll(skippingAccountsPolledWithin: 0)
+    }
+
+    func pollOnActivation() {
+        poll(skippingAccountsPolledWithin: Self.activationPollInterval)
+    }
+
+    private func poll(skippingAccountsPolledWithin minimumAge: TimeInterval) {
         for account in accounts.accounts {
             let orgID = account.orgID
+            if let last = lastPolledAt[orgID], now().timeIntervalSince(last) < minimumAge { continue }
+            lastPolledAt[orgID] = now()
             let fetchedAt = catalogFetchedAt[orgID] ?? .distantPast
             if now().timeIntervalSince(fetchedAt) >= Self.catalogMaxAge { refreshCatalog(orgID: orgID) }
             guard blocker(orgID: orgID) == nil, !isLowOnBudget(orgID: orgID) else { continue }
@@ -237,14 +311,15 @@ final class LinearStore: LinearActivitySink {
             wantCounts[identifier, default: 0] += 1
             if wantCounts[identifier] == 1 { added.append(identifier) }
         }
-        for identifier in added where !isFixture(identifier) {
-            if states[identifier] == nil, !targets(for: identifier).isEmpty {
-                publish(.loading, for: identifier)
-            }
+        let fetchable = added.filter { !isFixture($0) }
+        for identifier in fetchable where !targets(for: identifier).isEmpty {
+            let current = currentState(identifier)
+            if current == nil || current == .noWorkspace { publish(.loading, for: identifier) }
         }
-        request(added.filter { !isFixture($0) })
+        request(fetchable.filter { !isFresh($0) })
     }
 
+    /// Stops fetching an identifier no one wants, keeping its last state.
     private func release(_ identifier: String) {
         guard let count = wantCounts[identifier] else { return }
         if count > 1 {
@@ -252,10 +327,12 @@ final class LinearStore: LinearActivitySink {
             return
         }
         wantCounts.removeValue(forKey: identifier)
-        issueOwner.removeValue(forKey: identifier)
         notFoundBy.removeValue(forKey: identifier)
-        // A fixture outlives its row, which a lazy list recycles.
-        if !isFixture(identifier) { states.removeValue(forKey: identifier) }
+    }
+
+    private func isFresh(_ identifier: String) -> Bool {
+        guard currentState(identifier) != nil, let answered = answeredAt[identifier] else { return false }
+        return now().timeIntervalSince(answered) < Self.pollInterval
     }
 
     /// Fetches a manual link's team key's catalogs, for a key no catalog has
@@ -301,6 +378,7 @@ final class LinearStore: LinearActivitySink {
         guard scheduled.insert(orgID).inserted else { return }
         track { [self] in
             await Task.yield()
+            guard !Task.isCancelled else { return }
             scheduled.remove(orgID)
             fetch(orgID: orgID)
         }
@@ -314,40 +392,40 @@ final class LinearStore: LinearActivitySink {
             .sorted()
         guard !identifiers.isEmpty else { return }
 
-        if let blocker = blocker(orgID: orgID) {
-            for identifier in identifiers where targets(for: identifier) == [orgID] {
-                publishFailure(blocker, for: identifier)
-            }
+        if blocker(orgID: orgID) != nil {
+            for identifier in identifiers { publishIfUnanswerable(identifier) }
             return
         }
 
         inFlight.insert(orgID)
+        let generation = generation(orgID: orgID)
         let client = client(for: orgID)
         track { [self] in
-            let result: Result<[String: LinearIssue?], Error>
+            let result: Result<[String: LinearIssueLookup], Error>
             do {
                 result = .success(try await client.fetchIssues(identifiers))
             } catch {
                 result = .failure(error)
             }
+            guard isCurrent(generation, orgID: orgID) else { return }
             inFlight.remove(orgID)
-            guard accounts.accounts.contains(where: { $0.orgID == orgID }) else { return }
             switch result {
             case .success(let byIdentifier):
                 setStatus(.connected, orgID: orgID)
                 for identifier in identifiers {
-                    if let issue = byIdentifier[identifier] ?? nil {
+                    switch byIdentifier[identifier] {
+                    case .found(let issue):
                         applyFound(issue, identifier: identifier, orgID: orgID)
-                    } else {
+                    case .failed(let message):
+                        applyFailure(LinearError.failed(message), identifier: identifier, orgID: orgID)
+                    case .notFound, nil:
                         applyNotFound(identifier: identifier, orgID: orgID)
                     }
                 }
             case .failure(let error):
                 record(error, orgID: orgID)
                 for identifier in identifiers {
-                    guard wantCounts[identifier] != nil else { continue }
-                    if let owner = issueOwner[identifier], owner != orgID { continue }
-                    publishFailure(error, for: identifier)
+                    applyFailure(error, identifier: identifier, orgID: orgID)
                 }
             }
             if !(pending[orgID]?.isEmpty ?? true) { scheduleFetch(orgID: orgID) }
@@ -359,7 +437,14 @@ final class LinearStore: LinearActivitySink {
         if let owner = issueOwner[identifier], owner != orgID { return }
         issueOwner[identifier] = orgID
         notFoundBy.removeValue(forKey: identifier)
+        answeredAt[identifier] = now()
         publish(.issue(issue), for: identifier)
+    }
+
+    private func applyFailure(_ error: any Error, identifier: String, orgID: String) {
+        guard wantCounts[identifier] != nil else { return }
+        if let owner = issueOwner[identifier], owner != orgID { return }
+        publishFailure(error, for: identifier)
     }
 
     private func applyNotFound(identifier: String, orgID: String) {
@@ -380,13 +465,31 @@ final class LinearStore: LinearActivitySink {
         } else {
             notFoundBy[identifier, default: []].insert(orgID)
         }
-        if Set(targets(for: identifier)).isSubset(of: notFoundBy[identifier] ?? []) {
+        publishIfUnanswerable(identifier)
+    }
+
+    /// Once every target has said not found or cannot be asked, publishes
+    /// `.notFound` or the first blocker. Until then a shared team key waits
+    /// for the workspaces still answering.
+    private func publishIfUnanswerable(_ identifier: String) {
+        let targets = targets(for: identifier)
+        guard !targets.isEmpty else { return }
+        let notFound = notFoundBy[identifier] ?? []
+        var firstBlocker: LinearError?
+        for orgID in targets where !notFound.contains(orgID) {
+            guard let blocker = blocker(orgID: orgID) else { return }
+            firstBlocker = firstBlocker ?? blocker
+        }
+        if let firstBlocker {
+            publishFailure(firstBlocker, for: identifier)
+        } else {
+            answeredAt[identifier] = now()
             publish(.notFound, for: identifier)
         }
     }
 
     private func publishFailure(_ error: any Error, for identifier: String) {
-        if let issue = states[identifier]?.issue {
+        if let issue = currentState(identifier)?.issue {
             publish(.stale(issue, reason: error.localizedDescription), for: identifier)
         } else {
             publish(.failing(error), for: identifier)
@@ -438,6 +541,7 @@ final class LinearStore: LinearActivitySink {
 
     private func refreshCatalog(orgID: String) {
         guard !unauthorized.contains(orgID), catalogInFlight.insert(orgID).inserted else { return }
+        let generation = generation(orgID: orgID)
         let client = client(for: orgID)
         let fetchedAt = now()
         track { [self] in
@@ -447,8 +551,8 @@ final class LinearStore: LinearActivitySink {
             } catch {
                 result = .failure(error)
             }
+            guard isCurrent(generation, orgID: orgID) else { return }
             catalogInFlight.remove(orgID)
-            guard accounts.accounts.contains(where: { $0.orgID == orgID }) else { return }
             switch result {
             case .success(let fetched):
                 let catalog = LinearCatalog(orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt)
@@ -465,6 +569,7 @@ final class LinearStore: LinearActivitySink {
         catalogFetchedAt[catalog.orgID] = catalog.fetchedAt
         guard catalogs[catalog.orgID]?.teams != catalog.teams else { return }
         catalogs[catalog.orgID] = catalog
+        refreshTeamKeys()
         catalogsDidChange()
     }
 
@@ -475,13 +580,13 @@ final class LinearStore: LinearActivitySink {
         for identifier in wantCounts.keys where !isFixture(identifier) {
             if targets(for: identifier).isEmpty {
                 publish(.noWorkspace, for: identifier)
-            } else if states[identifier] == nil || states[identifier] == .noWorkspace {
+            } else if currentState(identifier) == nil || currentState(identifier) == .noWorkspace {
                 publish(.loading, for: identifier)
                 routable.append(identifier)
             }
         }
         request(routable)
-        for tabID in activity.keys { reportStarted(tabID: tabID) }
+        reportStartedForEveryTab()
     }
 
     private func cacheFile(orgID: String) -> URL? {
@@ -514,27 +619,53 @@ final class LinearStore: LinearActivitySink {
     private func accountsDidChange(_ change: LinearAccounts.Change) {
         switch change {
         case .keyChanged(let orgID):
-            unauthorized.remove(orgID)
-            pausedUntil.removeValue(forKey: orgID)
-            lastCatalogDemand.removeValue(forKey: orgID)
+            invalidate(orgID: orgID)
+            rateLimits.remove(orgID: orgID)
             setStatus(.unknown, orgID: orgID)
             refreshCatalog(orgID: orgID)
             request(wantCounts.keys.filter { !isFixture($0) && targets(for: $0).contains(orgID) })
         case .removed(let orgID):
-            unauthorized.remove(orgID)
-            pausedUntil.removeValue(forKey: orgID)
-            lastCatalogDemand.removeValue(forKey: orgID)
+            invalidate(orgID: orgID)
             catalogFetchedAt.removeValue(forKey: orgID)
             pending.removeValue(forKey: orgID)
             clients.removeValue(forKey: orgID)
             rateLimits.remove(orgID: orgID)
             accountStatuses.removeValue(forKey: orgID)
-            for (identifier, owner) in issueOwner where owner == orgID {
-                issueOwner.removeValue(forKey: identifier)
+            let owned = issueOwner.filter { $0.value == orgID }.keys
+            for identifier in owned { issueOwner.removeValue(forKey: identifier) }
+            for (identifier, box) in stateBoxes where wantCounts[identifier] == nil && !isFixture(identifier) {
+                box.value = nil
             }
             if let file = cacheFile(orgID: orgID) { try? FileManager.default.removeItem(at: file) }
-            if catalogs.removeValue(forKey: orgID) != nil { catalogsDidChange() }
+            if catalogs.removeValue(forKey: orgID) != nil {
+                refreshTeamKeys()
+                catalogsDidChange()
+            }
+            request(owned.filter { wantCounts[$0] != nil }.sorted())
         }
+    }
+
+    /// Forgets everything the old key learned and drops its requests in
+    /// flight, whose answers `isCurrent` then discards.
+    private func invalidate(orgID: String) {
+        generations[orgID, default: 0] += 1
+        inFlight.remove(orgID)
+        catalogInFlight.remove(orgID)
+        unauthorized.remove(orgID)
+        pausedUntil.removeValue(forKey: orgID)
+        lastCatalogDemand.removeValue(forKey: orgID)
+        lastPolledAt.removeValue(forKey: orgID)
+        answeredAt.removeAll()
+    }
+
+    private func generation(orgID: String) -> Int {
+        generations[orgID, default: 0]
+    }
+
+    /// Whether a completion may apply: neither cancelled by `reset` nor sent
+    /// with a key since changed or removed.
+    private func isCurrent(_ generation: Int, orgID: String) -> Bool {
+        !Task.isCancelled && self.generation(orgID: orgID) == generation
     }
 
     private func setStatus(_ status: LinearAccountStatus, orgID: String) {
@@ -545,11 +676,12 @@ final class LinearStore: LinearActivitySink {
     // MARK: - Agent activity
 
     func replaceActivity(tabID: UUID, evidence: [LinearEvidence]) {
-        let current = activity[tabID] ?? []
-        if current != evidence { activity[tabID] = evidence.isEmpty ? nil : evidence }
+        let box = activityBox(for: tabID)
+        if box.evidence != evidence { box.evidence = evidence }
 
+        // A write counts once its result is in, so the refetch reads what it wrote.
         var writes: [LinearEvidence: Int] = [:]
-        for item in evidence where item.tool == "save_issue" || item.tool == "update_issue" {
+        for item in evidence where item.isWrite && item.outcome == .succeeded {
             writes[item, default: 0] += 1
         }
         let seen = seenWrites[tabID] ?? [:]
@@ -563,15 +695,19 @@ final class LinearStore: LinearActivitySink {
     }
 
     func forgetActivity(tabID: UUID) {
-        activity.removeValue(forKey: tabID)
+        if let box = activityBoxes[tabID], !box.evidence.isEmpty { box.evidence = [] }
         seenWrites.removeValue(forKey: tabID)
         reportedStarted.removeValue(forKey: tabID)
+    }
+
+    private func reportStartedForEveryTab() {
+        for (tabID, box) in activityBoxes where !box.evidence.isEmpty { reportStarted(tabID: tabID) }
     }
 
     /// Reports each identifier at most once per tab. Only marks one reported
     /// once a callback has taken it.
     private func reportStarted(tabID: UUID) {
-        guard let onAgentStarted, let evidence = activity[tabID] else { return }
+        guard let onAgentStarted, let evidence = activityBoxes[tabID]?.evidence, !evidence.isEmpty else { return }
         let started = LinearLinkResolver.startedIdentifiers(evidence: evidence, catalogs: allCatalogs)
         let new = started.subtracting(reportedStarted[tabID] ?? [])
         guard !new.isEmpty else { return }
@@ -582,8 +718,8 @@ final class LinearStore: LinearActivitySink {
     // MARK: - Bookkeeping
 
     private func publish(_ state: LinearIssueFetchState, for identifier: String) {
-        guard wantCounts[identifier] != nil, states[identifier] != state else { return }
-        states[identifier] = state
+        guard wantCounts[identifier] != nil, currentState(identifier) != state else { return }
+        stateBox(for: identifier).value = state
     }
 
     private func track(_ operation: @escaping @MainActor () async -> Void) {
@@ -612,14 +748,18 @@ final class LinearStore: LinearActivitySink {
         observers.removeAll()
         stopPolling()
         isStarted = false
-        states.removeAll()
+        stateBoxes.removeAll()
+        activityBoxes.removeAll()
         catalogs.removeAll()
         accountStatuses.removeAll()
-        activity.removeAll()
         wantsByOwner.removeAll()
         wantCounts.removeAll()
         issueOwner.removeAll()
         notFoundBy.removeAll()
+        answeredAt.removeAll()
+        lastPolledAt.removeAll()
+        decodedLinks.removeAll()
+        branchCandidates.removeAll()
         pending.removeAll()
         scheduled.removeAll()
         inFlight.removeAll()
@@ -636,6 +776,7 @@ final class LinearStore: LinearActivitySink {
         fixtureIdentifiers.removeAll()
         fixtureTeamKeys.removeAll()
 #endif
+        refreshTeamKeys()
     }
 
     private func isFixture(_ identifier: String) -> Bool {
@@ -655,13 +796,14 @@ final class LinearStore: LinearActivitySink {
     func seedFixture(identifier: String, state: LinearIssueFetchState) {
         let key = identifier.uppercased()
         fixtureIdentifiers.insert(key)
-        states[key] = state
+        stateBox(for: key).value = state
     }
 
     /// Team keys the fixture catalog treats as known, so its branches and
     /// links resolve without a connected workspace.
     func seedFixtureTeamKeys(_ keys: Set<String>) {
         fixtureTeamKeys.formUnion(keys.map { $0.uppercased() })
+        refreshTeamKeys()
     }
 #endif
 }

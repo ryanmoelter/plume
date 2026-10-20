@@ -172,6 +172,14 @@ nonisolated struct LinearSubagentRef: Sendable, Equatable, Hashable {
     let label: String
 }
 
+/// Where a tool call stands, from its result.
+nonisolated enum LinearCallOutcome: Sendable, Equatable, Hashable {
+    /// The call has no result yet, so a write may not have landed.
+    case pending
+    case succeeded
+    case failed
+}
+
 /// One Linear tool call an agent made, reduced to what classification needs.
 nonisolated struct LinearEvidence: Sendable, Equatable, Hashable {
     let identifier: String
@@ -180,6 +188,9 @@ nonisolated struct LinearEvidence: Sendable, Equatable, Hashable {
     /// The `state` a `save_issue` call asked for: a name, a type or an id.
     let requestedState: String?
     let subagent: LinearSubagentRef?
+    let outcome: LinearCallOutcome
+
+    var isWrite: Bool { tool == "save_issue" || tool == "update_issue" }
 }
 
 nonisolated enum LinearLinkRole: Sendable, Equatable, Comparable {

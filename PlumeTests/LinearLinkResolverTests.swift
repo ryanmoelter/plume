@@ -21,8 +21,14 @@ struct LinearLinkResolverTests {
 
     private let sub = LinearSubagentRef(id: "a1", label: "Explore")
 
-    private func evidence(_ id: String, tool: String = "get_issue", state: String? = nil, sub: LinearSubagentRef? = nil) -> LinearEvidence {
-        LinearEvidence(identifier: id, tool: tool, requestedState: state, subagent: sub)
+    private func evidence(
+        _ id: String,
+        tool: String = "get_issue",
+        state: String? = nil,
+        sub: LinearSubagentRef? = nil,
+        outcome: LinearCallOutcome = .succeeded
+    ) -> LinearEvidence {
+        LinearEvidence(identifier: id, tool: tool, requestedState: state, subagent: sub, outcome: outcome)
     }
 
     private func resolve(
@@ -129,5 +135,22 @@ struct LinearLinkResolverTests {
             catalogs: [catalog]
         )
         #expect(started == ["PLUME-1"])
+    }
+
+    @Test func startedIdentifiersSkipPendingAndFailedCalls() {
+        let started = LinearLinkResolver.startedIdentifiers(
+            evidence: [
+                evidence("PLUME-1", tool: "save_issue", state: "In Progress", outcome: .pending),
+                evidence("PLUME-2", tool: "save_issue", state: "In Progress", outcome: .failed),
+                evidence("PLUME-3", tool: "save_issue", state: "In Progress"),
+            ],
+            catalogs: [catalog]
+        )
+        #expect(started == ["PLUME-3"])
+    }
+
+    @Test func aFailedStartRequestIsOnlyMentioned() {
+        let issues = resolve([evidence("PLUME-1", tool: "save_issue", state: "In Progress", outcome: .failed)])
+        #expect(issues.first?.role == .mentioned)
     }
 }

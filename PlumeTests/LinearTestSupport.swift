@@ -7,6 +7,8 @@ actor FakeLinearWorkspace {
     let account: LinearAccount
     var catalog: LinearCatalog
     var issues: [String: LinearIssue] = [:]
+    /// Errors Linear scopes to one identifier's alias.
+    var issueFailures: [String: String] = [:]
     var issueError: Error?
     var catalogError: Error?
     var viewerError: Error?
@@ -27,6 +29,7 @@ actor FakeLinearWorkspace {
     }
 
     func set(issues: [String: LinearIssue]) { self.issues = issues }
+    func set(issueFailures: [String: String]) { self.issueFailures = issueFailures }
     func set(issueError: Error?) { self.issueError = issueError }
     func set(catalogError: Error?) { self.catalogError = catalogError }
     func set(viewerError: Error?) { self.viewerError = viewerError }
@@ -51,12 +54,20 @@ actor FakeLinearWorkspace {
         return catalog
     }
 
-    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssue?] {
+    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup] {
         issueCalls.append(identifiers.sorted())
         if holdsIssues { await withCheckedContinuation { waiters.append($0) } }
         if let issueError { throw issueError }
-        var result: [String: LinearIssue?] = [:]
-        for identifier in identifiers { result[identifier] = .some(issues[identifier]) }
+        var result: [String: LinearIssueLookup] = [:]
+        for identifier in identifiers {
+            if let issue = issues[identifier] {
+                result[identifier] = .found(issue)
+            } else if let failure = issueFailures[identifier] {
+                result[identifier] = .failed(failure)
+            } else {
+                result[identifier] = .notFound
+            }
+        }
         return result
     }
 }
@@ -68,8 +79,8 @@ nonisolated struct FakeLinearClient: LinearClient {
     func fetchViewer() async throws -> LinearAccount { try await workspace.viewer() }
     func fetchCatalog() async throws -> LinearCatalog { try await workspace.fetchCatalog() }
 
-    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssue?] {
-        let result: [String: LinearIssue?]
+    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup] {
+        let result: [String: LinearIssueLookup]
         do {
             result = try await workspace.fetchIssues(identifiers)
         } catch {

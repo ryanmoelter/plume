@@ -7,9 +7,10 @@ struct LinearActivityScannerTests {
         ChatMessage(id: "m", role: .assistant, blocks: calls.map { .toolCall($0) }, timestamp: nil)
     }
 
-    private func call(_ name: String, _ input: String, result: String? = nil) -> ToolCall {
+    private func call(_ name: String, _ input: String, result: String? = nil, didFail: Bool = false) -> ToolCall {
         var call = ToolCall(id: UUID().uuidString, name: name, summary: ToolCallSummary(name: name, detail: nil), input: .json(input))
         call.result = result
+        call.didFail = didFail
         return call
     }
 
@@ -18,7 +19,7 @@ struct LinearActivityScannerTests {
     @Test func serverNameVariantsAreRecognized() {
         for name in ["mcp__plume-linear__get_issue", "mcp__claude_ai_Linear__get_issue", "mcp__linear__get_issue"] {
             let found = LinearActivityScanner.scan([message(call(name, #"{"id": "PLUME-7"}"#))], subagent: nil)
-            #expect(found == [LinearEvidence(identifier: "PLUME-7", tool: "get_issue", requestedState: nil, subagent: nil)], "\(name)")
+            #expect(found == [LinearEvidence(identifier: "PLUME-7", tool: "get_issue", requestedState: nil, subagent: nil, outcome: .pending)], "\(name)")
         }
     }
 
@@ -84,5 +85,15 @@ struct LinearActivityScannerTests {
             call("mcp__linear__get_issue", #"{"id": "nonsense"}"#)
         )], subagent: nil)
         #expect(found.isEmpty)
+    }
+
+    @Test func outcomeFollowsTheResult() {
+        let input = #"{"id": "PLUME-7", "state": "In Progress"}"#
+        let outcomes = [
+            call("mcp__linear__save_issue", input),
+            call("mcp__linear__save_issue", input, result: "{}"),
+            call("mcp__linear__save_issue", input, result: "Permission denied", didFail: true),
+        ].map { LinearActivityScanner.scan([message($0)], subagent: nil).first?.outcome }
+        #expect(outcomes == [.pending, .succeeded, .failed])
     }
 }

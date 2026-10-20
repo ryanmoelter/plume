@@ -18,7 +18,13 @@ nonisolated struct KeychainError: LocalizedError, Equatable {
 }
 
 nonisolated struct KeychainSecretStore: SecretStore {
+    /// Debug builds keep their own keys, so a Debug run never prompts for
+    /// the installed app's key or deletes it.
+#if DEBUG
+    static let linearService = "com.ryanmoelter.Plume.linear.debug"
+#else
     static let linearService = "com.ryanmoelter.Plume.linear"
+#endif
 
     let service: String
 

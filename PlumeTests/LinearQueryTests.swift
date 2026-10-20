@@ -40,7 +40,10 @@ struct LinearQueryTests {
     @Test func decodesIssues() throws {
         let json = "{\"data\":{\"i0\":\(issueJSON)}}"
         let result = try LinearQuery.decodeIssues(data(json), aliasToIdentifier: ["i0": "plume-102"])
-        let issue = try #require(result["PLUME-102"] ?? nil)
+        guard case .found(let issue)? = result["PLUME-102"] else {
+            Issue.record("expected an issue, got \(String(describing: result["PLUME-102"]))")
+            return
+        }
         #expect(issue.title == "Linear")
         #expect(issue.stateType == .started)
         #expect(issue.stateColor == "#f2c94c")
@@ -54,7 +57,11 @@ struct LinearQueryTests {
             "state":{"name":"Todo","type":"unstarted","color":"#000000"},"assignee":null,"team":{"key":"A"}}}}
             """
         let result = try LinearQuery.decodeIssues(data(json), aliasToIdentifier: ["i0": "A-1"])
-        #expect((result["A-1"] ?? nil)?.assigneeName == nil)
+        guard case .found(let issue)? = result["A-1"] else {
+            Issue.record("expected an issue")
+            return
+        }
+        #expect(issue.assigneeName == nil)
     }
 
     @Test func partialNotFoundByPathIsNil() throws {
@@ -65,9 +72,28 @@ struct LinearQueryTests {
         let result = try LinearQuery.decodeIssues(
             data(json), aliasToIdentifier: ["i0": "PLUME-102", "i1": "PLUME-999"])
         #expect(result.count == 2)
-        #expect((result["PLUME-102"] ?? nil) != nil)
-        #expect(result.keys.contains("PLUME-999"))
-        #expect((result["PLUME-999"] ?? nil) == nil)
+        if case .found? = result["PLUME-102"] {} else { Issue.record("expected PLUME-102 found") }
+        #expect(result["PLUME-999"] == .notFound)
+    }
+
+    @Test func entityNotFoundCodeIsNotFound() throws {
+        let json = """
+            {"data":{"i0":null},
+             "errors":[{"message":"Missing","path":["i0"],"extensions":{"code":"ENTITY_NOT_FOUND"}}]}
+            """
+        let result = try LinearQuery.decodeIssues(data(json), aliasToIdentifier: ["i0": "A-1"])
+        #expect(result["A-1"] == .notFound)
+    }
+
+    @Test func anOtherAliasScopedErrorFailsOnlyThatIssue() throws {
+        let json = """
+            {"data":{"i0":\(issueJSON),"i1":null},
+             "errors":[{"message":"Internal error","path":["i1"],"extensions":{"code":"INTERNAL_SERVER_ERROR"}}]}
+            """
+        let result = try LinearQuery.decodeIssues(
+            data(json), aliasToIdentifier: ["i0": "PLUME-102", "i1": "PLUME-999"])
+        if case .found? = result["PLUME-102"] {} else { Issue.record("expected PLUME-102 found") }
+        #expect(result["PLUME-999"] == .failed("Internal error"))
     }
 
     @Test func pathlessErrorFailsWholeRequest() {

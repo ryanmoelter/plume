@@ -50,8 +50,9 @@ nonisolated enum LinearActivityScanner {
         let state = (tool == "save_issue" || tool == "update_issue")
             ? (input["state"] as? String) ?? (input["stateId"] as? String)
             : nil
+        let outcome: LinearCallOutcome = call.result == nil ? .pending : call.didFail ? .failed : .succeeded
         return identifiers.map {
-            LinearEvidence(identifier: $0, tool: tool, requestedState: state, subagent: subagent)
+            LinearEvidence(identifier: $0, tool: tool, requestedState: state, subagent: subagent, outcome: outcome)
         }
     }
 

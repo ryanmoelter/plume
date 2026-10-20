@@ -3,9 +3,17 @@ import Foundation
 nonisolated protocol LinearClient: Sendable {
     func fetchViewer() async throws -> LinearAccount
     func fetchCatalog() async throws -> LinearCatalog
-    /// Keyed by uppercased identifier. A nil value means the workspace answered
-    /// and has no such issue.
-    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssue?]
+    /// Keyed by uppercased identifier.
+    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup]
+}
+
+/// One workspace's answer for one identifier in a batch.
+nonisolated enum LinearIssueLookup: Sendable, Equatable {
+    case found(LinearIssue)
+    /// The workspace answered and has no such issue.
+    case notFound
+    /// The workspace reported an error for this issue alone.
+    case failed(String)
 }
 
 nonisolated enum LinearQuery {
@@ -82,6 +90,10 @@ nonisolated enum LinearQuery {
         let errors: [GraphQLError]?
     }
 
+    private struct ErrorsOnly: Decodable {
+        let errors: [GraphQLError]?
+    }
+
     private struct ViewerPayload: Decodable {
         struct Viewer: Decodable { let name: String?; let displayName: String? }
         struct Organization: Decodable { let id: String; let name: String; let urlKey: String }
@@ -147,6 +159,25 @@ nonisolated enum LinearQuery {
         }
     }
 
+    /// Whether `data` is a GraphQL response carrying errors. Linear sends
+    /// those with HTTP 400, not 200.
+    static func hasErrors(_ data: Data) -> Bool {
+        guard let body = try? JSONDecoder().decode(ErrorsOnly.self, from: data) else { return false }
+        return !(body.errors ?? []).isEmpty
+    }
+
+    /// Linear names a missing issue with `INVALID_INPUT` and an "Entity not
+    /// found" message, so the message is checked as well as the code.
+    private static func isNotFound(_ error: GraphQLError) -> Bool {
+        error.extensions?.code == "ENTITY_NOT_FOUND"
+            || (error.message?.localizedCaseInsensitiveContains("not found") ?? false)
+    }
+
+    private static func alias(of error: GraphQLError) -> String? {
+        guard case .key(let alias)? = error.path?.first else { return nil }
+        return alias
+    }
+
     /// Throws for any error that is not scoped to one of `allowedAliases`.
     private static func check(
         _ errors: [GraphQLError]?,
@@ -160,7 +191,7 @@ nonisolated enum LinearQuery {
             case "RATELIMITED": throw LinearError.rateLimited(until: now.addingTimeInterval(60))
             default: break
             }
-            if case .key(let alias)? = error.path?.first, allowedAliases.contains(alias) { continue }
+            if let alias = alias(of: error), allowedAliases.contains(alias) { continue }
             throw LinearError.failed(error.message ?? "Linear returned an error.")
         }
     }
@@ -194,15 +225,16 @@ nonisolated enum LinearQuery {
         _ data: Data,
         aliasToIdentifier: [String: String],
         now: Date = Date()
-    ) throws -> [String: LinearIssue?] {
+    ) throws -> [String: LinearIssueLookup] {
         let envelope = try decodeEnvelope(IssuesPayload.self, from: data)
         try check(envelope.errors, allowedAliases: Set(aliasToIdentifier.keys), now: now)
         let nodes = envelope.data?.nodes ?? [:]
-        var result: [String: LinearIssue?] = [:]
+        let errorsByAlias = Dictionary(grouping: envelope.errors ?? []) { alias(of: $0) ?? "" }
+        var result: [String: LinearIssueLookup] = [:]
         for (alias, identifier) in aliasToIdentifier {
             let key = identifier.uppercased()
             if let node = nodes[alias] ?? nil {
-                result[key] = LinearIssue(
+                result[key] = .found(LinearIssue(
                     identifier: node.identifier,
                     title: node.title,
                     url: node.url,
@@ -211,9 +243,11 @@ nonisolated enum LinearQuery {
                     stateColor: node.state.color,
                     assigneeName: node.assignee?.displayName ?? node.assignee?.name,
                     teamKey: node.team.key
-                )
+                ))
+            } else if let failure = errorsByAlias[alias]?.first(where: { !isNotFound($0) }) {
+                result[key] = .failed(failure.message ?? "Linear returned an error.")
             } else {
-                result[key] = .some(nil)
+                result[key] = .notFound
             }
         }
         return result
@@ -241,29 +275,31 @@ nonisolated struct LinearGraphQLClient: LinearClient {
     }
 
     func fetchViewer() async throws -> LinearAccount {
-        try LinearQuery.decodeViewer(try await send(LinearQuery.viewerQuery))
+        try await send(LinearQuery.viewerQuery) { try LinearQuery.decodeViewer($0) }
     }
 
     func fetchCatalog() async throws -> LinearCatalog {
-        try LinearQuery.decodeCatalog(try await send(LinearQuery.catalogQuery))
+        try await send(LinearQuery.catalogQuery) { try LinearQuery.decodeCatalog($0) }
     }
 
-    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssue?] {
+    func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup] {
         var unique: [String] = []
         var seen = Set<String>()
         for identifier in identifiers.map({ $0.uppercased() }) where seen.insert(identifier).inserted {
             unique.append(identifier)
         }
-        var result: [String: LinearIssue?] = [:]
+        var result: [String: LinearIssueLookup] = [:]
         for chunk in LinearQuery.chunks(of: unique) {
             let (query, aliases) = LinearQuery.buildIssues(identifiers: chunk)
-            let data = try await send(query)
-            result.merge(try LinearQuery.decodeIssues(data, aliasToIdentifier: aliases)) { $1 }
+            let lookups = try await send(query) { try LinearQuery.decodeIssues($0, aliasToIdentifier: aliases) }
+            result.merge(lookups) { $1 }
         }
         return result
     }
 
-    private func send(_ query: String) async throws -> Data {
+    /// A non-2xx response is decoded too when it carries GraphQL errors, so
+    /// their codes and messages win over the bare status.
+    private func send<Result>(_ query: String, decode: (Data) throws -> Result) async throws -> Result {
         guard let key = apiKey(), !key.isEmpty else { throw LinearError.unauthorized }
         var request = URLRequest(url: Self.endpoint, timeoutInterval: 20)
         request.httpMethod = "POST"
@@ -284,11 +320,24 @@ nonisolated struct LinearGraphQLClient: LinearClient {
             throw LinearError.failed("Linear sent no HTTP response.")
         }
         if let rateLimit = Self.rateLimit(from: http) { onRateLimit(rateLimit) }
-        switch http.statusCode {
-        case 200..<300: return data
-        case 401, 403: throw LinearError.unauthorized
-        case 429: throw LinearError.rateLimited(until: Self.resetDate(from: http) ?? Date().addingTimeInterval(60))
-        default: throw LinearError.failed("Linear returned HTTP \(http.statusCode).")
+        do {
+            if (200..<300).contains(http.statusCode) { return try decode(data) }
+            guard LinearQuery.hasErrors(data) else { throw Self.statusError(http, message: nil) }
+            do {
+                return try decode(data)
+            } catch LinearError.failed(let message) {
+                throw Self.statusError(http, message: message)
+            }
+        } catch LinearError.rateLimited(let until) {
+            throw LinearError.rateLimited(until: Self.resetDate(from: http) ?? until)
+        }
+    }
+
+    private static func statusError(_ response: HTTPURLResponse, message: String?) -> LinearError {
+        switch response.statusCode {
+        case 401, 403: .unauthorized
+        case 429: .rateLimited(until: resetDate(from: response) ?? Date().addingTimeInterval(60))
+        default: .failed(message ?? "Linear returned HTTP \(response.statusCode).")
         }
     }
 

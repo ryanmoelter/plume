@@ -26,9 +26,15 @@ final class LinearAccounts {
         case removed(orgID: String)
     }
 
+    /// UserDefaults are shared between Debug and Release, so Debug lists its
+    /// own accounts to match its own Keychain service.
+#if DEBUG
+    static let defaultsKey = "linearAccounts.debug"
+#else
     static let defaultsKey = "linearAccounts"
+#endif
 
-    static let graphQLClient: ClientFactory = { apiKey, onRateLimit in
+    nonisolated static let graphQLClient: ClientFactory = { apiKey, onRateLimit in
         LinearGraphQLClient(apiKey: apiKey, onRateLimit: onRateLimit)
     }
 

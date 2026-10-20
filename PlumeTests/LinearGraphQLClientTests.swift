@@ -149,7 +149,53 @@ struct LinearGraphQLClientTests {
         let result = try await client().fetchIssues(ids)
         #expect(requests.withLock { $0 } == 2)
         #expect(result.count == 60)
-        #expect(result.values.allSatisfy { $0 == nil })
+        #expect(result.values.allSatisfy { $0 == .notFound })
+    }
+
+    @Test func http400RateLimitedBodyIsRateLimited() async {
+        LinearStubProtocol.handler = { _ in
+            .init(
+                status: 400,
+                headers: ["X-RateLimit-Requests-Reset": "1700000000000"],
+                body: Data(#"{"errors":[{"message":"Rate limit exceeded","extensions":{"code":"RATELIMITED"}}]}"#.utf8)
+            )
+        }
+        await #expect(throws: LinearError.rateLimited(until: Date(timeIntervalSince1970: 1_700_000_000))) {
+            try await client().fetchViewer()
+        }
+    }
+
+    @Test func http400AuthenticationBodyIsUnauthorized() async {
+        LinearStubProtocol.handler = { _ in
+            .init(status: 400, headers: [:], body: Data(
+                #"{"errors":[{"message":"Authentication required","extensions":{"code":"AUTHENTICATION_ERROR"}}]}"#.utf8))
+        }
+        await #expect(throws: LinearError.unauthorized) { try await client().fetchViewer() }
+    }
+
+    @Test func http400UsesTheBodysErrorMessage() async {
+        LinearStubProtocol.handler = { _ in
+            .init(status: 400, headers: [:], body: Data(#"{"errors":[{"message":"Query too complex"}]}"#.utf8))
+        }
+        await #expect(throws: LinearError.failed("Query too complex")) { try await client().fetchViewer() }
+    }
+
+    @Test func http401WithAnUncodedBodyIsStillUnauthorized() async {
+        LinearStubProtocol.handler = { _ in
+            .init(status: 401, headers: [:], body: Data(#"{"errors":[{"message":"Bad key"}]}"#.utf8))
+        }
+        await #expect(throws: LinearError.unauthorized) { try await client().fetchViewer() }
+    }
+
+    @Test func http400WithOnlyNotFoundAliasesStillAnswers() async throws {
+        LinearStubProtocol.handler = { _ in
+            .init(status: 400, headers: [:], body: Data("""
+                {"data":{"i0":null},
+                 "errors":[{"message":"Entity not found: Issue","path":["i0"],"extensions":{"code":"INVALID_INPUT"}}]}
+                """.utf8))
+        }
+        let result = try await client().fetchIssues(["P-1"])
+        #expect(result == ["P-1": .notFound])
     }
 }
 

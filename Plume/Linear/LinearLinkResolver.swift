@@ -39,7 +39,7 @@ nonisolated enum LinearLinkResolver {
         for item in evidence {
             let identifier = item.identifier.uppercased()
             guard teamKeys.contains(LinearIdentifier.teamKey(of: identifier)) else { continue }
-            let started = isStartRequest(item, catalogs: catalogs)
+            let started = item.outcome != .failed && isStartRequest(item, catalogs: catalogs)
             update(identifier) { entry in
                 entry.sources.insert(.agent)
                 entry.started = entry.started || started
@@ -69,13 +69,16 @@ nonisolated enum LinearLinkResolver {
         return linked.sorted { rank($0) < rank($1) }
     }
 
+    /// Only calls that succeeded, since these are persisted on the task.
     static func startedIdentifiers(evidence: [LinearEvidence], catalogs: [LinearCatalog]) -> Set<String> {
-        Set(evidence.filter { isStartRequest($0, catalogs: catalogs) }.map { $0.identifier.uppercased() })
+        Set(evidence
+            .filter { $0.outcome == .succeeded && isStartRequest($0, catalogs: catalogs) }
+            .map { $0.identifier.uppercased() })
     }
 
     private static func isStartRequest(_ item: LinearEvidence, catalogs: [LinearCatalog]) -> Bool {
         guard let requested = item.requestedState, !requested.isEmpty,
-              item.tool == "save_issue" || item.tool == "update_issue"
+              item.isWrite
         else { return false }
         let key = LinearIdentifier.teamKey(of: item.identifier)
         guard let team = catalogs.lazy.compactMap({ $0.team(key: key) }).first else { return false }
