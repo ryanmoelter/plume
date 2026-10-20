@@ -17,7 +17,8 @@ struct SidebarView: View {
     let requestArchive: (WorkTask) -> Void
     let requestDelete: (WorkTask) -> Void
 
-    @State private var renamingGroupID: UUID?
+    /// The group just created, whose popover opens with its name selected.
+    @State private var newGroupID: UUID?
     /// The group or task whose appearance popover is open.
     @State private var appearanceEditingID: UUID?
     @Environment(\.theme) private var theme
@@ -81,7 +82,8 @@ struct SidebarView: View {
                             .plumeID(AccessibilityID.newTaskButton)
                         Button("New Group") {
                             let group = TaskStore.createGroup(in: context, existing: groups)
-                            renamingGroupID = group.id
+                            newGroupID = group.id
+                            appearanceEditingID = group.id
                         }
                         .plumeID(AccessibilityID.newGroupButton)
                     } label: {
@@ -111,18 +113,13 @@ struct SidebarView: View {
     private func groupHeader(_ group: TaskGroup) -> some View {
         GroupSectionHeader(
             group: group,
-            isRenaming: renamingGroupID == group.id,
-            onDoneRenaming: {
-                if group.isLive { group.settleName(fallback: TaskStore.defaultGroupName) }
-                renamingGroupID = nil
-            },
             onCreateTask: { createTask(in: group) },
             onEdit: { appearanceEditingID = group.id }
         )
         .sidebarSectionHeader()
         .plumeID(AccessibilityID.groupHeader, label: group.name)
         .popover(isPresented: isEditingAppearance(of: group.id), arrowEdge: .trailing) {
-            GroupAppearancePopover(group: group)
+            GroupAppearancePopover(group: group, selectsName: newGroupID == group.id)
         }
         .contextMenu {
             Button("Edit…") { appearanceEditingID = group.id }
@@ -235,7 +232,10 @@ struct SidebarView: View {
         Binding(
             get: { appearanceEditingID == id },
             set: { isPresented in
-                if !isPresented, appearanceEditingID == id { appearanceEditingID = nil }
+                if !isPresented, appearanceEditingID == id {
+                    appearanceEditingID = nil
+                    newGroupID = nil
+                }
             }
         )
     }

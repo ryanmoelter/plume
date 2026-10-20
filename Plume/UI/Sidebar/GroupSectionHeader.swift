@@ -2,12 +2,9 @@ import SwiftUI
 
 struct GroupSectionHeader: View {
     @Bindable var group: TaskGroup
-    let isRenaming: Bool
-    let onDoneRenaming: () -> Void
     let onCreateTask: () -> Void
     let onEdit: () -> Void
 
-    @FocusState private var focused: Bool
     @State private var isHovering = false
     @Environment(\.theme) private var theme
 
@@ -38,26 +35,12 @@ struct GroupSectionHeader: View {
                 iconMinWidth: SidebarMetrics.headerIconMinWidth,
                 spacing: 4
             ) {
-                Group {
-                    if isRenaming {
-                        TextField("Group name", text: $group.name)
-                            .textFieldStyle(.plain)
-                            .focused($focused)
-                            .onSubmit(onDoneRenaming)
-                            .onChange(of: focused) { _, isFocused in
-                                if !isFocused { onDoneRenaming() }
-                            }
-                            .onAppear { focused = true }
-                    } else {
-                        Text(group.name)
-                            .foregroundStyle(labelStyle)
-                            .contentShape(Rectangle())
-                            // Simultaneous, not exclusive: a plain
-                            // `.onTapGesture` claims the mouse-down, and the
-                            // header's drag never starts.
-                            .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
-                    }
-                }
+                Text(group.name)
+                    .foregroundStyle(labelStyle)
+                    .contentShape(Rectangle())
+                    // Simultaneous, not exclusive: a plain `.onTapGesture`
+                    // claims the mouse-down, and the header's drag never starts.
+                    .simultaneousGesture(TapGesture().onEnded { group.isExpanded.toggle() })
             }
 
             Spacer(minLength: 0)

@@ -7,9 +7,11 @@ struct GroupAppearancePopover: View {
     @Bindable var group: TaskGroup
     @State private var plumeLabel: String
     @State private var openingName: String
+    let selectsName: Bool
 
-    init(group: TaskGroup) {
+    init(group: TaskGroup, selectsName: Bool = false) {
         self.group = group
+        self.selectsName = selectsName
         _plumeLabel = State(initialValue: group.name)
         _openingName = State(initialValue: group.name)
     }
@@ -30,7 +32,8 @@ struct GroupAppearancePopover: View {
                 font: .title3,
                 text: $group.name,
                 plumeID: AccessibilityID.sidebarNameField,
-                plumeLabel: plumeLabel
+                plumeLabel: plumeLabel,
+                focusesAndSelects: selectsName
             )
         } onClose: {
             guard group.isLive else { return }
@@ -94,9 +97,19 @@ private struct SidebarTextField: View {
     @Binding var text: String
     let plumeID: String
     let plumeLabel: String
+    var focusesAndSelects = false
+
+    @FocusState private var focused: Bool
+    @State private var selection: TextSelection?
 
     var body: some View {
-        TextField(title, text: $text, prompt: Text(placeholder))
+        TextField(title, text: $text, selection: $selection, prompt: Text(placeholder))
+            .focused($focused)
+            .onAppear {
+                guard focusesAndSelects else { return }
+                focused = true
+                selection = TextSelection(range: text.startIndex..<text.endIndex)
+            }
             .textFieldStyle(.roundedBorder)
             .labelsHidden()
             .font(font)

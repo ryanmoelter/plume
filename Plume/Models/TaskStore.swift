@@ -7,7 +7,7 @@ import SwiftUI // Array.move(fromOffsets:toOffset:)
 /// Ordering is stored as a dense `orderIndex` per section, rewritten on every
 /// move so drag-reorder and cross-group moves share one code path.
 enum TaskStore {
-    static let defaultGroupName = "New Group"
+    static let defaultGroupName = "New group"
 
     // MARK: - Create
 
