@@ -135,25 +135,62 @@ struct LinearQueryTests {
             orgID: "org-1", orgName: "Plume", urlKey: "plume-term", viewerName: "ryan"))
     }
 
-    @Test func decodesCatalogAndMapsStateTypes() throws {
-        let json = """
-            {"data":{"organization":{"id":"org-1"},"teams":{"nodes":[
-              {"id":"t1","key":"plume","name":"Plume","states":{"nodes":[
-                {"id":"s1","name":"Backlog","type":"backlog","color":"#bec2c8"},
-                {"id":"s2","name":"Done","type":"completed","color":"#5e6ad2"},
-                {"id":"s3","name":"Weird","type":"somethingnew","color":"#000000"}]}}]}}}
-            """
-        let now = Date(timeIntervalSince1970: 5)
-        let catalog = try LinearQuery.decodeCatalog(data(json), now: now)
-        #expect(catalog.orgID == "org-1")
-        #expect(catalog.fetchedAt == now)
-        let team = try #require(catalog.team(key: "PLUME"))
-        #expect(team.states.map(\.type) == [.backlog, .completed, .other("somethingnew")])
+    private let teamsPageJSON = """
+        {"data":{"organization":{"id":"org-1"},"teams":{"nodes":[
+          {"id":"t1","key":"plume","name":"Plume"},{"id":"t2","key":"droid","name":"Android"}],
+          "pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}}
+        """
+
+    private let statesPageJSON = """
+        {"data":{"workflowStates":{"nodes":[
+          {"id":"s1","name":"Backlog","type":"backlog","color":"#bec2c8","team":{"id":"t1"}},
+          {"id":"s2","name":"Done","type":"completed","color":"#5e6ad2","team":{"id":"t1"}},
+          {"id":"s3","name":"Weird","type":"somethingnew","color":"#000000","team":{"id":"t2"}},
+          {"id":"s4","name":"Orphan","type":"started","color":"#111111","team":{"id":"gone"}}],
+          "pageInfo":{"hasNextPage":false,"endCursor":null}}}}
+        """
+
+    @Test func decodesTeamsPage() throws {
+        let page = try LinearQuery.decodeTeamsPage(data(teamsPageJSON))
+        #expect(page.orgID == "org-1")
+        #expect(page.teams.map(\.id) == ["t1", "t2"])
+        #expect(page.nextCursor == "c1")
     }
 
-    @Test func catalogQueryAsksForTeamsAndOrganization() {
-        #expect(LinearQuery.catalogQuery.contains("teams(first: 100)"))
-        #expect(LinearQuery.catalogQuery.contains("states(first: 100)"))
-        #expect(LinearQuery.catalogQuery.contains("organization { id }"))
+    @Test func decodesStatesPageAndStopsWithoutNextPage() throws {
+        let page = try LinearQuery.decodeStatesPage(data(statesPageJSON))
+        #expect(page.states.count == 4)
+        #expect(page.states[2].type == .other("somethingnew"))
+        #expect(page.nextCursor == nil)
+    }
+
+    @Test func groupsStatesIntoTeamsAndDropsOrphans() throws {
+        let teams = try LinearQuery.decodeTeamsPage(data(teamsPageJSON)).teams
+        let states = try LinearQuery.decodeStatesPage(data(statesPageJSON)).states
+        let now = Date(timeIntervalSince1970: 5)
+        let catalog = LinearQuery.assembleCatalog(orgID: "org-1", teams: teams, states: states, now: now)
+        #expect(catalog.orgID == "org-1")
+        #expect(catalog.fetchedAt == now)
+        let plume = try #require(catalog.team(key: "PLUME"))
+        #expect(plume.states.map(\.type) == [.backlog, .completed])
+        let droid = try #require(catalog.team(key: "DROID"))
+        #expect(droid.states.map(\.type) == [.other("somethingnew")])
+        #expect(catalog.teams.flatMap(\.states).count == 3)
+    }
+
+    @Test func catalogQueriesAreFlatAndPaginated() {
+        #expect(LinearQuery.teamsQuery.contains("teams(first: 50, after: $cursor)"))
+        #expect(LinearQuery.teamsQuery.contains("organization { id }"))
+        #expect(!LinearQuery.teamsQuery.contains("states"))
+        #expect(LinearQuery.statesQuery.contains("workflowStates(first: 100, after: $cursor)"))
+        #expect(LinearQuery.statesQuery.contains("team { id }"))
+        #expect(LinearQuery.statesQuery.contains("pageInfo { hasNextPage endCursor }"))
+    }
+
+    @Test func requestBodyCarriesTheCursorAsAVariable() throws {
+        let body = try LinearQuery.requestBody(query: "query { x }", cursor: "a\"b")
+        let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(object["query"] as? String == "query { x }")
+        #expect((object["variables"] as? [String: String]) == ["cursor": "a\"b"])
     }
 }

@@ -21,9 +21,20 @@ nonisolated enum LinearQuery {
 
     static let viewerQuery = "query { viewer { name displayName } organization { id name urlKey } }"
 
-    static let catalogQuery = """
-        query { organization { id } teams(first: 100) { nodes { id key name \
-        states(first: 100) { nodes { id name type color } } } } }
+    static let maxCatalogPages = 20
+
+    // Linear multiplies nested connection sizes into a query's complexity
+    // (limit about 10,000). Teams with nested states cost 100 x 100, so both
+    // connections are fetched flat, one page per request, and joined by team id.
+    static let teamsQuery = """
+        query($cursor: String) { organization { id } \
+        teams(first: 50, after: $cursor) { nodes { id key name } \
+        pageInfo { hasNextPage endCursor } } }
+        """
+
+    static let statesQuery = """
+        query($cursor: String) { workflowStates(first: 100, after: $cursor) { \
+        nodes { id name type color team { id } } pageInfo { hasNextPage endCursor } } }
         """
 
     private static let issueFields = """
@@ -48,8 +59,13 @@ nonisolated enum LinearQuery {
         return ("query { " + fields.joined(separator: " ") + " }", aliasToIdentifier)
     }
 
-    static func requestBody(query: String) throws -> Data {
-        try JSONEncoder().encode(["query": query])
+    static func requestBody(query: String, cursor: String? = nil) throws -> Data {
+        struct Body: Encodable {
+            let query: String
+            let variables: [String: String]?
+        }
+        let variables = cursor.map { ["cursor": $0] }
+        return try JSONEncoder().encode(Body(query: query, variables: variables))
     }
 
     /// A GraphQL string literal, via the encoder so every escape is correct.
@@ -101,18 +117,48 @@ nonisolated enum LinearQuery {
         let organization: Organization
     }
 
-    private struct CatalogPayload: Decodable {
+    private struct PageInfo: Decodable {
+        let hasNextPage: Bool
+        let endCursor: String?
+        var next: String? { hasNextPage ? endCursor : nil }
+    }
+
+    struct TeamNode: Decodable, Equatable {
+        let id: String
+        let key: String
+        let name: String
+    }
+
+    struct StateNode: Decodable, Equatable {
+        struct Team: Decodable, Equatable { let id: String }
+        let id: String
+        let name: String
+        let type: LinearStateType
+        let color: String
+        let team: Team?
+    }
+
+    struct TeamsPage: Equatable {
+        let orgID: String
+        let teams: [TeamNode]
+        let nextCursor: String?
+    }
+
+    struct StatesPage: Equatable {
+        let states: [StateNode]
+        let nextCursor: String?
+    }
+
+    private struct TeamsPayload: Decodable {
         struct Organization: Decodable { let id: String }
-        struct StateNodes: Decodable { let nodes: [LinearWorkflowState] }
-        struct Team: Decodable {
-            let id: String
-            let key: String
-            let name: String
-            let states: StateNodes
-        }
-        struct Teams: Decodable { let nodes: [Team] }
+        struct Teams: Decodable { let nodes: [TeamNode]; let pageInfo: PageInfo }
         let organization: Organization
         let teams: Teams
+    }
+
+    private struct StatesPayload: Decodable {
+        struct States: Decodable { let nodes: [StateNode]; let pageInfo: PageInfo }
+        let workflowStates: States
     }
 
     private struct IssueNode: Decodable {
@@ -209,14 +255,40 @@ nonisolated enum LinearQuery {
         )
     }
 
-    static func decodeCatalog(_ data: Data, now: Date = Date()) throws -> LinearCatalog {
-        let envelope = try decodeEnvelope(CatalogPayload.self, from: data)
+    static func decodeTeamsPage(_ data: Data, now: Date = Date()) throws -> TeamsPage {
+        let envelope = try decodeEnvelope(TeamsPayload.self, from: data)
         try check(envelope.errors, now: now)
         guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
-        let teams = payload.teams.nodes.map {
-            LinearTeam(id: $0.id, key: $0.key.uppercased(), name: $0.name, states: $0.states.nodes)
+        return TeamsPage(
+            orgID: payload.organization.id, teams: payload.teams.nodes, nextCursor: payload.teams.pageInfo.next)
+    }
+
+    static func decodeStatesPage(_ data: Data, now: Date = Date()) throws -> StatesPage {
+        let envelope = try decodeEnvelope(StatesPayload.self, from: data)
+        try check(envelope.errors, now: now)
+        guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
+        return StatesPage(states: payload.workflowStates.nodes, nextCursor: payload.workflowStates.pageInfo.next)
+    }
+
+    /// States whose team is not in `teams` are dropped.
+    static func assembleCatalog(
+        orgID: String,
+        teams: [TeamNode],
+        states: [StateNode],
+        now: Date = Date()
+    ) -> LinearCatalog {
+        let statesByTeam = Dictionary(grouping: states) { $0.team?.id ?? "" }
+        let linearTeams = teams.map { team in
+            LinearTeam(
+                id: team.id,
+                key: team.key.uppercased(),
+                name: team.name,
+                states: (statesByTeam[team.id] ?? []).map {
+                    LinearWorkflowState(id: $0.id, name: $0.name, type: $0.type, color: $0.color)
+                }
+            )
         }
-        return LinearCatalog(orgID: payload.organization.id, teams: teams, fetchedAt: now)
+        return LinearCatalog(orgID: orgID, teams: linearTeams, fetchedAt: now)
     }
 
     /// Keyed by the requested identifier, not the one Linear returns, so a
@@ -279,7 +351,26 @@ nonisolated struct LinearGraphQLClient: LinearClient {
     }
 
     func fetchCatalog() async throws -> LinearCatalog {
-        try await send(LinearQuery.catalogQuery) { try LinearQuery.decodeCatalog($0) }
+        var orgID: String?
+        var teams: [LinearQuery.TeamNode] = []
+        var cursor: String?
+        for _ in 0..<LinearQuery.maxCatalogPages {
+            let page = try await send(LinearQuery.teamsQuery, cursor: cursor) { try LinearQuery.decodeTeamsPage($0) }
+            orgID = orgID ?? page.orgID
+            teams += page.teams
+            cursor = page.nextCursor
+            if cursor == nil { break }
+        }
+        var states: [LinearQuery.StateNode] = []
+        cursor = nil
+        for _ in 0..<LinearQuery.maxCatalogPages {
+            let page = try await send(LinearQuery.statesQuery, cursor: cursor) { try LinearQuery.decodeStatesPage($0) }
+            states += page.states
+            cursor = page.nextCursor
+            if cursor == nil { break }
+        }
+        guard let orgID else { throw LinearError.failed("Linear returned no data.") }
+        return LinearQuery.assembleCatalog(orgID: orgID, teams: teams, states: states)
     }
 
     func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup] {
@@ -299,13 +390,17 @@ nonisolated struct LinearGraphQLClient: LinearClient {
 
     /// A non-2xx response is decoded too when it carries GraphQL errors, so
     /// their codes and messages win over the bare status.
-    private func send<Result>(_ query: String, decode: (Data) throws -> Result) async throws -> Result {
+    private func send<Result>(
+        _ query: String,
+        cursor: String? = nil,
+        decode: (Data) throws -> Result
+    ) async throws -> Result {
         guard let key = apiKey(), !key.isEmpty else { throw LinearError.unauthorized }
         var request = URLRequest(url: Self.endpoint, timeoutInterval: 20)
         request.httpMethod = "POST"
         request.setValue(key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try LinearQuery.requestBody(query: query)
+        request.httpBody = try LinearQuery.requestBody(query: query, cursor: cursor)
 
         let data: Data
         let response: URLResponse

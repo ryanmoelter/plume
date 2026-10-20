@@ -152,6 +152,65 @@ struct LinearGraphQLClientTests {
         #expect(result.values.allSatisfy { $0 == .notFound })
     }
 
+    private func teamsBody(ids: [String], next: String?) -> Data {
+        let nodes = ids.map { "{\"id\":\"\($0)\",\"key\":\"\($0)\",\"name\":\"\($0)\"}" }.joined(separator: ",")
+        let page = next.map { "\"hasNextPage\":true,\"endCursor\":\"\($0)\"" } ?? "\"hasNextPage\":false,\"endCursor\":null"
+        return Data("{\"data\":{\"organization\":{\"id\":\"org\"},\"teams\":{\"nodes\":[\(nodes)],\"pageInfo\":{\(page)}}}}".utf8)
+    }
+
+    private func statesBody(_ states: [(id: String, team: String)], next: String?) -> Data {
+        let nodes = states.map {
+            "{\"id\":\"\($0.id)\",\"name\":\"\($0.id)\",\"type\":\"started\",\"color\":\"#000000\",\"team\":{\"id\":\"\($0.team)\"}}"
+        }.joined(separator: ",")
+        let page = next.map { "\"hasNextPage\":true,\"endCursor\":\"\($0)\"" } ?? "\"hasNextPage\":false,\"endCursor\":null"
+        return Data("{\"data\":{\"workflowStates\":{\"nodes\":[\(nodes)],\"pageInfo\":{\(page)}}}}".utf8)
+    }
+
+    @Test func fetchCatalogFollowsPagesAndGroupsStates() async throws {
+        let bodies = Mutex<[String]>([])
+        LinearStubProtocol.handler = { request in
+            let body = request.httpBodyStreamData()
+            bodies.withLock { $0.append(body) }
+            let hasCursor = body.contains("\"cursor\":\"c1\"")
+            if body.contains("workflowStates") {
+                return hasCursor
+                    ? .init(status: 200, headers: [:], body: self.statesBody([("s3", "T2")], next: nil))
+                    : .init(status: 200, headers: [:], body: self.statesBody([("s1", "T1"), ("s2", "T2")], next: "c1"))
+            }
+            return hasCursor
+                ? .init(status: 200, headers: [:], body: self.teamsBody(ids: ["T2"], next: nil))
+                : .init(status: 200, headers: [:], body: self.teamsBody(ids: ["T1"], next: "c1"))
+        }
+        let catalog = try await client().fetchCatalog()
+        #expect(bodies.withLock { $0.count } == 4)
+        #expect(catalog.orgID == "org")
+        #expect(catalog.team(key: "T1")?.states.map(\.id) == ["s1"])
+        #expect(catalog.team(key: "T2")?.states.map(\.id) == ["s2", "s3"])
+    }
+
+    @Test func fetchCatalogStopsAtThePageCap() async throws {
+        let requests = Mutex(0)
+        LinearStubProtocol.handler = { request in
+            requests.withLock { $0 += 1 }
+            if request.httpBodyStreamData().contains("workflowStates") {
+                return .init(status: 200, headers: [:], body: self.statesBody([], next: "again"))
+            }
+            return .init(status: 200, headers: [:], body: self.teamsBody(ids: [], next: "again"))
+        }
+        _ = try await client().fetchCatalog()
+        #expect(requests.withLock { $0 } == 2 * LinearQuery.maxCatalogPages)
+    }
+
+    @Test func fetchCatalogFailsWhenAnyPageFails() async {
+        LinearStubProtocol.handler = { request in
+            if request.httpBodyStreamData().contains("workflowStates") {
+                return .init(status: 500, headers: [:], body: Data())
+            }
+            return .init(status: 200, headers: [:], body: self.teamsBody(ids: ["T1"], next: nil))
+        }
+        await #expect(throws: LinearError.self) { try await client().fetchCatalog() }
+    }
+
     @Test func http400RateLimitedBodyIsRateLimited() async {
         LinearStubProtocol.handler = { _ in
             .init(
