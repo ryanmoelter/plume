@@ -18,13 +18,24 @@ struct LinearIssuesSection: View, ThemedView {
     let linear: InfoPaneFacts.LinearFacts?
     let actions: InfoPaneLinearActions
 
+    @State private var showsLinkPopover = false
+
     var body: some View {
         if let linear {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: "circle.lefthalf.filled") }
+                    InfoPaneIcon { LinearLogo() }
                     Text("Linear")
                     Spacer(minLength: 0)
+                    Button { showsLinkPopover = true } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Link a Linear issue")
+                    .plumeID(AccessibilityID.infoPaneLinearAddButton)
+                    .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
+                        LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
+                    }
                 }
                 .emphasis(.secondary)
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
@@ -36,8 +47,13 @@ struct LinearIssuesSection: View, ThemedView {
                         .padding(.top, InfoPaneLayout.rowVerticalPadding)
                     ForEach(linear.mentioned) { IssueRow(issue: $0, actions: actions) }
                 }
-                LinkIssueField(actions: actions)
+                if linear.issues.isEmpty {
+                    HStack(spacing: InfoPaneLayout.columnSpacing) {
+                        InfoPaneIcon { Color.clear }
+                        Text("No linked issues").emphasis(.subtle)
+                    }
                     .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+                }
             }
         }
     }
@@ -114,32 +130,35 @@ private struct IssueRow: View, ThemedView {
     }
 }
 
-private struct LinkIssueField: View, ThemedView {
-    @Environment(\.theme) var theme
-
+private struct LinkIssuePopover: View {
     let actions: InfoPaneLinearActions
+    @Binding var isPresented: Bool
 
     @State private var text = ""
     @State private var showsError = false
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                TextField("PLUME-123 or URL", text: $text)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                TextField("PLUME-123 or issue URL", text: $text)
                     .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
+                    .focused($fieldFocused)
                     .onSubmit(link)
+                    .frame(width: 220)
                     .plumeID(AccessibilityID.infoPaneLinearLinkField, value: text, setValue: { text = $0 })
                 Button("Link", action: link)
-                    .controlSize(.small)
                     .plumeID(AccessibilityID.infoPaneLinearLinkButton, invoke: link)
                     .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             if showsError {
                 Text("Not a Linear issue identifier")
-                    .emphasis(.subtle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(12)
+        .onAppear { fieldFocused = true }
         .onChange(of: text) { showsError = false }
     }
 
@@ -148,8 +167,19 @@ private struct LinkIssueField: View, ThemedView {
         if actions.link(text) {
             text = ""
             showsError = false
+            isPresented = false
         } else {
             showsError = true
         }
+    }
+}
+
+/// Linear's logomark, tinted by the surrounding foreground style.
+struct LinearLogo: View {
+    var body: some View {
+        Image("LinearLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 12, height: 12)
     }
 }

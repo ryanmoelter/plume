@@ -203,6 +203,7 @@ enum AccessibilityID {
     static let infoPaneLinearOpenButton = "info-pane-linear-open-button"
     static let infoPaneLinearMarkWorkingButton = "info-pane-linear-mark-working-button"
     static let infoPaneLinearUnlinkButton = "info-pane-linear-unlink-button"
+    static let infoPaneLinearAddButton = "info-pane-linear-add-button"
     static let infoPaneLinearLinkField = "info-pane-linear-link-field"
     static let infoPaneLinearLinkButton = "info-pane-linear-link-button"
     static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"

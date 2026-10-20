@@ -465,7 +465,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                 .help("In a worktree")
         case .linearIssues:
             HStack(spacing: 2) {
-                Image(systemName: "circle.lefthalf.filled")
+                LinearLogo()
                 Text("\(facts.linear?.issues.count ?? 0)")
             }
             .emphasis(.secondary)
