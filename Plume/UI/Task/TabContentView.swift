@@ -22,6 +22,8 @@ struct TabContentView: View {
     @State private var dropSide: TaskStore.SplitSide?
     @State private var drag = InAppDrag.shared
 
+    static let coordinateSpace = "tabContent"
+
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
@@ -72,6 +74,7 @@ struct TabContentView: View {
                 }
             }
         }
+        .coordinateSpace(.named(Self.coordinateSpace))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: draggedTab == nil) { _, notDragging in
             if notDragging { dropSide = nil }
@@ -155,7 +158,6 @@ struct TabContentView: View {
 private struct SplitDivider: View {
     static let hitWidth: CGFloat = 9
 
-    /// Where the divider sits now, which a drag moves it from.
     let x: CGFloat
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
@@ -174,7 +176,9 @@ private struct SplitDivider: View {
         .contentShape(.rect)
         .gesture(
             // Past a double-click's wobble, so a reset never starts a drag.
-            DragGesture(minimumDistance: 3)
+            // Measured in the content's space, not the divider's own: the
+            // divider moves with the drag, so a local translation feeds back.
+            DragGesture(minimumDistance: 3, coordinateSpace: .named(TabContentView.coordinateSpace))
                 .onChanged { value in
                     let start = dragStartX ?? x
                     dragStartX = start
