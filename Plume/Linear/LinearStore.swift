@@ -153,6 +153,15 @@ final class LinearStore: LinearActivitySink {
         accountStatuses[orgID] ?? .unknown
     }
 
+    func catalog(orgID: String) -> LinearCatalog? {
+        catalogs[orgID]
+    }
+
+    /// Not observable: read it when showing it.
+    func rateLimit(orgID: String) -> LinearRateLimit? {
+        rateLimits.limit(orgID: orgID)
+    }
+
     /// Every issue the task links, classified. A view may call it from
     /// `body`: it writes only unobserved caches.
     func links(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
@@ -541,7 +550,7 @@ final class LinearStore: LinearActivitySink {
 
     // MARK: - Catalogs
 
-    private func refreshCatalog(orgID: String) {
+    func refreshCatalog(orgID: String) {
         guard !unauthorized.contains(orgID), catalogInFlight.insert(orgID).inserted else { return }
         let generation = generation(orgID: orgID)
         let client = client(for: orgID)

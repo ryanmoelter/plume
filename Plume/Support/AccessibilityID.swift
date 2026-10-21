@@ -59,6 +59,8 @@ enum AccessibilityID {
     static let linearAddAccountButton = "linear-add-account-button"
     static let linearRemoveAccountButton = "linear-remove-account-button"
     static let linearAccountRow = "linear-account-row"
+    static let linearAccountInfoButton = "linear-account-info-button"
+    static let linearAccountRefreshButton = "linear-account-refresh-button"
     static let linearCreateKeyLink = "linear-create-key-link"
     static let linearShowIssuesToggle = "linear-show-issues-toggle"
 

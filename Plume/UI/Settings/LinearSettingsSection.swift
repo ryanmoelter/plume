@@ -7,6 +7,7 @@ struct LinearSettingsSection: View {
     @State private var isAdding = false
     @State private var addError: String?
     @State private var accountPendingRemoval: LinearAccount?
+    @State private var accountShowingInfo: LinearAccount?
 
     var body: some View {
         Section {
@@ -54,7 +55,28 @@ struct LinearSettingsSection: View {
         let status = Self.statusLine(for: store.accountStatus(orgID: account.orgID))
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.orgName)
+                HStack(spacing: 4) {
+                    Text(account.orgName)
+                    Button {
+                        accountShowingInfo = account
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("What Plume knows about this workspace")
+                    .plumeID(AccessibilityID.linearAccountInfoButton, label: account.orgName, invoke: {
+                        accountShowingInfo = account
+                    })
+                    .popover(
+                        isPresented: Binding(
+                            get: { accountShowingInfo == account },
+                            set: { if !$0 { accountShowingInfo = nil } }
+                        ),
+                        arrowEdge: .trailing
+                    ) {
+                        LinearAccountInfo(account: account)
+                    }
+                }
                 Text("Connected as \(account.viewerName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
