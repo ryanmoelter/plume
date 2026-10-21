@@ -56,6 +56,11 @@ struct Palette {
         ThemeChrome.paletteColor(slot: slot, for: colorScheme, in: definitions)
     }
 
+    /// One terminal palette slot's components, for color math.
+    func rgb(forSlot slot: Int) -> HexRGB? {
+        ThemeChrome.paletteRGB(slot: slot, for: colorScheme, in: definitions)
+    }
+
     /// A sidebar tint's color, or nil when the theme lacks its slot.
     func color(for tint: SidebarTint) -> Color? {
         switch tint {

@@ -3,10 +3,16 @@ import SwiftUI
 
 /// A parsed hex color, kept as components so a caller can build a `Color`
 /// without round-tripping through AppKit.
-struct HexRGB: Equatable {
+nonisolated struct HexRGB: Equatable, Sendable {
     let red: Double
     let green: Double
     let blue: Double
+
+    init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
 
     /// Parses a `rrggbb`, `rgb`, or `#`-prefixed hex color string, as found in
     /// ghostty theme files. Returns nil on anything else.
