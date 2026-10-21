@@ -22,7 +22,7 @@ struct LinearAccountInfo: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 320)
+        .frame(width: 280)
         .frame(maxHeight: 480)
         .fixedSize(horizontal: false, vertical: true)
         .plumeTheme(bodySize: NSFont.systemFontSize, setsAmbientFont: false)

@@ -30,7 +30,7 @@ struct LinearStateColorPreview: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 300)
+        .frame(width: 250)
         .frame(maxHeight: 480)
         .fixedSize(horizontal: false, vertical: true)
         .plumeTheme(bodySize: NSFont.systemFontSize, setsAmbientFont: false)
