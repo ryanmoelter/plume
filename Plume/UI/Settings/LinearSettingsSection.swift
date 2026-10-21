@@ -123,30 +123,33 @@ struct LinearSettingsSection: View {
 
     private var addRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                SecureField(text: $apiKey, prompt: nil) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Personal API key")
-                        Link(destination: Self.createKeyURL) {
-                            HStack(spacing: 2) {
-                                Text("Create new API key")
-                                Image(systemName: "arrow.up.right.square")
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(Self.accent)
-                        .plumeID(AccessibilityID.linearCreateKeyLink)
+            LabeledContent {
+                HStack {
+                    SecureField("Personal API key", text: $apiKey)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(add)
+                        .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
+                    if isAdding {
+                        ProgressView().controlSize(.small)
                     }
+                    Button("Add", action: add)
+                        .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
+                        .disabled(!canAdd)
                 }
-                .textFieldStyle(.roundedBorder)
-                    .onSubmit(add)
-                    .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
-                if isAdding {
-                    ProgressView().controlSize(.small)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Personal API key")
+                    Link(destination: Self.createKeyURL) {
+                        HStack(spacing: 2) {
+                            Text("Create new API key")
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Self.accent)
+                    .plumeID(AccessibilityID.linearCreateKeyLink)
                 }
-                Button("Add", action: add)
-                    .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
-                    .disabled(!canAdd)
             }
             if let addError {
                 Text(addError)

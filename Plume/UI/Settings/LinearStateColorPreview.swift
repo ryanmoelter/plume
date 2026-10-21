@@ -15,14 +15,14 @@ struct LinearStateColorPreview: View {
                 ForEach(store.accounts.accounts) { account in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(account.orgName)
-                            .font(.headline)
+                            .font(.title3.weight(.semibold))
                             .padding(.top, account == store.accounts.accounts.first ? 0 : 8)
                         if let catalog = store.catalog(orgID: account.orgID) {
                             ForEach(LinearStateGroups(catalog: catalog).sections) { section in
                                 SectionView(section: section, strategy: settings.linearStateColors)
                             }
                         } else {
-                            Text("No teams fetched yet").font(.caption).foregroundStyle(.secondary)
+                            Text("No teams fetched yet").font(.callout).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -30,7 +30,7 @@ struct LinearStateColorPreview: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 320)
+        .frame(width: 300)
         .frame(maxHeight: 480)
         .fixedSize(horizontal: false, vertical: true)
         .plumeTheme(bodySize: NSFont.systemFontSize, setsAmbientFont: false)
@@ -58,18 +58,18 @@ private struct SectionView: View, ThemedView {
                                 .frame(width: 16)
                                 .help("Linear's color")
                             Image(systemName: "arrow.right")
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(.tertiary)
                         } else {
                             Color.clear.frame(width: 16, height: 1)
-                            Image(systemName: "arrow.right").font(.caption2).hidden()
+                            Image(systemName: "arrow.right").font(.caption).hidden()
                         }
                     }
                     LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: strategy)
                         .frame(width: 16)
                     Text(entry.state.name)
                 }
-                .font(.caption)
+                .font(.callout)
             }
         }
     }
@@ -89,6 +89,6 @@ private struct SectionView: View, ThemedView {
             Text(title).fontWeight(.semibold)
             if let key { Text(key).foregroundStyle(.secondary) }
         }
-        .font(.caption)
+        .font(.callout)
     }
 }

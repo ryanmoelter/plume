@@ -14,9 +14,7 @@ struct LinearAccountInfo: View {
                 summary
                 Divider()
                 if let catalog = store.catalog(orgID: account.orgID) {
-                    ForEach(catalog.teams.sorted { $0.key < $1.key }, id: \.id) { team in
-                        TeamRow(team: team)
-                    }
+                    TeamTable(teams: catalog.teams.sorted { $0.key < $1.key })
                 } else {
                     Text("No teams fetched yet").foregroundStyle(.secondary)
                 }
@@ -24,7 +22,7 @@ struct LinearAccountInfo: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 380)
+        .frame(width: 320)
         .frame(maxHeight: 480)
         .fixedSize(horizontal: false, vertical: true)
         .plumeTheme(bodySize: NSFont.systemFontSize, setsAmbientFont: false)
@@ -33,7 +31,7 @@ struct LinearAccountInfo: View {
     private var summary: some View {
         let catalog = store.catalog(orgID: account.orgID)
         return VStack(alignment: .leading, spacing: 4) {
-            Text(account.orgName).font(.headline)
+            Text(account.orgName).font(.title3.weight(.semibold))
             Group {
                 Text("linear.app/\(account.urlKey)").foregroundStyle(.secondary)
                 LinearViewerName(name: account.viewerName)
@@ -70,7 +68,7 @@ struct LinearAccountInfo: View {
                     fact("Organization ID", account.orgID)
                 }
             }
-            .font(.caption)
+            .font(.callout)
         }
         .textSelection(.enabled)
     }
@@ -84,10 +82,11 @@ struct LinearAccountInfo: View {
     }
 
     private func fact(_ name: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(name).foregroundStyle(.secondary).frame(width: 100, alignment: .leading)
+        VStack(alignment: .leading, spacing: 1) {
+            Text(name).foregroundStyle(.secondary)
             Text(value)
         }
+        .padding(.top, 2)
     }
 
     static func statusWord(_ status: LinearAccountStatus) -> String {
@@ -106,16 +105,26 @@ struct LinearAccountInfo: View {
     }
 }
 
-private struct TeamRow: View {
-    let team: LinearTeam
+private struct TeamTable: View {
+    let teams: [LinearTeam]
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(team.key).fontWeight(.semibold)
-            Text(team.name).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text("\(team.states.count) states").foregroundStyle(.secondary)
+        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 4) {
+            GridRow {
+                Text("Teams").gridCellColumns(2)
+                Text("Issue states").gridColumnAlignment(.trailing)
+            }
+            .foregroundStyle(.secondary)
+            ForEach(teams, id: \.id) { team in
+                GridRow {
+                    Text(team.key).fontWeight(.semibold)
+                    Text(team.name)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("\(team.states.count)").foregroundStyle(.secondary)
+                }
+            }
         }
-        .font(.caption)
+        .font(.callout)
     }
 }
