@@ -24,6 +24,16 @@ struct ChatSelectionSerializerTests {
         #expect(result == "Some   **spaced**   text")
     }
 
+    @Test func aPromptCopiesAsOneBlockquote() {
+        let prompt = Fixtures.pieces("Fix the build.\n\n- first\n- second", messageID: "u", role: .user)
+        let reply = Fixtures.pieces("Done.", messageID: "a")
+        let pieces = prompt + reply
+        let result = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.everything(pieces))
+        #expect(result == "> Fix the build.\n>\n> - first\n> - second\n\nDone.")
+        let plain = ChatSelectionSerializer.plainText(of: pieces, selection: Fixtures.everything(pieces))
+        #expect(!plain.contains(">"))
+    }
+
     @Test func partialBoldKeepsItsMarkers() {
         #expect(markdown("a **bold** word", selecting: "ol") == "**ol**")
     }

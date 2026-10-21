@@ -48,7 +48,7 @@ final class ChatSelectionStore {
     func update(pieces: [ChatPiece], previousIDs: [String]) {
         let ids = pieces.map(\.id)
         order = ChatPieceOrder(ids)
-        lengths = Dictionary(pieces.map { ($0.id, $0.revealLength) }, uniquingKeysWith: { first, _ in first })
+        lengths = Dictionary(pieces.map { ($0.id, $0.selectableLength) }, uniquingKeysWith: { first, _ in first })
         guard let selection else { return }
         set(selection.clamped(from: previousIDs, toIDs: ids) { self.lengths[$0] ?? 0 })
     }

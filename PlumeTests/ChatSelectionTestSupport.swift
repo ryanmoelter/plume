@@ -3,9 +3,9 @@ import Foundation
 
 @MainActor
 enum ChatSelectionFixtures {
-    static func pieces(_ markdown: String, messageID: String = "m") -> [ChatPiece] {
+    static func pieces(_ markdown: String, messageID: String = "m", role: ChatMessage.Role = .assistant) -> [ChatPiece] {
         ChatPieceSplitter.pieces(
-            for: [ChatMessage(id: messageID, role: .assistant, blocks: [.markdown(markdown)], timestamp: nil, isLive: false)],
+            for: [ChatMessage(id: messageID, role: role, blocks: [.markdown(markdown)], timestamp: nil, isLive: false)],
             status: .awaitingReply,
             hiddenToolUseIDs: [],
             dimensions: Dimensions(bodySize: 13)

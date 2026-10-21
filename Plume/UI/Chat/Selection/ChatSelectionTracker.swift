@@ -39,10 +39,13 @@ final class ChatSelectionTracker {
     private func handle(_ event: NSEvent) -> NSEvent? {
         guard let controller, let window = controller.scrollView.window, event.window === window else { return event }
         switch event.type {
-        case .leftMouseDown: return mouseDown(event, controller: controller)
+        case .leftMouseDown, .rightMouseDown:
+            let isLeft = event.type == .leftMouseDown
+            let result = isLeft ? mouseDown(event, controller: controller) : rightMouseDown(event, controller: controller)
+            if result == nil { PaneClickProbe.observe(event) }
+            return result
         case .leftMouseDragged: return mouseDragged(event, controller: controller)
         case .leftMouseUp: return mouseUp(event)
-        case .rightMouseDown: return rightMouseDown(event, controller: controller)
         default: return event
         }
     }

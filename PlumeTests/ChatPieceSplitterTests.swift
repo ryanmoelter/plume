@@ -577,6 +577,12 @@ struct ChatPieceSplitterTests {
         #expect(result.allSatisfy { $0.revealLength == 0 && $0.revealOffset == 0 })
     }
 
+    @Test func userPiecesAreSelectable() {
+        let result = pieces([message("m", .user, [.markdown("Some prose here.")])])
+        #expect(result.allSatisfy { $0.selectableLength == ChatReveal.length(of: $0.content) })
+        #expect(result.contains { $0.selectableLength > 0 })
+    }
+
     @Test func piecesOfALiveMessageAreLive() {
         let result = pieces([message("m", .assistant, [.markdown("Still going"), toolCall("t1")], isLive: true)])
         #expect(!result.isEmpty)
