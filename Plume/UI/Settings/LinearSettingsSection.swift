@@ -142,6 +142,8 @@ struct LinearSettingsSection: View {
                     .buttonStyle(.bordered)
                     .plumeID(AccessibilityID.linearCancelAddButton, invoke: cancelAdding)
                 Button("Add", action: add)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Self.accent)
                     .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
                     .disabled(!canAdd)
                 if isAdding {
