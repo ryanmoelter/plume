@@ -6,8 +6,8 @@ struct LinearIssueGlyph: View, ThemedView {
     @Environment(\.theme) var theme
 
     let stateType: LinearStateType
-    /// A `#rrggbb` hex string. An unparseable or gray one draws in the text
-    /// color.
+    /// A `#rrggbb` hex string. An unparseable one, or a gray one under
+    /// `.themePalette`, draws in the secondary text color.
     let colorHex: String?
     /// Nil draws Linear's color unchanged.
     let strategy: LinearStateColorStrategy?
@@ -35,7 +35,7 @@ struct LinearIssueGlyph: View, ThemedView {
         Self.rgb(for: colorHex, strategy: strategy, in: colors).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
     }
 
-    /// Nil means the text color.
+    /// Nil means the secondary text color.
     static func rgb(for colorHex: String?, strategy: LinearStateColorStrategy?, in colors: Palette) -> HexRGB? {
         guard let rgb = colorHex.flatMap(HexRGB.init(hex:)) else { return nil }
         switch strategy {

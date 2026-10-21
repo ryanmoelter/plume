@@ -52,11 +52,10 @@ struct LinearStateColorTests {
         LinearStateColor.contrasted(hex(color), background: lightBackground, foreground: lightForeground)
     }
 
-    @Test func aDimColorStaysReadableOnADarkTheme() {
-        let result = OKLab(contrastedOnDark("e2e2e2"))
-        let (backgroundL, foregroundL) = (OKLab(darkBackground).l, OKLab(darkForeground).l)
-        #expect(result.l >= backgroundL + LinearStateColor.minimumGap - 0.001)
-        #expect(result.l <= foregroundL + 0.001)
+    @Test func aGrayBrighterThanTheTextIsCappedAtTheTextOnADarkTheme() {
+        let foregroundL = OKLab(darkForeground).l
+        #expect(OKLab(hex("e2e2e2")).l > foregroundL)
+        #expect(abs(OKLab(contrastedOnDark("e2e2e2")).l - foregroundL) < 0.01)
     }
 
     @Test func aVeryDarkColorIsLiftedOnADarkTheme() {
@@ -65,8 +64,8 @@ struct LinearStateColorTests {
         let gap = min(LinearStateColor.minimumGap, (foregroundL - backgroundL) / 2)
         let result = OKLab(contrastedOnDark("3a2a5a"))
         #expect(OKLab(input).l < backgroundL + gap)
-        #expect(result.l >= backgroundL + gap - 0.001)
-        #expect(result.l <= foregroundL + 0.001)
+        // Gamut clipping gives up chroma, never lightness.
+        #expect(abs(result.l - (backgroundL + gap)) < 0.01)
     }
 
     @Test func aLightColorIsDarkenedOnALightTheme() {

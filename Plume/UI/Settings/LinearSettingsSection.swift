@@ -138,9 +138,12 @@ struct LinearSettingsSection: View {
                     .frame(maxWidth: 260)
                     .onSubmit(add)
                     .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
-                Button("Cancel", action: cancelAdding)
-                    .buttonStyle(.bordered)
-                    .plumeID(AccessibilityID.linearCancelAddButton, invoke: cancelAdding)
+                if !store.accounts.accounts.isEmpty {
+                    Button("Cancel", action: cancelAdding)
+                        .buttonStyle(.bordered)
+                        .plumeID(AccessibilityID.linearCancelAddButton, invoke: cancelAdding)
+                        .disabled(isAdding)
+                }
                 Button("Add", action: add)
                     .buttonStyle(.borderedProminent)
                     .tint(Self.accent)

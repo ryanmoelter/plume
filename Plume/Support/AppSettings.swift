@@ -488,15 +488,15 @@ final class AppSettings {
 
     /// Master toggle for Linear issue lines. Like PR status it makes network
     /// calls, so it must be opt-outable; on by default.
-    var linearStateColors: LinearStateColorStrategy {
-        didSet {
-            defaults.set(linearStateColors.rawValue, forKey: Key.linearStateColorsRaw)
-        }
-    }
-
     var showsLinearIssues: Bool {
         didSet {
             defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
+        }
+    }
+
+    var linearStateColors: LinearStateColorStrategy {
+        didSet {
+            defaults.set(linearStateColors.rawValue, forKey: Key.linearStateColorsRaw)
         }
     }
 
