@@ -39,11 +39,11 @@ struct LinearStateGroupsTests {
         ])
     }
 
-    @Test func identicalStatesAcrossTeamsFormOneSharedSection() {
+    @Test func identicalStatesAcrossTeamsFormOneUnheadedSection() {
         let result = groups([team("B", common), team("A", common)])
 
         #expect(result.sections.count == 1)
-        #expect(result.sections[0].kind == .sharedByTeams)
+        #expect(result.sections[0].kind == .onlyTeam)
         #expect(names(result.sections[0]) == ["Todo", "Done"])
         #expect(result.sections[0].entries.allSatisfy { $0.teamKeys == ["A", "B"] })
     }
@@ -53,7 +53,7 @@ struct LinearStateGroupsTests {
         let b = team("B", [state("Todo", .unstarted, "#e2e2e2")])
         let result = groups([a, b])
 
-        #expect(result.sections.map(\.kind) == [.sharedByTeams])
+        #expect(result.sections.map(\.kind) == [.onlyTeam])
         #expect(result.sections[0].entries.count == 1)
         #expect(result.sections[0].entries[0].teamKeys == ["A", "B"])
     }

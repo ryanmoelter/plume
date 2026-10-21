@@ -15,8 +15,13 @@ struct LinearSettingsSection: View {
             Toggle("Show Linear issues", isOn: $settings.showsLinearIssues)
                 .plumeID(AccessibilityID.linearShowIssuesToggle, value: settings.showsLinearIssues ? "on" : "off")
 
-            ForEach(store.accounts.accounts) { account in
-                accountRow(account)
+            if !store.accounts.accounts.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Workspaces")
+                    ForEach(store.accounts.accounts) { account in
+                        accountRow(account)
+                    }
+                }
             }
 
             addRow
@@ -72,7 +77,18 @@ struct LinearSettingsSection: View {
 
     private func accountRow(_ account: LinearAccount) -> some View {
         let status = Self.statusLine(for: store.accountStatus(orgID: account.orgID))
-        return HStack {
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button {
+                accountPendingRemoval = account
+            } label: {
+                Image(systemName: "minus.circle")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("Remove this workspace")
+            .plumeID(AccessibilityID.linearRemoveAccountButton, label: account.orgName, invoke: {
+                accountPendingRemoval = account
+            })
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(account.orgName)
@@ -106,13 +122,7 @@ struct LinearSettingsSection: View {
                         .foregroundStyle(status.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 }
             }
-            Spacer()
-            Button("Remove", role: .destructive) {
-                accountPendingRemoval = account
-            }
-            .plumeID(AccessibilityID.linearRemoveAccountButton, label: account.orgName, invoke: {
-                accountPendingRemoval = account
-            })
+            Spacer(minLength: 0)
         }
         .plumeID(AccessibilityID.linearAccountRow, label: account.orgName)
     }

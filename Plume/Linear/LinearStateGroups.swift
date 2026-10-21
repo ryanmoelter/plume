@@ -13,7 +13,7 @@ nonisolated struct LinearStateGroups: Equatable {
 
     struct Section: Equatable, Identifiable {
         enum Kind: Equatable {
-            /// A workspace with one team needs no heading.
+            /// The workspace's only section, which needs no heading.
             case onlyTeam
             case sharedByTeams
             case team(LinearTeam)
@@ -61,6 +61,9 @@ nonisolated struct LinearStateGroups: Equatable {
         for team in teams {
             let own = entries.filter { $0.teamKeys == [team.key] }
             if !own.isEmpty { sections.append(Section(kind: .team(team), entries: Self.ordered(own))) }
+        }
+        if sections.count == 1 {
+            sections = [Section(kind: .onlyTeam, entries: sections[0].entries)]
         }
         self.sections = sections
     }
