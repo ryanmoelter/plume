@@ -30,6 +30,25 @@ nonisolated enum LinearStateColor {
             .key
     }
 
+    /// Keeps the color's hue and chroma, and moves its OKLab lightness to sit
+    /// between the background and the text color, at least `minimumGap` from
+    /// the background. Bounding it by the text color keeps a glyph from ever
+    /// outshouting the words beside it, whatever the theme.
+    static func contrasted(_ color: HexRGB, background: HexRGB, foreground: HexRGB) -> HexRGB {
+        let lab = OKLab(color)
+        let (backgroundL, foregroundL) = (OKLab(background).l, OKLab(foreground).l)
+        let span = abs(foregroundL - backgroundL)
+        guard span > 0.05 else { return color }
+        let gap = min(minimumGap, span / 2)
+        let range = foregroundL > backgroundL
+            ? (backgroundL + gap)...foregroundL
+            : foregroundL...(backgroundL - gap)
+        let l = min(max(lab.l, range.lowerBound), range.upperBound)
+        return OKLab(l: l, a: lab.a, b: lab.b).clippedToSRGB()
+    }
+
+    static let minimumGap = 0.35
+
     struct OKLab {
         let l: Double
         let a: Double
@@ -48,7 +67,49 @@ nonisolated enum LinearStateColor {
             b = 0.0259040371 * lms.0 + 0.7827717662 * lms.1 - 0.8086757660 * lms.2
         }
 
+        init(l: Double, a: Double, b: Double) {
+            self.l = l
+            self.a = a
+            self.b = b
+        }
+
         var chroma: Double { (a * a + b * b).squareRoot() }
+
+        /// Unclamped linear-light sRGB components.
+        private var linearRGB: (Double, Double, Double) {
+            let l_ = pow(l + 0.3963377774 * a + 0.2158037573 * b, 3)
+            let m_ = pow(l - 0.1055613458 * a - 0.0638541728 * b, 3)
+            let s_ = pow(l - 0.0894841775 * a - 1.2914855480 * b, 3)
+            return (
+                4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+                -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+                -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_
+            )
+        }
+
+        private var isInGamut: Bool {
+            let (r, g, b) = linearRGB
+            return [r, g, b].allSatisfy { $0 >= -0.0001 && $0 <= 1.0001 }
+        }
+
+        /// Gives up chroma, never lightness or hue, until the color fits sRGB.
+        func clippedToSRGB() -> HexRGB {
+            var low = 0.0
+            var high = 1.0
+            if !isInGamut {
+                for _ in 0..<20 {
+                    let mid = (low + high) / 2
+                    if OKLab(l: l, a: a * mid, b: b * mid).isInGamut { low = mid } else { high = mid }
+                }
+            }
+            let fitted = isInGamut ? self : OKLab(l: l, a: a * low, b: b * low)
+            func encode(_ c: Double) -> Double {
+                let c = min(max(c, 0), 1)
+                return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1 / 2.4) - 0.055
+            }
+            let (r, g, b) = fitted.linearRGB
+            return HexRGB(red: encode(r), green: encode(g), blue: encode(b))
+        }
 
         /// Lightness counts for half, since a theme tunes its palette's
         /// lightness to its background and the hue is what carries meaning.

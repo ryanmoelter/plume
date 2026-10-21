@@ -20,6 +20,11 @@ struct LinearSettingsSection: View {
 
             addRow
 
+            Picker("State colors", selection: $settings.linearStateColors) {
+                ForEach(LinearStateColorStrategy.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .plumeID(AccessibilityID.linearStateColorsPicker, value: settings.linearStateColors.rawValue)
+
             Link(destination: Self.createKeyURL) {
                 HStack(spacing: 4) {
                     Text("Create a personal API key")

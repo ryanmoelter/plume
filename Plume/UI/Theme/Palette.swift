@@ -56,6 +56,19 @@ struct Palette {
         ThemeChrome.paletteColor(slot: slot, for: colorScheme, in: definitions)
     }
 
+    /// The background's components, for color math. Without a theme, roughly
+    /// the default window background.
+    var backgroundRGB: HexRGB {
+        ThemeChrome.backgroundRGB(for: colorScheme, in: definitions)
+            ?? (colorScheme == .dark ? HexRGB(red: 0.12, green: 0.12, blue: 0.12) : HexRGB(red: 1, green: 1, blue: 1))
+    }
+
+    /// The text color's components, for color math.
+    var foregroundRGB: HexRGB {
+        ThemeChrome.foregroundRGB(for: colorScheme, in: definitions)
+            ?? (colorScheme == .dark ? HexRGB(red: 0.87, green: 0.87, blue: 0.87) : HexRGB(red: 0.1, green: 0.1, blue: 0.1))
+    }
+
     /// One terminal palette slot's components, for color math.
     func rgb(forSlot slot: Int) -> HexRGB? {
         ThemeChrome.paletteRGB(slot: slot, for: colorScheme, in: definitions)

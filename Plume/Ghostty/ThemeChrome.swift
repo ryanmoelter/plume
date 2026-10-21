@@ -144,6 +144,20 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(Color.init(hex:))
     }
 
+    static func backgroundRGB(
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        definition(for: colorScheme, in: definitions).flatMap { HexRGB(hex: $0.background) }
+    }
+
+    static func foregroundRGB(
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        definition(for: colorScheme, in: definitions).flatMap { HexRGB(hex: $0.foreground) }
+    }
+
     static func paletteRGB(
         slot: Int,
         for colorScheme: ColorScheme,

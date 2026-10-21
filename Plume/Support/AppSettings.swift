@@ -34,6 +34,7 @@ final class AppSettings {
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let showsLinearIssues = "showsLinearIssues"
+        static let linearStateColorsRaw = "linearStateColorsRaw"
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
@@ -170,6 +171,8 @@ final class AppSettings {
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
+        self.linearStateColors = defaults.string(forKey: Key.linearStateColorsRaw)
+            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .themePalette
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)
@@ -485,6 +488,12 @@ final class AppSettings {
 
     /// Master toggle for Linear issue lines. Like PR status it makes network
     /// calls, so it must be opt-outable; on by default.
+    var linearStateColors: LinearStateColorStrategy {
+        didSet {
+            defaults.set(linearStateColors.rawValue, forKey: Key.linearStateColorsRaw)
+        }
+    }
+
     var showsLinearIssues: Bool {
         didSet {
             defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
@@ -758,6 +767,21 @@ final class AppSettings {
 enum ComposerSendKey: String {
     case returnKey
     case commandReturn
+}
+
+enum LinearStateColorStrategy: String, CaseIterable {
+    /// The terminal palette hue nearest Linear's color.
+    case themePalette
+    /// Linear's own hue, with its lightness pulled between the background and
+    /// the text color.
+    case ensureContrast
+
+    var label: String {
+        switch self {
+        case .themePalette: "Map to theme palette"
+        case .ensureContrast: "Ensure contrast"
+        }
+    }
 }
 
 enum QueuedMessageDelivery: String, CaseIterable {

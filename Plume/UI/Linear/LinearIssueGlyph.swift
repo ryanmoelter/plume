@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A Linear workflow state as a symbol, in the theme color nearest the
-/// state's own.
+/// A Linear workflow state as a symbol, colored by the user's chosen
+/// `LinearStateColorStrategy`.
 struct LinearIssueGlyph: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -21,6 +21,15 @@ struct LinearIssueGlyph: View, ThemedView {
 
     private var color: Color? {
         guard let rgb = colorHex.flatMap(HexRGB.init(hex:)) else { return nil }
+        switch AppSettings.shared.linearStateColors {
+        case .themePalette: return paletteColor(for: rgb)
+        case .ensureContrast:
+            let fitted = LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)
+            return Color(red: fitted.red, green: fitted.green, blue: fitted.blue)
+        }
+    }
+
+    private func paletteColor(for rgb: HexRGB) -> Color? {
         var candidates: [Int: HexRGB] = [:]
         for slot in LinearStateColor.slots {
             candidates[slot] = colors.rgb(forSlot: slot) ?? LinearStateColor.fallbackSlots[slot]
@@ -37,7 +46,7 @@ struct LinearIssueGlyph: View, ThemedView {
         case .started: "circle.lefthalf.filled"
         case .completed: "checkmark.circle.fill"
         case .canceled: "xmark.circle.fill"
-        case .triage: "circle.dotted"
+        case .triage: "arrow.left.and.right.circle.fill"
         case .other: "circle"
         }
     }
