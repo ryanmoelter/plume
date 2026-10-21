@@ -82,6 +82,7 @@ struct LinearSettingsSection: View {
             } label: {
                 Image(systemName: "minus.circle")
                     .foregroundStyle(.red)
+                    .frame(width: Self.leadingIconWidth)
             }
             .buttonStyle(.borderless)
             .help("Remove this workspace")
@@ -137,6 +138,8 @@ struct LinearSettingsSection: View {
                     .frame(maxWidth: 260)
                     .onSubmit(add)
                     .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
+                Button("Cancel", action: cancelAdding)
+                    .plumeID(AccessibilityID.linearCancelAddButton, invoke: cancelAdding)
                 Button("Add", action: add)
                     .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
                     .disabled(!canAdd)
@@ -171,11 +174,23 @@ struct LinearSettingsSection: View {
         Button {
             showsAddForm = true
         } label: {
-            Label("Add", systemImage: "plus")
+            HStack(spacing: 8) {
+                Image(systemName: "plus").frame(width: Self.leadingIconWidth)
+                Text("Add")
+            }
         }
         .buttonStyle(.borderless)
         .foregroundStyle(Self.accent)
         .plumeID(AccessibilityID.linearShowAddFormButton, invoke: { showsAddForm = true })
+    }
+
+    /// Keeps the workspace names and the "Add" text in one column.
+    private static let leadingIconWidth: CGFloat = 18
+
+    private func cancelAdding() {
+        apiKey = ""
+        addError = nil
+        showsAddForm = false
     }
 
     private func add() {

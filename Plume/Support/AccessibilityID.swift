@@ -65,6 +65,7 @@ enum AccessibilityID {
     static let linearShowIssuesToggle = "linear-show-issues-toggle"
     static let linearStateColorsPicker = "linear-state-colors-picker"
     static let linearShowAddFormButton = "linear-show-add-form-button"
+    static let linearCancelAddButton = "linear-cancel-add-button"
     static let linearAccountDetailsToggle = "linear-account-details-toggle"
     static let linearStateColorsPreviewButton = "linear-state-colors-preview-button"
 
