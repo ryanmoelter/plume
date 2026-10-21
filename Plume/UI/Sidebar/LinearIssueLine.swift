@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// A working Linear issue under a task's name: logo, identifier, state glyph, state name.
+/// A working Linear issue under a task's name: logo, state glyph, title,
+/// identifier. The title gives way first, so the identifier always shows.
 struct LinearIssueLine: View {
     let identifier: String
     let state: LinearIssueFetchState?
@@ -9,22 +10,26 @@ struct LinearIssueLine: View {
         HStack(spacing: 4) {
             LinearLogo(size: 10)
                 .emphasis(.secondary)
-            Text(suffix == nil ? identifier : "\(identifier) ·")
-                .font(.caption)
-                .emphasis(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
             if let issue = state?.issue {
                 LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
                     .font(.caption)
                     .imageScale(.small)
-            }
-            if let suffix {
-                Text(suffix)
+                Text(issue.title)
                     .font(.caption)
                     .emphasis(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+            }
+            Text(identifier)
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+            if state?.issue == nil, let word = TaskRowDetails.linearStatusWord(state) {
+                Text(word)
+                    .font(.caption)
+                    .emphasis(.subtle)
+                    .lineLimit(1)
             }
             if case .stale(_, let reason) = state {
                 Image(systemName: "exclamationmark.circle")
@@ -34,11 +39,7 @@ struct LinearIssueLine: View {
                     .help(reason)
             }
         }
-        .help(state?.issue?.title ?? "")
+        .help(state?.issue.map { "\($0.stateName): \($0.title)" } ?? "")
         .plumeID(AccessibilityID.taskLinearIssueLine, label: identifier)
-    }
-
-    private var suffix: String? {
-        state?.issue?.stateName ?? TaskRowDetails.linearStatusWord(state)
     }
 }
