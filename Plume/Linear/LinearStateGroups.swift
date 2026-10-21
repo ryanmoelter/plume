@@ -67,7 +67,7 @@ nonisolated struct LinearStateGroups: Equatable {
 
     /// By workflow category, then by name.
     static func ordered(_ entries: [Entry]) -> [Entry] {
-        let rank: [LinearStateType] = [.triage, .backlog, .unstarted, .started, .completed, .canceled]
+        let rank: [LinearStateType] = [.triage, .backlog, .unstarted, .started, .completed, .canceled, .duplicate]
         func position(_ entry: Entry) -> Int { rank.firstIndex(of: entry.state.type) ?? rank.count }
         return entries.sorted {
             let (a, b) = (position($0), position($1))

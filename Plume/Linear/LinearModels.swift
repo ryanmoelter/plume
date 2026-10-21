@@ -10,6 +10,7 @@ nonisolated enum LinearStateType: Sendable, Equatable, Hashable, Codable {
     case started
     case completed
     case canceled
+    case duplicate
     case other(String)
 
     init(rawValue: String) {
@@ -20,6 +21,7 @@ nonisolated enum LinearStateType: Sendable, Equatable, Hashable, Codable {
         case "started": self = .started
         case "completed": self = .completed
         case "canceled", "cancelled": self = .canceled
+        case "duplicate": self = .duplicate
         default: self = .other(rawValue)
         }
     }
@@ -32,6 +34,7 @@ nonisolated enum LinearStateType: Sendable, Equatable, Hashable, Codable {
         case .started: "started"
         case .completed: "completed"
         case .canceled: "canceled"
+        case .duplicate: "duplicate"
         case .other(let raw): raw
         }
     }

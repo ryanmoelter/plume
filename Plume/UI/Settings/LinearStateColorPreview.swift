@@ -50,13 +50,18 @@ private struct SectionView: View, ThemedView {
             }
             ForEach(section.entries) { entry in
                 HStack(spacing: 6) {
-                    if isMapped(entry.state) {
-                        LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: nil)
-                            .frame(width: 16)
-                            .help("Linear's color")
-                        Image(systemName: "arrow.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                    Group {
+                        if isMapped(entry.state) {
+                            LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: nil)
+                                .frame(width: 16)
+                                .help("Linear's color")
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Color.clear.frame(width: 16, height: 1)
+                            Image(systemName: "arrow.right").font(.caption2).hidden()
+                        }
                     }
                     LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: strategy)
                         .frame(width: 16)

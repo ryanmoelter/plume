@@ -58,6 +58,7 @@ struct LinearIssueGlyph: View, ThemedView {
         case .started: "circle.righthalf.filled"
         case .completed: "checkmark.circle.fill"
         case .canceled: "xmark.circle.fill"
+        case .duplicate: "equal.circle.fill"
         case .triage: "arrow.left.and.right.circle.fill"
         case .other: "circle"
         }

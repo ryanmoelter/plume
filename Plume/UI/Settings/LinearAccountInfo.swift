@@ -6,6 +6,7 @@ struct LinearAccountInfo: View {
     let account: LinearAccount
 
     @State private var store = LinearStore.shared
+    @State private var showsDetails = false
 
     var body: some View {
         ScrollView {
@@ -45,10 +46,25 @@ struct LinearAccountInfo: View {
                 fact("Workspace", "linear.app/\(account.urlKey)")
                 fact("Connected as", account.viewerName)
                 fact("Status", Self.statusWord(store.accountStatus(orgID: account.orgID)))
-                fact("Team keys", catalog.map { $0.teams.map(\.key).sorted().joined(separator: ", ") } ?? "—")
-                fact("Teams fetched", catalog.map { $0.fetchedAt.formatted(.relative(presentation: .named)) } ?? "never")
-                fact("Requests left", Self.budget(store.rateLimit(orgID: account.orgID)))
-                fact("Organization ID", account.orgID)
+                Button {
+                    showsDetails.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        DisclosureChevron(isExpanded: showsDetails)
+                        Text("Details")
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .plumeID(AccessibilityID.linearAccountDetailsToggle, label: account.orgName, value: showsDetails ? "expanded" : "collapsed", invoke: {
+                    showsDetails.toggle()
+                })
+                if showsDetails {
+                    fact("Teams fetched", catalog.map { $0.fetchedAt.formatted(.relative(presentation: .named)) } ?? "never")
+                    fact("Requests left", Self.budget(store.rateLimit(orgID: account.orgID)))
+                    fact("Organization ID", account.orgID)
+                }
             }
             .font(.caption)
         }
