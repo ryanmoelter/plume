@@ -50,6 +50,35 @@ struct InfoPaneFacts: Equatable {
         }
     }
 
+    /// One linked Linear issue, flattened for drawing.
+    struct LinearIssueFacts: Equatable, Identifiable {
+        let identifier: String
+        let role: LinearLinkRole
+        var title: String?
+        var stateName: String?
+        var stateType: LinearStateType?
+        var stateColor: String?
+        var assignee: String?
+        var url: URL?
+        /// Who touched the issue, when a subagent did.
+        var attribution: String?
+        /// Set when the state has no issue to show; nil when one is drawn.
+        var statusWord: String?
+
+        var id: String { identifier }
+    }
+
+    /// Nil when Linear is off or no workspace is connected. An empty list
+    /// still shows the section, for its link button.
+    struct LinearFacts: Equatable {
+        /// Working issues, then mentioned ones still inside their linger.
+        var main: [LinearIssueFacts]
+        var mentioned: [LinearIssueFacts]
+
+        var workingCount: Int { main.count { $0.role == .working } }
+        var isEmpty: Bool { main.isEmpty && mentioned.isEmpty }
+    }
+
     var tabID: UUID
     var liveSubagents: [SubagentTranscript] = []
     var completedSubagents: [SubagentTranscript] = []
@@ -60,6 +89,7 @@ struct InfoPaneFacts: Equatable {
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
+    var linear: LinearFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
     var artifacts: [ConversationArtifact] = []
@@ -69,6 +99,7 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
+        if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
@@ -84,6 +115,7 @@ struct InfoPaneFacts: Equatable {
             switch section {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
+            case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .folder, .sideChat: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
@@ -132,7 +164,68 @@ extension InfoPaneFacts {
     }
 }
 
+extension InfoPaneFacts {
+    /// A mentioned issue counts as working-section material until
+    /// `hasSettled` says its linger is over.
+    static func linear(
+        isEnabled: Bool,
+        isConfigured: Bool,
+        links: [LinkedLinearIssue],
+        state: (String) -> LinearIssueFetchState?,
+        hasSettled: (String) -> Bool
+    ) -> LinearFacts? {
+        guard isEnabled, isConfigured else { return nil }
+        let issues = linearIssues(links: links, state: state)
+        let settled = issues.filter { $0.role == .mentioned && hasSettled($0.identifier) }
+        let settledIDs = Set(settled.map(\.identifier))
+        return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
+    }
+
+    /// Working issues first, then mentioned ones, each keeping its order.
+    static func linearIssues(
+        links: [LinkedLinearIssue],
+        state: (String) -> LinearIssueFetchState?
+    ) -> [LinearIssueFacts] {
+        let facts = links.map { link -> LinearIssueFacts in
+            let fetch = state(link.identifier)
+            let issue = fetch?.issue
+            return LinearIssueFacts(
+                identifier: link.identifier,
+                role: link.role,
+                title: issue?.title,
+                stateName: issue?.stateName,
+                stateType: issue?.stateType,
+                stateColor: issue?.stateColor,
+                assignee: issue?.assigneeName,
+                url: issue.flatMap { URL(string: $0.url) },
+                attribution: attribution(of: link),
+                statusWord: statusWord(for: fetch)
+            )
+        }
+        return facts.filter { $0.role == .working } + facts.filter { $0.role == .mentioned }
+    }
+
+    static func attribution(of link: LinkedLinearIssue) -> String? {
+        guard !link.subagents.isEmpty else { return nil }
+        let subagents = link.subagents.map(\.label).joined(separator: ", ")
+        return link.touchedByMainAgent ? "via \(subagents) and main agent" : "via \(subagents)"
+    }
+
+    static func statusWord(for state: LinearIssueFetchState?) -> String? {
+        switch state {
+        case .issue, .stale: nil
+        case nil, .loading: "loading"
+        case .notFound: "not found"
+        case .noWorkspace: "no workspace"
+        case .failed: "offline"
+        case .unauthorized: "key rejected"
+        case .rateLimited: "rate limited"
+        }
+    }
+}
+
 enum InfoPaneSection: Equatable {
+    case linearIssues
     case subagents
     case backgroundTasks
     case plan

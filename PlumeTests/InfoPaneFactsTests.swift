@@ -113,6 +113,115 @@ struct InfoPaneFactsTests {
         let facts = InfoPaneFacts.pullRequest(state: .pullRequest(pullRequest)) { _ in .pending }
         #expect(facts?.checkRollup == .pending)
     }
+
+    // MARK: Linear
+
+    private func link(
+        _ identifier: String,
+        _ role: LinearLinkRole = .working,
+        sources: Set<LinearLinkSource> = [.branch],
+        subagents: [String] = [],
+        mainAgent: Bool = false
+    ) -> LinkedLinearIssue {
+        LinkedLinearIssue(
+            identifier: identifier,
+            role: role,
+            sources: sources,
+            subagents: subagents.map { LinearSubagentRef(id: $0, label: $0) },
+            touchedByMainAgent: mainAgent
+        )
+    }
+
+    private func linearIssue(_ identifier: String) -> LinearIssue {
+        LinearIssue(
+            identifier: identifier, title: "Title", url: "https://linear.app/x/issue/\(identifier)",
+            stateName: "In Progress", stateType: .started, stateColor: "#f2c94c",
+            assigneeName: "Ada", teamKey: "PLUME"
+        )
+    }
+
+    @Test func linearSectionNeedsTheSettingAndAWorkspace() {
+        func facts(enabled: Bool, configured: Bool) -> InfoPaneFacts {
+            InfoPaneFacts(tabID: UUID(), linear: InfoPaneFacts.linear(
+                isEnabled: enabled, isConfigured: configured, links: [], state: { _ in nil }, hasSettled: { _ in true }
+            ))
+        }
+        #expect(facts(enabled: false, configured: true).sections.isEmpty)
+        #expect(facts(enabled: true, configured: false).sections.isEmpty)
+        #expect(facts(enabled: true, configured: true).sections == [.linearIssues])
+        #expect(facts(enabled: true, configured: true).collapsedSections.isEmpty)
+    }
+
+    @Test func collapsedFormMarksLinearOnlyWithWorkingIssues() {
+        let issues = InfoPaneFacts.linearIssues(links: [link("PLUME-1")], state: { _ in nil })
+        let facts = InfoPaneFacts(tabID: UUID(), linear: .init(main: issues, mentioned: []))
+        #expect(facts.collapsedSections == [.linearIssues])
+    }
+
+    @Test func aMentionedOnlySectionIsNotCollapsed() {
+        let issues = InfoPaneFacts.linearIssues(links: [link("PLUME-1", .mentioned)], state: { _ in nil })
+        let facts = InfoPaneFacts(tabID: UUID(), linear: .init(main: [], mentioned: issues))
+        #expect(facts.linear?.workingCount == 0)
+        #expect(!facts.collapsedSections.contains(.linearIssues))
+    }
+
+    @Test func settledMentionedIssuesSplitFromTheMainList() throws {
+        let facts = try #require(InfoPaneFacts.linear(
+            isEnabled: true,
+            isConfigured: true,
+            links: [link("A-1", .mentioned), link("B-2"), link("C-3", .mentioned)],
+            state: { _ in nil },
+            hasSettled: { $0 == "C-3" }
+        ))
+        #expect(facts.main.map(\.identifier) == ["B-2", "A-1"])
+        #expect(facts.mentioned.map(\.identifier) == ["C-3"])
+        #expect(facts.workingCount == 1)
+        #expect(!facts.isEmpty)
+    }
+
+    @Test func workingIssuesComeBeforeMentionedOnes() {
+        let issues = InfoPaneFacts.linearIssues(
+            links: [link("A-1", .mentioned), link("B-2"), link("C-3", .mentioned), link("D-4")],
+            state: { _ in nil }
+        )
+        #expect(issues.map(\.identifier) == ["B-2", "D-4", "A-1", "C-3"])
+    }
+
+    @Test func attributionNamesSubagentsAndTheMainAgent() {
+        #expect(InfoPaneFacts.attribution(of: link("A-1")) == nil)
+        #expect(InfoPaneFacts.attribution(of: link("A-1", mainAgent: true)) == nil)
+        #expect(InfoPaneFacts.attribution(of: link("A-1", subagents: ["Explore"])) == "via Explore")
+        #expect(InfoPaneFacts.attribution(of: link("A-1", subagents: ["Explore", "Plan"])) == "via Explore, Plan")
+        #expect(
+            InfoPaneFacts.attribution(of: link("A-1", subagents: ["Explore"], mainAgent: true))
+                == "via Explore and main agent"
+        )
+    }
+
+    @Test func fetchStatesReadAsWordsNeverAsNoIssue() {
+        let issue = linearIssue("A-1")
+        #expect(InfoPaneFacts.statusWord(for: .issue(issue)) == nil)
+        #expect(InfoPaneFacts.statusWord(for: .stale(issue, reason: "offline")) == nil)
+        #expect(InfoPaneFacts.statusWord(for: nil) == "loading")
+        #expect(InfoPaneFacts.statusWord(for: .loading) == "loading")
+        #expect(InfoPaneFacts.statusWord(for: .notFound) == "not found")
+        #expect(InfoPaneFacts.statusWord(for: .noWorkspace) == "no workspace")
+        #expect(InfoPaneFacts.statusWord(for: .failed("x")) == "offline")
+        #expect(InfoPaneFacts.statusWord(for: .unauthorized) == "key rejected")
+        #expect(InfoPaneFacts.statusWord(for: .rateLimited(until: Date())) == "rate limited")
+    }
+
+    @Test func aStaleIssueKeepsItsLastGoodValues() {
+        let issue = linearIssue("A-1")
+        let facts = InfoPaneFacts.linearIssues(
+            links: [link("A-1")], state: { _ in .stale(issue, reason: "offline") }
+        )
+        #expect(facts.first?.title == "Title")
+        #expect(facts.first?.stateName == "In Progress")
+        #expect(facts.first?.assignee == "Ada")
+        #expect(facts.first?.url == URL(string: issue.url))
+        #expect(facts.first?.statusWord == nil)
+    }
 }
 
 struct InfoPaneLayoutTests {

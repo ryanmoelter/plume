@@ -62,6 +62,26 @@ struct TranscriptStoreTests {
         #expect(store.transcript(forTab: tab)?.messages.count == 1)
     }
 
+    @Test func linearToolCallsReachTheActivitySinkAndAreForgottenOnStop() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(
+            "{\"type\":\"assistant\",\"uuid\":\"a1\",\"isSidechain\":false,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"mcp__linear__get_issue\",\"input\":{\"id\":\"PLUME-102\"}}]}}\n",
+            to: path
+        )
+        let sink = RecordingLinearSink()
+        let store = TranscriptStore(debounce: .milliseconds(10), linearActivity: sink)
+        let tab = UUID()
+        store.watch(tabID: tab, transcriptPath: path.path)
+
+        await waitUntil(store) { sink.evidence[tab] != nil }
+        #expect(sink.evidence[tab]?.map(\.identifier) == ["PLUME-102"])
+
+        store.stopWatching(tabID: tab)
+        #expect(sink.evidence[tab] == nil)
+    }
+
     @Test func appendingALineUpdatesTheTranscriptAfterTheDebounce() async {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -487,5 +507,17 @@ struct SubagentLingerIsDrivenByTheStoreTests {
         #expect(subagent.status == .done)
         // No view was ever mounted, so only the store can have observed this.
         #expect(tracker.hasSettled(subagent, tabID: tab))
+    }
+}
+
+private final class RecordingLinearSink: LinearActivitySink {
+    var evidence: [UUID: [LinearEvidence]] = [:]
+
+    func replaceActivity(tabID: UUID, evidence: [LinearEvidence]) {
+        self.evidence[tabID] = evidence
+    }
+
+    func forgetActivity(tabID: UUID) {
+        evidence.removeValue(forKey: tabID)
     }
 }

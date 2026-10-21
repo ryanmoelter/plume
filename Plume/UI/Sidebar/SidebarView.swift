@@ -27,6 +27,7 @@ struct SidebarView: View {
     /// Only ever set true. Setting a `FocusState` false resigns whatever is
     /// first responder at that moment.
     @FocusState private var isListFocused: Bool
+    @State private var linkingLinearTask: WorkTask?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,6 +108,9 @@ struct SidebarView: View {
             }
 
             SidebarFooter(archiveShown: $archiveShown)
+        }
+        .sheet(item: $linkingLinearTask) { task in
+            LinkLinearIssueSheet(task: task)
         }
     }
 
@@ -264,8 +268,28 @@ struct SidebarView: View {
         if let tab = TaskRemoteControl.toggleableTab(in: task) {
             TaskRemoteControlToggle(tabID: tab.id)
         }
+        linearMenuItems(for: task)
         Divider()
         Button("Delete", role: .destructive) { requestDelete(task) }
+    }
+
+    @ViewBuilder
+    private func linearMenuItems(for task: WorkTask) -> some View {
+        if AppSettings.shared.showsLinearIssues {
+            Button("Pin Linear Issue…") { linkingLinearTask = task }
+                .plumeID(AccessibilityID.taskLinkLinearIssueMenuItem, label: TitleStore.shared.displayTitle(for: task))
+                .disabled(!LinearStore.shared.isConfigured)
+            let working = LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
+            if !working.isEmpty {
+                Menu("Unpin Linear Issue") {
+                    ForEach(working) { issue in
+                        Button("Unpin \(issue.identifier)") {
+                            TaskStore.unlinkLinearIssue(issue.identifier, from: task)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Every task in the order the sidebar shows them, which is what the

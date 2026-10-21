@@ -33,6 +33,8 @@ final class AppSettings {
         static let animateCharacterReveal = "animateCharacterReveal"
         static let accentPaletteSlot = "accentPaletteSlot"
         static let showsPullRequestStatus = "showsPullRequestStatus"
+        static let showsLinearIssues = "showsLinearIssues"
+        static let linearStateColorsRaw = "linearStateColorsRaw"
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
@@ -42,6 +44,7 @@ final class AppSettings {
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
+        static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
         static let ignoredPendingChecks = "ignoredPendingChecks"
@@ -168,6 +171,11 @@ final class AppSettings {
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
+        self.linearStateColors = defaults.string(forKey: Key.linearStateColorsRaw)
+            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .ensureContrast
+        self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
+            ? true
+            : defaults.bool(forKey: Key.showsLinearIssues)
         self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
         self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
@@ -187,6 +195,9 @@ final class AppSettings {
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
+        self.infoPaneLinearExpanded = defaults.object(forKey: Key.infoPaneLinearExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneLinearExpanded)
         self.infoPaneBackgroundTasksExpanded = defaults.object(forKey: Key.infoPaneBackgroundTasksExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneBackgroundTasksExpanded)
@@ -475,6 +486,20 @@ final class AppSettings {
         }
     }
 
+    /// Master toggle for Linear issue lines. Like PR status it makes network
+    /// calls, so it must be opt-outable; on by default.
+    var showsLinearIssues: Bool {
+        didSet {
+            defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
+        }
+    }
+
+    var linearStateColors: LinearStateColorStrategy {
+        didSet {
+            defaults.set(linearStateColors.rawValue, forKey: Key.linearStateColorsRaw)
+        }
+    }
+
     /// Whether a colored task draws a bar of its color at its row's leading edge.
     var sidebarShowsTaskColorBar: Bool {
         didSet {
@@ -537,6 +562,12 @@ final class AppSettings {
     var infoPaneSubagentsExpanded: Bool {
         didSet {
             defaults.set(infoPaneSubagentsExpanded, forKey: Key.infoPaneSubagentsExpanded)
+        }
+    }
+
+    var infoPaneLinearExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneLinearExpanded, forKey: Key.infoPaneLinearExpanded)
         }
     }
 
@@ -736,6 +767,21 @@ final class AppSettings {
 enum ComposerSendKey: String {
     case returnKey
     case commandReturn
+}
+
+enum LinearStateColorStrategy: String, CaseIterable {
+    /// The terminal palette hue nearest Linear's color.
+    case themePalette
+    /// Linear's own hue, with its lightness pulled between the background and
+    /// the text color.
+    case ensureContrast
+
+    var label: String {
+        switch self {
+        case .themePalette: "Map to theme palette"
+        case .ensureContrast: "Ensure contrast"
+        }
+    }
 }
 
 enum QueuedMessageDelivery: String, CaseIterable {

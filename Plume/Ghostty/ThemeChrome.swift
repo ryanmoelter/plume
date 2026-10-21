@@ -144,6 +144,28 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(Color.init(hex:))
     }
 
+    static func backgroundRGB(
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        definition(for: colorScheme, in: definitions).flatMap { HexRGB(hex: $0.background) }
+    }
+
+    static func foregroundRGB(
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        definition(for: colorScheme, in: definitions).flatMap { HexRGB(hex: $0.foreground) }
+    }
+
+    static func paletteRGB(
+        slot: Int,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(HexRGB.init(hex:))
+    }
+
     /// The accent color: the palette slot chosen in settings, or the system
     /// accent when none is chosen or the theme lacks that slot.
     /// An inactive window draws it in the text color instead, the way the
