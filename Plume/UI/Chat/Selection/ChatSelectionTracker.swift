@@ -49,6 +49,7 @@ final class ChatSelectionTracker {
         pending = nil
         isDragging = false
         guard controller.isInDocument(event.locationInWindow) else { return event }
+        if event.modifierFlags.contains(.control) { return rightMouseDown(event, controller: controller) }
         let store = controller.selection
         // Rows that keep SwiftUI's own selection run a tracking loop that
         // hides the mouse-up from this monitor, so they are never tracked.
@@ -67,7 +68,8 @@ final class ChatSelectionTracker {
             pending = (event.locationInWindow, position)
             return event
         case 2:
-            // Swallowed even over a link, which would otherwise open twice.
+            // Swallowed even over a link, which its first click already
+            // opened and this one would open again.
             guard let text = controller.selectableText(of: position.pieceID),
                   let word = ChatSelection.expandToWord(at: position, in: text) else { return nil }
             store.set(word)

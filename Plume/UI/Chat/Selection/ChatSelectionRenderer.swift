@@ -51,25 +51,27 @@ struct ChatSelectionRenderer: TextRenderer {
 struct ChatSelectionRecorder: ViewModifier {
     let span: ChatSelectionSpan
     let text: String
+    @State private var owner = UUID()
 
     func body(content: Content) -> some View {
         let registry = span.store.layouts
         let pieceID = span.pieceID
         let offset = span.offset
         let text = text
+        let owner = owner
         content
             .onPreferenceChange(Text.LayoutKey.self) { layouts in
                 let layout = layouts.first?.layout
                 MainActor.assumeIsolated {
-                    registry.setLayout(layout, text: text, pieceID: pieceID, offset: offset)
+                    registry.setLayout(layout, text: text, pieceID: pieceID, offset: offset, owner: owner)
                 }
             }
             .onGeometryChange(for: CGRect.self) {
                 $0.frame(in: .named(ChatSelectionGeometry.rowSpace))
             } action: { frame in
-                registry.setFrame(frame, text: text, pieceID: pieceID, offset: offset)
+                registry.setFrame(frame, text: text, pieceID: pieceID, offset: offset, owner: owner)
             }
-            .onDisappear { registry.remove(pieceID, offset: offset) }
+            .onDisappear { registry.remove(pieceID, offset: offset, owner: owner) }
     }
 }
 

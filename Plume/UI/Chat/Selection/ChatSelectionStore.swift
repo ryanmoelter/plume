@@ -94,6 +94,9 @@ final class ChatTextLayoutRegistry {
         /// Where the `Text` starts in its piece's selectable text.
         var offset: Int
         var text: String
+        /// The recorder that wrote it. A pooled row's old root can report
+        /// disappearing after the same text has registered again elsewhere.
+        var owner: UUID
         var layout: Text.Layout?
         /// In the row's coordinate space, `ChatSelectionGeometry.rowSpace`.
         var frame: CGRect = .zero
@@ -101,17 +104,30 @@ final class ChatTextLayoutRegistry {
 
     private(set) var entries: [String: [Int: Entry]] = [:]
 
-    func setLayout(_ layout: Text.Layout?, text: String, pieceID: String, offset: Int) {
-        entries[pieceID, default: [:]][offset, default: Entry(offset: offset, text: text)].layout = layout
-        entries[pieceID]?[offset]?.text = text
+    func setLayout(_ layout: Text.Layout?, text: String, pieceID: String, offset: Int, owner: UUID) {
+        update(pieceID: pieceID, offset: offset, text: text, owner: owner) { $0.layout = layout }
     }
 
-    func setFrame(_ frame: CGRect, text: String, pieceID: String, offset: Int) {
-        entries[pieceID, default: [:]][offset, default: Entry(offset: offset, text: text)].frame = frame
+    func setFrame(_ frame: CGRect, text: String, pieceID: String, offset: Int, owner: UUID) {
+        update(pieceID: pieceID, offset: offset, text: text, owner: owner) { $0.frame = frame }
     }
 
-    func remove(_ pieceID: String, offset: Int) {
+    func remove(_ pieceID: String, offset: Int, owner: UUID) {
+        guard entries[pieceID]?[offset]?.owner == owner else { return }
         entries[pieceID]?[offset] = nil
+    }
+
+    /// A recorder whose `Text` moved to a new offset, as an item does when an
+    /// earlier item's text changes length, leaves no entry at the old one.
+    private func update(pieceID: String, offset: Int, text: String, owner: UUID, _ change: (inout Entry) -> Void) {
+        var piece = entries[pieceID] ?? [:]
+        for (other, entry) in piece where entry.owner == owner && other != offset { piece[other] = nil }
+        var entry = piece[offset] ?? Entry(offset: offset, text: text, owner: owner)
+        entry.text = text
+        entry.owner = owner
+        change(&entry)
+        piece[offset] = entry
+        entries[pieceID] = piece
     }
 
     func remove(_ pieceID: String) {

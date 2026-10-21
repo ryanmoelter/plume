@@ -1013,9 +1013,10 @@ final class ChatListDocumentView: NSView {
         controller?.layoutPass()
     }
 
-    /// Only while something is selected, so a click in the gap between rows
-    /// leaves the composer its keyboard.
-    override var acceptsFirstResponder: Bool { controller?.selection.hasSelection ?? false }
+    /// Only while a selection exists, collapsed at the start of a drag
+    /// included, so a click in the gap between rows leaves the composer its
+    /// keyboard.
+    override var acceptsFirstResponder: Bool { controller?.selection.selection != nil }
 
     override func becomeFirstResponder() -> Bool {
         controller?.selection.setActive(window?.isKeyWindow ?? false)
