@@ -14,7 +14,9 @@ struct LinearStateColorPreview: View {
                 }
                 ForEach(store.accounts.accounts) { account in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(account.orgName).font(.headline)
+                        Text(account.orgName)
+                            .font(.headline)
+                            .padding(.top, account == store.accounts.accounts.first ? 0 : 8)
                         if let catalog = store.catalog(orgID: account.orgID) {
                             ForEach(LinearStateGroups(catalog: catalog).sections) { section in
                                 SectionView(section: section, strategy: settings.linearStateColors)

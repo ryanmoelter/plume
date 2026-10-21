@@ -105,7 +105,7 @@ struct LinearSettingsSection: View {
                         LinearAccountInfo(account: account)
                     }
                 }
-                Text("Connected as \(account.viewerName)")
+                Label(account.viewerName, systemImage: "person")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let status {

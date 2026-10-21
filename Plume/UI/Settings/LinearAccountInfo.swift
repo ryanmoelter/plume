@@ -33,25 +33,30 @@ struct LinearAccountInfo: View {
     private var summary: some View {
         let catalog = store.catalog(orgID: account.orgID)
         return VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(account.orgName).font(.headline)
-                Spacer()
-                Button("Refresh") { store.refreshCatalog(orgID: account.orgID) }
-                    .controlSize(.small)
+            Text(account.orgName).font(.headline)
+            Group {
+                Text("linear.app/\(account.urlKey)").foregroundStyle(.secondary)
+                Label(account.viewerName, systemImage: "person")
+                HStack(spacing: 4) {
+                    Text(Self.statusLine(store.accountStatus(orgID: account.orgID), fetchedAt: catalog?.fetchedAt))
+                    Button {
+                        store.refreshCatalog(orgID: account.orgID)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(LinearSettingsSection.accent)
+                    .help("Fetch teams and states again")
                     .plumeID(AccessibilityID.linearAccountRefreshButton, label: account.orgName, invoke: {
                         store.refreshCatalog(orgID: account.orgID)
                     })
-            }
-            Group {
-                fact("Workspace", "linear.app/\(account.urlKey)")
-                fact("Connected as", account.viewerName)
-                fact("Status", Self.statusWord(store.accountStatus(orgID: account.orgID)))
+                }
                 Button {
                     showsDetails.toggle()
                 } label: {
                     HStack(spacing: 4) {
-                        DisclosureChevron(isExpanded: showsDetails)
                         Text("Details")
+                        DisclosureChevron(isExpanded: showsDetails)
                     }
                     .contentShape(Rectangle())
                 }
@@ -61,7 +66,6 @@ struct LinearAccountInfo: View {
                     showsDetails.toggle()
                 })
                 if showsDetails {
-                    fact("Teams fetched", catalog.map { $0.fetchedAt.formatted(.relative(presentation: .named)) } ?? "never")
                     fact("Requests left", Self.budget(store.rateLimit(orgID: account.orgID)))
                     fact("Organization ID", account.orgID)
                 }
@@ -69,6 +73,14 @@ struct LinearAccountInfo: View {
             .font(.caption)
         }
         .textSelection(.enabled)
+    }
+
+    /// "Connected, 39 minutes ago": the status, and when the teams last
+    /// arrived.
+    static func statusLine(_ status: LinearAccountStatus, fetchedAt: Date?) -> String {
+        let word = statusWord(status)
+        guard let fetchedAt else { return word }
+        return "\(word), \(fetchedAt.formatted(.relative(presentation: .named)))"
     }
 
     private func fact(_ name: String, _ value: String) -> some View {
