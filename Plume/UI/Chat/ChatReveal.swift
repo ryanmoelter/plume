@@ -693,6 +693,7 @@ extension View {
     /// characters further in.
     func chatRevealOffset(_ offset: Int) -> some View {
         transformEnvironment(\.chatReveal) { $0?.offset += offset }
+            .transformEnvironment(\.chatSelectionSpan) { $0?.offset += offset }
     }
 
     /// Fades this `Text`, which draws `text`, in behind the reveal.
@@ -713,22 +714,43 @@ extension View {
 private struct RevealFade: ViewModifier {
     let text: String
     @Environment(\.chatReveal) private var context
+    @Environment(\.chatSelectionSpan) private var span
     @State private var tuning = RevealTuning.shared
 
     /// Selectable text draws without consulting its `TextRenderer`, so the
     /// text stays unselectable until the reveal has passed it. Shown text
     /// drops the renderer and takes the selection its container sets.
+    ///
+    /// Text in the transcript's own selection always draws through a
+    /// renderer instead, which paints both the selection and the reveal.
     func body(content: Content) -> some View {
         let length = text.utf16.count
         let start = Double(context?.offset ?? 0)
         let state = context?.reveal.state(across: start, start + Double(length))
-        if let state, !state.isShown {
+        if let span {
+            content
+                .textRenderer(ChatSelectionRenderer(
+                    reveal: state.flatMap { $0.isShown ? nil : renderer(state: $0, start: start, length: length, values: tuning.values) },
+                    selected: span.piece.range.flatMap { selected(by: $0, from: span.offset, length: length) },
+                    highlight: span.piece.highlight,
+                    text: text
+                ))
+                .textSelection(.disabled)
+                .modifier(ChatSelectionRecorder(span: span, text: text))
+        } else if let state, !state.isShown {
             content
                 .textRenderer(renderer(state: state, start: start, length: length, values: tuning.values))
                 .textSelection(.disabled)
         } else {
             content
         }
+    }
+
+    /// The piece's selected range in this `Text`'s own offsets.
+    private func selected(by range: Range<Int>, from offset: Int, length: Int) -> Range<Int>? {
+        let lower = max(range.lowerBound - offset, 0)
+        let upper = min(range.upperBound - offset, length)
+        return lower < upper ? lower..<upper : nil
     }
 
     private func renderer(state: MessageReveal.State, start: Double, length: Int, values: RevealTuning.Values) -> WordReveal {

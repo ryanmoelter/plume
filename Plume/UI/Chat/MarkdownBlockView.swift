@@ -281,8 +281,11 @@ struct ListSegmentView: View, ThemedView {
             ForEach(segment.items.indices, id: \.self) { index in
                 let item = segment.items[index]
                 HStack(alignment: .top, spacing: 6) {
+                    // Decoration the reveal does not count, so it would
+                    // collide with the item text's offset.
                     Text(marker(for: item))
                         .revealFade(marker(for: item))
+                        .environment(\.chatSelectionSpan, nil)
                     let text = MarkdownCache.styledInline(
                         item.text,
                         fontSize: typography.bodySize,
