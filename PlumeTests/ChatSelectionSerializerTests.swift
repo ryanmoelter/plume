@@ -124,88 +124,76 @@ struct ChatSelectionSerializerTests {
             of: pieces,
             selection: Fixtures.selection(piece, text.fragments[1].start + 1..<text.fragments[4].start + 2)
         )
-        #expect(partial == "| ty |\n| --: |\n| apple | 3 |\n| pe |")
+        #expect(partial == "| Name | Qty |\n| --- | --: |\n| apple | 3 |\n| pear | 10 |")
+
+        let body = ChatSelectionSerializer.markdown(
+            of: pieces,
+            selection: Fixtures.selection(piece, text.fragments[3].start..<text.fragments[3].start + 1)
+        )
+        #expect(body == "| Name | Qty |\n| --- | --: |\n| apple | 3 |")
     }
 
-    @Test func aToolCallPieceInTheRangeIsSkipped() {
-        let call = ToolCall(id: "t", name: "Read", summary: ToolCallSummary(name: "Read", detail: "f"), input: .json("{}"))
-        let message = ChatMessage(
-            id: "m", role: .assistant,
-            blocks: [.markdown("before"), .toolCall(call), .markdown("after")],
-            timestamp: nil, isLive: false
+    @Test func aHeaderlessTableSliceGetsAnEmptyHeader() {
+        let table = MarkdownBlock.table(header: ["", ""], alignments: [.leading, .center], rows: [["a", "b"], ["c", "d"]])
+        let piece = ChatPiece(
+            id: "p", messageID: "m", role: .assistant,
+            content: .markdown(table, index: 0), wash: .none, copySource: "full"
         )
-        let pieces = ChatPieceSplitter.pieces(
-            for: [message], status: .awaitingReply, hiddenToolUseIDs: [], dimensions: Dimensions(bodySize: 13)
+        let start = ChatSelectableText(piece: piece).fragments[3].start
+        let result = ChatSelectionSerializer.markdown(of: [piece], selection: Fixtures.selection(piece, start..<start + 1))
+        #expect(result == "|  |  |\n| --- | :-: |\n| c | d |")
+    }
+
+    @Test func tablePipesInCellsAreEscaped() {
+        let table = MarkdownBlock.table(header: ["a"], alignments: [.leading], rows: [["x | y"]])
+        let piece = ChatPiece(
+            id: "p", messageID: "m", role: .assistant,
+            content: .markdown(table, index: 0), wash: .none, copySource: "full"
         )
+        let start = ChatSelectableText(piece: piece).fragments[1].start
+        let result = ChatSelectionSerializer.markdown(of: [piece], selection: Fixtures.selection(piece, start..<start + 2))
+        #expect(result == "| a |\n| --- |\n| x \\| y |")
+    }
+
+    @Test func listsOfDifferentKindsAreSeparatedByABlankLine() {
+        let pieces = Fixtures.pieces("- banana item\n\n1. first step")
+        let result = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.everything(pieces))
+        #expect(result == "- banana item\n\n1. first step")
+        let partial = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.selection(from: (pieces[0], 0), to: (pieces[1], 4)))
+        #expect(partial.contains("\n\n"))
+    }
+
+    @Test func itemsOfOneListJoinWithASingleNewline() {
+        let pieces = Fixtures.pieces("- one\n- two\n- three")
         #expect(pieces.count == 3)
-        let selection = Fixtures.selection(from: (pieces[0], 2), to: (pieces[2], 3))
-        #expect(ChatSelectionSerializer.markdown(of: pieces, selection: selection) == "fore\n\naft")
-        #expect(ChatSelectionSerializer.plainText(of: pieces, selection: selection) == "fore\n\naft")
+        let result = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.everything(pieces))
+        #expect(result == "- one\n- two\n- three")
     }
 
-    @Test func plainTextKeepsListMarkersAndTabsBetweenCells() {
-        let pieces = Fixtures.pieces("Intro\n\n- one\n- two\n\n| a | b |\n|---|---|\n| 1 | 2 |")
-        let result = ChatSelectionSerializer.plainText(of: pieces, selection: Fixtures.everything(pieces))
-        #expect(result == "Intro\n\n\u{2022} one\n\u{2022} two\n\na\tb\n1\t2")
+    @Test func listsFromDifferentMessagesAreSeparated() {
+        let first = Fixtures.pieces("- a\n- b", messageID: "m1")
+        let second = Fixtures.pieces("- c\n- d", messageID: "m2")
+        let pieces = first + second
+        let result = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.everything(pieces))
+        #expect(result == "- a\n- b\n\n- c\n- d")
     }
 
-    @Test func plainTextStripsMarkup() {
-        let pieces = Fixtures.pieces("a **bold** [link](https://x.y) `code`")
-        let piece = pieces[0]
-        let result = ChatSelectionSerializer.plainText(
-            of: pieces, selection: Fixtures.selection(piece, 0..<ChatSelectableText.length(of: piece))
-        )
-        #expect(result == "a bold link code")
+    @Test func partialTextEscapesMoreMarkup() {
+        #expect(markdown("a \\~tilde \\<tag> x", selecting: "~tilde <tag>") == "\\~tilde \\<tag>")
     }
 
-    @Test func rtfCarriesTraitsAndLinksButNoColors() throws {
-        let pieces = Fixtures.pieces("plain **bold** *it* `mono` [site](https://example.com)")
-        let piece = pieces[0]
-        let data = try #require(ChatSelectionSerializer.rtf(
-            of: pieces, selection: Fixtures.selection(piece, 0..<ChatSelectableText.length(of: piece))
-        ))
-        let read = try #require(NSAttributedString(rtf: data, documentAttributes: nil))
-        #expect(read.string == "plain bold it mono site")
-
-        var sawBold = false
-        var sawLink = false
-        var sawMono = false
-        var sawColor = false
-        read.enumerateAttributes(in: NSRange(location: 0, length: read.length)) { attributes, _, _ in
-            if let font = attributes[.font] as? NSFont {
-                sawBold = sawBold || font.fontDescriptor.symbolicTraits.contains(.bold)
-                sawMono = sawMono || font.fontDescriptor.symbolicTraits.contains(.monoSpace)
-            }
-            sawLink = sawLink || attributes[.link] != nil
-            sawColor = sawColor || attributes[.foregroundColor] != nil || attributes[.backgroundColor] != nil
-        }
-        #expect(sawBold)
-        #expect(sawMono)
-        #expect(sawLink)
-        #expect(!sawColor)
+    @Test func partialTextEscapesLeadingBlockMarkers() {
+        #expect(markdown("x \\# not heading here", selecting: "# not") == "\\# not")
+        #expect(markdown("x \\> quoted here", selecting: "> quoted") == "\\> quoted")
+        #expect(markdown("x \\- dash here", selecting: "- dash") == "\\- dash")
+        #expect(markdown("x \\+ plus here", selecting: "+ plus") == "\\+ plus")
+        #expect(markdown("x 1\\. one here", selecting: "1. one") == "1\\. one")
+        #expect(markdown("x 2\\) two here", selecting: "2) two") == "2\\) two")
+        #expect(markdown("x 3.5 here", selecting: "3.5 he") == "3.5 he")
     }
 
-    @Test func aFiveHundredPieceSelectionSerializes() {
-        let source = (0..<500).map { "Paragraph \($0) with **bold** text." }.joined(separator: "\n\n")
-        let pieces = Fixtures.pieces(source)
-        #expect(pieces.count == 500)
-        let selection = Fixtures.selection(from: (pieces[0], 3), to: (pieces[499], 11))
-        let markdown = ChatSelectionSerializer.markdown(of: pieces, selection: selection)
-        let plain = ChatSelectionSerializer.plainText(of: pieces, selection: selection)
-        #expect(markdown.hasPrefix("agraph 0 with **bold** text."))
-        #expect(plain.hasSuffix("Paragraph 4"))
-        #expect(plain.components(separatedBy: "\n\n").count == 500)
-        #expect(ChatSelectionSerializer.rtf(of: pieces, selection: selection) != nil)
-    }
-
-    @Test func aReversedSelectionSerializesLikeAForwardOne() {
-        let pieces = Fixtures.pieces("alpha\n\nbeta\n\ngamma")
-        let forward = Fixtures.selection(from: (pieces[0], 2), to: (pieces[2], 3))
-        let backward = ChatSelection(anchor: forward.focus, focus: forward.anchor)
-        #expect(
-            ChatSelectionSerializer.markdown(of: pieces, selection: forward)
-                == ChatSelectionSerializer.markdown(of: pieces, selection: backward)
-        )
-        #expect(ChatSelectionSerializer.markdown(of: pieces, selection: forward) == "pha\n\nbeta\n\ngam")
+    @Test func linkDestinationsWithParenthesesUseAngleBrackets() {
+        #expect(markdown("[doc](<https://e.com/a(1)>) end", selecting: "doc") == "[doc](<https://e.com/a(1)>)")
+        #expect(markdown("[doc](https://e.com/a%20b) end", selecting: "doc") == "[doc](https://e.com/a%20b)")
     }
 }

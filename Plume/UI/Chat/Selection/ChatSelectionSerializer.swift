@@ -34,14 +34,14 @@ enum ChatSelectionSerializer {
     }
 
     static func markdown(of pieces: [ChatPiece], selection: ChatSelection) -> String {
-        let blocks: [(isList: Bool, markdown: String)] = slices(of: pieces, selection: selection).compactMap { slice in
+        let blocks: [(piece: ChatPiece, text: String)] = slices(of: pieces, selection: selection).compactMap { slice in
             let markdown = slice.isWhole
                 ? slice.piece.copySource ?? MarkdownSource.markdown(of: slice.piece.content)
                 : partialMarkdown(of: slice)
             guard let markdown, !markdown.isEmpty else { return nil }
-            return (slice.piece.isList, markdown)
+            return (slice.piece, markdown)
         }
-        return join(blocks.map { ($0.isList, $0.markdown) })
+        return join(blocks)
     }
 
     static func plainText(of pieces: [ChatPiece], selection: ChatSelection) -> String {
@@ -75,15 +75,17 @@ enum ChatSelectionSerializer {
 
     // MARK: - Joining
 
-    private static func join(_ blocks: [(isList: Bool, text: String)]) -> String {
+    private static func join(_ blocks: [(piece: ChatPiece, text: String)]) -> String {
         var result = ""
-        var previousIsList = false
         for (index, block) in blocks.enumerated() {
-            if index > 0 { result += previousIsList && block.isList ? "\n" : "\n\n" }
+            if index > 0 { result += separator(between: blocks[index - 1].piece, and: block.piece) }
             result += block.text
-            previousIsList = block.isList
         }
         return result
+    }
+
+    private static func separator(between previous: ChatPiece, and next: ChatPiece) -> String {
+        previous.continuesList(in: next) ? "\n" : "\n\n"
     }
 
     // MARK: - Fragments in range
@@ -146,66 +148,62 @@ enum ChatSelectionSerializer {
     }
 
     private static func tableMarkdown(_ parts: [Selected], piece: ChatPiece) -> String {
-        var alignments: [MarkdownBlock.ColumnAlignment] = []
-        if case let .markdown(.table(_, columnAlignments, _), _) = piece.content { alignments = columnAlignments }
-        var lines: [String] = []
-        var cells: [String] = []
-        var columns: [Int] = []
-        var currentRow: Int?
-        var currentIsHeader = false
+        guard case let .markdown(.table(header, alignments, _), _) = piece.content else { return "" }
+        let cells = ChatSelectableText(piece: piece).fragments.compactMap { fragment -> (row: Int, column: Int, text: String)? in
+            guard case let .tableCell(row, column, _) = fragment.kind else { return nil }
+            return (row, column, inlineMarkdown(fragment.source)
+                .replacingOccurrences(of: #"(?<!\\)\|"#, with: #"\\|"#, options: .regularExpression))
+        }
+        let touchedRows = Set(parts.compactMap { part -> Int? in
+            if case let .tableCell(row, _, _) = part.fragment.kind { row } else { nil }
+        })
+        let columnCount = (cells.map(\.column).max() ?? -1) + 1
+        let hasHeader = MarkdownBlock.headerIsMeaningful(header)
 
-        func flush() {
-            guard !cells.isEmpty else { return }
-            lines.append("| " + cells.joined(separator: " | ") + " |")
-            if currentIsHeader {
-                let delimiters = columns.map { column -> String in
-                    switch alignments.indices.contains(column) ? alignments[column] : .leading {
-                    case .leading: "---"
-                    case .center: ":-:"
-                    case .trailing: "--:"
-                    }
-                }
-                lines.append("| " + delimiters.joined(separator: " | ") + " |")
-            }
-            cells = []
-            columns = []
+        func line(_ texts: [String]) -> String { "| " + texts.joined(separator: " | ") + " |" }
+        func row(_ index: Int) -> String {
+            line((0..<columnCount).map { column in cells.first { $0.row == index && $0.column == column }?.text ?? "" })
         }
 
-        for part in parts {
-            guard case let .tableCell(row, column, isHeader) = part.fragment.kind else { continue }
-            if row != currentRow {
-                flush()
-                currentRow = row
-                currentIsHeader = isHeader
+        let delimiters = (0..<columnCount).map { column -> String in
+            switch alignments.indices.contains(column) ? alignments[column] : .leading {
+            case .leading: "---"
+            case .center: ":-:"
+            case .trailing: "--:"
             }
-            cells.append(inlineMarkdown(part.source).replacingOccurrences(of: "|", with: "\\|"))
-            columns.append(column)
         }
-        flush()
-        return lines.joined(separator: "\n")
+        let headerLine = hasHeader ? row(0) : line(Array(repeating: "", count: columnCount))
+        let bodyRows = touchedRows.sorted().filter { !(hasHeader && $0 == 0) }
+        return ([headerLine, line(delimiters)] + bodyRows.map(row)).joined(separator: "\n")
     }
 
     /// Writes runs back as inline markdown. Delimiters hug the text, so
     /// whitespace at a run's edges stays outside them.
     static func inlineMarkdown(_ text: AttributedString) -> String {
-        text.runs.map { run -> String in
+        var atLineStart = true
+        return text.runs.map { run -> String in
             let content = String(text[run.range].characters)
             let intent = run.inlinePresentationIntent ?? []
             let core = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !core.isEmpty else { return content }
+            guard !core.isEmpty else {
+                if content.contains("\n") { atLineStart = content.hasSuffix("\n") }
+                return content
+            }
             let leading = String(content.prefix { $0.isWhitespace })
             let trailing = String(content.reversed().prefix { $0.isWhitespace }.reversed())
+            let startsLine = atLineStart || leading.contains("\n")
+            atLineStart = trailing.contains("\n")
 
             var marked: String
             if intent.contains(.code) {
                 marked = codeSpan(core)
             } else {
-                marked = escape(core)
+                marked = escape(core, atLineStart: startsLine)
                 if intent.contains(.strikethrough) { marked = "~~\(marked)~~" }
                 if intent.contains(.emphasized) { marked = "*\(marked)*" }
                 if intent.contains(.stronglyEmphasized) { marked = "**\(marked)**" }
             }
-            if let link = run.link { marked = "[\(marked)](\(link.absoluteString))" }
+            if let link = run.link { marked = "[\(marked)](\(destination(link)))" }
             return leading + marked + trailing
         }
         .joined()
@@ -223,13 +221,32 @@ enum ChatSelectionSerializer {
         return fence + padded + fence
     }
 
-    private static func escape(_ text: String) -> String {
-        var result = ""
-        for character in text {
-            if "\\*_`[]".contains(character) { result.append("\\") }
-            result.append(character)
+    private static func destination(_ link: URL) -> String {
+        let string = link.absoluteString
+        return string.contains { " ()".contains($0) } ? "<\(string)>" : string
+    }
+
+    private static func escape(_ text: String, atLineStart: Bool) -> String {
+        let lines = text.components(separatedBy: "\n")
+        return lines.enumerated().map { index, line in
+            let escaped = line.map { "\\*_`[]~<|".contains($0) ? "\\\($0)" : String($0) }.joined()
+            return index > 0 || atLineStart ? escapingBlockMarker(escaped) : escaped
         }
-        return result
+        .joined(separator: "\n")
+    }
+
+    /// Escapes a leading character that would turn the line into a block.
+    private static func escapingBlockMarker(_ line: String) -> String {
+        let indent = line.prefix { $0 == " " }
+        let rest = line.dropFirst(indent.count)
+        if let first = rest.first, "#>-+".contains(first) { return indent + "\\" + rest }
+        let digits = rest.prefix { $0.isASCII && $0.isNumber }
+        let afterDigits = rest.dropFirst(digits.count)
+        if !digits.isEmpty, let mark = afterDigits.first, ".)".contains(mark),
+           afterDigits.dropFirst().first.map({ $0 == " " }) ?? true {
+            return indent + digits + "\\" + afterDigits
+        }
+        return line
     }
 
     // MARK: - Plain text and RTF
@@ -239,15 +256,15 @@ enum ChatSelectionSerializer {
     /// heading and code fragments get theirs from the fragment kind.
     private static func attributed(of pieces: [ChatPiece], selection: ChatSelection) -> AttributedString {
         var result = AttributedString()
-        var previousIsList = false
+        var previous: ChatPiece?
         for slice in slices(of: pieces, selection: selection) {
             let rendered = renderedText(of: slice)
             guard !rendered.characters.isEmpty else { continue }
-            if !result.characters.isEmpty {
-                result += AttributedString(previousIsList && slice.piece.isList ? "\n" : "\n\n")
+            if let previous, !result.characters.isEmpty {
+                result += AttributedString(separator(between: previous, and: slice.piece))
             }
             result += rendered
-            previousIsList = slice.piece.isList
+            previous = slice.piece
         }
         return result
     }
@@ -342,10 +359,11 @@ private extension ChatSelectableText.Fragment.Kind {
 }
 
 private extension ChatPiece {
-    var isList: Bool {
-        switch content {
-        case .listSegment, .markdown(.list, _): true
-        default: false
-        }
+    func continuesList(in next: ChatPiece) -> Bool {
+        guard case let .listSegment(first) = content, case let .listSegment(second) = next.content,
+              messageID == next.messageID, !first.position.isLast, !second.position.isFirst,
+              let last = first.items.last, let following = second.items.first else { return false }
+        let changesKind = last.depth == following.depth && last.isNumbered != following.isNumbered
+        return !changesKind && id.split(separator: "/").dropLast() == next.id.split(separator: "/").dropLast()
     }
 }
