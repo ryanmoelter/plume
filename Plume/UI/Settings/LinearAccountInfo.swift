@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Everything Plume has fetched for one workspace: its teams, their workflow
-/// states as Plume draws them, and the key's request budget.
+/// What Plume has fetched for one workspace: its teams and the key's request
+/// budget. `LinearStateColorPreview` shows the workflow states.
 struct LinearAccountInfo: View {
     let account: LinearAccount
 
@@ -14,7 +14,7 @@ struct LinearAccountInfo: View {
                 Divider()
                 if let catalog = store.catalog(orgID: account.orgID) {
                     ForEach(catalog.teams.sorted { $0.key < $1.key }, id: \.id) { team in
-                        TeamStates(team: team)
+                        TeamRow(team: team)
                     }
                 } else {
                     Text("No teams fetched yet").foregroundStyle(.secondary)
@@ -78,41 +78,16 @@ struct LinearAccountInfo: View {
     }
 }
 
-private struct TeamStates: View {
+private struct TeamRow: View {
     let team: LinearTeam
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(team.key).fontWeight(.semibold)
-                Text(team.name).foregroundStyle(.secondary)
-            }
-            ForEach(Self.ordered(team.states), id: \.id) { state in
-                HStack(spacing: 6) {
-                    LinearIssueGlyph(stateType: state.type, colorHex: state.color)
-                        .frame(width: 16)
-                    Text(state.name)
-                    Spacer(minLength: 8)
-                    Text(state.type.rawValue).foregroundStyle(.secondary)
-                    Circle()
-                        .fill(Color(hex: state.color) ?? .clear)
-                        .frame(width: 8, height: 8)
-                        .help("Linear's color")
-                    Text(state.color.uppercased())
-                        .monospaced()
-                        .foregroundStyle(.secondary)
-                }
-                .font(.caption)
-            }
+        HStack(spacing: 6) {
+            Text(team.key).fontWeight(.semibold)
+            Text(team.name).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text("\(team.states.count) states").foregroundStyle(.secondary)
         }
-    }
-
-    /// By workflow category, then by name.
-    static func ordered(_ states: [LinearWorkflowState]) -> [LinearWorkflowState] {
-        let rank: [String] = ["triage", "backlog", "unstarted", "started", "completed", "canceled"]
-        return states.sorted {
-            let (a, b) = (rank.firstIndex(of: $0.type.rawValue) ?? rank.count, rank.firstIndex(of: $1.type.rawValue) ?? rank.count)
-            return a == b ? $0.name < $1.name : a < b
-        }
+        .font(.caption)
     }
 }

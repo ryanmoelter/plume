@@ -8,6 +8,7 @@ struct LinearSettingsSection: View {
     @State private var addError: String?
     @State private var accountPendingRemoval: LinearAccount?
     @State private var accountShowingInfo: LinearAccount?
+    @State private var showsStateColorPreview = false
 
     var body: some View {
         Section {
@@ -20,8 +21,23 @@ struct LinearSettingsSection: View {
 
             addRow
 
-            Picker("State colors", selection: $settings.linearStateColors) {
+            Picker(selection: $settings.linearStateColors) {
                 ForEach(LinearStateColorStrategy.allCases, id: \.self) { Text($0.label).tag($0) }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("Issue state color mapping")
+                    Button {
+                        showsStateColorPreview = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Preview every workflow state's color")
+                    .plumeID(AccessibilityID.linearStateColorsPreviewButton, invoke: { showsStateColorPreview = true })
+                    .popover(isPresented: $showsStateColorPreview, arrowEdge: .trailing) {
+                        LinearStateColorPreview()
+                    }
+                }
             }
             .plumeID(AccessibilityID.linearStateColorsPicker, value: settings.linearStateColors.rawValue)
 

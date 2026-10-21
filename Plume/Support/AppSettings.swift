@@ -172,7 +172,7 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.linearStateColors = defaults.string(forKey: Key.linearStateColorsRaw)
-            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .themePalette
+            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .ensureContrast
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)

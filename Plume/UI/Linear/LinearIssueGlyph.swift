@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A Linear workflow state as a symbol, colored by the user's chosen
+/// A Linear workflow state as a symbol, colored by a
 /// `LinearStateColorStrategy`.
 struct LinearIssueGlyph: View, ThemedView {
     @Environment(\.theme) var theme
@@ -9,6 +9,18 @@ struct LinearIssueGlyph: View, ThemedView {
     /// A `#rrggbb` hex string. An unparseable or gray one draws in the text
     /// color.
     let colorHex: String?
+    /// Nil draws Linear's color unchanged.
+    let strategy: LinearStateColorStrategy?
+
+    init(stateType: LinearStateType, colorHex: String?) {
+        self.init(stateType: stateType, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors)
+    }
+
+    init(stateType: LinearStateType, colorHex: String?, strategy: LinearStateColorStrategy?) {
+        self.stateType = stateType
+        self.colorHex = colorHex
+        self.strategy = strategy
+    }
 
     var body: some View {
         let image = Image(systemName: Self.symbolName(for: stateType))
@@ -21,7 +33,8 @@ struct LinearIssueGlyph: View, ThemedView {
 
     private var color: Color? {
         guard let rgb = colorHex.flatMap(HexRGB.init(hex:)) else { return nil }
-        switch AppSettings.shared.linearStateColors {
+        switch strategy {
+        case nil: return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
         case .themePalette: return paletteColor(for: rgb)
         case .ensureContrast:
             let fitted = LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)
@@ -43,7 +56,7 @@ struct LinearIssueGlyph: View, ThemedView {
         switch stateType {
         case .backlog: "circle.dashed"
         case .unstarted: "circle"
-        case .started: "circle.lefthalf.filled"
+        case .started: "circle.righthalf.filled"
         case .completed: "checkmark.circle.fill"
         case .canceled: "xmark.circle.fill"
         case .triage: "arrow.left.and.right.circle.fill"
