@@ -549,9 +549,13 @@ struct WorkspacePickerView: View, ThemedView {
                     .font(typography.body.font)
                     .emphasis(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Use \(abbreviate(root)) instead") { setDirectory(root) }
-                    .buttonStyle(.link)
-                    .plumeID("nested-repository-use-root")
+                Button { setDirectory(root) } label: {
+                    Text("Use the repository root instead")
+                        .font(typography.body.font)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .plumeID("nested-repository-use-root")
             }
             .padding(.top, dimensions.inlineClauseSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
