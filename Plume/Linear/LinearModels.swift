@@ -155,14 +155,11 @@ nonisolated struct LinearRateLimit: Sendable, Equatable {
     let resetAt: Date
 }
 
-/// A link persisted on a task. `orgID` is nil until the identifier has been
-/// routed to a workspace once.
+/// A link persisted on a task.
 nonisolated struct LinearIssueRef: Sendable, Equatable, Hashable, Codable {
-    var orgID: String?
     let identifier: String
 
-    init(orgID: String? = nil, identifier: String) {
-        self.orgID = orgID
+    init(identifier: String) {
         self.identifier = identifier.uppercased()
     }
 }

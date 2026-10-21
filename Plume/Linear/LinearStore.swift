@@ -79,9 +79,10 @@ final class LinearStore: LinearActivitySink {
     private var accountStatuses: [String: LinearAccountStatus] = [:]
     private(set) var teamKeys: Set<String> = []
 
-    /// Persists agent-started issues on the task owning the tab. Setting it
-    /// reports anything already seen.
-    @ObservationIgnored var onAgentStarted: ((UUID, Set<String>) -> Void)? {
+    /// Persists agent-started issues on the task owning the tab, returning
+    /// false when no task owns it yet. Setting it reports anything already
+    /// seen.
+    @ObservationIgnored var onAgentStarted: ((UUID, Set<String>) -> Bool)? {
         didSet { reportStartedForEveryTab() }
     }
 
@@ -502,6 +503,7 @@ final class LinearStore: LinearActivitySink {
         if let until = pausedUntil[orgID] {
             if until > now() { return .rateLimited(until: until) }
             pausedUntil.removeValue(forKey: orgID)
+            if case .rateLimited = accountStatus(orgID: orgID) { setStatus(.connected, orgID: orgID) }
         }
         return nil
     }
@@ -556,7 +558,7 @@ final class LinearStore: LinearActivitySink {
             switch result {
             case .success(let fetched):
                 let catalog = LinearCatalog(orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt)
-                if accountStatus(orgID: orgID) == .unknown { setStatus(.connected, orgID: orgID) }
+                setStatus(.connected, orgID: orgID)
                 install(catalog)
                 saveCache(catalog)
             case .failure(let error):
@@ -641,7 +643,12 @@ final class LinearStore: LinearActivitySink {
                 refreshTeamKeys()
                 catalogsDidChange()
             }
-            request(owned.filter { wantCounts[$0] != nil }.sorted())
+            // A shared key still waiting on the removed workspace's answer
+            // would otherwise sit at loading until the next poll.
+            let waiting = wantCounts.keys.filter {
+                !isFixture($0) && issueOwner[$0] == nil && currentState($0) == .loading
+            }
+            request(Set(owned.filter { wantCounts[$0] != nil } + waiting).sorted())
         }
     }
 
@@ -704,15 +711,18 @@ final class LinearStore: LinearActivitySink {
         for (tabID, box) in activityBoxes where !box.evidence.isEmpty { reportStarted(tabID: tabID) }
     }
 
-    /// Reports each identifier at most once per tab. Only marks one reported
-    /// once a callback has taken it.
+    /// Reports each identifier at most once per tab, counting a report only
+    /// once a task has taken it.
     private func reportStarted(tabID: UUID) {
         guard let onAgentStarted, let evidence = activityBoxes[tabID]?.evidence, !evidence.isEmpty else { return }
         let started = LinearLinkResolver.startedIdentifiers(evidence: evidence, catalogs: allCatalogs)
         let new = started.subtracting(reportedStarted[tabID] ?? [])
-        guard !new.isEmpty else { return }
+        guard !new.isEmpty, onAgentStarted(tabID, new) else { return }
         reportedStarted[tabID, default: []].formUnion(new)
-        onAgentStarted(tabID, new)
+    }
+
+    func forget(taskID: UUID) {
+        decodedLinks.removeValue(forKey: taskID)
     }
 
     // MARK: - Bookkeeping

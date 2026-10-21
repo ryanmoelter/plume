@@ -13,7 +13,7 @@ import Observation
 final class LinearMentionTracker {
     static let shared = LinearMentionTracker()
 
-    static let lingerDuration: Duration = SubagentCompletionTracker.lingerDuration
+    nonisolated static let lingerDuration: Duration = .seconds(30)
 
     private struct Key: Hashable {
         let taskID: UUID
@@ -57,8 +57,11 @@ final class LinearMentionTracker {
         preMentioned.subtract(preMentioned.filter { $0.taskID == taskID && !mentioned.contains($0) })
     }
 
+    /// True for a task not yet observed, so its first render doesn't flash
+    /// every old mention among the working issues.
     func hasSettled(_ identifier: String, taskID: UUID) -> Bool {
         _ = settledGeneration
+        guard observedTasks.contains(taskID) else { return true }
         let key = Key(taskID: taskID, identifier: identifier)
         if preMentioned.contains(key) { return true }
         guard let since = mentionedAt[key] else { return false }

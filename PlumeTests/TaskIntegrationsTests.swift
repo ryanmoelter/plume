@@ -3,13 +3,13 @@ import Testing
 @testable import Plume
 
 struct TaskIntegrationsTests {
-    private func ref(_ id: String, org: String? = nil) -> LinearIssueRef {
-        LinearIssueRef(orgID: org, identifier: id)
+    private func ref(_ id: String) -> LinearIssueRef {
+        LinearIssueRef(identifier: id)
     }
 
     @Test func roundTrips() throws {
         var links = LinearTaskLinks()
-        links.link(ref("PLUME-1", org: "o1"))
+        links.link(ref("PLUME-1"))
         links.promote(ref("PLUME-2"))
         links.recordAgentStarted(ref("PLUME-3"))
         links.unlink("PLUME-9")
@@ -97,7 +97,13 @@ struct TaskIntegrationsTests {
     @Test func promoteDoesNotDuplicate() {
         var links = LinearTaskLinks()
         links.promote(ref("PLUME-1"))
-        links.promote(ref("PLUME-1", org: "o"))
-        #expect(links.promoted == [ref("PLUME-1", org: "o")])
+        links.promote(ref("plume-1"))
+        #expect(links.promoted == [ref("PLUME-1")])
+    }
+
+    @Test func aLegacyOrgIDOnARefStillDecodes() {
+        let json = #"{"linear":{"manual":[{"orgID":"o1","identifier":"PLUME-5"}]}}"#
+        let decoded = TaskIntegrations.decode(Data(json.utf8))
+        #expect(decoded.linear?.manual == [ref("PLUME-5")])
     }
 }

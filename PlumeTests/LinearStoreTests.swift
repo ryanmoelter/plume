@@ -81,6 +81,25 @@ struct LinearStoreTests {
         #expect(harness.store.state(for: "PLUME-9") == .notFound)
     }
 
+    @Test func removingAWorkspaceResolvesASharedKeyStillWaitingOnIt() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        let harness = try await makeHarness([a, b])
+        await a.holdIssueFetches()
+
+        harness.store.setWanted(["PLUME-9"], owner: UUID())
+        await waitForIssueCalls(a, count: 1)
+        await waitForIssueCalls(b, count: 1)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(harness.store.state(for: "PLUME-9") == .loading)
+
+        harness.accounts.remove(orgID: "A")
+        await a.releaseIssueFetches()
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-9") == .notFound)
+    }
+
     @Test func wantsFromManyOwnersInOneTurnShareOneRequest() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let harness = try await makeHarness([a])
@@ -164,6 +183,38 @@ struct LinearStoreTests {
         await harness.store.settle()
         #expect(await a.issueCalls.count == 1)
         #expect(await b.issueCalls.count == 2)
+    }
+
+    @Test func aLaterCatalogSuccessReconnectsAFailedAccount() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalogError: LinearError.failed("offline"))
+        let harness = try await makeHarness([a])
+        #expect(harness.store.accountStatus(orgID: "A") == .failed("offline"))
+
+        await a.set(catalogError: nil)
+        harness.store.poll()
+        await harness.store.settle()
+
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
+    }
+
+    @Test func aRateLimitedStatusClearsOnceThePauseHasPassed() async throws {
+        final class Clock { var date = Date(timeIntervalSince1970: 1_000_000) }
+        let clock = Clock()
+        let until = clock.date.addingTimeInterval(600)
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issueError: LinearError.rateLimited(until: until))
+        let harness = try await makeHarness([a], now: { clock.date })
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(harness.store.accountStatus(orgID: "A") == .rateLimited(until: until))
+
+        clock.date = until.addingTimeInterval(1)
+        await a.set(issueError: nil)
+        harness.store.setWanted(["PLUME-2"], owner: UUID())
+        await harness.store.settle()
+
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
     }
 
     @Test func aLowBudgetSkipsOnlyThatWorkspacesPolls() async throws {
@@ -427,7 +478,7 @@ struct LinearStoreTests {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let harness = try await makeHarness([a])
         var reports: [Set<String>] = []
-        harness.store.onAgentStarted = { reports.append($1) }
+        harness.store.onAgentStarted = { reports.append($1); return true }
         let tab = UUID()
         func start(_ outcome: LinearCallOutcome) -> LinearEvidence {
             LinearEvidence(identifier: "PLUME-1", tool: "save_issue", requestedState: "In Progress", subagent: nil, outcome: outcome)
@@ -441,11 +492,36 @@ struct LinearStoreTests {
         #expect(reports == [["PLUME-1"]])
     }
 
+    @Test func aStartRequestNoTaskTookIsReportedAgainUntilOneDoes() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let harness = try await makeHarness([a])
+        var accepts = false
+        var reports: [Set<String>] = []
+        harness.store.onAgentStarted = { reports.append($1); return accepts }
+        let tab = UUID()
+        let start = LinearEvidence(identifier: "PLUME-1", tool: "save_issue", requestedState: "In Progress", subagent: nil, outcome: .succeeded)
+
+        harness.store.replaceActivity(tabID: tab, evidence: [start])
+        harness.store.replaceActivity(tabID: tab, evidence: [start])
+        #expect(reports == [["PLUME-1"], ["PLUME-1"]])
+
+        accepts = true
+        harness.store.replaceActivity(tabID: tab, evidence: [start])
+        harness.store.replaceActivity(tabID: tab, evidence: [start])
+        #expect(reports.count == 3)
+    }
+
+    @Test func forgettingATaskIsHarmlessForItsLinks() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let harness = try await makeHarness([a])
+        harness.store.forget(taskID: UUID())
+    }
+
     @Test func anAgentStartedIssueIsReportedOncePerTab() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let harness = try await makeHarness([a])
         var reports: [(UUID, Set<String>)] = []
-        harness.store.onAgentStarted = { reports.append(($0, $1)) }
+        harness.store.onAgentStarted = { reports.append(($0, $1)); return true }
         let tab = UUID()
         let start = LinearEvidence(identifier: "PLUME-1", tool: "save_issue", requestedState: "In Progress", subagent: nil, outcome: .succeeded)
 
@@ -463,7 +539,7 @@ struct LinearStoreTests {
         await a.set(catalogError: LinearError.failed("offline"))
         let harness = try await makeHarness([a])
         var reports: [Set<String>] = []
-        harness.store.onAgentStarted = { reports.append($1) }
+        harness.store.onAgentStarted = { reports.append($1); return true }
         let start = LinearEvidence(identifier: "PLUME-1", tool: "save_issue", requestedState: "In Progress", subagent: nil, outcome: .succeeded)
 
         harness.store.replaceActivity(tabID: UUID(), evidence: [start])

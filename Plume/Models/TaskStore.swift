@@ -362,6 +362,7 @@ enum TaskStore {
             PullRequestStore.shared.forget(directory: directory)
         }
         LinearMentionTracker.shared.forget(taskID: task.id)
+        LinearStore.shared.forget(taskID: task.id)
         context.delete(task)
     }
 

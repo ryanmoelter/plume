@@ -18,7 +18,7 @@ struct SubagentTranscript: Identifiable, Equatable {
 
     /// What to call this subagent in the list. Falls back to the raw id only
     /// when nothing describes it.
-    var title: String {
+    nonisolated var title: String {
         descriptor?.label(fallback: id) ?? id
     }
 }
@@ -76,7 +76,7 @@ final class TranscriptStore {
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared,
-        linearActivity: LinearActivitySink = LinearStore.shared,
+        linearActivity: LinearActivitySink? = nil,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
@@ -84,7 +84,7 @@ final class TranscriptStore {
         self.debounce = debounce
         self.statusEngine = statusEngine
         self.backgroundTasks = backgroundTasks
-        self.linearActivity = linearActivity
+        self.linearActivity = linearActivity ?? LinearStore.shared
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
         self.isTabLive = isTabLive

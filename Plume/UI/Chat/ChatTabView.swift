@@ -171,10 +171,7 @@ struct ChatTabView: View, ThemedView {
 
     private var linkedLinearIssues: [LinkedLinearIssue] {
         guard showsLinear else { return [] }
-        let gitState = GitStateStore.shared.state(for: gitDirectory)
-        let displayed = GitState.displayedBranch(state: gitState, taskBranchName: task.branchName)
-        let branches = [displayed, task.branchName].compactMap { $0 }
-        return LinearStore.shared.links(for: task, branches: Array(Set(branches)).sorted())
+        return LinearStore.shared.links(for: task, branches: task.linearBranches)
     }
 
     private var linearActions: InfoPaneLinearActions {

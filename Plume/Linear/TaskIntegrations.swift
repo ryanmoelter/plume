@@ -111,11 +111,7 @@ nonisolated struct LinearTaskLinks: Codable, Equatable {
     }
 
     private static func add(_ ref: LinearIssueRef, to list: inout [LinearIssueRef]) {
-        if let index = list.firstIndex(where: { $0.identifier == ref.identifier }) {
-            if list[index].orgID == nil { list[index].orgID = ref.orgID }
-        } else {
-            list.append(ref)
-        }
+        if !list.contains(where: { $0.identifier == ref.identifier }) { list.append(ref) }
     }
 }
 

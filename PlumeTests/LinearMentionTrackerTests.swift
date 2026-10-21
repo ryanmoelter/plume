@@ -64,10 +64,11 @@ struct LinearMentionTrackerTests {
         #expect(!tracker.hasSettled("PLUME-2", taskID: task))
 
         tracker.forget(taskID: task)
-        #expect(!tracker.hasSettled("PLUME-2", taskID: task))
-
         tracker.observe(mentioned: ["PLUME-2"], taskID: task)
+        tracker.observe(mentioned: ["PLUME-2", "PLUME-3"], taskID: task)
+
         #expect(tracker.hasSettled("PLUME-2", taskID: task))
+        #expect(!tracker.hasSettled("PLUME-3", taskID: task))
     }
 
     @Test func tasksAreTrackedIndependently() {
@@ -105,5 +106,10 @@ struct LinearMentionTrackerTests {
         tracker.observe(mentioned: ["PLUME-2"], taskID: task)
 
         #expect(!tracker.hasSettled("PLUME-2", taskID: task))
+    }
+
+    @Test func aTaskNeverObservedReadsAsSettled() {
+        let tracker = LinearMentionTracker(linger: .seconds(30))
+        #expect(tracker.hasSettled("PLUME-1", taskID: task))
     }
 }

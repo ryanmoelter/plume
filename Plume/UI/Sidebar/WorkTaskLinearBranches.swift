@@ -19,8 +19,11 @@ extension WorkTask {
         )
     }
 
-    /// The branches whose names can carry a working Linear issue.
+    /// The branches whose names can carry a working Linear issue: what each
+    /// agent directory has checked out, plus the branch the task was made on.
     var linearBranches: [String] {
-        agentDirectories.compactMap(displayedBranch(in:))
+        var branches = agentDirectories.compactMap(displayedBranch(in:))
+        if let branchName, !branches.contains(branchName) { branches.append(branchName) }
+        return branches
     }
 }
