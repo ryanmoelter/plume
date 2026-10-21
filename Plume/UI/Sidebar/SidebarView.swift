@@ -276,14 +276,14 @@ struct SidebarView: View {
     @ViewBuilder
     private func linearMenuItems(for task: WorkTask) -> some View {
         if AppSettings.shared.showsLinearIssues {
-            Button("Link Linear Issue…") { linkingLinearTask = task }
+            Button("Pin Linear Issue…") { linkingLinearTask = task }
                 .plumeID(AccessibilityID.taskLinkLinearIssueMenuItem, label: TitleStore.shared.displayTitle(for: task))
                 .disabled(!LinearStore.shared.isConfigured)
             let working = LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
             if !working.isEmpty {
-                Menu("Unlink Linear Issue") {
+                Menu("Unpin Linear Issue") {
                     ForEach(working) { issue in
-                        Button("Unlink \(issue.identifier)") {
+                        Button("Unpin \(issue.identifier)") {
                             TaskStore.unlinkLinearIssue(issue.identifier, from: task)
                         }
                     }

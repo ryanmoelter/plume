@@ -8,7 +8,7 @@ struct LinkLinearIssueSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Link Linear Issue")
+            Text("Pin Linear Issue")
                 .font(.headline)
             TextField("PLUME-123 or issue URL", text: $input)
                 .textFieldStyle(.roundedBorder)
@@ -24,7 +24,7 @@ struct LinkLinearIssueSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Link", action: link)
+                Button("Pin", action: link)
                     .keyboardShortcut(.defaultAction)
                     .plumeID(AccessibilityID.linkLinearIssueConfirmButton)
                     .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty)

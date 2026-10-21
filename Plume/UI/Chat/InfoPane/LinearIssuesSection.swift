@@ -38,7 +38,7 @@ struct LinearIssuesSection: View, ThemedView {
                     if linear.main.isEmpty {
                         HStack(spacing: InfoPaneLayout.columnSpacing) {
                             InfoPaneIcon { Color.clear }
-                            Text("No linked issues").emphasis(.subtle)
+                            Text("No pinned issues").emphasis(.subtle)
                         }
                         .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
                     }
@@ -78,7 +78,7 @@ struct LinearIssuesSection: View, ThemedView {
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.selection)
             .plumeHover { isHoveringAdd = $0 }
-            .help("Link a Linear issue")
+            .help("Pin a Linear issue to this conversation")
             .plumeID(AccessibilityID.infoPaneLinearAddButton)
             .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
                 LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
@@ -224,7 +224,7 @@ private struct IssueRow: View, ThemedView {
         let identifier = issue.identifier
         var entries: [IssueMenu.Entry] = []
         if issue.role == .mentioned {
-            entries.append(.action("Link to Conversation", AccessibilityID.infoPaneLinearLinkToConversationButton, isEnabled: true) {
+            entries.append(.action("Pin to Conversation", AccessibilityID.infoPaneLinearLinkToConversationButton, isEnabled: true) {
                 actions.promote(identifier)
             })
             entries.append(.divider)
@@ -238,7 +238,7 @@ private struct IssueRow: View, ThemedView {
         })
         if issue.role == .working {
             entries.append(.divider)
-            entries.append(.action("Unlink", AccessibilityID.infoPaneLinearUnlinkButton, isEnabled: true) {
+            entries.append(.action("Unpin from Conversation", AccessibilityID.infoPaneLinearUnlinkButton, isEnabled: true) {
                 actions.unlink(identifier)
             })
         } else if showsBubble {
@@ -329,7 +329,7 @@ private struct LinkIssuePopover: View, ThemedView {
                     .onSubmit(link)
                     .frame(width: 220)
                     .plumeID(AccessibilityID.infoPaneLinearLinkField, value: text, setValue: { text = $0 })
-                Button("Link", action: link)
+                Button("Pin", action: link)
                     .tint(theme.colors.selection)
                     .plumeID(AccessibilityID.infoPaneLinearLinkButton, invoke: link)
                     .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
