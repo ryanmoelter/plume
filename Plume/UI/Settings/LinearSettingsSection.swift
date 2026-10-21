@@ -30,6 +30,7 @@ struct LinearSettingsSection: View {
                         showsStateColorPreview = true
                     } label: {
                         Image(systemName: "info.circle")
+                            .foregroundStyle(Self.accent)
                     }
                     .buttonStyle(.borderless)
                     .help("Preview every workflow state's color")
@@ -47,6 +48,7 @@ struct LinearSettingsSection: View {
                     Image(systemName: "arrow.up.right.square")
                 }
             }
+            .foregroundStyle(Self.accent)
             .plumeID(AccessibilityID.linearCreateKeyLink)
         } header: {
             Text("Linear")
@@ -70,6 +72,10 @@ struct LinearSettingsSection: View {
         }
     }
 
+    /// Marks what is clickable; resolves per appearance and honors the
+    /// accent chosen in settings.
+    static var accent: Color { Color(nsColor: ThemeChrome.accentNSColor()) }
+
     static let createKeyURL = URL(string: "https://linear.app/settings/account/security")!
 
     private func accountRow(_ account: LinearAccount) -> some View {
@@ -82,6 +88,7 @@ struct LinearSettingsSection: View {
                         accountShowingInfo = account
                     } label: {
                         Image(systemName: "info.circle")
+                            .foregroundStyle(Self.accent)
                     }
                     .buttonStyle(.borderless)
                     .help("What Plume knows about this workspace")

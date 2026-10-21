@@ -32,24 +32,23 @@ struct LinearIssueGlyph: View, ThemedView {
     }
 
     private var color: Color? {
-        guard let rgb = colorHex.flatMap(HexRGB.init(hex:)) else { return nil }
-        switch strategy {
-        case nil: return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
-        case .themePalette: return paletteColor(for: rgb)
-        case .ensureContrast:
-            let fitted = LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)
-            return Color(red: fitted.red, green: fitted.green, blue: fitted.blue)
-        }
+        Self.rgb(for: colorHex, strategy: strategy, in: colors).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
     }
 
-    private func paletteColor(for rgb: HexRGB) -> Color? {
-        var candidates: [Int: HexRGB] = [:]
-        for slot in LinearStateColor.slots {
-            candidates[slot] = colors.rgb(forSlot: slot) ?? LinearStateColor.fallbackSlots[slot]
+    /// Nil means the text color.
+    static func rgb(for colorHex: String?, strategy: LinearStateColorStrategy?, in colors: Palette) -> HexRGB? {
+        guard let rgb = colorHex.flatMap(HexRGB.init(hex:)) else { return nil }
+        switch strategy {
+        case nil: return rgb
+        case .themePalette:
+            var candidates: [Int: HexRGB] = [:]
+            for slot in LinearStateColor.slots {
+                candidates[slot] = colors.rgb(forSlot: slot) ?? LinearStateColor.fallbackSlots[slot]
+            }
+            return LinearStateColor.nearestSlot(to: rgb, among: candidates).flatMap { candidates[$0] }
+        case .ensureContrast:
+            return LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)
         }
-        guard let slot = LinearStateColor.nearestSlot(to: rgb, among: candidates) else { return nil }
-        if let themed = colors.color(forSlot: slot) { return themed }
-        return candidates[slot].map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
     }
 
     static func symbolName(for stateType: LinearStateType) -> String {

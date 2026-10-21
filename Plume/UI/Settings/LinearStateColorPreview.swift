@@ -35,7 +35,9 @@ struct LinearStateColorPreview: View {
     }
 }
 
-private struct SectionView: View {
+private struct SectionView: View, ThemedView {
+    @Environment(\.theme) var theme
+
     let section: LinearStateGroups.Section
     let strategy: LinearStateColorStrategy
 
@@ -48,24 +50,31 @@ private struct SectionView: View {
             }
             ForEach(section.entries) { entry in
                 HStack(spacing: 6) {
-                    LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: nil)
-                        .frame(width: 16)
-                        .help("Linear's color")
-                    Image(systemName: "arrow.right")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    if isMapped(entry.state) {
+                        LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: nil)
+                            .frame(width: 16)
+                            .help("Linear's color")
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                     LinearIssueGlyph(stateType: entry.state.type, colorHex: entry.state.color, strategy: strategy)
                         .frame(width: 16)
                     Text(entry.state.name)
-                    Spacer(minLength: 8)
-                    if section.kind == .sharedByTeams {
-                        Text(entry.teamKeys.joined(separator: ", ")).foregroundStyle(.secondary)
-                    }
                 }
                 .font(.caption)
             }
         }
-        .padding(.leading, section.kind == .onlyTeam ? 0 : 8)
+    }
+
+    /// Whether the mapping visibly changes Linear's color.
+    private func isMapped(_ state: LinearWorkflowState) -> Bool {
+        let original = LinearIssueGlyph.rgb(for: state.color, strategy: nil, in: colors)
+        guard let mapped = LinearIssueGlyph.rgb(for: state.color, strategy: strategy, in: colors), let original else { return true }
+        let tolerance = 1.5 / 255
+        return abs(mapped.red - original.red) > tolerance
+            || abs(mapped.green - original.green) > tolerance
+            || abs(mapped.blue - original.blue) > tolerance
     }
 
     private func heading(_ title: String, _ key: String?) -> some View {
@@ -74,6 +83,5 @@ private struct SectionView: View {
             if let key { Text(key).foregroundStyle(.secondary) }
         }
         .font(.caption)
-        .padding(.leading, -8)
     }
 }
