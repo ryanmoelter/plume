@@ -9,22 +9,24 @@ struct LinearSettingsSection: View {
     @State private var accountPendingRemoval: LinearAccount?
     @State private var accountShowingInfo: LinearAccount?
     @State private var showsStateColorPreview = false
+    @State private var showsAddForm = false
 
     var body: some View {
         Section {
             Toggle("Show Linear issues", isOn: $settings.showsLinearIssues)
                 .plumeID(AccessibilityID.linearShowIssuesToggle, value: settings.showsLinearIssues ? "on" : "off")
 
-            if !store.accounts.accounts.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Workspaces")
-                    ForEach(store.accounts.accounts) { account in
-                        accountRow(account)
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Workspaces")
+                ForEach(store.accounts.accounts) { account in
+                    accountRow(account)
+                }
+                if showsAddForm || store.accounts.accounts.isEmpty {
+                    addForm
+                } else {
+                    showAddFormButton
                 }
             }
-
-            addRow
 
             Picker(selection: $settings.linearStateColors) {
                 ForEach(LinearStateColorStrategy.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -49,9 +51,6 @@ struct LinearSettingsSection: View {
 
         } header: {
             Text("Linear")
-        } footer: {
-            Text("Keys are stored in your Keychain. Add one per workspace; issues route by team key.")
-                .foregroundStyle(.secondary)
         }
         .confirmationDialog(
             "Remove \(accountPendingRemoval?.orgName ?? "workspace")?",
@@ -77,7 +76,7 @@ struct LinearSettingsSection: View {
 
     private func accountRow(_ account: LinearAccount) -> some View {
         let status = Self.statusLine(for: store.accountStatus(orgID: account.orgID))
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+        return HStack(spacing: 8) {
             Button {
                 accountPendingRemoval = account
             } label: {
@@ -90,29 +89,7 @@ struct LinearSettingsSection: View {
                 accountPendingRemoval = account
             })
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(account.orgName)
-                    Button {
-                        accountShowingInfo = account
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(Self.accent)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("What Plume knows about this workspace")
-                    .plumeID(AccessibilityID.linearAccountInfoButton, label: account.orgName, invoke: {
-                        accountShowingInfo = account
-                    })
-                    .popover(
-                        isPresented: Binding(
-                            get: { accountShowingInfo == account },
-                            set: { if !$0 { accountShowingInfo = nil } }
-                        ),
-                        arrowEdge: .trailing
-                    ) {
-                        LinearAccountInfo(account: account)
-                    }
-                }
+                Text(account.orgName)
                 LinearViewerName(name: account.viewerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -121,6 +98,26 @@ struct LinearSettingsSection: View {
                         .font(.caption)
                         .foregroundStyle(status.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 }
+            }
+            Button {
+                accountShowingInfo = account
+            } label: {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(Self.accent)
+            }
+            .buttonStyle(.borderless)
+            .help("What Plume knows about this workspace")
+            .plumeID(AccessibilityID.linearAccountInfoButton, label: account.orgName, invoke: {
+                accountShowingInfo = account
+            })
+            .popover(
+                isPresented: Binding(
+                    get: { accountShowingInfo == account },
+                    set: { if !$0 { accountShowingInfo = nil } }
+                ),
+                arrowEdge: .trailing
+            ) {
+                LinearAccountInfo(account: account)
             }
             Spacer(minLength: 0)
         }
@@ -131,34 +128,20 @@ struct LinearSettingsSection: View {
         !isAdding && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var addRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent {
-                HStack {
-                    SecureField("Personal API key", text: $apiKey)
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(add)
-                        .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
-                    if isAdding {
-                        ProgressView().controlSize(.small)
-                    }
-                    Button("Add", action: add)
-                        .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
-                        .disabled(!canAdd)
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Personal API key")
-                    Link(destination: Self.createKeyURL) {
-                        HStack(spacing: 2) {
-                            Text("Create new API key")
-                            Image(systemName: "arrow.up.right.square")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Self.accent)
-                    .plumeID(AccessibilityID.linearCreateKeyLink)
+    private var addForm: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                SecureField("Personal API key", text: $apiKey, prompt: Text("Personal API key"))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 260)
+                    .onSubmit(add)
+                    .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
+                Button("Add", action: add)
+                    .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
+                    .disabled(!canAdd)
+                if isAdding {
+                    ProgressView().controlSize(.small)
                 }
             }
             if let addError {
@@ -166,7 +149,33 @@ struct LinearSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            HStack(spacing: 4) {
+                Image(systemName: "lock").imageScale(.small)
+                Text("Securely stored in your Keychain")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Link(destination: Self.createKeyURL) {
+                HStack(spacing: 2) {
+                    Text("Create a new API key")
+                    Image(systemName: "arrow.up.right.square")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(Self.accent)
+            .plumeID(AccessibilityID.linearCreateKeyLink)
         }
+    }
+
+    private var showAddFormButton: some View {
+        Button {
+            showsAddForm = true
+        } label: {
+            Label("Add", systemImage: "plus")
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Self.accent)
+        .plumeID(AccessibilityID.linearShowAddFormButton, invoke: { showsAddForm = true })
     }
 
     private func add() {
@@ -178,6 +187,7 @@ struct LinearSettingsSection: View {
             do {
                 try await store.accounts.add(apiKey: key)
                 apiKey = ""
+                showsAddForm = false
             } catch {
                 addError = error.localizedDescription
             }
