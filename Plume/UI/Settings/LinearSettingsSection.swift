@@ -139,6 +139,7 @@ struct LinearSettingsSection: View {
                     .onSubmit(add)
                     .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
                 Button("Cancel", action: cancelAdding)
+                    .buttonStyle(.bordered)
                     .plumeID(AccessibilityID.linearCancelAddButton, invoke: cancelAdding)
                 Button("Add", action: add)
                     .plumeID(AccessibilityID.linearAddAccountButton, invoke: add)
