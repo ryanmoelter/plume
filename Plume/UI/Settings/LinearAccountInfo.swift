@@ -36,7 +36,7 @@ struct LinearAccountInfo: View {
             Text(account.orgName).font(.headline)
             Group {
                 Text("linear.app/\(account.urlKey)").foregroundStyle(.secondary)
-                Label(account.viewerName, systemImage: "person")
+                LinearViewerName(name: account.viewerName)
                 HStack(spacing: 4) {
                     Text(Self.statusLine(store.accountStatus(orgID: account.orgID), fetchedAt: catalog?.fetchedAt))
                     Button {

@@ -42,14 +42,6 @@ struct LinearSettingsSection: View {
             }
             .plumeID(AccessibilityID.linearStateColorsPicker, value: settings.linearStateColors.rawValue)
 
-            Link(destination: Self.createKeyURL) {
-                HStack(spacing: 4) {
-                    Text("Create a personal API key")
-                    Image(systemName: "arrow.up.right.square")
-                }
-            }
-            .foregroundStyle(Self.accent)
-            .plumeID(AccessibilityID.linearCreateKeyLink)
         } header: {
             Text("Linear")
         } footer: {
@@ -105,7 +97,7 @@ struct LinearSettingsSection: View {
                         LinearAccountInfo(account: account)
                     }
                 }
-                Label(account.viewerName, systemImage: "person")
+                LinearViewerName(name: account.viewerName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let status {
@@ -132,8 +124,21 @@ struct LinearSettingsSection: View {
     private var addRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                SecureField("Personal API key", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
+                SecureField(text: $apiKey, prompt: nil) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Personal API key")
+                        Link(destination: Self.createKeyURL) {
+                            HStack(spacing: 2) {
+                                Text("Create new API key")
+                                Image(systemName: "arrow.up.right.square")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(Self.accent)
+                        .plumeID(AccessibilityID.linearCreateKeyLink)
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
                     .onSubmit(add)
                     .plumeID(AccessibilityID.linearAPIKeyField, setValue: { apiKey = $0 })
                 if isAdding {
@@ -185,6 +190,18 @@ struct LinearSettingsSection: View {
             )
         case .failed(let message):
             StatusLine(text: message, isError: true)
+        }
+    }
+}
+
+/// The connected user, marked with a person icon instead of a label.
+struct LinearViewerName: View {
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "person")
+            Text(name)
         }
     }
 }
