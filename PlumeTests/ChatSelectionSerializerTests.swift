@@ -87,13 +87,13 @@ struct ChatSelectionSerializerTests {
         #expect(markdown("## Big title", selecting: "itl") == "itl")
     }
 
-    @Test func h6OffsetsComeFromTheSourceNotTheUppercase() {
+    @Test func anH6CopiesInItsSourceCase() {
         let pieces = Fixtures.pieces("###### straße ok")
         let piece = pieces[0]
         let markdownResult = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.selection(piece, 0..<6))
         #expect(markdownResult == "###### straße")
         let plain = ChatSelectionSerializer.plainText(of: pieces, selection: Fixtures.selection(piece, 0..<6))
-        #expect(plain == "STRASSE")
+        #expect(plain == "straße")
     }
 
     @Test func aCodeSliceIsFencedWithItsLanguage() {

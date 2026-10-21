@@ -76,7 +76,7 @@ struct ChatSelectionRecorder: ViewModifier {
 }
 
 extension PieceSelection {
-    var highlight: Color {
-        Color(nsColor: isActive ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor)
+    func highlight(accent: Color) -> Color {
+        isActive ? accent.opacity(0.3) : Color(nsColor: .unemphasizedSelectedTextBackgroundColor)
     }
 }

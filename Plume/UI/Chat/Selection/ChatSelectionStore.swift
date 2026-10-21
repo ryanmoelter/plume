@@ -23,7 +23,7 @@ final class PieceSelection {
 final class ChatSelectionStore {
     private(set) var selection: ChatSelection?
     private(set) var isActive = false
-    private var order = ChatPieceOrder([])
+    private(set) var order = ChatPieceOrder([])
     private var lengths: [String: Int] = [:]
     private var boxes: [String: PieceSelection] = [:]
     let layouts = ChatTextLayoutRegistry()

@@ -60,6 +60,21 @@ struct ChatSelection: Equatable {
         )
     }
 
+    /// A drag that began with a double-click: the word first clicked, `self`,
+    /// grown by whole words to `word`.
+    func extendedByWord(to word: ChatSelection, in order: ChatPieceOrder) -> ChatSelection? {
+        guard let origin = bounds(in: order), let target = word.bounds(in: order) else { return nil }
+        if Self.position(target.start, precedes: origin.start, in: order) {
+            return ChatSelection(anchor: origin.end, focus: target.start)
+        }
+        let end = Self.position(origin.end, precedes: target.end, in: order) ? target.end : origin.end
+        return ChatSelection(anchor: origin.start, focus: end)
+    }
+
+    private static func position(_ lhs: ChatTextPosition, precedes rhs: ChatTextPosition, in order: ChatPieceOrder) -> Bool {
+        lhs != rhs && ChatSelection(anchor: lhs, focus: rhs).bounds(in: order)?.start == lhs
+    }
+
     /// The selection after the list changed from `oldIDs` to `newIDs`.
     ///
     /// An end in a piece that shrank moves to its new end. An end in a piece

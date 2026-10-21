@@ -14,6 +14,8 @@ final class ChatSelectionTracker {
     private var monitor: Any?
     private var pending: (point: NSPoint, position: ChatTextPosition)?
     private var isDragging = false
+    /// The word a double-click selected, which a drag from it grows by words.
+    private var wordOrigin: ChatSelection?
     private var lastDragPoint: NSPoint?
     private var autoscrollTimer: Timer?
 
@@ -48,6 +50,7 @@ final class ChatSelectionTracker {
     private func mouseDown(_ event: NSEvent, controller: ChatListController) -> NSEvent? {
         pending = nil
         isDragging = false
+        wordOrigin = nil
         guard controller.isInDocument(event.locationInWindow) else { return event }
         if event.modifierFlags.contains(.control) { return rightMouseDown(event, controller: controller) }
         let store = controller.selection
@@ -55,6 +58,7 @@ final class ChatSelectionTracker {
         // hides the mouse-up from this monitor, so they are never tracked.
         guard let position = controller.selectionPosition(onTextAt: event.locationInWindow) else {
             store.set(nil)
+            controller.returnFocusToComposer()
             return event
         }
         if event.modifierFlags.contains(.shift), let selection = store.selection {
@@ -65,6 +69,7 @@ final class ChatSelectionTracker {
         switch event.clickCount {
         case 1:
             store.set(nil)
+            controller.returnFocusToComposer()
             pending = (event.locationInWindow, position)
             return event
         case 2:
@@ -73,6 +78,7 @@ final class ChatSelectionTracker {
             guard let text = controller.selectableText(of: position.pieceID),
                   let word = ChatSelection.expandToWord(at: position, in: text) else { return nil }
             store.set(word)
+            wordOrigin = word
         default:
             store.set(.expandToPiece(position.pieceID, length: store.length(of: position.pieceID)))
         }
@@ -97,6 +103,7 @@ final class ChatSelectionTracker {
         pending = nil
         guard isDragging else { return event }
         isDragging = false
+        wordOrigin = nil
         lastDragPoint = nil
         stopAutoscroll()
         return nil
@@ -125,9 +132,15 @@ final class ChatSelectionTracker {
 
     private func extend(to point: NSPoint, controller: ChatListController) {
         lastDragPoint = point
-        if let selection = controller.selection.selection,
-           let focus = controller.selectionPosition(nearest: point) {
-            controller.selection.set(selection.extended(to: focus))
+        let store = controller.selection
+        if let selection = store.selection, let focus = controller.selectionPosition(nearest: point) {
+            if let wordOrigin {
+                let word = controller.selectableText(of: focus.pieceID).flatMap { ChatSelection.expandToWord(at: focus, in: $0) }
+                    ?? ChatSelection(anchor: focus, focus: focus)
+                store.set(wordOrigin.extendedByWord(to: word, in: store.order) ?? selection.extended(to: focus))
+            } else {
+                store.set(selection.extended(to: focus))
+            }
         }
         if controller.autoscrollDelta(for: point) == 0 {
             stopAutoscroll()

@@ -1139,6 +1139,29 @@ extension ChatListController {
         window.makeFirstResponder(documentView)
     }
 
+    /// Gives the keyboard back to this chat's composer when a click
+    /// dismisses a selection that held it. Called before the click is
+    /// dispatched, never during a tracking loop (PLUME-106).
+    func returnFocusToComposer() {
+        guard let window = documentView.window, window.firstResponder === documentView else { return }
+        var ancestor = scrollView.superview
+        while let view = ancestor {
+            if let composer = Self.firstComposer(in: view) {
+                window.makeFirstResponder(composer)
+                return
+            }
+            ancestor = view.superview
+        }
+    }
+
+    private static func firstComposer(in view: NSView) -> ComposerNSTextView? {
+        if let composer = view as? ComposerNSTextView { return composer }
+        for subview in view.subviews {
+            if let composer = firstComposer(in: subview) { return composer }
+        }
+        return nil
+    }
+
     /// How far past the viewport's top or bottom edge a drag has gone; zero
     /// inside it.
     func autoscrollDelta(for windowPoint: NSPoint) -> CGFloat {

@@ -289,14 +289,11 @@ enum ChatSelectionSerializer {
         return previousRow == row ? "\t" : "\n"
     }
 
-    /// Heading levels 5 and 6 draw uppercased, but offsets come from the
-    /// source as `ChatReveal.length` counts it, so the slice is cut first and
-    /// uppercased after.
+    /// Heading levels 5 and 6 draw uppercased but copy in the source's case.
     private static func renderedText(of part: Selected) -> AttributedString {
         var text = part.source
         switch part.fragment.kind {
-        case let .heading(level):
-            if level >= 5 { text = uppercased(text) }
+        case .heading:
             text.isHeading = true
         case let .listItem(_, marker, _):
             if part.includesStart { text = AttributedString(marker + " ") + text }
@@ -306,14 +303,6 @@ enum ChatSelectionSerializer {
             break
         }
         return text
-    }
-
-    private static func uppercased(_ text: AttributedString) -> AttributedString {
-        text.runs.reduce(into: AttributedString()) { result, run in
-            var raised = AttributedString(String(text[run.range].characters).uppercased())
-            raised.mergeAttributes(run.attributes)
-            result += raised
-        }
     }
 
     private static func font(bold: Bool, italic: Bool, mono: Bool) -> NSFont {

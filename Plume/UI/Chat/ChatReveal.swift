@@ -715,6 +715,7 @@ private struct RevealFade: ViewModifier {
     let text: String
     @Environment(\.chatReveal) private var context
     @Environment(\.chatSelectionSpan) private var span
+    @Environment(\.theme) private var theme
     @State private var tuning = RevealTuning.shared
 
     /// Selectable text draws without consulting its `TextRenderer`, so the
@@ -737,7 +738,7 @@ private struct RevealFade: ViewModifier {
                     selected: selected,
                     // Read only under a selection, so a focus change
                     // re-renders only the text it recolors.
-                    highlight: selected == nil ? .clear : span.piece.highlight,
+                    highlight: selected == nil ? .clear : span.piece.highlight(accent: theme.colors.selection),
                     text: text
                 ))
                 .textSelection(.disabled)
