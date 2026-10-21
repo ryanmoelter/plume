@@ -66,6 +66,17 @@ struct ControlProtocolTests {
         #expect(clear.windowNumber == 3)
     }
 
+    @Test func selectionCommandsDecode() throws {
+        guard case .selection = try decode(#"{"id":"1","command":"selection"}"#).command else { Issue.record("not selection"); return }
+        guard case .selectText(let one) = try decode(#"{"id":"2","command":"selectText","matching":"hi"}"#).command else {
+            Issue.record("not selectText"); return
+        }
+        #expect(one == SelectTextParams(matching: "hi"))
+        let span = try decode(#"{"id":"3","command":"selectText","from":"a","to":"b","occurrence":2}"#)
+        guard case .selectText(let two) = span.command else { Issue.record("not selectText"); return }
+        #expect(two == SelectTextParams(from: "a", to: "b", occurrence: 2))
+    }
+
     @Test func unknownCommandsAndKindsAreRejected() {
         #expect(throws: DecodingError.self) { try decode(#"{"id":"1","command":"dance"}"#) }
         #expect(throws: DecodingError.self) { try decode(#"{"id":"1","command":"readText","target":{"kind":"menu"}}"#) }

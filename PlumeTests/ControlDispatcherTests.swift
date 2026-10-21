@@ -22,12 +22,14 @@ struct ControlDispatcherTests {
             #"{"id":"9","command":"hierarchy"}"#,
             #"{"id":"10","command":"hover","x":1,"y":2}"#,
             #"{"id":"11","command":"clear"}"#,
+            #"{"id":"12","command":"selection"}"#,
+            #"{"id":"13","command":"selectText","matching":"m"}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText"])
         #expect(backend.lastValue == "v")
     }
 
@@ -135,5 +137,15 @@ final class FakeControlBackend: ControlBackend {
     func menu() throws -> MenuResult {
         try record("menu")
         return MenuResult(items: [])
+    }
+
+    func selection() throws -> SelectionResult {
+        try record("selection")
+        return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
+    }
+
+    func selectText(_ params: SelectTextParams) throws -> SelectionResult {
+        try record("selectText")
+        return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
     }
 }

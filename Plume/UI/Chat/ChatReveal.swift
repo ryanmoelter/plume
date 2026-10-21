@@ -727,12 +727,17 @@ private struct RevealFade: ViewModifier {
         let length = text.utf16.count
         let start = Double(context?.offset ?? 0)
         let state = context?.reveal.state(across: start, start + Double(length))
-        if let span {
+        // An empty `Text`, such as a blank table cell, shares its offset with
+        // the next one, so it stays out of the selection.
+        if let span, length > 0 {
+            let selected = span.piece.range.flatMap { selected(by: $0, from: span.offset, length: length) }
             content
                 .textRenderer(ChatSelectionRenderer(
                     reveal: state.flatMap { $0.isShown ? nil : renderer(state: $0, start: start, length: length, values: tuning.values) },
-                    selected: span.piece.range.flatMap { selected(by: $0, from: span.offset, length: length) },
-                    highlight: span.piece.highlight,
+                    selected: selected,
+                    // Read only under a selection, so a focus change
+                    // re-renders only the text it recolors.
+                    highlight: selected == nil ? .clear : span.piece.highlight,
                     text: text
                 ))
                 .textSelection(.disabled)

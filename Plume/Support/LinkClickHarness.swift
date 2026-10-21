@@ -31,14 +31,11 @@ enum LinkClickHarness {
         } else {
             window.makeFirstResponder(nil)
         }
-        guard let field = firstLinkField(in: root) else {
+        guard let (label, point) = firstLinkPoint(in: root) else {
             log.error("no selectable text carrying a link")
             return
         }
-        let inWindow = field.convert(field.bounds, to: nil)
-        let textWidth = field.attributedStringValue.size().width
-        let point = NSPoint(x: inWindow.minX + min(textWidth, inWindow.width) / 2, y: inWindow.midY)
-        log.info("firstResponder=\(responderName(window), privacy: .public) clicking \(field.attributedStringValue.string.prefix(30), privacy: .public) at window \(NSStringFromPoint(point), privacy: .public)")
+        log.info("firstResponder=\(responderName(window), privacy: .public) clicking \(label.prefix(30), privacy: .public) at window \(NSStringFromPoint(point), privacy: .public)")
 
         Task {
             await SyntheticClick.perform(at: point, in: window)
@@ -47,8 +44,20 @@ enum LinkClickHarness {
         }
     }
 
-    private static func firstLinkField(in root: NSView) -> NSControl? {
-        ViewFinder.selectionTextFields(in: root).first { hasLink($0.attributedStringValue) }
+    private static func firstLinkPoint(in root: NSView) -> (label: String, point: NSPoint)? {
+        if let field = ViewFinder.selectionTextFields(in: root).first(where: { hasLink($0.attributedStringValue) }) {
+            let inWindow = field.convert(field.bounds, to: nil)
+            let textWidth = field.attributedStringValue.size().width
+            let point = NSPoint(x: inWindow.minX + min(textWidth, inWindow.width) / 2, y: inWindow.midY)
+            return (field.attributedStringValue.string, point)
+        }
+        for list in ViewFinder.all(ChatListDocumentView.self, in: root) {
+            guard let controller = list.controller, let link = controller.firstLink(),
+                  let rect = controller.windowRect(ofCharacters: link.range, pieceID: link.pieceID, offset: link.offset)
+            else { continue }
+            return (controller.selectableText(of: link.pieceID)?.plainText ?? "", NSPoint(x: rect.midX, y: rect.midY))
+        }
+        return nil
     }
 
     private static func hasLink(_ attributed: NSAttributedString) -> Bool {

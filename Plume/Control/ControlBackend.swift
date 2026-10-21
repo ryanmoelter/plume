@@ -20,6 +20,8 @@ protocol ControlBackend {
     func drag(_ params: DragParams) async throws -> DragResult
     func key(_ params: KeyParams) async throws -> KeyResult
     func menu() throws -> MenuResult
+    func selection() throws -> SelectionResult
+    func selectText(_ params: SelectTextParams) throws -> SelectionResult
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -60,6 +62,8 @@ enum ControlDispatcher {
             case .drag(let params): result = .drag(try await backend.drag(params))
             case .key(let params): result = .key(try await backend.key(params))
             case .menu: result = .menu(try backend.menu())
+            case .selection: result = .selection(try backend.selection())
+            case .selectText(let params): result = .selection(try backend.selectText(params))
             }
             return .success(id: request.id, result)
         } catch {

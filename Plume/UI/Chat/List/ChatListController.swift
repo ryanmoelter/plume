@@ -1188,6 +1188,124 @@ extension ChatListController {
     }
 }
 
+#if DEBUG
+extension ChatListController {
+    struct SelectableTextFrame {
+        let pieceID: String
+        let offset: Int
+        let text: String
+        /// AppKit window coordinates.
+        let windowRect: CGRect
+    }
+
+    /// Every laid-out selectable `Text` of the realized, visible rows.
+    func selectableTextFrames() -> [SelectableTextFrame] {
+        var frames: [SelectableTextFrame] = []
+        for (id, host) in hosts where !host.view.isHidden {
+            for entry in selection.layouts.sortedEntries(of: id) where entry.layout != nil && !entry.frame.isEmpty {
+                frames.append(SelectableTextFrame(
+                    pieceID: id, offset: entry.offset, text: entry.text,
+                    windowRect: host.view.convert(entry.frame, to: nil)
+                ))
+            }
+        }
+        return frames
+    }
+
+    /// The glyphs of `range`, a span of one `Text`'s own string, on the first
+    /// line the range reaches.
+    func windowRect(ofCharacters range: Range<Int>, pieceID: String, offset: Int) -> CGRect? {
+        guard let host = hosts[pieceID], let entry = selection.layouts.entries[pieceID]?[offset],
+              let layout = entry.layout, let origin = ChatTextGeometry.origin(of: layout) else { return nil }
+        let lineStarts = WordReveal.lineStarts(
+            of: layout, from: origin, paragraphStarts: WordReveal.paragraphStarts(in: entry.text)
+        )
+        var line: CGRect?
+        for (textLine, lineStart) in zip(layout, lineStarts) {
+            var rect: CGRect?
+            for run in textLine {
+                for slice in run {
+                    guard let index = slice.characterIndices.first else { continue }
+                    let start = lineStart + origin.distance(to: index)
+                    guard range.contains(start) else { continue }
+                    let bounds = slice.typographicBounds.rect
+                    rect = rect.map { $0.union(bounds) } ?? bounds
+                }
+            }
+            if let rect { line = rect; break }
+        }
+        guard let line else { return nil }
+        return host.view.convert(line.offsetBy(dx: entry.frame.minX, dy: entry.frame.minY), to: nil)
+    }
+
+    /// The first link in the realized rows, as its `Text` and the link's span
+    /// within it.
+    func firstLink() -> (pieceID: String, offset: Int, range: Range<Int>)? {
+        for piece in inputs.pieces where hosts[piece.id] != nil {
+            guard let text = selectableText(of: piece.id) else { continue }
+            for entry in selection.layouts.sortedEntries(of: piece.id) {
+                guard let fragment = text.fragments.first(where: { $0.start == entry.offset }) else { continue }
+                var count = 0
+                for run in fragment.source.runs {
+                    let length = String(fragment.source[run.range].characters).utf16.count
+                    if run.link != nil { return (piece.id, entry.offset, count..<(count + length)) }
+                    count += length
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Selects from the start of the `occurrence`-th match of `from` to the
+    /// end of the first match of `to` after it, or of `from` itself when `to`
+    /// is nil. Returns false when either is not in the transcript.
+    @discardableResult
+    func selectText(from: String, to: String?, occurrence: Int) -> Bool {
+        let starts = matches(of: from)
+        guard starts.indices.contains(occurrence) else { return false }
+        let start = starts[occurrence].start
+        var end = starts[occurrence].end
+        if let to {
+            let order = ChatPieceOrder(inputs.pieces.map(\.id))
+            guard let later = matches(of: to).first(where: { follows($0.start, start, in: order) }) else {
+                return false
+            }
+            end = later.end
+        }
+        selection.set(ChatSelection(anchor: start, focus: end))
+        takeSelectionFocus()
+        return true
+    }
+
+    private func follows(_ lhs: ChatTextPosition, _ rhs: ChatTextPosition, in order: ChatPieceOrder) -> Bool {
+        guard let left = order.index(of: lhs.pieceID), let right = order.index(of: rhs.pieceID) else { return false }
+        return left != right ? left > right : lhs.offset >= rhs.offset
+    }
+
+    private func matches(of needle: String) -> [(start: ChatTextPosition, end: ChatTextPosition)] {
+        guard !needle.isEmpty else { return [] }
+        var found: [(start: ChatTextPosition, end: ChatTextPosition)] = []
+        for piece in inputs.pieces where selection.isSelectable(piece.id) {
+            for fragment in ChatSelectableText(piece: piece).fragments {
+                let text = String(fragment.source.characters) as NSString
+                var from = 0
+                while from < text.length {
+                    let range = text.range(of: needle, range: NSRange(location: from, length: text.length - from))
+                    guard range.location != NSNotFound else { break }
+                    let offset = fragment.start + range.location
+                    found.append((
+                        ChatTextPosition(pieceID: piece.id, offset: offset),
+                        ChatTextPosition(pieceID: piece.id, offset: offset + range.length)
+                    ))
+                    from = range.location + max(range.length, 1)
+                }
+            }
+        }
+        return found
+    }
+}
+#endif
+
 /// The SwiftUI root of one hosted item.
 ///
 /// A fresh root has none of the list's environment, so this puts back what
