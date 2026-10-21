@@ -8,9 +8,11 @@ struct ClaudeCodeProvider: AgentProvider {
     /// Nil disables instrumentation, which degrades to a plain `claude`
     /// session rather than failing to launch.
     var settingsPath: String?
+    var extraArguments: [String]
 
-    init(settingsPath: String? = nil) {
+    init(settingsPath: String? = nil, extraArguments: [String] = []) {
         self.settingsPath = settingsPath
+        self.extraArguments = extraArguments
     }
 
     func launchCommand(
@@ -20,7 +22,7 @@ struct ClaudeCodeProvider: AgentProvider {
         tabID: UUID?,
         permissionMode: String?
     ) -> AgentLaunch {
-        var arguments = ["claude"]
+        var arguments = ["claude"] + extraArguments.map(shellQuoted)
 
         if let settingsPath {
             arguments.append("--settings")
@@ -40,6 +42,9 @@ struct ClaudeCodeProvider: AgentProvider {
         if let firstMessage {
             let trimmed = firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                // Ends option parsing, so neither a variadic flag before it
+                // nor a leading `-` in the message can claim the prompt.
+                arguments.append("--")
                 arguments.append(shellQuoted(trimmed))
             }
         }

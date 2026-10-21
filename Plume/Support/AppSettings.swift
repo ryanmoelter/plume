@@ -27,6 +27,7 @@ final class AppSettings {
         static let defaultClaudeModelRaw = "defaultClaudeModelRaw"
         static let defaultCodexPermissionProfileRaw = "defaultCodexPermissionProfileRaw"
         static let defaultEffortRaw = "defaultEffortRaw"
+        static let claudeExtraArgumentsText = "claudeExtraArgumentsText"
         /// Stored under its original name, from when the setting covered
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
@@ -148,6 +149,8 @@ final class AppSettings {
 
         self.defaultEffort = defaults.string(forKey: Key.defaultEffortRaw)
             .flatMap { raw in AgentProviderKind.claudeCode.efforts.first { $0.rawValue == raw } } ?? Self.defaultEffort
+
+        self.claudeExtraArgumentsText = defaults.string(forKey: Key.claudeExtraArgumentsText) ?? ""
 
         // Unset must read as true, which `bool(forKey:)` cannot express.
         self.animateChatMotion = defaults.object(forKey: Key.animateChatMotion) == nil
@@ -406,6 +409,17 @@ final class AppSettings {
         didSet {
             defaults.set(defaultClaudeModel.rawValue, forKey: Key.defaultClaudeModelRaw)
         }
+    }
+
+    /// Read at launch, so a change reaches only sessions started after it.
+    var claudeExtraArgumentsText: String {
+        didSet {
+            defaults.set(claudeExtraArgumentsText, forKey: Key.claudeExtraArgumentsText)
+        }
+    }
+
+    var claudeExtraArguments: ClaudeExtraArguments {
+        ClaudeExtraArguments(claudeExtraArgumentsText)
     }
 
     var defaultCodexPermissionProfileRaw: String {

@@ -85,7 +85,7 @@ struct InstrumentedLaunchTests {
             firstMessage: "hi", resumeSessionID: nil, taskID: taskID, tabID: tabID, permissionMode: nil
         )
 
-        #expect(launch.command == loginWrapped("claude --settings '/tmp/settings.json' 'hi'"))
+        #expect(launch.command == loginWrapped("claude --settings '/tmp/settings.json' -- 'hi'"))
         #expect(launch.environment["PLUME_TASK_ID"] == taskID.uuidString)
         #expect(launch.environment["PLUME_TAB_ID"] == tabID.uuidString)
         #expect(launch.environment["PLUME_EVENTS_DIR"] == AppPaths.eventsDirectory.path)
@@ -100,7 +100,7 @@ struct InstrumentedLaunchTests {
     /// Without instrumentation the agent must still launch, just unreported.
     @Test func withoutSettingsItDegradesToAPlainLaunch() {
         let launch = ClaudeCodeProvider().launchCommand(firstMessage: "hi", resumeSessionID: nil)
-        #expect(launch.command == loginWrapped("claude 'hi'"))
+        #expect(launch.command == loginWrapped("claude -- 'hi'"))
         #expect(launch.environment["PLUME_TASK_ID"] == nil)
         #expect(launch.environment["PLUME_TAB_ID"] == nil)
         #expect(launch.environment["PLUME_EVENTS_DIR"] == nil)

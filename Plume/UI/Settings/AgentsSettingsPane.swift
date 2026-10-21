@@ -65,6 +65,7 @@ struct AgentsSettingsPane: View {
                             settings.queuedMessageDelivery = delivery
                         }
                     )
+                    extraArgumentsRow
                 }
             }
 
@@ -113,6 +114,42 @@ struct AgentsSettingsPane: View {
             } icon: {
                 AgentProviderIcon(provider: provider)
             }
+        }
+    }
+
+    private var extraArgumentsRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField(
+                "Additional arguments for claude",
+                text: $settings.claudeExtraArgumentsText,
+                prompt: Text("--model opus --add-dir ~/shared")
+            )
+            .textFieldStyle(.roundedBorder)
+            .plumeID(
+                AccessibilityID.settingsClaudeExtraArgumentsField,
+                value: settings.claudeExtraArgumentsText,
+                setValue: { settings.claudeExtraArgumentsText = $0 }
+            )
+            Group {
+                if let warning = extraArgumentsWarning(settings.claudeExtraArguments) {
+                    Text(warning).foregroundStyle(.orange)
+                }
+                Text("Applies to sessions started from now on. Quoted like a shell, without variable expansion. Plume's own flags, such as --resume and --permission-mode, are ignored, and a model picked in Plume overrides --model.")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+        }
+    }
+
+    private func extraArgumentsWarning(_ arguments: ClaudeExtraArguments) -> String? {
+        switch arguments.parseError {
+        case .unterminatedQuote:
+            return "Unmatched quote, so none of these are passed."
+        case .trailingBackslash:
+            return "Trailing backslash, so none of these are passed."
+        case nil:
+            guard !arguments.ignored.isEmpty else { return nil }
+            return "Ignored: \(arguments.ignored.joined(separator: " "))"
         }
     }
 

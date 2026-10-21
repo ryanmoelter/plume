@@ -36,10 +36,11 @@ enum HeadlessCommand {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
-        fork: Fork? = nil
+        fork: Fork? = nil,
+        extraArguments: [String] = []
     ) -> [String] {
-        var arguments = [
-            "claude",
+        var arguments = ["claude"] + extraArguments
+        arguments += [
             "-p",
             "--output-format", "stream-json",
             "--input-format", "stream-json",

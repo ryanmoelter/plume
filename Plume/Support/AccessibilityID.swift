@@ -52,6 +52,9 @@ enum AccessibilityID {
     // MARK: Settings
 
     static let settingsPane = "settings-pane"
+    static let agentFirstMessageField = "agent-first-message-field"
+    static let agentFirstMessageSendButton = "agent-first-message-send-button"
+    static let settingsClaudeExtraArgumentsField = "settings-claude-extra-arguments-field"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsAccentSwatch = "settings-accent-swatch"
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
