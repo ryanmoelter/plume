@@ -28,6 +28,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "readText": command = .readText(try TargetParams(from: decoder).target)
         case "clickSpan": command = .clickSpan(try ClickSpanParams(from: decoder))
         case "click": command = .click(try ClickParams(from: decoder))
+        case "pointerDrag": command = .pointerDrag(try PointerDragParams(from: decoder))
         case "screenshot": command = .screenshot(try ScreenshotParams(from: decoder))
         case "hierarchy": command = .hierarchy(try HierarchyParams(from: decoder))
         case "hover": command = .hover(try HoverParams(from: decoder))
@@ -53,6 +54,7 @@ nonisolated enum ControlCommand {
     case readText(ControlTarget)
     case clickSpan(ClickSpanParams)
     case click(ClickParams)
+    case pointerDrag(PointerDragParams)
     case screenshot(ScreenshotParams)
     case hierarchy(HierarchyParams)
     case hover(HoverParams)
@@ -185,6 +187,40 @@ nonisolated struct ClickParams: Decodable {
         y = try c.decode(Double.self, forKey: .y)
         windowNumber = try c.decodeIfPresent(Int.self, forKey: .windowNumber)
         clickCount = try c.decodeIfPresent(Int.self, forKey: .clickCount) ?? 1
+    }
+}
+
+/// Points are in top-left window coordinates, like `ClickParams`.
+nonisolated struct PointerDragParams: Decodable {
+    var fromX: Double
+    var fromY: Double
+    var toX: Double
+    var toY: Double
+    var windowNumber: Int?
+    var clickCount: Int = 1
+    var steps: Int = 10
+
+    private enum CodingKeys: String, CodingKey { case fromX, fromY, toX, toY, windowNumber, clickCount, steps }
+
+    init(fromX: Double, fromY: Double, toX: Double, toY: Double, windowNumber: Int? = nil, clickCount: Int = 1, steps: Int = 10) {
+        self.fromX = fromX
+        self.fromY = fromY
+        self.toX = toX
+        self.toY = toY
+        self.windowNumber = windowNumber
+        self.clickCount = clickCount
+        self.steps = steps
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fromX = try c.decode(Double.self, forKey: .fromX)
+        fromY = try c.decode(Double.self, forKey: .fromY)
+        toX = try c.decode(Double.self, forKey: .toX)
+        toY = try c.decode(Double.self, forKey: .toY)
+        windowNumber = try c.decodeIfPresent(Int.self, forKey: .windowNumber)
+        clickCount = try c.decodeIfPresent(Int.self, forKey: .clickCount) ?? 1
+        steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 10
     }
 }
 
