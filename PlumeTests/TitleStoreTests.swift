@@ -116,6 +116,26 @@ struct TitleStoreTests {
         #expect(store.title(forTab: tab) == nil)
     }
 
+    @Test func aCustomTitleSurvivesAReplyAndATransportSwitch() {
+        let store = TitleStore()
+        let tab = UUID()
+        store.setTitle("Release 1.0", forTab: tab, source: .custom)
+        store.setTitle("Generated name", forTab: tab, source: .reply)
+        store.demoteSource(forTab: tab, to: .transcript)
+
+        #expect(store.title(forTab: tab) == "Release 1.0")
+        #expect(store.source(forTab: tab) == .custom)
+    }
+
+    @Test func aCustomTitleReplacesAReplyTitle() {
+        let store = TitleStore()
+        let tab = UUID()
+        store.setTitle("Generated name", forTab: tab, source: .reply)
+        store.setTitle("Release 1.0", forTab: tab, source: .custom)
+
+        #expect(store.title(forTab: tab) == "Release 1.0")
+    }
+
     @Test func aFallbackNeverReplacesATranscriptTitle() {
         let store = TitleStore()
         let tab = UUID()

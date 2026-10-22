@@ -12,12 +12,15 @@ enum TitleSource: String, Comparable {
     /// A `generate_session_title` control response, or a terminal tab's own
     /// reported title.
     case reply
+    /// The transcript's `custom-title` line, which `/rename` writes.
+    case custom
 
     private var rank: Int {
         switch self {
         case .fallback: 0
         case .transcript: 1
         case .reply: 2
+        case .custom: 3
         }
     }
 
@@ -82,7 +85,7 @@ final class TitleStore {
     /// turns off), so a source stuck above `source` would otherwise block
     /// every future update at that ceiling for good.
     func demoteSource(forTab id: UUID, to source: TitleSource) {
-        guard let current = sources[id], current > source else { return }
+        guard let current = sources[id], current > source, current != .custom else { return }
         sources[id] = source
     }
 
