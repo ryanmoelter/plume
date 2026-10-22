@@ -5,12 +5,15 @@ nonisolated protocol LinearClient: Sendable {
     func fetchCatalog() async throws -> LinearCatalog
     /// Keyed by uppercased identifier.
     func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup]
+    /// One page of the issues updated at or after `since`, archived ones
+    /// included, newest first.
+    func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage
 }
 
 /// One workspace's answer for one identifier in a batch.
 nonisolated enum LinearIssueLookup: Sendable, Equatable {
-    case found(LinearIssue)
-    /// The workspace answered and has no such issue.
+    case found(LinearIssueSnapshot)
+    /// The workspace answered and has no such issue, or has it in the trash.
     case notFound
     /// The workspace reported an error for this issue alone.
     case failed(String)
@@ -37,10 +40,30 @@ nonisolated enum LinearQuery {
         nodes { id name type color team { id } } pageInfo { hasNextPage endCursor } } }
         """
 
-    private static let issueFields = """
-        identifier title url state { name type color } \
-        assignee { displayName name } team { key }
+    static let issueFields = """
+        id identifier title url updatedAt archivedAt trashed \
+        state { id name type color } assignee { id displayName name } team { id key }
         """
+
+    static let deltaPageSize = 100
+
+    /// The bound is inlined rather than passed as a variable so the query
+    /// never names the comparator's input type.
+    static func buildIssuesUpdated(since: Date) -> String {
+        let bound = jsonString(formatDate(since))
+        return "query($cursor: String) { issues(first: \(deltaPageSize), after: $cursor, "
+            + "orderBy: updatedAt, includeArchived: true, filter: { updatedAt: { gte: \(bound) } }) { "
+            + "nodes { \(issueFields) } pageInfo { hasNextPage endCursor } } }"
+    }
+
+    static func formatDate(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+    }
+
+    static func parseDate(_ string: String) -> Date? {
+        (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(string))
+            ?? (try? Date.ISO8601FormatStyle().parse(string))
+    }
 
     static func chunks(of identifiers: [String]) -> [[String]] {
         stride(from: 0, to: identifiers.count, by: chunkSize).map {
@@ -162,15 +185,47 @@ nonisolated enum LinearQuery {
     }
 
     private struct IssueNode: Decodable {
-        struct State: Decodable { let name: String; let type: LinearStateType; let color: String }
-        struct Assignee: Decodable { let displayName: String?; let name: String? }
-        struct Team: Decodable { let key: String }
+        struct State: Decodable { let id: String; let name: String; let type: LinearStateType; let color: String }
+        struct Assignee: Decodable { let id: String; let displayName: String?; let name: String? }
+        struct Team: Decodable { let id: String; let key: String }
+        let id: String
         let identifier: String
         let title: String
         let url: String
+        let updatedAt: Date
+        let archivedAt: Date?
+        let trashed: Bool?
         let state: State
         let assignee: Assignee?
         let team: Team
+
+        var snapshot: LinearIssueSnapshot {
+            let assigneeName = assignee.map { $0.displayName ?? $0.name ?? "" }
+            return LinearIssueSnapshot(
+                id: id,
+                updatedAt: updatedAt,
+                archivedAt: archivedAt,
+                isTrashed: trashed ?? false,
+                state: LinearWorkflowState(id: state.id, name: state.name, type: state.type, color: state.color),
+                assignee: assignee.map { LinearUser(id: $0.id, name: assigneeName ?? "") },
+                teamID: team.id,
+                issue: LinearIssue(
+                    identifier: identifier,
+                    title: title,
+                    url: url,
+                    stateName: state.name,
+                    stateType: state.type,
+                    stateColor: state.color,
+                    assigneeName: assigneeName,
+                    teamKey: team.key
+                )
+            )
+        }
+    }
+
+    private struct IssuesUpdatedPayload: Decodable {
+        struct Issues: Decodable { let nodes: [IssueNode]; let pageInfo: PageInfo }
+        let issues: Issues
     }
 
     private struct DynamicKey: CodingKey {
@@ -198,8 +253,17 @@ nonisolated enum LinearQuery {
         _ type: Payload.Type,
         from data: Data
     ) throws -> Envelope<Payload> {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            guard let date = parseDate(string) else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Bad date \(string)")
+            }
+            return date
+        }
         do {
-            return try JSONDecoder().decode(Envelope<Payload>.self, from: data)
+            return try decoder.decode(Envelope<Payload>.self, from: data)
         } catch {
             throw LinearError.failed("Linear sent a response Plume could not read.")
         }
@@ -306,16 +370,8 @@ nonisolated enum LinearQuery {
         for (alias, identifier) in aliasToIdentifier {
             let key = identifier.uppercased()
             if let node = nodes[alias] ?? nil {
-                result[key] = .found(LinearIssue(
-                    identifier: node.identifier,
-                    title: node.title,
-                    url: node.url,
-                    stateName: node.state.name,
-                    stateType: node.state.type,
-                    stateColor: node.state.color,
-                    assigneeName: node.assignee?.displayName ?? node.assignee?.name,
-                    teamKey: node.team.key
-                ))
+                let snapshot = node.snapshot
+                result[key] = snapshot.isTrashed ? .notFound : .found(snapshot)
             } else if let failure = errorsByAlias[alias]?.first(where: { !isNotFound($0) }) {
                 result[key] = .failed(failure.message ?? "Linear returned an error.")
             } else {
@@ -323,6 +379,13 @@ nonisolated enum LinearQuery {
             }
         }
         return result
+    }
+
+    static func decodeIssuesUpdated(_ data: Data, now: Date = Date()) throws -> LinearIssuePage {
+        let envelope = try decodeEnvelope(IssuesUpdatedPayload.self, from: data)
+        try check(envelope.errors, now: now)
+        guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
+        return LinearIssuePage(issues: payload.issues.nodes.map(\.snapshot), nextCursor: payload.issues.pageInfo.next)
     }
 }
 
@@ -386,6 +449,12 @@ nonisolated struct LinearGraphQLClient: LinearClient {
             result.merge(lookups) { $1 }
         }
         return result
+    }
+
+    func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage {
+        try await send(LinearQuery.buildIssuesUpdated(since: since), cursor: cursor) {
+            try LinearQuery.decodeIssuesUpdated($0)
+        }
     }
 
     /// A non-2xx response is decoded too when it carries GraphQL errors, so
