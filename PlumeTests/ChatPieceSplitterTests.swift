@@ -646,6 +646,25 @@ struct ChatPieceSplitterTests {
         #expect(cache.parseCount == 3)
     }
 
+    @Test func aTabKeepsItsCacheUntilForgotten() {
+        let tab = UUID()
+        let cache = ChatPieceCache.forTab(tab)
+        #expect(ChatPieceCache.forTab(tab) === cache)
+
+        ChatPieceCache.forget(tabID: tab)
+        #expect(ChatPieceCache.forTab(tab) !== cache)
+        ChatPieceCache.forget(tabID: tab)
+    }
+
+    @Test func onlyTheMostRecentTabsKeepTheirCaches() {
+        let tabs = (0..<9).map { _ in UUID() }
+        let first = ChatPieceCache.forTab(tabs[0])
+        for tab in tabs.dropFirst() { _ = ChatPieceCache.forTab(tab) }
+
+        #expect(ChatPieceCache.forTab(tabs[0]) !== first)
+        for tab in tabs { ChatPieceCache.forget(tabID: tab) }
+    }
+
     // MARK: - Copy source
 
     /// A block the splitter left whole copies the lines it was parsed from,
