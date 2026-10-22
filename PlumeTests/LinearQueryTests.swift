@@ -10,7 +10,7 @@ struct LinearQueryTests {
         #expect(aliases == ["i0": "PLUME-1", "i1": "PLUME-2"])
         #expect(query.contains("i0: issue(id: \"PLUME-1\")"))
         #expect(query.contains("i1: issue(id: \"PLUME-2\")"))
-        #expect(query.contains("state { name type color }"))
+        #expect(query.contains("state { id name type color }"))
     }
 
     @Test func escapesIdentifiers() {
@@ -32,36 +32,76 @@ struct LinearQueryTests {
     }
 
     private let issueJSON = """
-        {"identifier":"PLUME-102","title":"Linear","url":"https://linear.app/p/issue/PLUME-102",
-         "state":{"name":"In Progress","type":"started","color":"#f2c94c"},
-         "assignee":{"displayName":"ryan","name":"Ryan Moelter"},"team":{"key":"PLUME"}}
+        {"id":"uuid-102","identifier":"PLUME-102","title":"Linear","url":"https://linear.app/p/issue/PLUME-102",
+         "updatedAt":"2026-10-01T12:34:56.789Z","archivedAt":null,"trashed":false,
+         "state":{"id":"s-1","name":"In Progress","type":"started","color":"#f2c94c"},
+         "assignee":{"id":"u-1","displayName":"ryan","name":"Ryan Moelter"},"team":{"id":"t-1","key":"PLUME"}}
         """
 
     @Test func decodesIssues() throws {
         let json = "{\"data\":{\"i0\":\(issueJSON)}}"
         let result = try LinearQuery.decodeIssues(data(json), aliasToIdentifier: ["i0": "plume-102"])
-        guard case .found(let issue)? = result["PLUME-102"] else {
+        guard case .found(let snapshot)? = result["PLUME-102"] else {
             Issue.record("expected an issue, got \(String(describing: result["PLUME-102"]))")
             return
         }
+        let issue = snapshot.issue
         #expect(issue.title == "Linear")
         #expect(issue.stateType == .started)
         #expect(issue.stateColor == "#f2c94c")
         #expect(issue.assigneeName == "ryan")
         #expect(issue.teamKey == "PLUME")
+        #expect(snapshot.id == "uuid-102")
+        #expect(snapshot.teamID == "t-1")
+        #expect(snapshot.state.id == "s-1")
+        #expect(snapshot.assignee == LinearUser(id: "u-1", name: "ryan"))
+        #expect(snapshot.updatedAt == LinearQuery.parseDate("2026-10-01T12:34:56.789Z"))
+        #expect(snapshot.updatedAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 1) > 0.78)
     }
 
     @Test func nullAssigneeDecodes() throws {
         let json = """
-            {"data":{"i0":{"identifier":"A-1","title":"t","url":"u",
-            "state":{"name":"Todo","type":"unstarted","color":"#000000"},"assignee":null,"team":{"key":"A"}}}}
+            {"data":{"i0":{"id":"x","identifier":"A-1","title":"t","url":"u","updatedAt":"2026-10-01T00:00:00Z",
+            "state":{"id":"s","name":"Todo","type":"unstarted","color":"#000000"},"assignee":null,"team":{"id":"t","key":"A"}}}}
             """
         let result = try LinearQuery.decodeIssues(data(json), aliasToIdentifier: ["i0": "A-1"])
-        guard case .found(let issue)? = result["A-1"] else {
+        guard case .found(let snapshot)? = result["A-1"] else {
             Issue.record("expected an issue")
             return
         }
-        #expect(issue.assigneeName == nil)
+        #expect(snapshot.issue.assigneeName == nil)
+        #expect(snapshot.assignee == nil)
+    }
+
+    @Test func aTrashedIssueIsNotFound() throws {
+        let trashed = issueJSON.replacingOccurrences(of: "\"trashed\":false", with: "\"trashed\":true")
+        let result = try LinearQuery.decodeIssues(data("{\"data\":{\"i0\":\(trashed)}}"), aliasToIdentifier: ["i0": "PLUME-102"])
+        #expect(result["PLUME-102"] == .notFound)
+    }
+
+    @Test func theDeltaQueryFiltersFromTheBoundNewestFirstWithArchived() {
+        let since = Date(timeIntervalSince1970: 1_790_000_000.5)
+        let query = LinearQuery.buildIssuesUpdated(since: since)
+        #expect(query.contains("updatedAt: { gte: \"\(LinearQuery.formatDate(since))\" }"))
+        #expect(query.contains("orderBy: updatedAt"))
+        #expect(query.contains("includeArchived: true"))
+        #expect(query.contains("after: $cursor"))
+        #expect(query.contains("first: \(LinearQuery.deltaPageSize)"))
+        #expect(query.contains("pageInfo { hasNextPage endCursor }"))
+        #expect(LinearQuery.parseDate(LinearQuery.formatDate(since)) == since)
+    }
+
+    @Test func decodesADeltaPageKeepingTrashedIssues() throws {
+        let trashed = issueJSON
+            .replacingOccurrences(of: "uuid-102", with: "uuid-103")
+            .replacingOccurrences(of: "\"trashed\":false", with: "\"trashed\":true")
+        let json = """
+            {"data":{"issues":{"nodes":[\(issueJSON),\(trashed)],"pageInfo":{"hasNextPage":true,"endCursor":"c2"}}}}
+            """
+        let page = try LinearQuery.decodeIssuesUpdated(data(json))
+        #expect(page.issues.map(\.id) == ["uuid-102", "uuid-103"])
+        #expect(page.issues.map(\.isTrashed) == [false, true])
+        #expect(page.nextCursor == "c2")
     }
 
     @Test func partialNotFoundByPathIsNil() throws {
