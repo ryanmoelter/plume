@@ -705,6 +705,15 @@ extension View {
         modifier(RevealFade(text: text))
     }
 
+    /// Fades this `Text`, built by `styled.text()`, in behind the reveal
+    /// with its code chips painted beneath.
+    func revealFade(_ styled: StyledInline, chipFill: Color) -> some View {
+        modifier(RevealFade(
+            text: styled.plainText,
+            chips: styled.hasCode ? CodeChips(pad: styled.pad, fill: chipFill) : nil
+        ))
+    }
+
     /// Hides content that is not `Text` until the reveal reaches it.
     func revealGate(_ context: ChatRevealContext?) -> some View {
         modifier(RevealGate(context: context))
@@ -713,6 +722,7 @@ extension View {
 
 private struct RevealFade: ViewModifier {
     let text: String
+    var chips: CodeChips?
     @Environment(\.chatReveal) private var context
     @Environment(\.chatSelectionSpan) private var span
     @Environment(\.theme) private var theme
@@ -739,14 +749,25 @@ private struct RevealFade: ViewModifier {
                     // Read only under a selection, so a focus change
                     // re-renders only the text it recolors.
                     highlight: selected == nil ? .clear : span.piece.highlight(accent: theme.colors.selection),
-                    text: text
+                    text: text,
+                    chips: chips
                 ))
                 .textSelection(.disabled)
                 .modifier(ChatSelectionRecorder(span: span, text: text))
         } else if let state, !state.isShown {
-            content
-                .textRenderer(renderer(state: state, start: start, length: length, values: tuning.values))
-                .textSelection(.disabled)
+            let reveal = renderer(state: state, start: start, length: length, values: tuning.values)
+            if let chips {
+                content
+                    .textRenderer(CodeChipRenderer(chips: chips, reveal: reveal))
+                    .textSelection(.disabled)
+            } else {
+                content
+                    .textRenderer(reveal)
+                    .textSelection(.disabled)
+            }
+        } else if let chips {
+            // Draws only where nothing above made this text selectable.
+            content.textRenderer(CodeChipRenderer(chips: chips))
         } else {
             content
         }
@@ -802,7 +823,7 @@ enum ChatReveal {
         case let .markdown(block, _): length(of: block)
         case let .codeSegment(segment): segment.isMermaid ? 0 : segment.code.utf16.count
         case let .listSegment(segment): segment.items.reduce(0) { $0 + length(of: $1.text) }
-        case .thinking, .toolCall, .injected, .agentMessageTitle, .agentMessageToggle, .notice, .image,
+        case .thinking, .toolCall, .injected, .slashCommandPrompt, .agentMessageTitle, .agentMessageToggle, .notice, .image,
              .working, .waitingOnSubagents: 0
         }
     }

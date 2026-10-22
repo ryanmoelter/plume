@@ -138,7 +138,7 @@ struct ChatPieceView: View, ThemedView {
     private var content: some View {
         switch piece.content {
         case let .markdown(block, _):
-            MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice)
+            MarkdownBlockView(block: block, isAgentVoice: piece.isAgentVoice, accentedPrefix: piece.accentedPrefix)
         case let .codeSegment(segment):
             CodeSegmentView(segment: segment)
         case let .listSegment(segment):
@@ -155,6 +155,8 @@ struct ChatPieceView: View, ThemedView {
             } else {
                 InjectedContentRow(kind: kind, text: text)
             }
+        case let .slashCommandPrompt(kind, text):
+            SlashCommandPromptRow(kind: kind, text: text, key: piece.id)
         case let .agentMessageTitle(name, isSubagent, isExpanded):
             let title = AgentMessageTitle(name: name, isSubagent: isSubagent, isExpanded: isExpanded)
             if let toggle = agentMessageToggle, let key = piece.agentMessageKey {

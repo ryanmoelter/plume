@@ -14,14 +14,13 @@ struct MarkdownBlockView: View, ThemedView {
     /// else — the user's own message, a tool's output — stays in the system
     /// face so it reads as input rather than published prose.
     var isAgentVoice: Bool = false
+    /// How many leading characters of a paragraph draw in the accent color:
+    /// a slash command's name.
+    var accentedPrefix = 0
 
     var body: some View {
         content
             .textSelection(.enabled)
-    }
-
-    private func streamedText(_ attributed: AttributedString) -> some View {
-        Text(attributed).revealFade(attributed)
     }
 
     /// The scale this view's prose renders in.
@@ -33,13 +32,19 @@ struct MarkdownBlockView: View, ThemedView {
     private var content: some View {
         switch block {
         case let .heading(level, text):
-            streamedText(heading(text, level: level))
+            // Inline code carries its own font, which wins over the
+            // heading's, so it is built at the heading's size.
+            InlineMarkdownText(
+                source: text,
+                fontSize: headingStyle(level: level).size,
+                isUppercased: headingIsUppercased(level: level)
+            )
                 .font(headingFont(level: level))
                 .fixedSize(horizontal: false, vertical: true)
                 .listItemPadding(vertical: false)
 
         case let .paragraph(text):
-            streamedText(inline(text))
+            InlineMarkdownText(source: text, accentedPrefix: accentedPrefix)
                 .font(prose.body.font)
                 .lineSpacing(prose.body.lineSpacing)
                 .fixedSize(horizontal: false, vertical: true)
@@ -64,7 +69,7 @@ struct MarkdownBlockView: View, ThemedView {
                 Rectangle()
                     .fill(quoteBarColor)
                     .frame(width: 3)
-                streamedText(inline(text))
+                InlineMarkdownText(source: text)
                     .font(prose.body.font)
                     .emphasis(.secondary)
                     .lineSpacing(prose.body.lineSpacing)
@@ -159,9 +164,7 @@ struct MarkdownBlockView: View, ThemedView {
         isFirstRow: Bool,
         fill: Color
     ) -> some View {
-        let attributed = inline(text)
-        return Text(attributed)
-            .revealFade(attributed)
+        InlineMarkdownText(source: text)
             .font(font)
             .lineSpacing(prose.body.lineSpacing)
             .fixedSize(horizontal: false, vertical: true)
@@ -198,32 +201,6 @@ struct MarkdownBlockView: View, ThemedView {
         case .leading: return .leading
         case .center: return .center
         case .trailing: return .trailing
-        }
-    }
-
-    private func inline(_ text: String, fontSize: CGFloat? = nil) -> AttributedString {
-        MarkdownCache.styledInline(
-            text,
-            fontSize: fontSize ?? typography.bodySize,
-            tint: colors.surfaceTint
-        )
-    }
-
-    /// A heading's text, uppercased at the levels that rank by case rather
-    /// than by size.
-    ///
-    /// Uppercases the parsed runs rather than the source: raising the markdown
-    /// first would carry a link's URL up with it, and `.textCase` does not
-    /// reach a `Text` built from an `AttributedString`.
-    private func heading(_ text: String, level: Int) -> AttributedString {
-        // Inline code carries its own font, which wins over the heading's, so
-        // it has to be built at the heading's size rather than the body's.
-        let parsed = inline(text, fontSize: headingStyle(level: level).size)
-        guard headingIsUppercased(level: level) else { return parsed }
-        return parsed.runs.reduce(into: AttributedString()) { result, run in
-            var raised = AttributedString(String(parsed[run.range].characters).uppercased())
-            raised.mergeAttributes(run.attributes)
-            result.append(raised)
         }
     }
 
@@ -265,6 +242,50 @@ struct MarkdownBlockView: View, ThemedView {
     private var tableCornerRadius: CGFloat { 6 }
 }
 
+/// One run of inline markdown.
+///
+/// Under the transcript's selection the text draws through a `TextRenderer`,
+/// which paints inline code as rounded chips. Anywhere else it is
+/// SwiftUI-selectable, which draws without a renderer, so code takes a flat
+/// background there instead.
+struct InlineMarkdownText: View, ThemedView {
+    @Environment(\.theme) var theme
+    @Environment(\.chatSelectionSpan) private var span
+
+    let source: String
+    var fontSize: CGFloat?
+    /// For heading levels that rank by case rather than size. The parsed runs
+    /// are raised rather than the source, which would carry a link's URL up
+    /// with it, and `.textCase` does not reach a `Text` built from an
+    /// `AttributedString`.
+    var isUppercased = false
+    var accentedPrefix = 0
+
+    var body: some View {
+        let size = fontSize ?? typography.bodySize
+        if span != nil {
+            let styled = chipped(MarkdownCache.chippedInline(source, fontSize: size))
+            styled.text()
+                .revealFade(styled, chipFill: colors.surfaceTint)
+        } else {
+            let attributed = flat(MarkdownCache.styledInline(source, fontSize: size, tint: colors.surfaceTint))
+            Text(attributed)
+                .revealFade(attributed)
+        }
+    }
+
+    private func chipped(_ styled: StyledInline) -> StyledInline {
+        let raised = isUppercased ? styled.uppercased() : styled
+        return accentedPrefix > 0 ? raised.coloringPrefix(accentedPrefix, colors.selection) : raised
+    }
+
+    private func flat(_ attributed: AttributedString) -> AttributedString {
+        var result = isUppercased ? attributed.uppercasedPreservingRuns() : attributed
+        result.colorPrefix(accentedPrefix, colors.selection)
+        return result
+    }
+}
+
 /// A list, nesting included, or one slice of a long one.
 struct ListSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
@@ -294,12 +315,7 @@ struct ListSegmentView: View, ThemedView {
                     } else {
                         marker.textSelection(.disabled)
                     }
-                    let text = MarkdownCache.styledInline(
-                        item.text,
-                        fontSize: typography.bodySize,
-                        tint: colors.surfaceTint
-                    )
-                    Text(text).revealFade(text)
+                    InlineMarkdownText(source: item.text)
                 }
                 .chatRevealOffset(revealOffset(of: index))
                 .font(prose.body.font)

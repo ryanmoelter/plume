@@ -51,6 +51,9 @@ struct ChatPiece: Identifiable, Equatable {
     var agentMessageKey: String?
     /// Set on the last piece a collapsed agent message shows.
     var collapsedTail: CollapsedTail?
+    /// How many leading characters draw in the accent color: a slash
+    /// command's name.
+    var accentedPrefix = 0
 
     /// The last piece of a collapsed agent message: faded out toward the
     /// "Show more" row, and clipped where it alone runs past the budget.
@@ -65,6 +68,9 @@ struct ChatPiece: Identifiable, Equatable {
         case thinking(String)
         case toolCall(ToolCall, isPending: Bool)
         case injected(InjectedContent, text: String)
+        /// The prompt a slash command expanded into, behind a disclosure
+        /// under the command.
+        case slashCommandPrompt(InjectedContent, text: String)
         /// Names the agent whose message the pieces below it are.
         /// `isExpanded` is set only on a message that can collapse and
         /// currently doesn't.
@@ -123,6 +129,7 @@ struct ChatPiece: Identifiable, Equatable {
         case .thinking: "thinking"
         case .toolCall: "toolCall"
         case .injected: "injected"
+        case .slashCommandPrompt: "slashCommandPrompt"
         case .agentMessageTitle: "agentMessageTitle"
         case .agentMessageToggle: "agentMessageToggle"
         case .notice: "notice"

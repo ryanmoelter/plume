@@ -116,7 +116,6 @@ struct ChatOutlineTests {
     /// any of it would put a landmark where nothing was said.
     @Test(arguments: [
         InjectedContent.commandCaveat,
-        .slashCommand(name: "/rename", arguments: "chat-minimap"),
         .commandOutput(command: "/context"),
         .taskNotification,
         .systemNote,
@@ -131,6 +130,15 @@ struct ChatOutlineTests {
         ])
 
         #expect(result.entries.map(\.kind) == [.response])
+    }
+
+    /// The user typed it, so it anchors like any prompt.
+    @Test func aSlashCommandAnchorsAsAPrompt() {
+        let result = outline([
+            message("a", .user, [.injected(.slashCommand(name: "/rename", arguments: "chat-minimap"), text: "")])
+        ])
+
+        #expect(result.entries.map(\.kind) == [.prompt("/rename chat-minimap")])
     }
 
     @Test func anInterruptionAnchors() {

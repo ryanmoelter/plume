@@ -120,8 +120,10 @@ struct ChatPieceSplitterTests {
                 ]),
                 message("b", .user, [
                     .injected(.slashCommand(name: "clear"), text: "/clear"),
+                    .injected(.interrupted, text: "[Request interrupted by user]"),
                     .markdown("go")
                 ]),
+                message("b2", .user, [.injected(.skill(name: "clear"), text: "Base directory for this skill: /clear")]),
                 message("c", .notice, [
                     .notice(ChatNotice(kind: .compaction, title: "Compacted", detail: nil))
                 ]),
@@ -136,7 +138,7 @@ struct ChatPieceSplitterTests {
         // going untested.
         let kinds = Set(result.map(\ChatPiece.kindName))
         #expect(kinds.isSuperset(of: [
-            "thinking", "toolCall", "injected", "notice", "image", "working", "list"
+            "thinking", "toolCall", "injected", "slashCommandPrompt", "notice", "image", "working", "list"
         ]))
         #expect(kinds.contains { $0.hasPrefix("markdown.") })
     }
@@ -311,8 +313,77 @@ struct ChatPieceSplitterTests {
 
     /// An injected line is not the user speaking, so it skips the bubble.
     @Test func anInjectedOnlyUserMessageSkipsTheBubble() {
-        let result = pieces([message("m", .user, [.injected(.slashCommand(name: "clear"), text: "/clear")])])
+        let result = pieces([message("m", .user, [.injected(.interrupted, text: "[Request interrupted by user]")])])
         #expect(result.map(\.wash) == [ChatPiece.Wash.none])
+    }
+
+    // MARK: - Slash commands
+
+    private let slashCommand = ChatBlock.injected(
+        .slashCommand(name: "/review", arguments: "DROID-344"),
+        text: "<command-name>/review</command-name>\n<command-args>DROID-344</command-args>"
+    )
+
+    /// The user typed it, so it reads as their message: a bubble holding the
+    /// line they typed, its name accented, with the footer a message gets.
+    @Test func aSlashCommandIsTheUsersMessage() {
+        let result = pieces([message("m", .user, [slashCommand])])
+
+        #expect(result.count == 1)
+        #expect(result[0].wash == .bubble)
+        #expect(result[0].content == .markdown(.paragraph("/review DROID-344"), index: 0))
+        #expect(result[0].accentedPrefix == "/review".count)
+        #expect(result[0].messageCopySource == "/review DROID-344")
+        #expect(result[0].selectableLength == "/review DROID-344".utf16.count)
+    }
+
+    @Test func aSlashCommandNameGainsItsSlash() {
+        let result = pieces([message("m", .user, [.injected(.slashCommand(name: "clear"), text: "")])])
+        #expect(result[0].content == .markdown(.paragraph("/clear"), index: 0))
+    }
+
+    /// Claude Code writes the prompt a command expands into as the next line,
+    /// which sits behind a disclosure tight under the command.
+    @Test func theLineAfterASlashCommandIsItsPrompt() {
+        let skill = ChatBlock.injected(.skill(name: "review"), text: "Base directory for this skill: /x/review")
+        let result = pieces([
+            message("m", .user, [slashCommand]),
+            message("p", .user, [skill])
+        ])
+
+        #expect(result[1].content == .slashCommandPrompt(.skill(name: "review"), text: "Base directory for this skill: /x/review"))
+        #expect(result[1].wash == .none)
+        #expect(result[1].topInset == dimensions.toolCallSpacing)
+    }
+
+    @Test func aSkillAfterAnythingElseKeepsItsMarker() {
+        let skill = ChatBlock.injected(.skill(name: "review"), text: "Base directory for this skill: /x/review")
+        let result = pieces([
+            message("m", .user, [.markdown("hi")]),
+            message("p", .user, [skill])
+        ])
+
+        #expect(result.last?.content == .injected(.skill(name: "review"), text: "Base directory for this skill: /x/review"))
+    }
+
+    /// The optimistic first message stands in for the transcript's line until
+    /// it lands, so both have to draw the same row.
+    @Test func anOptimisticSlashCommandDrawsLikeTheTranscriptsLine() {
+        let optimistic = pieces([OptimisticFirstMessage(text: "/review   DROID-344").message])
+        let landed = pieces([message("m", .user, [slashCommand])])
+        let drawn = { (piece: ChatPiece) in [String(describing: piece.content), "\(piece.wash)", "\(piece.accentedPrefix)"] }
+
+        #expect(optimistic.map(drawn) == landed.map(drawn))
+    }
+
+    @Test func aTypedPathIsNotASlashCommand() {
+        #expect(InjectedContent.typedSlashCommand("/Users/me/file.txt is broken") == nil)
+        #expect(InjectedContent.typedSlashCommand("/") == nil)
+        #expect(InjectedContent.typedSlashCommand("/compact") == .slashCommand(name: "/compact"))
+        #expect(
+            InjectedContent.typedSlashCommand(" /review  DROID-344 \n")
+                == .slashCommand(name: "/review", arguments: "DROID-344")
+        )
     }
 
     // MARK: - Oversized blocks

@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Draws a chat `Text` with its share of the transcript's selection behind
-/// it, and the word reveal over that when the reveal has not passed it.
+/// it, its code chips over that, and the word reveal over both when the
+/// reveal has not passed it.
 ///
 /// SwiftUI's own selection draws without consulting a `TextRenderer`, which
 /// is why the transcript does its own.
@@ -12,9 +13,11 @@ struct ChatSelectionRenderer: TextRenderer {
     var selected: Range<Int>?
     var highlight: Color
     var text: String
+    var chips: CodeChips?
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         if let selected, !selected.isEmpty { fillSelection(selected, layout: layout, in: &ctx) }
+        chips?.draw(layout: layout, reveal: reveal, in: &ctx)
         if let reveal {
             reveal.draw(layout: layout, in: &ctx)
         } else {
