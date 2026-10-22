@@ -17,6 +17,7 @@ struct KeepAwakeSettingsPane: View {
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
                     Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
+                        .transition(.opacity)
                 }
                 Stepper(
                     batteryCutoffLabel,
@@ -51,6 +52,7 @@ struct KeepAwakeSettingsPane: View {
             }
         }
         .formStyle(.grouped)
+        .animation(.default, value: settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl)
         .onAppear {
             keepAwake.verifyLidHelper()
         }

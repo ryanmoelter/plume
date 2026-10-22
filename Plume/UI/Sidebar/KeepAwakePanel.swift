@@ -50,6 +50,7 @@ struct KeepAwakePanel: View {
             if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
                 Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
                     .help("Off, a session being driven remotely stops holding the Mac awake on battery.")
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             if settings.keepsAwakeOnBattery {
@@ -60,6 +61,7 @@ struct KeepAwakePanel: View {
                     step: 5
                 )
                 .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
@@ -83,6 +85,7 @@ struct KeepAwakePanel: View {
                 LabeledContent("Allow sleep when temperature is") {
                     ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             lidClose
@@ -96,6 +99,9 @@ struct KeepAwakePanel: View {
             }
             #endif
         }
+        .animation(.default, value: settings.keepsAwakeOnBattery)
+        .animation(.default, value: settings.keepsAwakeForRemoteControl)
+        .animation(.default, value: settings.keepsAwakeWithLidClosed)
         .padding(12)
         .frame(width: 340)
         .plumeID(AccessibilityID.keepAwakePanel)
