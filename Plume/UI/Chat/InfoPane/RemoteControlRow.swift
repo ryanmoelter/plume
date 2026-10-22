@@ -89,18 +89,10 @@ struct RemoteControlRow: View, ThemedView {
     }
 
     var body: some View {
-        HStack(spacing: InfoPaneLayout.columnSpacing) {
-            InfoPaneIcon { Image(systemName: status.symbol) }
-                .foregroundStyle(tint)
-            Text(status.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
-            menu
-        }
-        .emphasis(.secondary)
-        .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-        .help(helpText)
+        menu
+            .emphasis(.secondary)
+            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+            .help(helpText)
         .sheet(isPresented: $showsCodexDetails) {
             if let remote = codexRemote { CodexRemoteControlPanel(remote: remote) }
         }
@@ -121,14 +113,23 @@ struct RemoteControlRow: View, ThemedView {
                 }
             }
         } label: {
-            Image(systemName: "chevron.down")
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: status.symbol) }
+                    .foregroundStyle(tint)
+                Text(status.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(colors.selection)
+                    .frame(width: InfoPaneLayout.iconColumnWidth)
+                    .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
+            }
+            .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize()
-        .foregroundStyle(colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }
         .accessibilityLabel("Remote Control")
         .accessibilityValue(status.accessibilityValue)
