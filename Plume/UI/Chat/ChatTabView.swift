@@ -62,6 +62,7 @@ struct ChatTabView: View, ThemedView {
     /// already in place rather than animating there.
     @State private var conversationWidth = Self.lastConversationWidth
     @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
+    @State private var openInfoPaneHeight: CGFloat = 0
     private static var lastConversationWidth: CGFloat = 0
     private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
@@ -1019,6 +1020,9 @@ struct ChatTabView: View, ThemedView {
             redoContext: redoContext(transcript: transcript),
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: geometry.chatTopInset,
+            minimapExclusionHeight: InfoPaneLayout.minimapExclusionHeight(
+                geometry: geometry, openHeight: openInfoPaneHeight, gap: dimensions.panelInset
+            ),
             trailingReserve: geometry.chatTrailingReserve,
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)
         )
@@ -1060,6 +1064,7 @@ struct ChatTabView: View, ThemedView {
                 collapsedInfoPaneHeight = height
                 Self.lastCollapsedInfoPaneHeight = height
             },
+            onOpenHeight: { openInfoPaneHeight = $0 },
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
             onOpenSideChat: { isSideChatShown = true },

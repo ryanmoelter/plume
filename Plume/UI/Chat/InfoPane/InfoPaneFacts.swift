@@ -292,6 +292,12 @@ enum InfoPaneLayout {
         )
     }
 
+    /// How far down the minimap ignores the pointer: the collapsed pane's
+    /// row, or the whole pinned pane.
+    static func minimapExclusionHeight(geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat) -> CGFloat {
+        geometry.isPinned ? gap + openHeight : geometry.chatTopInset
+    }
+
     struct SideGeometry: Equatable {
         var fitsBeside: Bool
         /// Open beside the chat rather than over it.

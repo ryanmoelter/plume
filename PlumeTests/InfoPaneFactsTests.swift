@@ -240,6 +240,13 @@ struct InfoPaneLayoutTests {
         )
     }
 
+    @Test func theMinimapIgnoresTheBandBesideEitherPaneForm() {
+        let pinned = side(width: 2000)
+        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: pinned, openHeight: 300, gap: gap) == 310)
+        let collapsed = side(width: 2000, state: .collapsed)
+        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: collapsed, openHeight: 300, gap: gap) == 38)
+    }
+
     @Test func thePanePinsOnlyWhileTheChatKeepsItsFullColumn() {
         let needed = chatColumn + InfoPaneLayout.paneWidth + gap + rail
         #expect(side(width: needed).isPinned)
