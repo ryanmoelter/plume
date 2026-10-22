@@ -102,10 +102,9 @@ final class CodexTitleGenerator {
         self.process = nil
         let directory = self.directory
         self.directory = nil
-        // AgentProcess's bounded reap can wait; keep it off the UI actor.
-        Task.detached {
-            process?.terminate()
-            if let directory { try? FileManager.default.removeItem(at: directory) }
+        process?.terminate()
+        if let directory {
+            Task.detached { try? FileManager.default.removeItem(at: directory) }
         }
         continuation.resume(returning: title)
     }

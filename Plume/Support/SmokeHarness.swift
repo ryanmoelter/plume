@@ -203,6 +203,22 @@ enum SmokeHarness {
             }
         }
 
+        // PLUME_ARCHIVE_SEEDED=<seconds> archives the seeded tasks one at a
+        // time on that interval, the selected one first, the way the sidebar's
+        // Archive does for a task with no worktree to remove.
+        if let intervalValue = environment["PLUME_ARCHIVE_SEEDED"],
+           let interval = Double(intervalValue), interval > 0 {
+            for task in tasks {
+                try? await Task.sleep(for: .seconds(interval))
+                let started = ContinuousClock.now
+                if selection.wrappedValue == task.id { selection.wrappedValue = nil }
+                TaskStore.archive(task)
+                let elapsed = started.duration(to: .now)
+                Log.app.info("Smoke harness archived \(task.title, privacy: .public) in \(elapsed, privacy: .public)")
+            }
+            return
+        }
+
         guard let intervalValue = environment["PLUME_CYCLE_SELECTION"],
               let interval = Double(intervalValue), interval > 0
         else { return }
