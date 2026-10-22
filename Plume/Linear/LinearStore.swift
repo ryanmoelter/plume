@@ -104,7 +104,7 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var issueOwner: [String: String] = [:]
     @ObservationIgnored private var notFoundBy: [String: Set<String>] = [:]
     /// When a workspace last answered for the identifier, so a row coming
-    /// back within a poll interval does not refetch.
+    /// back within `verifyInterval` does not refetch.
     @ObservationIgnored private var answeredAt: [String: Date] = [:]
     @ObservationIgnored private var pending: [String: Set<String>] = [:]
     @ObservationIgnored private var scheduled: Set<String> = []
@@ -120,7 +120,7 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var lastCatalogDemand: [String: Date] = [:]
     @ObservationIgnored private var unauthorized: Set<String> = []
     @ObservationIgnored private var pausedUntil: [String: Date] = [:]
-    @ObservationIgnored private var lastPolledAt: [String: Date] = [:]
+    @ObservationIgnored private var lastSyncedAt: [String: Date] = [:]
     /// Bumped when an account's key changes or it is removed, so a request
     /// sent with the old key never applies its answer.
     @ObservationIgnored private var generations: [String: Int] = [:]
@@ -134,7 +134,7 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var branchCandidates: [String: [String]] = [:]
     @ObservationIgnored private var work: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var nextWorkID = 0
-    @ObservationIgnored private var pollTimer: Timer?
+    @ObservationIgnored private var syncTimer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var isStarted = false
 
@@ -276,29 +276,29 @@ final class LinearStore: LinearActivitySink {
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.stopPolling() }
+                MainActor.assumeIsolated { self?.stopSyncing() }
             },
             center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.syncOnActivation()
-                    self?.startPolling()
+                    self?.startSyncing()
                 }
             },
         ]
-        startPolling()
+        startSyncing()
     }
 
-    private func startPolling() {
-        guard pollTimer == nil else { return }
+    private func startSyncing() {
+        guard syncTimer == nil else { return }
         // A scheduled timer fires on the main run loop.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: Self.syncInterval, repeats: true) { [weak self] _ in
+        syncTimer = Timer.scheduledTimer(withTimeInterval: Self.syncInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sync() }
         }
     }
 
-    private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+    private func stopSyncing() {
+        syncTimer?.invalidate()
+        syncTimer = nil
     }
 
     /// One sync tick: refreshes stale catalogs and runs a delta sync for
@@ -314,8 +314,8 @@ final class LinearStore: LinearActivitySink {
     private func sync(skippingAccountsSyncedWithin minimumAge: TimeInterval) {
         for account in accounts.accounts {
             let orgID = account.orgID
-            if let last = lastPolledAt[orgID], now().timeIntervalSince(last) < minimumAge { continue }
-            lastPolledAt[orgID] = now()
+            if let last = lastSyncedAt[orgID], now().timeIntervalSince(last) < minimumAge { continue }
+            lastSyncedAt[orgID] = now()
             let fetchedAt = catalogFetchedAt[orgID] ?? .distantPast
             if now().timeIntervalSince(fetchedAt) >= Self.catalogMaxAge { refreshCatalog(orgID: orgID) }
             guard blocker(orgID: orgID) == nil, !isLowOnBudget(orgID: orgID) else { continue }
@@ -837,7 +837,7 @@ final class LinearStore: LinearActivitySink {
         unauthorized.remove(orgID)
         pausedUntil.removeValue(forKey: orgID)
         lastCatalogDemand.removeValue(forKey: orgID)
-        lastPolledAt.removeValue(forKey: orgID)
+        lastSyncedAt.removeValue(forKey: orgID)
         answeredAt.removeAll()
     }
 
@@ -932,7 +932,7 @@ final class LinearStore: LinearActivitySink {
         work.removeAll()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
-        stopPolling()
+        stopSyncing()
         isStarted = false
         stateBoxes.removeAll()
         activityBoxes.removeAll()
@@ -943,7 +943,7 @@ final class LinearStore: LinearActivitySink {
         issueOwner.removeAll()
         notFoundBy.removeAll()
         answeredAt.removeAll()
-        lastPolledAt.removeAll()
+        lastSyncedAt.removeAll()
         decodedLinks.removeAll()
         branchCandidates.removeAll()
         pending.removeAll()

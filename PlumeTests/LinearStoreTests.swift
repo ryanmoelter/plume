@@ -266,7 +266,7 @@ struct LinearStoreTests {
         #expect(harness.store.accountStatus(orgID: "A") == .connected)
     }
 
-    @Test func releasingTheLastOwnerKeepsTheStateAndStopsPollingIt() async throws {
+    @Test func releasingTheLastOwnerKeepsTheStateAndStopsLookingItUp() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let issue = LinearTestFixtures.issue("PLUME-1")
         await a.set(issues: ["PLUME-1": issue])
