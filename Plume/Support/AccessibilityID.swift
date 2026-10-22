@@ -241,6 +241,8 @@ enum AccessibilityID {
     /// The title of a collapsible agent message, labelled with the message's
     /// key; clicking it collapses or expands the message.
     static let agentMessageToggle = "agent-message-toggle"
+    /// The disclosure under a slash command, labelled with its piece id.
+    static let slashCommandPrompt = "slash-command-prompt"
     static let agentMessageShowMore = "agent-message-show-more"
     static let agentMessageHide = "agent-message-hide"
 

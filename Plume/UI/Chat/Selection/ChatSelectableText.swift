@@ -84,7 +84,7 @@ struct ChatSelectableText: Equatable {
         case let .markdown(block, _): fragments(of: block)
         case let .listSegment(segment): listFragments(segment.items)
         case let .codeSegment(segment): segment.isMermaid ? [] : [code(segment.language, segment.code)]
-        case .thinking, .toolCall, .injected, .agentMessageTitle, .agentMessageToggle, .notice, .image,
+        case .thinking, .toolCall, .injected, .slashCommandPrompt, .agentMessageTitle, .agentMessageToggle, .notice, .image,
              .working, .waitingOnSubagents: []
         }
     }

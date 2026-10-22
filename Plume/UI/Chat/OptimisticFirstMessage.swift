@@ -30,9 +30,13 @@ nonisolated struct OptimisticFirstMessage: Equatable {
 
     /// Classified the way `TranscriptParser` classifies the line it is
     /// standing in for, so a `!` command renders as one here too rather than
-    /// showing its wrapper tags as prose until the transcript catches up.
+    /// showing its wrapper tags as prose until the transcript catches up. A
+    /// slash command takes the form Claude Code will record it in, so the
+    /// row does not change shape when the transcript takes over.
     private var kind: InjectedContent {
-        InjectedContent.classify(text: text, isMeta: false)
+        let kind = InjectedContent.classify(text: text, isMeta: false)
+        guard kind == .userMessage else { return kind }
+        return InjectedContent.typedSlashCommand(text) ?? kind
     }
 
     var message: ChatMessage {
@@ -119,9 +123,9 @@ extension ChatMessage {
     /// text its marker shows, and what the user typed before Claude Code
     /// expanded it into `<command-name>`/`<command-args>`.
     var slashCommandText: String? {
-        blocks.compactMap { block -> String? in
-            guard case .injected(let kind, _) = block, case .slashCommand = kind else { return nil }
-            return kind.markerLabel
+        blocks.lazy.compactMap { block -> String? in
+            guard case .injected(let kind, _) = block else { return nil }
+            return kind.slashCommandLine?.line
         }.first
     }
 }

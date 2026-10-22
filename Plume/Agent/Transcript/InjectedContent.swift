@@ -56,6 +56,28 @@ nonisolated enum InjectedContent: Equatable {
         return false
     }
 
+    /// A slash command, as the user typed it: `/name arguments`.
+    var slashCommandLine: (line: String, nameLength: Int)? {
+        // A name with a space is the classifier's fallback for a line that
+        // named no command, which has no line to show.
+        guard case .slashCommand(let name, let arguments) = self, !name.contains(" ") else { return nil }
+        let command = name.hasPrefix("/") ? name : "/\(name)"
+        guard let arguments else { return (command, command.count) }
+        return ("\(command) \(arguments)", command.count)
+    }
+
+    /// The slash command a message typed into the composer runs, before
+    /// Claude Code expands it into the `<command-name>` form the transcript
+    /// records. A leading token with a second `/` is a path, not a command.
+    static func typedSlashCommand(_ text: String) -> InjectedContent? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return nil }
+        let token = trimmed.prefix { !$0.isWhitespace }
+        guard token.count > 1, !token.dropFirst().contains("/") else { return nil }
+        let arguments = trimmed.dropFirst(token.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return .slashCommand(name: String(token), arguments: arguments.isEmpty ? nil : arguments)
+    }
+
     /// Whether this is a `!` command or its output, which render together as
     /// one block rather than as a marker.
     var isShell: Bool {

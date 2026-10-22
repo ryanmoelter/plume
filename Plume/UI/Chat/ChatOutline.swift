@@ -305,6 +305,8 @@ enum ChatOutlineBuilder {
             toolCallWeight
         case .injected(_, let text):
             proseWeight(of: text, block: nil)
+        case .slashCommandPrompt:
+            toolCallWeight
         case .agentMessageTitle:
             toolCallWeight
         case .agentMessageToggle:

@@ -23,8 +23,10 @@ enum ChatPieceSplitter {
         // Nil until something has actually been drawn, so a message the dock
         // has emptied neither takes space nor spaces what follows it.
         var previousMessageKind: ChatBlockSpacing.Kind?
+        var previousMessage: ChatMessage?
 
         for message in messages {
+            defer { previousMessage = message }
             let isLast = ChatScrollAnchor.isEligibleForLiveStatus(
                 messageID: message.id,
                 lastMessageID: lastMessageID
@@ -37,6 +39,7 @@ enum ChatPieceSplitter {
                 hiddenToolUseIDs: messageHiddenToolUseIDs,
                 previousMessageKind: previousMessageKind,
                 expandedAgentMessages: expandedAgentMessages,
+                followsSlashCommand: previousMessage?.slashCommandText != nil,
                 dimensions: dimensions
             )
             let group = pieces(of: context, parse: parse)
@@ -83,6 +86,9 @@ enum ChatPieceSplitter {
         let hiddenToolUseIDs: Set<String>
         let previousMessageKind: ChatBlockSpacing.Kind?
         let expandedAgentMessages: Set<String>
+        /// Whether the message above ran a slash command, whose expanded
+        /// prompt this message may be.
+        let followsSlashCommand: Bool
         let dimensions: Dimensions
 
         var wash: ChatPiece.Wash {
@@ -95,11 +101,14 @@ enum ChatPieceSplitter {
 
         /// An injected line is not the user speaking, so it skips the bubble
         /// and sits full-width like the transcript's own asides. Another
-        /// agent's message is the exception: it is somebody speaking, and
-        /// takes a bubble of its own.
+        /// agent's message is an exception: it is somebody speaking, and
+        /// takes a bubble of its own. So is a slash command, which the user
+        /// typed.
         var isInjectedOnly: Bool {
             !message.blocks.isEmpty && message.blocks.allSatisfy { block in
-                if case .injected(let kind, _) = block { return !kind.isAgentMessage }
+                if case .injected(let kind, _) = block {
+                    return !kind.isAgentMessage && kind.slashCommandLine == nil
+                }
                 return false
             }
         }
@@ -109,11 +118,21 @@ enum ChatPieceSplitter {
         /// to copy.
         var messageMarkdown: String? {
             let blocks = message.blocks.compactMap { block -> String? in
-                guard case .markdown(let text) = block else { return nil }
+                guard let text = Self.prose(of: block) else { return nil }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             }
             return blocks.isEmpty ? nil : blocks.joined(separator: "\n\n")
+        }
+
+        /// The markdown a block draws as prose: its own, or a slash command's
+        /// line.
+        static func prose(of block: ChatBlock) -> String? {
+            switch block {
+            case .markdown(let text): text
+            case .injected(let kind, _): kind.slashCommandLine?.line
+            default: nil
+            }
         }
 
         /// An assistant message the turn can still add blocks to. A parked
@@ -169,7 +188,7 @@ enum ChatPieceSplitter {
                 parse: parse
             )
             result += blockPieces
-            if case .markdown = block, !blockPieces.isEmpty {
+            if MessageContext.prose(of: block) != nil, !blockPieces.isEmpty {
                 lastMarkdownPieceIndex = result.count - 1
             }
             previousBlockKind = ChatBlockSpacing.kind(of: block)
@@ -238,6 +257,24 @@ enum ChatPieceSplitter {
             let isPending = context.needsInput && blockIndex == message.blocks.count - 1
             return single(.toolCall(call, isPending: isPending))
         case .injected(let kind, let text):
+            if let command = kind.slashCommandLine {
+                var line = markdownPieces(
+                    parse(command.line),
+                    idPrefix: base,
+                    messageID: message.id,
+                    role: message.role,
+                    wash: context.wash,
+                    leading: leading,
+                    dimensions: context.dimensions
+                )
+                if !line.isEmpty { line[0].accentedPrefix = command.nameLength }
+                return line
+            }
+            if context.followsSlashCommand, Self.isCommandExpansion(kind), blockIndex == 0 {
+                var prompt = single(.slashCommandPrompt(kind, text: text))
+                prompt[0].topInset = context.dimensions.toolCallSpacing
+                return prompt
+            }
             guard case .agentMessage(let name, let subagentID) = kind else {
                 return single(.injected(kind, text: text))
             }
@@ -409,6 +446,15 @@ enum ChatPieceSplitter {
         // A table's columns would size independently either side of a join,
         // and a heading is never long enough to be worth one.
         return [Segmented(content: .markdown(block, index: index), joinInset: 0)]
+    }
+
+    /// What Claude Code writes as the line after a slash command: the
+    /// command's prompt, or the body of the skill it ran.
+    private static func isCommandExpansion(_ kind: InjectedContent) -> Bool {
+        switch kind {
+        case .skill, .systemNote: true
+        default: false
+        }
     }
 
     /// The row closing a collapsible agent message, under either label, so
