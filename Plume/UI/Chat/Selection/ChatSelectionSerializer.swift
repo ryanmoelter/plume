@@ -75,13 +75,19 @@ enum ChatSelectionSerializer {
 
     // MARK: - Joining
 
-    /// A prompt copies as a blockquote, so a copied conversation keeps who
-    /// said what.
+    /// A prompt copies as a blockquote when a reply is copied with it, so a
+    /// copied conversation keeps who said what.
     private static func join(_ blocks: [(piece: ChatPiece, text: String)]) -> String {
+        let quotesPrompts = blocks.contains { $0.piece.role != .user }
         var result = ""
         for (index, block) in blocks.enumerated() {
-            if index > 0 { result += markdownSeparator(between: blocks[index - 1].piece, and: block.piece) }
-            result += block.piece.role == .user ? quoted(block.text) : block.text
+            if index > 0 {
+                let previous = blocks[index - 1].piece
+                result += quotesPrompts
+                    ? markdownSeparator(between: previous, and: block.piece)
+                    : separator(between: previous, and: block.piece)
+            }
+            result += quotesPrompts && block.piece.role == .user ? quoted(block.text) : block.text
         }
         return result
     }

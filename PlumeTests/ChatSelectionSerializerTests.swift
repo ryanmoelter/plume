@@ -34,6 +34,12 @@ struct ChatSelectionSerializerTests {
         #expect(!plain.contains(">"))
     }
 
+    @Test func aPromptAloneCopiesWithoutAQuote() {
+        let prompt = Fixtures.pieces("Fix the build.\n\n- first\n- second", messageID: "u", role: .user)
+        let result = ChatSelectionSerializer.markdown(of: prompt, selection: Fixtures.everything(prompt))
+        #expect(result == "Fix the build.\n\n- first\n- second")
+    }
+
     @Test func partialBoldKeepsItsMarkers() {
         #expect(markdown("a **bold** word", selecting: "ol") == "**ol**")
     }
