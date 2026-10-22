@@ -114,6 +114,8 @@ enum AccessibilityID {
     static let tabChipClose = "tab-chip-close"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
+    /// Takes `markUnreadButton`'s place while any of its tabs is unread.
+    static let markReadButton = "mark-read-button"
     static let newTabButton = "new-tab-button"
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"

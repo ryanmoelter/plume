@@ -35,6 +35,14 @@ final class SurfaceManager {
         }
 
         let session = TerminalSession(id: id, options: options())
+        session.onBell = { [weak session] in
+            guard let session else { return }
+            TerminalAlerts.shared.bellRang(in: session)
+        }
+        session.onDesktopNotification = { [weak session] notification in
+            guard let session else { return }
+            TerminalAlerts.shared.desktopNotificationArrived(notification, in: session)
+        }
         sessions[id] = session
         Log.ghostty.info("Created surface for tab \(id, privacy: .public)")
         return session

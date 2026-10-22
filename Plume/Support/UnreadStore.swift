@@ -75,6 +75,10 @@ final class UnreadStore {
         unreadTabs.formUnion(tabIDs)
     }
 
+    func markRead(_ tabIDs: some Sequence<UUID>) {
+        unreadTabs.subtract(tabIDs)
+    }
+
     /// Clears the focused tab, the only one the user is reading.
     func markViewed(_ audience: NotificationAudience) {
         guard audience.isAppActive, let focused = audience.focusedTabID else { return }
