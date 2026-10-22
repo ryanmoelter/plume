@@ -55,6 +55,7 @@ final class AppSettings {
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
         static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
+        static let keepsAwakeForRemoteControlOnBattery = "keepsAwakeForRemoteControlOnBattery"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
@@ -233,6 +234,9 @@ final class AppSettings {
         self.keepsAwakeForRemoteControl = defaults.object(forKey: Key.keepsAwakeForRemoteControl) == nil
             ? true
             : defaults.bool(forKey: Key.keepsAwakeForRemoteControl)
+        self.keepsAwakeForRemoteControlOnBattery = defaults.object(forKey: Key.keepsAwakeForRemoteControlOnBattery) == nil
+            ? true
+            : defaults.bool(forKey: Key.keepsAwakeForRemoteControlOnBattery)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
@@ -646,6 +650,15 @@ final class AppSettings {
     var keepsAwakeForRemoteControl: Bool {
         didSet {
             defaults.set(keepsAwakeForRemoteControl, forKey: Key.keepsAwakeForRemoteControl)
+        }
+    }
+
+    /// Whether Remote Control still holds the Mac awake on battery, when
+    /// `keepsAwakeOnBattery` allows holds there. On by default, so enabling
+    /// battery holds covers Remote Control too.
+    var keepsAwakeForRemoteControlOnBattery: Bool {
+        didSet {
+            defaults.set(keepsAwakeForRemoteControlOnBattery, forKey: Key.keepsAwakeForRemoteControlOnBattery)
         }
     }
 

@@ -15,6 +15,9 @@ struct KeepAwakeSettingsPane: View {
 
             Section {
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+                if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
+                    Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
+                }
                 Stepper(
                     batteryCutoffLabel,
                     value: $settings.keepAwakeBatteryCutoffPercent,

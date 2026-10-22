@@ -400,6 +400,36 @@ struct KeepAwakeTests {
 
     /// The network type is what Apple documents for a host serving remote
     /// clients, and it only applies on AC.
+    @Test func remoteControlOnBatteryCanBeNarrowedOut() {
+        let remote = KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .remoteControl)
+        let working = KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .working(.working))
+        func decide(
+            _ reasons: [KeepAwakeReason],
+            mode: KeepAwakeMode = .auto,
+            power: KeepAwakeCoordinator.PowerSnapshot,
+            allowsRemoteOnBattery: Bool
+        ) -> KeepAwakeCoordinator.Decision {
+            KeepAwakeCoordinator.decide(
+                reasons: reasons, mode: mode, power: power, allowsBattery: true,
+                allowsRemoteControlOnBattery: allowsRemoteOnBattery, batteryCutoffPercent: 0
+            )
+        }
+
+        #expect(decide([remote], power: battery(), allowsRemoteOnBattery: false) == .off(.battery))
+        guard case .hold = decide([remote], power: battery(), allowsRemoteOnBattery: true),
+              case .hold = decide([remote], power: ac, allowsRemoteOnBattery: false),
+              case .hold(let request) = decide([remote, working], power: battery(), allowsRemoteOnBattery: false)
+        else {
+            Issue.record("expected holds")
+            return
+        }
+        #expect(request.type == .preventIdleSystemSleep)
+        guard case .hold = decide([], mode: .always, power: battery(), allowsRemoteOnBattery: false) else {
+            Issue.record("expected Always to hold")
+            return
+        }
+    }
+
     @Test func remoteControlPicksTheNetworkAssertionOnlyOnAC() {
         let remote = [KeepAwakeReason(taskID: UUID(), tabID: UUID(), kind: .remoteControl)]
         #expect(type(for: remote, mode: .auto, power: ac, allowsBattery: true) == .networkClientActive)

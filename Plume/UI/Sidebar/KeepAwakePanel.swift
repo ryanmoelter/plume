@@ -47,6 +47,11 @@ struct KeepAwakePanel: View {
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
+            if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
+                Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
+                    .help("Off, a session being driven remotely stops holding the Mac awake on battery.")
+            }
+
             if settings.keepsAwakeOnBattery {
                 Stepper(
                     batteryCutoffLabel,

@@ -187,6 +187,7 @@ final class KeepAwakeCoordinator {
             mode: settings.keepAwakeMode,
             power: power,
             allowsBattery: settings.keepsAwakeOnBattery,
+            allowsRemoteControlOnBattery: settings.keepsAwakeForRemoteControlOnBattery,
             batteryCutoffPercent: settings.keepAwakeBatteryCutoffPercent
         )
         switch decision {
@@ -247,6 +248,7 @@ final class KeepAwakeCoordinator {
             _ = commandRuns.activeCommands
             _ = settings.keepAwakeMode
             _ = settings.keepsAwakeOnBattery
+            _ = settings.keepsAwakeForRemoteControlOnBattery
             _ = settings.keepAwakeBatteryCutoffPercent
             _ = settings.keepsAwakeWithLidClosed
             _ = settings.keepsAwakeForRemoteControl
@@ -324,6 +326,7 @@ final class KeepAwakeCoordinator {
         mode: KeepAwakeMode,
         power: PowerSnapshot,
         allowsBattery: Bool,
+        allowsRemoteControlOnBattery: Bool = true,
         batteryCutoffPercent: Int
     ) -> Decision {
         switch mode {
@@ -335,6 +338,13 @@ final class KeepAwakeCoordinator {
             break
         }
         guard power.source == .ac || allowsBattery else { return .off(.battery) }
+
+        // Off, Remote Control alone no longer holds on battery; work the Mac
+        // is doing itself still does.
+        let reasons = power.source == .battery && !allowsRemoteControlOnBattery
+            ? reasons.filter { $0.kind != .remoteControl }
+            : reasons
+        if mode == .auto, reasons.isEmpty { return .off(.battery) }
 
         // Charging ignores the cutoff: the percentage is climbing, not draining.
         if power.source == .battery, !power.isCharging, batteryCutoffPercent > 0,
