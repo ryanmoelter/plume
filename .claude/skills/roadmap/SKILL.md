@@ -15,9 +15,11 @@ The roadmap is Linear, team `Plume`. Seven projects hold every item:
 - **Requests** — asked for from outside this repo, none yet buildable.
 - **Platform & tooling** — foundations and the tooling around them.
 
-**Todo** means queued. **Backlog** means wanted but not queued. **In Progress**, **Done** and **Canceled** mean what they say.
+**To do** means queued. **Backlog** means wanted but not queued. **In Progress**, **Done** and **Canceled** mean what they say.
 
-`estimate` is the size: 2 = S, 3 = M, 5 = L, 8 = XL. Unset means nobody has sized it. Those are the only values the scale accepts — anything else snaps to the nearest.
+Status names get renamed, so filter on the state *type* when reading: `unstarted` is To do, `backlog` is Backlog. A name that matches nothing returns an empty list, not an error.
+
+`estimate` is the size: 1 = XS, 2 = S, 3 = M, 5 = L, 8 = XL. Unset means nobody has sized it. Those are the only values the scale accepts — anything else snaps to the nearest.
 
 Three labels carry state the queue cannot. `deferred` is wanted eventually. `blocked-on-decision` needs the decision in its description settled first. `needs-spec` needs a clarifying pass with whoever asked.
 
@@ -25,7 +27,7 @@ An issue states the item and any real blocker. It does not describe what the cod
 
 ## What should I work on
 
-Call `list_issues` with `team: "Plume"`, `state: "Todo"`, and `fields: ["id", "title", "priority", "estimate", "project", "description"]`.
+Call `list_issues` with `team: "Plume"`, `state: "unstarted"`, and `fields: ["id", "title", "priority", "estimate", "project", "description"]`.
 
 Sort by `priority` ascending. Priority is the queue order.
 
@@ -47,7 +49,7 @@ Do not inventory the codebase in the description. Ask the user for a size; leave
 
 ## Reprioritize
 
-Into the queue: `state: "Todo"` plus a `priority`. Out of it: `state: "Backlog"` and `priority: 0`.
+Into the queue: `state: "To do"` plus a `priority`. Out of it: `state: "Backlog"` and `priority: 0`.
 
 Reordering means changing `priority`. Never record an order in the description — priority already holds it.
 

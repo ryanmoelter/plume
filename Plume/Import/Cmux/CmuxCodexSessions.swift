@@ -16,9 +16,16 @@ nonisolated enum CmuxCodexSessions {
         return first
     }
 
+    enum CwdMatch: Sendable {
+        /// The rollout's `cwd` is the directory itself.
+        case exact
+        /// The rollout's `cwd` is the directory or any path inside it.
+        case insideDirectory
+    }
+
     /// Verify the recorded file belongs to this precise thread before handing
     /// it to app-server. Rollout bytes are never treated as Claude JSONL.
-    static func validRollout(path: String?, sessionID: String, cwd: String?) -> Bool {
+    static func validRollout(path: String?, sessionID: String, cwd: String?, cwdMatch: CwdMatch = .exact) -> Bool {
         guard let path, path.hasPrefix("/"),
               let attrs = try? FileManager.default.attributesOfItem(atPath: path),
               attrs[.type] as? FileAttributeType == .typeRegular,
@@ -30,7 +37,12 @@ nonisolated enum CmuxCodexSessions {
               value["type"]?.stringValue == "session_meta",
               value["payload"]?["id"]?.stringValue == sessionID else { return false }
         if let cwd, let recorded = value["payload"]?["cwd"]?.stringValue {
-            return URL(fileURLWithPath: cwd).standardizedFileURL == URL(fileURLWithPath: recorded).standardizedFileURL
+            let directory = URL(fileURLWithPath: cwd).standardizedFileURL.path
+            let recordedPath = URL(fileURLWithPath: recorded).standardizedFileURL.path
+            switch cwdMatch {
+            case .exact: return directory == recordedPath
+            case .insideDirectory: return recordedPath == directory || recordedPath.hasPrefix(directory.hasSuffix("/") ? directory : directory + "/")
+            }
         }
         return true
     }

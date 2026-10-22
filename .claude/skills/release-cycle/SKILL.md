@@ -1,6 +1,6 @@
 ---
 name: release-cycle
-description: Turn the roadmap's Todo queue in Linear into a shipped release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
+description: Turn the roadmap's To do queue in Linear into a shipped release. Coordinator stays small; parallel worktree agents implement; merge to a release branch, debug-build for manual evaluation, iterate, then release per docs/releasing.md.
 ---
 
 # Release cycle
@@ -9,14 +9,14 @@ Run this when the user says "make the next release" or asks to work through the 
 
 ## Inputs
 
-- Optional: extra items beyond the Todo queue. Recommend two or three cheap, high-value Backlog issues — prefer small estimates — and ask which to include. Always ask about a `blocked-on-decision` issue before pulling it in — the decision in its description has to be settled first.
+- Optional: extra items beyond the To do queue. Recommend two or three cheap, high-value Backlog issues — prefer small estimates — and ask which to include. Always ask about a `blocked-on-decision` issue before pulling it in — the decision in its description has to be settled first.
 - Target version. Default: bump the minor for a feature release, the patch for fixes only.
 
 ## 1. Plan the packages
 
 Pull `main` first (`git pull --ff-only`) and read the latest tag. A checkout can sit releases behind, and planning against it gets both the footprints and the version wrong. The next version follows the latest tag, not the version the user names from memory.
 
-Invoke the `roadmap` skill to list the Todo queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
+Invoke the `roadmap` skill to list the To do queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
 
 - S-only groups (estimate 2) go to **Sonnet**; anything M or larger (estimate 3+), unsized, or touching the headless wire protocol, goes to **Opus**. Always set `model` explicitly.
 - Cross-cutting passes (accessibility identifiers, a styling sweep) touch every view. Run them **after** the merge, on the release branch, not in parallel.

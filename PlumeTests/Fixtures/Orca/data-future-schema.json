@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "repos": [{ "id": "repo-widgets", "path": "/Users/example/Widgets", "displayName": "Widgets" }],
+  "workspaceSession": {
+    "unifiedTabs": {
+      "repo-widgets::/Users/example/Widgets": [
+        { "id": "t1", "entityId": "t1", "contentType": "terminal", "label": "Terminal 1", "sortOrder": 0 }
+      ]
+    }
+  }
+}

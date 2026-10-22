@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "activeProfileId": "work-profile",
+  "profiles": [
+    { "id": "local-default", "name": "Personal", "kind": "local" },
+    { "id": "work-profile", "name": "Work", "kind": "local" }
+  ]
+}

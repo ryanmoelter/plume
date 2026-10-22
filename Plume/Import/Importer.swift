@@ -3,8 +3,8 @@ import SwiftData
 
 /// Turns validated candidates into tasks, groups and tabs.
 ///
-/// Knows nothing about the app a candidate came from — adding a second source
-/// means writing a parser that produces `ImportCandidate`, not touching this.
+/// Knows nothing about the app a candidate came from — adding a source
+/// means writing a parser that produces `ImportCandidate` and an `ImportSource` case, not touching this.
 @MainActor
 enum Importer {
     /// `stableID`s the store already holds. Fetched rather than read from a

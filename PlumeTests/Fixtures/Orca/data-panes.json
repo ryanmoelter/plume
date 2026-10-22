@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "repos": [
+    { "id": "repo-widgets", "path": "/Users/example/Widgets", "displayName": "Widgets" }
+  ],
+  "worktreeMeta": {
+    "repo-widgets::/Users/example/Widgets": { "displayName": "", "sortOrder": 100 }
+  },
+  "workspaceSession": {
+    "unifiedTabs": {
+      "repo-widgets::/Users/example/Widgets": [
+        { "id": "tab-split", "entityId": "tab-split", "contentType": "terminal", "label": "Build", "sortOrder": 0 },
+        { "id": "tab-single", "entityId": "tab-single", "contentType": "terminal", "label": "Shell", "sortOrder": 1 },
+        { "id": "tab-remote", "entityId": "tab-remote", "contentType": "terminal", "label": "Remote", "sortOrder": 2 },
+        { "id": "tab-unlaid", "entityId": "tab-unlaid", "contentType": "terminal", "label": "Bare", "sortOrder": 3 }
+      ]
+    },
+    "terminalLayoutsByTabId": {
+      "tab-split": {
+        "root": {
+          "type": "split", "direction": "vertical", "ratio": 0.5,
+          "first": {
+            "type": "split", "direction": "horizontal",
+            "first": { "type": "leaf", "leafId": "leaf-a" },
+            "second": { "type": "leaf", "leafId": "leaf-b" }
+          },
+          "second": { "type": "leaf", "leafId": "leaf-c" }
+        },
+        "activeLeafId": "leaf-b",
+        "expandedLeafId": null,
+        "ptyIdsByLeafId": { "leaf-a": "pty-a" },
+        "titlesByLeafId": { "leaf-c": "Logs" }
+      },
+      "tab-single": { "root": { "type": "leaf", "leafId": "leaf-d" }, "activeLeafId": "leaf-d" },
+      "tab-remote": { "root": { "type": "leaf", "leafId": "leaf-e" }, "activeLeafId": "leaf-e" },
+      "tab-broken": { "root": { "type": "hexagon" } }
+    },
+    "sleepingAgentSessionsByPaneKey": {
+      "tab-split:leaf-a": {
+        "paneKey": "tab-split:leaf-a", "tabId": "tab-split", "worktreeId": "repo-widgets::/Users/example/Widgets",
+        "agent": "claude",
+        "providerSession": { "key": "session_id", "id": "sleeping-claude", "transcriptPath": "/Users/example/.claude/projects/-Users-example-Widgets/sleeping-claude.jsonl" },
+        "prompt": "", "state": "done", "capturedAt": 1, "updatedAt": 1, "connectionId": null, "origin": "quit"
+      },
+      "tab-split:leaf-b": {
+        "paneKey": "tab-split:leaf-b", "worktreeId": "repo-widgets::/Users/example/Widgets",
+        "agent": "codex",
+        "providerSession": { "key": "session_id", "id": "codex-thread" },
+        "prompt": "", "state": "waiting", "capturedAt": 1, "updatedAt": 1, "origin": "quit"
+      },
+      "tab-split:leaf-c": {
+        "paneKey": "tab-split:leaf-c", "worktreeId": "repo-widgets::/Users/example/Widgets",
+        "agent": "gemini",
+        "providerSession": { "key": "session_id", "id": "gemini-session" },
+        "prompt": "", "state": "done", "capturedAt": 1, "updatedAt": 1, "origin": "quit"
+      },
+      "tab-single:leaf-d": {
+        "paneKey": "tab-single:leaf-d", "worktreeId": "repo-widgets::/Users/example/Widgets",
+        "agent": "claude",
+        "providerSession": { "key": "conversation_id", "id": "wrong-key" },
+        "prompt": "", "state": "done", "capturedAt": 1, "updatedAt": 1, "origin": "quit"
+      },
+      "tab-remote:leaf-e": {
+        "paneKey": "tab-remote:leaf-e", "worktreeId": "repo-widgets::/Users/example/Widgets",
+        "agent": "claude",
+        "providerSession": { "key": "session_id", "id": "remote-claude" },
+        "prompt": "", "state": "done", "capturedAt": 1, "updatedAt": 1, "connectionId": "ssh-devbox", "origin": "quit"
+      },
+      "tab-broken:leaf-x": 7
+    }
+  }
+}

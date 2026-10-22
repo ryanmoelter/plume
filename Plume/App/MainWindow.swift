@@ -9,7 +9,7 @@ struct MainWindow: View {
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
-    @State private var importShown = false
+    @State private var importSource: ImportSource?
     @State private var importRequest = ImportRequest.shared
     @State private var hostWindow: NSWindow?
     @State private var fullDiskAccessShown = false
@@ -60,8 +60,8 @@ struct MainWindow: View {
         .sheet(isPresented: $archiveShown) {
             ArchiveView()
         }
-        .sheet(isPresented: $importShown) {
-            ImportSheet()
+        .sheet(item: $importSource) { source in
+            ImportSheet(source: source)
         }
         .sheet(isPresented: $fullDiskAccessShown) {
             FullDiskAccessSheet {
@@ -76,7 +76,9 @@ struct MainWindow: View {
             fullDiskAccessShown = !FullDiskAccess.isGranted
         }
         .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
-        .focusedSceneValue(\.showImportAction) { importShown = true }
+        .focusedSceneValue(\.showImportAction) { source in
+            if importSource == nil { importSource = source }
+        }
         .background {
             WindowProbe { window in
                 guard hostWindow !== window else { return }
@@ -86,9 +88,9 @@ struct MainWindow: View {
             .allowsHitTesting(false)
         }
         .onChange(of: importRequest.targetWindowNumber) {
-            guard importRequest.take(for: hostWindow) else { return }
+            guard let source = importRequest.take(for: hostWindow), importSource == nil else { return }
             hostWindow?.makeKeyAndOrderFront(nil)
-            importShown = true
+            importSource = source
         }
         .focusedSceneValue(\.selectAdjacentTask) { offset in
             let destination = SidebarKeyboardNavigation.destination(

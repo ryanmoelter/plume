@@ -28,7 +28,7 @@ Either way, Plume will let you know (unobtrusively) when there's a new update.
 - **Visually stay on top of your agents**: A sidebar with agent, sub-agent, and PR statuses directs your attention where it needs to be. Each task can have multiple tabs of agents and terminals.
 - **First-class terminal when you need it**: A [ghostty](https://ghostty.org/)-powered terminal is just a ⌘T away, and the whole interface takes on your ghostty theme.
 - **Work your way, with great UX**: There's no prescribed workflow, but smart touches throughout to support however you work. Create your worktree through Plume's UI, or have Claude do it for you in a session; up to you.
-- **Your setup comes with you**: Plume drives the same `claude` you already use, so your hooks, skills, settings, and login all carry over. Your ghostty config applies to the terminals. Also, optionally import your open workspaces from cmux.
+- **Your setup comes with you**: Plume drives the same `claude` you already use, so your hooks, skills, settings, and login all carry over. Your ghostty config applies to the terminals. Also, optionally import your open workspaces from cmux or Orca.
 - **Your data is yours**: Plume runs locally and has no telemetry or server-side features. Any we may add in the future will be opt-in and unobtrusive.
 
 ## Requirements

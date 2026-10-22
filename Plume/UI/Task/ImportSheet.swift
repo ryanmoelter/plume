@@ -1,19 +1,23 @@
 import SwiftUI
 import SwiftData
 
-/// Picks which cmux workspaces to bring into Plume, grouped the way cmux
-/// groups them so the list reads as the sidebar it is about to create.
+/// Picks which workspaces to bring into Plume, grouped the way the source
+/// app groups them so the list reads as the sidebar it is about to create.
 struct ImportSheet: View {
+    let source: ImportSource
+
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
 
     /// Nil while the file is being read.
     @State private var candidates: [ImportCandidate]?
+    @State private var emptyStateText = ""
+    @State private var sourceIsRunning = false
+    @State private var alert: ImportAlert?
     @State private var selected: Set<String> = []
     @State private var target: ImportTarget = .mirrorSourceGroups
     @State private var isValidating = true
-    @State private var confirmingReplacementOf: [ImportCandidate] = []
 
     private var importable: [ImportCandidate] {
         (candidates ?? []).filter(\.isImportable)
@@ -37,7 +41,11 @@ struct ImportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Import from cmux").font(.headline)
+            Text("Import from \(source.displayName)").font(.headline)
+
+            if sourceIsRunning, let warning = source.runningWarning {
+                runningBanner(warning)
+            }
 
             if let candidates {
                 if candidates.isEmpty {
@@ -58,8 +66,10 @@ struct ImportSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .plumeID(AccessibilityID.importCancelButton)
                 Button(importTitle) { confirmOrImport() }
                     .keyboardShortcut(.defaultAction)
+                    .plumeID(AccessibilityID.importConfirmButton, value: importTitle)
                     .disabled(!canImport)
             }
         }
@@ -67,28 +77,59 @@ struct ImportSheet: View {
         .frame(width: 580, height: 520)
         .task { await load() }
         .alert(
-            "Replace running \(confirmingReplacementOf.count == 1 ? "task" : "tasks")?",
-            isPresented: Binding(
-                get: { !confirmingReplacementOf.isEmpty },
-                set: { if !$0 { confirmingReplacementOf = [] } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { confirmingReplacementOf = [] }
-            Button("Replace", role: .destructive) {
-                confirmingReplacementOf = []
-                runImport()
+            alertTitle,
+            isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
+            presenting: alert
+        ) { alert in
+            switch alert {
+            case .confirmReplacement:
+                Button("Cancel", role: .cancel) {}
+                Button("Replace", role: .destructive) {
+                    // Deferred so the alert's own dismissal cannot clear the reminder.
+                    Task { @MainActor in runImport() }
+                }
+            case .postImportReminder:
+                Button("OK") { dismiss() }
             }
-        } message: {
-            Text(replacementWarning)
+        } message: { alert in
+            Text(alertMessage(for: alert))
         }
     }
 
-    private var replacementWarning: String {
-        let names = confirmingReplacementOf.map(\.title).joined(separator: ", ")
-        let subject = confirmingReplacementOf.count == 1
+    private var alertTitle: String {
+        switch alert {
+        case .confirmReplacement(let live):
+            "Replace running \(live.count == 1 ? "task" : "tasks")?"
+        case .postImportReminder:
+            "Quit \(source.displayName)"
+        case nil:
+            ""
+        }
+    }
+
+    private func alertMessage(for alert: ImportAlert) -> String {
+        switch alert {
+        case .confirmReplacement(let live): replacementWarning(for: live)
+        case .postImportReminder: source.postImportReminder ?? ""
+        }
+    }
+
+    private func runningBanner(_ warning: String) -> some View {
+        Label(warning, systemImage: "exclamationmark.triangle.fill")
+            .font(.callout)
+            .foregroundStyle(.primary)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+            .plumeID(AccessibilityID.importRunningWarning, value: warning)
+    }
+
+    private func replacementWarning(for live: [ImportCandidate]) -> String {
+        let names = live.map(\.title).joined(separator: ", ")
+        let subject = live.count == 1
             ? "\(names) has a running agent or terminal"
             : "\(names) have running agents or terminals"
-        return "\(subject). Replacing stops them and discards the existing \(confirmingReplacementOf.count == 1 ? "task" : "tasks")."
+        return "\(subject). Replacing stops them and discards the existing \(live.count == 1 ? "task" : "tasks")."
     }
 
     private var importTitle: String {
@@ -103,9 +144,7 @@ struct ImportSheet: View {
         ContentUnavailableView(
             "Nothing to Import",
             systemImage: "tray",
-            description: Text(CmuxLocations.isInstalled()
-                ? "cmux has no saved workspaces."
-                : "No cmux session file at \(CmuxLocations.sessionFile.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
+            description: Text(emptyStateText)
         )
         .frame(maxHeight: .infinity)
     }
@@ -113,7 +152,7 @@ struct ImportSheet: View {
     private var controls: some View {
         HStack {
             Picker("Add to", selection: $target) {
-                Text("Mirror cmux groups").tag(ImportTarget.mirrorSourceGroups)
+                Text(source.groupMirrorLabel).tag(ImportTarget.mirrorSourceGroups)
                 Text("Ungrouped").tag(ImportTarget.ungrouped)
                 ForEach(groups) { group in
                     Text(group.name).tag(ImportTarget.existing(group.id))
@@ -125,8 +164,10 @@ struct ImportSheet: View {
             Spacer()
 
             Button("Select All") { selected = Set(selectableByDefault.map(\.id)) }
+                .plumeID(AccessibilityID.importSelectAllButton)
                 .disabled(selected == Set(selectableByDefault.map(\.id)))
             Button("Select None") { selected = [] }
+                .plumeID(AccessibilityID.importSelectNoneButton)
                 .disabled(selected.isEmpty)
         }
         .buttonStyle(.link)
@@ -147,7 +188,8 @@ struct ImportSheet: View {
     }
 
     private func row(_ candidate: ImportCandidate) -> some View {
-        Toggle(isOn: binding(for: candidate)) {
+        let isOn = binding(for: candidate)
+        return Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(candidate.title).lineLimit(1)
@@ -160,7 +202,7 @@ struct ImportSheet: View {
                 }
                 // Head-truncated: sibling worktrees differ only in their last
                 // component, which tail truncation would hide.
-                Text(candidate.workingDirectoryPath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                Text(abbreviatedPath(candidate))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -170,7 +212,17 @@ struct ImportSheet: View {
                     .foregroundStyle(candidate.isImportable ? Color.secondary : Color.orange)
             }
         }
+        .plumeID(
+            AccessibilityID.importRow,
+            label: "\(candidate.title) — \(abbreviatedPath(candidate))",
+            value: "\(isOn.wrappedValue ? "on" : "off") · \(subtitle(for: candidate))",
+            invoke: { isOn.wrappedValue.toggle() }
+        )
         .disabled(!candidate.isImportable)
+    }
+
+    private func abbreviatedPath(_ candidate: ImportCandidate) -> String {
+        candidate.workingDirectoryPath.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 
     private func subtitle(for candidate: ImportCandidate) -> String {
@@ -209,9 +261,11 @@ struct ImportSheet: View {
     /// Two phases: the file is decoded and mapped synchronously so rows appear
     /// at once, then each row is replaced as git and the transcripts answer.
     private func load() async {
-        let snapshot = await Task.detached { CmuxSnapshot.loadingFromDisk() }.value
+        let loaded = await source.loadCandidates()
+        emptyStateText = loaded.emptyStateText
+        sourceIsRunning = loaded.sourceIsRunning
         let built = Importer.marking(
-            CmuxCandidateBuilder.candidates(from: snapshot),
+            loaded.candidates,
             alreadyImported: Importer.alreadyImported(in: context)
         )
         candidates = built
@@ -220,8 +274,9 @@ struct ImportSheet: View {
             return
         }
 
+        let validator = source.makeValidator()
         for candidate in built {
-            let validated = await CmuxImportValidator.validating(candidate)
+            let validated = await validator.validating(candidate)
             guard let index = candidates?.firstIndex(where: { $0.id == validated.id }) else { continue }
             var marked = validated
             marked.isAlreadyImported = candidates?[index].isAlreadyImported ?? false
@@ -238,13 +293,22 @@ struct ImportSheet: View {
         if live.isEmpty {
             runImport()
         } else {
-            confirmingReplacementOf = live
+            alert = .confirmReplacement(live)
         }
     }
 
     private func runImport() {
         let created = Importer.importing(chosen, into: target, in: context)
         Importer.startWatches(for: created)
-        dismiss()
+        if sourceIsRunning, !created.isEmpty, source.postImportReminder != nil {
+            alert = .postImportReminder
+        } else {
+            dismiss()
+        }
     }
+}
+
+private enum ImportAlert {
+    case confirmReplacement([ImportCandidate])
+    case postImportReminder
 }

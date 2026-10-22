@@ -10,7 +10,7 @@ struct ShowArchiveActionKey: FocusedValueKey {
 }
 
 struct ShowImportActionKey: FocusedValueKey {
-    typealias Value = () -> Void
+    typealias Value = (ImportSource) -> Void
 }
 
 /// Moves the sidebar selection by `offset` tasks, following sidebar order.
@@ -61,7 +61,7 @@ extension FocusedValues {
         set { self[ShowArchiveActionKey.self] = newValue }
     }
 
-    var showImportAction: (() -> Void)? {
+    var showImportAction: ((ImportSource) -> Void)? {
         get { self[ShowImportActionKey.self] }
         set { self[ShowImportActionKey.self] = newValue }
     }
@@ -146,8 +146,10 @@ struct PlumeCommands: Commands {
         }
 
         CommandGroup(after: .importExport) {
-            Button("Import from cmux…") { showImport?() }
-                .disabled(showImport == nil)
+            ForEach(ImportSource.allCases) { source in
+                Button("Import from \(source.displayName)…") { showImport?(source) }
+                    .disabled(showImport == nil)
+            }
         }
 
         // No `@FocusedValue`/`disabled`: a `Commands` body never re-evaluates
