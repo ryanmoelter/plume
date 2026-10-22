@@ -39,21 +39,27 @@ struct ChatSelectionTests {
     @Test func aWordDragForwardKeepsTheOriginWordAndEndsOnAWord() {
         let origin = ChatSelection(anchor: position("b", 4), focus: position("b", 8))
         let later = ChatSelection(anchor: position("c", 2), focus: position("c", 6))
-        let grown = origin.extendedByWord(to: later, in: order)
+        let grown = origin.extendedByUnit(to: later, in: order)
         #expect(grown == ChatSelection(anchor: position("b", 4), focus: position("c", 6)))
     }
 
     @Test func aWordDragBackwardAnchorsAtTheOriginWordsEnd() {
         let origin = ChatSelection(anchor: position("b", 4), focus: position("b", 8))
         let earlier = ChatSelection(anchor: position("a", 1), focus: position("a", 3))
-        let grown = origin.extendedByWord(to: earlier, in: order)
+        let grown = origin.extendedByUnit(to: earlier, in: order)
         #expect(grown == ChatSelection(anchor: position("b", 8), focus: position("a", 1)))
     }
 
     @Test func aWordDragInsideTheOriginWordKeepsIt() {
         let origin = ChatSelection(anchor: position("b", 4), focus: position("b", 8))
-        let grown = origin.extendedByWord(to: origin, in: order)
+        let grown = origin.extendedByUnit(to: origin, in: order)
         #expect(grown == origin)
+    }
+
+    @Test func aPieceDragCoversWholePieces() {
+        let origin = ChatSelection.expandToPiece("b", length: 5)
+        let grown = origin.extendedByUnit(to: .expandToPiece("c", length: 8), in: order)
+        #expect(grown == ChatSelection(anchor: position("b", 0), focus: position("c", 8)))
     }
 
     @Test func expandToPieceCoversItsLength() {

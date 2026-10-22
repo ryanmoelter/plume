@@ -60,10 +60,10 @@ struct ChatSelection: Equatable {
         )
     }
 
-    /// A drag that began with a double-click: the word first clicked, `self`,
-    /// grown by whole words to `word`.
-    func extendedByWord(to word: ChatSelection, in order: ChatPieceOrder) -> ChatSelection? {
-        guard let origin = bounds(in: order), let target = word.bounds(in: order) else { return nil }
+    /// A drag that began with a double- or triple-click: the word or piece
+    /// first clicked, `self`, grown by whole units to `unit`.
+    func extendedByUnit(to unit: ChatSelection, in order: ChatPieceOrder) -> ChatSelection? {
+        guard let origin = bounds(in: order), let target = unit.bounds(in: order) else { return nil }
         if Self.position(target.start, precedes: origin.start, in: order) {
             return ChatSelection(anchor: origin.end, focus: target.start)
         }

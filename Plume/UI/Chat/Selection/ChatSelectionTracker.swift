@@ -14,8 +14,11 @@ final class ChatSelectionTracker {
     private var monitor: Any?
     private var pending: (point: NSPoint, position: ChatTextPosition)?
     private var isDragging = false
-    /// The word a double-click selected, which a drag from it grows by words.
-    private var wordOrigin: ChatSelection?
+    /// What a double- or triple-click selected, which a drag from it grows
+    /// by the same unit.
+    private var unitOrigin: (selection: ChatSelection, unit: Unit)?
+
+    private enum Unit { case word, piece }
     private var lastDragPoint: NSPoint?
     private var autoscrollTimer: Timer?
 
@@ -53,7 +56,7 @@ final class ChatSelectionTracker {
     private func mouseDown(_ event: NSEvent, controller: ChatListController) -> NSEvent? {
         pending = nil
         isDragging = false
-        wordOrigin = nil
+        unitOrigin = nil
         guard controller.isInDocument(event.locationInWindow) else { return event }
         if event.modifierFlags.contains(.control) { return rightMouseDown(event, controller: controller) }
         let store = controller.selection
@@ -82,9 +85,11 @@ final class ChatSelectionTracker {
                   let text = controller.selectableText(of: under.pieceID),
                   let word = ChatSelection.expandToWord(at: under, in: text) else { return nil }
             store.set(word)
-            wordOrigin = word
+            unitOrigin = (word, .word)
         default:
-            store.set(.expandToPiece(position.pieceID, length: store.length(of: position.pieceID)))
+            let piece = ChatSelection.expandToPiece(position.pieceID, length: store.length(of: position.pieceID))
+            store.set(piece)
+            unitOrigin = (piece, .piece)
         }
         beginTracking(controller)
         return nil
@@ -107,7 +112,7 @@ final class ChatSelectionTracker {
         pending = nil
         guard isDragging else { return event }
         isDragging = false
-        wordOrigin = nil
+        unitOrigin = nil
         lastDragPoint = nil
         stopAutoscroll()
         return nil
@@ -138,11 +143,16 @@ final class ChatSelectionTracker {
         lastDragPoint = point
         let store = controller.selection
         if let selection = store.selection,
-           let focus = controller.selectionPosition(nearest: point, character: wordOrigin != nil) {
-            if let wordOrigin {
-                let word = controller.selectableText(of: focus.pieceID).flatMap { ChatSelection.expandToWord(at: focus, in: $0) }
-                    ?? ChatSelection(anchor: focus, focus: focus)
-                store.set(wordOrigin.extendedByWord(to: word, in: store.order) ?? selection.extended(to: focus))
+           let focus = controller.selectionPosition(nearest: point, character: unitOrigin != nil) {
+            if let unitOrigin {
+                let target = switch unitOrigin.unit {
+                case .word:
+                    controller.selectableText(of: focus.pieceID).flatMap { ChatSelection.expandToWord(at: focus, in: $0) }
+                        ?? ChatSelection(anchor: focus, focus: focus)
+                case .piece:
+                    ChatSelection.expandToPiece(focus.pieceID, length: store.length(of: focus.pieceID))
+                }
+                store.set(unitOrigin.selection.extendedByUnit(to: target, in: store.order) ?? selection.extended(to: focus))
             } else {
                 store.set(selection.extended(to: focus))
             }
