@@ -289,8 +289,8 @@ clients can join a running thread, but even unsubscribed clients receive
 global thread metadata. Foreign thread events therefore require ancestry
 checks and must never be assumed to represent subagents.
 
-For manual verification, open a running Codex chat's antenna menu and choose
-Connect Remote Control. If another application owns the host, expect a
+For manual verification, open the Remote Control row's menu in a running Codex
+chat's info pane and choose Connect Remote Control. If another application owns the host, expect a
 connection error and stopped retries. With that application's remote access
 turned off by its user, connect again and generate a pairing code. Scan the
 QR code with a phone to open ChatGPT setup, then confirm the same account and

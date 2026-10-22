@@ -14,6 +14,7 @@ struct InfoPaneContent: View, ThemedView {
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
     let onOpenSideChat: () -> Void
+    let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
@@ -46,6 +47,8 @@ struct InfoPaneContent: View, ThemedView {
         case .plan: plan
         case .artifacts: artifacts
         case .sideChat: sideChat
+        case .remoteControl:
+            if let remoteControlSession { RemoteControlRow(session: remoteControlSession) }
         case .folder: folder
         case .branch: branch
         case .pullRequest: pullRequest
@@ -278,6 +281,7 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenSideChat) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: SideQuestionChip.symbol) }
+                    .emphasis(.secondary)
                 Text("Side chats")
                 Text("\(facts.sideChatCount)")
                     .emphasis(.subtle)
@@ -471,6 +475,10 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                 Text("\(facts.linear?.workingCount ?? 0)")
             }
             .emphasis(.secondary)
+        case .remoteControl:
+            Image(systemName: StatusSymbol.remoteControl.name)
+                .foregroundStyle(colors.attention)
+                .help("Remote Control is on")
         case .folder, .sideChat:
             EmptyView()
         }
