@@ -54,6 +54,10 @@ struct GeneralSettingsPane: View {
                     Button("Import…") { requestImport(.orca) }
                         .plumeID(AccessibilityID.settingsImportOrcaButton, invoke: { requestImport(.orca) })
                 }
+                LabeledContent("Import from Claude desktop app") {
+                    Button("Import…") { requestImport(.claudeDesktop) }
+                        .plumeID(AccessibilityID.settingsImportClaudeDesktopButton, invoke: { requestImport(.claudeDesktop) })
+                }
             } header: {
                 Text("Import")
             }
