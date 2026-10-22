@@ -29,7 +29,7 @@ final class AgentTitleMonitor {
     }
 
     /// Reports the title a tab's transcript carries, and its `TitleSource` —
-    /// `.transcript` for a real `ai-title` line, `.fallback` for the
+    /// `.custom` for a `/rename` line, `.transcript` for a real `ai-title` line, `.fallback` for the
     /// first-message guess. `TitleStore.setTitle(_:forTab:source:)` uses the
     /// source to decide whether to accept it.
     var onTitleDiscovered: ((UUID, String, TitleSource) -> Void)?
@@ -86,7 +86,9 @@ final class AgentTitleMonitor {
         guard let onTitleDiscovered else { return }
         guard let path = paths[tabID], let data = FileManager.default.contents(atPath: path) else { return }
         let discovered: DiscoveredTitle
-        if let title = SessionJSONLReader.latestAITitle(in: data) {
+        if let title = SessionJSONLReader.latestCustomTitle(in: data) {
+            discovered = DiscoveredTitle(title: title, source: .custom)
+        } else if let title = SessionJSONLReader.latestAITitle(in: data) {
             discovered = DiscoveredTitle(title: title, source: .transcript)
         } else if let title = SessionJSONLReader.firstUserMessage(in: data) {
             discovered = DiscoveredTitle(title: title, source: .fallback)

@@ -29,5 +29,35 @@ enum SyntheticClick {
         NSApp.postEvent(up, atStart: false)
         await Task.yield()
     }
+
+    static let dragStepDelay: Duration = .milliseconds(30)
+
+    /// Down at `start`, `steps` drag events along the line, up at `end`.
+    static func drag(from start: NSPoint, to end: NSPoint, in window: NSWindow, clickCount: Int = 1, steps: Int = 10) async {
+        func event(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 4242, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1
+            )
+        }
+        let overlay = ControlOverlay.overlay(for: window)
+        SyntheticHover.move(to: start, in: window)
+        overlay.flashClick(at: start)
+        window.makeKey()
+        guard let down = event(.leftMouseDown, at: start) else { return }
+        NSApp.postEvent(down, atStart: false)
+        try? await Task.sleep(for: releaseDelay)
+        let count = max(steps, 1)
+        for step in 1...count {
+            let fraction = CGFloat(step) / CGFloat(count)
+            let point = NSPoint(x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction)
+            SyntheticHover.move(to: point, in: window)
+            if let dragged = event(.leftMouseDragged, at: point) { NSApp.postEvent(dragged, atStart: false) }
+            try? await Task.sleep(for: dragStepDelay)
+        }
+        if let up = event(.leftMouseUp, at: end) { NSApp.postEvent(up, atStart: false) }
+        await Task.yield()
+    }
 }
 #endif

@@ -5,6 +5,7 @@ import Foundation
 nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
     case cmux
     case orca
+    case claudeDesktop
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
         switch self {
         case .cmux: "cmux"
         case .orca: "Orca"
+        case .claudeDesktop: "Claude desktop app"
         }
     }
 
@@ -19,6 +21,7 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
         switch self {
         case .cmux: "Mirror cmux groups"
         case .orca: "Mirror Orca repos"
+        case .claudeDesktop: "Mirror Claude desktop repos"
         }
     }
 
@@ -28,6 +31,8 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
         case .cmux: nil
         case .orca:
             "Orca is still running. Agents in its terminals keep running after Orca quits, so importing them puts a second copy on the same conversation. In Orca, choose Kill all sessions (Settings ▸ Terminal ▸ Manage Sessions), then quit Orca."
+        case .claudeDesktop:
+            "The Claude desktop app is still running. It may be driving these sessions, and resuming one here puts a second copy on the same conversation. Quit the app before importing."
         }
     }
 
@@ -37,6 +42,8 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
         case .cmux: nil
         case .orca:
             "Orca's copies of these agents are still running. In Orca, choose Kill all sessions (Settings ▸ Terminal ▸ Manage Sessions), then quit Orca."
+        case .claudeDesktop:
+            "Archive the imported sessions in the Claude desktop app, so the two apps do not both continue the same conversations."
         }
     }
 
@@ -70,6 +77,24 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
                     sourceIsRunning: OrcaRunningState.isRunning()
                 )
             }.value
+        case .claudeDesktop:
+            await Task.detached {
+                let snapshot = ClaudeDesktopSnapshot.loadingFromDisk()
+                let emptyStateText = if !ClaudeDesktopLocations.isInstalled() {
+                    "The Claude desktop app is not installed."
+                } else if snapshot.isLayoutUnrecognized {
+                    "This version of the Claude desktop app isn't supported yet."
+                } else if snapshot.unreadableCount > 0 {
+                    "Plume couldn't read the Claude desktop app's saved sessions."
+                } else {
+                    "The Claude desktop app has no unarchived Code sessions."
+                }
+                return ImportSourceLoad(
+                    candidates: ClaudeDesktopCandidateBuilder.candidates(from: snapshot),
+                    emptyStateText: emptyStateText,
+                    sourceIsRunning: ClaudeDesktopLocations.isRunning()
+                )
+            }.value
         }
     }
 
@@ -80,6 +105,13 @@ nonisolated enum ImportSource: String, Identifiable, CaseIterable, Sendable {
             ImportSourceValidator { await CmuxImportValidator.validating($0) }
         case .orca:
             ImportSourceValidator { [orca = OrcaImportValidator()] in await orca.validating($0) }
+        case .claudeDesktop:
+            ImportSourceValidator {
+                await ImportValidator.validating(
+                    $0,
+                    configuration: .init(missingTranscript: .downgradeToTerminal, readsBranchFromGit: true)
+                )
+            }
         }
     }
 }

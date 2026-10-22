@@ -177,6 +177,16 @@ struct SessionAITitleTests {
         #expect(found == "Sharper title")
     }
 
+    @Test func theLastCustomTitleIsRead() {
+        let lines = data([
+            #"{"type":"custom-title","customTitle":"First name","sessionId":"a"}"#,
+            #"{"type":"ai-title","aiTitle":"Generated","sessionId":"a"}"#,
+            #"{"type":"custom-title","customTitle":"Second name","sessionId":"a"}"#,
+        ])
+        #expect(SessionJSONLReader.latestCustomTitle(in: lines) == "Second name")
+        #expect(SessionJSONLReader.latestAITitle(in: lines) == "Generated")
+    }
+
     /// Short sessions never get titled; that is not an error.
     @Test func aTranscriptWithoutATitleYieldsNil() {
         let found = SessionJSONLReader.latestAITitle(in: data([

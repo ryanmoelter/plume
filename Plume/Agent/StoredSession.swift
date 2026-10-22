@@ -57,7 +57,7 @@ extension SessionJSONLReader {
             sessionID: (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: ""),
             transcriptPath: path,
             workingDirectory: workingDirectory,
-            title: latestAITitle(in: data.suffix(titleScanLimit)),
+            title: latestCustomTitle(in: data.suffix(titleScanLimit)) ?? latestAITitle(in: data.suffix(titleScanLimit)),
             firstUserMessage: firstUserMessage(in: data),
             lastModified: modified
         )

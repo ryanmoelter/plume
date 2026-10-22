@@ -32,6 +32,24 @@ struct AgentTitleMonitorTests {
         #expect(discovered?.source == .transcript)
     }
 
+    @Test func aCustomTitleOutranksAnAITitle() throws {
+        let url = try write([
+            #"{"type":"ai-title","aiTitle":"Fixing login","sessionId":"a"}"#,
+            #"{"type":"custom-title","customTitle":"Login work","sessionId":"a"}"#,
+            #"{"type":"ai-title","aiTitle":"Fixing sign-in","sessionId":"a"}"#,
+        ])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let monitor = AgentTitleMonitor()
+        var discovered: (title: String, source: TitleSource)?
+        monitor.onTitleDiscovered = { _, title, source in discovered = (title, source) }
+
+        monitor.watch(tabID: UUID(), transcriptPath: url.path)
+
+        #expect(discovered?.title == "Login work")
+        #expect(discovered?.source == .custom)
+    }
+
     @Test func theFirstMessageFallbackReportsAsFallbackSourced() throws {
         let url = try write([
             #"{"type":"user","isSidechain":false,"message":{"role":"user","content":"Fix the login bug"}}"#,
