@@ -126,6 +126,22 @@ A streamed reply lays out everything received the moment it arrives. `ChatReveal
 
 `RevealTuning` holds the spring and fade constants. A debug build exposes them in Settings; a release build always uses `RevealTuning.Values.defaults`.
 
+## Selection
+
+Prose selection spans rows, so the list owns it, not the rows (`Plume/UI/Chat/Selection/`). SwiftUI's `.textSelection(.enabled)` makes each `Text` its own field. A selection there stops at a row's edge and is lost when the row is freed. It also draws without consulting a `TextRenderer`. Markdown pieces, from prompts and replies alike, therefore use the list's selection. Tool calls, thinking and notices keep SwiftUI's, and a drag through them skips them.
+
+- **The selection is a model, not a view.** `ChatSelectionStore` holds anchor and focus as `ChatTextPosition`s: a piece id and a UTF-16 offset into that piece's `ChatSelectableText`. Freeing a row loses nothing, and copy serializes from the pieces, so unrealized rows copy too. When the pieces change, `ChatSelection.clamped` keeps both ends on surviving text. A piece that splits into segments, as a streaming list does, carries its ends into them.
+- **Each piece observes only its own share.** The store is not observable. It hands each realized piece an `@Observable` `PieceSelection`, created in `makeRoot` and never in a `body`, so a drag re-renders only the pieces whose range it changes.
+- **`ChatSelectionRenderer` draws it.** `RevealFade` attaches this `TextRenderer` to every selectable `Text`. It fills the selected glyphs' band on each line and then draws the reveal, or plain lines.
+- **Hit-testing reads recorded layouts.** `ChatSelectionRecorder` stores each `Text`'s `Text.Layout` and row-space frame in `ChatTextLayoutRegistry` from preference and geometry callbacks, never from `body` or a draw. `CharacterIndex` restarts at each paragraph, so offsets go through `WordReveal.lineStarts`. A caret takes the nearest glyph boundary. A word lookup takes the glyph under the pointer, because the boundary after a word's last letter is already outside the word.
+- **A local event monitor tracks the mouse** (`ChatSelectionTracker`), because a drag crosses rows that come and go:
+  - A plain click passes through, so links open and the composer keeps the keyboard.
+  - A drag past 3 pt, a double or triple click, or a shift-click takes the events.
+  - The document view takes first responder on mouse-down, before any tracking starts (PLUME-106).
+  - When the selection is dismissed, focus goes back to the nearest composer below the transcript.
+  - A swallowed click is handed to `PaneClickProbe.observe`, or a split's pane focus would stay on the other pane.
+- **Copy writes markdown and RTF.** `ChatSelectionSerializer` rebuilds markdown for partial pieces from inline intents and block kind. A prompt copied with a reply becomes a blockquote. RTF carries font traits and links but no colors. Copy as Plain Text is in the context menu.
+
 ## The `chat-list` log category
 
 `Log.chatList` (`Plume/Support/Log.swift`, category `"chat-list"`) is this list's own logging. `logPass` writes at most one `pass` line per second, plus the state a burst settled on a second after it ends, so a run with the screen off still leaves evidence of what the list did. `land` logs where a programmatic scroll finished. Read them with `log show --predicate 'subsystem == "com.ryanmoelter.Plume" AND category == "chat-list"' --info --last 5m`:

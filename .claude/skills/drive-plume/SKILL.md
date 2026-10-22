@@ -51,10 +51,12 @@ c click x=120 y=80
 c hover target='{"id":"group-header","index":0}'
 c key key=j modifiers='["option"]'
 c menu
+c selectText from=hello to=world
+c selection
 c clear
 ```
 
-`invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. Task rows and settings panes also carry an `invoke` closure, which selects without moving the pointer. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
+`selectText` selects transcript text by substring (`matching=`, or `from=` and `to=` across pieces) and `selection` reads back `{markdown, plainText, anchor, focus}`, the way a copy would produce it. `invoke` runs the control's registered closure (`via: "closure"`) or clicks its center (`via: "click"`). A task row and a tab chip report `value: "selected"` when selected, so `list plumeID=task-row` tells you which conversation is open; check it after selecting rather than assuming the click took. Task rows and settings panes also carry an `invoke` closure, which selects without moving the pointer. `hover` reveals hover-only controls such as a row's trailing buttons; `regions` in its result is how many hover regions the pointer is now inside, so `0` means the target has none. Every click and hover moves an overlay pointer in the window so a person watching can follow; `clear` un-hovers everything and removes it. Read the state back after every action rather than assuming it took.
 
 **Confirm which tab is selected before every chat-list or composer read.** A hidden agent tab renders nothing, so its controls read disabled and `readText` on its chat list returns "not found". That is a correctly hidden tab, not a broken one. Forking selects the new tab on its own. Run `c list plumeID=tab-chip`, find the chip with `value: "selected"`, and say which tab each reading came from.
 

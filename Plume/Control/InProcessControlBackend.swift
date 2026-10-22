@@ -73,16 +73,16 @@ final class InProcessControlBackend: ControlBackend {
         case .composer:
             return TextResult(text: try composerTextView().string, rows: nil)
         case .chatList:
-            let rows = try chatListTextViews().map(TextSpanLocator.text(of:)).filter { !$0.isEmpty }
+            let rows = try textItems(in: try chatListDocumentView()).map(\.text).filter { !$0.isEmpty }
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
         case .window:
             let window = try window(for: nil)
-            let rows = textViews(in: window.contentView!).map(TextSpanLocator.text(of:)).filter { !$0.isEmpty }
+            let rows = textItems(in: window.contentView!).map(\.text).filter { !$0.isEmpty }
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
         case .control:
             let entry = try registry.resolve(target)
             if let value = entry.value { return TextResult(text: value, rows: nil) }
-            let rows = try textViews(within: entry).map(TextSpanLocator.text(of:)).filter { !$0.isEmpty }
+            let rows = try textItems(within: entry).map(\.text).filter { !$0.isEmpty }
             if rows.isEmpty, let label = entry.label { return TextResult(text: label, rows: nil) }
             return TextResult(text: rows.joined(separator: "\n"), rows: nil)
         }
@@ -95,7 +95,7 @@ final class InProcessControlBackend: ControlBackend {
         guard let hit = TextSpanLocator.locate(params.matching, occurrence: params.occurrence, in: candidates) else {
             throw ControlError.spanNotFound(params.matching)
         }
-        guard let window = hit.view.window else { throw ControlError.noWindow }
+        guard let window = hit.window else { throw ControlError.noWindow }
         await SyntheticClick.perform(at: CGPoint(x: hit.rectInWindow.midX, y: hit.rectInWindow.midY), in: window)
         let rect = WindowGeometry.topLeftRect(fromAppKit: hit.rectInWindow, contentHeight: contentHeight(of: window))
         return ClickResult(rect: Rect(rect), windowNumber: window.windowNumber)
@@ -465,35 +465,80 @@ final class InProcessControlBackend: ControlBackend {
             }
     }
 
-    private func chatListTextViews() throws -> [NSView] {
-        textViews(in: try chatListDocumentView())
+    /// `textViews(in:)` plus the chat pieces' own `Text`s, top to bottom.
+    private func textItems(in root: NSView) -> [TextSpanLocator.Item] {
+        var items = textViews(in: root).map(TextSpanLocator.Item.view)
+        for list in ViewFinder.all(ChatListDocumentView.self, in: root) {
+            guard let controller = list.controller else { continue }
+            items += controller.selectableTextFrames().map { TextSpanLocator.Item.chat($0, controller) }
+        }
+        return items.sorted { a, b in
+            let fa = a.rectInWindow, fb = b.rectInWindow
+            if fa.maxY != fb.maxY { return fa.maxY > fb.maxY }
+            return fa.minX < fb.minX
+        }
     }
 
-    private func textViews(within entry: ControlEntry) throws -> [NSView] {
+    private func textItems(within entry: ControlEntry) throws -> [TextSpanLocator.Item] {
         let window = try window(for: entry)
         let height = contentHeight(of: window)
-        return textViews(in: window.contentView!).filter { view in
-            let frame = WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)
+        return textItems(in: window.contentView!).filter { item in
+            let frame = WindowGeometry.topLeftRect(fromAppKit: item.rectInWindow, contentHeight: height)
             return entry.frame.insetBy(dx: -1, dy: -1).intersects(frame)
         }
     }
 
-    private func textCandidates(for target: ControlTarget?) throws -> [NSView] {
+    private func textCandidates(for target: ControlTarget?) throws -> [TextSpanLocator.Item] {
         switch target {
-        case .composer?: return [try composerTextView()]
-        case .chatList?: return try chatListTextViews()
-        case .window?: return textViews(in: try window(for: nil).contentView!)
-        case .control?: return try textViews(within: registry.resolve(target!))
+        case .composer?: return [.view(try composerTextView())]
+        case .chatList?: return textItems(in: try chatListDocumentView())
+        case .window?: return textItems(in: try window(for: nil).contentView!)
+        case .control?: return try textItems(within: registry.resolve(target!))
         case nil:
             let window = try window(for: nil)
-            var ordered: [NSView] = []
-            if let composer = try? composerTextView() { ordered.append(composer) }
-            if let rows = try? chatListTextViews() { ordered.append(contentsOf: rows) }
-            for view in textViews(in: window.contentView!) where !ordered.contains(where: { $0 === view }) {
-                ordered.append(view)
+            var ordered: [TextSpanLocator.Item] = []
+            if let composer = try? composerTextView() { ordered.append(.view(composer)) }
+            if let list = try? chatListDocumentView() { ordered.append(contentsOf: textItems(in: list)) }
+            for item in textItems(in: window.contentView!) where !ordered.contains(where: { $0.isSame(as: item) }) {
+                ordered.append(item)
             }
             return ordered
         }
+    }
+
+    // MARK: Selection
+
+    func selection() throws -> SelectionResult {
+        try selectionResult(of: try chatListController())
+    }
+
+    func selectText(_ params: SelectTextParams) throws -> SelectionResult {
+        let controller = try chatListController()
+        let from = params.matching ?? params.from
+        guard let from else { throw ControlError.badParams("selectText needs matching, or from and to") }
+        if params.matching != nil, params.to != nil { throw ControlError.badParams("selectText takes matching or from/to, not both") }
+        guard controller.selectText(from: from, to: params.to, occurrence: params.occurrence) else {
+            throw ControlError.spanNotFound(params.to.map { "\(from)…\($0)" } ?? from)
+        }
+        return try selectionResult(of: controller)
+    }
+
+    private func chatListController() throws -> ChatListController {
+        guard let controller = try chatListDocumentView().controller else { throw ControlError.notFound("chat list") }
+        return controller
+    }
+
+    private func selectionResult(of controller: ChatListController) throws -> SelectionResult {
+        guard let current = controller.selection.selection else {
+            return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
+        }
+        let pieces = controller.inputs.pieces
+        return SelectionResult(
+            markdown: ChatSelectionSerializer.markdown(of: pieces, selection: current),
+            plainText: ChatSelectionSerializer.plainText(of: pieces, selection: current),
+            anchor: SelectionPoint(pieceID: current.anchor.pieceID, offset: current.anchor.offset),
+            focus: SelectionPoint(pieceID: current.focus.pieceID, offset: current.focus.offset)
+        )
     }
 
     private func frame(of target: ControlTarget) throws -> CGRect? {

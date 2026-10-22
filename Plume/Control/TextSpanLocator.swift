@@ -8,25 +8,73 @@ enum TextSpanLocator {
     struct Hit {
         /// AppKit window coordinates.
         let rectInWindow: CGRect
-        let view: NSView
+        let window: NSWindow?
         let text: String
     }
 
-    /// Searches `candidates` in order for the `occurrence`-th match of
-    /// `needle`, counting across views.
+    /// A text on screen: an AppKit view, or one `Text` of a chat piece that
+    /// draws through `ChatSelectionRenderer` and has no view of its own.
+    enum Item {
+        case view(NSView)
+        case chat(ChatListController.SelectableTextFrame, ChatListController)
+
+        var text: String {
+            switch self {
+            case .view(let view): TextSpanLocator.text(of: view)
+            case .chat(let frame, _): frame.text
+            }
+        }
+
+        /// AppKit window coordinates.
+        var rectInWindow: CGRect {
+            switch self {
+            case .view(let view): view.convert(view.bounds, to: nil)
+            case .chat(let frame, _): frame.windowRect
+            }
+        }
+
+        var window: NSWindow? {
+            switch self {
+            case .view(let view): view.window
+            case .chat(_, let controller): controller.documentView.window
+            }
+        }
+
+        func isSame(as other: Item) -> Bool {
+            switch (self, other) {
+            case (.view(let a), .view(let b)): a === b
+            case (.chat(let a, _), .chat(let b, _)): a.pieceID == b.pieceID && a.offset == b.offset
+            default: false
+            }
+        }
+
+        func rect(of range: NSRange) -> CGRect? {
+            switch self {
+            case .view(let view): TextSpanLocator.rect(of: range, in: view)
+            case .chat(let frame, let controller):
+                controller.windowRect(
+                    ofCharacters: range.location..<(range.location + range.length), pieceID: frame.pieceID, offset: frame.offset
+                )
+            }
+        }
+    }
+
     static func locate(_ needle: String, occurrence: Int, in candidates: [NSView]) -> Hit? {
+        locate(needle, occurrence: occurrence, in: candidates.map(Item.view))
+    }
+
+    /// Searches `candidates` in order for the `occurrence`-th match of
+    /// `needle`, counting across items.
+    static func locate(_ needle: String, occurrence: Int, in candidates: [Item]) -> Hit? {
         guard !needle.isEmpty else { return nil }
         var remaining = occurrence
-        for view in candidates {
-            let text = Self.text(of: view)
+        for item in candidates {
+            let text = item.text
             var searchStart = text.startIndex
             while let found = text.range(of: needle, range: searchStart..<text.endIndex) {
                 if remaining == 0 {
-                    let range = NSRange(found, in: text)
-                    if let rect = rect(of: range, in: view) {
-                        return Hit(rectInWindow: rect, view: view, text: text)
-                    }
-                    return nil
+                    guard let rect = item.rect(of: NSRange(found, in: text)) else { return nil }
+                    return Hit(rectInWindow: rect, window: item.window, text: text)
                 }
                 remaining -= 1
                 searchStart = found.upperBound

@@ -112,7 +112,15 @@ struct PaneClickProbe: NSViewRepresentable {
         view.stopMonitoring()
     }
 
+    /// Hands a mouse-down to every probe. A monitor that swallows one, as
+    /// the chat's text selection does, must call this, because a swallowed
+    /// event may never reach the probes' own monitors.
+    static func observe(_ event: NSEvent) {
+        for probe in ProbeView.live.allObjects { probe.handle(event) }
+    }
+
     final class ProbeView: NSView {
+        fileprivate static let live = NSHashTable<ProbeView>.weakObjects()
         var gripXRange: ClosedRange<CGFloat>?
         var focus: (() -> Void)?
         private var monitor: Any?
@@ -127,17 +135,19 @@ struct PaneClickProbe: NSViewRepresentable {
         func stopMonitoring() {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
+            Self.live.remove(self)
         }
 
         private func startMonitoring() {
             guard monitor == nil else { return }
+            Self.live.add(self)
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
                 self?.handle(event)
                 return event
             }
         }
 
-        private func handle(_ event: NSEvent) {
+        fileprivate func handle(_ event: NSEvent) {
             let point = convert(event.locationInWindow, from: nil)
             guard window != nil, event.window === window, bounds.contains(point),
                   gripXRange?.contains(point.x) != true

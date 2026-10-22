@@ -35,6 +35,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "drag": command = .drag(try DragParams(from: decoder))
         case "key": command = .key(try KeyParams(from: decoder))
         case "menu": command = .menu
+        case "selection": command = .selection
+        case "selectText": command = .selectText(try SelectTextParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -58,6 +60,48 @@ nonisolated enum ControlCommand {
     case drag(DragParams)
     case key(KeyParams)
     case menu
+    case selection
+    case selectText(SelectTextParams)
+}
+
+/// `matching` selects one span. `from` and `to` select from the start of
+/// `from` to the end of the first `to` after it.
+nonisolated struct SelectTextParams: Decodable, Equatable {
+    var matching: String?
+    var from: String?
+    var to: String?
+    var occurrence: Int = 0
+
+    private enum CodingKeys: String, CodingKey { case matching, from, to, occurrence }
+
+    init(matching: String? = nil, from: String? = nil, to: String? = nil, occurrence: Int = 0) {
+        self.matching = matching
+        self.from = from
+        self.to = to
+        self.occurrence = occurrence
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        matching = try c.decodeIfPresent(String.self, forKey: .matching)
+        from = try c.decodeIfPresent(String.self, forKey: .from)
+        to = try c.decodeIfPresent(String.self, forKey: .to)
+        occurrence = try c.decodeIfPresent(Int.self, forKey: .occurrence) ?? 0
+    }
+}
+
+nonisolated struct SelectionPoint: Codable, Equatable {
+    var pieceID: String
+    var offset: Int
+}
+
+/// The focused chat's transcript selection. Empty strings and nil ends when
+/// nothing is selected.
+nonisolated struct SelectionResult: Codable, Equatable {
+    var markdown: String
+    var plainText: String
+    var anchor: SelectionPoint?
+    var focus: SelectionPoint?
 }
 
 /// A chord to press, written the way the settings editor writes it: a single
@@ -414,6 +458,7 @@ nonisolated enum ControlResult: Encodable {
     case drag(DragResult)
     case key(KeyResult)
     case menu(MenuResult)
+    case selection(SelectionResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -429,6 +474,7 @@ nonisolated enum ControlResult: Encodable {
         case .drag(let v): try v.encode(to: encoder)
         case .key(let v): try v.encode(to: encoder)
         case .menu(let v): try v.encode(to: encoder)
+        case .selection(let v): try v.encode(to: encoder)
         }
     }
 }

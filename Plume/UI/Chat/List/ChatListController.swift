@@ -90,6 +90,9 @@ final class ChatListController: NSObject {
         }
     }
 
+    let selection = ChatSelectionStore()
+    private var selectionTracker: ChatSelectionTracker?
+
     private(set) var inputs = ChatListInputs()
     private var model = ChatLayoutModel()
     private var items: [String: Item] = [:]
@@ -198,6 +201,7 @@ final class ChatListController: NSObject {
         wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             self?.routeWheel(event) ?? event
         }
+        selectionTracker = ChatSelectionTracker(controller: self)
     }
 
     /// Breaks the display link's hold on the animator; nothing else keeps
@@ -208,6 +212,8 @@ final class ChatListController: NSObject {
         NotificationCenter.default.removeObserver(self)
         if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
         wheelMonitor = nil
+        selectionTracker?.tearDown()
+        selectionTracker = nil
     }
 
     // MARK: - Nested scroll views
@@ -261,6 +267,13 @@ final class ChatListController: NSObject {
         inputs = new
         var stale: Set<String> = []
 
+        if new.pieces != old.pieces || new.tabID != old.tabID {
+            selection.update(pieces: new.pieces, previousIDs: new.tabID == old.tabID ? old.pieces.map(\.id) : [])
+            if selection.selection == nil {
+                // Out of SwiftUI's update pass before moving first responder.
+                DispatchQueue.main.async { [weak self] in self?.returnFocusToComposer() }
+            }
+        }
         if new.pieces != old.pieces || new.tabID != old.tabID
             || (new.leadingInset == 0) != (old.leadingInset == 0) {
             stale.formUnion(rebuildItems(previous: old.pieces, allowsDepartures: new.tabID == old.tabID))
@@ -885,6 +898,7 @@ final class ChatListController: NSObject {
             window.makeFirstResponder(nil)
         }
         hosts[id] = nil
+        selection.release(id)
         finishArrival(id)
         animator.cancelEase(id)
         // Dropped rather than kept: a pooled root that came back for the
@@ -938,7 +952,10 @@ final class ChatListController: NSObject {
             paneFocus: paneFocus,
             workStartedAt: inputs.workStartedAt,
             linkDirectory: inputs.linkDirectory,
-            redoContext: redoContext
+            redoContext: redoContext,
+            selectionSpan: selection.isSelectable(id)
+                ? ChatSelectionSpan(store: selection, pieceID: id, piece: selection.box(for: id))
+                : nil
         )
         switch item {
         case .leadingInset:
@@ -999,7 +1016,329 @@ final class ChatListDocumentView: NSView {
         super.layout()
         controller?.layoutPass()
     }
+
+    /// Only while a selection exists, collapsed at the start of a drag
+    /// included, so a click in the gap between rows leaves the composer its
+    /// keyboard.
+    override var acceptsFirstResponder: Bool { controller?.selection.selection != nil }
+
+    override func becomeFirstResponder() -> Bool {
+        controller?.selection.setActive(window?.isKeyWindow ?? false)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        controller?.selection.setActive(false)
+        return true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(keyChanged), name: name, object: window)
+        }
+    }
+
+    @objc private func keyChanged() {
+        controller?.selection.setActive(window?.isKeyWindow == true && window?.firstResponder === self)
+    }
+
+    @objc func copy(_ sender: Any?) {
+        controller?.copySelection(asPlainText: false)
+    }
+
+    @objc func copyAsPlainText(_ sender: Any?) {
+        controller?.copySelection(asPlainText: true)
+    }
+
+    override func selectAll(_ sender: Any?) {
+        controller?.selectAllText()
+    }
+
 }
+
+extension ChatListDocumentView: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)), #selector(copyAsPlainText(_:)): controller?.selection.hasSelection ?? false
+        default: true
+        }
+    }
+
+    func selectionMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Copy as Plain Text", action: #selector(copyAsPlainText(_:)), keyEquivalent: "").target = self
+        return menu
+    }
+}
+
+// MARK: - Selection
+
+extension ChatListController {
+    func isInDocument(_ windowPoint: NSPoint) -> Bool {
+        guard let hit = scrollView.window?.contentView?.hitTest(windowPoint) else { return false }
+        return hit.isDescendant(of: documentView)
+    }
+
+    /// The position under a point only when it lands on a selectable `Text`.
+    /// `character` picks the glyph under the point instead of the nearest
+    /// boundary, for finding the word there.
+    func selectionPosition(onTextAt windowPoint: NSPoint, character: Bool = false) -> ChatTextPosition? {
+        guard let (id, host) = host(at: windowPoint), selection.isSelectable(id) else { return nil }
+        let point = host.view.convert(windowPoint, from: nil)
+        guard selection.layouts.isOnText(point, pieceID: id) else { return nil }
+        return ChatTextPosition(
+            pieceID: id,
+            offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id), character: character)
+        )
+    }
+
+    /// Where a drag at this point puts the selection's focus. A point over a
+    /// row with no selectable text lands on the nearest selectable boundary
+    /// below it, or above it at the end of the transcript.
+    func selectionPosition(nearest windowPoint: NSPoint, character: Bool = false) -> ChatTextPosition? {
+        guard let (id, host) = host(at: windowPoint) else { return nil }
+        if selection.isSelectable(id) {
+            let point = host.view.convert(windowPoint, from: nil)
+            return ChatTextPosition(
+                pieceID: id,
+                offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id), character: character)
+            )
+        }
+        let pieces = inputs.pieces
+        guard let index = pieces.firstIndex(where: { $0.id == id }) else { return nil }
+        if let next = pieces[index...].first(where: { selection.isSelectable($0.id) }) {
+            return ChatTextPosition(pieceID: next.id, offset: 0)
+        }
+        return pieces[..<index].last { selection.isSelectable($0.id) }.map {
+            ChatTextPosition(pieceID: $0.id, offset: selection.length(of: $0.id))
+        }
+    }
+
+    /// The realized piece under a point, or the nearest one above or below
+    /// it when the point falls between rows.
+    private func host(at windowPoint: NSPoint) -> (String, Host)? {
+        let point = documentView.convert(windowPoint, from: nil)
+        let pieces = hosts.filter { id, host in
+            guard !host.view.isHidden, let item = items[id] else { return false }
+            return isPiece(item)
+        }
+        return pieces.min { lhs, rhs in
+            verticalDistance(point.y, lhs.value.view.frame) < verticalDistance(point.y, rhs.value.view.frame)
+        }.map { ($0.key, $0.value) }
+    }
+
+    private func verticalDistance(_ y: CGFloat, _ frame: CGRect) -> CGFloat {
+        y < frame.minY ? frame.minY - y : (y > frame.maxY ? y - frame.maxY : 0)
+    }
+
+    func selectableText(of pieceID: String) -> ChatSelectableText? {
+        inputs.pieces.first { $0.id == pieceID }.map(ChatSelectableText.init(piece:))
+    }
+
+    func takeSelectionFocus() {
+        guard let window = documentView.window, window.firstResponder !== documentView else { return }
+        window.makeFirstResponder(documentView)
+    }
+
+    /// Gives the keyboard back to this chat's composer when the selection
+    /// that held it goes away. Called before a click is dispatched, never
+    /// during a tracking loop (PLUME-106).
+    ///
+    /// Panes share one hosting view, so the composer is found by place: the
+    /// visible one nearest below the transcript and overlapping it.
+    func returnFocusToComposer() {
+        guard let window = documentView.window, window.firstResponder === documentView,
+              let content = window.contentView else { return }
+        let transcript = scrollView.convert(scrollView.bounds, to: nil)
+        var composers: [ComposerNSTextView] = []
+        Self.collectComposers(in: content, into: &composers)
+        let candidates = composers.compactMap { composer -> (ComposerNSTextView, CGFloat)? in
+            guard !composer.isHiddenOrHasHiddenAncestor else { return nil }
+            let frame = composer.convert(composer.bounds, to: nil)
+            guard frame.maxX > transcript.minX, frame.minX < transcript.maxX else { return nil }
+            return (composer, abs(frame.maxY - transcript.minY))
+        }
+        guard let composer = candidates.min(by: { $0.1 < $1.1 })?.0 else { return }
+        window.makeFirstResponder(composer)
+    }
+
+    private static func collectComposers(in view: NSView, into composers: inout [ComposerNSTextView]) {
+        if let composer = view as? ComposerNSTextView { composers.append(composer) }
+        for subview in view.subviews { collectComposers(in: subview, into: &composers) }
+    }
+
+    /// How far past the viewport's top or bottom edge a drag has gone; zero
+    /// inside it.
+    func autoscrollDelta(for windowPoint: NSPoint) -> CGFloat {
+        let clip = scrollView.contentView
+        let y = clip.convert(windowPoint, from: nil).y
+        if y < clip.bounds.minY { return y - clip.bounds.minY }
+        if y > clip.bounds.maxY { return y - clip.bounds.maxY }
+        return 0
+    }
+
+    /// Scrolls the way a reader's wheel does, so the layout pass treats it
+    /// as the reader's own scroll.
+    func autoscroll(by delta: CGFloat) {
+        guard delta != 0 else { return }
+        let clip = scrollView.contentView
+        let maxOffset = max(0, documentView.frame.height - clip.bounds.height)
+        let step = max(-40, min(40, delta / 2))
+        let offset = max(0, min(clip.bounds.origin.y + step, maxOffset))
+        guard offset != clip.bounds.origin.y else { return }
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: offset))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    func selectAllText() {
+        let pieces = inputs.pieces.filter { selection.isSelectable($0.id) }
+        guard let first = pieces.first, let last = pieces.last else { return }
+        selection.set(ChatSelection(
+            anchor: ChatTextPosition(pieceID: first.id, offset: 0),
+            focus: ChatTextPosition(pieceID: last.id, offset: selection.length(of: last.id))
+        ))
+        takeSelectionFocus()
+    }
+
+    /// Markdown as the string, with RTF beside it for editors that paste
+    /// formatting; plain text alone on request.
+    func copySelection(asPlainText: Bool) {
+        guard let current = selection.selection, !current.isCollapsed else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if asPlainText {
+            pasteboard.setString(ChatSelectionSerializer.plainText(of: inputs.pieces, selection: current), forType: .string)
+            return
+        }
+        pasteboard.setString(ChatSelectionSerializer.markdown(of: inputs.pieces, selection: current), forType: .string)
+        if let rtf = ChatSelectionSerializer.rtf(of: inputs.pieces, selection: current) {
+            pasteboard.setData(rtf, forType: .rtf)
+        }
+    }
+}
+
+#if DEBUG
+extension ChatListController {
+    struct SelectableTextFrame {
+        let pieceID: String
+        let offset: Int
+        let text: String
+        /// AppKit window coordinates.
+        let windowRect: CGRect
+    }
+
+    /// Every laid-out selectable `Text` of the realized, visible rows.
+    func selectableTextFrames() -> [SelectableTextFrame] {
+        var frames: [SelectableTextFrame] = []
+        for (id, host) in hosts where !host.view.isHidden {
+            for entry in selection.layouts.sortedEntries(of: id) where entry.layout != nil && !entry.frame.isEmpty {
+                frames.append(SelectableTextFrame(
+                    pieceID: id, offset: entry.offset, text: entry.text,
+                    windowRect: host.view.convert(entry.frame, to: nil)
+                ))
+            }
+        }
+        return frames
+    }
+
+    /// The glyphs of `range`, a span of one `Text`'s own string, on the first
+    /// line the range reaches.
+    func windowRect(ofCharacters range: Range<Int>, pieceID: String, offset: Int) -> CGRect? {
+        guard let host = hosts[pieceID], let entry = selection.layouts.entries[pieceID]?[offset],
+              let layout = entry.layout, let origin = ChatTextGeometry.origin(of: layout) else { return nil }
+        let lineStarts = WordReveal.lineStarts(
+            of: layout, from: origin, paragraphStarts: WordReveal.paragraphStarts(in: entry.text)
+        )
+        var line: CGRect?
+        for (textLine, lineStart) in zip(layout, lineStarts) {
+            var rect: CGRect?
+            for run in textLine {
+                for slice in run {
+                    guard let index = slice.characterIndices.first else { continue }
+                    let start = lineStart + origin.distance(to: index)
+                    guard range.contains(start) else { continue }
+                    let bounds = slice.typographicBounds.rect
+                    rect = rect.map { $0.union(bounds) } ?? bounds
+                }
+            }
+            if let rect { line = rect; break }
+        }
+        guard let line else { return nil }
+        return host.view.convert(line.offsetBy(dx: entry.frame.minX, dy: entry.frame.minY), to: nil)
+    }
+
+    /// The first link in the realized rows, as its `Text` and the link's span
+    /// within it.
+    func firstLink() -> (pieceID: String, offset: Int, range: Range<Int>)? {
+        for piece in inputs.pieces where hosts[piece.id] != nil {
+            guard let text = selectableText(of: piece.id) else { continue }
+            for entry in selection.layouts.sortedEntries(of: piece.id) {
+                guard let fragment = text.fragments.first(where: { $0.start == entry.offset }) else { continue }
+                var count = 0
+                for run in fragment.source.runs {
+                    let length = String(fragment.source[run.range].characters).utf16.count
+                    if run.link != nil { return (piece.id, entry.offset, count..<(count + length)) }
+                    count += length
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Selects from the start of the `occurrence`-th match of `from` to the
+    /// end of the first match of `to` after it, or of `from` itself when `to`
+    /// is nil. Returns false when either is not in the transcript.
+    @discardableResult
+    func selectText(from: String, to: String?, occurrence: Int) -> Bool {
+        let starts = matches(of: from)
+        guard starts.indices.contains(occurrence) else { return false }
+        let start = starts[occurrence].start
+        var end = starts[occurrence].end
+        if let to {
+            let order = ChatPieceOrder(inputs.pieces.map(\.id))
+            guard let later = matches(of: to).first(where: { follows($0.start, start, in: order) }) else {
+                return false
+            }
+            end = later.end
+        }
+        selection.set(ChatSelection(anchor: start, focus: end))
+        takeSelectionFocus()
+        return true
+    }
+
+    private func follows(_ lhs: ChatTextPosition, _ rhs: ChatTextPosition, in order: ChatPieceOrder) -> Bool {
+        guard let left = order.index(of: lhs.pieceID), let right = order.index(of: rhs.pieceID) else { return false }
+        return left != right ? left > right : lhs.offset >= rhs.offset
+    }
+
+    private func matches(of needle: String) -> [(start: ChatTextPosition, end: ChatTextPosition)] {
+        guard !needle.isEmpty else { return [] }
+        var found: [(start: ChatTextPosition, end: ChatTextPosition)] = []
+        for piece in inputs.pieces where selection.isSelectable(piece.id) {
+            for fragment in ChatSelectableText(piece: piece).fragments {
+                let text = String(fragment.source.characters) as NSString
+                var from = 0
+                while from < text.length {
+                    let range = text.range(of: needle, range: NSRange(location: from, length: text.length - from))
+                    guard range.location != NSNotFound else { break }
+                    let offset = fragment.start + range.location
+                    found.append((
+                        ChatTextPosition(pieceID: piece.id, offset: offset),
+                        ChatTextPosition(pieceID: piece.id, offset: offset + range.length)
+                    ))
+                    from = range.location + max(range.length, 1)
+                }
+            }
+        }
+        return found
+    }
+}
+#endif
 
 /// The SwiftUI root of one hosted item.
 ///
@@ -1020,6 +1359,8 @@ struct ChatListItemEnvironment {
     /// What a user message's redo and fork buttons act on. Nil where the tab
     /// has no live session to rewind.
     var redoContext: MessageRedoContext?
+    /// Set only on a piece whose text joins the transcript's selection.
+    var selectionSpan: ChatSelectionSpan?
 }
 
 struct ChatListItemRoot<Content: View>: View {
@@ -1036,7 +1377,9 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.paneFocus, environment.paneFocus)
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.messageRedoContext, environment.redoContext)
+            .environment(\.chatSelectionSpan, environment.selectionSpan)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
+            .coordinateSpace(.named(ChatSelectionGeometry.rowSpace))
     }
 }

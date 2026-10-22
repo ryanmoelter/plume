@@ -32,6 +32,9 @@ struct ChatPiece: Identifiable, Equatable {
     /// units `Text.Layout` counts. Zero outside an assistant message.
     var revealOffset = 0
     var revealLength = 0
+    /// How much of the piece the transcript's selection can cover, in every
+    /// role, where `revealLength` counts only what the reveal animates.
+    var selectableLength = 0
     /// The markdown this piece's own copy button yields — the lines it was
     /// parsed from where the splitter kept them, written back from the block
     /// otherwise. Nil for a piece that is not markdown at all.

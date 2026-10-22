@@ -58,7 +58,7 @@ enum MarkdownSource {
     }
 
     /// A fence long enough to survive code that contains a fence of its own.
-    private static func fence(for code: String) -> String {
+    static func fence(for code: String) -> String {
         let longest = code.components(separatedBy: "\n")
             .filter { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
             .map { $0.trimmingCharacters(in: .whitespaces).prefix { $0 == "`" }.count }

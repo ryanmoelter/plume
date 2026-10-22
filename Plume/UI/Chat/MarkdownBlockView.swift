@@ -268,6 +268,7 @@ struct MarkdownBlockView: View, ThemedView {
 /// A list, nesting included, or one slice of a long one.
 struct ListSegmentView: View, ThemedView {
     @Environment(\.theme) var theme
+    @Environment(\.chatSelectionSpan) private var span
 
     let segment: ListSegment
     var isAgentVoice: Bool = false
@@ -281,8 +282,18 @@ struct ListSegmentView: View, ThemedView {
             ForEach(segment.items.indices, id: \.self) { index in
                 let item = segment.items[index]
                 HStack(alignment: .top, spacing: 6) {
-                    Text(marker(for: item))
+                    // Decoration the reveal does not count, so it would
+                    // collide with the item text's offset. Under the
+                    // transcript's selection it must not start SwiftUI's
+                    // own either, whose tracking loop hides the drag.
+                    let marker = Text(marker(for: item))
                         .revealFade(marker(for: item))
+                        .environment(\.chatSelectionSpan, nil)
+                    if span == nil {
+                        marker
+                    } else {
+                        marker.textSelection(.disabled)
+                    }
                     let text = MarkdownCache.styledInline(
                         item.text,
                         fontSize: typography.bodySize,

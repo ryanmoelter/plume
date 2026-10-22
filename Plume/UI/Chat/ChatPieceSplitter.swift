@@ -428,16 +428,19 @@ enum ChatPieceSplitter {
         }
     }
 
-    /// Lays an assistant message's pieces end to end along its reveal, and
-    /// marks them live while the stream is writing the message.
+    /// Lays an assistant message's pieces end to end along its reveal, marks
+    /// them live while the stream is writing the message, and measures every
+    /// message's pieces for selection.
     private static func revealed(_ pieces: [ChatPiece], of message: ChatMessage) -> [ChatPiece] {
         var offset = 0
         return pieces.map { piece in
             var piece = piece
             piece.isLive = message.isLive
-            guard message.role == .assistant, !piece.content.isActivityIndicator else { return piece }
+            guard !piece.content.isActivityIndicator else { return piece }
+            piece.selectableLength = ChatReveal.length(of: piece.content)
+            guard message.role == .assistant else { return piece }
             piece.revealOffset = offset
-            piece.revealLength = ChatReveal.length(of: piece.content)
+            piece.revealLength = piece.selectableLength
             offset += piece.revealLength
             return piece
         }
