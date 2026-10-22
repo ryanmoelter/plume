@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.16.0 (35)
+
+### New
+
+- Select chat text across messages, and copy it as markdown
+- Connect Linear, in Settings > Integrations
+  - See the Linear issues a conversation is working on in the sidebar and info pane
+- See formatting as you type in the composer
+  - Properly format lists, block quotes, and code blocks
+  - Work better with list items, including using Tab and Shift-Tab to indent
+  - Support undo/redo in the composer
+- Import tasks from Orca, from File > Import from Orca… or Settings > General
+- Misc fixes
+  - Allow the composer to get bigger
+
+### Recently
+
+- Add colors and icons to groups and tasks
+- Show two tabs side by side in a split
+- Send a queued message immediately, without stopping the turn
+- Support `/btw` to have a side chat without interrupting the agent
+- Add an info pane beside the chat
+
 ## 0.15.0 (34)
 
 ### New
