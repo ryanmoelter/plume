@@ -30,18 +30,11 @@ struct LinearIssuesSection: View, ThemedView {
 
     var body: some View {
         if let linear {
-            let isExpanded = settings.infoPaneLinearExpanded
+            let isExpanded = settings.infoPaneLinearExpanded && !linear.isEmpty
             VStack(alignment: .leading, spacing: 0) {
                 header(linear, isExpanded: isExpanded)
                 if isExpanded {
                     ForEach(linear.main) { IssueRow(issue: $0, showsBubble: $0.role == .mentioned, actions: actions) }
-                    if linear.main.isEmpty {
-                        HStack(spacing: InfoPaneLayout.columnSpacing) {
-                            InfoPaneIcon { Color.clear }
-                            Text("No pinned issues").emphasis(.subtle)
-                        }
-                        .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-                    }
                     if !linear.mentioned.isEmpty {
                         mentioned(linear.mentioned)
                     }
@@ -51,8 +44,13 @@ struct LinearIssuesSection: View, ThemedView {
     }
 
     private func header(_ linear: InfoPaneFacts.LinearFacts, isExpanded: Bool) -> some View {
-        Button {
-            withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
+        let hoveringAdd = isHoveringAdd && !linear.isEmpty
+        return Button {
+            if linear.isEmpty {
+                showsLinkPopover = true
+            } else {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
+            }
         } label: {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { LinearLogo() }
@@ -60,19 +58,21 @@ struct LinearIssuesSection: View, ThemedView {
                 if !isExpanded, linear.workingCount > 0 {
                     Text("\(linear.workingCount)")
                 }
-                DisclosureChevron(isExpanded: isExpanded)
+                if !linear.isEmpty {
+                    DisclosureChevron(isExpanded: isExpanded)
+                }
                 Spacer(minLength: 0)
                 OverlaidControlSpace()
             }
             .emphasis(.secondary)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringAdd))
-        .plumeID(AccessibilityID.infoPaneLinearToggle, value: isExpanded ? "expanded" : "collapsed")
+        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: hoveringAdd))
+        .plumeID(AccessibilityID.infoPaneLinearToggle, value: linear.isEmpty ? "empty" : isExpanded ? "expanded" : "collapsed")
         .overlay(alignment: .trailing) {
             Button { showsLinkPopover = true } label: {
                 Image(systemName: "plus")
                     .frame(width: InfoPaneLayout.iconColumnWidth)
-                    .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
+                    .modifier(OverlaidControlWash(isHovering: hoveringAdd))
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
