@@ -5,7 +5,7 @@ import Foundation
 /// The column widths scale with the type so the two keep their proportion as
 /// the text grows: a reader who enlarges the font gets a wider column, not a
 /// narrower one measured in the same points.
-struct Dimensions {
+struct Dimensions: Equatable {
     /// A readable column of roughly 80 characters, at ~0.5em average glyph
     /// advance for a proportional font.
     let contentWidth: CGFloat

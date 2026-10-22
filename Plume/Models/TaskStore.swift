@@ -432,6 +432,7 @@ enum TaskStore {
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         InheritedForkHistory.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
+        ChatPieceCache.forget(tabID: tabID)
         CodexSubagentStore.shared.forget(tabID: tabID)
         CodexItemStore.shared.forget(tabID: tabID)
         CodexCatalogStore.shared.forget(tabID: tabID)

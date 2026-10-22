@@ -129,6 +129,10 @@ final class AgentProcess: @unchecked Sendable {
     /// the app keeps writing the transcript a later run will resume from.
     /// `SIGTERM` then `SIGKILL` go to the process *group*, so the agent's own
     /// children go with it rather than outliving their parent.
+    ///
+    /// Returns at once: the escalation waits seconds for the child, so it runs
+    /// on a background queue. A quitting app calls `awaitTerminations` so the
+    /// escalation still finishes before the process exits.
     func terminate() {
         let wasRunning = queue.sync {
             guard isRunning else { return false }
@@ -142,12 +146,24 @@ final class AgentProcess: @unchecked Sendable {
 
         guard process.isRunning else { return }
         let pid = process.processIdentifier
-        guard waitForExit(within: Self.gracePeriod) == false else { return }
+        Self.terminations.enter()
+        DispatchQueue.global(qos: .utility).async { [self] in
+            defer { Self.terminations.leave() }
+            guard waitForExit(within: Self.gracePeriod) == false else { return }
 
-        signalGroup(SIGTERM, pid: pid)
-        guard waitForExit(within: Self.gracePeriod) == false else { return }
+            signalGroup(SIGTERM, pid: pid)
+            guard waitForExit(within: Self.gracePeriod) == false else { return }
 
-        signalGroup(SIGKILL, pid: pid)
+            signalGroup(SIGKILL, pid: pid)
+        }
+    }
+
+    private static let terminations = DispatchGroup()
+
+    /// Blocks until every `terminate()` in flight has seen its child exit or
+    /// escalated to `SIGKILL`. Only for app termination.
+    static func awaitTerminations() {
+        _ = terminations.wait(timeout: .now() + gracePeriod * 2 + 1)
     }
 
     /// Long enough for `claude` to notice stdin closed and flush its

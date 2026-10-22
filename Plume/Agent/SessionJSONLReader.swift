@@ -73,8 +73,11 @@ nonisolated enum SessionJSONLReader {
         let decoder = JSONDecoder()
         // A transcript is mostly line types Plume does not model, so every
         // line that fails to decode is skipped rather than treated as an error.
+        let marker = Data("ai-title".utf8)
         for line in data.split(separator: UInt8(ascii: "\n")).reversed() {
-            guard !line.isEmpty,
+            // Decoding every line of a long transcript costs seconds; almost
+            // none of them can be a title.
+            guard line.firstRange(of: marker) != nil,
                   let entry = try? decoder.decode(TitleEntry.self, from: Data(line)),
                   entry.type == type,
                   let title = entry[keyPath: field],

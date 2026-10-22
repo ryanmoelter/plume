@@ -13,7 +13,16 @@ final class AgentTitleMonitor {
     private var watchers: [UUID: FileWatcher] = [:]
     private var paths: [UUID: String] = [:]
     private var pending: [UUID: Task<Void, Never>] = [:]
+    private var inFlight: Set<UUID> = []
+    private var rereadRequested: Set<UUID> = []
+    /// Bumped when a watch stops, so a read still in flight from before it
+    /// cannot report into the next watch.
+    private var watchGeneration: [UUID: Int] = [:]
     private let debounce: Duration
+
+    /// Fires after every read settles, whether or not it reported a title.
+    /// Tests await this rather than a clock.
+    var didRead: ((UUID) -> Void)?
 
     /// The last title reported for each tab, so a re-read that finds the
     /// same value again stays quiet. A transcript is written many times over
@@ -23,7 +32,7 @@ final class AgentTitleMonitor {
     /// that guard is `TitleStore`'s source ranking.
     private var lastReported: [UUID: DiscoveredTitle] = [:]
 
-    private struct DiscoveredTitle: Equatable {
+    private nonisolated struct DiscoveredTitle: Equatable, Sendable {
         let title: String
         let source: TitleSource
     }
@@ -62,6 +71,9 @@ final class AgentTitleMonitor {
         pending.removeValue(forKey: tabID)?.cancel()
         paths.removeValue(forKey: tabID)
         lastReported.removeValue(forKey: tabID)
+        rereadRequested.remove(tabID)
+        inFlight.remove(tabID)
+        watchGeneration[tabID, default: 0] += 1
     }
 
     func stopAll() {
@@ -71,6 +83,9 @@ final class AgentTitleMonitor {
         pending.removeAll()
         paths.removeAll()
         lastReported.removeAll()
+        rereadRequested.removeAll()
+        for tabID in inFlight { watchGeneration[tabID, default: 0] += 1 }
+        inFlight.removeAll()
     }
 
     private func scheduleRead(tabID: UUID) {
@@ -82,21 +97,54 @@ final class AgentTitleMonitor {
         }
     }
 
+    /// Reads and scans off the main actor: a transcript can be tens of
+    /// megabytes, and this runs for every agent tab at launch and whenever a
+    /// chat tab mounts. One read per tab at a time; a request that lands
+    /// mid-read runs once more after it, so a title written meanwhile is not
+    /// missed.
     private func read(tabID: UUID) {
-        guard let onTitleDiscovered else { return }
-        guard let path = paths[tabID], let data = FileManager.default.contents(atPath: path) else { return }
-        let discovered: DiscoveredTitle
-        if let title = SessionJSONLReader.latestCustomTitle(in: data) {
-            discovered = DiscoveredTitle(title: title, source: .custom)
-        } else if let title = SessionJSONLReader.latestAITitle(in: data) {
-            discovered = DiscoveredTitle(title: title, source: .transcript)
-        } else if let title = SessionJSONLReader.firstUserMessage(in: data) {
-            discovered = DiscoveredTitle(title: title, source: .fallback)
-        } else {
+        guard onTitleDiscovered != nil, let path = paths[tabID] else { return }
+        guard !inFlight.contains(tabID) else {
+            rereadRequested.insert(tabID)
             return
         }
-        guard lastReported[tabID] != discovered else { return }
-        lastReported[tabID] = discovered
-        onTitleDiscovered(tabID, discovered.title, discovered.source)
+        inFlight.insert(tabID)
+        let generation = watchGeneration[tabID, default: 0]
+        Task.detached(priority: .utility) {
+            let discovered = Self.discoverTitle(atPath: path)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.watchGeneration[tabID, default: 0] == generation else {
+                    self.didRead?(tabID)
+                    return
+                }
+                self.inFlight.remove(tabID)
+                defer {
+                    if self.rereadRequested.remove(tabID) != nil { self.read(tabID: tabID) }
+                    self.didRead?(tabID)
+                }
+                guard self.paths[tabID] == path,
+                      let discovered,
+                      let onTitleDiscovered = self.onTitleDiscovered,
+                      self.lastReported[tabID] != discovered
+                else { return }
+                self.lastReported[tabID] = discovered
+                onTitleDiscovered(tabID, discovered.title, discovered.source)
+            }
+        }
+    }
+
+    private nonisolated static func discoverTitle(atPath path: String) -> DiscoveredTitle? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        if let title = SessionJSONLReader.latestCustomTitle(in: data) {
+            return DiscoveredTitle(title: title, source: .custom)
+        }
+        if let title = SessionJSONLReader.latestAITitle(in: data) {
+            return DiscoveredTitle(title: title, source: .transcript)
+        }
+        if let title = SessionJSONLReader.firstUserMessage(in: data) {
+            return DiscoveredTitle(title: title, source: .fallback)
+        }
+        return nil
     }
 }
