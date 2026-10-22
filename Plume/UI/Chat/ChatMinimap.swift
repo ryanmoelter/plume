@@ -28,6 +28,10 @@ struct ChatMinimap: View, ThemedView {
     var bottomInset: CGFloat = 0
     /// The pane's width, which decides whether the rail has room to spread.
     var viewportWidth: CGFloat = 0
+    /// How far down from the top the pointer cannot open the map, because
+    /// that stretch of the rail sits beside the collapsed info pane's click
+    /// targets. A map already open keeps following the pointer through it.
+    var revealExclusionHeight: CGFloat = 0
 
     /// Wide enough for a few words of a prompt. The minimap holds no layout
     /// space at all, so this is what the revealed map draws over the chat
@@ -151,6 +155,11 @@ struct ChatMinimap: View, ThemedView {
                     .onContinuousHover(coordinateSpace: .named(Self.railSpace)) { phase in
                         switch phase {
                         case .active(let point):
+                            guard Self.tracksHover(
+                                atY: point.y,
+                                isTracking: hoverFraction != nil,
+                                exclusionHeight: revealExclusionHeight
+                            ) else { return }
                             // Against the space the entries occupy, not the
                             // rail's full height: the margins are not part of
                             // the conversation, so travelling over them would
@@ -170,6 +179,10 @@ struct ChatMinimap: View, ThemedView {
         .onChange(of: hoverFraction == nil) { _, away in
             withAnimation(.easeOut(duration: 0.15)) { isRevealed = !away }
         }
+    }
+
+    static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat) -> Bool {
+        isTracking || y >= exclusionHeight
     }
 
     /// The chat's own background, so the revealed map reads as part of the

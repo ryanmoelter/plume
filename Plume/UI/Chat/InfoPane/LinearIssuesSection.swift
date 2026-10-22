@@ -298,7 +298,7 @@ private struct OverlaidControlSpace: View {
 }
 
 /// The hover wash of a control laid over a row, which replaces the row's own.
-private struct OverlaidControlWash: ViewModifier, ThemedView {
+struct OverlaidControlWash: ViewModifier, ThemedView {
     @Environment(\.theme) var theme
     let isHovering: Bool
 

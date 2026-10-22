@@ -133,10 +133,9 @@ enum AccessibilityID {
 
     // MARK: Statusline strip
 
-    // The workspace and Remote Control segments keep their `composer-`
-    // strings, which external drivers already query.
+    // The workspace segment keeps its `composer-` string, which external
+    // drivers already query.
     static let composerWorkspacePicker = "composer-workspace-picker"
-    static let composerRemoteControlControl = "composer-remote-control-control"
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
@@ -212,6 +211,7 @@ enum AccessibilityID {
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
+    static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
     static let infoPaneLinearToggle = "info-pane-linear-toggle"
     static let infoPaneLinearMentionedToggle = "info-pane-linear-mentioned-toggle"

@@ -231,7 +231,8 @@ struct ChatTabView: View, ThemedView {
                 hasSettled: { [taskID = task.id] in LinearMentionTracker.shared.hasSettled($0, taskID: taskID) }
             ),
             sideChatCount: claudeSession?.sideQuestions.count ?? 0,
-            artifacts: ConversationArtifact.artifacts(in: conversationMessages)
+            artifacts: ConversationArtifact.artifacts(in: conversationMessages),
+            remoteControl: headlessSession.flatMap(RemoteControlStatus.init(session:))
         )
     }
 
@@ -650,8 +651,7 @@ struct ChatTabView: View, ThemedView {
     /// conversation has spent reads as a footnote to the message being
     /// written rather than as a heading over it.
     ///
-    /// It reads left to right as where this runs, then what it has spent,
-    /// then whether anyone else can drive it.
+    /// It reads left to right as where this runs, then what it has spent.
     ///
     /// One `ViewThatFits` governs the whole row, because the branch name and
     /// the meters are the two things that give way and they have to give way
@@ -679,7 +679,7 @@ struct ChatTabView: View, ThemedView {
     }
 
     /// One candidate of the row: where this runs on the leading edge, the
-    /// meters and Remote Control on the trailing one.
+    /// meters on the trailing one.
     private func statuslineRow(
         transcript: Transcript,
         branchWidth: BranchWidth,
@@ -689,7 +689,7 @@ struct ChatTabView: View, ThemedView {
             workspaceGroup(branchWidth: branchWidth)
             // In every candidate, not just the widest: without it a row
             // narrower than the panel centers, holding the folder off the
-            // leading edge and Remote Control off the trailing one. Its
+            // leading edge and the meters off the trailing one. Its
             // `minLength` is fixed, so it still reports honest overflow.
             Spacer(minLength: dimensions.panelContentInset)
             HStack(alignment: .top, spacing: dimensions.statuslineTrailingGap) {
@@ -715,9 +715,6 @@ struct ChatTabView: View, ThemedView {
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
                     CodexQuotaStrip(windows: CodexQuotaStore.shared.windows)
                         .transition(.opacity)
-                }
-                if let headlessSession {
-                    RemoteControlControl(session: headlessSession)
                 }
             }
             .fixedSize(horizontal: true, vertical: false)
@@ -1066,6 +1063,7 @@ struct ChatTabView: View, ThemedView {
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
             onOpenSideChat: { isSideChatShown = true },
+            remoteControlSession: headlessSession,
             linearActions: linearActions
         )
     }

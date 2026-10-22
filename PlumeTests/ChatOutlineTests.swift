@@ -434,3 +434,18 @@ struct ChatMinimapEasingTests {
         #expect(atMiddle > atEnd * 2)
     }
 }
+
+/// The stretch of rail beside the collapsed info pane cannot open the map,
+/// but a map already open keeps following the pointer through it.
+@MainActor
+struct ChatMinimapRevealExclusionTests {
+    @Test func thePointerBesideTheInfoPaneDoesNotOpenTheMap() {
+        #expect(!ChatMinimap.tracksHover(atY: 20, isTracking: false, exclusionHeight: 44))
+        #expect(ChatMinimap.tracksHover(atY: 44, isTracking: false, exclusionHeight: 44))
+        #expect(ChatMinimap.tracksHover(atY: 0, isTracking: false, exclusionHeight: 0))
+    }
+
+    @Test func anOpenMapFollowsThePointerIntoTheExclusion() {
+        #expect(ChatMinimap.tracksHover(atY: 20, isTracking: true, exclusionHeight: 44))
+    }
+}

@@ -273,4 +273,24 @@ struct InfoPaneLayoutTests {
         #expect(narrow.chatTrailingReserve == 0)
         #expect(narrow.trailingInset == rail + gap)
     }
+
+    @Test func remoteControlShowsWithASessionAndMarksTheCollapsedRowOnlyWhenOn() {
+        #expect(!InfoPaneFacts(tabID: UUID()).sections.contains(.remoteControl))
+        let off = InfoPaneFacts(tabID: UUID(), folder: "Plume", remoteControl: .off)
+        #expect(off.sections == [.remoteControl, .folder])
+        #expect(off.collapsedSections.isEmpty)
+        for status in [RemoteControlStatus.connecting, .failed("x")] {
+            #expect(InfoPaneFacts(tabID: UUID(), remoteControl: status).collapsedSections.isEmpty)
+        }
+        #expect(InfoPaneFacts(tabID: UUID(), remoteControl: .on).collapsedSections == [.remoteControl])
+    }
+
+    @Test func remoteControlStatusFollowsClaudeState() {
+        #expect(RemoteControlStatus(claude: .disconnected) == .off)
+        #expect(RemoteControlStatus(claude: .connecting) == .connecting)
+        #expect(RemoteControlStatus(claude: .connected(RemoteControlLink())) == .on)
+        #expect(RemoteControlStatus(claude: .failed("nope")) == .failed("nope"))
+        #expect(RemoteControlStatus.off.title == "Remote control is off")
+        #expect(RemoteControlStatus.on.title == "Remote control is on")
+    }
 }

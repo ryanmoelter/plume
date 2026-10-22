@@ -21,6 +21,7 @@ struct InfoSidePane: View, ThemedView {
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
     let onOpenSideChat: () -> Void
+    let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
 
     @State private var settings = AppSettings.shared
@@ -134,6 +135,7 @@ struct InfoSidePane: View, ThemedView {
                 closeTransient()
                 onOpenSideChat()
             },
+            remoteControlSession: remoteControlSession,
             linearActions: linearActions,
             showsCompleted: $showsCompletedSubagents,
             showsMentionedLinearIssues: $showsMentionedLinearIssues

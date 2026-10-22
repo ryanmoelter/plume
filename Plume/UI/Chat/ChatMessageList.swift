@@ -136,7 +136,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         bottomInset: floatingPanelHeight,
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
-                        viewportWidth: viewportWidth
+                        viewportWidth: viewportWidth,
+                        revealExclusionHeight: topInset
                     )
                 }
             }
