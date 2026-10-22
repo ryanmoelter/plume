@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Nothing here names the app it came from: a source supplies candidates, and
 /// `Importer` turns them into tasks without knowing which app produced them.
-/// `stableID` carries its own namespace (`cmux:<uuid>`).
+/// `stableID` carries its own namespace (`cmux:<uuid>`, `orca:<worktree id>`).
 nonisolated struct ImportCandidate: Identifiable, Sendable, Hashable {
     var id: String { stableID }
     let stableID: String

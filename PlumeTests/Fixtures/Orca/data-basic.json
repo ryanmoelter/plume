@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "futureTopLevelKey": { "anything": true },
+  "repos": [
+    { "id": "repo-widgets", "path": "/Users/example/Widgets", "displayName": "Widgets", "kind": "git" },
+    { "id": "repo-gadgets", "path": "/Users/example/Gadgets", "displayName": "Gadgets", "kind": "git" },
+    "not a repo"
+  ],
+  "worktreeMeta": {
+    "repo-widgets::/Users/example/Widgets": { "displayName": "", "sortOrder": 100, "workspaceStatus": "in-progress" },
+    "repo-widgets::/Users/example/Widgets/.worktrees/feature": { "displayName": "Feature work", "sortOrder": 200 },
+    "repo-gadgets::/Users/example/Gadgets": { "displayName": "", "sortOrder": 50 },
+    "repo-gadgets::/Users/example/Gadgets/.worktrees/legacy": { "sortOrder": 300 }
+  },
+  "workspaceSession": {
+    "activeWorktreeId": "repo-widgets::/Users/example/Widgets",
+    "unifiedTabs": {
+      "repo-widgets::/Users/example/Widgets": [
+        { "id": "tab-term-1", "entityId": "tab-term-1", "worktreeId": "repo-widgets::/Users/example/Widgets", "contentType": "terminal", "label": "Terminal 1", "customLabel": null, "sortOrder": 0, "isPreview": false },
+        { "id": "tab-term-2", "entityId": "tab-term-2", "worktreeId": "repo-widgets::/Users/example/Widgets", "contentType": "terminal", "label": "Terminal 2", "customLabel": "Server", "sortOrder": 1 },
+        { "id": "structured-agent-session-claude_aaaaaaaa_1111_2222_3333_444444444444", "entityId": "claude_aaaaaaaa_1111_2222_3333_444444444444", "worktreeId": "repo-widgets::/Users/example/Widgets", "contentType": "agent-session", "label": "Claude Chat", "customLabel": null, "sortOrder": 0, "agentSessionAgent": "claude", "executionHostId": "local" },
+        { "id": "tab-browser", "entityId": "tab-browser", "worktreeId": "repo-widgets::/Users/example/Widgets", "contentType": "browser", "label": "Docs", "sortOrder": 2 },
+        { "id": "tab-future", "entityId": "tab-future", "worktreeId": "repo-widgets::/Users/example/Widgets", "contentType": "hologram", "label": "Future", "sortOrder": 3 },
+        42
+      ],
+      "repo-widgets::/Users/example/Widgets/.worktrees/feature": [
+        { "id": "structured-agent-session-claude_bbbbbbbb_1111_2222_3333_444444444444", "entityId": "claude_bbbbbbbb_1111_2222_3333_444444444444", "contentType": "agent-session", "label": "Claude Chat", "sortOrder": 0, "agentSessionAgent": "claude" },
+        { "id": "tab-feature-term", "entityId": "tab-feature-term", "contentType": "terminal", "label": "Terminal 1", "sortOrder": 1 }
+      ],
+      "repo-gadgets::/Users/example/Gadgets": [
+        { "id": "tab-file", "entityId": "/Users/example/Gadgets/README.md", "contentType": "file", "label": "README.md", "sortOrder": 0 }
+      ],
+      "repo-gadgets::/Users/example/Gadgets/.worktrees/emptied": [],
+      "repo-unknown::/Users/example/Orphan": [
+        { "id": "tab-orphan", "entityId": "tab-orphan", "contentType": "terminal", "label": "Terminal 1", "sortOrder": 0 }
+      ],
+      "ephemeral-setup-terminal:onboarding": [
+        { "id": "tab-ephemeral", "entityId": "tab-ephemeral", "contentType": "terminal", "label": "Setup", "sortOrder": 0 }
+      ]
+    },
+    "tabGroups": {
+      "repo-widgets::/Users/example/Widgets": [
+        { "id": "group-1", "worktreeId": "repo-widgets::/Users/example/Widgets", "activeTabId": "tab-term-1", "tabOrder": ["structured-agent-session-claude_aaaaaaaa_1111_2222_3333_444444444444", "tab-term-2"] },
+        { "id": "group-2", "worktreeId": "repo-widgets::/Users/example/Widgets", "tabOrder": ["tab-browser"] }
+      ],
+      "repo-gadgets::/Users/example/Gadgets/.worktrees/legacy": [
+        { "id": "group-3", "worktreeId": "repo-gadgets::/Users/example/Gadgets/.worktrees/legacy", "tabOrder": ["legacy-b", "legacy-a"] }
+      ]
+    },
+    "tabsByWorktree": {
+      "repo-widgets::/Users/example/Widgets": [
+        { "id": "tab-term-1", "title": "Ignored legacy copy", "customTitle": null, "sortOrder": 0 }
+      ],
+      "repo-gadgets::/Users/example/Gadgets/.worktrees/legacy": [
+        { "id": "legacy-a", "title": "Terminal 1", "customTitle": null, "sortOrder": 0, "ptyId": "pty-1" },
+        { "id": "legacy-b", "title": "Terminal 2", "customTitle": "Logs", "sortOrder": 1 },
+        { "id": "legacy-c", "title": "Terminal 3", "customTitle": "", "sortOrder": 2 }
+      ],
+      "repo-gadgets::/Users/example/Gadgets/.worktrees/emptied": [
+        { "id": "emptied-a", "title": "Terminal 1", "sortOrder": 0 }
+      ]
+    }
+  }
+}

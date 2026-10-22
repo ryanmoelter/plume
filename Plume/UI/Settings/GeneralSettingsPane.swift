@@ -47,8 +47,12 @@ struct GeneralSettingsPane: View {
 
             Section {
                 LabeledContent("Import from cmux") {
-                    Button("Import…", action: requestImport)
-                        .plumeID(AccessibilityID.settingsImportCmuxButton, invoke: requestImport)
+                    Button("Import…") { requestImport(.cmux) }
+                        .plumeID(AccessibilityID.settingsImportCmuxButton, invoke: { requestImport(.cmux) })
+                }
+                LabeledContent("Import from Orca") {
+                    Button("Import…") { requestImport(.orca) }
+                        .plumeID(AccessibilityID.settingsImportOrcaButton, invoke: { requestImport(.orca) })
                 }
             } header: {
                 Text("Import")
@@ -95,8 +99,8 @@ struct GeneralSettingsPane: View {
         }
     }
 
-    private func requestImport() {
-        if !ImportRequest.shared.request() { NSSound.beep() }
+    private func requestImport(_ source: ImportSource) {
+        if !ImportRequest.shared.request(source) { NSSound.beep() }
     }
 
     private var helperStatusText: String {
