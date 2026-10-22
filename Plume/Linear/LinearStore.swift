@@ -51,19 +51,30 @@ private final class LinearActivityBox {
 /// Keeps every wanted Linear issue's state current across all connected
 /// workspaces, and folds agent activity into each task's links.
 ///
-/// An identifier is fetched only from the workspaces whose catalog has its
-/// team key, batched per workspace with one request in flight each. A state
-/// outlives its last owner, so a row a lazy list recycles comes back showing
-/// it rather than loading.
+/// Each workspace keeps a `LinearSyncCache` on disk, refreshed by a delta
+/// sync of the issues updated since its cursor; rows read from it. Only an
+/// identifier the cache lacks, or one due for verification, is looked up by
+/// identifier, and only in the workspaces whose catalog has its team key,
+/// batched per workspace with one request in flight each. A state outlives
+/// its last owner, so a row a lazy list recycles comes back showing it rather
+/// than loading. `docs/linear-sync.md` has the design.
 @MainActor
 @Observable
 final class LinearStore: LinearActivitySink {
     static let shared = LinearStore(cacheDirectory: AppPaths.applicationSupport.appending(path: "linear"))
 
-    static let pollInterval: TimeInterval = 180
-    /// Activation polls closer together than this are skipped, so switching
+    static let syncInterval: TimeInterval = 45
+    /// Activation syncs closer together than this are skipped, so switching
     /// apps back and forth spends no budget.
-    static let activationPollInterval: TimeInterval = 60
+    static let activationSyncInterval: TimeInterval = 15
+    /// How long a lookup's answer stands before a sync asks again. The delta
+    /// sync sees every change but a permanent deletion, which only a lookup
+    /// can find.
+    static let verifyInterval: TimeInterval = 30 * 60
+    /// Pages per delta sync. A longer delta resets the cache to what it fetched.
+    static let maxDeltaPages = 5
+    static let initialBackoff: TimeInterval = 30
+    static let maxBackoff: TimeInterval = 15 * 60
     static let catalogMaxAge: TimeInterval = 6 * 60 * 60
     /// How often a manual link naming an unknown team key may refetch one
     /// workspace's catalog.
@@ -93,17 +104,23 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var issueOwner: [String: String] = [:]
     @ObservationIgnored private var notFoundBy: [String: Set<String>] = [:]
     /// When a workspace last answered for the identifier, so a row coming
-    /// back within a poll interval does not refetch.
+    /// back within `verifyInterval` does not refetch.
     @ObservationIgnored private var answeredAt: [String: Date] = [:]
     @ObservationIgnored private var pending: [String: Set<String>] = [:]
     @ObservationIgnored private var scheduled: Set<String> = []
     @ObservationIgnored private var inFlight: Set<String> = []
     @ObservationIgnored private var catalogInFlight: Set<String> = []
+    @ObservationIgnored private var caches: [String: LinearSyncCache] = [:]
+    @ObservationIgnored private var cacheLoads: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var syncInFlight: Set<String> = []
+    @ObservationIgnored private var syncFailures: [String: Int] = [:]
+    @ObservationIgnored private var syncBackoffUntil: [String: Date] = [:]
+    @ObservationIgnored private var diskSequence = 0
     @ObservationIgnored private var catalogFetchedAt: [String: Date] = [:]
     @ObservationIgnored private var lastCatalogDemand: [String: Date] = [:]
     @ObservationIgnored private var unauthorized: Set<String> = []
     @ObservationIgnored private var pausedUntil: [String: Date] = [:]
-    @ObservationIgnored private var lastPolledAt: [String: Date] = [:]
+    @ObservationIgnored private var lastSyncedAt: [String: Date] = [:]
     /// Bumped when an account's key changes or it is removed, so a request
     /// sent with the old key never applies its answer.
     @ObservationIgnored private var generations: [String: Int] = [:]
@@ -117,11 +134,11 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var branchCandidates: [String: [String]] = [:]
     @ObservationIgnored private var work: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var nextWorkID = 0
-    @ObservationIgnored private var pollTimer: Timer?
+    @ObservationIgnored private var syncTimer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var isStarted = false
 
-    @ObservationIgnored private let cacheDirectory: URL?
+    @ObservationIgnored private let disk: LinearCacheDisk?
     @ObservationIgnored private let now: () -> Date
 
     init(
@@ -131,7 +148,7 @@ final class LinearStore: LinearActivitySink {
     ) {
         let accounts = accounts ?? LinearAccounts()
         self.accounts = accounts
-        self.cacheDirectory = cacheDirectory
+        disk = cacheDirectory.map { LinearCacheDisk(directory: $0) }
         self.now = now
         accounts.onChange = { [weak self] change in self?.accountsDidChange(change) }
     }
@@ -245,64 +262,65 @@ final class LinearStore: LinearActivitySink {
 
     // MARK: - Lifecycle
 
-    /// Loads cached catalogs, refreshes them in the background, and starts
-    /// polling. Call once at launch.
+    /// Loads the disk caches, refreshes catalogs in the background, and
+    /// starts syncing. Call once at launch.
     func start() {
         guard !isStarted else { return }
         isStarted = true
-        loadCachedCatalogs()
-        for account in accounts.accounts { refreshCatalog(orgID: account.orgID) }
+        for account in accounts.accounts {
+            let orgID = account.orgID
+            track { [self] in await ensureLoaded(orgID: orgID) }
+            refreshCatalog(orgID: orgID)
+        }
 
         let center = NotificationCenter.default
         observers = [
             center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.stopPolling() }
+                MainActor.assumeIsolated { self?.stopSyncing() }
             },
             center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.pollOnActivation()
-                    self?.startPolling()
+                    self?.syncOnActivation()
+                    self?.startSyncing()
                 }
             },
         ]
-        startPolling()
+        startSyncing()
     }
 
-    private func startPolling() {
-        guard pollTimer == nil else { return }
+    private func startSyncing() {
+        guard syncTimer == nil else { return }
         // A scheduled timer fires on the main run loop.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+        syncTimer = Timer.scheduledTimer(withTimeInterval: Self.syncInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sync() }
         }
     }
 
-    private func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
+    private func stopSyncing() {
+        syncTimer?.invalidate()
+        syncTimer = nil
     }
 
-    /// One poll tick: refreshes stale catalogs and refetches every account
-    /// with something wanted and budget to spare.
-    func poll() {
-        poll(skippingAccountsPolledWithin: 0)
+    /// One sync tick: refreshes stale catalogs and runs a delta sync for
+    /// every account with budget to spare and no backoff pending.
+    func sync() {
+        sync(skippingAccountsSyncedWithin: 0)
     }
 
-    func pollOnActivation() {
-        poll(skippingAccountsPolledWithin: Self.activationPollInterval)
+    func syncOnActivation() {
+        sync(skippingAccountsSyncedWithin: Self.activationSyncInterval)
     }
 
-    private func poll(skippingAccountsPolledWithin minimumAge: TimeInterval) {
+    private func sync(skippingAccountsSyncedWithin minimumAge: TimeInterval) {
         for account in accounts.accounts {
             let orgID = account.orgID
-            if let last = lastPolledAt[orgID], now().timeIntervalSince(last) < minimumAge { continue }
-            lastPolledAt[orgID] = now()
+            if let last = lastSyncedAt[orgID], now().timeIntervalSince(last) < minimumAge { continue }
+            lastSyncedAt[orgID] = now()
             let fetchedAt = catalogFetchedAt[orgID] ?? .distantPast
             if now().timeIntervalSince(fetchedAt) >= Self.catalogMaxAge { refreshCatalog(orgID: orgID) }
             guard blocker(orgID: orgID) == nil, !isLowOnBudget(orgID: orgID) else { continue }
-            let identifiers = wantCounts.keys.filter { !isFixture($0) && targets(for: $0).contains(orgID) }
-            guard !identifiers.isEmpty else { continue }
-            pending[orgID, default: []].formUnion(identifiers)
-            scheduleFetch(orgID: orgID)
+            if let until = syncBackoffUntil[orgID], until > now() { continue }
+            syncIssues(orgID: orgID)
         }
     }
 
@@ -321,12 +339,18 @@ final class LinearStore: LinearActivitySink {
             wantCounts[identifier, default: 0] += 1
             if wantCounts[identifier] == 1 { added.append(identifier) }
         }
-        let fetchable = added.filter { !isFixture($0) }
-        for identifier in fetchable where !targets(for: identifier).isEmpty {
+        var lookups: [String] = []
+        for identifier in added where !isFixture(identifier) {
+            if targets(for: identifier).isEmpty {
+                lookups.append(identifier)
+                continue
+            }
+            if publishFromCache(identifier) { continue }
             let current = currentState(identifier)
             if current == nil || current == .noWorkspace { publish(.loading, for: identifier) }
+            if !isFresh(identifier) { lookups.append(identifier) }
         }
-        request(fetchable.filter { !isFresh($0) })
+        request(lookups)
     }
 
     /// Stops fetching an identifier no one wants, keeping its last state.
@@ -342,7 +366,29 @@ final class LinearStore: LinearActivitySink {
 
     private func isFresh(_ identifier: String) -> Bool {
         guard currentState(identifier) != nil, let answered = answeredAt[identifier] else { return false }
-        return now().timeIntervalSince(answered) < Self.pollInterval
+        return now().timeIntervalSince(answered) < Self.verifyInterval
+    }
+
+    /// The first target workspace whose cache holds `identifier`.
+    private func cachedIssue(_ identifier: String) -> (orgID: String, issue: LinearIssue)? {
+        for orgID in targets(for: identifier) {
+            if let issue = caches[orgID]?.issue(identifier: identifier) { return (orgID, issue) }
+        }
+        return nil
+    }
+
+    /// Publishes the cached issue, marked stale while its workspace cannot be
+    /// asked. False when no target's cache has it.
+    private func publishFromCache(_ identifier: String) -> Bool {
+        guard let (orgID, issue) = cachedIssue(identifier) else { return false }
+        issueOwner[identifier] = orgID
+        notFoundBy.removeValue(forKey: identifier)
+        if let blocker = blocker(orgID: orgID) {
+            publish(.stale(issue, reason: blocker.localizedDescription), for: identifier)
+        } else {
+            publish(.issue(issue), for: identifier)
+        }
+        return true
     }
 
     /// Fetches a manual link's team key's catalogs, for a key no catalog has
@@ -424,14 +470,15 @@ final class LinearStore: LinearActivitySink {
                 setStatus(.connected, orgID: orgID)
                 for identifier in identifiers {
                     switch byIdentifier[identifier] {
-                    case .found(let issue):
-                        applyFound(issue, identifier: identifier, orgID: orgID)
+                    case .found(let snapshot):
+                        applyFound(snapshot, identifier: identifier, orgID: orgID)
                     case .failed(let message):
                         applyFailure(LinearError.failed(message), identifier: identifier, orgID: orgID)
                     case .notFound, nil:
                         applyNotFound(identifier: identifier, orgID: orgID)
                     }
                 }
+                saveIssues(orgID: orgID)
             case .failure(let error):
                 record(error, orgID: orgID)
                 for identifier in identifiers {
@@ -442,13 +489,14 @@ final class LinearStore: LinearActivitySink {
         }
     }
 
-    private func applyFound(_ issue: LinearIssue, identifier: String, orgID: String) {
+    private func applyFound(_ snapshot: LinearIssueSnapshot, identifier: String, orgID: String) {
+        caches[orgID, default: LinearSyncCache(orgID: orgID)].upsert(snapshot, requestedAs: identifier)
         guard wantCounts[identifier] != nil else { return }
         if let owner = issueOwner[identifier], owner != orgID { return }
         issueOwner[identifier] = orgID
         notFoundBy.removeValue(forKey: identifier)
         answeredAt[identifier] = now()
-        publish(.issue(issue), for: identifier)
+        publish(.issue(caches[orgID]?.issue(identifier: identifier) ?? snapshot.issue), for: identifier)
     }
 
     private func applyFailure(_ error: any Error, identifier: String, orgID: String) {
@@ -458,6 +506,7 @@ final class LinearStore: LinearActivitySink {
     }
 
     private func applyNotFound(identifier: String, orgID: String) {
+        caches[orgID]?.removeIssue(identifier: identifier)
         guard wantCounts[identifier] != nil else { return }
         if let owner = issueOwner[identifier] {
             guard owner == orgID else { return }
@@ -569,7 +618,7 @@ final class LinearStore: LinearActivitySink {
                 let catalog = LinearCatalog(orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt)
                 setStatus(.connected, orgID: orgID)
                 install(catalog)
-                saveCache(catalog)
+                save(catalog)
             case .failure(let error):
                 record(error, orgID: orgID)
             }
@@ -578,6 +627,7 @@ final class LinearStore: LinearActivitySink {
 
     private func install(_ catalog: LinearCatalog) {
         catalogFetchedAt[catalog.orgID] = catalog.fetchedAt
+        caches[catalog.orgID]?.install(catalog)
         guard catalogs[catalog.orgID]?.teams != catalog.teams else { return }
         catalogs[catalog.orgID] = catalog
         refreshTeamKeys()
@@ -591,6 +641,8 @@ final class LinearStore: LinearActivitySink {
         for identifier in wantCounts.keys where !isFixture(identifier) {
             if targets(for: identifier).isEmpty {
                 publish(.noWorkspace, for: identifier)
+            } else if publishFromCache(identifier) {
+                continue
             } else if currentState(identifier) == nil || currentState(identifier) == .noWorkspace {
                 publish(.loading, for: identifier)
                 routable.append(identifier)
@@ -600,29 +652,136 @@ final class LinearStore: LinearActivitySink {
         reportStartedForEveryTab()
     }
 
-    private func cacheFile(orgID: String) -> URL? {
-        cacheDirectory?.appending(path: "catalog-\(orgID).json")
+    // MARK: - Delta sync
+
+    private func syncIssues(orgID: String) {
+        guard syncInFlight.insert(orgID).inserted else { return }
+        let generation = generation(orgID: orgID)
+        let client = client(for: orgID)
+        track { [self] in
+            await ensureLoaded(orgID: orgID)
+            guard isCurrent(generation, orgID: orgID) else { return }
+            let since = (caches[orgID] ?? LinearSyncCache(orgID: orgID)).deltaLowerBound(now: now())
+            let result: Result<LinearDelta, Error>
+            do {
+                result = .success(try await LinearDelta.fetch(from: client, since: since, maxPages: Self.maxDeltaPages))
+            } catch {
+                result = .failure(error)
+            }
+            guard isCurrent(generation, orgID: orgID) else { return }
+            syncInFlight.remove(orgID)
+            switch result {
+            case .success(let delta):
+                syncFailures.removeValue(forKey: orgID)
+                syncBackoffUntil.removeValue(forKey: orgID)
+                setStatus(.connected, orgID: orgID)
+                caches[orgID, default: LinearSyncCache(orgID: orgID)]
+                    .applyDelta(delta.issues, complete: delta.isComplete, queriedFrom: since)
+                saveIssues(orgID: orgID)
+                republishWanted(orgID: orgID)
+                verifyWanted(orgID: orgID)
+            case .failure(let error):
+                record(error, orgID: orgID)
+                if case .failed? = error as? LinearError { backOff(orgID: orgID) }
+                for identifier in wantedIdentifiers(targeting: orgID) where issueOwner[identifier] == orgID {
+                    publishFailure(error, for: identifier)
+                }
+            }
+        }
     }
 
-    private func loadCachedCatalogs() {
-        for account in accounts.accounts {
-            guard let file = cacheFile(orgID: account.orgID),
-                  let data = try? Data(contentsOf: file),
-                  let catalog = try? JSONDecoder().decode(LinearCatalog.self, from: data),
-                  catalog.orgID == account.orgID
-            else { continue }
+    private func wantedIdentifiers(targeting orgID: String) -> [String] {
+        wantCounts.keys.filter { !isFixture($0) && targets(for: $0).contains(orgID) }
+    }
+
+    private func republishWanted(orgID: String) {
+        for identifier in wantedIdentifiers(targeting: orgID) { _ = publishFromCache(identifier) }
+    }
+
+    /// Looks up what the cache cannot vouch for: wanted identifiers it lacks
+    /// whose last answer has expired, ones it held until this sync dropped
+    /// them, and cached ones not verified within `verifyInterval`.
+    private func verifyWanted(orgID: String) {
+        let cache = caches[orgID]
+        var lookups: [String] = []
+        for identifier in wantedIdentifiers(targeting: orgID) {
+            let isCached = cache?.issueID(identifier: identifier) != nil
+            let wasDropped = !isCached && issueOwner[identifier] == orgID
+            let isMissing = !isCached && cachedIssue(identifier) == nil
+            if wasDropped || ((isCached || isMissing) && !isFresh(identifier)) {
+                lookups.append(identifier)
+            }
+        }
+        guard !lookups.isEmpty else { return }
+        pending[orgID, default: []].formUnion(lookups)
+        scheduleFetch(orgID: orgID)
+    }
+
+    private func backOff(orgID: String) {
+        let failures = syncFailures[orgID, default: 0] + 1
+        syncFailures[orgID] = failures
+        let delay = min(Self.maxBackoff, Self.initialBackoff * pow(2, Double(failures - 1)))
+        syncBackoffUntil[orgID] = now().addingTimeInterval(delay)
+    }
+
+    // MARK: - Disk
+
+    /// Reads a workspace's catalog and issue cache once, folding them under
+    /// whatever the network has already answered.
+    private func ensureLoaded(orgID: String) async {
+        guard let disk else { return }
+        if let load = cacheLoads[orgID] {
+            await load.value
+            return
+        }
+        let load = Task { [weak self] in
+            async let catalog = disk.loadCatalog(orgID: orgID)
+            async let issues = disk.loadIssues(orgID: orgID)
+            let loaded = await (catalog, issues)
+            guard let self, !Task.isCancelled,
+                  self.accounts.accounts.contains(where: { $0.orgID == orgID })
+            else { return }
+            self.installLoaded(orgID: orgID, catalog: loaded.0, issues: loaded.1)
+        }
+        cacheLoads[orgID] = load
+        await load.value
+    }
+
+    private func installLoaded(orgID: String, catalog: LinearCatalog?, issues: LinearSyncCache?) {
+        if let issues {
+            var merged = issues
+            if let held = caches[orgID] {
+                merged = held
+                merged.absorb(issues)
+            }
+            caches[orgID] = merged
+        }
+        if let catalog, catalogs[orgID] == nil {
             install(catalog)
+        } else if let catalog = catalogs[orgID] {
+            caches[orgID]?.install(catalog)
         }
+        if issues != nil { republishWanted(orgID: orgID) }
     }
 
-    private func saveCache(_ catalog: LinearCatalog) {
-        guard let directory = cacheDirectory, let file = cacheFile(orgID: catalog.orgID) else { return }
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(catalog).write(to: file, options: .atomic)
-        } catch {
-            Log.app.error("Could not cache the Linear catalog: \(error, privacy: .public)")
-        }
+    private func save(_ catalog: LinearCatalog) {
+        guard let disk else { return }
+        let sequence = nextDiskSequence()
+        track { await disk.save(catalog, sequence: sequence) }
+    }
+
+    /// Prunes to what is worth keeping, then writes off the main thread.
+    private func saveIssues(orgID: String) {
+        guard let disk, var cache = caches[orgID] else { return }
+        cache.prune(keeping: Set(wantCounts.keys), now: now())
+        caches[orgID] = cache
+        let sequence = nextDiskSequence()
+        track { await disk.save(cache, sequence: sequence) }
+    }
+
+    private func nextDiskSequence() -> Int {
+        diskSequence += 1
+        return diskSequence
     }
 
     // MARK: - Accounts
@@ -647,7 +806,12 @@ final class LinearStore: LinearActivitySink {
             for (identifier, box) in stateBoxes where wantCounts[identifier] == nil && !isFixture(identifier) {
                 box.value = nil
             }
-            if let file = cacheFile(orgID: orgID) { try? FileManager.default.removeItem(at: file) }
+            caches.removeValue(forKey: orgID)
+            cacheLoads.removeValue(forKey: orgID)?.cancel()
+            if let disk {
+                let sequence = nextDiskSequence()
+                track { await disk.remove(orgID: orgID, sequence: sequence) }
+            }
             if catalogs.removeValue(forKey: orgID) != nil {
                 refreshTeamKeys()
                 catalogsDidChange()
@@ -667,10 +831,13 @@ final class LinearStore: LinearActivitySink {
         generations[orgID, default: 0] += 1
         inFlight.remove(orgID)
         catalogInFlight.remove(orgID)
+        syncInFlight.remove(orgID)
+        syncFailures.removeValue(forKey: orgID)
+        syncBackoffUntil.removeValue(forKey: orgID)
         unauthorized.remove(orgID)
         pausedUntil.removeValue(forKey: orgID)
         lastCatalogDemand.removeValue(forKey: orgID)
-        lastPolledAt.removeValue(forKey: orgID)
+        lastSyncedAt.removeValue(forKey: orgID)
         answeredAt.removeAll()
     }
 
@@ -765,7 +932,7 @@ final class LinearStore: LinearActivitySink {
         work.removeAll()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
-        stopPolling()
+        stopSyncing()
         isStarted = false
         stateBoxes.removeAll()
         activityBoxes.removeAll()
@@ -776,7 +943,7 @@ final class LinearStore: LinearActivitySink {
         issueOwner.removeAll()
         notFoundBy.removeAll()
         answeredAt.removeAll()
-        lastPolledAt.removeAll()
+        lastSyncedAt.removeAll()
         decodedLinks.removeAll()
         branchCandidates.removeAll()
         pending.removeAll()
@@ -784,6 +951,12 @@ final class LinearStore: LinearActivitySink {
         inFlight.removeAll()
         catalogInFlight.removeAll()
         catalogFetchedAt.removeAll()
+        caches.removeAll()
+        for load in cacheLoads.values { load.cancel() }
+        cacheLoads.removeAll()
+        syncInFlight.removeAll()
+        syncFailures.removeAll()
+        syncBackoffUntil.removeAll()
         lastCatalogDemand.removeAll()
         unauthorized.removeAll()
         pausedUntil.removeAll()
