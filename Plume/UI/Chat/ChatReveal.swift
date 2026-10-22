@@ -742,6 +742,7 @@ private struct RevealFade: ViewModifier {
                     text: text
                 ))
                 .textSelection(.disabled)
+                .pointerStyle(.horizontalText)
                 .modifier(ChatSelectionRecorder(span: span, text: text))
         } else if let state, !state.isShown {
             content
