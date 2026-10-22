@@ -269,6 +269,10 @@ final class ChatListController: NSObject {
 
         if new.pieces != old.pieces || new.tabID != old.tabID {
             selection.update(pieces: new.pieces, previousIDs: new.tabID == old.tabID ? old.pieces.map(\.id) : [])
+            if selection.selection == nil {
+                // Out of SwiftUI's update pass before moving first responder.
+                DispatchQueue.main.async { [weak self] in self?.returnFocusToComposer() }
+            }
         }
         if new.pieces != old.pieces || new.tabID != old.tabID
             || (new.leadingInset == 0) != (old.leadingInset == 0) {
@@ -1081,26 +1085,28 @@ extension ChatListController {
     }
 
     /// The position under a point only when it lands on a selectable `Text`.
-    func selectionPosition(onTextAt windowPoint: NSPoint) -> ChatTextPosition? {
+    /// `character` picks the glyph under the point instead of the nearest
+    /// boundary, for finding the word there.
+    func selectionPosition(onTextAt windowPoint: NSPoint, character: Bool = false) -> ChatTextPosition? {
         guard let (id, host) = host(at: windowPoint), selection.isSelectable(id) else { return nil }
         let point = host.view.convert(windowPoint, from: nil)
         guard selection.layouts.isOnText(point, pieceID: id) else { return nil }
         return ChatTextPosition(
             pieceID: id,
-            offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id))
+            offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id), character: character)
         )
     }
 
     /// Where a drag at this point puts the selection's focus. A point over a
     /// row with no selectable text lands on the nearest selectable boundary
     /// below it, or above it at the end of the transcript.
-    func selectionPosition(nearest windowPoint: NSPoint) -> ChatTextPosition? {
+    func selectionPosition(nearest windowPoint: NSPoint, character: Bool = false) -> ChatTextPosition? {
         guard let (id, host) = host(at: windowPoint) else { return nil }
         if selection.isSelectable(id) {
             let point = host.view.convert(windowPoint, from: nil)
             return ChatTextPosition(
                 pieceID: id,
-                offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id))
+                offset: selection.layouts.offset(at: point, pieceID: id, length: selection.length(of: id), character: character)
             )
         }
         let pieces = inputs.pieces
@@ -1139,27 +1145,31 @@ extension ChatListController {
         window.makeFirstResponder(documentView)
     }
 
-    /// Gives the keyboard back to this chat's composer when a click
-    /// dismisses a selection that held it. Called before the click is
-    /// dispatched, never during a tracking loop (PLUME-106).
+    /// Gives the keyboard back to this chat's composer when the selection
+    /// that held it goes away. Called before a click is dispatched, never
+    /// during a tracking loop (PLUME-106).
+    ///
+    /// Panes share one hosting view, so the composer is found by place: the
+    /// visible one nearest below the transcript and overlapping it.
     func returnFocusToComposer() {
-        guard let window = documentView.window, window.firstResponder === documentView else { return }
-        var ancestor = scrollView.superview
-        while let view = ancestor {
-            if let composer = Self.firstComposer(in: view) {
-                window.makeFirstResponder(composer)
-                return
-            }
-            ancestor = view.superview
+        guard let window = documentView.window, window.firstResponder === documentView,
+              let content = window.contentView else { return }
+        let transcript = scrollView.convert(scrollView.bounds, to: nil)
+        var composers: [ComposerNSTextView] = []
+        Self.collectComposers(in: content, into: &composers)
+        let candidates = composers.compactMap { composer -> (ComposerNSTextView, CGFloat)? in
+            guard !composer.isHiddenOrHasHiddenAncestor else { return nil }
+            let frame = composer.convert(composer.bounds, to: nil)
+            guard frame.maxX > transcript.minX, frame.minX < transcript.maxX else { return nil }
+            return (composer, abs(frame.maxY - transcript.minY))
         }
+        guard let composer = candidates.min(by: { $0.1 < $1.1 })?.0 else { return }
+        window.makeFirstResponder(composer)
     }
 
-    private static func firstComposer(in view: NSView) -> ComposerNSTextView? {
-        if let composer = view as? ComposerNSTextView { return composer }
-        for subview in view.subviews {
-            if let composer = firstComposer(in: subview) { return composer }
-        }
-        return nil
+    private static func collectComposers(in view: NSView, into composers: inout [ComposerNSTextView]) {
+        if let composer = view as? ComposerNSTextView { composers.append(composer) }
+        for subview in view.subviews { collectComposers(in: subview, into: &composers) }
     }
 
     /// How far past the viewport's top or bottom edge a drag has gone; zero

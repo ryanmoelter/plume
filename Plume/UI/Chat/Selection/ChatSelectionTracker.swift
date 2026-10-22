@@ -78,8 +78,9 @@ final class ChatSelectionTracker {
         case 2:
             // Swallowed even over a link, which its first click already
             // opened and this one would open again.
-            guard let text = controller.selectableText(of: position.pieceID),
-                  let word = ChatSelection.expandToWord(at: position, in: text) else { return nil }
+            guard let under = controller.selectionPosition(onTextAt: event.locationInWindow, character: true),
+                  let text = controller.selectableText(of: under.pieceID),
+                  let word = ChatSelection.expandToWord(at: under, in: text) else { return nil }
             store.set(word)
             wordOrigin = word
         default:
@@ -116,7 +117,7 @@ final class ChatSelectionTracker {
     /// word under the pointer first when nothing is selected.
     private func rightMouseDown(_ event: NSEvent, controller: ChatListController) -> NSEvent? {
         guard controller.isInDocument(event.locationInWindow),
-              let position = controller.selectionPosition(onTextAt: event.locationInWindow) else { return event }
+              let position = controller.selectionPosition(onTextAt: event.locationInWindow, character: true) else { return event }
         let store = controller.selection
         if !store.hasSelection {
             guard let text = controller.selectableText(of: position.pieceID),
@@ -136,7 +137,8 @@ final class ChatSelectionTracker {
     private func extend(to point: NSPoint, controller: ChatListController) {
         lastDragPoint = point
         let store = controller.selection
-        if let selection = store.selection, let focus = controller.selectionPosition(nearest: point) {
+        if let selection = store.selection,
+           let focus = controller.selectionPosition(nearest: point, character: wordOrigin != nil) {
             if let wordOrigin {
                 let word = controller.selectableText(of: focus.pieceID).flatMap { ChatSelection.expandToWord(at: focus, in: $0) }
                     ?? ChatSelection(anchor: focus, focus: focus)

@@ -148,7 +148,11 @@ final class ChatTextLayoutRegistry {
     /// The offset nearest `point`, in the row's coordinates. A point beside
     /// every `Text` takes the nearest one's nearest line; above or below them
     /// all, the start or end of the piece.
-    func offset(at point: CGPoint, pieceID: String, length: Int) -> Int {
+    ///
+    /// `character` asks for the start of the glyph under the point rather
+    /// than the nearest boundary, which is what a word lookup needs: the
+    /// boundary after a word's last letter is already outside the word.
+    func offset(at point: CGPoint, pieceID: String, length: Int, character: Bool = false) -> Int {
         let sorted = sortedEntries(of: pieceID).filter { $0.layout != nil }
         guard let first = sorted.first else { return 0 }
         if point.y < first.frame.minY { return 0 }
@@ -156,7 +160,7 @@ final class ChatTextLayoutRegistry {
         let band = sorted.filter { $0.frame.minY <= point.y && point.y < $0.frame.maxY }
         if let entry = band.min(by: { horizontalDistance(point.x, $0.frame) < horizontalDistance(point.x, $1.frame) }) {
             let local = CGPoint(x: point.x - entry.frame.minX, y: point.y - entry.frame.minY)
-            return entry.offset + Self.offset(at: local, in: entry)
+            return entry.offset + Self.offset(at: local, in: entry, character: character)
         }
         // In the gap between two `Text`s, such as the space between list items.
         let below = sorted.first { $0.frame.minY > point.y }
@@ -169,7 +173,7 @@ final class ChatTextLayoutRegistry {
 
     /// The offset within one `Text` nearest a point in its own coordinates:
     /// the nearest line, then the glyph boundary nearest the point along it.
-    static func offset(at point: CGPoint, in entry: Entry) -> Int {
+    static func offset(at point: CGPoint, in entry: Entry, character: Bool = false) -> Int {
         guard let layout = entry.layout, let origin = ChatTextGeometry.origin(of: layout) else { return 0 }
         let length = entry.text.utf16.count
         let lineStarts = WordReveal.lineStarts(
@@ -188,6 +192,11 @@ final class ChatTextLayoutRegistry {
                 guard let index = slice.characterIndices.first else { continue }
                 let start = lineStart + origin.distance(to: index)
                 let rect = slice.typographicBounds.rect
+                if character {
+                    let distance = point.x < rect.minX ? rect.minX - point.x : max(point.x - rect.maxX, 0)
+                    if best == nil || distance < best!.distance { best = (distance, start) }
+                    continue
+                }
                 let end = ChatTextGeometry.end(ofSliceAt: start, in: starts, length: length)
                 for (x, offset) in [(rect.minX, start), (rect.maxX, end)] {
                     let distance = abs(point.x - x)

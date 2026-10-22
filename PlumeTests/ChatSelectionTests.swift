@@ -108,6 +108,13 @@ struct ChatSelectionTests {
         selection.clamped(from: old, toIDs: new) { lengths[$0] ?? 0 }
     }
 
+    @Test func anEndInAPieceThatSplitCarriesIntoItsSegments() {
+        let lengths = ["m/0": 20, "m/0/0": 6, "m/0/1": 9]
+        let selection = ChatSelection(anchor: position("m/0", 2), focus: position("m/0", 8))
+        let clamped = selection.clamped(from: ["m/0"], toIDs: ["m/0/0", "m/0/1"]) { lengths[$0] ?? 0 }
+        #expect(clamped == ChatSelection(anchor: position("m/0/0", 2), focus: position("m/0/1", 2)))
+    }
+
     @Test func aShrunkPieceClampsTheOffset() {
         let selection = ChatSelection(anchor: position("a", 2), focus: position("b", 50))
         let clamped = clamp(selection, from: ["a", "b"], to: ["a", "b"])

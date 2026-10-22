@@ -78,7 +78,9 @@ struct ChatSelection: Equatable {
     /// The selection after the list changed from `oldIDs` to `newIDs`.
     ///
     /// An end in a piece that shrank moves to its new end. An end in a piece
-    /// that vanished, or has nothing selectable left, moves to the nearest
+    /// that split into segments, as a streaming list does when its second
+    /// item arrives, carries over into them. An end in a piece that vanished,
+    /// or has nothing selectable left, moves to the nearest
     /// surviving piece's boundary: the start of a later piece, or the end of an
     /// earlier one, the later winning a tie. Nil when no piece survives.
     func clamped(from oldIDs: [String], toIDs newIDs: [String], lengthOf length: (String) -> Int) -> ChatSelection? {
@@ -87,6 +89,9 @@ struct ChatSelection: Equatable {
             if survivors.contains(position.pieceID) {
                 let offset = min(max(position.offset, 0), length(position.pieceID))
                 return ChatTextPosition(pieceID: position.pieceID, offset: offset)
+            }
+            if let split = carried(position, into: newIDs.filter { survivors.contains($0) }, lengthOf: length) {
+                return split
             }
             guard let index = oldIDs.firstIndex(of: position.pieceID) else { return nil }
             for distance in 1..<max(oldIDs.count, 2) {
@@ -102,6 +107,22 @@ struct ChatSelection: Equatable {
         }
         guard let anchor = clamp(anchor), let focus = clamp(focus) else { return nil }
         return ChatSelection(anchor: anchor, focus: focus)
+    }
+
+    private func carried(
+        _ position: ChatTextPosition, into ids: [String], lengthOf length: (String) -> Int
+    ) -> ChatTextPosition? {
+        let segments = ids.filter { $0.hasPrefix(position.pieceID + "/") }
+        guard let last = segments.last else { return nil }
+        var offset = max(position.offset, 0)
+        for id in segments {
+            let segmentLength = length(id)
+            if offset <= segmentLength || id == last {
+                return ChatTextPosition(pieceID: id, offset: min(offset, segmentLength))
+            }
+            offset -= segmentLength
+        }
+        return nil
     }
 
     func clamped(from oldIDs: [String], to pieces: [ChatPiece]) -> ChatSelection? {
