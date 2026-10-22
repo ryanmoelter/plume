@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// belt-and-suspenders alongside the Apple Event's quit reason, which is
     /// the primary signal.
     private var isPoweringOff = false
-    private weak var tintedWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -50,14 +49,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ControlServer.shared.startIfEnabled()
         #endif
 
-        // The WindowGroup's NSWindow doesn't exist yet at delegate-init time;
-        // it's up by the time launch finishes.
-        tintedWindow = NSApp.windows.first
         applyTheme()
         startApplyingTheme()
     }
 
-    /// Applies the theme at launch and again whenever Settings reloads it.
+    /// Applies the app appearance at launch and again whenever Settings reloads the theme.
     private func startApplyingTheme() {
         Task { @MainActor in
             for await _ in Observations({ GhosttyRuntime.shared.resolvedThemeDefinitions }) {
@@ -68,7 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyTheme() {
         AppAppearance.apply(AppAppearance.decision())
-        if let tintedWindow { Self.tintTitlebar(of: tintedWindow) }
     }
 
     @objc private func handleWillPowerOff() {

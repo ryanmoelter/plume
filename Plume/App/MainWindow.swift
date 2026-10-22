@@ -87,6 +87,8 @@ struct MainWindow: View {
             }
             .allowsHitTesting(false)
         }
+        .onChange(of: hostWindow) { tintTitlebar() }
+        .onChange(of: GhosttyRuntime.shared.resolvedThemeDefinitions) { tintTitlebar() }
         .onChange(of: importRequest.targetWindowNumber) {
             guard let source = importRequest.take(for: hostWindow), importSource == nil else { return }
             hostWindow?.makeKeyAndOrderFront(nil)
@@ -185,6 +187,11 @@ struct MainWindow: View {
 
     /// These closures read live view state, so they are installed here rather
     /// than captured anywhere longer-lived.
+    private func tintTitlebar() {
+        guard let hostWindow else { return }
+        AppDelegate.tintTitlebar(of: hostWindow)
+    }
+
     private func installNotifications() {
         Notifier.shared.audience = {
             NotificationAudience(

@@ -82,6 +82,7 @@ struct PlumeApp: App {
                 .plumeAccentTint()
         }
         .modelContainer(modelContainer)
+        .defaultSize(width: 1180, height: 760)
         .commands {
             PlumeCommands()
         }
