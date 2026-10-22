@@ -246,6 +246,10 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func taskContextMenu(for task: WorkTask) -> some View {
+        ReadStateButton(tabIDs: task.liveTabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
+        if let tab = TaskRemoteControl.toggleableTab(in: task) {
+            TaskRemoteControlToggle(tabID: tab.id)
+        }
         if !groups.isEmpty || task.group != nil {
             Menu("Move to") {
                 ForEach(groups) { group in
@@ -260,13 +264,9 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
-        MarkAsUnreadButton(tabIDs: task.liveTabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
-        }
-        if let tab = TaskRemoteControl.toggleableTab(in: task) {
-            TaskRemoteControlToggle(tabID: tab.id)
         }
         linearMenuItems(for: task)
         Divider()

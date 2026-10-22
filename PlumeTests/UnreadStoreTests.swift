@@ -239,4 +239,15 @@ struct UnreadStoreTests {
         #expect(UnreadStore.showsUnread(taskStatus: status, hasUnreadTab: true))
         #expect(!UnreadStore.showsUnread(taskStatus: status, hasUnreadTab: false))
     }
+
+    @Test func markingReadClearsOnlyTheNamedTabs() {
+        let store = UnreadStore()
+        let other = UUID()
+        store.markUnread([tab, other])
+
+        store.markRead([tab])
+
+        #expect(!store.isUnread(tabID: tab))
+        #expect(store.isUnread(tabID: other))
+    }
 }

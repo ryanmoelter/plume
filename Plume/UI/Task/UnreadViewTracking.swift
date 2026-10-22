@@ -17,10 +17,20 @@ private struct ClearsUnreadOnView: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: task?.selectedTabID, initial: true) { _, _ in
-                UnreadStore.shared.markViewed(Notifier.shared.audience())
+                UnreadStore.shared.markFocusedTabViewed()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                UnreadStore.shared.markViewed(Notifier.shared.audience())
+                UnreadStore.shared.markFocusedTabViewed()
             }
+    }
+}
+
+extension UnreadStore {
+    /// Clears the focused tab's unread mark and its delivered notifications.
+    func markFocusedTabViewed(notifier: Notifier = .shared) {
+        let audience = notifier.audience()
+        markViewed(audience)
+        guard audience.isAppActive, let focused = audience.focusedTabID else { return }
+        notifier.dismiss(tabID: focused)
     }
 }

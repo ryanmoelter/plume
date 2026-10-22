@@ -38,7 +38,7 @@ final class StatusNotifier {
             body: body,
             // One entry per tab: a tab that finishes, waits, then finishes
             // again should leave the latest state, not a stack of them.
-            dedupeKey: "status-\(tabID.uuidString)"
+            dedupeKey: Notifier.dedupeKey(.status, tabID: tabID)
         ))
     }
 

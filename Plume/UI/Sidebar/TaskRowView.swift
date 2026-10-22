@@ -25,11 +25,16 @@ struct TaskRowView: View {
         return live == .notStarted ? task.lastStatus.afterRelaunch : live
     }
 
+    private var isInactive: Bool {
+        Self.isInactive(status: status, tabKinds: task.liveTabs.map(\.kind))
+    }
+
     /// Not actively being worked on — covers a task that hasn't started and
     /// one resumed mid-turn (which `TaskStatus.afterRelaunch` maps to
-    /// `.interrupted`, whether relaunch or the user interrupted it).
-    private var isInactive: Bool {
-        status == .notStarted || status == .interrupted
+    /// `.interrupted`, whether relaunch or the user interrupted it). Status
+    /// comes only from agents, so a task of plain terminals never dims.
+    static func isInactive(status: TaskStatus, tabKinds: [TabKind]) -> Bool {
+        tabKinds.contains(.agent) && (status == .notStarted || status == .interrupted)
     }
 
     /// One group per distinct directory the task's agent tabs are open in. A
