@@ -79,6 +79,8 @@ enum AccessibilityID {
     static let settingsSidebarTwoToneIconsToggle = "settings-sidebar-two-tone-icons-toggle"
     static let settingsSidebarPreview = "settings-sidebar-preview"
     static let settingsSidebarSuggestsFilledIconsToggle = "settings-sidebar-suggests-filled-icons-toggle"
+    static let importSourceItem = "import-source-item"
+    static let sidebarImportMenu = "sidebar-import-menu"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsImportOrcaButton = "settings-import-orca-button"
     static let settingsImportClaudeDesktopButton = "settings-import-claude-desktop-button"
