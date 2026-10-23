@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -103,6 +104,17 @@ struct SidebarView: View {
                         Label("No Tasks", systemImage: "square.stack.3d.up")
                     } description: {
                         Text("Press ⌘N to start a task.")
+                    } actions: {
+                        Menu {
+                            ImportSourceMenuItems { source in
+                                if !ImportRequest.shared.request(source) { NSSound.beep() }
+                            }
+                        } label: {
+                            Label("Import Conversations…", systemImage: "square.and.arrow.down")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .plumeID(AccessibilityID.sidebarImportMenu)
                     }
                 }
             }

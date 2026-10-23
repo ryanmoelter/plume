@@ -146,15 +146,9 @@ struct PlumeCommands: Commands {
         }
 
         CommandGroup(after: .importExport) {
-            Menu("Import Conversations…") {
-                ForEach(ImportSource.allCases) { source in
-                    Button {
-                        showImport?(source)
-                    } label: {
-                        Label(source.displayName, systemImage: "terminal.fill")
-                    }
+            Menu("Import Conversations…", systemImage: "square.and.arrow.down") {
+                ImportSourceMenuItems { showImport?($0) }
                     .disabled(showImport == nil)
-                }
             }
         }
 
