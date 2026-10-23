@@ -312,6 +312,21 @@ nonisolated enum InjectedContent: Equatable {
         return isMeta ? .systemNote : .userMessage
     }
 
+    /// Complete `<system-reminder>` blocks at the front of a typed message,
+    /// and the prose after them. Claude Code prepends the worktree note this
+    /// way, so classifying the whole text would hide the user's prompt.
+    static func splittingLeadingSystemReminders(_ text: String) -> (reminders: [String], rest: String) {
+        let open = "<system-reminder>"
+        let close = "</system-reminder>"
+        var reminders: [String] = []
+        var remaining = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        while remaining.hasPrefix(open), let end = remaining.range(of: close) {
+            reminders.append(String(remaining[..<end.upperBound]))
+            remaining = remaining[end.upperBound...].drop(while: { $0.isWhitespace })
+        }
+        return (reminders, String(remaining))
+    }
+
     /// The text inside the first `<tag>…</tag>` in the string.
     private static func tagged(_ text: String, _ tag: String) -> String? {
         guard let open = text.range(of: "<\(tag)>"),

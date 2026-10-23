@@ -399,10 +399,24 @@ nonisolated enum TranscriptParser {
                     case .commandCaveat: break
                     default: lastSlashCommand = nil
                     }
-                    otherBlocks.insert(
-                        kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
-                        at: 0
-                    )
+                    let split = kind == .systemNote && !entry.isMeta
+                        ? InjectedContent.splittingLeadingSystemReminders(text)
+                        : (reminders: [], rest: "")
+                    if split.rest.isEmpty {
+                        otherBlocks.insert(
+                            kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
+                            at: 0
+                        )
+                    } else {
+                        let restKind = InjectedContent.classify(text: split.rest, isMeta: false)
+                        let restBlock: ChatBlock = restKind.isUserProse
+                            ? .markdown(restKind.bodyText(split.rest))
+                            : .injected(restKind, text: split.rest)
+                        otherBlocks.insert(
+                            contentsOf: split.reminders.map { ChatBlock.injected(.systemNote, text: $0) } + [restBlock],
+                            at: 0
+                        )
+                    }
                 }
 
                 // A user message made up only of tool_results carries no

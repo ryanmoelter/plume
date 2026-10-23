@@ -371,6 +371,39 @@ struct TranscriptParserTests {
         }
     }
 
+    /// Claude Code puts the worktree note and the prompt in one user line as
+    /// two text blocks.
+    @Test func aLeadingSystemReminderDoesNotHideTheUsersPrompt() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":[{"type":"text","text":"<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n\n"},{"type":"text","text":"Fix the bug"}]}}"#,
+        ]))
+
+        let blocks = transcript.messages[0].blocks
+        #expect(blocks.count == 2)
+        if case .injected(.systemNote, let note) = blocks[0] {
+            #expect(note.contains("git worktree"))
+            #expect(!note.contains("Fix the bug"))
+        } else {
+            Issue.record("expected a system note first")
+        }
+        if case .markdown(let text) = blocks[1] {
+            #expect(text == "Fix the bug")
+        } else {
+            Issue.record("expected the prompt as markdown")
+        }
+    }
+
+    @Test func aMetaSystemReminderStaysOneSystemNote() {
+        let transcript = TranscriptParser.parse(data([
+            #"{"type":"user","uuid":"u1","isMeta":true,"isSidechain":false,"message":{"role":"user","content":"<system-reminder>\nnote\n</system-reminder>"}}"#,
+        ]))
+
+        #expect(transcript.messages[0].blocks.count == 1)
+        if case .injected(.systemNote, _) = transcript.messages[0].blocks[0] {} else {
+            Issue.record("expected a system note")
+        }
+    }
+
     @Test func aTypedMessageStaysMarkdown() {
         let transcript = TranscriptParser.parse(data([
             #"{"type":"user","uuid":"u1","isSidechain":false,"message":{"role":"user","content":"reconcile the roadmap"}}"#,
