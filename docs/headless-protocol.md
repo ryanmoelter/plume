@@ -487,6 +487,27 @@ Order on connect is `ready` (**carrying no `bridge_epoch`**), then the control r
 
 `remote_control_work_secret` is a CLI-originated request for a fresher worker credential. It never fires when the host sends no `work_secret`; Plume answers it with a bare success regardless, since dropping a control request leaves the CLI waiting on its timeout.
 
+## Additional directories — `--add-dir`
+
+Probed against 2.1.304 unless marked *(binary)*, which means read from the embedded schemas and never exercised.
+
+**Repeat the flag per path: `--add-dir A --add-dir B`.** The flag is variadic, so `--add-dir A B` also works and a following flag (`--effort low`) is not swallowed. A following positional would be, so repeating the flag is the safe form.
+
+**`system/init` reports the launch-time list as `additional_directories`**, an array of absolute path strings in launch order. It is `[]` when none were passed. Paths are kept as given, with no symlink resolution: `/tmp/…` stays `/tmp/…` and does not become `/private/tmp/…`.
+
+```json
+"additional_directories":["/private/tmp/…/A","/tmp/…/B"]
+```
+
+- **It lists only the `--add-dir` flags.** A `.claude/settings.local.json` `permissions.additionalDirectories` entry did not appear, in a scratch directory outside the repo. Whether the CLI still loaded that setting there is unverified.
+- **Resume does not restore them.** `--resume <id> --add-dir A` after a launch with A and B reports `["…/A"]`. `--resume <id>` alone reports `[]`. The `session_id` is unchanged, so the host must pass every directory again on each launch.
+
+**`add_directory` is cloud-only** *(binary)*. Its payload carries a `mount_path` under `/uploads/`, and it needs `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`. A local session has no use for it.
+
+**`register_repo_root {directory}` accepts only a strict subdirectory of the cwd or of a launch-time `--add-dir` root** *(binary)*. It replies `{directory}`.
+
+**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags.
+
 ## Error-shaped control responses
 
 A refused request comes back with `subtype: "error"` and a bare `error` string beside `request_id` — there is no `response` object:
