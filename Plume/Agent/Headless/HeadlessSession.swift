@@ -68,6 +68,17 @@ final class HeadlessSession: AgentSession {
     private(set) var hasExited = false
     private(set) var exitStatus: Int32?
 
+    /// The `--add-dir` folders this process was started with. The CLI has
+    /// no way to add or remove one mid-session, so a changed list takes a
+    /// restart.
+    private(set) var launchAdditionalDirectories: [String] = []
+    /// Everything `init` says the session reaches beyond `cwd`, grants made
+    /// inside the session included.
+    private(set) var reportedAdditionalDirectories: [String] = []
+    /// True while a restart waits for the running turn to end.
+    private(set) var isRestartPending = false
+    @ObservationIgnored private var pendingRestart: (() -> Void)?
+
     /// Requests waiting on the user. Never auto-answered: an unanswered
     /// request stalls its tool call indefinitely, which is the whole reason
     /// the approval UI must exist.
@@ -276,9 +287,11 @@ final class HeadlessSession: AgentSession {
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
         environment: [String: String] = [:],
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        addDirectories: [String] = []
     ) {
         guard process == nil else { return }
+        launchAdditionalDirectories = addDirectories
         didRequestFork = fork != nil
         launchDirectory = workingDirectory
         self.permissionMode = permissionMode
@@ -290,7 +303,8 @@ final class HeadlessSession: AgentSession {
             settingsPath: settingsPath,
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen,
-            fork: fork
+            fork: fork,
+            addDirectories: addDirectories
         )
         let handler = AgentProcess(
             label: "claude",
@@ -331,6 +345,7 @@ final class HeadlessSession: AgentSession {
 
     func stop() {
         isClosed = true
+        cancelPendingRestart()
         process?.terminate()
         process = nil
         hasExited = true
@@ -521,6 +536,23 @@ final class HeadlessSession: AgentSession {
 
     var hasWorkingSubagents: Bool {
         statusEngine.hasWorkingSubagents(tabID: tabID)
+    }
+
+    /// A restart now would cut short a turn or a background subagent.
+    var isBusy: Bool {
+        isWorking || hasWorkingSubagents
+    }
+
+    /// Runs `restart` once the session is no longer busy, in place of
+    /// sending the next queued message, which the restart carries over.
+    func restartWhenIdle(_ restart: @escaping () -> Void) {
+        pendingRestart = restart
+        isRestartPending = true
+    }
+
+    func cancelPendingRestart() {
+        pendingRestart = nil
+        isRestartPending = false
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
@@ -790,6 +822,7 @@ final class HeadlessSession: AgentSession {
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
             hasReportedModeAndModel = true
+            reportedAdditionalDirectories = info.additionalDirectories
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
             }
@@ -1128,6 +1161,11 @@ final class HeadlessSession: AgentSession {
         lastAssistantMessageID = nil
         wasInterrupted = false
         requestTitleIfDue()
+        if let restart = pendingRestart, !hasWorkingSubagents {
+            cancelPendingRestart()
+            restart()
+            return
+        }
         sendNextQueuedMessage()
     }
 
@@ -1186,6 +1224,8 @@ final class HeadlessSession: AgentSession {
 
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
+        // The next launch reads the tab's list anyway.
+        cancelPendingRestart()
         isWorking = false
         endDeliveryHold()
         // Never delivered, so a reconnect still can.

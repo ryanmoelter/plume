@@ -83,9 +83,25 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 
+    /// Replaces the tab's headless session with a new process resuming the
+    /// same conversation. Unsent messages and side chats live only in the
+    /// old session, so they move across.
+    @discardableResult
+    static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
+        let previous = AgentSessionManager.shared.existingSession(for: tab.id)
+        let queued = previous?.queuedMessages ?? []
+        if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
+        if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
+            resumed.inheritSideQuestions(from: previous)
+        }
+        for message in queued { resumed?.submit(blocks: message) }
+        return resumed
+    }
+
     private static func launchClaudeHeadless(
         blocks: [UserContentBlock],
-
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?,
@@ -162,7 +178,8 @@ enum AgentLauncher {
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: HeadlessCommand.environment
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
-            fork: fork
+            fork: fork,
+            addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)
@@ -267,7 +284,11 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: settingsPath)
+        let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID)
+        let provider = ClaudeCodeProvider(
+            settingsPath: settingsPath,
+            additionalDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
+        )
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,
@@ -284,7 +305,7 @@ enum AgentLauncher {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID),
+                workingDirectory: workingDirectory,
                 envVars: launch.environment
                     .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
                 command: launch.command

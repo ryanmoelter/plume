@@ -1321,12 +1321,7 @@ struct ChatTabView: View, ThemedView {
     }
 
     private func reconnectAgent() {
-        let queued = headlessSession?.queuedMessages ?? []
-        AgentSessionManager.shared.closeSession(for: tab.id)
-        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
-        if let session = headlessSession {
-            for message in queued { session.submit(blocks: message) }
-        }
+        AgentLauncher.relaunchHeadless(task: task, tab: tab)
     }
 
     private func agentErrorState(_ message: String) -> some View {

@@ -83,6 +83,10 @@ final class TaskTab {
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
+    /// JSON `[String]` of absolute paths passed as `--add-dir`. A resume
+    /// restores none of a session's added folders, so this is the only
+    /// record of them. `AdditionalDirectoryStore` owns the writes.
+    var additionalDirectoriesData: Data?
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()
@@ -179,6 +183,16 @@ final class TaskTab {
     var model: AgentModel? {
         get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var additionalDirectories: [String] {
+        get {
+            guard let additionalDirectoriesData else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: additionalDirectoriesData)) ?? []
+        }
+        set {
+            additionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)
+        }
     }
 
     var codexCollaborationMode: CodexCollaborationMode {

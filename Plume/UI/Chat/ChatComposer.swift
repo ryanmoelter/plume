@@ -820,14 +820,7 @@ struct ChatComposer: View, ThemedView {
         guard case .sideQuestion = command else { return session }
         guard hasConversation else { return nil }
         guard session?.hasExited ?? true else { return session }
-        if session != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
-        AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-        let resumed = headlessSession as? HeadlessSession
-        if let session, let resumed {
-            resumed.inheritSideQuestions(from: session)
-            for message in session.queuedMessages { resumed.submit(blocks: message) }
-        }
-        return resumed
+        return AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) as? HeadlessSession
     }
 
     /// Recorded once the CLI reports the session, so a chat whose first
@@ -845,12 +838,8 @@ struct ChatComposer: View, ThemedView {
         let text = blocks.plainText
         if let headlessSession, !headlessSession.hasExited {
             return headlessSession.submit(blocks: blocks)
-        } else if let exitedSession = headlessSession {
-            let unsent = exitedSession.queuedMessages
-            AgentSessionManager.shared.closeSession(for: tab.id)
-            AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-            if let resumed = headlessSession {
-                for message in unsent { resumed.submit(blocks: message) }
+        } else if headlessSession != nil {
+            if let resumed = AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) {
                 return resumed.submit(blocks: blocks)
             }
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
