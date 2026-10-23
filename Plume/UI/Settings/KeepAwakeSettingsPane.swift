@@ -11,14 +11,15 @@ struct KeepAwakeSettingsPane: View {
                     KeepAwakeModeMenu(selection: $settings.keepAwakeMode)
                 }
                 Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
+                if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
+                    Toggle("Even while on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
+                        .padding(.leading, 20)
+                        .transition(.opacity)
+                }
             }
 
             Section {
                 Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
-                if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
-                    Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
-                        .transition(.opacity)
-                }
                 Stepper(
                     batteryCutoffLabel,
                     value: $settings.keepAwakeBatteryCutoffPercent,

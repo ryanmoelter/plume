@@ -41,34 +41,40 @@ struct KeepAwakePanel: View {
 
             Divider()
 
-            Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
-                .help("Off, a session being driven remotely stops holding the Mac awake on its own.")
-
-            Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
-                .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
-
-            Reveal(progress: showsBatteryRemoteControl ? 1 : 0) {
-                Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
-                    .help("Off, a session being driven remotely stops holding the Mac awake on battery.")
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle("Keep awake for Remote Control", isOn: $settings.keepsAwakeForRemoteControl)
+                    .help("Off, a session being driven remotely stops holding the Mac awake on its own.")
+                Reveal(progress: showsBatteryRemoteControl ? 1 : 0) {
+                    Toggle("Even while on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
+                        .help("Off, a session being driven remotely stops holding the Mac awake on battery.")
+                        .padding(.leading, 20)
+                        .padding(.top, 8)
+                }
+                .animation(.default, value: showsBatteryRemoteControl)
             }
-            .animation(.default, value: showsBatteryRemoteControl)
 
-            Reveal(progress: settings.keepsAwakeOnBattery ? 1 : 0) {
-                Stepper(
-                    batteryCutoffLabel,
-                    value: $settings.keepAwakeBatteryCutoffPercent,
-                    in: 0...100,
-                    step: 5
-                )
-                .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
+                    .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
+                Reveal(progress: settings.keepsAwakeOnBattery ? 1 : 0) {
+                    Stepper(
+                        batteryCutoffLabel,
+                        value: $settings.keepAwakeBatteryCutoffPercent,
+                        in: 0...100,
+                        step: 5
+                    )
+                    .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
+                    .padding(.top, 12)
+                }
+                .animation(.default, value: settings.keepsAwakeOnBattery)
             }
-            .animation(.default, value: settings.keepsAwakeOnBattery)
 
-            Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
-                // Red because this is what turns the sidebar row red.
-                Text("Keep awake with the lid closed")
-                    .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
-            }
+            VStack(alignment: .leading, spacing: 0) {
+                Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
+                    // Red because this is what turns the sidebar row red.
+                    Text("Keep awake with the lid closed")
+                        .foregroundStyle(lidToggleIsOn ? ChatRole.danger(for: colorScheme) : .primary)
+                }
                 .help(
                     "Only applies while \(AppIdentity.displayName) is holding the Mac awake, so on battery it "
                         + "also needs “Keep awake on battery”."
@@ -81,12 +87,14 @@ struct KeepAwakePanel: View {
                 .disabled(!coordinator.lidOverrideStatus.canEngage)
                 .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
 
-            Reveal(progress: settings.keepsAwakeWithLidClosed ? 1 : 0) {
-                LabeledContent("Allow sleep when temperature is") {
-                    ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
+                Reveal(progress: settings.keepsAwakeWithLidClosed ? 1 : 0) {
+                    LabeledContent("Allow sleep when temperature is") {
+                        ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
+                    }
+                    .padding(.top, 12)
                 }
+                .animation(.default, value: settings.keepsAwakeWithLidClosed)
             }
-            .animation(.default, value: settings.keepsAwakeWithLidClosed)
 
             lidClose
 
