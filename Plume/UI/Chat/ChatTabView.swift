@@ -1021,7 +1021,8 @@ struct ChatTabView: View, ThemedView {
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: geometry.chatTopInset,
             minimapExclusionHeight: InfoPaneLayout.minimapExclusionHeight(
-                geometry: geometry, openHeight: openInfoPaneHeight, gap: dimensions.panelInset
+                geometry: geometry, openHeight: openInfoPaneHeight, gap: dimensions.panelInset,
+                chatHeight: chatHeight
             ),
             trailingReserve: geometry.chatTrailingReserve,
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)

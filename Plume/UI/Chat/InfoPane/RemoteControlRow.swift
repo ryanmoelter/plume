@@ -72,7 +72,6 @@ struct RemoteControlRow: View, ThemedView {
     @Environment(\.theme) var theme
     let session: any AgentSession
     @State private var showsCodexDetails = false
-    @State private var isHoveringMenu = false
 
     private var codexRemote: CodexRemoteControl? {
         (session as? CodexSession)?.effectiveRemoteControl
@@ -90,10 +89,8 @@ struct RemoteControlRow: View, ThemedView {
 
     var body: some View {
         menu
-            .emphasis(.secondary)
-            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
             .help(helpText)
-        .sheet(isPresented: $showsCodexDetails) {
+            .sheet(isPresented: $showsCodexDetails) {
             if let remote = codexRemote { CodexRemoteControlPanel(remote: remote) }
         }
     }
@@ -119,18 +116,16 @@ struct RemoteControlRow: View, ThemedView {
                 Text(status.title)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .emphasis(.secondary)
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.down")
+                Image(systemName: "ellipsis")
                     .foregroundStyle(colors.selection)
                     .frame(width: InfoPaneLayout.iconColumnWidth)
-                    .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
             }
-            .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(InfoPaneRowButtonStyle())
         .menuIndicator(.hidden)
-        .plumeHover { isHoveringMenu = $0 }
         .accessibilityLabel("Remote Control")
         .accessibilityValue(status.accessibilityValue)
         .plumeID(AccessibilityID.infoPaneRemoteControlMenu, value: status.accessibilityValue,

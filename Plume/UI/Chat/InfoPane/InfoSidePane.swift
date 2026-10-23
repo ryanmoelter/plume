@@ -44,11 +44,7 @@ struct InfoSidePane: View, ThemedView {
     private var isOpen: Bool { geometry.isPinned || isHoverOpen || isFloatingOpen }
 
     private var maxExpandedHeight: CGFloat {
-        InfoPaneLayout.maxOpenHeight(
-            chatHeight: availableHeight + bottomInset + dimensions.panelInset,
-            bottomInset: bottomInset,
-            panelInset: dimensions.panelInset
-        )
+        max(0, availableHeight - dimensions.panelInset)
     }
 
     /// The only thing that animates between the two forms. Both keep their
