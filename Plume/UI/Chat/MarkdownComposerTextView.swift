@@ -15,7 +15,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var fontSize: CGFloat
-    /// Mirrors first-responder status, and claims it when set true.
+    /// Mirrors first-responder status, and claims it when it turns true.
+    ///
+    /// Only the change to true claims, never a value that stays true. On
+    /// macOS 27 an update can still read `true` after the composer resigned
+    /// and wrote `false`, and a claim then would take focus back from the
+    /// field the user just clicked.
     ///
     /// A plain binding rather than `FocusState`, on purpose. SwiftUI answers a
     /// programmatic `false` on a `.focused` binding by resigning whatever is
@@ -129,8 +134,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         }
         context.coordinator.updatePlaceholderVisibility(textView)
 
-        if isFocused.wrappedValue, view.window?.firstResponder !== textView {
-            view.window?.makeFirstResponder(textView)
+        if let window = view.window {
+            let claimsFocus = isFocused.wrappedValue && !context.coordinator.lastFocusRequest
+            context.coordinator.lastFocusRequest = isFocused.wrappedValue
+            if claimsFocus, window.firstResponder !== textView {
+                window.makeFirstResponder(textView)
+            }
         }
     }
 
@@ -173,6 +182,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         /// changes made there reach the caller on the next main-queue turn,
         /// because writing SwiftUI state during a view update is undefined.
         var isUpdatingView = false
+        var lastFocusRequest = false
         /// The composer's own, so replacing the text from outside can drop
         /// steps recorded against the old text without touching the window's.
         private let undoManager = UndoManager()
