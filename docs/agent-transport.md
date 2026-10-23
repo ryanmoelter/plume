@@ -33,6 +33,8 @@ Both transports run `claude` inside a login shell, via `LoginShellCommand.wrap`.
 
 `HeadlessCommand.loginShellCommand(arguments:)` shell-quotes each argument and joins them into the wrapped command, keeping a spaced `--settings` path and the stream-json tokens intact as separate words.
 
+The "Additional arguments for claude" setting (`ClaudeExtraArguments`) is split like a shell line but never evaluated, and lands right after `claude` on both transports, ahead of Plume's own flags. That order makes a single-valued flag Plume also passes (`--model`) resolve to Plume's value, and keeps a variadic one (`--add-dir`) from swallowing what follows; the terminal transport also puts `--` before its first message for the same reason. Flags the launch depends on (`-p`, the stream-json formats, `--permission-prompt-tool`, `--permission-mode`, `--settings`, `--resume` and the fork flags, `--bare`, and the like) are dropped and named in Settings.
+
 One consequence of `-lic`: the user's `.zshrc` runs, and anything it prints lands on stderr. `HeadlessProcess` therefore reports stderr as a failure explanation only for a run that produced no stream-json message at all — a launch that never started. Profile chatter from a session that ran normally explains nothing.
 
 ## What's still missing or degraded

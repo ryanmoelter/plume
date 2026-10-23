@@ -52,9 +52,11 @@ struct AgentFirstMessageView: View {
                         .lineLimit(1...6)
                         .focused($inputFocused)
                         .onSubmit(send)
+                        .plumeID(AccessibilityID.agentFirstMessageField, value: message, setValue: { message = $0 })
 
                     Button("Send", action: send)
                         .buttonStyle(.borderedProminent)
+                        .plumeID(AccessibilityID.agentFirstMessageSendButton, invoke: send)
                         .disabled(!canSend)
                 }
                 ComposerControlsRow(task: task, tab: tab, headlessSession: nil)

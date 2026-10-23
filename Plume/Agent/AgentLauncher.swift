@@ -161,7 +161,8 @@ enum AgentLauncher {
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: HeadlessCommand.environment,
-            fork: fork
+            fork: fork,
+            extraArguments: AppSettings.shared.claudeExtraArguments.arguments
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)
@@ -262,7 +263,10 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: settingsPath)
+        let provider = ClaudeCodeProvider(
+            settingsPath: settingsPath,
+            extraArguments: AppSettings.shared.claudeExtraArguments.arguments
+        )
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,

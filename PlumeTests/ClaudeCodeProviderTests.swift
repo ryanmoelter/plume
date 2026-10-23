@@ -15,7 +15,7 @@ struct ClaudeCodeProviderTests {
 
     @Test func firstMessageIsQuotedAsASingleArgument() {
         let launch = provider.launchCommand(firstMessage: "fix the login bug", resumeSessionID: nil)
-        #expect(launch.command == loginWrapped("claude 'fix the login bug'"))
+        #expect(launch.command == loginWrapped("claude -- 'fix the login bug'"))
     }
 
     @Test func resumePassesTheSessionID() {
@@ -25,7 +25,7 @@ struct ClaudeCodeProviderTests {
 
     @Test func resumeWithAMessageSendsBoth() {
         let launch = provider.launchCommand(firstMessage: "continue", resumeSessionID: "abc-123")
-        #expect(launch.command == loginWrapped("claude --resume 'abc-123' 'continue'"))
+        #expect(launch.command == loginWrapped("claude --resume 'abc-123' -- 'continue'"))
     }
 
     @Test func noArgumentsStartsAPlainSession() {
@@ -38,7 +38,7 @@ struct ClaudeCodeProviderTests {
 
     @Test func messageIsTrimmed() {
         let launch = provider.launchCommand(firstMessage: "  hello  ", resumeSessionID: nil)
-        #expect(launch.command == loginWrapped("claude 'hello'"))
+        #expect(launch.command == loginWrapped("claude -- 'hello'"))
     }
 
     /// A message is arbitrary user text; it must never be able to end the
@@ -47,12 +47,12 @@ struct ClaudeCodeProviderTests {
         let launch = provider.launchCommand(
             firstMessage: "it's here'; rm -rf /; echo '", resumeSessionID: nil
         )
-        #expect(launch.command == loginWrapped(#"claude 'it'\''s here'\''; rm -rf /; echo '\'''"#))
+        #expect(launch.command == loginWrapped(#"claude -- 'it'\''s here'\''; rm -rf /; echo '\'''"#))
     }
 
     @Test func shellMetacharactersStayInsideTheArgument() {
         let launch = provider.launchCommand(firstMessage: "$(whoami) && `id` | tee", resumeSessionID: nil)
-        #expect(launch.command == loginWrapped("claude '$(whoami) && `id` | tee'"))
+        #expect(launch.command == loginWrapped("claude -- '$(whoami) && `id` | tee'"))
     }
 
     @Test func providerIdentifiesItself() {
@@ -99,7 +99,7 @@ struct ClaudeCodeProviderTests {
             tabID: nil,
             permissionMode: PermissionMode.plan.token
         )
-        #expect(launch.command == loginWrapped("claude --permission-mode plan --resume 'abc-123' 'go'"))
+        #expect(launch.command == loginWrapped("claude --permission-mode plan --resume 'abc-123' -- 'go'"))
     }
 
     @Test func noPermissionModeLeavesTheFlagOff() {
@@ -110,6 +110,22 @@ struct ClaudeCodeProviderTests {
             tabID: nil,
             permissionMode: nil
         )
-        #expect(launch.command == loginWrapped("claude 'go'"))
+        #expect(launch.command == loginWrapped("claude -- 'go'"))
+    }
+
+    @Test func extraArgumentsFollowClaudeAheadOfPlumesFlags() {
+        let provider = ClaudeCodeProvider(settingsPath: "/tmp/s.json", extraArguments: ["--add-dir", "/a b"])
+        let launch = provider.launchCommand(
+            firstMessage: "go", resumeSessionID: "abc", taskID: nil, tabID: nil, permissionMode: "plan"
+        )
+        #expect(launch.command == loginWrapped(
+            "claude '--add-dir' '/a b' --settings '/tmp/s.json' --permission-mode plan --resume 'abc' -- 'go'"
+        ))
+    }
+
+    @Test func extraArgumentsCannotInjectIntoTheCommand() {
+        let provider = ClaudeCodeProvider(extraArguments: ["--append-system-prompt", "it's $(id); rm -rf ~"])
+        let launch = provider.launchCommand(firstMessage: nil, resumeSessionID: nil)
+        #expect(launch.command == loginWrapped(#"claude '--append-system-prompt' 'it'\''s $(id); rm -rf ~'"#))
     }
 }

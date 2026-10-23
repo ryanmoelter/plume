@@ -273,7 +273,8 @@ final class HeadlessSession: AgentSession {
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
         environment: [String: String] = [:],
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        extraArguments: [String] = []
     ) {
         guard process == nil else { return }
         didRequestFork = fork != nil
@@ -287,7 +288,8 @@ final class HeadlessSession: AgentSession {
             settingsPath: settingsPath,
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen,
-            fork: fork
+            fork: fork,
+            extraArguments: extraArguments
         )
         let handler = AgentProcess(
             label: "claude",
