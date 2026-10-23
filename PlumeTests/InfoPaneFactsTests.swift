@@ -247,6 +247,15 @@ struct InfoPaneLayoutTests {
         #expect(InfoPaneLayout.minimapExclusionHeight(geometry: collapsed, openHeight: 300, gap: gap) == 38)
     }
 
+    @Test func theOpenPaneStopsAtAThirdOfTheChat() {
+        #expect(InfoPaneLayout.maxOpenHeight(chatHeight: 900, bottomInset: 100, panelInset: 10) == 300)
+    }
+
+    @Test func aShortChatLeavesTheComposerAndMarginsClear() {
+        #expect(InfoPaneLayout.maxOpenHeight(chatHeight: 300, bottomInset: 250, panelInset: 10) == 30)
+        #expect(InfoPaneLayout.maxOpenHeight(chatHeight: 100, bottomInset: 250, panelInset: 10) == 0)
+    }
+
     @Test func thePanePinsOnlyWhileTheChatKeepsItsFullColumn() {
         let needed = chatColumn + InfoPaneLayout.paneWidth + gap + rail
         #expect(side(width: needed).isPinned)
