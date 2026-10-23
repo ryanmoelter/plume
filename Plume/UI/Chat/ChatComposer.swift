@@ -707,31 +707,26 @@ struct ChatComposer: View, ThemedView {
             Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
             return
         }
-        if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless,
-           case .addDirectory(let path)? = PlumeSlashCommand.parse(text) {
-            addDirectory(path, typed: text)
-            return
-        }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession = liveClaudeSession(for: command) else {
-                // A question has nothing to read until a conversation exists,
-                // so it goes back in the composer rather than vanishing.
-                if case .sideQuestion = command {
-                    drafts.setDraft(text, forTab: tab.id)
-                    hasSendableText = true
-                }
-                return
-            }
             switch command {
+            case .addDirectory(let path):
+                addDirectory(path, typed: text)
             case .remoteControl(let name):
+                guard let headlessSession = liveClaudeSession(for: command) else { return }
                 headlessSession.setRemoteControl(
                     enabled: !headlessSession.remoteControl.isConnected,
                     name: name
                 )
             case .sideQuestion(let question):
+                guard let headlessSession = liveClaudeSession(for: command) else {
+                    // A question has nothing to read until a conversation
+                    // exists, so it goes back in the composer rather than
+                    // vanishing.
+                    drafts.setDraft(text, forTab: tab.id)
+                    hasSendableText = true
+                    return
+                }
                 headlessSession.askSideQuestion(question)
-            case .addDirectory:
-                break
             }
             return
         }

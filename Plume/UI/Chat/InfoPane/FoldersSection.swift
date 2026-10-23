@@ -6,8 +6,21 @@ struct InfoPaneFolderActions {
     let remove: (String) -> Void
     /// Opens the folder picker.
     let choose: () -> Void
+    /// Applies a waiting change without waiting any longer.
+    let restartNow: () -> Void
 
-    static let none = InfoPaneFolderActions(add: { _ in }, remove: { _ in }, choose: {})
+    static let none = InfoPaneFolderActions(add: { _ in }, remove: { _ in }, choose: {}, restartNow: {})
+}
+
+/// A folder change the running session has yet to pick up.
+struct FolderRestartFacts: Equatable {
+    /// Rather than on the turn.
+    var waitsOnBackgroundTasks: Bool
+    var canRestartNow: Bool
+
+    var note: String {
+        waitsOnBackgroundTasks ? "Applies when background tasks finish" : "Applies after this turn"
+    }
 }
 
 /// The folders a conversation reaches: its working directory, the ones the
@@ -22,6 +35,7 @@ struct FoldersSection: View, ThemedView {
     let workingDirectoryName: String?
     let rows: [FolderRow]
     let canEdit: Bool
+    let restart: FolderRestartFacts?
     let actions: InfoPaneFolderActions
 
     @State private var settings = AppSettings.shared
@@ -66,6 +80,9 @@ struct FoldersSection: View, ThemedView {
             .emphasis(.secondary)
         }
         .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringAdd))
+        .plumeID(AccessibilityID.infoPaneFolderRow, label: name, value: "working directory") {
+            if let path { FolderActions.reveal(path) }
+        }
         .disabled(path == nil)
         .contextMenu {
             if let path {
@@ -74,9 +91,6 @@ struct FoldersSection: View, ThemedView {
             }
         }
         .help(path.map { "Working folder: \(FolderActions.abbreviated($0))" } ?? "")
-        .plumeID(AccessibilityID.infoPaneFolderRow, label: name, value: "working directory") {
-            if let path { FolderActions.reveal(path) }
-        }
         .overlay(alignment: .trailing) {
             if canEdit { addButton }
         }
@@ -111,11 +125,35 @@ struct FoldersSection: View, ThemedView {
                         row: row,
                         displayName: row.kind == .workingDirectory ? workingDirectoryName ?? row.name : row.name,
                         canEdit: canEdit,
+                        restartNote: restart?.note,
                         actions: actions
                     )
                 }
             }
+            // Shown collapsed too: a change that has not applied yet is the
+            // section's news.
+            if let restart {
+                restartRow(restart)
+            }
         }
+    }
+
+    private func restartRow(_ restart: FolderRestartFacts) -> some View {
+        HStack(spacing: InfoPaneLayout.columnSpacing) {
+            InfoPaneIcon { Image(systemName: "clock").emphasis(.subtle) }
+            Text(restart.note)
+                .lineLimit(2)
+                .emphasis(.subtle)
+            Spacer(minLength: 4)
+            if restart.canRestartNow {
+                Button("Restart Now", action: actions.restartNow)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.colors.selection)
+                    .help("Apply the folder change now, stopping the background tasks")
+                    .plumeID(AccessibilityID.infoPaneFoldersRestartNowButton, invoke: actions.restartNow)
+            }
+        }
+        .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
     }
 
     private var addButton: some View {
@@ -139,6 +177,7 @@ private struct FolderRowView: View, ThemedView {
     let row: FolderRow
     let displayName: String
     let canEdit: Bool
+    let restartNote: String?
     let actions: InfoPaneFolderActions
 
     @State private var isHoveringMenu = false
@@ -176,7 +215,8 @@ private struct FolderRowView: View, ThemedView {
     private var note: String? {
         switch (row.kind, row.pending) {
         case (.workingDirectory, _): "working folder"
-        case (_, .addsAfterTurn), (_, .removesAfterTurn): "after this turn"
+        case (_, .addsAfterTurn): "pending"
+        case (_, .removesAfterTurn): "removing"
         default: nil
         }
     }
@@ -186,8 +226,8 @@ private struct FolderRowView: View, ThemedView {
         switch (row.kind, row.pending) {
         case (.workingDirectory, _): return "Working folder: \(path)"
         case (.foreign, _): return "\(path)\nAdded outside \(AppIdentity.displayName), so it can't be removed here"
-        case (_, .addsAfterTurn): return "\(path)\nApplies after this turn"
-        case (_, .removesAfterTurn): return "\(path)\nRemoved after this turn"
+        case (_, .addsAfterTurn): return "\(path)\n\(restartNote ?? "Applies after this turn")"
+        case (_, .removesAfterTurn): return "\(path)\nRemoved once the change applies"
         case (.added, .none): return path
         }
     }
@@ -233,10 +273,10 @@ private struct FolderRowView: View, ThemedView {
             Divider()
             if row.pending == .removesAfterTurn {
                 Button("Keep Folder") { actions.add([path]) }
-                    .plumeID(AccessibilityID.infoPaneFolderRemoveButton, label: path, value: "keep") { actions.add([path]) }
+                    .plumeID(AccessibilityID.infoPaneFolderKeepButton, label: path) { actions.add([path]) }
             } else {
                 Button("Remove Folder") { actions.remove(path) }
-                    .plumeID(AccessibilityID.infoPaneFolderRemoveButton, label: path, value: "remove") { actions.remove(path) }
+                    .plumeID(AccessibilityID.infoPaneFolderRemoveButton, label: path) { actions.remove(path) }
             }
         }
     }

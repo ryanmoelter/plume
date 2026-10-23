@@ -102,6 +102,8 @@ struct InfoPaneFacts: Equatable {
     var folderRows: [FolderRow] = []
     /// Claude Code takes `--add-dir`; Codex has no counterpart here.
     var canEditFolders = false
+    /// Set while a folder change waits for the session to go idle.
+    var folderRestart: FolderRestartFacts?
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?

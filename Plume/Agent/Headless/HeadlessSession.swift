@@ -72,12 +72,20 @@ final class HeadlessSession: AgentSession {
     /// no way to add or remove one mid-session, so a changed list takes a
     /// restart.
     private(set) var launchAdditionalDirectories: [String] = []
-    /// Everything `init` says the session reaches beyond `cwd`, grants made
-    /// inside the session included.
+    /// What `init` says the session reaches beyond `cwd`: the launch-time
+    /// `--add-dir` paths as passed, and presumably grants made inside the
+    /// session.
     private(set) var reportedAdditionalDirectories: [String] = []
-    /// True while a restart waits for the running turn to end.
+    /// True while a restart waits for the session to go idle.
     private(set) var isRestartPending = false
     @ObservationIgnored private var pendingRestart: (() -> Void)?
+    /// Set when a pending restart fires at a turn's end, which is when a
+    /// title request falls due. The relaunched session sends it instead.
+    @ObservationIgnored private(set) var restartedAtTurnEnd = false
+    /// A fork's session has no transcript until its first turn ends, so
+    /// resuming it before then fails.
+    private var hasCompletedTurn = false
+    @ObservationIgnored private var remoteControlName: String?
 
     /// Requests waiting on the user. Never auto-answered: an unanswered
     /// request stalls its tool call indefinitely, which is the whole reason
@@ -407,6 +415,11 @@ final class HeadlessSession: AgentSession {
     private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
+        // The new process gets it, along with the rest of the queue.
+        guard !isRestartPending else {
+            queuedMessages.append(normalized)
+            return .queued
+        }
         guard !isWorking else {
             queuedMessages.append(normalized)
             if delivery == .afterToolCall, sendQueueIntoRunningTurn() { return .sent }
@@ -443,7 +456,7 @@ final class HeadlessSession: AgentSession {
     func sendNow(appending blocks: [UserContentBlock]) {
         let normalized = blocks.normalized
         if normalized.hasContent { queuedMessages.append(normalized) }
-        guard !queuedMessages.isEmpty else { return }
+        guard !queuedMessages.isEmpty, !isRestartPending else { return }
         guard isWorking else {
             submit(blocks: takeQueueAsOneTurn())
             return
@@ -538,21 +551,87 @@ final class HeadlessSession: AgentSession {
         statusEngine.hasWorkingSubagents(tabID: tabID)
     }
 
-    /// A restart now would cut short a turn or a background subagent.
+    /// A restart now would cut short a turn, a subagent, a background task
+    /// or a side question, or resume a fork that has nothing to resume yet.
     var isBusy: Bool {
-        isWorking || hasWorkingSubagents
+        isWorking || hasWorkingSubagents || hasRunningBackgroundTasks || hasUnansweredSideQuestion
+            || isUnstartedFork
     }
 
-    /// Runs `restart` once the session is no longer busy, in place of
-    /// sending the next queued message, which the restart carries over.
+    var hasRunningBackgroundTasks: Bool {
+        !backgroundTasks.inFlight(tabID: tabID).isEmpty
+    }
+
+    var isUnstartedFork: Bool {
+        didRequestFork && !hasCompletedTurn
+    }
+
+    private var hasUnansweredSideQuestion: Bool {
+        sideQuestions.contains { question in
+            switch question.state {
+            case .pending, .running: true
+            case .answered, .failed: false
+            }
+        }
+    }
+
+    /// Runs `restart` as soon as the session is idle. Messages sent in the
+    /// meantime wait in the queue, which the restart carries over.
     func restartWhenIdle(_ restart: @escaping () -> Void) {
         pendingRestart = restart
         isRestartPending = true
+        firePendingRestartIfIdle()
     }
 
     func cancelPendingRestart() {
         pendingRestart = nil
         isRestartPending = false
+    }
+
+    /// Fails any side question still waiting, for a restart the user forces
+    /// rather than waits for.
+    func abandonUnansweredSideQuestions() {
+        failUnansweredSideQuestions()
+    }
+
+    /// Whatever the old process's state makes busy — a turn ending, a
+    /// subagent finishing, the background task list emptying — re-runs this
+    /// through observation, so no single event has to remember to.
+    @discardableResult
+    private func firePendingRestartIfIdle() -> Bool {
+        guard let restart = pendingRestart else { return false }
+        guard isBusy else {
+            cancelPendingRestart()
+            restart()
+            return true
+        }
+        withObservationTracking {
+            _ = isBusy
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.firePendingRestartIfIdle() }
+        }
+        return false
+    }
+
+    /// Carries over what only the old process held. A side question still
+    /// waiting would never be answered here, so only settled ones move.
+    func inherit(from previous: HeadlessSession) {
+        sideQuestions = previous.sideQuestions.filter { question in
+            switch question.state {
+            case .answered, .failed: true
+            case .pending, .running: false
+            }
+        } + sideQuestions
+        openingMessage = openingMessage ?? previous.openingMessage
+        titleRequester = previous.titleRequester
+        hasUserSubmitted = hasUserSubmitted || previous.hasUserSubmitted
+        switch previous.remoteControl {
+        case .connected, .connecting:
+            setRemoteControl(enabled: true, name: previous.remoteControlName)
+        case .disconnected, .failed:
+            break
+        }
+        if previous.restartedAtTurnEnd { requestTitleIfDue() }
     }
 
     func setPermissionMode(_ mode: PermissionMode) {
@@ -596,6 +675,7 @@ final class HeadlessSession: AgentSession {
     /// disable is acknowledged with a bare success, so nothing corrects it
     /// and the optimistic value stands.
     func setRemoteControl(enabled: Bool, name: String? = nil) {
+        if enabled { remoteControlName = name }
         updateRemoteControl(enabled ? .connecting : .disconnected)
         let requestID = nextRequestID()
         pendingControlRequests[requestID] = .remoteControl(enabled: enabled)
@@ -613,12 +693,6 @@ final class HeadlessSession: AgentSession {
     /// Asks a side question, answered from main context without disturbing
     /// the main conversation. Follows the run entered here so its state can
     /// be corrected by the reply, the same way `setRemoteControl` does.
-    /// Keeps an exited session's side chats in the one that resumes it,
-    /// since nothing else records them.
-    func inheritSideQuestions(from exited: HeadlessSession) {
-        sideQuestions = exited.sideQuestions + sideQuestions
-    }
-
     func askSideQuestion(_ question: String) {
         let requestID = nextRequestID()
         sideQuestions.append(SideQuestion(id: requestID, question: question, askedAt: Date()))
@@ -1160,12 +1234,10 @@ final class HeadlessSession: AgentSession {
         }
         lastAssistantMessageID = nil
         wasInterrupted = false
+        hasCompletedTurn = true
+        restartedAtTurnEnd = pendingRestart != nil && !isBusy
+        if firePendingRestartIfIdle() { return }
         requestTitleIfDue()
-        if let restart = pendingRestart, !hasWorkingSubagents {
-            cancelPendingRestart()
-            restart()
-            return
-        }
         sendNextQueuedMessage()
     }
 
@@ -1212,7 +1284,7 @@ final class HeadlessSession: AgentSession {
     }
 
     private func sendNextQueuedMessage() {
-        guard !queuedMessages.isEmpty else { return }
+        guard !queuedMessages.isEmpty, !isRestartPending else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: next)) else {

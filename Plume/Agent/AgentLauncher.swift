@@ -84,8 +84,8 @@ enum AgentLauncher {
     }
 
     /// Replaces the tab's headless session with a new process resuming the
-    /// same conversation. Unsent messages and side chats live only in the
-    /// old session, so they move across.
+    /// same conversation. Unsent messages, side chats, the title policy and
+    /// Remote Control live only in the old session, so they move across.
     @discardableResult
     static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
         let previous = AgentSessionManager.shared.existingSession(for: tab.id)
@@ -94,7 +94,7 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
         let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
         if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
-            resumed.inheritSideQuestions(from: previous)
+            resumed.inherit(from: previous)
         }
         for message in queued { resumed?.submit(blocks: message) }
         return resumed

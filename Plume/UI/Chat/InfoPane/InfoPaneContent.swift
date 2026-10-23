@@ -74,6 +74,7 @@ struct InfoPaneContent: View, ThemedView {
                 workingDirectoryName: facts.folder,
                 rows: facts.folderRows,
                 canEdit: facts.canEditFolders,
+                restart: facts.folderRestart,
                 actions: folderActions
             )
         case .branch: branch

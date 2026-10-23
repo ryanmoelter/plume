@@ -64,6 +64,8 @@ struct ChatTabView: View, ThemedView {
     /// so switching tasks inside the dead band keeps the pane as it was.
     @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
     private static var lastShowsInfoPaneBeside = true
+    /// Built off the main actor, since matching paths resolves symlinks.
+    @State private var folderRows: [FolderRow] = []
     private static var lastConversationWidth: CGFloat = 0
     private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
@@ -220,17 +222,30 @@ struct ChatTabView: View, ThemedView {
         return InfoPaneFolderActions(
             add: { try? AdditionalDirectoryStore.add($0, to: tab) },
             remove: { AdditionalDirectoryStore.remove($0, from: tab) },
-            choose: { AddFolderPanel.present(for: tab) }
+            choose: { AddFolderPanel.present(for: tab) },
+            restartNow: { AdditionalDirectoryStore.restartNow(tab) }
         )
     }
 
-    private var folderRows: [FolderRow] {
-        let live = claudeSession.flatMap { $0.hasExited ? nil : $0 }
-        return AdditionalDirectories.rows(
+    private var liveClaudeSession: HeadlessSession? {
+        claudeSession.flatMap { $0.hasExited ? nil : $0 }
+    }
+
+    private var folderRowsInput: FolderRowsInput {
+        let live = liveClaudeSession
+        return FolderRowsInput(
             workingDirectory: gitDirectory,
             added: tab.additionalDirectories,
             launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil,
             reported: live?.reportedAdditionalDirectories ?? []
+        )
+    }
+
+    private var folderRestart: FolderRestartFacts? {
+        guard let live = liveClaudeSession, live.isRestartPending else { return nil }
+        return FolderRestartFacts(
+            waitsOnBackgroundTasks: !live.isWorking && live.hasRunningBackgroundTasks,
+            canRestartNow: AdditionalDirectoryStore.canRestartNow(live)
         )
     }
 
@@ -267,6 +282,7 @@ struct ChatTabView: View, ThemedView {
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             folderRows: folderRows,
             canEditFolders: tab.provider == .claudeCode,
+            folderRestart: folderRestart,
             branch: branch,
             pullRequest: pullRequest,
             linkedPullRequests: settings.showsPullRequestStatus
@@ -392,6 +408,11 @@ struct ChatTabView: View, ThemedView {
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .task(id: folderRowsInput) {
+            let input = folderRowsInput
+            let rows = await Task.detached { input.rows() }.value
+            if !Task.isCancelled { folderRows = rows }
+        }
         .task(id: tab.agentSessionID) {
             guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
             await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
@@ -1239,6 +1260,7 @@ struct ChatTabView: View, ThemedView {
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
         newTab.effort = tab.effort
+        newTab.additionalDirectories = tab.additionalDirectories
         // The fork writes no transcript until its first turn, so it opens on
         // the conversation it was cut from rather than on an empty tab.
         InheritedForkHistory.shared.adopt(from: transcript, cutBefore: target, tabID: newTab.id)

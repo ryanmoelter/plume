@@ -11,7 +11,7 @@ claude -p --output-format stream-json --input-format stream-json \
        --include-partial-messages --verbose \
        --permission-mode <mode> --permission-prompt-tool stdio \
        --allow-dangerously-skip-permissions \
-       [--resume <session-id>] [--model <model>] [--settings <path>] [--add-dir <dir>]
+       [--resume <session-id>] [--model <model>] [--settings <path>] [--add-dir=<dir> …]
 ```
 
 `--verbose` is required for `stream-json` output. Never pass `--bare`: it refuses the keychain and forces an API key.
@@ -491,22 +491,22 @@ Order on connect is `ready` (**carrying no `bridge_epoch`**), then the control r
 
 Probed against 2.1.304 unless marked *(binary)*, which means read from the embedded schemas and never exercised.
 
-**Repeat the flag per path: `--add-dir A --add-dir B`.** The flag is variadic, so `--add-dir A B` also works and a following flag (`--effort low`) is not swallowed. A following positional would be, so repeating the flag is the safe form.
+**Plume passes one `--add-dir=<path>` per path.** The flag is variadic, so the bare form `--add-dir A` takes every following word up to the next flag. `--add-dir A B --effort low` parses as two directories and a flag, but a following positional prompt is swallowed: `claude -p --add-dir /x hi` fails with "Input must be provided either through stdin or as a prompt argument". The `=` form binds exactly one value and ends the option, so `claude -p --add-dir=/x hi` runs the prompt. Measured against 2.1.304. `HeadlessCommand.addDirectoryArguments` builds it for both transports. The terminal transport needs it most, since its argv ends with the first message.
 
-**`system/init` reports the launch-time list as `additional_directories`**, an array of absolute path strings in launch order. It is `[]` when none were passed. Paths are kept as given, with no symlink resolution: `/tmp/…` stays `/tmp/…` and does not become `/private/tmp/…`.
+**`system/init` reports `additional_directories`**, an array of path strings. It lists the launch-time `--add-dir` paths as passed, in launch order, and is `[]` when none were passed. Folders granted inside a session are presumed to appear there too, but that is untested. Plume shows any entry it did not pass as added outside Plume, and does not offer to remove it. Paths are kept as given, with no symlink resolution: `/tmp/…` stays `/tmp/…` and does not become `/private/tmp/…`.
 
 ```json
 "additional_directories":["/private/tmp/…/A","/tmp/…/B"]
 ```
 
-- **It lists only the `--add-dir` flags.** A `.claude/settings.local.json` `permissions.additionalDirectories` entry did not appear, in a scratch directory outside the repo. Whether the CLI still loaded that setting there is unverified.
+- **A settings entry did not appear.** A `.claude/settings.local.json` `permissions.additionalDirectories` entry was missing from the list, in a scratch directory outside the repo. Whether the CLI loaded that setting there is unverified.
 - **Resume does not restore them.** `--resume <id> --add-dir A` after a launch with A and B reports `["…/A"]`. `--resume <id>` alone reports `[]`. The `session_id` is unchanged, so the host must pass every directory again on each launch.
 
 **`add_directory` is cloud-only** *(binary)*. Its payload carries a `mount_path` under `/uploads/`, and it needs `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`. A local session has no use for it.
 
 **`register_repo_root {directory}` accepts only a strict subdirectory of the cwd or of a launch-time `--add-dir` root** *(binary)*. It replies `{directory}`.
 
-**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags.
+**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags. `AdditionalDirectoryStore` waits for that until the session is idle: no turn, subagent, background task or side question running, and a fork has finished its first turn, since before then its id has no transcript to resume. Messages sent while it waits are queued for the new process.
 
 ## Error-shaped control responses
 

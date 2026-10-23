@@ -23,7 +23,7 @@ struct ClaudeCodeProvider: AgentProvider {
         permissionMode: String?
     ) -> AgentLaunch {
         var arguments = ["claude"]
-        arguments += additionalDirectories.map { "--add-dir=" + shellQuoted($0) }
+        arguments += HeadlessCommand.addDirectoryArguments(additionalDirectories.map(shellQuoted))
 
         if let settingsPath {
             arguments.append("--settings")

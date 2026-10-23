@@ -188,7 +188,7 @@ final class TaskTab {
     var additionalDirectories: [String] {
         get {
             guard let additionalDirectoriesData else { return [] }
-            return (try? JSONDecoder().decode([String].self, from: additionalDirectoriesData)) ?? []
+            return AdditionalDirectories.decoded(additionalDirectoriesData)
         }
         set {
             additionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)

@@ -1,8 +1,23 @@
 import Foundation
+import Synchronization
 
 /// The folders a Claude Code tab reaches beyond its working directory, and
 /// how the info pane presents them.
-enum AdditionalDirectories {
+///
+/// Nonisolated so the info pane can build its rows off the main actor:
+/// `comparisonKey` reads the file system.
+nonisolated enum AdditionalDirectories {
+    /// Views read a tab's list on every render, so its JSON is decoded once
+    /// per distinct value.
+    private static let decodedLists = Mutex<[Data: [String]]>([:])
+
+    static func decoded(_ data: Data) -> [String] {
+        if let cached = decodedLists.withLock({ $0[data] }) { return cached }
+        let list = (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        decodedLists.withLock { $0[data] = list }
+        return list
+    }
+
     /// An absolute, tilde-expanded, standardized path. A relative path is
     /// taken against `base`, and is rejected without one.
     static func normalized(_ path: String, relativeTo base: String? = nil) -> String? {
@@ -74,13 +89,31 @@ enum AdditionalDirectories {
     }
 }
 
-struct FolderRow: Equatable, Identifiable {
+/// What the info pane's folder rows are built from, as plain values, so
+/// the rows rebuild only when one of them changes.
+nonisolated struct FolderRowsInput: Hashable, Sendable {
+    var workingDirectory: String?
+    var added: [String]
+    var launched: [String]?
+    var reported: [String]
+
+    func rows() -> [FolderRow] {
+        AdditionalDirectories.rows(
+            workingDirectory: workingDirectory,
+            added: added,
+            launched: launched,
+            reported: reported
+        )
+    }
+}
+
+nonisolated struct FolderRow: Equatable, Identifiable, Sendable {
     enum Kind: Equatable {
         case workingDirectory
         /// In the tab's own list, so Plume can remove it.
         case added
-        /// Reported by the session but not passed by Plume — a grant made
-        /// inside the session, or the user's own settings.
+        /// Reported by the session but not passed by Plume, which presumably
+        /// makes it a grant made inside the session.
         case foreign
     }
 

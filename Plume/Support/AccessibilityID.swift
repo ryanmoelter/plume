@@ -345,6 +345,8 @@ enum AccessibilityID {
     static let infoPaneFolderRevealButton = "info-pane-folder-reveal-button"
     static let infoPaneFolderCopyButton = "info-pane-folder-copy-button"
     static let infoPaneFolderRemoveButton = "info-pane-folder-remove-button"
+    static let infoPaneFolderKeepButton = "info-pane-folder-keep-button"
+    static let infoPaneFoldersRestartNowButton = "info-pane-folders-restart-now-button"
 
     // MARK: Side questions (/btw)
 

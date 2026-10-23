@@ -150,11 +150,22 @@ struct AdditionalDirectoriesTests {
         try #require(StreamJSONDecoder.decode(line: line))
     }
 
-    private func makeSession() -> (HeadlessSession, StatusEngine) {
-        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
-        let session = HeadlessSession(tabID: UUID(), taskID: UUID(), statusEngine: engine)
+    private func makeSession(
+        backgroundTasks tracker: BackgroundTaskTracker? = nil
+    ) -> (HeadlessSession, StatusEngine) {
+        let backgroundTasks = tracker ?? BackgroundTaskTracker()
+        let engine = StatusEngine(backgroundTasks: backgroundTasks)
+        let session = HeadlessSession(
+            tabID: UUID(), taskID: UUID(), statusEngine: engine, backgroundTasks: backgroundTasks
+        )
         engine.register(tabID: session.tabID, taskID: session.taskID)
         return (session, engine)
+    }
+
+    /// The idle check reruns from an observation callback, one main-actor
+    /// hop after the change.
+    private func settle() async {
+        for _ in 0..<20 { await Task.yield() }
     }
 
     private let mainAssistant = #"{"type":"assistant","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}"#
@@ -172,9 +183,18 @@ struct AdditionalDirectoriesTests {
 
         #expect(restarts == 1)
         #expect(!session.isRestartPending)
+        #expect(session.restartedAtTurnEnd)
     }
 
-    @Test func aPendingRestartWaitsForBackgroundSubagents() throws {
+    @Test func anIdleSessionRestartsAtOnce() {
+        let (session, _) = makeSession()
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
+        #expect(restarts == 1)
+        #expect(!session.restartedAtTurnEnd)
+    }
+
+    @Test func aPendingRestartRunsOnceSubagentsFinish() async throws {
         let (session, engine) = makeSession()
         session.handle(try decode(mainAssistant))
         engine.setSubagentActivity(tabID: session.tabID, working: true)
@@ -182,9 +202,44 @@ struct AdditionalDirectoriesTests {
         session.restartWhenIdle { restarts += 1 }
 
         session.handle(try decode(result))
-
+        await settle()
         #expect(restarts == 0)
         #expect(session.isRestartPending)
+
+        engine.setSubagentActivity(tabID: session.tabID, working: false)
+        await settle()
+
+        #expect(restarts == 1)
+        #expect(!session.isRestartPending)
+    }
+
+    @Test func aPendingRestartRunsOnceBackgroundTasksFinish() async {
+        let tracker = BackgroundTaskTracker()
+        let (session, _) = makeSession(backgroundTasks: tracker)
+        tracker.replaceLive(tabID: session.tabID, entries: [
+            BackgroundTaskTracker.Entry(id: "m1", kind: .monitor, startedAt: Date(), expiresAt: nil)
+        ])
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
+        #expect(session.isBusy)
+        #expect(restarts == 0)
+
+        tracker.replaceLive(tabID: session.tabID, entries: [])
+        await settle()
+
+        #expect(restarts == 1)
+    }
+
+    /// The old process is about to go, so nothing may start a turn in it.
+    @Test func aMessageSentWhileARestartWaitsIsQueued() throws {
+        let (session, _) = makeSession()
+        session.handle(try decode(mainAssistant))
+        session.restartWhenIdle {}
+
+        let delivery = session.submit(blocks: [.text("later")])
+
+        #expect(delivery == .queued)
+        #expect(session.queuedMessages.count == 1)
     }
 
     @Test func stoppingDropsAPendingRestart() throws {
