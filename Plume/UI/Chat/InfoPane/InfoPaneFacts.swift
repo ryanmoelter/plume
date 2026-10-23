@@ -292,18 +292,13 @@ enum InfoPaneLayout {
         )
     }
 
-    /// The open pane stops at a third of the chat's height so a long list of
-    /// subagents or tickets scrolls inside the pane instead of covering the
-    /// chat, and never reaches into the room the composer and margins take.
-    static func maxOpenHeight(chatHeight: CGFloat, bottomInset: CGFloat, panelInset: CGFloat) -> CGFloat {
-        let room = chatHeight - bottomInset - panelInset * 2
-        return max(0, min(room, chatHeight / 3))
-    }
-
     /// How far down the minimap ignores the pointer: the collapsed pane's
-    /// row, or the whole pinned pane.
-    static func minimapExclusionHeight(geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat) -> CGFloat {
-        geometry.isPinned ? gap + openHeight : geometry.chatTopInset
+    /// row, or the pinned pane up to a third of the chat, so a tall pane
+    /// never walls off the whole minimap.
+    static func minimapExclusionHeight(
+        geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat, chatHeight: CGFloat
+    ) -> CGFloat {
+        geometry.isPinned ? min(gap + openHeight, chatHeight / 3) : geometry.chatTopInset
     }
 
     struct SideGeometry: Equatable {
