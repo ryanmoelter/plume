@@ -159,6 +159,7 @@ struct SidebarView: View {
                 }
                 .contextMenu {
                     Button { appearanceEditingID = task.id } label: { Label("Edit…", systemImage: "pencil") }
+                        .plainMenuIcon()
                         .plumeID(AccessibilityID.taskEditButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }

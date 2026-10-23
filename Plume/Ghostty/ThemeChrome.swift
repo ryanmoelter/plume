@@ -273,4 +273,10 @@ extension View {
     func plumeAccentTint() -> some View {
         modifier(AccentTintModifier())
     }
+
+    /// Draws a menu item's symbol in the label color. Menu icons take the
+    /// inherited tint, which the window sets to the accent color.
+    func plainMenuIcon() -> some View {
+        tint(.primary)
+    }
 }

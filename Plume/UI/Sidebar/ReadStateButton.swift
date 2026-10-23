@@ -10,6 +10,7 @@ struct ReadStateButton: View {
     var body: some View {
         if UnreadStore.shared.hasUnread(among: tabIDs) {
             Button { markRead() } label: { Label("Mark as Read", systemImage: "circle") }
+                .plainMenuIcon()
                 .plumeID(AccessibilityID.markReadButton, label: label)
         } else {
             let statuses = Dictionary(
@@ -18,6 +19,7 @@ struct ReadStateButton: View {
             )
             let targets = UnreadStore.shared.tabsToMarkUnread(statuses)
             Button { UnreadStore.shared.markUnread(targets) } label: { Label("Mark as Unread", systemImage: "circle.fill") }
+                .plainMenuIcon()
                 .plumeID(AccessibilityID.markUnreadButton, label: label)
                 .disabled(targets.isEmpty)
         }
