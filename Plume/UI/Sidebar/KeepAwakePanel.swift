@@ -47,13 +47,13 @@ struct KeepAwakePanel: View {
             Toggle("Keep awake on battery", isOn: $settings.keepsAwakeOnBattery)
                 .help("Holding a Mac awake on battery drains it, and the system may ignore the request anyway.")
 
-            if settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl {
+            Reveal(progress: showsBatteryRemoteControl ? 1 : 0) {
                 Toggle("Keep awake for Remote Control on battery", isOn: $settings.keepsAwakeForRemoteControlOnBattery)
                     .help("Off, a session being driven remotely stops holding the Mac awake on battery.")
-                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .animation(.default, value: showsBatteryRemoteControl)
 
-            if settings.keepsAwakeOnBattery {
+            Reveal(progress: settings.keepsAwakeOnBattery ? 1 : 0) {
                 Stepper(
                     batteryCutoffLabel,
                     value: $settings.keepAwakeBatteryCutoffPercent,
@@ -61,8 +61,8 @@ struct KeepAwakePanel: View {
                     step: 5
                 )
                 .help("The hold releases once the battery drops to or below this percentage, unless it's charging.")
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .animation(.default, value: settings.keepsAwakeOnBattery)
 
             Toggle(isOn: $settings.keepsAwakeWithLidClosed) {
                 // Red because this is what turns the sidebar row red.
@@ -81,12 +81,12 @@ struct KeepAwakePanel: View {
                 .disabled(!coordinator.lidOverrideStatus.canEngage)
                 .opacity(coordinator.lidOverrideStatus.canEngage ? 1 : 0.5)
 
-            if settings.keepsAwakeWithLidClosed {
+            Reveal(progress: settings.keepsAwakeWithLidClosed ? 1 : 0) {
                 LabeledContent("Allow sleep when temperature is") {
                     ThermalCutoffMenu(selection: $settings.lidClosedThermalCutoff)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .animation(.default, value: settings.keepsAwakeWithLidClosed)
 
             lidClose
 
@@ -99,13 +99,14 @@ struct KeepAwakePanel: View {
             }
             #endif
         }
-        .animation(.default, value: settings.keepsAwakeOnBattery)
-        .animation(.default, value: settings.keepsAwakeForRemoteControl)
-        .animation(.default, value: settings.keepsAwakeWithLidClosed)
         .padding(12)
         .frame(width: 340)
         .plumeID(AccessibilityID.keepAwakePanel)
         .onAppear { coordinator.verifyLidHelper() }
+    }
+
+    private var showsBatteryRemoteControl: Bool {
+        settings.keepsAwakeOnBattery && settings.keepsAwakeForRemoteControl
     }
 
     private var guidance: LidCloseGuidance {
