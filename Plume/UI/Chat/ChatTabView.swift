@@ -215,6 +215,25 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    private var folderActions: InfoPaneFolderActions {
+        let tab = tab
+        return InfoPaneFolderActions(
+            add: { try? AdditionalDirectoryStore.add($0, to: tab) },
+            remove: { AdditionalDirectoryStore.remove($0, from: tab) },
+            choose: { AddFolderPanel.present(for: tab) }
+        )
+    }
+
+    private var folderRows: [FolderRow] {
+        let live = claudeSession.flatMap { $0.hasExited ? nil : $0 }
+        return AdditionalDirectories.rows(
+            workingDirectory: gitDirectory,
+            added: tab.additionalDirectories,
+            launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil,
+            reported: live?.reportedAdditionalDirectories ?? []
+        )
+    }
+
     private func infoPaneFacts(linearLinks: [LinkedLinearIssue]) -> InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
@@ -246,6 +265,8 @@ struct ChatTabView: View, ThemedView {
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
+            folderRows: folderRows,
+            canEditFolders: tab.provider == .claudeCode,
             branch: branch,
             pullRequest: pullRequest,
             linkedPullRequests: settings.showsPullRequestStatus
@@ -1134,7 +1155,8 @@ struct ChatTabView: View, ThemedView {
             onOpenSideChat: { isSideChatShown = true },
             remoteControlSession: headlessSession,
             linearActions: linearActions,
-            pullRequestActions: pullRequestActions
+            pullRequestActions: pullRequestActions,
+            folderActions: folderActions
         )
     }
 
@@ -1285,6 +1307,10 @@ struct ChatTabView: View, ThemedView {
                     .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
+                    if tab.provider == .claudeCode {
+                        EmptyStateFolders(tab: tab)
+                            .padding(.top, dimensions.inlineClauseSpacing)
+                    }
                 } else {
                     Text("Waiting for the first message…")
                         .font(.title2)

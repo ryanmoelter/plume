@@ -96,7 +96,12 @@ struct InfoPaneFacts: Equatable {
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
     /// What the plan row reads, or nil when the conversation has no plan.
     var planTitle: String?
+    /// The working directory's display name.
     var folder: String?
+    /// Every folder the conversation reaches, the working directory first.
+    var folderRows: [FolderRow] = []
+    /// Claude Code takes `--add-dir`; Codex has no counterpart here.
+    var canEditFolders = false
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
@@ -121,7 +126,7 @@ struct InfoPaneFacts: Equatable {
         if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
         if remoteControl != nil { sections.append(.remoteControl) }
-        if folder != nil { sections.append(.folder) }
+        if folder != nil || !folderRows.isEmpty { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
         return sections
     }

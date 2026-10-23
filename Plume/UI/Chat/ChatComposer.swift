@@ -58,6 +58,8 @@ struct ChatComposer: View, ThemedView {
     /// The panel that just closed, kept on screen while it collapses.
     @State private var closingSuggestionPanel: SuggestionPanel?
     @State private var textAreaTop: CGFloat = 0
+    /// Kept until the draft that caused it is edited.
+    @State private var addDirectoryError: (message: String, draft: String)?
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -136,8 +138,9 @@ struct ChatComposer: View, ThemedView {
     /// Plume's own join them only once there is something to run them
     /// against. `/rc` drives a control request, which needs a live process.
     /// `/btw` needs a conversation instead, and resumes one that has no
-    /// process. They never shadow a name the CLI reports: if a later CLI
-    /// serves `/rc` headlessly, its version wins.
+    /// process. `/add-dir` changes the tab's own list, so it needs neither.
+    /// They never shadow a name the CLI reports: if a later CLI serves `/rc`
+    /// headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
@@ -148,7 +151,11 @@ struct ChatComposer: View, ThemedView {
         let reportedNames = Set(reported.map(\.name))
         let plumeCommands = PlumeSlashCommand.all.filter { command in
             guard !reportedNames.contains(command.name) else { return false }
-            return command.name == "btw" ? hasConversation : headlessSession != nil
+            switch command.name {
+            case "btw": return hasConversation
+            case "add-dir": return true
+            default: return headlessSession != nil
+            }
         }
         return reported + plumeCommands
     }
@@ -353,6 +360,9 @@ struct ChatComposer: View, ThemedView {
                     )
                     .padding(.bottom, dimensions.panelContentInset)
                 }
+                if let addDirectoryError {
+                    addDirectoryErrorRow(addDirectoryError.message)
+                }
                 if isCommandMode {
                     commandModeChip
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -367,6 +377,7 @@ struct ChatComposer: View, ThemedView {
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
+                        if let error = addDirectoryError, error.draft != text { addDirectoryError = nil }
                         updateCommandMode(for: text)
                         autocomplete.slash.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
                     },
@@ -696,6 +707,11 @@ struct ChatComposer: View, ThemedView {
             Task { await remote.setEnabled(!remote.isAvailableForRemoteAccess) }
             return
         }
+        if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless,
+           case .addDirectory(let path)? = PlumeSlashCommand.parse(text) {
+            addDirectory(path, typed: text)
+            return
+        }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
             guard let headlessSession = liveClaudeSession(for: command) else {
                 // A question has nothing to read until a conversation exists,
@@ -714,6 +730,8 @@ struct ChatComposer: View, ThemedView {
                 )
             case .sideQuestion(let question):
                 headlessSession.askSideQuestion(question)
+            case .addDirectory:
+                break
             }
             return
         }
@@ -808,6 +826,37 @@ struct ChatComposer: View, ThemedView {
                 CommandModeRuns.shared.finish(runID, tabID: tabID)
             }
         }
+    }
+
+    /// A bare `/add-dir` opens the folder picker. A path that is not a
+    /// folder goes back in the draft, to be corrected rather than retyped.
+    private func addDirectory(_ path: String, typed text: String) {
+        guard !path.isEmpty else {
+            AddFolderPanel.present(for: tab)
+            return
+        }
+        do {
+            try AdditionalDirectoryStore.add([path], to: tab)
+        } catch {
+            drafts.setDraft(text, forTab: tab.id)
+            hasSendableText = true
+            addDirectoryError = (message: "Not a folder: \(path)", draft: text)
+        }
+    }
+
+    private func addDirectoryErrorRow(_ error: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(typography.caption.font)
+            Text(error)
+                .font(typography.caption.font)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(colors.danger)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, dimensions.panelContentInset)
+        .plumeID(AccessibilityID.composerAddDirectoryError, value: error)
     }
 
     /// The session a Plume command runs against. A side question needs a
