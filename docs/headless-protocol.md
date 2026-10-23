@@ -493,20 +493,23 @@ Probed against 2.1.304 unless marked *(binary)*, which means read from the embed
 
 **Plume passes one `--add-dir=<path>` per path.** The flag is variadic, so the bare form `--add-dir A` takes every following word up to the next flag. `--add-dir A B --effort low` parses as two directories and a flag, but a following positional prompt is swallowed: `claude -p --add-dir /x hi` fails with "Input must be provided either through stdin or as a prompt argument". The `=` form binds exactly one value and ends the option, so `claude -p --add-dir=/x hi` runs the prompt. Measured against 2.1.304. `HeadlessCommand.addDirectoryArguments` builds it for both transports. The terminal transport needs it most, since its argv ends with the first message.
 
-**`system/init` reports `additional_directories`**, an array of path strings. It lists the launch-time `--add-dir` paths as passed, in launch order, and is `[]` when none were passed. Folders granted inside a session are presumed to appear there too, but that is untested. Plume shows any entry it did not pass as added outside Plume, and does not offer to remove it. Paths are kept as given, with no symlink resolution: `/tmp/…` stays `/tmp/…` and does not become `/private/tmp/…`.
+**`system/init` reports `additional_directories`**, an array of path strings. It lists the launch-time `--add-dir` paths as passed, in launch order, and is `[]` when none were passed. Folders granted inside a session are presumed to appear there too, but that is untested. Plume adopts any entry it did not pass into the tab's own list, and counts it as launched so the adoption takes no restart. Paths are kept as given, with no symlink resolution: `/tmp/…` stays `/tmp/…` and does not become `/private/tmp/…`.
 
 ```json
 "additional_directories":["/private/tmp/…/A","/tmp/…/B"]
 ```
 
 - **A settings entry did not appear.** A `.claude/settings.local.json` `permissions.additionalDirectories` entry was missing from the list, in a scratch directory outside the repo. Whether the CLI loaded that setting there is unverified.
+- **A missing folder is dropped silently.** `--add-dir=/nonexistent` launches normally and is simply absent from the list, so a deleted folder never stops a tab from launching. Measured against 2.1.304.
 - **Resume does not restore them.** `--resume <id> --add-dir A` after a launch with A and B reports `["…/A"]`. `--resume <id>` alone reports `[]`. The `session_id` is unchanged, so the host must pass every directory again on each launch.
 
 **`add_directory` is cloud-only** *(binary)*. Its payload carries a `mount_path` under `/uploads/`, and it needs `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`. A local session has no use for it.
 
 **`register_repo_root {directory}` accepts only a strict subdirectory of the cwd or of a launch-time `--add-dir` root** *(binary)*. It replies `{directory}`.
 
-**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags. `AdditionalDirectoryStore` waits for that until the session is idle: no turn, subagent, background task or side question running, a fork has finished its first turn (before then its id has no transcript to resume), and a rewind has had a turn since (before then the file's tip is still the abandoned branch). The wait never holds a message: one sent while the session is idle but for background work goes to the old process. One queued behind a running turn goes to the new process, because the restart fires at that turn's end, before the queue drains.
+**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags. `AdditionalDirectoryStore` waits for that until the session is idle: no turn, subagent, background task or side question running, a fork has finished its first turn (before then its id has no transcript to resume), and a rewind has had a turn since (before then the file's tip is still the abandoned branch). The wait never holds a message: one sent while the session is idle but for background work goes to the old process. One queued behind a running turn goes to the new process, because the restart fires at that turn's end, before the queue drains. When the last background task ends, the restart waits a further `subagentWakeGrace` for the `<task-notification>` turn it may wake. The new process launches only once the old one has exited, so two processes never resume one transcript at once.
+
+A `remote_control` request written before the `initialize` reply is accepted: a probe that wrote it ahead of `initialize` itself got `success` for both. A restarted session can therefore re-enable Remote Control right after launch.
 
 ## Error-shaped control responses
 
@@ -532,7 +535,7 @@ Observed in order, from a real run:
 
 Also defined in the schema: `attachment`, `prompt_suggestion`, and an auto-denial advisory event.
 
-`total_cost_usd` is a **running total for the whole conversation**, re-sent on every `result` event — a session total must replace its tracked cost with each new value rather than accumulate. Replacing also keeps the figure correct across a `--resume`, since the first `result` after resuming already carries the true running total.
+`total_cost_usd` is a **running total for the whole conversation**, re-sent on every `result` event — a session total must replace its tracked cost with each new value rather than accumulate. Replacing also keeps the figure correct across a `--resume`, since the first `result` after resuming already carries the true running total: a session at $0.247 after two turns reported $0.301 after one more turn in a resumed process. Plume still takes the larger of the old and new values, so the meter never steps back across a restart.
 
 ## What this buys over the TUI
 

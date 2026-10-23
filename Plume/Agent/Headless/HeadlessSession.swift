@@ -73,13 +73,15 @@ final class HeadlessSession: AgentSession {
     /// no way to add or remove one mid-session, so a changed list takes a
     /// restart.
     private(set) var launchAdditionalDirectories: [String] = []
-    /// What `init` says the session reaches beyond `cwd`: the launch-time
-    /// `--add-dir` paths as passed, and presumably grants made inside the
-    /// session.
-    private(set) var reportedAdditionalDirectories: [String] = []
+    /// Handed the folders `init` reports beyond the launch list, which the
+    /// tab adopts as its own. The process already reaches them, so they join
+    /// `launchAdditionalDirectories` too and need no restart.
+    @ObservationIgnored var onAdoptDirectories: (([String]) -> Void)?
     /// True while a restart waits for the session to go idle.
     private(set) var isRestartPending = false
-    @ObservationIgnored private var pendingRestart: (() -> Void)?
+    /// Returns whether a new process is on its way. False leaves this one
+    /// running as if no restart had been asked for.
+    @ObservationIgnored private var pendingRestart: (() -> Bool)?
     @ObservationIgnored private var isObservingForRestart = false
     /// Set when a pending restart fires at a turn's end, which is when a
     /// title request falls due. The relaunched session sends it instead.
@@ -110,7 +112,8 @@ final class HeadlessSession: AgentSession {
 
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
-    /// that also keeps the figure correct across a `--resume`.
+    /// that also keeps the figure correct across a `--resume`. The larger
+    /// value wins, so the meter never steps back across a restart.
     private(set) var sessionCostUSD: Double?
     private(set) var contextWindow: Int?
     private(set) var contextUsedTokens: Int?
@@ -142,6 +145,7 @@ final class HeadlessSession: AgentSession {
 
     @ObservationIgnored private var subagentWakeHold: Task<Void, Never>?
     @ObservationIgnored var subagentWakeGrace: Duration = .seconds(2)
+    private var backgroundTaskWakeHold: Task<Void, Never>?
 
     /// A `result` that arrived while `deliveringMessages` was not empty. The
     /// CLI runs an undelivered message as its own turn about a tenth of a
@@ -361,16 +365,29 @@ final class HeadlessSession: AgentSession {
     var processIdentifier: pid_t? { process?.processIdentifier }
 
     func stop() {
+        close()?.terminate()
+    }
+
+    /// Stops like `stop()`, but waits off the main actor for the process to
+    /// exit, so a resume launched after it never shares the transcript with it.
+    func stopAwaitingExit() async {
+        guard let process = close() else { return }
+        await Task.detached { process.terminate() }.value
+    }
+
+    private func close() -> AgentProcess? {
+        endSubagentWakeHold()
+        endBackgroundTaskWakeHold()
         isClosed = true
         clearPendingRestart()
-        process?.terminate()
+        let closing = process
         process = nil
         hasExited = true
         // Forgotten rather than emptied, so a tab switched to the terminal
         // transport reads its tasks from the transcript again.
         backgroundTasks.forget(tabID: tabID)
-        endSubagentWakeHold()
         endDeliveryHold()
+        return closing
     }
 
     /// Records a failure found before any process was spawned — a failed
@@ -582,7 +599,7 @@ final class HeadlessSession: AgentSession {
         if hasUnsettledRewind { blockers.append(.unsettledRewind) }
         if hasWorkingSubagents { blockers.append(.subagents) }
         if hasUnansweredSideQuestion { blockers.append(.sideQuestion) }
-        if hasRunningBackgroundTasks { blockers.append(.backgroundTasks) }
+        if hasRunningBackgroundTasks || backgroundTaskWakeHold != nil { blockers.append(.backgroundTasks) }
         return blockers
     }
 
@@ -609,7 +626,7 @@ final class HeadlessSession: AgentSession {
     /// never holds a message back: one sent meanwhile goes to this process,
     /// unless it queues behind a turn, whose end hands the queue to the new
     /// process.
-    func restartWhenIdle(_ restart: @escaping () -> Void) {
+    func restartWhenIdle(_ restart: @escaping () -> Bool) {
         pendingRestart = restart
         isRestartPending = true
         firePendingRestartIfIdle()
@@ -641,17 +658,17 @@ final class HeadlessSession: AgentSession {
         guard let restart = pendingRestart else { return false }
         guard isBusy else {
             clearPendingRestart()
-            restart()
-            return true
+            return restart()
         }
         guard !isObservingForRestart else { return false }
         isObservingForRestart = true
         withObservationTracking {
             _ = isBusy
         } onChange: { [weak self] in
-            Task { @MainActor in
-                self?.isObservingForRestart = false
-                self?.firePendingRestartIfIdle()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                isObservingForRestart = false
+                firePendingRestartIfIdle()
             }
         }
         return false
@@ -670,6 +687,9 @@ final class HeadlessSession: AgentSession {
         titleRequester = previous.titleRequester
         hasUserSubmitted = hasUserSubmitted || previous.hasUserSubmitted
         rewoundBeforeMessageID = rewoundBeforeMessageID ?? previous.rewoundBeforeMessageID
+        sessionCostUSD = sessionCostUSD ?? previous.sessionCostUSD
+        contextWindow = contextWindow ?? previous.contextWindow
+        contextUsedTokens = contextUsedTokens ?? previous.contextUsedTokens
         switch previous.remoteControl {
         case .connected, .connecting:
             setRemoteControl(enabled: true, name: previous.remoteControlName)
@@ -942,7 +962,7 @@ final class HeadlessSession: AgentSession {
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
             hasReportedModeAndModel = true
-            reportedAdditionalDirectories = info.additionalDirectories
+            adoptReportedDirectories(info.additionalDirectories)
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
             }
@@ -971,6 +991,7 @@ final class HeadlessSession: AgentSession {
             // An event decoded before the process exited can land after it.
             guard !hasExited else { break }
             let now = Date()
+            let hadBackgroundTasks = hasRunningBackgroundTasks
             backgroundTasks.replaceLive(tabID: tabID, entries: tasks.compactMap { task in
                 task.trackedKind.map {
                     BackgroundTaskTracker.Entry(
@@ -983,6 +1004,7 @@ final class HeadlessSession: AgentSession {
                 }
             })
             reportLiveSubagents(running: tasks.contains(where: \.isSubagent))
+            if hadBackgroundTasks, !hasRunningBackgroundTasks, !isWorking { beginBackgroundTaskWakeHold() }
 
         case .streamEvent(let event):
             // A turn can produce several messages: answering a question or
@@ -1194,6 +1216,7 @@ final class HeadlessSession: AgentSession {
         wasInterrupted = false
         reportStatus(.working)
         endSubagentWakeHold()
+        endBackgroundTaskWakeHold()
     }
 
     private func endDeliveryHold() {
@@ -1223,10 +1246,52 @@ final class HeadlessSession: AgentSession {
         }
     }
 
+    /// A closed session's tab may already belong to the session replacing it.
     private func endSubagentWakeHold(running: Bool = false) {
         subagentWakeHold?.cancel()
         subagentWakeHold = nil
+        guard !isClosed else { return }
         statusEngine.setLiveSubagentActivity(tabID: tabID, working: running)
+    }
+
+    /// A finished background task wakes the main agent with a
+    /// `<task-notification>` turn, so a restart waits out the same gap that
+    /// `subagentWakeGrace` covers for subagents.
+    private func beginBackgroundTaskWakeHold() {
+        backgroundTaskWakeHold?.cancel()
+        backgroundTaskWakeHold = Task { [weak self, grace = subagentWakeGrace] in
+            try? await Task.sleep(for: grace)
+            guard !Task.isCancelled else { return }
+            self?.backgroundTaskWakeHold = nil
+        }
+    }
+
+    private func endBackgroundTaskWakeHold() {
+        backgroundTaskWakeHold?.cancel()
+        backgroundTaskWakeHold = nil
+    }
+
+    private func adoptReportedDirectories(_ reported: [String]) {
+        let known = Set(
+            (launchAdditionalDirectories + [launchDirectory].compactMap { $0 })
+                .compactMap { AdditionalDirectories.normalized($0) }
+        )
+        var adopted: [String] = []
+        for path in reported {
+            guard let normalized = AdditionalDirectories.normalized(path),
+                  !known.contains(normalized), !adopted.contains(normalized)
+            else { continue }
+            adopted.append(normalized)
+        }
+        guard !adopted.isEmpty else { return }
+        launchAdditionalDirectories += adopted
+        onAdoptDirectories?(adopted)
+    }
+
+    /// Puts messages back in the queue without sending them, for a restart
+    /// whose new process failed to launch: a reconnect delivers them.
+    func requeue(_ messages: [[UserContentBlock]]) {
+        queuedMessages.append(contentsOf: messages)
     }
 
     /// Shown for an error result that carries no text, until the CLI's own
@@ -1234,7 +1299,7 @@ final class HeadlessSession: AgentSession {
     static let unexplainedTurnFailure = "The turn failed."
 
     private func endTurn(_ result: TurnResult) {
-        if let cost = result.totalCostUSD { sessionCostUSD = cost }
+        if let cost = result.totalCostUSD { sessionCostUSD = max(cost, sessionCostUSD ?? 0) }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }
         guard deliveringMessages.isEmpty else {
@@ -1284,6 +1349,7 @@ final class HeadlessSession: AgentSession {
         hasUnsettledRewind = false
         restartedAtTurnEnd = pendingRestart != nil && !isBusy
         if firePendingRestartIfIdle() { return }
+        restartedAtTurnEnd = false
         requestTitleIfDue()
         sendNextQueuedMessage()
     }
@@ -1369,6 +1435,7 @@ final class HeadlessSession: AgentSession {
         // beyond anything Plume can see.
         if !isClosed { backgroundTasks.replaceLive(tabID: tabID, entries: []) }
         endSubagentWakeHold()
+        endBackgroundTaskWakeHold()
         // The bridge cannot outlive the process that served it.
         updateRemoteControl(.disconnected, notify: false)
         // A process the user stopped exits non-zero, which is not a failure

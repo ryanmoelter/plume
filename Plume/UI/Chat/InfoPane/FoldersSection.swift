@@ -43,8 +43,8 @@ struct FolderRestartFacts: Equatable {
     }
 }
 
-/// The folders a conversation reaches: its working directory, the ones the
-/// tab adds with `--add-dir`, and any the session reports on its own.
+/// The folders a conversation reaches: its working directory and the ones
+/// the tab adds with `--add-dir`.
 ///
 /// A lone working directory sits inline as one row; a second folder groups
 /// them under a collapsible header.
@@ -224,7 +224,7 @@ private struct FolderRowView: View, ThemedView {
     }
 
     private var isDimmed: Bool {
-        row.kind == .foreign || row.pending == .removesAfterTurn
+        row.pending == .removesAfterTurn
     }
 
     private var note: String? {
@@ -240,7 +240,6 @@ private struct FolderRowView: View, ThemedView {
         let path = FolderActions.abbreviated(row.path)
         switch (row.kind, row.pending) {
         case (.workingDirectory, _): return "Working folder: \(path)"
-        case (.foreign, _): return "\(path)\nAdded outside \(AppIdentity.displayName), so it can't be removed here"
         case (_, .addsAfterTurn): return restartNote.map { "\(path)\n\($0)" } ?? path
         case (_, .removesAfterTurn): return "\(path)\nRemoved once the change applies"
         case (.added, .none): return path
@@ -251,7 +250,6 @@ private struct FolderRowView: View, ThemedView {
     private var value: String {
         switch (row.kind, row.pending) {
         case (.workingDirectory, _): "working directory"
-        case (.foreign, _): "foreign"
         case (_, .addsAfterTurn): "adds after turn"
         case (_, .removesAfterTurn): "removes after turn"
         case (.added, .none): "added"

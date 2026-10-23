@@ -830,9 +830,8 @@ struct ChatComposer: View, ThemedView {
             AddFolderPanel.present(for: tab)
             return
         }
-        do {
-            try AdditionalDirectoryStore.add([path], to: tab)
-        } catch {
+        Task {
+            guard await !AdditionalDirectoryStore.add([path], to: tab).isEmpty else { return }
             drafts.setDraft(text, forTab: tab.id)
             hasSendableText = true
             addDirectoryError = (message: "Not a folder: \(path)", draft: text)

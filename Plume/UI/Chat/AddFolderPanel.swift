@@ -18,8 +18,19 @@ enum AddFolderPanel {
         // Not modal, so no tracking loop runs inside the click that opened it.
         panel.begin { [weak tab] response in
             guard response == .OK, let tab else { return }
-            try? AdditionalDirectoryStore.add(panel.urls.map(\.path), to: tab)
+            let paths = panel.urls.map(\.path)
+            Task { report(await AdditionalDirectoryStore.add(paths, to: tab)) }
         }
+    }
+
+    /// Says which paths were not added. The rest already were.
+    static func report(_ rejected: [String]) {
+        guard !rejected.isEmpty else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = rejected.count == 1 ? "Not a folder" : "Not folders"
+        alert.informativeText = rejected.map(FolderActions.abbreviated).joined(separator: "\n")
+        alert.runModal()
     }
 }
 
@@ -31,7 +42,7 @@ struct AddFolderDropDelegate: DropDelegate {
     let add: ([String]) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        isEnabled && !folders(in: info).isEmpty
+        isEnabled && !DroppedFolders.urls(in: info).isEmpty
     }
 
     func dropEntered(info: DropInfo) { isTargeted = validateDrop(info: info) }
@@ -39,15 +50,17 @@ struct AddFolderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
-        let folders = folders(in: info)
+        let folders = DroppedFolders.urls(in: info)
         guard !folders.isEmpty else { return false }
         add(folders.map(\.path))
         return true
     }
+}
 
+enum DroppedFolders {
     /// `NSItemProvider` only loads asynchronously, so the URLs come off the
     /// drag pasteboard instead — `validateDrop` has to answer now.
-    private func folders(in info: DropInfo) -> [URL] {
+    static func urls(in info: DropInfo) -> [URL] {
         guard info.hasItemsConforming(to: [.fileURL]) else { return [] }
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         let urls = NSPasteboard(name: .drag)

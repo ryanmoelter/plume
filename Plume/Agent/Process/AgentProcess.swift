@@ -6,7 +6,7 @@ import os
 /// Deliberately knows nothing about chat, status, permissions, or which CLI it
 /// is running: it delivers whole lines and writes lines back. The session that
 /// owns it supplies meaning.
-final class AgentProcess: @unchecked Sendable {
+nonisolated final class AgentProcess: @unchecked Sendable {
     private let process = Process()
     private let inPipe = Pipe()
     private let outPipe = Pipe()

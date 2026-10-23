@@ -220,7 +220,7 @@ struct ChatTabView: View, ThemedView {
     private var folderActions: InfoPaneFolderActions {
         let tab = tab
         return InfoPaneFolderActions(
-            add: { try? AdditionalDirectoryStore.add($0, to: tab) },
+            add: { paths in Task { AddFolderPanel.report(await AdditionalDirectoryStore.add(paths, to: tab)) } },
             remove: { AdditionalDirectoryStore.remove($0, from: tab) },
             choose: { AddFolderPanel.present(for: tab) },
             restartNow: { AdditionalDirectoryStore.restartNow(tab) }
@@ -237,8 +237,7 @@ struct ChatTabView: View, ThemedView {
             workingDirectory: gitDirectory,
             launchDirectory: live?.launchDirectory,
             added: tab.additionalDirectories,
-            launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil,
-            reported: live?.reportedAdditionalDirectories ?? []
+            launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil
         )
     }
 

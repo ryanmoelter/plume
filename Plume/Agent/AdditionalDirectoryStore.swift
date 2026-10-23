@@ -10,32 +10,37 @@ import Foundation
 /// `restartNow`.
 ///
 /// The stored list keeps every folder the user adds, even the working
-/// directory. Only a launch drops the folder it starts in, so the store, the
-/// launch and the restart check all measure against the session's own
+/// directory. Only a launch drops the folder it starts in, so the launch and
+/// the restart check both measure against the session's own
 /// `launchDirectory`.
 @MainActor
 enum AdditionalDirectoryStore {
-    enum AddError: Error, Equatable {
-        case notAFolder(String)
-    }
-
-    /// Adds every folder in `paths`, skipping ones the tab already lists.
-    /// A relative path is taken against the tab's working directory.
-    static func add(_ paths: [String], to tab: TaskTab) throws(AddError) {
+    /// Adds every folder in `paths` the tab does not already reach, and
+    /// returns the paths that are not folders. A relative path is taken
+    /// against the tab's working directory.
+    @discardableResult
+    static func add(_ paths: [String], to tab: TaskTab) async -> [String] {
         let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
-        var additions: [String] = []
-        for path in paths {
-            guard let normalized = AdditionalDirectories.normalized(path, relativeTo: base),
-                  isFolder(normalized)
-            else { throw .notAFolder(path) }
-            additions.append(normalized)
-        }
-        update(tab, to: tab.additionalDirectories + additions)
+        let existing = tab.additionalDirectories
+        let found = await Task.detached {
+            AdditionalDirectories.additions(paths, to: existing, relativeTo: base)
+        }.value
+        // The list may have changed while the file system was read.
+        update(tab, to: tab.additionalDirectories + found.additions)
+        return found.rejected
     }
 
     static func remove(_ path: String, from tab: TaskTab) {
-        let key = AdditionalDirectories.comparisonKey(path)
-        update(tab, to: tab.additionalDirectories.filter { AdditionalDirectories.comparisonKey($0) != key })
+        let target = AdditionalDirectories.normalized(path)
+        update(tab, to: tab.additionalDirectories.filter { AdditionalDirectories.normalized($0) != target })
+    }
+
+    /// Folders the running process reports reaching beyond its launch list.
+    /// The session has already counted them as launched, so no restart follows.
+    static func adopt(_ paths: [String], into tab: TaskTab) {
+        let list = AdditionalDirectories.list(tab.additionalDirectories + paths, excluding: nil)
+        guard list != tab.additionalDirectories else { return }
+        tab.additionalDirectories = list
     }
 
     static func canRestartNow(_ session: HeadlessSession) -> Bool {
@@ -49,7 +54,7 @@ enum AdditionalDirectoryStore {
     static func restartNow(_ tab: TaskTab) {
         guard let session = runningSession(of: tab), canRestartNow(session), let task = tab.task else { return }
         session.abandonUnansweredSideQuestions()
-        AgentLauncher.relaunchHeadless(task: task, tab: tab)
+        AgentLauncher.restartHeadless(task: task, tab: tab)
     }
 
     private static func update(_ tab: TaskTab, to paths: [String]) {
@@ -69,21 +74,17 @@ enum AdditionalDirectoryStore {
 
     private static func applyToRunningSession(of tab: TaskTab) {
         guard let session = runningSession(of: tab) else { return }
-        let launchKeys = session.launchAdditionalDirectories.map(AdditionalDirectories.comparisonKey)
-        let wanted = AdditionalDirectories.list(tab.additionalDirectories, excluding: session.launchDirectory)
-        guard launchKeys != wanted.map(AdditionalDirectories.comparisonKey) else {
+        guard AdditionalDirectories.needsRestart(
+            launched: session.launchAdditionalDirectories,
+            stored: tab.additionalDirectories,
+            launchDirectory: session.launchDirectory
+        ) else {
             session.cancelPendingRestart()
             return
         }
-        let restart = { [weak tab] in
-            guard let tab, let task = tab.task else { return }
-            AgentLauncher.relaunchHeadless(task: task, tab: tab)
+        session.restartWhenIdle { [weak tab] in
+            guard let tab, let task = tab.task else { return false }
+            return AgentLauncher.restartHeadless(task: task, tab: tab)
         }
-        session.restartWhenIdle(restart)
-    }
-
-    private static func isFolder(_ path: String) -> Bool {
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

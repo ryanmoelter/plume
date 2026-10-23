@@ -85,7 +85,8 @@ final class TaskTab {
     var launchArgumentsData: Data?
     /// JSON `[String]` of absolute paths passed as `--add-dir`. A resume
     /// restores none of a session's added folders, so this is the only
-    /// record of them. `AdditionalDirectoryStore` owns the writes.
+    /// record of them. `AdditionalDirectoryStore` owns the writes to a tab
+    /// with a session; a fork copies its source's list before it has one.
     var additionalDirectoriesData: Data?
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {

@@ -86,18 +86,83 @@ enum AgentLauncher {
     /// Replaces the tab's headless session with a new process resuming the
     /// same conversation. Unsent messages, side chats, the title policy and
     /// Remote Control live only in the old session, so they move across.
+    ///
+    /// For a session that has exited, or none at all. A running one goes
+    /// through `restartHeadless`, which waits for its process to exit.
     @discardableResult
     static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
         let previous = AgentSessionManager.shared.existingSession(for: tab.id)
         let queued = previous?.queuedMessages ?? []
+        if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
         if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        return resume(task: task, tab: tab, inheriting: previous, queued: queued)
+    }
+
+    /// Restarts a running headless session so it relaunches with the tab's
+    /// current settings. The resumed process starts only once the old one
+    /// has exited.
+    ///
+    /// False when nothing would launch, leaving the old session running:
+    /// no running session, no conversation to resume, or a launch the
+    /// pre-flight checks would refuse.
+    @discardableResult
+    static func restartHeadless(task: WorkTask, tab: TaskTab) -> Bool {
+        guard let previous = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
+              !previous.hasExited
+        else { return false }
+        persistLiveSettings(of: previous, to: tab)
+        guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+              let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: sessionID),
+              ClaudeTrustStore.isTrusted(workingDirectory),
+              ClaudeCLILocator.isAvailable()
+        else { return false }
+        let queued = previous.queuedMessages
+        _ = AgentSessionManager.shared.detachSession(for: tab.id)
+        Task { [weak tab] in
+            await previous.stopAwaitingExit()
+            guard let tab else { return }
+            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: queued)
+        }
+        return true
+    }
+
+    /// A launch that fails still leaves a failed session holding the
+    /// messages, so the reconnect it offers delivers them.
+    @discardableResult
+    private static func resume(
+        task: WorkTask,
+        tab: TaskTab,
+        inheriting previous: (any AgentSession)?,
+        queued: [[UserContentBlock]]
+    ) -> (any AgentSession)? {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
         let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
         if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
             resumed.inherit(from: previous)
         }
-        for message in queued { resumed?.submit(blocks: message) }
+        if let resumed = resumed as? HeadlessSession, resumed.hasExited {
+            resumed.requeue(queued)
+        } else if let resumed {
+            for message in queued { resumed.submit(blocks: message) }
+        } else if !queued.isEmpty {
+            let draft = [DraftStore.shared.draft(forTab: tab.id)] + queued.map(\.plainText)
+            DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+        }
         return resumed
+    }
+
+    /// What the session changed on its own, such as leaving plan mode, is
+    /// otherwise saved only by a mounted chat view, and the resume reads the tab.
+    private static func persistLiveSettings(of session: HeadlessSession, to tab: TaskTab) {
+        if let sessionID = session.sessionID, !sessionID.isEmpty, tab.agentSessionID == nil {
+            tab.agentSessionID = sessionID
+        }
+        if let mode = session.permissionMode, tab.permissionMode != mode { tab.permissionMode = mode }
+        if let model = session.model, tab.model != model {
+            tab.model = model
+            tab.isModelUserChosen = false
+        }
+        if let effort = session.effort, tab.effort != effort { tab.effort = effort }
     }
 
     private static func launchClaudeHeadless(
@@ -181,6 +246,10 @@ enum AgentLauncher {
             fork: fork,
             addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
         )
+        session.onAdoptDirectories = { [weak tab] paths in
+            guard let tab else { return }
+            AdditionalDirectoryStore.adopt(paths, into: tab)
+        }
         if blocks.hasContent {
             session.submit(blocks: blocks)
         }

@@ -31,9 +31,40 @@ struct AdditionalDirectoriesTests {
     }
 
     /// `/tmp` is a symlink to `/private/tmp`, so the two are one folder.
-    @Test func listTreatsSymlinkedSpellingsAsOneFolder() {
-        #expect(AdditionalDirectories.list(["/tmp", "/private/tmp"], excluding: nil) == ["/tmp"])
-        #expect(AdditionalDirectories.list(["/private/tmp"], excluding: "/tmp").isEmpty)
+    @Test func additionsSkipSymlinkedSpellingsAndReportWhatIsNotAFolder() {
+        let found = AdditionalDirectories.additions(
+            ["/private/tmp", "/nonexistent-plume-folder", "/usr/", "/usr"],
+            to: ["/tmp"],
+            relativeTo: nil
+        )
+        #expect(found.additions == ["/usr"])
+        #expect(found.rejected == ["/nonexistent-plume-folder"])
+    }
+
+    @Test func listOrderNeverForcesARestart() {
+        #expect(!AdditionalDirectories.needsRestart(launched: ["/a", "/b"], stored: ["/b", "/a"], launchDirectory: nil))
+        #expect(!AdditionalDirectories.needsRestart(launched: ["/a"], stored: ["/a", "/repo"], launchDirectory: "/repo"))
+        #expect(AdditionalDirectories.needsRestart(launched: ["/a", "/b"], stored: ["/b"], launchDirectory: nil))
+    }
+
+    /// Removing a launched folder and keeping it again appends it at the end.
+    @Test func keepingARemovedFolderNeedsNoRestart() async {
+        let tab = TaskTab(kind: .agent, orderIndex: 0)
+        tab.additionalDirectories = ["/usr", "/bin"]
+        AdditionalDirectoryStore.remove("/usr", from: tab)
+        #expect(tab.additionalDirectories == ["/bin"])
+        await AdditionalDirectoryStore.add(["/usr"], to: tab)
+        #expect(tab.additionalDirectories == ["/bin", "/usr"])
+        #expect(!AdditionalDirectories.needsRestart(
+            launched: ["/usr", "/bin"], stored: tab.additionalDirectories, launchDirectory: nil
+        ))
+    }
+
+    @Test func adoptedFoldersJoinTheTabsList() {
+        let tab = TaskTab(kind: .agent, orderIndex: 0)
+        tab.additionalDirectories = ["/a"]
+        AdditionalDirectoryStore.adopt(["/granted", "/a/"], into: tab)
+        #expect(tab.additionalDirectories == ["/a", "/granted"])
     }
 
     @Test func tabRoundTripsTheList() {
@@ -115,17 +146,15 @@ struct AdditionalDirectoriesTests {
 
     // MARK: - Info pane rows
 
-    @Test func classifiesReportedFolders() {
+    @Test func rowsMergeSymlinkedSpellings() {
         let rows = AdditionalDirectories.rows(
             workingDirectory: "/repo",
-            added: ["/private/tmp"],
-            launched: nil,
-            reported: ["/tmp", "/repo", "/granted"]
+            added: ["/private/tmp", "/tmp"],
+            launched: nil
         )
         #expect(rows == [
             FolderRow(path: "/repo", kind: .workingDirectory, pending: .none),
-            FolderRow(path: "/private/tmp", kind: .added, pending: .none),
-            FolderRow(path: "/granted", kind: .foreign, pending: .none)
+            FolderRow(path: "/private/tmp", kind: .added, pending: .none)
         ])
     }
 
@@ -133,8 +162,7 @@ struct AdditionalDirectoriesTests {
         let rows = AdditionalDirectories.rows(
             workingDirectory: "/repo",
             added: ["/kept", "/new"],
-            launched: ["/kept", "/gone"],
-            reported: ["/kept", "/gone"]
+            launched: ["/kept", "/gone"]
         )
         #expect(rows == [
             FolderRow(path: "/repo", kind: .workingDirectory, pending: .none),
@@ -150,8 +178,7 @@ struct AdditionalDirectoriesTests {
             workingDirectory: "/repo/wt",
             launchDirectory: "/repo",
             added: ["/repo/wt", "/repo", "/new"],
-            launched: [],
-            reported: []
+            launched: []
         )
         #expect(rows == [
             FolderRow(path: "/repo/wt", kind: .workingDirectory, pending: .none),
@@ -194,7 +221,7 @@ struct AdditionalDirectoriesTests {
         session.handle(try decode(mainAssistant))
         #expect(session.isBusy)
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
         #expect(session.isRestartPending)
 
         session.handle(try decode(result))
@@ -207,7 +234,7 @@ struct AdditionalDirectoriesTests {
     @Test func anIdleSessionRestartsAtOnce() {
         let (session, _) = makeSession()
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
         #expect(restarts == 1)
         #expect(!session.restartedAtTurnEnd)
     }
@@ -217,7 +244,7 @@ struct AdditionalDirectoriesTests {
         session.handle(try decode(mainAssistant))
         engine.setSubagentActivity(tabID: session.tabID, working: true)
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
 
         session.handle(try decode(result))
         await settle()
@@ -238,7 +265,7 @@ struct AdditionalDirectoriesTests {
             BackgroundTaskTracker.Entry(id: "m1", kind: .monitor, startedAt: Date(), expiresAt: nil)
         ])
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
         #expect(session.isBusy)
         #expect(restarts == 0)
 
@@ -262,7 +289,7 @@ struct AdditionalDirectoriesTests {
             BackgroundTaskTracker.Entry(id: "m1", kind: .monitor, startedAt: Date(), expiresAt: nil)
         ])
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
 
         let delivery = session.submit(blocks: [.text("now")])
 
@@ -279,7 +306,7 @@ struct AdditionalDirectoriesTests {
         let userTurns = recordUserTurns(of: session)
         session.handle(try decode(mainAssistant))
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
 
         #expect(session.submit(blocks: [.text("later")]) == .queued)
         session.handle(try decode(result))
@@ -294,7 +321,7 @@ struct AdditionalDirectoriesTests {
         let userTurns = recordUserTurns(of: session)
         session.debugMarkAsFork()
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
         #expect(session.restartBlockers == [.unstartedFork])
 
         #expect(session.submit(blocks: [.text("first")]) == .sent)
@@ -307,7 +334,7 @@ struct AdditionalDirectoriesTests {
         let userTurns = recordUserTurns(of: session)
         session.handle(try decode(mainAssistant))
         var restarts = 0
-        session.restartWhenIdle { restarts += 1 }
+        session.restartWhenIdle { restarts += 1; return true }
         _ = session.submit(blocks: [.text("later")])
 
         session.cancelPendingRestart()
@@ -335,17 +362,88 @@ struct AdditionalDirectoriesTests {
     @Test func onlyBackgroundWorkCanBeCutShort() {
         let (session, engine) = makeSession()
         engine.setSubagentActivity(tabID: session.tabID, working: true)
-        session.restartWhenIdle {}
+        session.restartWhenIdle { true }
         #expect(AdditionalDirectoryStore.canRestartNow(session))
 
         session.debugMarkAsFork()
         #expect(!AdditionalDirectoryStore.canRestartNow(session))
     }
 
+    @Test func aRestartThatCannotLaunchLeavesTheQueueToThisProcess() throws {
+        let (session, _) = makeSession()
+        let userTurns = recordUserTurns(of: session)
+        session.handle(try decode(mainAssistant))
+        session.restartWhenIdle { false }
+        _ = session.submit(blocks: [.text("later")])
+
+        session.handle(try decode(result))
+
+        #expect(userTurns().count == 1)
+        #expect(!session.restartedAtTurnEnd)
+        #expect(!session.isRestartPending)
+    }
+
+    private static let backgroundTaskRunning = #"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","run_id":"r1","task_type":"local_bash","description":"clock"}],"session_id":"s"}"#
+    private static let backgroundTasksDone = #"{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"s"}"#
+
+    private func waitForBackgroundTasksToFinish(grace: Duration) throws -> (HeadlessSession, () -> Int) {
+        let (session, _) = makeSession(backgroundTasks: BackgroundTaskTracker())
+        session.subagentWakeGrace = grace
+        session.handle(try decode(Self.backgroundTaskRunning))
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1; return true }
+        session.handle(try decode(Self.backgroundTasksDone))
+        return (session, { restarts })
+    }
+
+    @Test func aRestartWaitsOutTheWakeGraceAfterTheLastBackgroundTask() async throws {
+        let (session, restarts) = try waitForBackgroundTasksToFinish(grace: .seconds(60))
+        await settle()
+        #expect(restarts() == 0)
+        #expect(session.restartBlockers == [.backgroundTasks])
+    }
+
+    /// The grace is a wall-clock wait by design, standing in for the
+    /// `<task-notification>` turn the CLI may start, so this polls.
+    @Test func aRestartFiresOnceTheWakeGraceEnds() async throws {
+        let (session, restarts) = try waitForBackgroundTasksToFinish(grace: .milliseconds(50))
+        for _ in 0..<100 where restarts() == 0 {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(restarts() == 1)
+        #expect(!session.isRestartPending)
+    }
+
+    @Test func initAdoptsFoldersItWasNotLaunchedWith() throws {
+        let (session, _) = makeSession()
+        var adopted: [String] = []
+        session.onAdoptDirectories = { adopted += $0 }
+        let line = #"{"type":"system","subtype":"init","session_id":"s","cwd":"/repo","additional_directories":["/granted","/granted/"]}"#
+
+        session.handle(try decode(line))
+
+        #expect(adopted == ["/granted"])
+        #expect(session.launchAdditionalDirectories == ["/granted"])
+    }
+
+    @Test func theCostMeterNeverStepsBackAcrossARestart() throws {
+        let (previous, _) = makeSession()
+        previous.handle(try decode(mainAssistant))
+        previous.handle(try decode(#"{"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.5}"#))
+        let (resumed, _) = makeSession()
+
+        resumed.inherit(from: previous)
+        #expect(resumed.sessionCostUSD == 0.5)
+        resumed.handle(try decode(mainAssistant))
+        resumed.handle(try decode(#"{"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.25}"#))
+
+        #expect(resumed.sessionCostUSD == 0.5)
+    }
+
     @Test func stoppingDropsAPendingRestart() throws {
         let (session, _) = makeSession()
         session.handle(try decode(mainAssistant))
-        session.restartWhenIdle {}
+        session.restartWhenIdle { true }
         session.stop()
         #expect(!session.isRestartPending)
     }

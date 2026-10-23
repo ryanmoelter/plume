@@ -694,7 +694,7 @@ private struct FolderDropDelegate: DropDelegate {
     let setDirectory: (String) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        isEnabled && !folders(in: info).isEmpty
+        isEnabled && !DroppedFolders.urls(in: info).isEmpty
     }
 
     func dropEntered(info: DropInfo) { isTargeted = true }
@@ -702,19 +702,9 @@ private struct FolderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
-        guard let folder = folders(in: info).first else { return false }
+        guard let folder = DroppedFolders.urls(in: info).first else { return false }
         setDirectory(folder.path)
         return true
-    }
-
-    /// `NSItemProvider` only loads asynchronously, so the URLs come off the
-    /// drag pasteboard instead — `validateDrop` has to answer now.
-    private func folders(in info: DropInfo) -> [URL] {
-        guard info.hasItemsConforming(to: [.fileURL]) else { return [] }
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        let urls = NSPasteboard(name: .drag)
-            .readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
-        return urls.filter(\.hasDirectoryPath)
     }
 }
 
