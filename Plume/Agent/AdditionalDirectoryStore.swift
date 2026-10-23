@@ -19,7 +19,7 @@ enum AdditionalDirectoryStore {
     /// returns the paths that are not folders. A relative path is taken
     /// against the tab's working directory.
     @discardableResult
-    static func add(_ paths: [String], to tab: TaskTab) async -> [String] {
+    static func add(_ paths: [String], to tab: TaskTab, history: UserDefaults = .standard) async -> [String] {
         let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
         let existing = tab.additionalDirectories
         let found = await Task.detached {
@@ -27,6 +27,7 @@ enum AdditionalDirectoryStore {
         }.value
         // The list may have changed while the file system was read.
         update(tab, to: tab.additionalDirectories + found.additions)
+        RecentLinkedFolders.remember(found.additions, in: history)
         return found.rejected
     }
 
@@ -37,10 +38,11 @@ enum AdditionalDirectoryStore {
 
     /// Folders the running process reports reaching beyond its launch list.
     /// The session has already counted them as launched, so no restart follows.
-    static func adopt(_ paths: [String], into tab: TaskTab) {
+    static func adopt(_ paths: [String], into tab: TaskTab, history: UserDefaults = .standard) {
         let list = AdditionalDirectories.list(tab.additionalDirectories + paths, excluding: nil)
         guard list != tab.additionalDirectories else { return }
         tab.additionalDirectories = list
+        RecentLinkedFolders.remember(paths, in: history)
     }
 
     static func canRestartNow(_ session: HeadlessSession) -> Bool {

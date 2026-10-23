@@ -59,7 +59,6 @@ struct FoldersSection: View, ThemedView {
     let actions: InfoPaneFolderActions
 
     @State private var settings = AppSettings.shared
-    @State private var isHoveringAdd = false
 
     var body: some View {
         let isGrouped = rows.count > 1 || rows.contains { $0.kind != .workingDirectory }
@@ -77,28 +76,32 @@ struct FoldersSection: View, ThemedView {
         rows.first { $0.kind == .workingDirectory }
     }
 
+    /// Clicking the lone row opens the add-folder menu; revealing it in
+    /// Finder stays on the context menu.
     @ViewBuilder
     private var inlineRow: some View {
         let path = workingDirectory?.path
         let name = workingDirectoryName ?? workingDirectory?.name ?? ""
-        Button {
-            if let path { FolderActions.reveal(path) }
-        } label: {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: "folder") }
-                Text(name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 4)
-                if canEdit { OverlaidControlSpace() }
+        let label = HStack(spacing: InfoPaneLayout.columnSpacing) {
+            InfoPaneIcon { Image(systemName: "folder") }
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            if canEdit { addCue }
+        }
+        .emphasis(.secondary)
+        Group {
+            if canEdit {
+                Menu { addFolderMenuItems } label: { label }
+                    .modifier(InfoPaneRowMenuChrome())
+                    .plumeID(AccessibilityID.infoPaneFolderRow, label: name, value: "working directory")
+            } else {
+                label
+                    .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+                    .plumeID(AccessibilityID.infoPaneFolderRow, label: name, value: "working directory")
             }
-            .emphasis(.secondary)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringAdd))
-        .plumeID(AccessibilityID.infoPaneFolderRow, label: name, value: "working directory") {
-            if let path { FolderActions.reveal(path) }
-        }
-        .disabled(path == nil)
         .contextMenu {
             if let path {
                 Button("Reveal in Finder") { FolderActions.reveal(path) }
@@ -106,32 +109,23 @@ struct FoldersSection: View, ThemedView {
             }
         }
         .help(path.map { "Working folder: \(FolderActions.abbreviated($0))" } ?? "")
-        .overlay(alignment: .trailing) {
-            if canEdit { addButton }
-        }
     }
 
+    /// The header opens the add-folder menu, like the lone row it replaces,
+    /// so collapsing moves to the chevron.
     private var groupedSection: some View {
         let isExpanded = settings.infoPaneFoldersExpanded
         return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneFoldersExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: "folder") }
-                    Text("Folders")
-                    Text("\(rows.count)")
-                        .emphasis(.subtle)
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
-                    if canEdit { OverlaidControlSpace() }
-                }
-                .emphasis(.secondary)
-            }
-            .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringAdd))
-            .plumeID(AccessibilityID.infoPaneFoldersToggle, value: isExpanded ? "expanded" : "collapsed")
-            .overlay(alignment: .trailing) {
-                if canEdit { addButton }
+            if canEdit {
+                Menu { addFolderMenuItems } label: { header(isExpanded: isExpanded, showsChevron: false) }
+                    .modifier(InfoPaneRowMenuChrome())
+                    .help("Let this conversation reach another folder")
+                    .plumeID(AccessibilityID.infoPaneFoldersAddMenu)
+                    .overlay(alignment: .leading) { chevronToggle(isExpanded: isExpanded) }
+            } else {
+                Button(action: toggleExpanded) { header(isExpanded: isExpanded, showsChevron: true) }
+                    .buttonStyle(InfoPaneRowButtonStyle())
+                    .plumeID(AccessibilityID.infoPaneFoldersToggle, value: isExpanded ? "expanded" : "collapsed")
             }
 
             if isExpanded {
@@ -153,6 +147,51 @@ struct FoldersSection: View, ThemedView {
         }
     }
 
+    private func header(isExpanded: Bool, showsChevron: Bool) -> some View {
+        HStack(spacing: InfoPaneLayout.columnSpacing) {
+            InfoPaneIcon { Image(systemName: "folder") }
+            Text("Folders")
+            Text("\(rows.count)")
+                .emphasis(.subtle)
+            DisclosureChevron(isExpanded: isExpanded)
+                .opacity(showsChevron ? 1 : 0)
+            Spacer(minLength: 0)
+            if canEdit { addCue }
+        }
+        .emphasis(.secondary)
+    }
+
+    /// Laid over the header's invisible chevron: hidden copies of the parts
+    /// before it put the button exactly there.
+    private func chevronToggle(isExpanded: Bool) -> some View {
+        HStack(spacing: InfoPaneLayout.columnSpacing) {
+            InfoPaneIcon { Image(systemName: "folder") }.hidden()
+            Text("Folders").hidden()
+            Text("\(rows.count)").hidden()
+            Button(action: toggleExpanded) {
+                DisclosureChevron(isExpanded: isExpanded)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .emphasis(.secondary)
+            .help(isExpanded ? "Collapse folders" : "Expand folders")
+            .plumeID(AccessibilityID.infoPaneFoldersToggle, value: isExpanded ? "expanded" : "collapsed", invoke: toggleExpanded)
+        }
+    }
+
+    private func toggleExpanded() {
+        withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneFoldersExpanded.toggle() }
+    }
+
+    private var addFolderMenuItems: some View {
+        AddFolderMenuItems(
+            linked: rows.map(\.path),
+            workingDirectory: workingDirectory?.path,
+            add: { actions.add([$0]) },
+            choose: actions.choose
+        )
+    }
+
     private func restartRow(_ restart: FolderRestartFacts) -> some View {
         HStack(spacing: InfoPaneLayout.columnSpacing) {
             InfoPaneIcon { Image(systemName: "clock").emphasis(.subtle) }
@@ -171,18 +210,24 @@ struct FoldersSection: View, ThemedView {
         .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
     }
 
-    private var addButton: some View {
-        Button(action: actions.choose) {
-            Image(systemName: "plus")
-                .frame(width: InfoPaneLayout.iconColumnWidth)
-                .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.colors.selection)
-        .plumeHover { isHoveringAdd = $0 }
-        .help("Let this conversation reach another folder")
-        .plumeID(AccessibilityID.infoPaneFoldersAddButton, invoke: actions.choose)
+    private var addCue: some View {
+        Image(systemName: "plus")
+            .frame(width: InfoPaneLayout.iconColumnWidth)
+            .foregroundStyle(theme.colors.selection)
+    }
+}
+
+/// A pane row that is a menu: the whole row opens it, with the row's own
+/// hover wash.
+///
+/// `.button` keeps the custom label; `.borderlessButton` would redraw it as
+/// an AppKit popup title.
+struct InfoPaneRowMenuChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .menuStyle(.button)
+            .buttonStyle(InfoPaneRowButtonStyle())
+            .menuIndicator(.hidden)
     }
 }
 
@@ -195,10 +240,8 @@ private struct FolderRowView: View, ThemedView {
     let restartNote: String?
     let actions: InfoPaneFolderActions
 
-    @State private var isHoveringMenu = false
-
     var body: some View {
-        Button(action: reveal) {
+        Menu { menuItems } label: {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: "folder").hidden() }
                 Text(displayName)
@@ -211,16 +254,17 @@ private struct FolderRowView: View, ThemedView {
                         .emphasis(.subtle)
                 }
                 Spacer(minLength: 4)
-                OverlaidControlSpace()
+                Image(systemName: "ellipsis")
+                    .frame(width: InfoPaneLayout.iconColumnWidth)
+                    .foregroundStyle(theme.colors.selection)
             }
             .emphasis(isDimmed ? .subtle : .secondary)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringMenu))
+        .modifier(InfoPaneRowMenuChrome())
         .opacity(row.pending == .removesAfterTurn ? 0.6 : 1)
         .contextMenu { menuItems }
         .help(help)
-        .plumeID(AccessibilityID.infoPaneFolderRow, label: row.path, value: value, invoke: reveal)
-        .overlay(alignment: .trailing) { actionsMenu }
+        .plumeID(AccessibilityID.infoPaneFolderRow, label: row.path, value: value)
     }
 
     private var isDimmed: Bool {
@@ -258,21 +302,6 @@ private struct FolderRowView: View, ThemedView {
 
     private func reveal() {
         FolderActions.reveal(row.path)
-    }
-
-    private var actionsMenu: some View {
-        Menu { menuItems } label: {
-            Image(systemName: "ellipsis")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .foregroundStyle(theme.colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
-        .plumeHover { isHoveringMenu = $0 }
-        .help("Folder actions")
-        .plumeID(AccessibilityID.infoPaneFolderRowMenu, label: row.path)
     }
 
     @ViewBuilder

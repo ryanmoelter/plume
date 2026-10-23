@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The new conversation's extra folders, under the sentence saying where it
-/// runs: a link to add one, and a removable chip per folder already added.
+/// runs: a menu to add one, and a removable chip per folder already added.
 struct EmptyStateFolders: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -9,13 +9,23 @@ struct EmptyStateFolders: View, ThemedView {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button(action: choose) {
+            Menu {
+                AddFolderMenuItems(
+                    linked: tab.additionalDirectories,
+                    workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+                    add: add,
+                    choose: choose
+                )
+            } label: {
                 Label("Add folder", systemImage: "plus")
             }
+            .menuStyle(.button)
             .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .foregroundStyle(colors.selection)
             .help("Let this conversation reach another folder")
-            .plumeID(AccessibilityID.emptyStateAddFolderButton, invoke: choose)
+            .plumeID(AccessibilityID.emptyStateAddFolderMenu)
 
             ForEach(tab.additionalDirectories, id: \.self) { path in
                 chip(path)
@@ -26,6 +36,10 @@ struct EmptyStateFolders: View, ThemedView {
 
     private func choose() {
         AddFolderPanel.present(for: tab)
+    }
+
+    private func add(_ path: String) {
+        Task { AddFolderPanel.report(await AdditionalDirectoryStore.add([path], to: tab)) }
     }
 
     private func chip(_ path: String) -> some View {

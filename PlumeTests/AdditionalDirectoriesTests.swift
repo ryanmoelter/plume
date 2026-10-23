@@ -53,18 +53,36 @@ struct AdditionalDirectoriesTests {
         tab.additionalDirectories = ["/usr", "/bin"]
         AdditionalDirectoryStore.remove("/usr", from: tab)
         #expect(tab.additionalDirectories == ["/bin"])
-        await AdditionalDirectoryStore.add(["/usr"], to: tab)
+        await withScratchDefaults { await AdditionalDirectoryStore.add(["/usr"], to: tab, history: $0) }
         #expect(tab.additionalDirectories == ["/bin", "/usr"])
         #expect(!AdditionalDirectories.needsRestart(
             launched: ["/usr", "/bin"], stored: tab.additionalDirectories, launchDirectory: nil
         ))
     }
 
-    @Test func adoptedFoldersJoinTheTabsList() {
+    @Test func adoptedFoldersJoinTheTabsList() async {
         let tab = TaskTab(kind: .agent, orderIndex: 0)
         tab.additionalDirectories = ["/a"]
-        AdditionalDirectoryStore.adopt(["/granted", "/a/"], into: tab)
+        await withScratchDefaults { AdditionalDirectoryStore.adopt(["/granted", "/a/"], into: tab, history: $0) }
         #expect(tab.additionalDirectories == ["/a", "/granted"])
+    }
+
+    @Test func linkingAFolderRecordsItOutsideTheProjectHistory() async {
+        let tab = TaskTab(kind: .agent, orderIndex: 0)
+        await withScratchDefaults { defaults in
+            defaults.set(["/repo"], forKey: "recentRepositories")
+            await AdditionalDirectoryStore.add(["/usr", "/nonexistent-plume-folder"], to: tab, history: defaults)
+            AdditionalDirectoryStore.adopt(["/bin/"], into: tab, history: defaults)
+            #expect(RecentLinkedFolders.load(from: defaults) == ["/bin", "/usr"])
+            #expect(RecentFolders.load(from: defaults) == ["/repo"])
+        }
+    }
+
+    private func withScratchDefaults<T>(_ body: (UserDefaults) async -> T) async -> T {
+        let name = "plume-linked-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        return await body(defaults)
     }
 
     @Test func tabRoundTripsTheList() {
