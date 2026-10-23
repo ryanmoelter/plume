@@ -70,6 +70,10 @@ Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent
 
 An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
 
+### Hand-offs from implement agents
+
+An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state and changelog bullets. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
+
 ### Clean up as each package lands
 
 Remove a package's worktree and branch as soon as its work is on the release branch, rather than saving it all for after the release. A dozen stale worktrees make `git worktree list` useless for seeing what is still live, and every one of them holds a full DerivedData-adjacent checkout.
