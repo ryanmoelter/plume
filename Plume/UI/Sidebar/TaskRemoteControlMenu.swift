@@ -49,6 +49,7 @@ struct TaskRemoteControlToggle: View {
             let symbol = StatusSymbol.remoteControl.name
             Label("Remote Control", systemImage: isOn ? symbol : "\(symbol).slash")
         }
+            .plainMenuIcon()
             .plumeID(AccessibilityID.taskRemoteControlToggle)
             // Nothing to toggle before the tab's agent has run, once it's
             // exited, or while Codex is still turning the host off.
