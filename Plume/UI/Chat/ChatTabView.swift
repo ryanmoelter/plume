@@ -235,6 +235,7 @@ struct ChatTabView: View, ThemedView {
         let live = liveClaudeSession
         return FolderRowsInput(
             workingDirectory: gitDirectory,
+            launchDirectory: live?.launchDirectory,
             added: tab.additionalDirectories,
             launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil,
             reported: live?.reportedAdditionalDirectories ?? []
@@ -244,7 +245,7 @@ struct ChatTabView: View, ThemedView {
     private var folderRestart: FolderRestartFacts? {
         guard let live = liveClaudeSession, live.isRestartPending else { return nil }
         return FolderRestartFacts(
-            waitsOnBackgroundTasks: !live.isWorking && live.hasRunningBackgroundTasks,
+            blockers: live.restartBlockers,
             canRestartNow: AdditionalDirectoryStore.canRestartNow(live)
         )
     }

@@ -506,7 +506,7 @@ Probed against 2.1.304 unless marked *(binary)*, which means read from the embed
 
 **`register_repo_root {directory}` accepts only a strict subdirectory of the cwd or of a launch-time `--add-dir` root** *(binary)*. It replies `{directory}`.
 
-**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags. `AdditionalDirectoryStore` waits for that until the session is idle: no turn, subagent, background task or side question running, and a fork has finished its first turn, since before then its id has no transcript to resume. Messages sent while it waits are queued for the new process.
+**No control request removes a directory** *(binary)*. `removeDirectories` exists only as a permission-update type, and a launch-time directory stays until the process exits. Changing the set means relaunching with `--resume` and the new flags. `AdditionalDirectoryStore` waits for that until the session is idle: no turn, subagent, background task or side question running, a fork has finished its first turn (before then its id has no transcript to resume), and a rewind has had a turn since (before then the file's tip is still the abandoned branch). The wait never holds a message: one sent while the session is idle but for background work goes to the old process. One queued behind a running turn goes to the new process, because the restart fires at that turn's end, before the queue drains.
 
 ## Error-shaped control responses
 

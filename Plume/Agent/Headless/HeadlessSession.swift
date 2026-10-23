@@ -61,7 +61,8 @@ final class HeadlessSession: AgentSession {
 
     /// Where the process was launched, so a reported command list can be
     /// remembered against a directory even before the tab reports its own.
-    @ObservationIgnored private var launchDirectory: String?
+    /// It is also the folder `--add-dir` never needs to name.
+    @ObservationIgnored private(set) var launchDirectory: String?
 
     private(set) var sessionID: String?
     private(set) var isWorking = false
@@ -79,6 +80,7 @@ final class HeadlessSession: AgentSession {
     /// True while a restart waits for the session to go idle.
     private(set) var isRestartPending = false
     @ObservationIgnored private var pendingRestart: (() -> Void)?
+    @ObservationIgnored private var isObservingForRestart = false
     /// Set when a pending restart fires at a turn's end, which is when a
     /// title request falls due. The relaunched session sends it instead.
     @ObservationIgnored private(set) var restartedAtTurnEnd = false
@@ -180,6 +182,9 @@ final class HeadlessSession: AgentSession {
     /// still hangs from the abandoned branch. See
     /// `Transcript.rolledBack(before:)`.
     private(set) var rewoundBeforeMessageID: String?
+    /// True from a rewind until the next turn ends. Until then the file's
+    /// tip is still the abandoned branch, so a resume would land on it.
+    private var hasUnsettledRewind = false
 
     private(set) var remoteControl: RemoteControlState = .disconnected
 
@@ -274,6 +279,10 @@ final class HeadlessSession: AgentSession {
     }
 
     #if DEBUG
+    func debugMarkAsFork() {
+        didRequestFork = true
+    }
+
     /// Feeds the live-text path without a process, so `SmokeHarness` can
     /// stream into a chat rendered from a transcript on disk.
     func debugStream(text delta: String, restart: Bool = false) {
@@ -353,7 +362,7 @@ final class HeadlessSession: AgentSession {
 
     func stop() {
         isClosed = true
-        cancelPendingRestart()
+        clearPendingRestart()
         process?.terminate()
         process = nil
         hasExited = true
@@ -415,11 +424,6 @@ final class HeadlessSession: AgentSession {
     private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
-        // The new process gets it, along with the rest of the queue.
-        guard !isRestartPending else {
-            queuedMessages.append(normalized)
-            return .queued
-        }
         guard !isWorking else {
             queuedMessages.append(normalized)
             if delivery == .afterToolCall, sendQueueIntoRunningTurn() { return .sent }
@@ -456,7 +460,7 @@ final class HeadlessSession: AgentSession {
     func sendNow(appending blocks: [UserContentBlock]) {
         let normalized = blocks.normalized
         if normalized.hasContent { queuedMessages.append(normalized) }
-        guard !queuedMessages.isEmpty, !isRestartPending else { return }
+        guard !queuedMessages.isEmpty else { return }
         guard isWorking else {
             submit(blocks: takeQueueAsOneTurn())
             return
@@ -551,12 +555,38 @@ final class HeadlessSession: AgentSession {
         statusEngine.hasWorkingSubagents(tabID: tabID)
     }
 
-    /// A restart now would cut short a turn, a subagent, a background task
-    /// or a side question, or resume a fork that has nothing to resume yet.
-    var isBusy: Bool {
-        isWorking || hasWorkingSubagents || hasRunningBackgroundTasks || hasUnansweredSideQuestion
-            || isUnstartedFork
+    /// What a restart would cut short or get wrong, in the order a waiting
+    /// restart names them.
+    enum RestartBlocker: Equatable {
+        case turn
+        case unstartedFork
+        case unsettledRewind
+        case subagents
+        case sideQuestion
+        case backgroundTasks
+
+        /// Whether the user may stop it to restart sooner. A turn ends only
+        /// by interrupt, and the other two would resume the wrong conversation.
+        var canBeCutShort: Bool {
+            switch self {
+            case .subagents, .sideQuestion, .backgroundTasks: true
+            case .turn, .unstartedFork, .unsettledRewind: false
+            }
+        }
     }
+
+    var restartBlockers: [RestartBlocker] {
+        var blockers: [RestartBlocker] = []
+        if isWorking { blockers.append(.turn) }
+        if isUnstartedFork { blockers.append(.unstartedFork) }
+        if hasUnsettledRewind { blockers.append(.unsettledRewind) }
+        if hasWorkingSubagents { blockers.append(.subagents) }
+        if hasUnansweredSideQuestion { blockers.append(.sideQuestion) }
+        if hasRunningBackgroundTasks { blockers.append(.backgroundTasks) }
+        return blockers
+    }
+
+    var isBusy: Bool { !restartBlockers.isEmpty }
 
     var hasRunningBackgroundTasks: Bool {
         !backgroundTasks.inFlight(tabID: tabID).isEmpty
@@ -575,15 +605,24 @@ final class HeadlessSession: AgentSession {
         }
     }
 
-    /// Runs `restart` as soon as the session is idle. Messages sent in the
-    /// meantime wait in the queue, which the restart carries over.
+    /// Runs `restart` as soon as the session is idle. A waiting restart
+    /// never holds a message back: one sent meanwhile goes to this process,
+    /// unless it queues behind a turn, whose end hands the queue to the new
+    /// process.
     func restartWhenIdle(_ restart: @escaping () -> Void) {
         pendingRestart = restart
         isRestartPending = true
         firePendingRestartIfIdle()
     }
 
+    /// Anything still queued goes to this process, since no restart will
+    /// carry it over now.
     func cancelPendingRestart() {
+        clearPendingRestart()
+        if !isWorking, !hasExited { sendNextQueuedMessage() }
+    }
+
+    private func clearPendingRestart() {
         pendingRestart = nil
         isRestartPending = false
     }
@@ -601,14 +640,19 @@ final class HeadlessSession: AgentSession {
     private func firePendingRestartIfIdle() -> Bool {
         guard let restart = pendingRestart else { return false }
         guard isBusy else {
-            cancelPendingRestart()
+            clearPendingRestart()
             restart()
             return true
         }
+        guard !isObservingForRestart else { return false }
+        isObservingForRestart = true
         withObservationTracking {
             _ = isBusy
         } onChange: { [weak self] in
-            Task { @MainActor in self?.firePendingRestartIfIdle() }
+            Task { @MainActor in
+                self?.isObservingForRestart = false
+                self?.firePendingRestartIfIdle()
+            }
         }
         return false
     }
@@ -625,6 +669,7 @@ final class HeadlessSession: AgentSession {
         openingMessage = openingMessage ?? previous.openingMessage
         titleRequester = previous.titleRequester
         hasUserSubmitted = hasUserSubmitted || previous.hasUserSubmitted
+        rewoundBeforeMessageID = rewoundBeforeMessageID ?? previous.rewoundBeforeMessageID
         switch previous.remoteControl {
         case .connected, .connecting:
             setRemoteControl(enabled: true, name: previous.remoteControlName)
@@ -760,6 +805,7 @@ final class HeadlessSession: AgentSession {
         // beside the rewind that did work.
         rewindFailure = nil
         rewoundBeforeMessageID = targetID
+        hasUnsettledRewind = true
         // The retained reply is the newest one, which the cut just dropped;
         // the transcript will never carry it, so nothing else retires it.
         streamingText = ""
@@ -1235,6 +1281,7 @@ final class HeadlessSession: AgentSession {
         lastAssistantMessageID = nil
         wasInterrupted = false
         hasCompletedTurn = true
+        hasUnsettledRewind = false
         restartedAtTurnEnd = pendingRestart != nil && !isBusy
         if firePendingRestartIfIdle() { return }
         requestTitleIfDue()
@@ -1284,7 +1331,7 @@ final class HeadlessSession: AgentSession {
     }
 
     private func sendNextQueuedMessage() {
-        guard !queuedMessages.isEmpty, !isRestartPending else { return }
+        guard !queuedMessages.isEmpty else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
         guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
@@ -1297,7 +1344,7 @@ final class HeadlessSession: AgentSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         // The next launch reads the tab's list anyway.
-        cancelPendingRestart()
+        clearPendingRestart()
         isWorking = false
         endDeliveryHold()
         // Never delivered, so a reconnect still can.

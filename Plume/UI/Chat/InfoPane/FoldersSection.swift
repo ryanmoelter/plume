@@ -4,7 +4,6 @@ import SwiftUI
 struct InfoPaneFolderActions {
     let add: ([String]) -> Void
     let remove: (String) -> Void
-    /// Opens the folder picker.
     let choose: () -> Void
     /// Applies a waiting change without waiting any longer.
     let restartNow: () -> Void
@@ -14,12 +13,33 @@ struct InfoPaneFolderActions {
 
 /// A folder change the running session has yet to pick up.
 struct FolderRestartFacts: Equatable {
-    /// Rather than on the turn.
-    var waitsOnBackgroundTasks: Bool
+    typealias Blocker = HeadlessSession.RestartBlocker
+
+    var blockers: [Blocker]
     var canRestartNow: Bool
 
     var note: String {
-        waitsOnBackgroundTasks ? "Applies when background tasks finish" : "Applies after this turn"
+        switch blockers.first {
+        case .turn: "Applies after this turn"
+        case .unstartedFork: "Applies after this fork's first turn"
+        case .unsettledRewind: "Applies after the next turn"
+        case .subagents: "Applies when subagents finish"
+        case .sideQuestion: "Applies when the side question is answered"
+        case .backgroundTasks: "Applies when background tasks finish"
+        case nil: "Applies in a moment"
+        }
+    }
+
+    var restartNowHelp: String {
+        let stopped = blockers.filter(\.canBeCutShort).map { blocker in
+            switch blocker {
+            case .subagents: "stopping the subagents"
+            case .sideQuestion: "dropping the side question"
+            case .backgroundTasks: "stopping the background tasks"
+            case .turn, .unstartedFork, .unsettledRewind: ""
+            }
+        }
+        return "Apply the folder change now, " + stopped.formatted(.list(type: .and))
     }
 }
 
@@ -51,11 +71,6 @@ struct FoldersSection: View, ThemedView {
             }
         }
         .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
-        // Folding the folder just added under a collapsed header would read
-        // as the add failing.
-        .onChange(of: isGrouped) { _, isGrouped in
-            if isGrouped { settings.infoPaneFoldersExpanded = true }
-        }
     }
 
     private var workingDirectory: FolderRow? {
@@ -149,7 +164,7 @@ struct FoldersSection: View, ThemedView {
                 Button("Restart Now", action: actions.restartNow)
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.colors.selection)
-                    .help("Apply the folder change now, stopping the background tasks")
+                    .help(restart.restartNowHelp)
                     .plumeID(AccessibilityID.infoPaneFoldersRestartNowButton, invoke: actions.restartNow)
             }
         }
@@ -226,7 +241,7 @@ private struct FolderRowView: View, ThemedView {
         switch (row.kind, row.pending) {
         case (.workingDirectory, _): return "Working folder: \(path)"
         case (.foreign, _): return "\(path)\nAdded outside \(AppIdentity.displayName), so it can't be removed here"
-        case (_, .addsAfterTurn): return "\(path)\n\(restartNote ?? "Applies after this turn")"
+        case (_, .addsAfterTurn): return restartNote.map { "\(path)\n\($0)" } ?? path
         case (_, .removesAfterTurn): return "\(path)\nRemoved once the change applies"
         case (.added, .none): return path
         }

@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 /// The folders a Claude Code tab reaches beyond its working directory, and
 /// how the info pane presents them.
@@ -7,15 +6,8 @@ import Synchronization
 /// Nonisolated so the info pane can build its rows off the main actor:
 /// `comparisonKey` reads the file system.
 nonisolated enum AdditionalDirectories {
-    /// Views read a tab's list on every render, so its JSON is decoded once
-    /// per distinct value.
-    private static let decodedLists = Mutex<[Data: [String]]>([:])
-
     static func decoded(_ data: Data) -> [String] {
-        if let cached = decodedLists.withLock({ $0[data] }) { return cached }
-        let list = (try? JSONDecoder().decode([String].self, from: data)) ?? []
-        decodedLists.withLock { $0[data] = list }
-        return list
+        (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
     /// An absolute, tilde-expanded, standardized path. A relative path is
@@ -57,12 +49,17 @@ nonisolated enum AdditionalDirectories {
     /// The info pane's folder rows: the working directory, then Plume's own
     /// list, then whatever else the session reports reaching.
     ///
+    /// `workingDirectory` is where the session is now, which `EnterWorktree`
+    /// can move away from `launchDirectory`, where it started. Every stored
+    /// folder gets a row, even one matching either.
+    ///
     /// `launched` is the list the running process started with, nil when no
     /// process is running. It differs from `added` only while a restart
-    /// waits for the turn to end, and those differences are what the rows
-    /// mark as pending.
+    /// waits, and those differences are what the rows mark as pending. The
+    /// launch never passes `launchDirectory`, so that one is never pending.
     static func rows(
         workingDirectory: String?,
+        launchDirectory: String? = nil,
         added: [String],
         launched: [String]?,
         reported: [String]
@@ -74,13 +71,17 @@ nonisolated enum AdditionalDirectories {
             rows.append(FolderRow(path: path, kind: kind, pending: pending))
         }
 
-        if let workingDirectory { append(workingDirectory, .workingDirectory) }
-        let launchedKeys = launched.map { Set($0.map(comparisonKey)) }
+        if let workingDirectory {
+            rows.append(FolderRow(path: workingDirectory, kind: .workingDirectory, pending: .none))
+        }
+        var launchedKeys = launched.map { Set($0.map(comparisonKey)) }
+        if let launchDirectory { launchedKeys?.insert(comparisonKey(launchDirectory)) }
         let addedKeys = Set(added.map(comparisonKey))
         for path in added {
             let isLaunched = launchedKeys?.contains(comparisonKey(path)) ?? true
             append(path, .added, isLaunched ? .none : .addsAfterTurn)
         }
+        if let workingDirectory { seen.insert(comparisonKey(workingDirectory)) }
         for path in launched ?? [] where !addedKeys.contains(comparisonKey(path)) {
             append(path, .added, .removesAfterTurn)
         }
@@ -93,6 +94,7 @@ nonisolated enum AdditionalDirectories {
 /// the rows rebuild only when one of them changes.
 nonisolated struct FolderRowsInput: Hashable, Sendable {
     var workingDirectory: String?
+    var launchDirectory: String?
     var added: [String]
     var launched: [String]?
     var reported: [String]
@@ -100,6 +102,7 @@ nonisolated struct FolderRowsInput: Hashable, Sendable {
     func rows() -> [FolderRow] {
         AdditionalDirectories.rows(
             workingDirectory: workingDirectory,
+            launchDirectory: launchDirectory,
             added: added,
             launched: launched,
             reported: reported
@@ -127,6 +130,7 @@ nonisolated struct FolderRow: Equatable, Identifiable, Sendable {
     let kind: Kind
     let pending: Pending
 
-    var id: String { path }
+    /// A stored folder can repeat the working directory's path.
+    var id: String { "\(kind):\(path)" }
     var name: String { (path as NSString).lastPathComponent }
 }

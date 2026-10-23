@@ -144,6 +144,23 @@ struct AdditionalDirectoriesTests {
         ])
     }
 
+    /// `EnterWorktree` moved the session out of `/repo`, where it launched.
+    @Test func showsEveryStoredFolderAndNeverMarksTheLaunchFolderPending() {
+        let rows = AdditionalDirectories.rows(
+            workingDirectory: "/repo/wt",
+            launchDirectory: "/repo",
+            added: ["/repo/wt", "/repo", "/new"],
+            launched: [],
+            reported: []
+        )
+        #expect(rows == [
+            FolderRow(path: "/repo/wt", kind: .workingDirectory, pending: .none),
+            FolderRow(path: "/repo/wt", kind: .added, pending: .addsAfterTurn),
+            FolderRow(path: "/repo", kind: .added, pending: .none),
+            FolderRow(path: "/new", kind: .added, pending: .addsAfterTurn)
+        ])
+    }
+
     // MARK: - Restart on change
 
     private func decode(_ line: String) throws -> StreamJSONMessage {
@@ -159,6 +176,7 @@ struct AdditionalDirectoriesTests {
             tabID: UUID(), taskID: UUID(), statusEngine: engine, backgroundTasks: backgroundTasks
         )
         engine.register(tabID: session.tabID, taskID: session.taskID)
+        session.queuedMessageDelivery = { .endOfTurn }
         return (session, engine)
     }
 
@@ -230,16 +248,98 @@ struct AdditionalDirectoriesTests {
         #expect(restarts == 1)
     }
 
-    /// The old process is about to go, so nothing may start a turn in it.
-    @Test func aMessageSentWhileARestartWaitsIsQueued() throws {
+    private func recordUserTurns(of session: HeadlessSession) -> () -> [String] {
+        var lines: [String] = []
+        session.debugLineSink = { lines.append($0) }
+        return { lines.filter { $0.contains(#""type":"user""#) } }
+    }
+
+    @Test func aMessageSentWhileBackgroundTasksHoldARestartGoesNow() {
+        let tracker = BackgroundTaskTracker()
+        let (session, _) = makeSession(backgroundTasks: tracker)
+        let userTurns = recordUserTurns(of: session)
+        tracker.replaceLive(tabID: session.tabID, entries: [
+            BackgroundTaskTracker.Entry(id: "m1", kind: .monitor, startedAt: Date(), expiresAt: nil)
+        ])
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
+
+        let delivery = session.submit(blocks: [.text("now")])
+
+        #expect(delivery == .sent)
+        #expect(userTurns().count == 1)
+        #expect(restarts == 0)
+        #expect(session.isRestartPending)
+    }
+
+    /// The restart fires at the turn's end before the queue drains, so the
+    /// new process gets the message.
+    @Test func aMessageQueuedBehindATurnWaitsForTheNewProcess() throws {
         let (session, _) = makeSession()
+        let userTurns = recordUserTurns(of: session)
         session.handle(try decode(mainAssistant))
-        session.restartWhenIdle {}
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
 
-        let delivery = session.submit(blocks: [.text("later")])
+        #expect(session.submit(blocks: [.text("later")]) == .queued)
+        session.handle(try decode(result))
 
-        #expect(delivery == .queued)
+        #expect(restarts == 1)
+        #expect(userTurns().isEmpty)
         #expect(session.queuedMessages.count == 1)
+    }
+
+    @Test func anUnstartedForkWithARestartWaitingSendsItsFirstMessage() {
+        let (session, _) = makeSession()
+        let userTurns = recordUserTurns(of: session)
+        session.debugMarkAsFork()
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
+        #expect(session.restartBlockers == [.unstartedFork])
+
+        #expect(session.submit(blocks: [.text("first")]) == .sent)
+        #expect(userTurns().count == 1)
+        #expect(restarts == 0)
+    }
+
+    @Test func cancellingARestartStrandsNoQueuedMessage() throws {
+        let (session, _) = makeSession()
+        let userTurns = recordUserTurns(of: session)
+        session.handle(try decode(mainAssistant))
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1 }
+        _ = session.submit(blocks: [.text("later")])
+
+        session.cancelPendingRestart()
+        session.handle(try decode(result))
+
+        #expect(restarts == 0)
+        #expect(userTurns().count == 1)
+        #expect(session.queuedMessages.isEmpty)
+    }
+
+    @Test func blockersSetTheNoteAndWhatRestartNowStops() {
+        let turn = FolderRestartFacts(blockers: [.turn, .backgroundTasks], canRestartNow: false)
+        #expect(turn.note == "Applies after this turn")
+
+        let background = FolderRestartFacts(blockers: [.subagents, .backgroundTasks], canRestartNow: true)
+        #expect(background.note == "Applies when subagents finish")
+        #expect(background.restartNowHelp
+            == "Apply the folder change now, stopping the subagents and stopping the background tasks")
+
+        let side = FolderRestartFacts(blockers: [.sideQuestion], canRestartNow: true)
+        #expect(side.note == "Applies when the side question is answered")
+        #expect(side.restartNowHelp == "Apply the folder change now, dropping the side question")
+    }
+
+    @Test func onlyBackgroundWorkCanBeCutShort() {
+        let (session, engine) = makeSession()
+        engine.setSubagentActivity(tabID: session.tabID, working: true)
+        session.restartWhenIdle {}
+        #expect(AdditionalDirectoryStore.canRestartNow(session))
+
+        session.debugMarkAsFork()
+        #expect(!AdditionalDirectoryStore.canRestartNow(session))
     }
 
     @Test func stoppingDropsAPendingRestart() throws {
