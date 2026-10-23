@@ -61,6 +61,7 @@ Plume/
 - Call `SurfaceManager.closeSession(for:)` when a tab or task is deleted. A SwiftData cascade delete does *not* reap the terminal.
 - `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
 - Surfaces spawn their PTY lazily, when first attached to a view with a usable size — not on selection. A hidden tab still spawns.
+- **The wrapper ticks ghostty only while some terminal view is in a window.** It drops every wakeup otherwise, so with a chat-only task selected, other tasks' bells, titles and exits would sit in ghostty's mailbox until their task is shown again. `DetachedSurfaceTicker` ticks for it in that state.
 
 ## Agent transports
 

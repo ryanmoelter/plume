@@ -99,6 +99,10 @@ final class TerminalSession {
             .store(in: &cancellables)
     }
 
+    var isHostedInWindow: Bool {
+        hostedView?.window != nil
+    }
+
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
     }
