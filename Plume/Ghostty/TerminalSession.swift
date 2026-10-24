@@ -50,6 +50,12 @@ final class TerminalSession {
         var at: Date
     }
 
+    /// Fire whether or not any view shows this session: only the selected
+    /// task's tabs are mounted, so alerts handled in a view never reach the
+    /// user from any other task. `SurfaceManager` installs them.
+    @ObservationIgnored var onBell: (() -> Void)?
+    @ObservationIgnored var onDesktopNotification: ((DesktopNotification) -> Void)?
+
     /// The platform view presenting this session, held strongly.
     ///
     /// The view owns the Ghostty surface, which owns the PTY child, and
@@ -85,12 +91,16 @@ final class TerminalSession {
             .sink { [weak self] in self?.scrollbar = $0 }
             .store(in: &cancellables)
         state.$bellCount
-            .sink { [weak self] in self?.bellCount = $0 }
+            .sink { [weak self] in self?.recordBellCount($0) }
             .store(in: &cancellables)
         state.$lastDesktopNotificationAt
             .compactMap { $0 }
             .sink { [weak self] at in self?.captureDesktopNotification(at: at) }
             .store(in: &cancellables)
+    }
+
+    var isHostedInWindow: Bool {
+        hostedView?.window != nil
     }
 
     var displayTitle: String {
@@ -155,11 +165,19 @@ final class TerminalSession {
     /// properties. The timestamp is written last, so reading the other two
     /// when it changes is what keeps a notification whole.
     private func captureDesktopNotification(at: Date) {
-        desktopNotification = DesktopNotification(
+        let notification = DesktopNotification(
             title: state.lastDesktopNotificationTitle ?? "",
             body: state.lastDesktopNotificationBody ?? "",
             at: at
         )
+        desktopNotification = notification
+        onDesktopNotification?(notification)
+    }
+
+    private func recordBellCount(_ count: Int) {
+        let rang = count > bellCount
+        bellCount = count
+        if rang { onBell?() }
     }
 
     private func markExited(processAlive: Bool) {

@@ -43,6 +43,7 @@ Plume/
   Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
+  Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
@@ -60,6 +61,7 @@ Plume/
 - Call `SurfaceManager.closeSession(for:)` when a tab or task is deleted. A SwiftData cascade delete does *not* reap the terminal.
 - `TerminalSurfaceOptions` set surface identity. Re-requesting an existing session ignores new options by design — changing them would rebuild the surface and kill the process.
 - Surfaces spawn their PTY lazily, when first attached to a view with a usable size — not on selection. A hidden tab still spawns.
+- **The wrapper ticks ghostty only while some terminal view is in a window.** It drops every wakeup otherwise, so with a chat-only task selected, other tasks' bells, titles and exits would sit in ghostty's mailbox until their task is shown again. `DetachedSurfaceTicker` ticks for it in that state.
 
 ## Agent transports
 
@@ -157,6 +159,7 @@ For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` recor
 - Model names avoid colliding with Swift's `Task` and SwiftUI's `Group`: `WorkTask`, `TaskGroup`, `TaskTab`.
 - **All `ghostty_*` calls stay in `Plume/Ghostty/`.** The C API is unstable between versions; upgrading should touch one folder.
 - Status flows through `StatusEngine` in memory; SwiftData gets only a debounced snapshot in `lastStatusRaw`, never per-event writes.
+- **Keep the main thread for UI.** Work that reads a file, scans a transcript, or waits on a process runs off the main actor and publishes only its result, the way `TranscriptStore.read` and `AgentTitleMonitor.read` do. Its tests await the store's `didRead`, not a clock. Never wait on a child process from the main actor: `AgentProcess.terminate()` escalates on a background queue, and only app termination blocks, in `awaitTerminations`. Switching tasks unmounts the chat, so work a view would redo on every mount belongs in a per-tab cache that outlives it (`ChatPieceCache.forTab`). Measure a hang before fixing it: `sample` the pid during the action, or time a control-socket request sent right after it.
 - **Work that outlives a turn comes from the running CLI where it can, and from the transcript where it can't — never from hooks.** A `Monitor`, a backgrounded `Bash` and a `Workflow` all keep running after the tab drops to `awaitingReply`, and `BackgroundTaskTracker` holds them per tab so `KeepAwakeCoordinator` can keep the Mac awake. A headless tab takes membership from the CLI's `background_tasks_changed` list (`HeadlessSession` → `replaceLive`): a task runs exactly as long as the list names it, with no time limit, and the tab empties when its process exits. Terminal tabs fall back to `BackgroundTaskScanner`, which reads the transcript in the same parse `TranscriptStore` already runs; Codex tabs read app-server's inventory. Those inferred entries are capped at 30 minutes, because a transcript that stops being written can never clear them. A headless tab still runs the scan, but only to name what the live list cannot: a `Monitor` arrives as `local_bash`, and the list carries no start time. In the scan, an entry retires when the transcript says its task ended: a terminal `<task-notification>`, or for a Monitor the call passed `persistent: false`, that monitor's first event. Only an explicit `false` counts — reading an absent `persistent` as one-shot would retire a monitor still watching and let the Mac sleep mid-work. A background `Agent` is deliberately not tracked here: `setSubagentActivity` already covers it.
 
 ## Gotchas

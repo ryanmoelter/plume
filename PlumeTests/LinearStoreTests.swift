@@ -3,8 +3,8 @@ import Foundation
 import SwiftData
 @testable import Plume
 
-/// Routing, batching and failure handling across several fake workspaces,
-/// with no Keychain and no network.
+/// Routing, batching, delta sync and failure handling across several fake
+/// workspaces, with no Keychain and no network.
 @MainActor
 struct LinearStoreTests {
     private struct Harness {
@@ -65,10 +65,13 @@ struct LinearStoreTests {
         #expect(await a.issueCalls.count == 1)
         #expect(await b.issueCalls.count == 1)
 
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
         #expect(await a.issueCalls.count == 1)
-        #expect(await b.issueCalls.count == 2)
+        #expect(await b.issueCalls.count == 1)
+        #expect(await a.deltaCalls.count == 1)
+        #expect(await b.deltaCalls.count == 1)
+        #expect(harness.store.state(for: "PLUME-1") == .issue(issue))
     }
 
     @Test func aSharedTeamKeyIsNotFoundOnlyOnceEveryWorkspaceSaysSo() async throws {
@@ -142,10 +145,10 @@ struct LinearStoreTests {
         } onChange: {
             publishes += 1
         }
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
-        #expect(await a.issueCalls.count == 2)
+        #expect(await a.deltaCalls.count == 1)
         #expect(publishes == 0)
     }
 
@@ -158,7 +161,7 @@ struct LinearStoreTests {
         await harness.store.settle()
 
         await a.set(issueError: LinearError.failed("boom"))
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-1") == .stale(issue, reason: "boom"))
@@ -178,11 +181,12 @@ struct LinearStoreTests {
         #expect(harness.store.accountStatus(orgID: "A") == .rateLimited(until: until))
         #expect(harness.store.state(for: "DROID-1") == .notFound)
 
-        harness.store.poll()
+        harness.store.sync()
         harness.store.setWanted(["PLUME-2"], owner: UUID())
         await harness.store.settle()
         #expect(await a.issueCalls.count == 1)
-        #expect(await b.issueCalls.count == 2)
+        #expect(await a.deltaCalls.isEmpty)
+        #expect(await b.deltaCalls.count == 1)
     }
 
     @Test func aLaterCatalogSuccessReconnectsAFailedAccount() async throws {
@@ -192,7 +196,7 @@ struct LinearStoreTests {
         #expect(harness.store.accountStatus(orgID: "A") == .failed("offline"))
 
         await a.set(catalogError: nil)
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(harness.store.accountStatus(orgID: "A") == .connected)
@@ -226,11 +230,11 @@ struct LinearStoreTests {
         harness.store.setWanted(["PLUME-1", "DROID-1"], owner: UUID())
         await harness.store.settle()
 
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
-        #expect(await a.issueCalls.count == 1)
-        #expect(await b.issueCalls.count == 2)
+        #expect(await a.deltaCalls.isEmpty)
+        #expect(await b.deltaCalls.count == 1)
     }
 
     @Test func anUnauthorizedWorkspaceStopsAloneUntilItsKeyChanges() async throws {
@@ -245,11 +249,12 @@ struct LinearStoreTests {
         #expect(harness.store.accountStatus(orgID: "A") == .unauthorized)
         #expect(harness.store.accountStatus(orgID: "B") == .connected)
 
-        harness.store.poll()
+        harness.store.sync()
         harness.store.setWanted(["PLUME-2"], owner: UUID())
         await harness.store.settle()
         #expect(await a.issueCalls.count == 1)
-        #expect(await b.issueCalls.count == 2)
+        #expect(await a.deltaCalls.isEmpty)
+        #expect(await b.deltaCalls.count == 1)
         #expect(harness.store.state(for: "PLUME-2") == .unauthorized)
 
         let issue = LinearTestFixtures.issue("PLUME-1")
@@ -261,7 +266,7 @@ struct LinearStoreTests {
         #expect(harness.store.accountStatus(orgID: "A") == .connected)
     }
 
-    @Test func releasingTheLastOwnerKeepsTheStateAndStopsPollingIt() async throws {
+    @Test func releasingTheLastOwnerKeepsTheStateAndStopsLookingItUp() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let issue = LinearTestFixtures.issue("PLUME-1")
         await a.set(issues: ["PLUME-1": issue])
@@ -274,14 +279,14 @@ struct LinearStoreTests {
 
         harness.store.setWanted([], owner: first)
         harness.store.setWanted([], owner: second)
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-1") == .issue(issue))
         #expect(await a.issueCalls.count == 1)
     }
 
-    @Test func aRowComingBackWithinAPollIntervalDoesNotRefetch() async throws {
+    @Test func aReturningRowReadsTheCacheAndASyncVerifiesItOnceDue() async throws {
         let clock = TestClock()
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let issue = LinearTestFixtures.issue("PLUME-1")
@@ -292,39 +297,38 @@ struct LinearStoreTests {
         await harness.store.settle()
 
         harness.store.setWanted([], owner: row)
-        clock.advance(LinearStore.pollInterval - 1)
+        clock.advance(LinearStore.verifyInterval + 1)
         harness.store.setWanted(["PLUME-1"], owner: row)
-        await harness.store.settle()
         #expect(harness.store.state(for: "PLUME-1") == .issue(issue))
+        await harness.store.settle()
         #expect(await a.issueCalls.count == 1)
 
-        harness.store.setWanted([], owner: row)
-        clock.advance(2)
-        harness.store.setWanted(["PLUME-1"], owner: row)
-        #expect(harness.store.state(for: "PLUME-1") == .issue(issue))
+        harness.store.sync()
+        await harness.store.settle()
+        #expect(await a.issueCalls.count == 2)
+
+        harness.store.sync()
         await harness.store.settle()
         #expect(await a.issueCalls.count == 2)
     }
 
-    @Test func anActivationPollIsSkippedWithinAMinuteOfTheLastPoll() async throws {
+    @Test func anActivationSyncIsSkippedWithinItsIntervalOfTheLastSync() async throws {
         let clock = TestClock()
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let harness = try await makeHarness([a], now: clock.now)
-        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        harness.store.sync()
         await harness.store.settle()
-        harness.store.poll()
-        await harness.store.settle()
-        #expect(await a.issueCalls.count == 2)
+        #expect(await a.deltaCalls.count == 1)
 
-        clock.advance(LinearStore.activationPollInterval - 1)
-        harness.store.pollOnActivation()
+        clock.advance(LinearStore.activationSyncInterval - 1)
+        harness.store.syncOnActivation()
         await harness.store.settle()
-        #expect(await a.issueCalls.count == 2)
+        #expect(await a.deltaCalls.count == 1)
 
         clock.advance(2)
-        harness.store.pollOnActivation()
+        harness.store.syncOnActivation()
         await harness.store.settle()
-        #expect(await a.issueCalls.count == 3)
+        #expect(await a.deltaCalls.count == 2)
     }
 
     @Test func anAnswerFromARemovedKeyNeverApplies() async throws {
@@ -373,17 +377,19 @@ struct LinearStoreTests {
     }
 
     @Test func anErrorScopedToOneIssueKeepsItStale() async throws {
+        let clock = TestClock()
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let issue = LinearTestFixtures.issue("PLUME-1")
         let other = LinearTestFixtures.issue("PLUME-2")
         await a.set(issues: ["PLUME-1": issue, "PLUME-2": other])
-        let harness = try await makeHarness([a])
+        let harness = try await makeHarness([a], now: clock.now)
         harness.store.setWanted(["PLUME-1", "PLUME-2"], owner: UUID())
         await harness.store.settle()
 
         await a.set(issues: ["PLUME-2": other])
         await a.set(issueFailures: ["PLUME-1": "Internal error"])
-        harness.store.poll()
+        clock.advance(LinearStore.verifyInterval + 1)
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-1") == .stale(issue, reason: "Internal error"))
@@ -422,7 +428,7 @@ struct LinearStoreTests {
         }
         let renamed = LinearTestFixtures.issue("PLUME-2", title: "Renamed")
         await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1"), "PLUME-2": renamed])
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-2") == .issue(renamed))
@@ -546,7 +552,7 @@ struct LinearStoreTests {
         #expect(reports.isEmpty)
 
         await a.set(catalogError: nil)
-        harness.store.poll()
+        harness.store.sync()
         await harness.store.settle()
 
         #expect(reports == [["PLUME-1"]])
@@ -566,6 +572,7 @@ struct LinearStoreTests {
 
         harness.store.start()
         defer { harness.store.reset() }
+        await harness.store.settle()
         #expect(harness.store.teamKeys == ["CACHE"])
     }
 
@@ -613,6 +620,134 @@ struct LinearStoreTests {
         #expect(links.map(\.identifier) == ["PLUME-102", "PLUME-7"])
         #expect(links.first?.sources == [.branch])
         #expect(links.last?.role == .mentioned)
+    }
+
+    // MARK: Delta sync
+
+    @Test func aSyncUpdatesAWantedIssueWithNoLookup() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let renamed = LinearTestFixtures.issue("PLUME-1", title: "Renamed")
+        await a.set(issues: ["PLUME-1": renamed])
+        harness.store.sync()
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1") == .issue(renamed))
+        #expect(await a.issueCalls.count == 1)
+    }
+
+    @Test func anIssueCreatedAfterNotFoundArrivesThroughTheDelta() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-5"], owner: UUID())
+        await harness.store.settle()
+        #expect(harness.store.state(for: "PLUME-5") == .notFound)
+
+        let created = LinearTestFixtures.issue("PLUME-5")
+        await a.set(issues: ["PLUME-5": created])
+        harness.store.sync()
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-5") == .issue(created))
+        #expect(await a.issueCalls.count == 1)
+    }
+
+    @Test func aTrashedIssueIsLookedUpAgainAndBecomesNotFound() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        await a.trash("PLUME-1")
+        harness.store.sync()
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1") == .notFound)
+        #expect(await a.issueCalls.count == 2)
+    }
+
+    @Test func theFirstSyncBackfillsAWindowAndTheNextStartsAtTheCursorLessTheOverlap() async throws {
+        let clock = TestClock()
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
+        let harness = try await makeHarness([a], now: clock.now)
+        let updatedAt = try #require(await a.snapshots["PLUME-1"]?.updatedAt)
+
+        harness.store.sync()
+        await harness.store.settle()
+        harness.store.sync()
+        await harness.store.settle()
+
+        #expect(await a.deltaCalls == [
+            clock.now().addingTimeInterval(-LinearSyncCache.backfillWindow),
+            updatedAt.addingTimeInterval(-LinearSyncCache.overlap),
+        ])
+    }
+
+    @Test func aFailingSyncBacksOffBeforeTryingAgain() async throws {
+        let clock = TestClock()
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issueError: LinearError.failed("offline"))
+        let harness = try await makeHarness([a], now: clock.now)
+
+        harness.store.sync()
+        await harness.store.settle()
+        harness.store.sync()
+        await harness.store.settle()
+        #expect(await a.deltaCalls.count == 1)
+
+        clock.advance(LinearStore.initialBackoff + 1)
+        harness.store.sync()
+        await harness.store.settle()
+        #expect(await a.deltaCalls.count == 2)
+
+        clock.advance(LinearStore.initialBackoff + 1)
+        harness.store.sync()
+        await harness.store.settle()
+        #expect(await a.deltaCalls.count == 2)
+    }
+
+    @Test func theCacheOutlivesTheStoreSoARelaunchShowsIssuesWithNoLookup() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let issue = LinearTestFixtures.issue("PLUME-1")
+        await a.set(issues: ["PLUME-1": issue])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(FileManager.default.fileExists(atPath: directory.appending(path: "issues-A.json").path))
+
+        let relaunched = LinearStore(accounts: harness.accounts, cacheDirectory: directory)
+        relaunched.start()
+        defer { relaunched.reset() }
+        await relaunched.settle()
+        relaunched.setWanted(["PLUME-1"], owner: UUID())
+
+        #expect(relaunched.state(for: "PLUME-1") == .issue(issue))
+        await relaunched.settle()
+        #expect(await a.issueCalls.count == 1)
+    }
+
+    @Test func removingAWorkspaceDeletesItsCacheFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        harness.accounts.remove(orgID: "A")
+        await harness.store.settle()
+
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "issues-A.json").path))
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "catalog-A.json").path))
     }
 }
 

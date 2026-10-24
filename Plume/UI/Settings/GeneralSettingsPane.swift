@@ -47,12 +47,16 @@ struct GeneralSettingsPane: View {
 
             Section {
                 LabeledContent("Import from cmux") {
-                    Button("Import…") { requestImport(.cmux) }
+                    Button("Import…", systemImage: "square.and.arrow.down") { requestImport(.cmux) }
                         .plumeID(AccessibilityID.settingsImportCmuxButton, invoke: { requestImport(.cmux) })
                 }
                 LabeledContent("Import from Orca") {
-                    Button("Import…") { requestImport(.orca) }
+                    Button("Import…", systemImage: "square.and.arrow.down") { requestImport(.orca) }
                         .plumeID(AccessibilityID.settingsImportOrcaButton, invoke: { requestImport(.orca) })
+                }
+                LabeledContent("Import from Claude desktop app") {
+                    Button("Import…", systemImage: "square.and.arrow.down") { requestImport(.claudeDesktop) }
+                        .plumeID(AccessibilityID.settingsImportClaudeDesktopButton, invoke: { requestImport(.claudeDesktop) })
                 }
             } header: {
                 Text("Import")

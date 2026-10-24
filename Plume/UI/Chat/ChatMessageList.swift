@@ -30,6 +30,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
+    /// How far down the minimap ignores the pointer, beside the side pane.
+    var minimapExclusionHeight: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
     /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
@@ -52,7 +54,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// `pieces` without those the reveal has yet to reach, which is what the
     /// list draws: a piece takes room only once its text starts appearing.
     @State private var shownPieces: [ChatPiece] = []
-    @State private var cache = ChatPieceCache()
+    /// Only for a list with no tab; a tab's cache outlives this view.
+    @State private var untabbedCache = ChatPieceCache()
     /// The agent messages the reader has opened past their preview. View
     /// state only: every message starts collapsed again in a new view.
     @State private var expandedAgentMessages: Set<String> = []
@@ -136,7 +139,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         bottomInset: floatingPanelHeight,
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
-                        viewportWidth: viewportWidth
+                        viewportWidth: viewportWidth,
+                        revealExclusionHeight: minimapExclusionHeight
                     )
                 }
             }
@@ -223,6 +227,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
 
     private func rebuildPieces() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
+        let cache = tabID.map(ChatPieceCache.forTab) ?? untabbedCache
         let split = { (status: TaskStatus) in
             cache.pieces(
                 for: merged,

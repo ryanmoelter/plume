@@ -20,7 +20,7 @@ struct AutoResumingAgentTabView: View {
     var body: some View {
         Group {
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isSelected, isFocused: isFocused)
+                TerminalTabView(session: session, tabID: tab.id, isVisible: isSelected, isFocused: isFocused)
             } else if !directoryExists {
                 AgentMissingDirectoryView()
             } else {

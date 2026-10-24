@@ -45,7 +45,7 @@ struct GroupSectionHeader: View {
 
             Spacer(minLength: 0)
 
-            if isHovering {
+            HStack(spacing: 4) {
                 Button(action: onCreateTask) {
                     Image(systemName: "plus")
                         .font(.caption.weight(.semibold))
@@ -64,6 +64,11 @@ struct GroupSectionHeader: View {
                 .accessibilityLabel("Edit group")
                 .plumeID(AccessibilityID.groupHeaderEditButton, label: group.name)
             }
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
+            .accessibilityHidden(!isHovering)
+            .plumeControlsHidden(!isHovering)
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
         }
         .contentShape(Rectangle())
         .plumeHover { isHovering = $0 }

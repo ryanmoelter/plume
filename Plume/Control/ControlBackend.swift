@@ -13,6 +13,7 @@ protocol ControlBackend {
     func readText(_ target: ControlTarget) throws -> TextResult
     func clickSpan(_ params: ClickSpanParams) async throws -> ClickResult
     func click(_ params: ClickParams) async throws -> ClickResult
+    func pointerDrag(_ params: PointerDragParams) async throws -> ClickResult
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult
     func hover(_ params: HoverParams) async throws -> HoverResult
@@ -53,6 +54,7 @@ enum ControlDispatcher {
             case .readText(let target): result = .text(try backend.readText(target))
             case .clickSpan(let params): result = .click(try await backend.clickSpan(params))
             case .click(let params): result = .click(try await backend.click(params))
+            case .pointerDrag(let params): result = .click(try await backend.pointerDrag(params))
             case .screenshot(let params): result = .screenshot(try backend.screenshot(params))
             case .hierarchy(let params): result = .hierarchy(try backend.hierarchy(params))
             case .hover(let params): result = .hover(try await backend.hover(params))

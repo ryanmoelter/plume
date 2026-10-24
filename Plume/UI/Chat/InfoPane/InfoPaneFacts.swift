@@ -93,6 +93,8 @@ struct InfoPaneFacts: Equatable {
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
     var artifacts: [ConversationArtifact] = []
+    /// Nil before a session exists, since there is no bridge to attach to.
+    var remoteControl: RemoteControlStatus?
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
@@ -103,6 +105,7 @@ struct InfoPaneFacts: Equatable {
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
+        if remoteControl != nil { sections.append(.remoteControl) }
         if folder != nil { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
         return sections
@@ -116,6 +119,7 @@ struct InfoPaneFacts: Equatable {
             case .subagents: !liveSubagents.isEmpty
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
+            case .remoteControl: remoteControl == .on
             case .folder, .sideChat: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
@@ -231,6 +235,7 @@ enum InfoPaneSection: Equatable {
     case plan
     case artifacts
     case sideChat
+    case remoteControl
     case folder
     case branch
     case pullRequest
@@ -285,6 +290,15 @@ enum InfoPaneLayout {
             chatTrailingReserve: isPinned ? reserved : 0,
             chatTopInset: collapsedHeight + gap
         )
+    }
+
+    /// How far down the minimap ignores the pointer: the collapsed pane's
+    /// row, or the pinned pane up to a third of the chat, so a tall pane
+    /// never walls off the whole minimap.
+    static func minimapExclusionHeight(
+        geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat, chatHeight: CGFloat
+    ) -> CGFloat {
+        geometry.isPinned ? min(gap + openHeight, chatHeight / 3) : geometry.chatTopInset
     }
 
     struct SideGeometry: Equatable {

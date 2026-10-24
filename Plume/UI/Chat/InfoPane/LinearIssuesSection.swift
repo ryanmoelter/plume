@@ -27,6 +27,7 @@ struct LinearIssuesSection: View, ThemedView {
     @State private var settings = AppSettings.shared
     @State private var showsLinkPopover = false
     @State private var isHoveringAdd = false
+    @State private var showsAllIssues = false
 
     var body: some View {
         if let linear {
@@ -34,7 +35,13 @@ struct LinearIssuesSection: View, ThemedView {
             VStack(alignment: .leading, spacing: 0) {
                 header(linear, isExpanded: isExpanded)
                 if isExpanded {
-                    ForEach(linear.main) { IssueRow(issue: $0, showsBubble: $0.role == .mentioned, actions: actions) }
+                    let cap = LinearIssueCap.layout(total: linear.main.count, isExpanded: showsAllIssues)
+                    ForEach(linear.main.prefix(cap.visibleCount)) {
+                        IssueRow(issue: $0, showsBubble: $0.role == .mentioned, actions: actions)
+                    }
+                    if let title = cap.toggleTitle, let symbol = cap.toggleSymbol {
+                        capToggle(title: title, symbol: symbol)
+                    }
                     if !linear.mentioned.isEmpty {
                         mentioned(linear.mentioned)
                     }
@@ -84,6 +91,21 @@ struct LinearIssuesSection: View, ThemedView {
                 LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
             }
         }
+    }
+
+    private func capToggle(title: String, symbol: String) -> some View {
+        Button {
+            withAnimation(InfoPaneLayout.sectionAnimation) { showsAllIssues.toggle() }
+        } label: {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: symbol) }
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .emphasis(.subtle)
+        }
+        .buttonStyle(InfoPaneRowButtonStyle())
+        .plumeID(AccessibilityID.infoPaneLinearCapToggle, value: showsAllIssues ? "expanded" : "collapsed")
     }
 
     private func mentioned(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> some View {
@@ -298,7 +320,7 @@ private struct OverlaidControlSpace: View {
 }
 
 /// The hover wash of a control laid over a row, which replaces the row's own.
-private struct OverlaidControlWash: ViewModifier, ThemedView {
+struct OverlaidControlWash: ViewModifier, ThemedView {
     @Environment(\.theme) var theme
     let isHovering: Bool
 

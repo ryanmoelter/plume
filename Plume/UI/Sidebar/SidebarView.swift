@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -103,6 +104,17 @@ struct SidebarView: View {
                         Label("No Tasks", systemImage: "square.stack.3d.up")
                     } description: {
                         Text("Press ⌘N to start a task.")
+                    } actions: {
+                        Menu {
+                            ImportSourceMenuItems { source in
+                                if !ImportRequest.shared.request(source) { NSSound.beep() }
+                            }
+                        } label: {
+                            Label("Import Conversations…", systemImage: "square.and.arrow.down")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .plumeID(AccessibilityID.sidebarImportMenu)
                     }
                 }
             }
@@ -158,7 +170,8 @@ struct SidebarView: View {
                     TaskAppearancePopover(task: task)
                 }
                 .contextMenu {
-                    Button("Edit…") { appearanceEditingID = task.id }
+                    Button { appearanceEditingID = task.id } label: { Label("Edit…", systemImage: "pencil") }
+                        .plainMenuIcon()
                         .plumeID(AccessibilityID.taskEditButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }
@@ -246,6 +259,10 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func taskContextMenu(for task: WorkTask) -> some View {
+        ReadStateButton(tabIDs: task.liveTabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
+        if let tab = TaskRemoteControl.toggleableTab(in: task) {
+            TaskRemoteControlToggle(tabID: tab.id)
+        }
         if !groups.isEmpty || task.group != nil {
             Menu("Move to") {
                 ForEach(groups) { group in
@@ -260,13 +277,9 @@ struct SidebarView: View {
                 .disabled(task.group == nil)
             }
         }
-        MarkAsUnreadButton(tabIDs: task.liveTabs.map(\.id), label: TitleStore.shared.displayTitle(for: task))
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
                 .plumeID(AccessibilityID.taskArchiveButton)
-        }
-        if let tab = TaskRemoteControl.toggleableTab(in: task) {
-            TaskRemoteControlToggle(tabID: tab.id)
         }
         linearMenuItems(for: task)
         Divider()

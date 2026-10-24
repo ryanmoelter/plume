@@ -16,6 +16,7 @@ final class SurfaceManager {
     static let shared = SurfaceManager()
 
     private var sessions: [UUID: TerminalSession] = [:]
+    @ObservationIgnored private let detachedTicker = DetachedSurfaceTicker()
 
     private init() {}
 
@@ -35,7 +36,19 @@ final class SurfaceManager {
         }
 
         let session = TerminalSession(id: id, options: options())
+        session.onBell = { [weak session] in
+            guard let session else { return }
+            TerminalAlerts.shared.bellRang(in: session)
+        }
+        session.onDesktopNotification = { [weak session] notification in
+            guard let session else { return }
+            TerminalAlerts.shared.desktopNotificationArrived(notification, in: session)
+        }
         sessions[id] = session
+        detachedTicker.start { [weak self] in
+            guard let self else { return false }
+            return DetachedSurfaceTicker.needsTick(attachment: sessions.values.lazy.map(\.isHostedInWindow))
+        }
         Log.ghostty.info("Created surface for tab \(id, privacy: .public)")
         return session
     }
@@ -54,6 +67,7 @@ final class SurfaceManager {
         CodexTerminalMonitor.shared.stop(tabID: id)
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.releaseHostedView()
+        if sessions.isEmpty { detachedTicker.stop() }
         Log.ghostty.info("Closed surface for tab \(id, privacy: .public)")
     }
 
@@ -63,5 +77,6 @@ final class SurfaceManager {
             session.releaseHostedView()
         }
         sessions.removeAll()
+        detachedTicker.stop()
     }
 }

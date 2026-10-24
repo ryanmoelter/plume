@@ -87,6 +87,8 @@ struct MainWindow: View {
             }
             .allowsHitTesting(false)
         }
+        .onChange(of: hostWindow) { tintTitlebar() }
+        .onChange(of: GhosttyRuntime.shared.resolvedThemeDefinitions) { tintTitlebar() }
         .onChange(of: importRequest.targetWindowNumber) {
             guard let source = importRequest.take(for: hostWindow), importSource == nil else { return }
             hostWindow?.makeKeyAndOrderFront(nil)
@@ -183,8 +185,13 @@ struct MainWindow: View {
         }
     }
 
-    /// Both closures read live view state, so they are installed here rather
+    /// These closures read live view state, so they are installed here rather
     /// than captured anywhere longer-lived.
+    private func tintTitlebar() {
+        guard let hostWindow else { return }
+        AppDelegate.tintTitlebar(of: hostWindow)
+    }
+
     private func installNotifications() {
         Notifier.shared.audience = {
             NotificationAudience(
@@ -200,6 +207,9 @@ struct MainWindow: View {
                 ?? AppIdentity.displayName
         }
         UnreadStore.shared.observe(StatusEngine.shared) { Notifier.shared.audience() }
+        TerminalAlerts.shared.taskID = { tabID in
+            tasks.first { $0.tabs.contains { $0.id == tabID } }?.id
+        }
     }
 
     /// A notification click selects its task, then its tab within that task.
@@ -211,6 +221,7 @@ struct MainWindow: View {
         guard let tab = task.orderedTabs.first(where: { $0.id == route.tabID }) else { return }
         TaskStore.selectTab(tab, in: task)
         BellStore.shared.markSeen(tabID: tab.id)
+        Notifier.shared.dismiss(tabID: tab.id)
     }
 
     private var selectedTask: WorkTask? {

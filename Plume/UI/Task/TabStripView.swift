@@ -40,7 +40,7 @@ struct TabStripView: View {
                         // Re-selecting the focused tab leaves focus where it
                         // was, so nothing else clears a mark set by Mark as
                         // Unread.
-                        UnreadStore.shared.markViewed(Notifier.shared.audience())
+                        UnreadStore.shared.markFocusedTabViewed()
                     },
                     close: { TaskStore.closeTab(tab, in: context) },
                     moveToNewTask: { moveToNewTask(tab) }
@@ -237,7 +237,7 @@ private struct TabChip: View {
             Button("Move to New Task") { moveToNewTask() }
                 .disabled(task.tabs.count < 2)
             Divider()
-            MarkAsUnreadButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
+            ReadStateButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
         }
         .confirmationDialog(
             "Start a fresh conversation?",

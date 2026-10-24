@@ -116,7 +116,6 @@ struct ChatOutlineTests {
     /// any of it would put a landmark where nothing was said.
     @Test(arguments: [
         InjectedContent.commandCaveat,
-        .slashCommand(name: "/rename", arguments: "chat-minimap"),
         .commandOutput(command: "/context"),
         .taskNotification,
         .systemNote,
@@ -131,6 +130,15 @@ struct ChatOutlineTests {
         ])
 
         #expect(result.entries.map(\.kind) == [.response])
+    }
+
+    /// The user typed it, so it anchors like any prompt.
+    @Test func aSlashCommandAnchorsAsAPrompt() {
+        let result = outline([
+            message("a", .user, [.injected(.slashCommand(name: "/rename", arguments: "chat-minimap"), text: "")])
+        ])
+
+        #expect(result.entries.map(\.kind) == [.prompt("/rename chat-minimap")])
     }
 
     @Test func anInterruptionAnchors() {
@@ -432,5 +440,20 @@ struct ChatMinimapEasingTests {
         let atEnd = ChatMinimap.eased(0.20) - ChatMinimap.eased(0.15)
         let atMiddle = ChatMinimap.eased(0.55) - ChatMinimap.eased(0.50)
         #expect(atMiddle > atEnd * 2)
+    }
+}
+
+/// The stretch of rail beside the collapsed info pane cannot open the map,
+/// but a map already open keeps following the pointer through it.
+@MainActor
+struct ChatMinimapRevealExclusionTests {
+    @Test func thePointerBesideTheInfoPaneDoesNotOpenTheMap() {
+        #expect(!ChatMinimap.tracksHover(atY: 20, isTracking: false, exclusionHeight: 44))
+        #expect(ChatMinimap.tracksHover(atY: 44, isTracking: false, exclusionHeight: 44))
+        #expect(ChatMinimap.tracksHover(atY: 0, isTracking: false, exclusionHeight: 0))
+    }
+
+    @Test func anOpenMapFollowsThePointerIntoTheExclusion() {
+        #expect(ChatMinimap.tracksHover(atY: 20, isTracking: true, exclusionHeight: 44))
     }
 }

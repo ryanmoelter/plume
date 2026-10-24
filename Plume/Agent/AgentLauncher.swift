@@ -76,7 +76,7 @@ enum AgentLauncher {
             // which switching off means for good — left in place, it would
             // outrank and block every `ai-title` the TUI writes from here on.
             TitleStore.shared.demoteSource(forTab: tab.id, to: .transcript)
-            if let source = tab.titleSource, source > .transcript {
+            if tab.titleSource == .reply {
                 tab.titleSource = .transcript
             }
         }

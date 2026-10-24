@@ -108,6 +108,15 @@ final class InProcessControlBackend: ControlBackend {
         return ClickResult(rect: Rect(CGRect(x: params.x, y: params.y, width: 0, height: 0)), windowNumber: window.windowNumber)
     }
 
+    func pointerDrag(_ params: PointerDragParams) async throws -> ClickResult {
+        let window = try window(for: params.windowNumber)
+        let height = contentHeight(of: window)
+        let start = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: params.fromX, y: params.fromY), contentHeight: height)
+        let end = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: params.toX, y: params.toY), contentHeight: height)
+        await SyntheticClick.drag(from: start, to: end, in: window, clickCount: params.clickCount, steps: params.steps)
+        return ClickResult(rect: Rect(CGRect(x: params.toX, y: params.toY, width: 0, height: 0)), windowNumber: window.windowNumber)
+    }
+
     // MARK: Pointer
 
     func hover(_ params: HoverParams) async throws -> HoverResult {

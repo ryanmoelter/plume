@@ -217,7 +217,7 @@ private struct AgentTabContent: View {
             HeadlessAgentTabContent(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         case .terminal:
             if let session = SurfaceManager.shared.existingSession(for: tab.id) {
-                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
+                TerminalTabView(session: session, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
             } else if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                 AutoResumingAgentTabView(task: task, tab: tab, isSelected: isVisible, isFocused: isFocused)
             } else {
@@ -325,7 +325,7 @@ private struct TerminalTabHost: View {
     var body: some View {
         Group {
             if let session {
-                TerminalTabView(session: session, taskID: task.id, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
+                TerminalTabView(session: session, tabID: tab.id, isVisible: isVisible, isFocused: isFocused)
                     .onChange(of: session.title, initial: true) { _, title in
                         // A shell tab's own escape-sequence title is as
                         // authoritative as a source gets, so it ranks the

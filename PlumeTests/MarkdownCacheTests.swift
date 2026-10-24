@@ -133,4 +133,68 @@ struct MarkdownCacheTests {
         }
         #expect(font(bigger) != font(light), "a size change must rebuild the chips")
     }
+
+    @Test func chippedInlineMakesEachCodeSpanOneChip() {
+        let styled = MarkdownCache.chippedInline("Run `make` then `ls`.", fontSize: 16)
+
+        #expect(styled.segments.compactMap(\.chipID) == [0, 1])
+        #expect(styled.hasCode)
+        #expect(styled.plainText == "Run make then ls.")
+    }
+
+    /// The padding is layout, not text: a padding character would ride along
+    /// into a pasted shell command, and shift every selection offset.
+    @Test func chippedInlineDrawsExactlyTheParsedCharacters() {
+        let source = "Run `make build` now."
+        let styled = MarkdownCache.chippedInline(source, fontSize: 16)
+
+        #expect(styled.plainText == String(MarkdownCache.inline(source).characters))
+    }
+
+    @Test func chippedInlineKernsEitherSideOfAChip() {
+        let styled = MarkdownCache.chippedInline("Run `make build` now.", fontSize: 16)
+        let lastKern = { (text: AttributedString) in
+            text.runs[text.characters.index(before: text.endIndex)].kern
+        }
+
+        #expect(lastKern(styled.segments[0].text) == styled.pad)
+        #expect(lastKern(styled.segments[1].text) == styled.pad)
+        #expect(styled.segments[2].text.runs.allSatisfy { $0.kern == nil })
+        #expect(styled.segments[0].text.runs.first?.kern == nil)
+    }
+
+    /// A code span inside bold carries both intents, so the code bit has to be
+    /// recognized alongside the other.
+    @Test func chippedInlineChipsABoldCodeSpan() {
+        #expect(MarkdownCache.chippedInline("**`x`**", fontSize: 16).hasCode)
+    }
+
+    @Test func chippedInlineWithoutCodeHasNoChips() {
+        #expect(!MarkdownCache.chippedInline("Plain **prose**.", fontSize: 16).hasCode)
+    }
+
+    @Test func uppercasingKeepsTheChips() {
+        let styled = MarkdownCache.chippedInline("See `make build` above", fontSize: 16).uppercased()
+
+        #expect(styled.segments.compactMap(\.chipID) == [0])
+        #expect(styled.plainText == "SEE MAKE BUILD ABOVE")
+    }
+
+    @Test func coloringAPrefixReachesAcrossSegments() {
+        let styled = MarkdownCache.chippedInline("ab`cd`ef", fontSize: 16).coloringPrefix(3, .red)
+        let colored = styled.segments.flatMap { segment in
+            segment.text.runs.map { (String(segment.text[$0.range].characters), $0.foregroundColor) }
+        }
+
+        #expect(colored.filter { $0.1 == .red }.map(\.0).joined() == "abc")
+        #expect(colored.filter { $0.1 == nil }.map(\.0).joined() == "def")
+    }
+
+    @Test func chippedInlineKeysOnSize() {
+        let small = MarkdownCache.chippedInline("Run `x`.", fontSize: 16)
+        let big = MarkdownCache.chippedInline("Run `x`.", fontSize: 24)
+
+        #expect(small.pad != big.pad)
+        #expect(small.segments[1].text.runs.first?.font != big.segments[1].text.runs.first?.font)
+    }
 }

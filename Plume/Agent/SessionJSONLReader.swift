@@ -60,14 +60,27 @@ nonisolated enum SessionJSONLReader {
     }
 
     static func latestAITitle(in data: Data) -> String? {
+        latestTitle(in: data, type: "ai-title", \.aiTitle)
+    }
+
+    /// `/rename` appends `{"type":"custom-title","customTitle":"…"}`, and the
+    /// CLI repeats the line on later writes, so the last one is current.
+    static func latestCustomTitle(in data: Data) -> String? {
+        latestTitle(in: data, type: "custom-title", \.customTitle)
+    }
+
+    private static func latestTitle(in data: Data, type: String, _ field: KeyPath<TitleEntry, String?>) -> String? {
         let decoder = JSONDecoder()
         // A transcript is mostly line types Plume does not model, so every
         // line that fails to decode is skipped rather than treated as an error.
+        let marker = Data(type.utf8)
         for line in data.split(separator: UInt8(ascii: "\n")).reversed() {
-            guard !line.isEmpty,
+            // Decoding every line of a long transcript costs seconds; almost
+            // none of them can be a title.
+            guard line.firstRange(of: marker) != nil,
                   let entry = try? decoder.decode(TitleEntry.self, from: Data(line)),
-                  entry.type == "ai-title",
-                  let title = entry.aiTitle,
+                  entry.type == type,
+                  let title = entry[keyPath: field],
                   !title.isEmpty
             else { continue }
             return title
@@ -78,6 +91,7 @@ nonisolated enum SessionJSONLReader {
     private struct TitleEntry: Decodable {
         let type: String?
         let aiTitle: String?
+        let customTitle: String?
     }
 
     /// Where the session was launched: the first `cwd` its transcript records.

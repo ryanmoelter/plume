@@ -91,7 +91,7 @@ nonisolated struct LinearAccount: Sendable, Equatable, Hashable, Codable, Identi
     var id: String { orgID }
 }
 
-nonisolated struct LinearIssue: Sendable, Equatable {
+nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     let identifier: String
     let title: String
     let url: String
@@ -100,6 +100,32 @@ nonisolated struct LinearIssue: Sendable, Equatable {
     let stateColor: String
     let assigneeName: String?
     let teamKey: String
+}
+
+nonisolated struct LinearUser: Sendable, Equatable, Codable {
+    let id: String
+    /// The display name where Linear has one, else the full name.
+    let name: String
+}
+
+/// One issue as the API returns it, with the ids and timestamps the sync
+/// cache keys and orders by. `LinearSyncCache` splits it into its tables.
+nonisolated struct LinearIssueSnapshot: Sendable, Equatable {
+    let id: String
+    let updatedAt: Date
+    let archivedAt: Date?
+    /// In the trash, which is how Linear deletes.
+    let isTrashed: Bool
+    let state: LinearWorkflowState
+    let assignee: LinearUser?
+    let teamID: String
+    let issue: LinearIssue
+}
+
+/// One page of the delta query, newest first.
+nonisolated struct LinearIssuePage: Sendable, Equatable {
+    let issues: [LinearIssueSnapshot]
+    let nextCursor: String?
 }
 
 /// What an issue line knows right now. An enum rather than an optional for the

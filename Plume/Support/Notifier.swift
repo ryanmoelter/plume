@@ -8,9 +8,9 @@ import os
 /// back to.
 ///
 /// Authorization is requested the first time something actually wants to
-/// notify, so a user who never leaves a task running is never asked. A denied
-/// or undetermined-then-denied request makes every later post a no-op rather
-/// than re-prompting.
+/// notify, so a user who never leaves a task running is never asked. A denial
+/// is never re-prompted, but each later post re-reads the settings, so turning
+/// notifications on in System Settings takes effect without a relaunch.
 @MainActor
 @Observable
 final class Notifier: NSObject {
@@ -73,7 +73,7 @@ final class Notifier: NSObject {
 
         switch authorization {
         case .denied:
-            return
+            deliverIfNowAuthorized(request, to: center)
         case .unknown:
             queued.append(request)
             requestAuthorization()
@@ -108,6 +108,17 @@ final class Notifier: NSObject {
         }
     }
 
+    private func deliverIfNowAuthorized(_ request: Request, to center: UNUserNotificationCenter) {
+        center.getNotificationSettings { settings in
+            let status = settings.authorizationStatus
+            guard status == .authorized || status == .provisional else { return }
+            Task { @MainActor [weak self] in
+                self?.authorization = .granted
+                self?.deliver(request, to: center)
+            }
+        }
+    }
+
     private func deliver(_ request: Request, to center: UNUserNotificationCenter) {
         let content = UNMutableNotificationContent()
         content.title = request.title
@@ -126,6 +137,27 @@ final class Notifier: NSObject {
         }
     }
 
+    // MARK: - Dismissing
+
+    /// Removes the tab's notifications from Notification Center once the user
+    /// has seen the tab, so a stale alert never leads back to it.
+    func dismiss(tabID: UUID) {
+        center?.removeDeliveredNotifications(withIdentifiers: Self.dedupeKeys(forTab: tabID))
+    }
+
+    /// What a tab's notification is about. Each kind keeps one entry per tab.
+    enum Source: String, CaseIterable {
+        case status, bell, osc
+    }
+
+    static func dedupeKey(_ source: Source, tabID: UUID) -> String {
+        "\(source.rawValue)-\(tabID.uuidString)"
+    }
+
+    static func dedupeKeys(forTab tabID: UUID) -> [String] {
+        Source.allCases.map { dedupeKey($0, tabID: tabID) }
+    }
+
     // MARK: - Routing
 
     nonisolated private static let taskIDKey = "taskID"
@@ -140,6 +172,16 @@ final class Notifier: NSObject {
 }
 
 extension Notifier: UNUserNotificationCenterDelegate {
+    /// Without this, macOS shows nothing while Plume is frontmost — and a
+    /// background task's alert is exactly what the user needs then. Whether
+    /// the user already saw the tab was decided before posting.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse

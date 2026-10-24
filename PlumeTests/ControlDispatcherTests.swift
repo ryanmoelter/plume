@@ -105,6 +105,11 @@ final class FakeControlBackend: ControlBackend {
         return ClickResult(rect: Rect(.zero), windowNumber: 0)
     }
 
+    func pointerDrag(_ params: PointerDragParams) async throws -> ClickResult {
+        try record("pointerDrag")
+        return ClickResult(rect: Rect(.zero), windowNumber: 0)
+    }
+
     func drag(_ params: DragParams) async throws -> DragResult {
         try record("drag")
         return DragResult(dropped: true)

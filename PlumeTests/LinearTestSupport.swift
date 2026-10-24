@@ -3,10 +3,13 @@ import Foundation
 
 /// One fake Linear workspace. Records every request so routing and batching
 /// are assertable, and can hold issue fetches open to test the in-flight rule.
+/// Each issue gets a fresh `updatedAt` whenever `set(issues:)` changes it, so
+/// delta syncs see exactly what changed.
 actor FakeLinearWorkspace {
     let account: LinearAccount
     var catalog: LinearCatalog
-    var issues: [String: LinearIssue] = [:]
+    private(set) var snapshots: [String: LinearIssueSnapshot] = [:]
+    var deltaPageSize = 100
     /// Errors Linear scopes to one identifier's alias.
     var issueFailures: [String: String] = [:]
     var issueError: Error?
@@ -15,6 +18,8 @@ actor FakeLinearWorkspace {
     /// Reported through `onRateLimit` after each issue fetch.
     var rateLimit: LinearRateLimit?
     private(set) var issueCalls: [[String]] = []
+    private(set) var deltaCalls: [Date] = []
+    private var lastUpdatedAt = Date()
     private(set) var catalogCalls = 0
     private var holdsIssues = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -28,7 +33,30 @@ actor FakeLinearWorkspace {
         )
     }
 
-    func set(issues: [String: LinearIssue]) { self.issues = issues }
+    /// Issues left out are deleted outright, which no delta reports.
+    func set(issues: [String: LinearIssue]) {
+        var next: [String: LinearIssueSnapshot] = [:]
+        for (identifier, issue) in issues {
+            if let held = snapshots[identifier], held.issue == issue, !held.isTrashed {
+                next[identifier] = held
+            } else {
+                next[identifier] = LinearTestFixtures.snapshot(issue, updatedAt: tick())
+            }
+        }
+        snapshots = next
+    }
+
+    func trash(_ identifier: String) {
+        guard let held = snapshots[identifier] else { return }
+        snapshots[identifier] = LinearTestFixtures.snapshot(held.issue, updatedAt: tick(), isTrashed: true)
+    }
+
+    func set(deltaPageSize: Int) { self.deltaPageSize = deltaPageSize }
+
+    private func tick() -> Date {
+        lastUpdatedAt = max(Date(), lastUpdatedAt.addingTimeInterval(1))
+        return lastUpdatedAt
+    }
     func set(issueFailures: [String: String]) { self.issueFailures = issueFailures }
     func set(issueError: Error?) { self.issueError = issueError }
     func set(catalogError: Error?) { self.catalogError = catalogError }
@@ -60,8 +88,8 @@ actor FakeLinearWorkspace {
         if let issueError { throw issueError }
         var result: [String: LinearIssueLookup] = [:]
         for identifier in identifiers {
-            if let issue = issues[identifier] {
-                result[identifier] = .found(issue)
+            if let snapshot = snapshots[identifier], !snapshot.isTrashed {
+                result[identifier] = .found(snapshot)
             } else if let failure = issueFailures[identifier] {
                 result[identifier] = .failed(failure)
             } else {
@@ -69,6 +97,20 @@ actor FakeLinearWorkspace {
             }
         }
         return result
+    }
+
+    func fetchIssuesUpdated(since: Date, cursor: String?) throws -> LinearIssuePage {
+        deltaCalls.append(since)
+        if let issueError { throw issueError }
+        let matching = snapshots.values
+            .filter { $0.updatedAt >= since }
+            .sorted { $0.updatedAt > $1.updatedAt }
+        let start = cursor.flatMap { Int($0) } ?? 0
+        let end = min(start + deltaPageSize, matching.count)
+        return LinearIssuePage(
+            issues: Array(matching[start..<end]),
+            nextCursor: end < matching.count ? String(end) : nil
+        )
     }
 }
 
@@ -90,6 +132,10 @@ nonisolated struct FakeLinearClient: LinearClient {
         if let limit = await workspace.rateLimit { onRateLimit(limit) }
         return result
     }
+
+    func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage {
+        try await workspace.fetchIssuesUpdated(since: since, cursor: cursor)
+    }
 }
 
 nonisolated enum LinearTestFixtures {
@@ -110,6 +156,22 @@ nonisolated enum LinearTestFixtures {
             stateColor: "#e2e2e2",
             assigneeName: nil,
             teamKey: LinearIdentifier.teamKey(of: identifier)
+        )
+    }
+
+    /// The wire form of `issue`, with ids derived from its names so the cache
+    /// resolves it back to an equal `LinearIssue`.
+    static func snapshot(_ issue: LinearIssue, updatedAt: Date, isTrashed: Bool = false) -> LinearIssueSnapshot {
+        LinearIssueSnapshot(
+            id: "id-\(issue.identifier)",
+            updatedAt: updatedAt,
+            archivedAt: nil,
+            isTrashed: isTrashed,
+            state: LinearWorkflowState(
+                id: "state-\(issue.stateName)", name: issue.stateName, type: issue.stateType, color: issue.stateColor),
+            assignee: issue.assigneeName.map { LinearUser(id: "user-\($0)", name: $0) },
+            teamID: "team-\(issue.teamKey)",
+            issue: issue
         )
     }
 

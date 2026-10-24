@@ -79,8 +79,11 @@ enum AccessibilityID {
     static let settingsSidebarTwoToneIconsToggle = "settings-sidebar-two-tone-icons-toggle"
     static let settingsSidebarPreview = "settings-sidebar-preview"
     static let settingsSidebarSuggestsFilledIconsToggle = "settings-sidebar-suggests-filled-icons-toggle"
+    static let importSourceItem = "import-source-item"
+    static let sidebarImportMenu = "sidebar-import-menu"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsImportOrcaButton = "settings-import-orca-button"
+    static let settingsImportClaudeDesktopButton = "settings-import-claude-desktop-button"
     static let importRow = "import-row"
     static let importRunningWarning = "import-running-warning"
     static let importSelectAllButton = "import-select-all-button"
@@ -114,6 +117,8 @@ enum AccessibilityID {
     static let tabChipClose = "tab-chip-close"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
+    /// Takes `markUnreadButton`'s place while any of its tabs is unread.
+    static let markReadButton = "mark-read-button"
     static let newTabButton = "new-tab-button"
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"
@@ -133,10 +138,9 @@ enum AccessibilityID {
 
     // MARK: Statusline strip
 
-    // The workspace and Remote Control segments keep their `composer-`
-    // strings, which external drivers already query.
+    // The workspace segment keeps its `composer-` string, which external
+    // drivers already query.
     static let composerWorkspacePicker = "composer-workspace-picker"
-    static let composerRemoteControlControl = "composer-remote-control-control"
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
@@ -212,8 +216,10 @@ enum AccessibilityID {
     static let infoPaneBackgroundTask = "info-pane-background-task"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
+    static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
     static let infoPaneLinearToggle = "info-pane-linear-toggle"
+    static let infoPaneLinearCapToggle = "info-pane-linear-cap-toggle"
     static let infoPaneLinearMentionedToggle = "info-pane-linear-mentioned-toggle"
     static let infoPaneLinearIssueRow = "info-pane-linear-issue-row"
     static let infoPaneLinearCopyButton = "info-pane-linear-copy-button"
@@ -241,6 +247,8 @@ enum AccessibilityID {
     /// The title of a collapsible agent message, labelled with the message's
     /// key; clicking it collapses or expands the message.
     static let agentMessageToggle = "agent-message-toggle"
+    /// The disclosure under a slash command, labelled with its piece id.
+    static let slashCommandPrompt = "slash-command-prompt"
     static let agentMessageShowMore = "agent-message-show-more"
     static let agentMessageHide = "agent-message-hide"
 

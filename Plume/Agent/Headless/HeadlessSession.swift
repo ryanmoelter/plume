@@ -1150,7 +1150,7 @@ final class HeadlessSession: AgentSession {
             return true
         }
         switch TitleStore.shared.source(forTab: tabID) {
-        case .transcript, .reply: return true
+        case .transcript, .reply, .custom: return true
         case .fallback, nil: return false
         }
     }
