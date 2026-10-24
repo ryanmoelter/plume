@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.16.1 (36)
+
+### New
+
+- Fix a bug that broke text field focusing on macOS 27
+- Import conversations from the Claude desktop app
+  - Add a button to import conversations from the empty task list
+- Clear notifications once you view their source tab
+- Move Remote Control controls from the composer to the info pane
+- Add toggle to only keep awake for remote control while charging
+- Keep Linear issues current with a background sync
+- Misc fixes
+  - Show slash commands as a prompt in the chat
+  - Draw inline code as rounded chips in the chat
+  - Fix notifications + unread from background terminal bells
+  - Show at most six Linear issues in the info pane, with a toggle to show more
+  - Switch and archive tasks with less delay
+  - Reflect `/rename` commands in task names
+  - Stop dimming tasks that only have terminal tabs
+  - Handle system notes in the opening messages in a conversation (common for imported conversations)
+  - Keep the minimap from opening when hovering beside the info pane
+  - Open new windows at a reasonable size
+  - Fix the window sometimes missing the theme's colors
+  - Fade in the group header buttons on hover
+  - Reorder the task context menu, and add icons to it
+
+### 0.16.x recap
+
+- Select chat text across messages, and copy it as markdown
+- Connect Linear, in Settings > Integrations
+  - See the Linear issues a conversation is working on in the sidebar and info pane
+- See formatting as you type in the composer
+- Import tasks from Orca
+
+### Recently
+
+- Add colors and icons to groups and tasks
+- Show two tabs side by side in a split
+- Send a queued message immediately, without stopping the turn
+- Support `/btw` to have a side chat without interrupting the agent
+- Add an info pane beside the chat
+
 ## 0.16.0 (35)
 
 ### New
