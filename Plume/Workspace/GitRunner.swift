@@ -94,6 +94,16 @@ nonisolated struct CheckoutFacts: Sendable, Equatable {
         return name.isEmpty ? nil : name
     }
 
+    /// `path` relative to this checkout's top level, or nil when `path` is the
+    /// top level itself or is outside it. Symlinks are resolved on both sides,
+    /// since git reports the real path.
+    func subpath(of path: String) -> String? {
+        let root = URL(fileURLWithPath: checkoutRoot).resolvingSymlinksInPath().path
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        guard resolved.hasPrefix(root + "/") else { return nil }
+        return String(resolved.dropFirst(root.count + 1))
+    }
+
     /// Parses `rev-parse --path-format=absolute --git-common-dir --show-toplevel`.
     ///
     /// `--git-common-dir` is the original clone's `.git` from inside any
