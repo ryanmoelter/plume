@@ -24,6 +24,8 @@ Invoke the `roadmap` skill to list the To do queue, and read each issue's descri
 
 Write the package table into the plan file before launching anything.
 
+Once the plan is approved, create the release issue as a placeholder through the `roadmap` skill. Title it `Release <version>`, put it in team Plume, project Platform & tooling, and set it to In Progress. Its description is `GitHub release: *link added on publish.*`. Its `relatedTo` lists the previous release's `Release <version>` issue and every issue planned for this release. Add an issue to it if it joins mid-cycle, and remove one if it drops out.
+
 `<prefix>` in the commands below is the branch prefix of whoever runs the cycle, such as `ryanm`. Pass it to every agent.
 
 ## 2. Launch implementers
@@ -116,7 +118,7 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - **If commits are signed here (`git config commit.gpgsign` prints `true`), check every one is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders on the release branch before merging it (`git rebase --force-rebase --rebase-merges main` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit, and confirm with `git diff <old-tip> HEAD --quiet` that the tree is unchanged).
 - Tag `v<version>` on `main`'s HEAD — the release merge — and push `main` with the tag. `package-release.sh` refuses unless the tag points at `HEAD`.
 - Publish through Sparkle and Homebrew, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, appcast, draft GitHub release), then the user publishes the draft, then `scripts/update-tap.sh <version>`. Ask before publishing and before bumping the tap; both are outward-facing.
-- Once the release is published, create a Done issue titled `Release <version>` in team Plume, project Platform & tooling, through the `roadmap` skill. Its description links the GitHub release, and `relatedTo` lists every issue that shipped in it plus the previous release's `Release <version>` issue, so the releases form a chain.
+- Once the release is published, finish the `Release <version>` placeholder from step 1. Put the GitHub release link in its description, and check that `relatedTo` names every issue that shipped plus the previous release's issue, so the releases form a chain. Then mark it Done.
 - **Do not install.** Every install updates through Sparkle or Homebrew, so never run `scripts/install-release.sh` as part of a release.
 - Clean up anything step 3 left: `git worktree list` and `git branch --list '<prefix>/*'` should hold nothing from this cycle.
 
