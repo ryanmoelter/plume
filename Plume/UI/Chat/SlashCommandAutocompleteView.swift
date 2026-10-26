@@ -10,9 +10,6 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     let commands: [SlashCommand]
     let selectedIndex: Int
     let onSelect: (Int) -> Void
-    /// Nothing between it and the panel's top edge, so it owes that edge the
-    /// same inset it gives the sides. With the queued-messages strip above,
-    /// the row spacing sets the gap instead.
     var isTopOfPanel = true
     /// True while these names come from the last session rather than this
     /// one, so the list says so instead of presenting a guess as fact.
@@ -20,63 +17,17 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     var tokenPrefix = "/"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            list
-            if isRemembered {
-                Divider()
-                Text("From the last session — not yet confirmed by Claude Code")
-                    .font(typography.caption.font)
-                    .emphasis(.subtle)
-                    .padding(.horizontal, rowInset + dimensions.panelContentInset)
-                    .padding(.vertical, 5)
-            }
-        }
-        .background(washColor, in: shape)
-        .overlay { shape.strokeBorder(.separator) }
-        .padding(.horizontal, -textInset)
-        .padding(.top, isTopOfPanel ? -textInset : 0)
-    }
-
-    private var list: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(commands.enumerated()), id: \.element.id) { index, command in
-                        row(command, isSelected: index == selectedIndex)
-                            .id(index)
-                            .onTapGesture { onSelect(index) }
-                    }
-                }
-                .padding(rowInset)
-            }
-            .onChange(of: selectedIndex, initial: true) { _, newValue in
-                proxy.scrollTo(newValue)
-            }
-        }
-        .frame(maxHeight: 200)
-    }
-
-    /// What a row's text pays inside the box before it starts.
-    private var textInset: CGFloat { rowInset + dimensions.panelContentInset }
-
-    /// The box steps out past the composer by everything its text pays
-    /// inside it, so a command reads down the same edge as the message being
-    /// typed. Its corner then cuts concentric to the panel at that smaller
-    /// inset rather than at the composer's.
-    private var boxCornerRadius: CGFloat {
-        ComposerPanelMetrics.concentricRadius(
-            outer: dimensions.panelCornerRadius,
-            inset: dimensions.composerFieldInset - textInset
+        ComposerSuggestionPanel(
+            items: commands,
+            selectedIndex: selectedIndex,
+            onSelect: onSelect,
+            isTopOfPanel: isTopOfPanel,
+            footer: isRemembered ? "From the last session — not yet confirmed by Claude Code" : nil,
+            row: row
         )
     }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
-    }
-
-    private let rowInset: CGFloat = 4
-
-    private func row(_ command: SlashCommand, isSelected: Bool) -> some View {
+    private func row(_ command: SlashCommand) -> some View {
         HStack(spacing: 8) {
             Text("\(tokenPrefix)\(command.name)")
                 .font(typography.caption.monoMedium)
@@ -95,22 +46,5 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, dimensions.panelContentInset)
-        .padding(.vertical, 5)
-        .background(
-            isSelected ? colors.selection.emphasized(.divider, in: colors) : .clear,
-            in: .rect(
-                cornerRadius: ComposerPanelMetrics.concentricRadius(
-                    outer: boxCornerRadius,
-                    inset: rowInset
-                ),
-                style: .continuous
-            )
-        )
-        .contentShape(.rect)
-    }
-
-    private var washColor: AnyShapeStyle {
-        colors.background.map(AnyShapeStyle.init) ?? AnyShapeStyle(.regularMaterial)
     }
 }

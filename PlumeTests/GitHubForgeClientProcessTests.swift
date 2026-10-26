@@ -5,7 +5,7 @@ import Foundation
 /// The subprocess plumbing, exercised against harmless commands rather than
 /// `gh` — these must pass with no network and no GitHub auth.
 struct GitHubForgeClientProcessTests {
-    /// The shape `runGH` launches.
+    /// The shape `GHCommand.run` launches.
     private func launch(_ command: String) -> (process: Process, stdout: Pipe) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
