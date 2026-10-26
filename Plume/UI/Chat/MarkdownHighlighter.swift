@@ -125,10 +125,13 @@ nonisolated enum MarkdownHighlighter {
         }
     }
 
-    private static let linkPattern = try! NSRegularExpression(pattern: #"(!?\[)[^\[\]\n]+(\]\([^()\s]+\))"#)
+    private static let linkPattern = try! NSRegularExpression(
+        pattern: #"(!?\[)(?:[^\[\]\\\n]|\\.)+(\]\((?:<(?:[^<>\\\n]|\\.)*>|[^()\s]+)\))"#
+    )
 
-    /// `[text](url)` and `![alt](url)`: one `.link` span over the whole
-    /// construct, with the brackets and URL also marked as delimiters.
+    /// `[text](url)`, `[text](<url with spaces>)` and `![alt](url)`: one
+    /// `.link` span over the whole construct, with the brackets and URL also
+    /// marked as delimiters.
     private static func linkSpans(in ns: NSString, range: NSRange, into spans: inout [Span]) {
         linkPattern.enumerateMatches(in: ns as String, range: range) { match, _, _ in
             guard let match else { return }
