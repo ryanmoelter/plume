@@ -49,4 +49,21 @@ struct LoginShellCommandTests {
         #expect(environment["PLUME_SOCKET"] == AppPaths.cliSocketPath)
         #expect(LoginShellCommand.sharedPlumeEnvironment["PLUME_TAB_ID"] == nil)
     }
+
+    /// As when this Plume was launched from another Plume's tab.
+    @Test func aChildEnvironmentCarriesOnlyThisAppsInstanceKeys() {
+        let inherited = [
+            "PATH": "/usr/bin",
+            "PLUME_SOCKET": "/other/cli.sock",
+            "PLUME_TAB_ID": "inherited-tab",
+            "PLUME_TASK_ID": "inherited-task",
+            "PLUME_EVENTS_DIR": "/other/events",
+        ]
+
+        let shared = LoginShellCommand.childEnvironment(inheriting: inherited, overrides: ["PLUME_SOCKET": "/mine.sock"])
+        #expect(shared == ["PATH": "/usr/bin", "PLUME_SOCKET": "/mine.sock"])
+
+        let bare = LoginShellCommand.childEnvironment(inheriting: inherited, overrides: LoginShellCommand.plumeEnvironment)
+        #expect(bare == ["PATH": "/usr/bin", "PLUME": "1"])
+    }
 }

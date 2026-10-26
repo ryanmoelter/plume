@@ -39,24 +39,18 @@ nonisolated enum ShellIntegration {
         Command(name: "init", summary: "Print shell integration", completion: """
             if (( CURRENT == 2 )); then
               _values 'shell' zsh
-            else
-              _arguments '--aliases[Also define shell functions for bundled tools]'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
     ]
 
-    /// Shell functions `--aliases` adds, so a bundled tool's bare name works
-    /// without its opt-in symlink. Empty until a tool needs one.
-    static let aliasFunctions: [String] = []
-
-    static func zsh(aliases: Bool) -> String {
+    static func zsh() -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
             let body = command.completion.split(separator: "\n").map { "      " + $0 }.joined(separator: "\n")
             return "    \(command.name))\n\(body)\n      ;;"
         }.joined(separator: "\n")
-        var script = """
+        return """
             # Plume shell integration. Load with: eval "$(plume init zsh)"
 
             _plume() {
@@ -87,11 +81,5 @@ nonisolated enum ShellIntegration {
             fi
 
             """
-        if aliases {
-            for function in aliasFunctions {
-                script += "\n" + function + "\n"
-            }
-        }
-        return script
     }
 }

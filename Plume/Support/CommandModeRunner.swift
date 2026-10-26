@@ -201,8 +201,7 @@ nonisolated enum CommandModeRunner {
         // login shell. Non-interactive, unlike a terminal tab's: `.zshrc`
         // warnings would otherwise be captured as part of every result.
         let arguments = ["/bin/sh", "-c", LoginShellCommand.wrapNonInteractive(command)]
-        let environment = ProcessInfo.processInfo.environment
-            .merging(LoginShellCommand.plumeEnvironment) { _, override in override }
+        let environment = LoginShellCommand.childEnvironment(overrides: LoginShellCommand.plumeEnvironment)
             .map { "\($0.key)=\($0.value)" }
 
         var pid: pid_t = 0

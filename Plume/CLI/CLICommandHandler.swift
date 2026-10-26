@@ -17,6 +17,9 @@ final class CLICommandHandler {
     /// queries out of here; nil means no window has loaded yet.
     var workspace: (UUID) -> Workspace? = { _ in nil }
 
+    /// The task a tab belongs to now. Installed alongside `workspace`.
+    var taskIDForTab: (UUID) -> UUID? = { _ in nil }
+
     var notify: (_ tabID: UUID, _ title: String, _ body: String) -> Bool = { tabID, title, body in
         TerminalAlerts.shared.notify(tabID: tabID, title: title, body: body)
     }
@@ -38,8 +41,17 @@ final class CLICommandHandler {
     }
 
     private func newTab(_ params: CLIRequest.NewTab) -> CLIResponse {
-        guard let workspace = workspace(params.taskID) else {
-            return .failure("no Plume task \(params.taskID.uuidString)")
+        let taskID: UUID
+        if let requested = params.taskID {
+            taskID = requested
+        } else if let tabID = params.tabID {
+            guard let owner = taskIDForTab(tabID) else { return .failure("no Plume tab \(tabID.uuidString)") }
+            taskID = owner
+        } else {
+            return .failure("tab.new needs a taskID or tabID")
+        }
+        guard let workspace = workspace(taskID) else {
+            return .failure("no Plume task \(taskID.uuidString)")
         }
         if let directory = params.directory {
             var isDirectory: ObjCBool = false

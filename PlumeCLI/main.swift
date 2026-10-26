@@ -28,8 +28,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         }
     case .newTab(let directory, let taskID, let select):
         return NewTab.run(directory: directory, taskID: taskID, select: select)
-    case .shellInit(let aliases):
-        print(ShellIntegration.zsh(aliases: aliases), terminator: "")
+    case .shellInit:
+        print(ShellIntegration.zsh(), terminator: "")
     }
     return CLIExitCode.success
 }
@@ -60,15 +60,23 @@ enum Notify {
 
 enum NewTab {
     static func run(directory: String?, taskID: String?, select: Bool) -> Int32 {
-        guard let rawTaskID = taskID ?? environment[CLISocket.taskIDEnvironmentKey] else {
+        var target = CLIRequest.NewTab(select: select)
+        if let taskID {
+            guard let taskUUID = UUID(uuidString: taskID) else {
+                printError("plume: '\(taskID)' is not a task ID")
+                return CLIExitCode.usage
+            }
+            target.taskID = taskUUID
+        } else if let tabID = environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            // The tab rather than the task, since a moved tab keeps its ID
+            // but not its task.
+            target.tabID = tabID
+        } else if let taskUUID = environment[CLISocket.taskIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            target.taskID = taskUUID
+        } else {
             printError("plume: not inside a Plume task; pass --task ID")
             return CLIExitCode.failure
         }
-        guard let taskUUID = UUID(uuidString: rawTaskID) else {
-            printError("plume: '\(rawTaskID)' is not a task ID")
-            return CLIExitCode.usage
-        }
-        var resolvedDirectory: String?
         if let directory {
             let path = absolutePath(directory)
             var isDirectory: ObjCBool = false
@@ -76,10 +84,10 @@ enum NewTab {
                 printError("plume: no such directory: \(directory)")
                 return CLIExitCode.failure
             }
-            resolvedDirectory = path
+            target.directory = path
         }
 
-        let request = CLIRequest.newTab(.init(taskID: taskUUID, directory: resolvedDirectory, select: select))
+        let request = CLIRequest.newTab(target)
         do {
             let response = try CLISocket.send(request, to: CLISocket.resolvedPath(environment: environment))
             guard response.ok, let tabID = response.tabID else {

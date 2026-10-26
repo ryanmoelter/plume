@@ -9,7 +9,7 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case notifyHelp
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
-    case shellInit(aliases: Bool)
+    case shellInit
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
@@ -35,7 +35,7 @@ nonisolated enum CLICommandLine {
           presence [--json]         Print whether the Mac is awake, asleep or locked
           tab new [--cwd DIR] [--task ID] [--select]
                                     Open a terminal tab in this task, print its ID
-          init zsh [--aliases]      Print zsh integration, for `eval "$(plume init zsh)"`
+          init zsh                  Print zsh integration, for `eval "$(plume init zsh)"`
           help                      Show this help
           --version                 Print Plume's version
         """
@@ -46,7 +46,7 @@ nonisolated enum CLICommandLine {
         """
 
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
-    static let initUsage = "usage: plume init zsh [--aliases]"
+    static let initUsage = "usage: plume init zsh"
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
     static func parse(_ arguments: [String], executableName: String) throws -> CLIInvocation {
@@ -155,8 +155,7 @@ nonisolated enum CLICommandLine {
             throw CLIUsageError(message: "only zsh is supported", usage: initUsage)
         }
         switch Array(arguments.dropFirst()) {
-        case []: return .shellInit(aliases: false)
-        case ["--aliases"]: return .shellInit(aliases: true)
+        case []: return .shellInit
         case let extra: throw CLIUsageError(message: "unexpected argument '\(extra[0])'", usage: initUsage)
         }
     }

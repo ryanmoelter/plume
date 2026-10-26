@@ -58,6 +58,45 @@ struct CLIServerTests {
         #expect(response.error?.contains("unknown command launch") == true)
     }
 
+    @Test func anOversizedLineGetsAnErrorAndTheConnectionCloses() async throws {
+        var handled = false
+        var limits = CLIServer.Limits()
+        limits.maxBufferedBytes = 64
+        let server = CLIServer(handler: { _ in handled = true; return .success }, limits: limits)
+        let path = temporarySocketPath()
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let (reply, afterReply) = try await Task.detached {
+            let fd = try CLISocket.connect(to: path)
+            defer { close(fd) }
+            try CLISocket.writeAll(Data(repeating: UInt8(ascii: "x"), count: 200), to: fd)
+            return (try CLISocket.readLine(from: fd), try CLISocket.readLine(from: fd))
+        }.value
+        let response = try CLILineCodec.decode(CLIResponse.self, from: try #require(reply))
+        #expect(response.error == "request exceeds 64 bytes")
+        #expect(afterReply == nil)
+        #expect(!handled)
+    }
+
+    /// The client's read returns at end-of-file, which only the server's
+    /// idle close produces; the client's own timeout is far longer.
+    @Test func anIdleConnectionIsClosed() async throws {
+        var limits = CLIServer.Limits()
+        limits.idleTimeout = 0.1
+        let server = CLIServer(handler: { _ in .success }, limits: limits)
+        let path = temporarySocketPath()
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let line = try await Task.detached {
+            let fd = try CLISocket.connect(to: path, timeout: 10)
+            defer { close(fd) }
+            return try CLISocket.readLine(from: fd)
+        }.value
+        #expect(line == nil)
+    }
+
     @Test func aPeerFromAnotherUserIsRefused() async throws {
         var handled = false
         let server = CLIServer(handler: { _ in handled = true; return .success }, allowedUID: getuid() + 1)

@@ -48,8 +48,8 @@ struct CLICommandLineTests {
     @Test func presenceAndInitParse() throws {
         #expect(try parse(["presence"]) == .presence(json: false))
         #expect(try parse(["presence", "--json"]) == .presence(json: true))
-        #expect(try parse(["init", "zsh"]) == .shellInit(aliases: false))
-        #expect(try parse(["init", "zsh", "--aliases"]) == .shellInit(aliases: true))
+        #expect(try parse(["init", "zsh"]) == .shellInit)
+        #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--aliases"]) }
         #expect(throws: CLIUsageError.self) { try parse(["init", "bash"]) }
         #expect(throws: CLIUsageError.self) { try parse(["frobnicate"]) }
     }
@@ -64,11 +64,28 @@ struct CLICommandLineTests {
     }
 
     @Test func zshIntegrationRegistersCompletionForEveryCommand() {
-        let script = ShellIntegration.zsh(aliases: false)
+        let script = ShellIntegration.zsh()
         for command in ShellIntegration.commands {
             #expect(script.contains("    \(command.name))\n"))
         }
         #expect(script.contains("compdef _plume plume"))
-        #expect(ShellIntegration.zsh(aliases: true).hasPrefix(script))
+        #expect(!script.contains("--aliases"))
+    }
+
+    /// `init` takes no options, so past the shell name there is nothing to
+    /// offer; an `_arguments` there would read `zsh` as its own argument.
+    @Test func initCompletesOnlyTheShellName() throws {
+        let initCommand = try #require(ShellIntegration.commands.first { $0.name == "init" })
+        #expect(initCommand.completion.contains("_values 'shell' zsh"))
+        #expect(!initCommand.completion.contains("_arguments"))
+    }
+
+    @Test func zshIntegrationParses() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-n", "-c", ShellIntegration.zsh()]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
     }
 }

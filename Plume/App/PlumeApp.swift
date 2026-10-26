@@ -9,6 +9,7 @@ struct PlumeApp: App {
     let modelContainer: ModelContainer = makeModelContainer()
 
     init() {
+        LoginShellCommand.dropInheritedInstanceKeys()
         #if DEBUG
         do {
             try SeededProviderRecovery.recover(in: modelContainer.mainContext)

@@ -32,6 +32,31 @@ enum LoginShellCommand {
         ]) { $1 }
     }
 
+    /// Keys that name a Plume instance, tab or task. A Plume launched from
+    /// another Plume's tab inherits that one's values, which would route a
+    /// child's `plume` calls and hook events to the wrong app.
+    nonisolated static let instanceKeys = [
+        CLISocket.pathEnvironmentKey,
+        CLISocket.tabIDEnvironmentKey,
+        CLISocket.taskIDEnvironmentKey,
+        "PLUME_EVENTS_DIR",
+    ]
+
+    /// `base` without any inherited `instanceKeys`, plus `overrides`, so a
+    /// child carries only the values this app sets for it.
+    nonisolated static func childEnvironment(
+        inheriting base: [String: String] = ProcessInfo.processInfo.environment,
+        overrides: [String: String]
+    ) -> [String: String] {
+        base.filter { !instanceKeys.contains($0.key) }.merging(overrides) { $1 }
+    }
+
+    /// Clears `instanceKeys` from this process at launch, for children whose
+    /// environment is built elsewhere — terminal surfaces inherit it whole.
+    static func dropInheritedInstanceKeys() {
+        for key in instanceKeys { unsetenv(key) }
+    }
+
     /// Builds `<shell> -lic '<command>'`, quoting `command` as a single
     /// argument so its own quoting is unaffected.
     ///

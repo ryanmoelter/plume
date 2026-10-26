@@ -88,9 +88,18 @@ struct GeneralSettingsPane: View {
     private var commandLineHelperRow: some View {
         LabeledContent {
             VStack(alignment: .trailing) {
-                Text(helperStatusText)
-                    .foregroundStyle(.secondary)
-                Button(helperButtonTitle, action: toggleHelperInstall)
+                ForEach(helperState.statusLines, id: \.self) { line in
+                    Text(line)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    if let installTitle = helperState.installTitle {
+                        Button(installTitle) { changeHelperInstall { try CommandLineHelper.install() } }
+                    }
+                    if helperState.canRemove {
+                        Button("Remove") { changeHelperInstall { try CommandLineHelper.uninstall() } }
+                    }
+                }
                 if let helperError {
                     Text(helperError)
                         .foregroundStyle(.red)
@@ -107,31 +116,10 @@ struct GeneralSettingsPane: View {
         if !ImportRequest.shared.request(source) { NSSound.beep() }
     }
 
-    private var helperStatusText: String {
-        switch helperState {
-        case .installed: "Installed"
-        case .notInstalled: "Not installed"
-        case .occupied(let name): "Another file owns \(name)"
-        case .needsUpdate: "Needs updating"
-        }
-    }
-
-    private var helperButtonTitle: String {
-        switch helperState {
-        case .installed: "Remove"
-        case .needsUpdate: "Update"
-        case .notInstalled, .occupied: "Install"
-        }
-    }
-
-    private func toggleHelperInstall() {
+    private func changeHelperInstall(_ change: () throws -> Void) {
         helperError = nil
         do {
-            if case .installed = helperState {
-                try CommandLineHelper.uninstall()
-            } else {
-                try CommandLineHelper.install()
-            }
+            try change()
         } catch {
             helperError = error.localizedDescription
         }

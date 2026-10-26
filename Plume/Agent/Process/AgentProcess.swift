@@ -63,9 +63,7 @@ final class AgentProcess: @unchecked Sendable {
         if let workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
         }
-        var env = ProcessInfo.processInfo.environment
-        for (key, value) in environment { env[key] = value }
-        process.environment = env
+        process.environment = LoginShellCommand.childEnvironment(overrides: environment)
 
         process.standardInput = inPipe
         process.standardOutput = outPipe

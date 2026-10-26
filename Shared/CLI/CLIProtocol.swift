@@ -16,8 +16,11 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var body: String
     }
 
+    /// Names its task outright, or through a tab in it — the calling tab,
+    /// whose task can change when the tab is moved. `taskID` wins.
     struct NewTab: Codable, Equatable, Sendable {
-        var taskID: UUID
+        var taskID: UUID?
+        var tabID: UUID?
         var directory: String?
         var select: Bool
     }
@@ -96,6 +99,9 @@ nonisolated enum CLILineCodec {
     /// terminator.
     struct Buffer {
         private var pending = Data()
+
+        /// Bytes held that aren't yet part of a complete line handed back.
+        var count: Int { pending.count }
 
         mutating func append(_ data: Data) {
             pending.append(data)

@@ -214,6 +214,7 @@ struct MainWindow: View {
             guard let task = tasks.first(where: { $0.id == taskID }) else { return nil }
             return .init(task: task, context: context) { selection = taskID }
         }
+        CLICommandHandler.shared.taskIDForTab = TerminalAlerts.shared.taskID
     }
 
     /// A notification click selects its task, then its tab within that task.

@@ -42,14 +42,46 @@ enum CommandLineHelper {
         /// Something else already owns the name — a real file, or a symlink
         /// to another tool. Overwriting it is the user's call, not ours.
         case occupiedByOther(URL?)
+        /// A link into another Plume bundle that this build doesn't claim.
+        case ownedByOtherPlume(URL)
         /// A link into a Plume bundle, but not at this build's tool: the old
         /// script, or another copy of Plume. Ours to replace.
         case outdated(URL)
         /// Installed by Plume, but the bundle it pointed at is gone.
         case brokenLink
+
+        /// A link Plume placed and may remove.
+        var isPlumeOwned: Bool {
+            switch self {
+            case .installed, .outdated: true
+            case .notInstalled, .occupiedByOther, .ownedByOtherPlume, .brokenLink: false
+            }
+        }
+
+        var isTaken: Bool {
+            switch self {
+            case .occupiedByOther, .ownedByOtherPlume: true
+            case .installed, .notInstalled, .outdated, .brokenLink: false
+            }
+        }
     }
 
-    static func state(of installedURL: URL, bundledURL: URL? = bundledURL) -> State {
+    /// A release build takes over any Plume bundle's links, since the app may
+    /// have moved. A debug build — DerivedData, a worktree — claims only its
+    /// own, so it never repoints the installed app's tool at itself.
+    static var claimsOtherPlumeBundles: Bool {
+        #if DEBUG
+        false
+        #else
+        true
+        #endif
+    }
+
+    static func state(
+        of installedURL: URL,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) -> State {
         let manager = FileManager.default
         let destination = try? manager.destinationOfSymbolicLink(atPath: installedURL.path)
 
@@ -71,36 +103,111 @@ enum CommandLineHelper {
             // matters; a dangling link to anything else is equally safe to replace.
             return .brokenLink
         }
-        return isInsidePlumeBundle(resolved) ? .outdated(resolved) : .occupiedByOther(resolved)
+        guard isInsidePlumeBundle(resolved) else { return .occupiedByOther(resolved) }
+        if claimsOtherPlumeBundles { return .outdated(resolved) }
+        if let bundledURL, isInside(resolved, bundle: bundleURL(containingTool: bundledURL)) {
+            return .outdated(resolved)
+        }
+        return .ownedByOtherPlume(resolved)
     }
 
     static func isInsidePlumeBundle(_ url: URL) -> Bool {
         url.pathComponents.contains { $0.hasPrefix("Plume") && $0.hasSuffix(".app") }
     }
 
+    /// The inverse of `toolURL(inBundle:)`.
+    static func bundleURL(containingTool toolURL: URL) -> URL {
+        toolURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func isInside(_ url: URL, bundle: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.starts(with: bundle.standardizedFileURL.pathComponents)
+    }
+
     /// Every managed name and its state, in `commandNames` order.
     static func states(
         in directory: URL = installDirectory,
-        bundledURL: URL? = bundledURL
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
     ) -> [(name: String, state: State)] {
-        commandNames.map { ($0, state(of: directory.appending(path: $0), bundledURL: bundledURL)) }
+        commandNames.map { name in
+            let url = directory.appending(path: name)
+            return (name, state(of: url, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles))
+        }
     }
 
-    enum Summary: Equatable {
-        case installed
-        case notInstalled
-        /// Some names are missing or point at an older or vanished tool.
-        case needsUpdate
-        case occupied(name: String)
+    /// What Settings shows and offers. Names something else owns are listed
+    /// in `taken`, and `progress` covers the rest.
+    struct Summary: Equatable {
+        enum Progress: Equatable {
+            case installed
+            case notInstalled
+            /// Some names are missing or point at an older or vanished tool.
+            case needsUpdate
+            /// Every name is taken, so there is nothing to install.
+            case allTaken
+        }
+
+        struct Taken: Equatable {
+            var name: String
+            var byOtherPlume: Bool
+        }
+
+        var progress: Progress
+        /// The names `progress` covers.
+        var available: [String]
+        var taken: [Taken] = []
+        /// True while any link is Plume's, so Remove stays reachable even
+        /// when another name is taken.
+        var canRemove: Bool
+
+        /// Nil when there is nothing left to link.
+        var installTitle: String? {
+            switch progress {
+            case .notInstalled: "Install"
+            case .needsUpdate: "Update"
+            case .installed, .allTaken: nil
+            }
+        }
+
+        var statusLines: [String] {
+            var lines: [String] = []
+            let progressText: String? = switch progress {
+            case .installed: "Installed"
+            case .notInstalled: "Not installed"
+            case .needsUpdate: "Needs updating"
+            case .allTaken: nil
+            }
+            if let progressText {
+                lines.append(taken.isEmpty ? progressText : "\(available.joined(separator: ", ")): \(progressText.lowercased())")
+            }
+            for entry in taken {
+                lines.append("\(entry.byOtherPlume ? "Another copy of Plume" : "Another tool") owns \(entry.name)")
+            }
+            return lines
+        }
     }
 
     static func summary(of states: [(name: String, state: State)]) -> Summary {
-        if let occupied = states.first(where: { if case .occupiedByOther = $0.state { true } else { false } }) {
-            return .occupied(name: occupied.name)
+        let taken = states.compactMap { entry -> Summary.Taken? in
+            switch entry.state {
+            case .occupiedByOther: Summary.Taken(name: entry.name, byOtherPlume: false)
+            case .ownedByOtherPlume: Summary.Taken(name: entry.name, byOtherPlume: true)
+            case .installed, .notInstalled, .outdated, .brokenLink: nil
+            }
         }
-        if states.allSatisfy({ $0.state == .installed }) { return .installed }
-        if states.allSatisfy({ $0.state == .notInstalled }) { return .notInstalled }
-        return .needsUpdate
+        let available = states.filter { !$0.state.isTaken }
+        let progress: Summary.Progress =
+            if available.isEmpty { .allTaken }
+            else if available.allSatisfy({ $0.state == .installed }) { .installed }
+            else if available.allSatisfy({ $0.state == .notInstalled }) { .notInstalled }
+            else { .needsUpdate }
+        return Summary(
+            progress: progress,
+            available: available.map(\.name),
+            taken: taken,
+            canRemove: states.contains { $0.state.isPlumeOwned }
+        )
     }
 
     enum InstallError: LocalizedError {
@@ -123,17 +230,24 @@ enum CommandLineHelper {
 
     /// Links every name, replacing links Plume placed itself. A name that
     /// something else owns is skipped and reported once the rest are linked.
-    static func install(in directory: URL = installDirectory, bundledURL: URL? = bundledURL) throws {
+    static func install(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) throws {
         guard let bundledURL else { throw InstallError.notBundled }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         var firstConflict: InstallError?
-        for (name, state) in states(in: directory, bundledURL: bundledURL) {
+        for (name, state) in states(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles) {
             let url = directory.appending(path: name)
             switch state {
             case .installed:
                 continue
             case .occupiedByOther(let destination):
+                firstConflict = firstConflict ?? .occupied(url, destination: destination)
+                continue
+            case .ownedByOtherPlume(let destination):
                 firstConflict = firstConflict ?? .occupied(url, destination: destination)
                 continue
             case .brokenLink, .outdated:
@@ -147,14 +261,14 @@ enum CommandLineHelper {
     }
 
     /// Removes the links Plume placed, leaving anything else alone.
-    static func uninstall(in directory: URL = installDirectory, bundledURL: URL? = bundledURL) throws {
-        for (name, state) in states(in: directory, bundledURL: bundledURL) {
-            switch state {
-            case .installed, .outdated:
-                try FileManager.default.removeItem(at: directory.appending(path: name))
-            case .notInstalled, .occupiedByOther, .brokenLink:
-                continue
-            }
+    static func uninstall(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) throws {
+        for (name, state) in states(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
+        where state.isPlumeOwned {
+            try FileManager.default.removeItem(at: directory.appending(path: name))
         }
     }
 

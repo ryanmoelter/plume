@@ -62,6 +62,35 @@ struct CLICommandHandlerTests {
         #expect(task.tabs.count == 1)
     }
 
+    @Test func aTabIDOpensInThatTabsCurrentTask() throws {
+        let original = TaskStore.createTask(in: context, siblings: [])
+        let destination = TaskStore.createTask(in: context, siblings: [original])
+        let caller = TaskStore.addTab(to: original, kind: .terminal, in: context)
+        TaskStore.moveTab(caller, to: destination)
+        let tasks = [original, destination]
+        let handler = CLICommandHandler()
+        handler.workspace = { [context] id in
+            tasks.first { $0.id == id }.map { .init(task: $0, context: context, reveal: {}) }
+        }
+        handler.taskIDForTab = { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id }
+
+        let response = handler.handle(.newTab(.init(tabID: caller.id, select: false)))
+
+        let tabID = try #require(response.tabID)
+        #expect(destination.tabs.contains { $0.id == tabID })
+        #expect(!original.tabs.contains { $0.id == tabID })
+    }
+
+    @Test func aTaskIDWinsOverATabIDAndAnUnknownTabFails() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeHandler(task: task)
+
+        let response = handler.handle(.newTab(.init(taskID: task.id, tabID: UUID(), select: false)))
+        #expect(response.ok)
+        #expect(!handler.handle(.newTab(.init(tabID: UUID(), select: false))).ok)
+        #expect(!handler.handle(.newTab(.init(select: false))).ok)
+    }
+
     @Test func notifyReportsATabNothingOwns() {
         let handler = CLICommandHandler()
         let known = UUID()
