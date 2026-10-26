@@ -98,9 +98,9 @@ nonisolated enum LinearMentionSearch: Hashable, Sendable {
 
     static let minimumLength = 2
 
-    /// A first word that starts any team key scopes the search to those
-    /// teams, as `dro layout` searches DROID for "layout". Nil for a query
-    /// too short to send.
+    /// A first word that is a team key, or two or more letters starting one,
+    /// scopes the search to those teams, as `dro layout` searches DROID for
+    /// "layout". Nil for a query too short to send.
     static func parse(_ query: String, teamKeys: Set<String>) -> LinearMentionSearch? {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         if let identifier = LinearIdentifier.normalize(trimmed) { return .identifier(identifier) }
@@ -109,7 +109,7 @@ nonisolated enum LinearMentionSearch: Hashable, Sendable {
         var keys: [String] = []
         if words.count > 1 {
             let first = words[0].uppercased()
-            keys = teamKeys.filter { $0.hasPrefix(first) }.sorted()
+            keys = teamKeys.filter { $0 == first || (first.count >= 2 && $0.hasPrefix(first)) }.sorted()
             if !keys.isEmpty { term = words.dropFirst().joined(separator: " ") }
         }
         guard term.count >= minimumLength else { return nil }

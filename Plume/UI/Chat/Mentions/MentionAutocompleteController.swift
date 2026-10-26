@@ -8,8 +8,8 @@ protocol MentionSources: AnyObject, Sendable {
     var teamKeys: Set<String> { get }
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention]
     func pullRequests(for query: MentionQuery, in directory: String?) async -> [RankedMention]
-    /// The cache only, so it answers at once.
-    func cachedLinearIssues(matching text: String) -> [RankedMention]
+    /// The cache only, with no request.
+    func cachedLinearIssues(matching text: String) async -> [RankedMention]
     /// Fills the cache with what a remote search finds.
     func searchLinear(_ text: String) async
 }
@@ -26,8 +26,8 @@ final class LiveMentionSources: MentionSources {
         await PullRequestMentionSource.shared.matches(for: query, in: directory)
     }
 
-    func cachedLinearIssues(matching text: String) -> [RankedMention] {
-        LinearStore.shared.mentionCandidates(matching: text)
+    func cachedLinearIssues(matching text: String) async -> [RankedMention] {
+        await LinearStore.shared.mentionCandidates(matching: text)
     }
 
     func searchLinear(_ text: String) async {
@@ -163,7 +163,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         if wanted.contains(.pullRequests) {
             next[.pullRequests] = Self.narrowedPullRequests(results[.pullRequests], to: query.text)
         }
-        if wanted.contains(.linear) { next[.linear] = sources.cachedLinearIssues(matching: query.text) }
+        if wanted.contains(.linear) { next[.linear] = Self.narrowedLinear(results[.linear], to: query.text) }
         results = next
         pending = wanted
         publish()
@@ -172,41 +172,62 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         let debounce = debounce
         let sleep = sleep
         load = Task { [weak self] in
-            await withTaskGroup(of: (MentionCandidate.Source, [RankedMention]?).self) { group in
+            await withTaskGroup(of: Answer.self) { group in
                 if wanted.contains(.files) {
-                    group.addTask { @MainActor in (.files, await sources.files(for: query, in: directory)) }
+                    group.addTask { @MainActor in Answer(.files, await sources.files(for: query, in: directory)) }
                 }
                 if wanted.contains(.linear) {
                     group.addTask { @MainActor in
-                        do { try await sleep(debounce.linearSearch) } catch { return (.linear, nil) }
+                        Answer(.linear, await sources.cachedLinearIssues(matching: query.text), isFinal: false)
+                    }
+                    group.addTask { @MainActor in
+                        do { try await sleep(debounce.linearSearch) } catch { return Answer(.linear, nil) }
                         await sources.searchLinear(query.text)
-                        if Task.isCancelled { return (.linear, nil) }
-                        return (.linear, sources.cachedLinearIssues(matching: query.text))
+                        if Task.isCancelled { return Answer(.linear, nil) }
+                        return Answer(.linear, await sources.cachedLinearIssues(matching: query.text))
                     }
                 }
                 if wanted.contains(.pullRequests) {
                     group.addTask { @MainActor in
                         if Self.searchesPullRequestTitles(query.text) {
-                            do { try await sleep(debounce.pullRequestSearch) } catch { return (.pullRequests, nil) }
+                            do { try await sleep(debounce.pullRequestSearch) } catch { return Answer(.pullRequests, nil) }
                         }
-                        return (.pullRequests, await sources.pullRequests(for: query, in: directory))
+                        return Answer(.pullRequests, await sources.pullRequests(for: query, in: directory))
                     }
                 }
-                for await (source, ranked) in group {
-                    self?.receive(ranked, from: source, generation: generation)
+                for await answer in group {
+                    self?.receive(answer, generation: generation)
                 }
             }
         }
     }
 
-    private func receive(_ ranked: [RankedMention]?, from source: MentionCandidate.Source, generation: Int) {
+    /// One source's rows. An answer that is not final updates the rows but
+    /// leaves the source loading, and is dropped if the final one came first.
+    private struct Answer: Sendable {
+        let source: MentionCandidate.Source
+        let ranked: [RankedMention]?
+        let isFinal: Bool
+
+        init(_ source: MentionCandidate.Source, _ ranked: [RankedMention]?, isFinal: Bool = true) {
+            self.source = source
+            self.ranked = ranked
+            self.isFinal = isFinal
+        }
+    }
+
+    private func receive(_ answer: Answer, generation: Int) {
         guard generation == self.generation, !Task.isCancelled else {
             didDiscard?()
             return
         }
-        guard let ranked else { return }
-        results[source] = ranked
-        pending.remove(source)
+        guard let ranked = answer.ranked, pending.contains(answer.source) else { return }
+        results[answer.source] = ranked
+        guard answer.isFinal else {
+            publish()
+            return
+        }
+        pending.remove(answer.source)
         publish()
         guard pending.isEmpty, let query else { return }
         if candidates.isEmpty, query.containsSpace {
@@ -258,6 +279,11 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     private static func narrowedFiles(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {
         let entries = (ranked ?? []).compactMap { if case .file(let entry) = $0.candidate { entry } else { nil } }
         return entries.isEmpty ? [] : FileMentionMatcher.matches(text, in: entries)
+    }
+
+    private static func narrowedLinear(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {
+        let issues = (ranked ?? []).compactMap { if case .linear(let issue) = $0.candidate { issue } else { nil } }
+        return issues.isEmpty ? [] : LinearMentionMatcher.matches(text, in: issues)
     }
 
     private static func narrowedPullRequests(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {

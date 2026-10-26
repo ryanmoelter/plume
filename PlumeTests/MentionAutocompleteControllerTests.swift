@@ -114,6 +114,7 @@ struct MentionAutocompleteControllerTests {
 
         type("@dro", into: controller)
         await sources.waitForHeldFiles(1)
+        for _ in 0..<1_000 where controller.candidates.count < 2 { await Task.yield() }
         controller.moveSelection(by: 1)
         #expect(controller.selectedIndex == 1)
 

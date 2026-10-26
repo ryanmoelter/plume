@@ -55,7 +55,7 @@ final class FakeMentionSources: MentionSources {
         }
     }
 
-    func cachedLinearIssues(matching text: String) -> [RankedMention] {
+    func cachedLinearIssues(matching text: String) async -> [RankedMention] {
         linearAnswer(text)
     }
 

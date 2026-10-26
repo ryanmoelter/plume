@@ -150,6 +150,12 @@ struct LinearMentionMatcherTests {
         #expect(LinearMentionSearch.parse("ios", teamKeys: keys) == .text(term: "ios", teamKeys: []))
     }
 
+    @Test func aOneLetterFirstWordFiltersOnlyByAnExactTeamKey() {
+        let keys: Set<String> = ["DROID", "A"]
+        #expect(LinearMentionSearch.parse("d layout", teamKeys: keys) == .text(term: "d layout", teamKeys: []))
+        #expect(LinearMentionSearch.parse("a layout", teamKeys: keys) == .text(term: "layout", teamKeys: ["A"]))
+    }
+
     @Test func aSearchNeedsTwoCharactersAndSpotsIdentifiers() {
         #expect(LinearMentionSearch.parse("a", teamKeys: []) == nil)
         #expect(LinearMentionSearch.parse("ios x", teamKeys: ["IOS"]) == nil)
