@@ -160,7 +160,8 @@ enum AgentLauncher {
             settingsPath: settingsPath,
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
-            environment: HeadlessCommand.environment,
+            environment: HeadlessCommand.environment
+                .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
             fork: fork
         )
         if blocks.hasContent {
@@ -207,7 +208,8 @@ enum AgentLauncher {
             for: tab.id,
             options: TerminalSurfaceOptions(
                 workingDirectory: TabDirectoryStore.shared.directory(for: tab),
-                envVars: launch.environment,
+                envVars: launch.environment
+                    .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
                 command: launch.command
             )
         )
@@ -242,7 +244,9 @@ enum AgentLauncher {
             collaborationMode: tab.codexCollaborationMode,
             permissionProfile: tab.permissionModeRaw,
             defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
-            environment: LoginShellCommand.plumeEnvironment
+            // One app-server runs every headless Codex tab, so its commands
+            // can be told the socket but not which tab they belong to.
+            environment: LoginShellCommand.sharedPlumeEnvironment
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)
@@ -280,7 +284,8 @@ enum AgentLauncher {
             for: tab.id,
             options: TerminalSurfaceOptions(
                 workingDirectory: claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID),
-                envVars: launch.environment,
+                envVars: launch.environment
+                    .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
                 command: launch.command
             )
         )

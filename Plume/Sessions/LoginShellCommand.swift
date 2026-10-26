@@ -17,6 +17,21 @@ enum LoginShellCommand {
     /// command string and have no environment to carry it in.
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
+    /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
+    /// through. For a process serving many tabs, which has no one tab to name.
+    static var sharedPlumeEnvironment: [String: String] {
+        plumeEnvironment.merging([CLISocket.pathEnvironmentKey: AppPaths.cliSocketPath]) { $1 }
+    }
+
+    /// Everything `plume` needs inside one tab: the socket, and which tab and
+    /// task it runs in.
+    static func plumeEnvironment(taskID: UUID, tabID: UUID) -> [String: String] {
+        sharedPlumeEnvironment.merging([
+            CLISocket.taskIDEnvironmentKey: taskID.uuidString,
+            CLISocket.tabIDEnvironmentKey: tabID.uuidString,
+        ]) { $1 }
+    }
+
     /// Builds `<shell> -lic '<command>'`, quoting `command` as a single
     /// argument so its own quoting is unaffected.
     ///

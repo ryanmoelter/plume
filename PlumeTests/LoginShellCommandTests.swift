@@ -38,4 +38,15 @@ struct LoginShellCommandTests {
     @Test func plumeEnvironmentMarksTheShell() {
         #expect(LoginShellCommand.plumeEnvironment == ["PLUME": "1"])
     }
+
+    @Test func aTabsEnvironmentNamesItsTabTaskAndSocket() {
+        let taskID = UUID()
+        let tabID = UUID()
+        let environment = LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID)
+        #expect(environment["PLUME"] == "1")
+        #expect(environment["PLUME_TASK_ID"] == taskID.uuidString)
+        #expect(environment["PLUME_TAB_ID"] == tabID.uuidString)
+        #expect(environment["PLUME_SOCKET"] == AppPaths.cliSocketPath)
+        #expect(LoginShellCommand.sharedPlumeEnvironment["PLUME_TAB_ID"] == nil)
+    }
 }

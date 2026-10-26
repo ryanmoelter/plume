@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         UpdateController.shared.start()
 
+        CLIServer.shared.startIfEnabled()
+        CommandLineHelper.repointLegacyLinks()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()
@@ -147,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DeviceSessionManager.awaitTerminations()
 
         KeepAwakeCoordinator.shared.releaseForTermination()
+        CLIServer.shared.stop()
         #if DEBUG
         ControlServer.shared.stop()
         #endif
