@@ -121,6 +121,22 @@ struct MentionInsertionTests {
         #expect(result.text == "[#123](https://github.com/o/r/pull/123) later")
     }
 
+    @Test func closingPunctuationAfterTheCaretIsKept() throws {
+        let link = "[Plume.swift](Plume.swift)"
+        let parenthesized = try accept(file("Plume.swift"), in: "(see @Plum)", caret: 10)
+        #expect(parenthesized.text == "(see \(link))")
+        #expect(parenthesized.caretLocation == ("(see \(link)" as NSString).length)
+
+        let comma = try accept(file("Plume.swift"), in: "@Plum, then", caret: 5)
+        #expect(comma.text == "\(link), then")
+    }
+
+    @Test func aDotInsideTheWordIsReplacedButASentenceEndingOneIsKept() throws {
+        let link = "[Plume.swift](Plume.swift)"
+        #expect(try accept(file("Plume.swift"), in: "@Plum.sw later", caret: 5).text == "\(link) later")
+        #expect(try accept(file("Plume.swift"), in: "see @Plum.", caret: 9).text == "see \(link).")
+    }
+
     @Test func caretOffsetsAreUTF16() throws {
         let result = try accept(pull, in: "🎉 #1")
         #expect(result.text == "🎉 [#123](https://github.com/o/r/pull/123) ")
