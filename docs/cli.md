@@ -14,7 +14,7 @@ The code is split three ways:
 
 | Command | Needs the app | What it does |
 |---|---|---|
-| `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. |
+| `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. Arguments apply in order and the last to name a field wins, again as the script did, so the first positional sets the title even after `--title`. |
 | `plume presence [--json]` | No | Prints `awake`, `asleep` or `locked`. |
 | `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. |
 | `plume init zsh` | No | Prints zsh completions; load with `eval "$(plume init zsh)"`. |
@@ -49,29 +49,33 @@ The app exports these into every tab's process, terminal and agent alike (`Login
 | Variable | Value |
 |---|---|
 | `PLUME` | `1` |
-| `PLUME_SOCKET` | This app's socket, so a debug or worktree build's tabs reach that build |
+| `PLUME_SOCKET` | The socket this app serves (`CLIServer.shared.socketPath`), so a debug or worktree build's tabs reach that build. Omitted when the server failed to start. |
 | `PLUME_TAB_ID` | The tab's UUID |
 | `PLUME_TASK_ID` | The task's UUID |
 
-**Headless Codex tabs get `PLUME_SOCKET` but no tab or task ID.** One `codex app-server` process serves every headless Codex tab, so its commands share one environment and there is no single tab to name. `plume notify` from one falls back to the terminal path, and `tab new` needs `--task`.
+**Headless Codex tabs get their IDs through their thread, not their process.** One `codex app-server` process serves every headless Codex tab, so the process carries only `PLUME` and `PLUME_SOCKET`. `thread/start` and `thread/resume` add each tab's variables as per-thread `config` overrides, one `shell_environment_policy.set.<NAME>` key each (`CodexSession.threadConfig`). The dotted keys merge into the user's own `shell_environment_policy.set` instead of replacing it, and `set` applies after `inherit` and `exclude`, so the values reach commands even with `inherit = "none"`. Only a user `include_only` list that leaves them out drops them. A resume that attaches to a thread already running in the app-server ignores `config`, so that thread keeps the environment it started with.
 
 A Claude Code terminal tab already carried `PLUME_TAB_ID` and `PLUME_TASK_ID` for hook instrumentation. The hook command keys off `PLUME_EVENTS_DIR`, which only that path sets, so exporting the IDs elsewhere writes no events.
 
 At launch the app unsets any of these it inherited, along with `PLUME_EVENTS_DIR`, and `LoginShellCommand.childEnvironment` strips them again when building a child's environment. A debug Plume launched from another Plume's tab would otherwise hand its own children that Plume's socket and IDs.
 
-Outside any Plume tab, `PLUME_SOCKET` is unset and the tool uses the installed app's socket, `~/Library/Application Support/Plume/cli.sock`.
+Outside any Plume tab, `PLUME_SOCKET` is unset and the tool uses the installed app's socket, `~/Library/Application Support/Plume/run/cli.sock`.
 
 ## Socket
 
-The app serves `<AppPaths.applicationSupport>/cli.sock`, so the installed app, a debug build and each worktree build each get their own (`AppPaths.cliSocketPath`). `sun_path` holds 103 bytes plus the terminator. A longer path, as from a deep `PLUME_APP_SUPPORT` override, falls back to `/tmp/plume-<uid>/cli-<hash>.sock`, where the hash is FNV-1a of the preferred path. The app creates that directory mode 0700 and refuses to use it unless this user owns it and it is a real directory.
+The app serves `<AppPaths.applicationSupport>/run/cli.sock`, so the installed app, a debug build and each worktree build each get their own (`AppPaths.cliSocketPath`). `sun_path` holds 103 bytes plus the terminator. A longer path, as from a deep `PLUME_APP_SUPPORT` override, falls back to `/tmp/plume-<uid>/cli-<hash>.sock`, where the hash is FNV-1a of the preferred path. Either way the socket's directory holds only the socket and its lock file. The app creates it mode 0700, and refuses to use it unless this user owns it and it is a real directory.
 
-Only the user who runs Plume can connect. The socket is mode 0600, and the server checks every peer with `getpeereid`, answering any other uid with `{"ok":false,"error":"permission denied"}` before closing.
+Only the user who runs Plume can connect. The socket is mode 0600 inside that 0700 directory, and the server checks every peer with `getpeereid`. It answers any other uid with `{"ok":false,"error":"permission denied"}`, then shuts down its side for writing and closes once the peer does (or the idle timeout passes), reading nothing the peer sends. Closing straight away would let the peer's own write fail with `EPIPE` before it read the reply. The tool also reads any reply that arrived when its write fails.
 
-At launch the server removes a socket file that refuses connections, the leftover of a crash. It probes with a non-blocking connect, which a Unix socket answers at once. A socket that answers belongs to another running instance with the same data directory, so the server logs and doesn't start. The test host has no bundle identifier and never starts it.
+**Ownership of the path is an `flock` on `cli.sock.lock`**, held for the server's lifetime (`CLIServer.acquireLock`). Only the holder may unlink or bind the socket path, so a server that gets the lock removes whatever socket file is there, which is the leftover of a crash. A server that can't get the lock has another instance with the same data directory serving, so it logs and doesn't start. A connect probe can't make this call: Darwin refuses a connect to a live listener with a full backlog with the same `ECONNREFUSED` as a dead socket. `stop()` unlinks the path only if it is still the socket this server bound (same device and inode), then releases the lock. The lock file itself is never removed, since unlinking a lock file races a process about to lock it.
+
+Because of that same refusal, the tool retries a refused connect a few times, about 0.4 s in all, while a socket file exists at the path (`CLISocket.Retry`). Only then does it report "Plume isn't running".
+
+A process with no bundle identifier never starts the server. The test host is the debug app, so it does start one, at the worktree's debug data directory.
 
 ## Wire protocol
 
-Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool sets three-second send and receive timeouts (two for `notify`), so a wedged app can't hang a hook.
+Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool sets three-second send and receive timeouts (two for `notify`), so a wedged app can't hang a hook. A last request with no trailing newline is still answered when the client shuts down its writing side.
 
 Requests name a `command` and carry its `params`:
 

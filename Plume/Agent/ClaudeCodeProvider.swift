@@ -46,8 +46,8 @@ struct ClaudeCodeProvider: AgentProvider {
 
         var environment = LoginShellCommand.plumeEnvironment
         if let taskID, let tabID {
-            environment["PLUME_TASK_ID"] = taskID.uuidString
-            environment["PLUME_TAB_ID"] = tabID.uuidString
+            environment[CLISocket.taskIDEnvironmentKey] = taskID.uuidString
+            environment[CLISocket.tabIDEnvironmentKey] = tabID.uuidString
             environment["PLUME_EVENTS_DIR"] = AppPaths.eventsDirectory.path
         }
 

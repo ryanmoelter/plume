@@ -4,6 +4,9 @@ import Foundation
 /// Where the app's CLI socket lives, and the client half of talking to it.
 nonisolated enum CLISocket {
     static let fileName = "cli.sock"
+    /// The socket's own directory under the data directory, kept mode 0700
+    /// so only this user can reach the socket or its lock file.
+    static let directoryName = "run"
     /// Exported into every tab, so a `plume` launched from a debug or worktree
     /// build reaches that build rather than the installed app.
     static let pathEnvironmentKey = "PLUME_SOCKET"
@@ -17,7 +20,7 @@ nonisolated enum CLISocket {
     /// directory instead, named by a hash of the preferred path so two such
     /// instances never share a socket.
     static func path(applicationSupport: String, uid: uid_t = getuid()) -> String {
-        let preferred = (applicationSupport as NSString).appendingPathComponent(fileName)
+        let preferred = (applicationSupport as NSString).appendingPathComponent("\(directoryName)/\(fileName)")
         if preferred.utf8.count <= maxPathLength { return preferred }
         return fallbackDirectory(uid: uid) + "/cli-\(stableHash(preferred)).sock"
     }
@@ -80,34 +83,62 @@ nonisolated enum CLISocket {
 
     /// A connected, blocking socket with send and receive timeouts, so a
     /// wedged app cannot hang the caller — often a hook that blocks an agent.
-    static func connect(to path: String, timeout: TimeInterval = 3) throws -> Int32 {
+    ///
+    /// Darwin refuses a connect to a live listener whose backlog is full the
+    /// same way it refuses one to a stale socket file, so a refusal is retried
+    /// briefly while the file is there.
+    static func connect(to path: String, timeout: TimeInterval = 3, retry: Retry = Retry()) throws -> Int32 {
         guard var address = makeAddress(path) else { throw ClientError.unreachable("socket path too long") }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw ClientError.io("socket: \(errnoText)") }
-        var noSigpipe: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
-        var limit = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+        var attempt = 0
+        while true {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { throw ClientError.io("socket: \(errnoText)") }
+            var noSigpipe: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
+            var limit = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+            let connected = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
             }
-        }
-        guard connected == 0 else {
+            if connected == 0 { return fd }
+            let code = errno
             let detail = errnoText
             close(fd)
-            throw ClientError.unreachable(detail)
+            let mayBeBusy = (code == ECONNREFUSED || code == EAGAIN) && socketFileExists(at: path)
+            guard mayBeBusy, attempt < retry.attempts else { throw ClientError.unreachable(detail) }
+            retry.pause(attempt)
+            attempt += 1
         }
-        return fd
+    }
+
+    struct Retry: Sendable {
+        var attempts = 4
+        var pause: @Sendable (_ attempt: Int) -> Void = { attempt in usleep(useconds_t(25_000 << attempt)) }
+    }
+
+    private static func socketFileExists(at path: String) -> Bool {
+        var info = stat()
+        return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFSOCK
     }
 
     /// Sends one request and waits for its one reply line.
-    static func send(_ request: CLIRequest, to path: String, timeout: TimeInterval = 3) throws -> CLIResponse {
-        let fd = try connect(to: path, timeout: timeout)
+    static func send(_ request: CLIRequest, to path: String, timeout: TimeInterval = 3, retry: Retry = Retry()) throws -> CLIResponse {
+        let fd = try connect(to: path, timeout: timeout, retry: retry)
         defer { close(fd) }
-        try writeAll(try CLILineCodec.encode(request), to: fd)
-        guard let line = try readLine(from: fd) else { throw ClientError.badResponse }
+        let line: Data?
+        do {
+            try writeAll(try CLILineCodec.encode(request), to: fd)
+            line = try readLine(from: fd)
+        } catch {
+            // A server that refuses this peer may answer and close before the
+            // request is written; its answer explains more than the write error.
+            guard let reply = try? readLine(from: fd) else { throw error }
+            line = reply
+        }
+        guard let line else { throw ClientError.badResponse }
         do {
             return try CLILineCodec.decode(CLIResponse.self, from: line)
         } catch {

@@ -42,12 +42,26 @@ struct LoginShellCommandTests {
     @Test func aTabsEnvironmentNamesItsTabTaskAndSocket() {
         let taskID = UUID()
         let tabID = UUID()
-        let environment = LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID)
+        let environment = LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID, socketPath: "/serving/cli.sock")
         #expect(environment["PLUME"] == "1")
         #expect(environment["PLUME_TASK_ID"] == taskID.uuidString)
         #expect(environment["PLUME_TAB_ID"] == tabID.uuidString)
-        #expect(environment["PLUME_SOCKET"] == AppPaths.cliSocketPath)
-        #expect(LoginShellCommand.sharedPlumeEnvironment["PLUME_TAB_ID"] == nil)
+        #expect(environment["PLUME_SOCKET"] == "/serving/cli.sock")
+        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: "/serving/cli.sock")["PLUME_TAB_ID"] == nil)
+    }
+
+    @Test func noSocketIsExportedWhenTheServerIsNotServing() {
+        let environment = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil)
+        #expect(environment["PLUME_SOCKET"] == nil)
+        #expect(environment["PLUME_TAB_ID"] != nil)
+        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: nil) == ["PLUME": "1"])
+    }
+
+    @MainActor
+    @Test func theDefaultsExportThePathTheServerServes() {
+        let served = CLIServer.shared.socketPath
+        #expect(LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID())["PLUME_SOCKET"] == served)
+        #expect(LoginShellCommand.sharedPlumeEnvironment()["PLUME_SOCKET"] == served)
     }
 
     /// As when this Plume was launched from another Plume's tab.

@@ -18,15 +18,25 @@ enum LoginShellCommand {
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
     /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
-    /// through. For a process serving many tabs, which has no one tab to name.
-    static var sharedPlumeEnvironment: [String: String] {
-        plumeEnvironment.merging([CLISocket.pathEnvironmentKey: AppPaths.cliSocketPath]) { $1 }
+    /// through, when this app serves one. For a process serving many tabs,
+    /// which has no one tab to name.
+    static func sharedPlumeEnvironment() -> [String: String] {
+        sharedPlumeEnvironment(socketPath: CLIServer.shared.socketPath)
+    }
+
+    static func sharedPlumeEnvironment(socketPath: String?) -> [String: String] {
+        guard let socketPath else { return plumeEnvironment }
+        return plumeEnvironment.merging([CLISocket.pathEnvironmentKey: socketPath]) { $1 }
     }
 
     /// Everything `plume` needs inside one tab: the socket, and which tab and
     /// task it runs in.
     static func plumeEnvironment(taskID: UUID, tabID: UUID) -> [String: String] {
-        sharedPlumeEnvironment.merging([
+        plumeEnvironment(taskID: taskID, tabID: tabID, socketPath: CLIServer.shared.socketPath)
+    }
+
+    static func plumeEnvironment(taskID: UUID, tabID: UUID, socketPath: String?) -> [String: String] {
+        sharedPlumeEnvironment(socketPath: socketPath).merging([
             CLISocket.taskIDEnvironmentKey: taskID.uuidString,
             CLISocket.tabIDEnvironmentKey: tabID.uuidString,
         ]) { $1 }

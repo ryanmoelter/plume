@@ -52,12 +52,12 @@ struct CLIProtocolTests {
     }
 }
 
-/// The socket sits in the data directory unless that path overflows
-/// `sun_path`, and `PLUME_SOCKET` overrides it for the tool.
+/// The socket sits in the data directory's `run` directory unless that path
+/// overflows `sun_path`, and `PLUME_SOCKET` overrides it for the tool.
 struct CLISocketPathTests {
     @Test func aShortDataDirectoryHoldsTheSocket() {
         #expect(CLISocket.path(applicationSupport: "/Users/me/Library/Application Support/Plume") ==
-            "/Users/me/Library/Application Support/Plume/cli.sock")
+            "/Users/me/Library/Application Support/Plume/run/cli.sock")
     }
 
     @Test func aLongDataDirectoryFallsBackToAPrivateTmpDirectory() {
@@ -73,7 +73,7 @@ struct CLISocketPathTests {
 
     @Test func theEnvironmentOverridesTheDefault() {
         #expect(CLISocket.resolvedPath(environment: ["PLUME_SOCKET": "/tmp/x.sock"]) == "/tmp/x.sock")
-        #expect(CLISocket.resolvedPath(environment: [:]).hasSuffix("/Library/Application Support/Plume/cli.sock"))
+        #expect(CLISocket.resolvedPath(environment: [:]).hasSuffix("/Library/Application Support/Plume/run/cli.sock"))
     }
 }
 

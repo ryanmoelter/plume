@@ -5,8 +5,8 @@ import OSLog
 /// The Unix-domain NDJSON server the `plume` tool talks to. One request line,
 /// one response line; `docs/cli.md` is the wire reference.
 ///
-/// Only the user who runs Plume may connect: the socket is mode 0600, and
-/// every accepted peer's uid is checked with `getpeereid`.
+/// Only the user who runs Plume may connect: the socket is mode 0600 in a
+/// 0700 directory, and every accepted peer's uid is checked with `getpeereid`.
 ///
 /// Everything runs on the main queue, so nothing here may block: sockets are
 /// non-blocking, and output a client isn't reading waits in a buffer.
@@ -26,10 +26,18 @@ final class CLIServer {
     private let allowedUID: uid_t
     private let limits: Limits
     private var listenFD: Int32 = -1
+    private var lockFD: Int32 = -1
+    /// The socket file this server bound, so `stop` never unlinks another's.
+    private var socketIdentity: SocketIdentity?
     private var acceptSource: DispatchSourceRead?
     private var isAcceptSuspended = false
     private var connections: [Int32: CLIConnection] = [:]
     private(set) var socketPath: String?
+
+    private struct SocketIdentity: Equatable {
+        var device: dev_t
+        var inode: ino_t
+    }
 
     enum ServerError: Error, LocalizedError {
         case io(String)
@@ -52,8 +60,8 @@ final class CLIServer {
         self.limits = limits
     }
 
-    /// The test host has no bundle identifier and would otherwise bind the
-    /// installed app's path.
+    /// A process with no bundle identifier would otherwise bind the installed
+    /// app's path.
     func startIfEnabled() {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let path = AppPaths.cliSocketPath
@@ -67,20 +75,29 @@ final class CLIServer {
 
     func start(path: String) throws {
         stop()
-        try prepareDirectory(for: path)
-        try removeStaleSocket(at: path)
-
         guard var address = CLISocket.makeAddress(path) else {
             throw ServerError.io("socket path exceeds \(CLISocket.maxPathLength) bytes")
         }
+        try prepareDirectory(for: path)
+        let lock = try acquireLock(for: path)
+        // Whoever bound this path before us has given up the lock, so the
+        // socket file is a leftover.
+        unlink(path)
+
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw ServerError.io("socket: \(CLISocket.errnoText)") }
+        guard fd >= 0 else {
+            close(lock)
+            throw ServerError.io("socket: \(CLISocket.errnoText)")
+        }
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0 else {
+        var info = stat()
+        guard bound == 0, lstat(path, &info) == 0 else {
             let message = CLISocket.errnoText
             close(fd)
+            close(lock)
             throw ServerError.io("bind \(path): \(message)")
         }
         chmod(path, 0o600)
@@ -88,11 +105,14 @@ final class CLIServer {
             let message = CLISocket.errnoText
             close(fd)
             unlink(path)
+            close(lock)
             throw ServerError.io("listen: \(message)")
         }
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
 
         listenFD = fd
+        lockFD = lock
+        socketIdentity = SocketIdentity(device: info.st_dev, inode: info.st_ino)
         socketPath = path
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
@@ -116,57 +136,58 @@ final class CLIServer {
         listenFD = -1
         for connection in connections.values { connection.close() }
         connections.removeAll()
-        if let socketPath {
-            unlink(socketPath)
+        if let socketPath, let socketIdentity {
+            var info = stat()
+            if lstat(socketPath, &info) == 0, SocketIdentity(device: info.st_dev, inode: info.st_ino) == socketIdentity {
+                unlink(socketPath)
+            }
         }
         socketPath = nil
+        socketIdentity = nil
+        if lockFD >= 0 {
+            close(lockFD)
+            lockFD = -1
+        }
+    }
+
+    private static func lockPath(for socketPath: String) -> String {
+        socketPath + ".lock"
     }
 
     // MARK: Directory
 
-    /// The `/tmp` fallback directory is shared ground, so it must be ours and
-    /// private before a socket goes in it. The data directory already sits
-    /// under the user's private `~/Library`.
+    /// The socket's directory holds nothing else, so it can be private
+    /// whether it sits under `~/Library` or in the shared `/tmp`.
     private func prepareDirectory(for path: String) throws {
         let directory = (path as NSString).deletingLastPathComponent
-        guard directory == CLISocket.fallbackDirectory(uid: allowedUID) else {
-            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-            return
-        }
+        let parent = (directory as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
         if mkdir(directory, 0o700) != 0 && errno != EEXIST {
             throw ServerError.io("mkdir \(directory): \(CLISocket.errnoText)")
         }
         var info = stat()
         guard lstat(directory, &info) == 0,
               info.st_mode & S_IFMT == S_IFDIR,
-              info.st_uid == allowedUID
+              info.st_uid == geteuid()
         else { throw ServerError.unsafeDirectory(directory) }
         chmod(directory, 0o700)
     }
 
-    /// A leftover socket from a crashed run refuses connections and is
-    /// removed; one that answers belongs to a live instance and is left alone.
-    private func removeStaleSocket(at path: String) throws {
-        var info = stat()
-        guard lstat(path, &info) == 0 else { return }
-        if Self.hasListener(at: path) { throw ServerError.alreadyServing(path) }
-        unlink(path)
-    }
-
-    /// A non-blocking connect, which a Unix socket answers at once: refused
-    /// when nothing listens, and `EAGAIN` when a listener's backlog is full.
-    private static func hasListener(at path: String) -> Bool {
-        guard var address = CLISocket.makeAddress(path) else { return false }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
+    /// Held for the server's lifetime: only the holder may unlink or bind the
+    /// socket path. A refused connect can't tell a dead socket from a live
+    /// one whose backlog is full, but a lock dies with its process.
+    private func acquireLock(for path: String) throws -> Int32 {
+        let lockPath = Self.lockPath(for: path)
+        let fd = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw ServerError.io("open \(lockPath): \(CLISocket.errnoText)") }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            let code = errno
+            let message = CLISocket.errnoText
+            close(fd)
+            if code == EWOULDBLOCK { throw ServerError.alreadyServing(path) }
+            throw ServerError.io("lock \(lockPath): \(message)")
         }
-        return connected == 0 || errno == EAGAIN || errno == EINPROGRESS
+        return fd
     }
 
     // MARK: Connections
@@ -194,16 +215,18 @@ final class CLIServer {
 
             var uid: uid_t = 0
             var gid: gid_t = 0
-            guard getpeereid(fd, &uid, &gid) == 0, uid == allowedUID else {
+            let refusal: CLIResponse?
+            if getpeereid(fd, &uid, &gid) == 0, uid == allowedUID {
+                refusal = nil
+            } else {
                 Log.app.error("CLI socket refused a peer with uid \(uid, privacy: .public)")
-                Self.writeOnce(.failure("permission denied"), to: fd)
-                close(fd)
-                continue
+                refusal = .failure("permission denied")
             }
 
-            connections[fd] = CLIConnection(fd: fd, handler: handler, limits: limits) { [weak self] fd in
+            let connection = CLIConnection(fd: fd, handler: handler, limits: limits, refusal: refusal) { [weak self] fd in
                 self?.connections[fd] = nil
             }
+            if connection.isOpen { connections[fd] = connection }
         }
     }
 
@@ -218,16 +241,6 @@ final class CLIServer {
                 source.resume()
             }
         }
-    }
-
-    /// One short line into a fresh socket's empty send buffer; if even that
-    /// doesn't fit, the peer goes without its explanation.
-    private static func writeOnce(_ response: CLIResponse, to fd: Int32) {
-        guard let data = try? CLILineCodec.encode(response) else { return }
-        var written: Int
-        repeat {
-            written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-        } while written < 0 && errno == EINTR
     }
 }
 
@@ -251,11 +264,22 @@ private final class CLIConnection {
     private var isFinishing = false
     private var isClosed = false
     private var isDescriptorClosed = false
+    /// A refused peer gets one reply, and whatever it sends is discarded. The
+    /// connection stays open until the peer closes, so the peer's own write
+    /// can't fail before it has read the reply.
+    private let isRefused: Bool
 
-    init(fd: Int32, handler: @escaping (CLIRequest) -> CLIResponse, limits: CLIServer.Limits, onClose: @escaping (Int32) -> Void) {
+    init(
+        fd: Int32,
+        handler: @escaping (CLIRequest) -> CLIResponse,
+        limits: CLIServer.Limits,
+        refusal: CLIResponse? = nil,
+        onClose: @escaping (Int32) -> Void
+    ) {
         self.fd = fd
         self.handler = handler
         self.limits = limits
+        self.isRefused = refusal != nil
         self.onClose = onClose
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
@@ -268,7 +292,10 @@ private final class CLIConnection {
         source.resume()
         readSource = source
         resetIdleTimer()
+        if let refusal { send(refusal) }
     }
+
+    var isOpen: Bool { !isClosed }
 
     func close() {
         guard !isClosed else { return }
@@ -322,7 +349,7 @@ private final class CLIConnection {
         while input.count <= limits.maxBufferedBytes {
             let count = read(fd, &chunk, chunk.count)
             if count > 0 {
-                input.append(Data(chunk[0..<count]))
+                if !isRefused { input.append(Data(chunk[0..<count])) }
             } else if count == 0 {
                 reachedEnd = true
                 break
@@ -335,6 +362,10 @@ private final class CLIConnection {
                 return
             }
         }
+        if isRefused {
+            if reachedEnd { close() }
+            return
+        }
         while let line = input.nextLine() {
             send(respond(to: line))
             if isClosed { return }
@@ -343,6 +374,9 @@ private final class CLIConnection {
             send(.failure("request exceeds \(limits.maxBufferedBytes) bytes"))
             finish()
         } else if reachedEnd {
+            if let line = input.takeRemainder() {
+                send(respond(to: line))
+            }
             finish()
         }
     }
@@ -391,7 +425,11 @@ private final class CLIConnection {
         }
         writeSource?.cancel()
         writeSource = nil
-        if isFinishing { close() }
+        if isFinishing {
+            close()
+        } else if isRefused {
+            shutdown(fd, SHUT_WR)
+        }
     }
 
     private func awaitWritable() {

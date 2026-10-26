@@ -159,7 +159,8 @@ final class CodexSession: AgentSession {
         permissionProfile: String? = nil,
         defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
         preserveRemoteConfiguration: Bool = false,
-        environment: [String: String]
+        environment: [String: String],
+        threadEnvironment: [String: String] = [:]
     ) {
         guard !hasStartedHandshake else { return }
         if preserveRemoteConfiguration { effort = nil }
@@ -182,9 +183,20 @@ final class CodexSession: AgentSession {
                 resumeThreadID: resumeThreadID,
                 permissionProfile: permissionProfile,
                 defaultPermissionProfile: defaultPermissionProfile,
-                preserveRemoteConfiguration: preserveRemoteConfiguration
+                preserveRemoteConfiguration: preserveRemoteConfiguration,
+                threadEnvironment: threadEnvironment
             )
         }
+    }
+
+    /// Per-thread `config` overrides that add `environment` to every command
+    /// the thread runs. Dotted keys merge into the user's own
+    /// `shell_environment_policy.set` rather than replacing it.
+    static func threadConfig(environment: [String: String]) -> JSONValue? {
+        guard !environment.isEmpty else { return nil }
+        return .object(Dictionary(uniqueKeysWithValues: environment.map {
+            ("shell_environment_policy.set.\($0.key)", .string($0.value))
+        }))
     }
 
     private func handshake(
@@ -192,7 +204,8 @@ final class CodexSession: AgentSession {
         resumeThreadID: String?,
         permissionProfile: String?,
         defaultPermissionProfile: String,
-        preserveRemoteConfiguration: Bool
+        preserveRemoteConfiguration: Bool,
+        threadEnvironment: [String: String]
     ) async {
         do {
             _ = try await client.send("initialize", .object([
@@ -220,6 +233,7 @@ final class CodexSession: AgentSession {
             if let model { params["model"] = .string(model.id) }
             selectedPermissionProfile = resolvedPermissionProfile?.id
             if let resolvedPermissionProfile { params["permissions"] = .string(resolvedPermissionProfile.id) }
+            if let config = Self.threadConfig(environment: threadEnvironment) { params["config"] = config }
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
                 method = "thread/resume"

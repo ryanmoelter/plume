@@ -113,5 +113,13 @@ nonisolated enum CLILineCodec {
             pending.removeSubrange(pending.startIndex...newline)
             return line
         }
+
+        /// What's left once the peer has finished: a final line it sent
+        /// without a trailing newline.
+        mutating func takeRemainder() -> Data? {
+            guard !pending.isEmpty else { return nil }
+            defer { pending.removeAll() }
+            return pending
+        }
     }
 }

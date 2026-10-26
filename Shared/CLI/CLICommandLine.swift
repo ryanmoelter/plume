@@ -73,10 +73,13 @@ nonisolated enum CLICommandLine {
         }
     }
 
+    /// Matches the `plume-notify` shell script this replaced: arguments apply
+    /// in order and the last one naming a field wins, so the first positional
+    /// sets the title even after `--title`.
     static func parseNotify(_ arguments: [String]) throws -> CLIInvocation {
         var title: String?
         var body: String?
-        var positional: [String] = []
+        var positionalCount = 0
         var index = 0
         var optionsEnded = false
 
@@ -88,27 +91,31 @@ nonisolated enum CLICommandLine {
             return arguments[index]
         }
 
+        func takePositional(_ argument: String) throws {
+            positionalCount += 1
+            switch positionalCount {
+            case 1: title = argument
+            case 2: body = argument
+            default: throw CLIUsageError(message: "too many arguments", usage: notifyUsage)
+            }
+        }
+
         while index < arguments.count {
             let argument = arguments[index]
             if optionsEnded {
-                positional.append(argument)
+                try takePositional(argument)
             } else {
                 switch argument {
                 case "--title": title = try value(after: argument)
                 case "--body", "--message": body = try value(after: argument)
                 case "-h", "--help": return .notifyHelp
                 case "--": optionsEnded = true
-                default: positional.append(argument)
+                default: try takePositional(argument)
                 }
             }
             index += 1
         }
 
-        guard positional.count <= 2 else {
-            throw CLIUsageError(message: "too many arguments", usage: notifyUsage)
-        }
-        title = title ?? positional.first
-        if positional.count == 2 { body = body ?? positional[1] }
         guard let title, !title.isEmpty else {
             throw CLIUsageError(message: "a title is required", usage: notifyUsage)
         }

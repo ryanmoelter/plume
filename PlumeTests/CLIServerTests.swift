@@ -5,16 +5,31 @@ import Testing
 @testable import Plume
 
 /// `CLIServer` answers `CLISocket.send` over a real socket, keeps the socket
-/// private, refuses other users, and replaces only a dead socket.
+/// private, refuses other users, and binds a path only while holding its lock.
 @MainActor
 struct CLIServerTests {
+    /// A socket in its own directory, which the server makes private.
     private func temporarySocketPath() -> String {
-        "/tmp/plume-cli-test-\(UUID().uuidString.prefix(8)).sock"
+        "/tmp/plume-cli-test-\(UUID().uuidString.prefix(8))/cli.sock"
+    }
+
+    private func removeDirectory(of path: String) {
+        try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent)
     }
 
     /// The server answers on the main queue, so the blocking client runs off it.
     private func send(_ request: CLIRequest, to path: String) async throws -> CLIResponse {
         try await Task.detached { try CLISocket.send(request, to: path) }.value
+    }
+
+    private func bindWithoutListening(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = try #require(CLISocket.makeAddress(path))
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        #expect(bound == 0)
+        return fd
     }
 
     @Test func dispatchesARequestToTheHandler() async throws {
@@ -27,6 +42,7 @@ struct CLIServerTests {
             return response
         })
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         defer { server.stop() }
 
@@ -41,9 +57,25 @@ struct CLIServerTests {
         #expect(received == [request])
     }
 
+    @Test func theSocketsDirectoryIsMadePrivate() throws {
+        let path = temporarySocketPath()
+        let directory = (path as NSString).deletingLastPathComponent
+        defer { removeDirectory(of: path) }
+        #expect(mkdir(directory, 0o755) == 0)
+
+        let server = CLIServer(handler: { _ in .success })
+        try server.start(path: path)
+        defer { server.stop() }
+
+        var info = stat()
+        #expect(lstat(directory, &info) == 0)
+        #expect(info.st_mode & 0o777 == 0o700)
+    }
+
     @Test func aMalformedLineGetsAnErrorReply() async throws {
         let server = CLIServer(handler: { _ in .success })
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         defer { server.stop() }
 
@@ -58,12 +90,31 @@ struct CLIServerTests {
         #expect(response.error?.contains("unknown command launch") == true)
     }
 
+    @Test func aFinalRequestWithoutANewlineIsAnswered() async throws {
+        let server = CLIServer(handler: { _ in .success })
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let reply = try await Task.detached {
+            let fd = try CLISocket.connect(to: path)
+            defer { close(fd) }
+            try CLISocket.writeAll(Data("{\"command\":\"ping\"}".utf8), to: fd)
+            shutdown(fd, SHUT_WR)
+            return try CLISocket.readLine(from: fd)
+        }.value
+        let response = try CLILineCodec.decode(CLIResponse.self, from: try #require(reply))
+        #expect(response.ok)
+    }
+
     @Test func anOversizedLineGetsAnErrorAndTheConnectionCloses() async throws {
         var handled = false
         var limits = CLIServer.Limits()
         limits.maxBufferedBytes = 64
         let server = CLIServer(handler: { _ in handled = true; return .success }, limits: limits)
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         defer { server.stop() }
 
@@ -86,6 +137,7 @@ struct CLIServerTests {
         limits.idleTimeout = 0.1
         let server = CLIServer(handler: { _ in .success }, limits: limits)
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         defer { server.stop() }
 
@@ -101,6 +153,7 @@ struct CLIServerTests {
         var handled = false
         let server = CLIServer(handler: { _ in handled = true; return .success }, allowedUID: getuid() + 1)
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         defer { server.stop() }
 
@@ -110,42 +163,105 @@ struct CLIServerTests {
         #expect(!handled)
     }
 
-    @Test func aDeadSocketIsReplacedAndALiveOneIsNot() async throws {
+    /// The refusal arrives before the peer writes, and the server keeps the
+    /// connection open until the peer closes, so the peer's write still lands.
+    @Test func aRefusedPeerCanWriteAfterReadingTheRefusal() async throws {
+        let server = CLIServer(handler: { _ in .success }, allowedUID: getuid() + 1)
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let (reply, wrote, afterReply) = try await Task.detached {
+            let fd = try CLISocket.connect(to: path)
+            defer { close(fd) }
+            let reply = try CLISocket.readLine(from: fd)
+            let wrote = (try? CLISocket.writeAll(CLILineCodec.encode(CLIRequest.ping), to: fd)) != nil
+            return (reply, wrote, try CLISocket.readLine(from: fd))
+        }.value
+        let response = try CLILineCodec.decode(CLIResponse.self, from: try #require(reply))
+        #expect(response.error == "permission denied")
+        #expect(wrote)
+        #expect(afterReply == nil)
+    }
+
+    @Test func aSecondServerOnTheSamePathRefusesAndLeavesTheFirstServing() async throws {
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         let first = CLIServer(handler: { _ in .success })
         try first.start(path: path)
         defer { first.stop() }
 
         let second = CLIServer(handler: { _ in .success })
         #expect(throws: CLIServer.ServerError.self) { try second.start(path: path) }
+        #expect(second.socketPath == nil)
+        #expect(try await send(.ping, to: path).ok)
 
-        // A socket file left by a crash: bound, then its listener closed.
-        let stalePath = temporarySocketPath()
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        var address = try #require(CLISocket.makeAddress(stalePath))
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
-        }
-        #expect(bound == 0)
-        close(fd)
-
-        let third = CLIServer(handler: { _ in .success })
-        try third.start(path: stalePath)
-        defer { third.stop() }
-        #expect(try await send(.ping, to: stalePath).ok)
+        first.stop()
+        try second.start(path: path)
+        defer { second.stop() }
+        #expect(try await send(.ping, to: path).ok)
     }
 
-    @Test func stopUnlinksTheSocket() throws {
+    @Test func aLeftoverSocketWithNoLockHolderIsReplaced() async throws {
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        #expect(mkdir((path as NSString).deletingLastPathComponent, 0o700) == 0)
+        close(try bindWithoutListening(at: path))
+
+        let server = CLIServer(handler: { _ in .success })
+        try server.start(path: path)
+        defer { server.stop() }
+        #expect(try await send(.ping, to: path).ok)
+    }
+
+    @Test func stopUnlinksOnlyItsOwnSocket() throws {
         let server = CLIServer(handler: { _ in .success })
         let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
         try server.start(path: path)
         server.stop()
         #expect(!FileManager.default.fileExists(atPath: path))
+
+        try server.start(path: path)
+        unlink(path)
+        let replacement = try bindWithoutListening(at: path)
+        defer { close(replacement) }
+        server.stop()
+        #expect(FileManager.default.fileExists(atPath: path))
     }
 
     @Test func aMissingServerIsUnreachable() {
         #expect(throws: CLISocket.ClientError.self) {
             try CLISocket.send(.ping, to: temporarySocketPath())
+        }
+    }
+
+    @Test func aRefusedConnectIsRetriedWhileTheSocketFileExists() async throws {
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        #expect(mkdir((path as NSString).deletingLastPathComponent, 0o700) == 0)
+        let listener = try bindWithoutListening(at: path)
+        defer { close(listener) }
+
+        let connected = try await Task.detached {
+            var retry = CLISocket.Retry()
+            retry.pause = { _ in listen(listener, 1) }
+            let fd = try CLISocket.connect(to: path, retry: retry)
+            close(fd)
+            return true
+        }.value
+        #expect(connected)
+
+        let stale = temporarySocketPath()
+        defer { removeDirectory(of: stale) }
+        #expect(mkdir((stale as NSString).deletingLastPathComponent, 0o700) == 0)
+        close(try bindWithoutListening(at: stale))
+        #expect(throws: CLISocket.ClientError.self) {
+            var retry = CLISocket.Retry()
+            retry.attempts = 2
+            retry.pause = { _ in }
+            _ = try CLISocket.connect(to: stale, retry: retry)
         }
     }
 }

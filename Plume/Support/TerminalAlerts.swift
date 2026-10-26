@@ -12,6 +12,9 @@ final class TerminalAlerts {
     /// The task owning a tab. `MainWindow` installs it, keeping SwiftData out
     /// of here; nil means the tab is gone and the alert is dropped.
     var taskID: (UUID) -> UUID? = { _ in nil }
+    /// A tab's stored title, for a notification that names none. `MainWindow`
+    /// installs it alongside `taskID`.
+    var tabDisplayTitle: (UUID) -> String? = { _ in nil }
 
     private let notifier: Notifier
     private let bells: BellStore
@@ -76,7 +79,9 @@ final class TerminalAlerts {
         notifier.notifyIfUnseen(.init(
             taskID: taskID,
             tabID: tabID,
-            title: title.isEmpty ? TitleStore.shared.title(forTab: tabID) ?? AppIdentity.displayName : title,
+            title: title.isEmpty
+                ? TitleStore.shared.title(forTab: tabID) ?? tabDisplayTitle(tabID) ?? AppIdentity.displayName
+                : title,
             body: body,
             dedupeKey: Notifier.dedupeKey(.osc, tabID: tabID)
         ))

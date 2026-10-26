@@ -201,15 +201,19 @@ struct MainWindow: View {
                 focusedTabID: selectedTask?.selectedTabID
             )
         }
+        let tabDisplayTitle: (UUID) -> String? = { tabID in
+            tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
+        }
         statusNotifier = StatusNotifier { tabID in
             TitleStore.shared.title(forTab: tabID)
-                ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
+                ?? tabDisplayTitle(tabID)
                 ?? AppIdentity.displayName
         }
         UnreadStore.shared.observe(StatusEngine.shared) { Notifier.shared.audience() }
         TerminalAlerts.shared.taskID = { tabID in
             tasks.first { $0.tabs.contains { $0.id == tabID } }?.id
         }
+        TerminalAlerts.shared.tabDisplayTitle = tabDisplayTitle
         CLICommandHandler.shared.workspace = { taskID in
             guard let task = tasks.first(where: { $0.id == taskID }) else { return nil }
             return .init(task: task, context: context) { selection = taskID }

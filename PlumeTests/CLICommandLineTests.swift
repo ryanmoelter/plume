@@ -26,6 +26,15 @@ struct CLICommandLineTests {
         #expect(try parse(["notify", "--", "--title"]) == .notify(title: "--title", body: ""))
     }
 
+    /// The script assigned fields in argument order, the first positional
+    /// always to the title.
+    @Test func mixedFlagsAndPositionalsApplyInOrderLikeTheScript() throws {
+        #expect(try parse(["notify", "--title", "Build", "All green"]) == .notify(title: "All green", body: ""))
+        #expect(try parse(["notify", "All green", "--title", "Build"]) == .notify(title: "Build", body: ""))
+        #expect(try parse(["notify", "--body", "B", "T", "Late"]) == .notify(title: "T", body: "Late"))
+        #expect(throws: CLIUsageError.self) { try parse(["notify", "--title", "T", "a", "b", "c"]) }
+    }
+
     @Test func thePlumeNotifyNameSkipsTheSubcommand() throws {
         #expect(try parse(["Hi", "there"], as: "plume-notify") == .notify(title: "Hi", body: "there"))
         #expect(try parse(["--help"], as: "plume-notify") == .notifyHelp)

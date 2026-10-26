@@ -244,9 +244,10 @@ enum AgentLauncher {
             collaborationMode: tab.codexCollaborationMode,
             permissionProfile: tab.permissionModeRaw,
             defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
-            // One app-server runs every headless Codex tab, so its commands
-            // can be told the socket but not which tab they belong to.
-            environment: LoginShellCommand.sharedPlumeEnvironment
+            // One app-server runs every headless Codex tab, so the tab's own
+            // IDs ride on its thread rather than on the process.
+            environment: LoginShellCommand.sharedPlumeEnvironment(),
+            threadEnvironment: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)
