@@ -8,7 +8,9 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case notify(title: String, body: String)
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
-    case shellInit
+    case shellInit(aliases: Bool)
+    /// `plume wt …`, or any arguments when invoked as `wt`.
+    case wt([String])
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
@@ -26,6 +28,8 @@ nonisolated enum CLIExitCode {
 nonisolated enum CLICommandLine {
     /// The legacy name, still linked, which skips straight to `notify`.
     static let notifyAlias = "plume-notify"
+    /// The opt-in name for `plume wt`.
+    static let wtAlias = "wt"
 
     static let usage = """
         usage: plume <command> [options]
@@ -35,7 +39,8 @@ nonisolated enum CLICommandLine {
           presence [--json]         Print whether the Mac is awake, asleep or locked
           tab new [--cwd DIR] [--task ID] [--select]
                                     Open a terminal tab in this task, print its ID
-          init zsh                  Print zsh integration, for `eval "$(plume init zsh)"`
+          wt <command>              Manage worktrees (`plume wt help`)
+          init zsh [--aliases]      Print zsh integration, for `eval "$(plume init zsh)"`
           help                      Show this help
           --version                 Print Plume's version
         """
@@ -51,12 +56,15 @@ nonisolated enum CLICommandLine {
         """
 
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
-    static let initUsage = "usage: plume init zsh"
+    static let initUsage = "usage: plume init zsh [--aliases]"
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
     static func parse(_ arguments: [String], executableName: String) throws -> CLIInvocation {
         if executableName == notifyAlias {
             return try parseNotify(arguments, usage: notifyAliasUsage)
+        }
+        if executableName == wtAlias {
+            return .wt(arguments)
         }
         guard let command = arguments.first else { return .help }
         let rest = Array(arguments.dropFirst())
@@ -73,6 +81,8 @@ nonisolated enum CLICommandLine {
             return try parseTab(rest)
         case "init":
             return try parseInit(rest)
+        case "wt":
+            return .wt(rest)
         default:
             throw CLIUsageError(message: "unknown command '\(command)'", usage: usage)
         }
@@ -162,7 +172,8 @@ nonisolated enum CLICommandLine {
             throw CLIUsageError(message: "only zsh is supported", usage: initUsage)
         }
         switch Array(arguments.dropFirst()) {
-        case []: return .shellInit
+        case []: return .shellInit(aliases: false)
+        case ["--aliases"]: return .shellInit(aliases: true)
         case let extra: throw CLIUsageError(message: "unexpected argument '\(extra[0])'", usage: initUsage)
         }
     }

@@ -74,8 +74,9 @@ struct CLICommandLineTests {
     @Test func presenceAndInitParse() throws {
         #expect(try parse(["presence"]) == .presence(json: false))
         #expect(try parse(["presence", "--json"]) == .presence(json: true))
-        #expect(try parse(["init", "zsh"]) == .shellInit)
-        #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--aliases"]) }
+        #expect(try parse(["init", "zsh"]) == .shellInit(aliases: false))
+        #expect(try parse(["init", "zsh", "--aliases"]) == .shellInit(aliases: true))
+        #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--bogus"]) }
         #expect(throws: CLIUsageError.self) { try parse(["init", "bash"]) }
         #expect(throws: CLIUsageError.self) { try parse(["frobnicate"]) }
     }
@@ -95,15 +96,21 @@ struct CLICommandLineTests {
             #expect(script.contains("    \(command.name))\n"))
         }
         #expect(script.contains("compdef _plume plume"))
-        #expect(!script.contains("--aliases"))
     }
 
-    /// `init` takes no options, so past the shell name there is nothing to
-    /// offer; an `_arguments` there would read `zsh` as its own argument.
-    @Test func initCompletesOnlyTheShellName() throws {
+    /// Past the shell name, `init` offers only `--aliases`; an `_arguments`
+    /// at the shell position would read `zsh` as its own argument.
+    @Test func initCompletesTheShellNameThenAliases() throws {
         let initCommand = try #require(ShellIntegration.commands.first { $0.name == "init" })
         #expect(initCommand.completion.contains("_values 'shell' zsh"))
-        #expect(!initCommand.completion.contains("_arguments"))
+        #expect(initCommand.completion.contains("--aliases"))
+    }
+
+    @Test func wtRoutesItsArgumentsVerbatim() throws {
+        #expect(try parse(["wt"]) == .wt([]))
+        #expect(try parse(["wt", "co", "-b", "x", "--task"]) == .wt(["co", "-b", "x", "--task"]))
+        #expect(try CLICommandLine.parse(["list", "--json"], executableName: "wt") == .wt(["list", "--json"]))
+        #expect(try CLICommandLine.parse(["--version"], executableName: "wt") == .wt(["--version"]))
     }
 
     @Test func zshIntegrationParses() throws {

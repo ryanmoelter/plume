@@ -44,7 +44,11 @@ nonisolated enum ShellIntegration {
         Command(name: "help", summary: "Show help", completion: ":"),
     ]
 
-    static func zsh() -> String {
+    /// `aliases` adds bare `wt` (and later `stack`) functions that call
+    /// through `plume`.
+    static func zsh(aliases: Bool = false) -> String {
+        // TODO(PLUME-316 group D): the wt completion, the `plume` wrapper
+        // that turns `plume wt switch` into a `cd`, and the alias functions.
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
             let body = command.completion.split(separator: "\n").map { "      " + $0 }.joined(separator: "\n")
