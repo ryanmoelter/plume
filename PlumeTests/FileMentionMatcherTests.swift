@@ -113,4 +113,21 @@ struct FileMentionMatcherTests {
         let many = (0..<50).map { "Sources/File\($0).swift" }
         #expect(FileMentionMatcher.matches("file", in: entries(many)).count == 20)
     }
+
+    @Test func aBareQueryKeepsTheShallowestShortestPathsInOrder() {
+        let deep = (0..<5_000).map { "Sources/Deep/File\($0).swift" }
+        let shallow = ["b.md", "a.md", "README.md", "Sources/x.swift"]
+        let results = paths("", in: deep + shallow)
+        #expect(Array(results.prefix(4)) == ["a.md", "b.md", "README.md", "Sources/x.swift"])
+        #expect(results.count == 20)
+    }
+
+    @Test func aCancelledSearchOverALargeListingStopsEarly() async {
+        let many = entries((0..<10_000).map { "Sources/File\($0).swift" })
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return FileMentionMatcher.matches("", in: many)
+        }
+        #expect(await task.value.isEmpty)
+    }
 }

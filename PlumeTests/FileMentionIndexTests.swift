@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import Plume
 
@@ -153,7 +154,75 @@ struct FileMentionIndexTests {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
 
-        #expect(FileMentionIndex.gitPaths(in: repository, limit: 2)?.count == 2)
+        guard case .paths(let paths) = FileMentionIndex.gitPaths(in: repository, limits: .init(maxGitPaths: 2)) else {
+            Issue.record("expected a git listing")
+            return
+        }
+        #expect(paths.count == 2)
+    }
+
+    @Test func aGitTimeoutKillsTheCommand() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let fifo = directory + "/pipe"
+        #expect(mkfifo(fifo, 0o600) == 0)
+        let start = Date()
+
+        #expect {
+            // Opening a FIFO with no writer blocks inside git itself.
+            try GitRunner.run(["hash-object", fifo], in: directory, timeout: .milliseconds(200))
+        } throws: { ($0 as? GitError)?.timedOut == true }
+        #expect(Date().timeIntervalSince(start) < 5)
+    }
+
+    @Test func aTimedOutGitListingIsRetriedOnTheNextLookup() async {
+        let calls = GitCalls(answers: [.timedOut, .paths(["a.swift"])])
+        let index = FileMentionIndex(homeDirectory: "/nowhere", listGitPaths: { directory, _ in calls.answer(directory) })
+
+        #expect(await index.entries(in: "/repo").isEmpty)
+        #expect(await index.entries(in: "/repo").isEmpty)
+        await index.settle()
+        #expect(paths(await index.entries(in: "/repo")) == ["a.swift"])
+    }
+
+    @Test func aRepositoryAtHomeListsNothingAndNeverRunsGit() async throws {
+        let home = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let calls = GitCalls(answers: [])
+        let index = FileMentionIndex(homeDirectory: home, listGitPaths: { directory, _ in calls.answer(directory) })
+
+        #expect(await index.entries(in: home).isEmpty)
+        #expect(calls.directories.withLock { $0 }.isEmpty)
+    }
+
+    @Test func aGitListingFromAboveHomeSkipsItsProtectedFolders() async throws {
+        let parent = try makeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        try GitRunner.run(["init", "-b", "main"], in: parent)
+        for path in ["home/notes.md", "home/Documents/private.txt", "home/Library/Prefs/x.plist", "home/code/app.js"] {
+            try write(path, in: parent)
+        }
+        let index = FileMentionIndex(homeDirectory: parent + "/home")
+
+        #expect(paths(await index.entries(in: parent)) == [
+            "home", "home/notes.md", "home/code", "home/code/app.js",
+        ])
+        #expect(paths(await index.entries(in: parent + "/home/Documents")) == ["private.txt"])
+    }
+
+    @Test func onlyTheMostRecentlyUsedDirectoriesStayCached() async {
+        let calls = GitCalls(answers: [])
+        let index = FileMentionIndex(
+            homeDirectory: "/nowhere",
+            limits: .init(maxCachedDirectories: 2),
+            listGitPaths: { directory, _ in calls.answer(directory) }
+        )
+
+        for directory in ["/a", "/b", "/a", "/c", "/a", "/b"] {
+            _ = await index.entries(in: directory)
+        }
+
+        #expect(calls.directories.withLock { $0 } == ["/a", "/b", "/c", "/b"])
     }
 
     @Test func aTildeQueryListsTheDeepestTypedFolderUnderTheInjectedHome() async throws {
@@ -179,5 +248,20 @@ struct FileMentionIndexTests {
         let entries = FileMentionIndex.listing(typedPath: root + "/fo", homeDirectory: "/nowhere")
 
         #expect(entries == [.init(path: root + "/folder", isDirectory: true)])
+    }
+}
+
+private final class GitCalls: Sendable {
+    let directories = Mutex<[String]>([])
+    private let answers: Mutex<[FileMentionIndex.GitListing]>
+
+    /// Answers in order, then `.paths(["f"])` once they run out.
+    init(answers: [FileMentionIndex.GitListing]) {
+        self.answers = Mutex(answers)
+    }
+
+    func answer(_ directory: String) -> FileMentionIndex.GitListing {
+        directories.withLock { $0.append(directory) }
+        return answers.withLock { $0.isEmpty ? .paths(["f"]) : $0.removeFirst() }
     }
 }

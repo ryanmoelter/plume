@@ -5,7 +5,8 @@ import Foundation
 /// Inside a git checkout the list is what `git ls-files` reports, so ignored
 /// files stay out; elsewhere it is a bounded walk, which never lists the home
 /// directory itself or enters the folders macOS asks permission for. A cached
-/// list older than `maxAge` is still served while a refresh runs.
+/// list older than `maxAge` is still served while a refresh runs, and only the
+/// `maxCachedDirectories` most recently used directories stay cached.
 actor FileMentionIndex {
     static let shared = FileMentionIndex()
 
@@ -13,7 +14,17 @@ actor FileMentionIndex {
         var maxDepth = 6
         var maxEntries = 20_000
         var maxGitPaths = 200_000
+        var gitTimeout: Duration = .seconds(10)
+        var maxCachedDirectories = 8
     }
+
+    nonisolated enum GitListing: Sendable, Equatable {
+        case paths([String])
+        case notARepository
+        case timedOut
+    }
+
+    typealias ListGitPaths = @Sendable (_ directory: String, _ limits: Limits) -> GitListing
 
     private struct Listing {
         let entries: [FileMentionMatcher.Prepared]
@@ -21,23 +32,28 @@ actor FileMentionIndex {
     }
 
     private var listings: [String: Listing] = [:]
+    /// Least recently used first.
+    private var recentDirectories: [String] = []
     private var loads: [String: Task<[FileMentionMatcher.Prepared], Never>] = [:]
 
     private let homeDirectory: String
     private let maxAge: TimeInterval
     private let limits: Limits
     private let now: @Sendable () -> Date
+    private let listGitPaths: ListGitPaths
 
     init(
         homeDirectory: String = NSHomeDirectory(),
         maxAge: TimeInterval = 15,
         limits: Limits = Limits(),
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        listGitPaths: @escaping ListGitPaths = { FileMentionIndex.gitPaths(in: $0, limits: $1) }
     ) {
         self.homeDirectory = homeDirectory
         self.maxAge = maxAge
         self.limits = limits
         self.now = now
+        self.listGitPaths = listGitPaths
     }
 
     /// Empty for a `#` query, or a relative one with no tab directory.
@@ -65,6 +81,7 @@ actor FileMentionIndex {
 
     private func prepared(in directory: String) async -> [FileMentionMatcher.Prepared] {
         if let listing = listings[directory] {
+            markUsed(directory)
             if now().timeIntervalSince(listing.fetchedAt) > maxAge { startLoad(directory) }
             return listing.entries
         }
@@ -83,41 +100,92 @@ actor FileMentionIndex {
         if let load = loads[directory] { return load }
         let limits = limits
         let homeDirectory = homeDirectory
+        let listGitPaths = listGitPaths
         let load = Task {
             let entries = await Task.detached(priority: .userInitiated) {
-                Self.loadEntries(in: directory, limits: limits, homeDirectory: homeDirectory)
-                    .map(FileMentionMatcher.Prepared.init)
+                Self.loadEntries(in: directory, limits: limits, homeDirectory: homeDirectory, listGitPaths: listGitPaths)
+                    .map { $0.map(FileMentionMatcher.Prepared.init) }
             }.value
             finishLoad(directory, entries: entries)
-            return entries
+            return entries ?? []
         }
         loads[directory] = load
         return load
     }
 
-    private func finishLoad(_ directory: String, entries: [FileMentionMatcher.Prepared]) {
-        listings[directory] = Listing(entries: entries, fetchedAt: now())
+    /// A timed-out listing is cached empty and already stale, so the next
+    /// lookup serves it at once and retries.
+    private func finishLoad(_ directory: String, entries: [FileMentionMatcher.Prepared]?) {
+        listings[directory] = Listing(entries: entries ?? [], fetchedAt: entries == nil ? .distantPast : now())
         loads[directory] = nil
+        markUsed(directory)
+    }
+
+    private func markUsed(_ directory: String) {
+        recentDirectories.removeAll { $0 == directory }
+        recentDirectories.append(directory)
+        while recentDirectories.count > limits.maxCachedDirectories {
+            listings[recentDirectories.removeFirst()] = nil
+        }
     }
 
     // MARK: - Loading
 
+    /// Nil when git timed out. The home directory lists nothing before git
+    /// runs, so a dotfiles repository at home never lists the whole tree.
     nonisolated static func loadEntries(
         in directory: String,
         limits: Limits,
-        homeDirectory: String
-    ) -> [MentionCandidate.FileEntry] {
-        if let paths = gitPaths(in: directory, limit: limits.maxGitPaths) { return entries(fromFilePaths: paths) }
-        return walk(directory, limits: limits, homeDirectory: homeDirectory)
+        homeDirectory: String,
+        listGitPaths: ListGitPaths
+    ) -> [MentionCandidate.FileEntry]? {
+        let root = standardizedPath(directory)
+        let home = standardizedPath(homeDirectory)
+        guard root != home else { return [] }
+        switch listGitPaths(directory, limits) {
+        case .paths(let paths):
+            let protected = protectedPrefixes(from: root, homeDirectory: home)
+            guard !protected.isEmpty else { return entries(fromFilePaths: paths) }
+            return entries(fromFilePaths: paths.filter { path in !protected.contains { path.hasPrefix($0) } })
+        case .timedOut:
+            return nil
+        case .notARepository:
+            return walk(directory, limits: limits, homeDirectory: homeDirectory)
+        }
     }
 
-    /// Paths relative to `directory`, or nil outside a git work tree.
-    nonisolated static func gitPaths(in directory: String, limit: Int) -> [String]? {
-        guard let output = try? GitRunner.run(
-            ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            in: directory
-        ) else { return nil }
-        return output.lazy.split(separator: "\0").prefix(limit).map(String.init)
+    /// Paths relative to `directory`.
+    nonisolated static func gitPaths(in directory: String, limits: Limits) -> GitListing {
+        do {
+            let output = try GitRunner.run(
+                ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                in: directory,
+                timeout: limits.gitTimeout
+            )
+            return .paths(output.lazy.split(separator: "\0").prefix(limits.maxGitPaths).map(String.init))
+        } catch let error as GitError where error.timedOut {
+            return .timedOut
+        } catch {
+            return .notARepository
+        }
+    }
+
+    /// The protected home folders below `root`, as relative path prefixes.
+    nonisolated static func protectedPrefixes(from root: String, homeDirectory home: String) -> [String] {
+        let base = root.hasSuffix("/") ? root : root + "/"
+        let homeFromRoot: String
+        if home == root {
+            homeFromRoot = ""
+        } else if home.hasPrefix(base) {
+            homeFromRoot = String(home.dropFirst(base.count)) + "/"
+        } else {
+            return []
+        }
+        return protectedHomeFolders.map { homeFromRoot + $0 + "/" }
+    }
+
+    nonisolated static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
     }
 
     /// The files plus every folder that holds one.
@@ -151,7 +219,7 @@ actor FileMentionIndex {
         homeDirectory: String
     ) -> [MentionCandidate.FileEntry] {
         let root = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
-        let home = URL(fileURLWithPath: homeDirectory, isDirectory: true).standardizedFileURL.path
+        let home = standardizedPath(homeDirectory)
         guard root.path != home else { return [] }
         let protected = Set(protectedHomeFolders.map { (home as NSString).appendingPathComponent($0) })
         guard let enumerator = FileManager.default.enumerator(

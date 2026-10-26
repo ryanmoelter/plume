@@ -34,22 +34,41 @@ nonisolated enum FileMentionMatcher {
         in entries: [Prepared],
         limit: Int = defaultLimit
     ) -> [RankedMention] {
+        guard limit > 0 else { return [] }
         let pattern = Pattern(query)
-        let scored: [(quality: MentionMatchQuality, score: Double, entry: MentionCandidate.FileEntry)] =
-            entries.compactMap { prepared in
-                guard let (quality, score) = pattern.match(prepared) else { return nil }
-                let entry = prepared.entry
-                return (quality, entry.isDirectory ? score - folderPenalty : score, entry)
-            }
-        return scored
-            .sorted { lhs, rhs in
-                if lhs.quality != rhs.quality { return lhs.quality < rhs.quality }
-                if lhs.score != rhs.score { return lhs.score > rhs.score }
-                if lhs.entry.path.count != rhs.entry.path.count { return lhs.entry.path.count < rhs.entry.path.count }
-                return lhs.entry.path < rhs.entry.path
-            }
-            .prefix(limit)
-            .map { RankedMention(candidate: .file($0.entry), quality: $0.quality) }
+        // A bare `@` matches every entry, so keep only the best `limit` rather
+        // than sorting a listing that can hold 200,000 paths.
+        var best: [Scored] = []
+        best.reserveCapacity(limit + 1)
+        for (index, prepared) in entries.enumerated() {
+            if index % 4096 == 4095, Task.isCancelled { return [] }
+            guard let (quality, score) = pattern.match(prepared) else { continue }
+            let entry = prepared.entry
+            let scored = Scored(
+                quality: quality,
+                score: entry.isDirectory ? score - folderPenalty : score,
+                entry: entry,
+                length: entry.path.count
+            )
+            if best.count == limit, let last = best.last, !scored.ranksAhead(of: last) { continue }
+            best.insert(scored, at: best.firstIndex { scored.ranksAhead(of: $0) } ?? best.count)
+            if best.count > limit { best.removeLast() }
+        }
+        return best.map { RankedMention(candidate: .file($0.entry), quality: $0.quality) }
+    }
+
+    private struct Scored {
+        let quality: MentionMatchQuality
+        let score: Double
+        let entry: MentionCandidate.FileEntry
+        let length: Int
+
+        func ranksAhead(of other: Scored) -> Bool {
+            if quality != other.quality { return quality < other.quality }
+            if score != other.score { return score > other.score }
+            if length != other.length { return length < other.length }
+            return entry.path < other.entry.path
+        }
     }
 
     private struct Pattern {
