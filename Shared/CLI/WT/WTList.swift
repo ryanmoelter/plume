@@ -147,10 +147,12 @@ nonisolated extension WT {
         return cap >= 1 ? String(s.prefix(cap - 1)) + "…" : ""
     }
 
-    /// `value` as one line of JSON, slashes unescaped.
+    /// `value` as one line of JSON, slashes unescaped. Keys are sorted:
+    /// `JSONEncoder` keeps no insertion order, and sorting keeps the output
+    /// stable from run to run.
     static func jsonLine(_ value: some Encodable) -> String {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.withoutEscapingSlashes]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(value) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }

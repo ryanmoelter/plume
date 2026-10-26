@@ -607,7 +607,7 @@ nonisolated extension WT {
         ctx.console.print(ui.glyphKey(forgeIcon: ui.forgeIcon(for: kind), numberPrefix: kind == .gitlab ? "!" : "#").joined(separator: "\n"))
         ctx.console.print("""
 
-        Current config (resolved), set in Plume's Settings ▸ Projects (`wt setup` opens it):
+        Current config (resolved), set in Plume's Settings ▸ Projects (see `wt setup`):
           baseBranch           \(ctx.baseBranch)
           branchPrefix         \(prefix)
           forge                \(kind.rawValue)
