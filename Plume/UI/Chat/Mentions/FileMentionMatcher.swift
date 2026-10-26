@@ -2,20 +2,43 @@ import Foundation
 
 /// Ranks file and folder paths against a mention query: an exact name, then
 /// a name prefix, then a prefix for each `/`-separated part in order, then a
-/// subsequence of the whole path.
+/// word start inside the name. A query that looks like a path also matches as
+/// a subsequence of the whole path; any other would match too much of a
+/// large tree, and the menu's top row is what Return accepts.
 nonisolated enum FileMentionMatcher {
     static let defaultLimit = 20
     static let folderPenalty = 0.5
+
+    /// An entry with the lowercased forms matching reads, so a listing
+    /// computes them once rather than on every keystroke.
+    struct Prepared: Sendable {
+        let entry: MentionCandidate.FileEntry
+        let components: [String]
+
+        init(_ entry: MentionCandidate.FileEntry) {
+            self.entry = entry
+            components = entry.path.lowercased().split(separator: "/").map(String.init)
+        }
+    }
 
     static func matches(
         _ query: String,
         in entries: [MentionCandidate.FileEntry],
         limit: Int = defaultLimit
     ) -> [RankedMention] {
+        matches(query, in: entries.map(Prepared.init), limit: limit)
+    }
+
+    static func matches(
+        _ query: String,
+        in entries: [Prepared],
+        limit: Int = defaultLimit
+    ) -> [RankedMention] {
         let pattern = Pattern(query)
         let scored: [(quality: MentionMatchQuality, score: Double, entry: MentionCandidate.FileEntry)] =
-            entries.compactMap { entry in
-                guard let (quality, score) = pattern.match(entry.path) else { return nil }
+            entries.compactMap { prepared in
+                guard let (quality, score) = pattern.match(prepared) else { return nil }
+                let entry = prepared.entry
                 return (quality, entry.isDirectory ? score - folderPenalty : score, entry)
             }
         return scored
@@ -35,9 +58,11 @@ nonisolated enum FileMentionMatcher {
         let name: String
         /// The parts before it, which must start the path's folders in order.
         let folders: [String]
+        let isPathLike: Bool
 
         init(_ query: String) {
             var text = query.trimmingCharacters(in: .whitespaces).lowercased()
+            isPathLike = text.contains("/") || text.contains(".") || text.hasPrefix("~")
             if text.hasPrefix("./") { text.removeFirst(2) }
             whole = Array(text)
             let parts = text.split(separator: "/").map(String.init)
@@ -50,9 +75,8 @@ nonisolated enum FileMentionMatcher {
             }
         }
 
-        func match(_ path: String) -> (MentionMatchQuality, Double)? {
-            let lowered = path.lowercased()
-            let components = lowered.split(separator: "/").map(String.init)
+        func match(_ prepared: Prepared) -> (MentionMatchQuality, Double)? {
+            let components = prepared.components
             guard let entryName = components.last else { return nil }
             let depth = Double(components.count)
             let foldersMatch = Self.startsInOrder(folders, components.dropLast())
@@ -66,8 +90,22 @@ nonisolated enum FileMentionMatcher {
             // for anything that merely resembles it.
             if name.isEmpty { return nil }
             if Self.startsInOrder(folders + [name], components[...]) { return (.words, -depth) }
-            if let score = Self.subsequenceScore(whole, in: Array(path)) { return (.loose, score) }
+            if folders.isEmpty, Self.startsAWord(name, in: prepared.entry.name) { return (.words, -depth - 1) }
+            guard isPathLike else { return nil }
+            if let score = Self.subsequenceScore(whole, in: Array(prepared.entry.path)) { return (.loose, score) }
             return nil
+        }
+
+        /// `composer` in `ChatComposer.swift`, or `list` in `chat-list.md`.
+        private static func startsAWord(_ query: String, in name: String) -> Bool {
+            let original = Array(name)
+            let lowered = original.map { $0.lowercased().first ?? $0 }
+            let query = Array(query)
+            guard !query.isEmpty, query.count <= original.count else { return false }
+            for index in 0...(original.count - query.count) where isWordStart(index, in: original) {
+                if lowered[index..<(index + query.count)].elementsEqual(query) { return true }
+            }
+            return false
         }
 
         /// Each part starts a component, in order, skipping components as

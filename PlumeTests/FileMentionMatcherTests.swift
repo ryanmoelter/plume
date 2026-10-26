@@ -60,15 +60,30 @@ struct FileMentionMatcherTests {
         #expect(results.first?.quality == .words)
     }
 
-    @Test func aSubsequenceMatchesLoosely() {
-        let results = FileMentionMatcher.matches("tskstr", in: entries(tree))
+    @Test func aPathLikeQueryMatchesASubsequenceLoosely() {
+        let results = FileMentionMatcher.matches("models/tskstr", in: entries(tree))
         #expect(results.map(\.candidate.id) == ["file:Plume/Models/TaskStore.swift"])
         #expect(results.first?.quality == .loose)
     }
 
     @Test func aTighterSubsequenceScoresHigher() {
-        let results = paths("cv", in: ["a/c/x/y/v.swift", "ChatView.swift"])
+        let results = paths("./cv", in: ["a/c/x/y/v.swift", "ChatView.swift"])
         #expect(results.first == "ChatView.swift")
+    }
+
+    @Test func aWordLikeQueryNeverMatchesASubsequence() {
+        let scattered = ["src/a/l/i/c/e.txt", "malice.txt", "Sources/ALargeImageCache.swift"]
+        #expect(paths("alice", in: scattered).isEmpty)
+        #expect(paths("tskstr", in: tree).isEmpty)
+        #expect(!paths("./alice", in: scattered).isEmpty)
+        #expect(!paths("ali.t", in: scattered).isEmpty)
+    }
+
+    @Test func aWordStartInsideTheNameMatches() {
+        let results = FileMentionMatcher.matches("composer", in: entries(tree))
+        #expect(results.first?.candidate.id == "file:Plume/UI/Chat/ChatComposer.swift")
+        #expect(results.first?.quality == .words)
+        #expect(paths("list", in: tree) == ["docs/chat-list.md"])
     }
 
     @Test func aFolderScoresSlightlyBelowAFileOfTheSameName() {
