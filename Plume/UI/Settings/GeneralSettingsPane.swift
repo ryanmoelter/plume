@@ -3,7 +3,7 @@ import SwiftUI
 
 struct GeneralSettingsPane: View {
     @State private var settings = AppSettings.shared
-    @State private var helperState = CommandLineHelper.state()
+    @State private var helperState = CommandLineHelper.summary(of: CommandLineHelper.states())
     @State private var helperError: String?
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
@@ -64,7 +64,7 @@ struct GeneralSettingsPane: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            helperState = CommandLineHelper.state()
+            helperState = CommandLineHelper.summary(of: CommandLineHelper.states())
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -97,8 +97,8 @@ struct GeneralSettingsPane: View {
                 }
             }
         } label: {
-            Text("Command line helper")
-            Text("Currently just `plume-notify`, links into `~/.local/bin`")
+            Text("Command line tool")
+            Text("Links `plume` and `plume-notify` into `~/.local/bin`")
                 .foregroundStyle(.secondary)
         }
     }
@@ -111,13 +111,17 @@ struct GeneralSettingsPane: View {
         switch helperState {
         case .installed: "Installed"
         case .notInstalled: "Not installed"
-        case .occupiedByOther: "Another file owns that name"
-        case .brokenLink: "Installed, but pointing at a bundle that is gone"
+        case .occupied(let name): "Another file owns \(name)"
+        case .needsUpdate: "Needs updating"
         }
     }
 
     private var helperButtonTitle: String {
-        if case .installed = helperState { "Remove" } else { "Install" }
+        switch helperState {
+        case .installed: "Remove"
+        case .needsUpdate: "Update"
+        case .notInstalled, .occupied: "Install"
+        }
     }
 
     private func toggleHelperInstall() {
@@ -131,7 +135,7 @@ struct GeneralSettingsPane: View {
         } catch {
             helperError = error.localizedDescription
         }
-        helperState = CommandLineHelper.state()
+        helperState = CommandLineHelper.summary(of: CommandLineHelper.states())
     }
 
     private var worktreeBasePathBinding: Binding<String> {
