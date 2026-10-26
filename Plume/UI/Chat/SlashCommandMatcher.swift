@@ -22,7 +22,7 @@ enum SlashCommandMatcher {
     /// The result of accepting a slash command: the composer's new text, and
     /// the caret offset (UTF-16) it should land at — the end of the inserted
     /// `/name `, ahead of any arguments the user goes on to type.
-    struct AcceptedCommand: Equatable {
+    nonisolated struct AcceptedCommand: Equatable, Sendable {
         let text: String
         let caretLocation: Int
     }
