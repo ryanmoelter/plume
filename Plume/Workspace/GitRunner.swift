@@ -15,7 +15,8 @@ nonisolated struct GitError: LocalizedError {
 /// Every call blocks its thread until `git` exits. Reach it through
 /// `GitService`, never directly — the actor is what keeps that wait off the
 /// main thread. Tests call it synchronously, which is fine; they have no
-/// window to freeze.
+/// window to freeze. `FileMentionIndex` calls it from a detached task, so a
+/// file listing never queues behind the serial `GitService`.
 nonisolated enum GitRunner {
     @discardableResult
     static func run(_ arguments: [String], in directory: String? = nil) throws -> String {
