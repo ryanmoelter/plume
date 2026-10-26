@@ -8,6 +8,9 @@ nonisolated protocol LinearClient: Sendable {
     /// One page of the issues updated at or after `since`, archived ones
     /// included, newest first.
     func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage
+    /// Issues whose text matches `term`, archived ones excluded, limited to
+    /// the teams in `teamKeys` unless it is empty.
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot]
 }
 
 /// One workspace's answer for one identifier in a batch.
@@ -54,6 +57,17 @@ nonisolated enum LinearQuery {
         return "query($cursor: String) { issues(first: \(deltaPageSize), after: $cursor, "
             + "orderBy: updatedAt, includeArchived: true, filter: { updatedAt: { gte: \(bound) } }) { "
             + "nodes { \(issueFields) } pageInfo { hasNextPage endCursor } } }"
+    }
+
+    static let searchPageSize = 20
+
+    static func buildSearchIssues(term: String, teamKeys: [String], first: Int = searchPageSize) -> String {
+        var arguments = "term: \(jsonString(term)), first: \(first), includeArchived: false"
+        if !teamKeys.isEmpty {
+            let keys = teamKeys.map(jsonString).joined(separator: ", ")
+            arguments += ", filter: { team: { key: { in: [\(keys)] } } }"
+        }
+        return "query { searchIssues(\(arguments)) { nodes { \(issueFields) } } }"
     }
 
     static func formatDate(_ date: Date) -> String {
@@ -228,6 +242,11 @@ nonisolated enum LinearQuery {
         let issues: Issues
     }
 
+    private struct SearchIssuesPayload: Decodable {
+        struct Issues: Decodable { let nodes: [IssueNode] }
+        let searchIssues: Issues
+    }
+
     private struct DynamicKey: CodingKey {
         let stringValue: String
         init?(stringValue: String) { self.stringValue = stringValue }
@@ -387,6 +406,14 @@ nonisolated enum LinearQuery {
         guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
         return LinearIssuePage(issues: payload.issues.nodes.map(\.snapshot), nextCursor: payload.issues.pageInfo.next)
     }
+
+    /// Trashed issues are dropped: a mention should never offer one.
+    static func decodeSearchIssues(_ data: Data, now: Date = Date()) throws -> [LinearIssueSnapshot] {
+        let envelope = try decodeEnvelope(SearchIssuesPayload.self, from: data)
+        try check(envelope.errors, now: now)
+        guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
+        return payload.searchIssues.nodes.map(\.snapshot).filter { !$0.isTrashed }
+    }
 }
 
 /// Talks to Linear's GraphQL API. The key is read per request from
@@ -454,6 +481,12 @@ nonisolated struct LinearGraphQLClient: LinearClient {
     func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage {
         try await send(LinearQuery.buildIssuesUpdated(since: since), cursor: cursor) {
             try LinearQuery.decodeIssuesUpdated($0)
+        }
+    }
+
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot] {
+        try await send(LinearQuery.buildSearchIssues(term: term, teamKeys: teamKeys, first: first)) {
+            try LinearQuery.decodeSearchIssues($0)
         }
     }
 

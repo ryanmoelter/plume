@@ -1,6 +1,6 @@
 # Linear sync
 
-Plume keeps a local copy of each connected Linear workspace and reads from it. Rows, the info pane and future features (issue search, @-mentions of tickets) ask `LinearStore`, which answers from the cache. They never fetch.
+Plume keeps a local copy of each connected Linear workspace and reads from it. Rows, the info pane and composer mentions ask `LinearStore`, which answers from the cache. Rows and the info pane never fetch. A mention query may also send a remote search, because the cache holds only recent issues (see [Mention search](#mention-search)).
 
 Real-time push is not available to a desktop client. Linear pushes only through webhooks, which need a public HTTPS endpoint and a workspace admin. A webhook relay could feed the same cache later; nothing here assumes polling is the only source.
 
@@ -36,6 +36,29 @@ A wanted identifier is looked up in batches of 50 only when one of these holds:
 - an agent wrote to it (an early refetch).
 
 A lookup goes only to the workspaces whose catalog has the identifier's team key. Its answer merges into the cache, and the requested identifier is kept as an alias when the issue has moved.
+
+## Mention search
+
+An `@` mention in the composer reads the cache first. `LinearStore.mentionCandidates(matching:limit:)` ranks every cached issue, plus this session's search hits, on the main actor with no request. The composer's controller then calls `searchIssues(_:)`, after its own debounce, to find what the cache lacks:
+
+```
+searchIssues(term: <term>, first: 20, includeArchived: false, filter: { team: { key: { in: [<keys>] } } })
+```
+
+- **Team scope.** If the query has more than one word and its first word starts one or more team keys, that word becomes the team filter and the rest becomes the term. `dro layout` searches DROID for "layout". Each workspace gets only the keys its catalog has, and a workspace with none of them is not searched. Without a team word, every workspace is searched with no filter.
+- **Exact identifiers.** A query that is a whole identifier (`DROID-123`) sends no search. If no cache holds it, the store looks it up by identifier in the workspaces that own its team key.
+- **Merging.** Hits merge into the cache through `upsert`, like any lookup, and the store then saves the cache. A hit is current as of the moment it arrives, so the cursor rule still holds: the cache stays current as of its cursor, and the next delta catches any later change. A newer snapshot already held wins. A save prunes any hit untouched for longer than the retention period, which is most of what a search finds. For this reason the store also keeps up to 500 hits per workspace in memory for the session, and mentions read from both.
+
+Search rules:
+
+- A search skips any workspace that has a blocker (unauthorized or rate-limited) or is low on budget.
+- The term must be at least 2 characters.
+- The store remembers each search per workspace for 60 seconds and does not send it again in that time. A failed search is forgotten, so it can be retried.
+- Each workspace has at most one search in flight. A search that arrives while one is in flight waits, and only the newest waiting search runs after it.
+- A key change or removal drops the answer of any search in flight, through the same generation check as other requests. It also clears the hits held in memory.
+- Errors go through the same handling as other requests, so a rate-limit response pauses the workspace.
+
+Linear limits `searchIssues` to 30 requests per minute, apart from the general budget. The caller's debounce and the 60-second memory keep a typing user well under that.
 
 ## Budget and failures
 

@@ -142,4 +142,17 @@ struct LinearMentionMatcherTests {
         #expect(fromLookup.stateColor == "#222222")
         #expect(MentionCandidate.LinearIssue(cached, state: nil).stateType == .unstarted)
     }
+
+    @Test func aSearchTakesATeamPrefixAsItsFilter() {
+        let keys: Set<String> = ["DROID", "DRONE", "IOS"]
+        #expect(LinearMentionSearch.parse("dro layout", teamKeys: keys) == .text(term: "layout", teamKeys: ["DROID", "DRONE"]))
+        #expect(LinearMentionSearch.parse("text layout", teamKeys: keys) == .text(term: "text layout", teamKeys: []))
+        #expect(LinearMentionSearch.parse("ios", teamKeys: keys) == .text(term: "ios", teamKeys: []))
+    }
+
+    @Test func aSearchNeedsTwoCharactersAndSpotsIdentifiers() {
+        #expect(LinearMentionSearch.parse("a", teamKeys: []) == nil)
+        #expect(LinearMentionSearch.parse("ios x", teamKeys: ["IOS"]) == nil)
+        #expect(LinearMentionSearch.parse("droid-12", teamKeys: []) == .identifier("DROID-12"))
+    }
 }

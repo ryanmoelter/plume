@@ -19,6 +19,8 @@ actor FakeLinearWorkspace {
     var rateLimit: LinearRateLimit?
     private(set) var issueCalls: [[String]] = []
     private(set) var deltaCalls: [Date] = []
+    private(set) var searchCalls: [(term: String, teamKeys: [String])] = []
+    var searchError: Error?
     private var lastUpdatedAt = Date()
     private(set) var catalogCalls = 0
     private var holdsIssues = false
@@ -62,6 +64,7 @@ actor FakeLinearWorkspace {
     func set(catalogError: Error?) { self.catalogError = catalogError }
     func set(viewerError: Error?) { self.viewerError = viewerError }
     func set(rateLimit: LinearRateLimit?) { self.rateLimit = rateLimit }
+    func set(searchError: Error?) { self.searchError = searchError }
 
     func holdIssueFetches() { holdsIssues = true }
 
@@ -97,6 +100,20 @@ actor FakeLinearWorkspace {
             }
         }
         return result
+    }
+
+    /// Matches a title containing `term`, case-insensitively. Held by
+    /// `holdIssueFetches` like a lookup.
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot] {
+        searchCalls.append((term, teamKeys))
+        if holdsIssues { await withCheckedContinuation { waiters.append($0) } }
+        if let searchError { throw searchError }
+        return snapshots.values
+            .filter { !$0.isTrashed && $0.issue.title.localizedCaseInsensitiveContains(term) }
+            .filter { teamKeys.isEmpty || teamKeys.contains($0.issue.teamKey) }
+            .sorted { $0.issue.identifier < $1.issue.identifier }
+            .prefix(first)
+            .map { $0 }
     }
 
     func fetchIssuesUpdated(since: Date, cursor: String?) throws -> LinearIssuePage {
@@ -135,6 +152,10 @@ nonisolated struct FakeLinearClient: LinearClient {
 
     func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage {
         try await workspace.fetchIssuesUpdated(since: since, cursor: cursor)
+    }
+
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot] {
+        try await workspace.searchIssues(term: term, teamKeys: teamKeys, first: first)
     }
 }
 

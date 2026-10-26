@@ -76,3 +76,43 @@ extension MentionCandidate.LinearIssue {
         )
     }
 }
+
+extension MentionCandidate.LinearIssue {
+    nonisolated init(_ snapshot: LinearIssueSnapshot) {
+        self.init(
+            identifier: snapshot.issue.identifier.uppercased(),
+            title: snapshot.issue.title,
+            url: snapshot.issue.url,
+            stateType: snapshot.state.type,
+            stateColor: snapshot.state.color,
+            updatedAt: snapshot.updatedAt
+        )
+    }
+}
+
+/// What a mention query asks Linear for, once the cache has answered.
+nonisolated enum LinearMentionSearch: Hashable, Sendable {
+    /// A title search, limited to `teamKeys` unless it is empty.
+    case text(term: String, teamKeys: [String])
+    case identifier(String)
+
+    static let minimumLength = 2
+
+    /// A first word that starts any team key scopes the search to those
+    /// teams, as `dro layout` searches DROID for "layout". Nil for a query
+    /// too short to send.
+    static func parse(_ query: String, teamKeys: Set<String>) -> LinearMentionSearch? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if let identifier = LinearIdentifier.normalize(trimmed) { return .identifier(identifier) }
+        let words = trimmed.split(separator: " ")
+        var term = trimmed
+        var keys: [String] = []
+        if words.count > 1 {
+            let first = words[0].uppercased()
+            keys = teamKeys.filter { $0.hasPrefix(first) }.sorted()
+            if !keys.isEmpty { term = words.dropFirst().joined(separator: " ") }
+        }
+        guard term.count >= minimumLength else { return nil }
+        return .text(term: term, teamKeys: keys)
+    }
+}
