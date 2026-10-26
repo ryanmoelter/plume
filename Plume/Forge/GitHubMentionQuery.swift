@@ -7,31 +7,51 @@ nonisolated enum GitHubMentionQuery {
 
     private static let fields = "number title url state isDraft updatedAt"
 
-    /// `$owner` and `$name` take gh's `{owner}` and `{repo}` placeholders.
-    static let openPullRequests = "query($owner: String!, $name: String!) { "
-        + "repository(owner: $owner, name: $name) { nameWithOwner "
-        + "pullRequests(first: \(listSize), states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) "
-        + "{ nodes { \(fields) } } } }"
-
-    static func pullRequest(number: Int) -> String {
-        "query($owner: String!, $name: String!) { "
-            + "repository(owner: $owner, name: $name) { pullRequest(number: \(number)) { \(fields) } } }"
-    }
-
-    static func titleSearch(_ term: String, nameWithOwner: String) -> String {
-        let search = GitHubQuery.jsonString("repo:\(nameWithOwner) is:pr in:title \(term)")
-        return "query { search(query: \(search), type: ISSUE, first: \(searchSize)) "
-            + "{ nodes { ... on PullRequest { \(fields) } } } }"
-    }
-
-    /// Every query here names the repository through gh's placeholders,
-    /// which it resolves from its working directory.
-    static func arguments(for query: String) -> [String] {
-        var arguments = ["api", "graphql", "-f", "query=" + query]
-        if query.contains("$owner") {
-            arguments += ["-F", "owner={owner}", "-F", "name={repo}"]
+    /// A query and its variables. What the user typed travels only as a
+    /// variable, sent with `-f`, which gh passes through as a plain string.
+    struct Request: Equatable, Sendable {
+        enum Variables: Equatable, Sendable {
+            /// `$owner` and `$name`, filled from gh's `{owner}` and `{repo}`
+            /// placeholders, which it resolves from its working directory.
+            case repository
+            case search(String)
         }
-        return arguments
+
+        let query: String
+        let variables: Variables
+
+        var arguments: [String] {
+            var arguments = ["api", "graphql", "-f", "query=" + query]
+            switch variables {
+            case .repository: arguments += ["-F", "owner={owner}", "-F", "name={repo}"]
+            case .search(let search): arguments += ["-f", "search=" + search]
+            }
+            return arguments
+        }
+    }
+
+    static let openPullRequests = Request(
+        query: "query($owner: String!, $name: String!) { "
+            + "repository(owner: $owner, name: $name) { nameWithOwner "
+            + "pullRequests(first: \(listSize), states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) "
+            + "{ nodes { \(fields) } } } }",
+        variables: .repository
+    )
+
+    static func pullRequest(number: Int) -> Request {
+        Request(
+            query: "query($owner: String!, $name: String!) { "
+                + "repository(owner: $owner, name: $name) { pullRequest(number: \(number)) { \(fields) } } }",
+            variables: .repository
+        )
+    }
+
+    static func titleSearch(_ term: String, nameWithOwner: String) -> Request {
+        Request(
+            query: "query($search: String!) { search(query: $search, type: ISSUE, first: \(searchSize)) "
+                + "{ nodes { ... on PullRequest { \(fields) } } } }",
+            variables: .search("repo:\(nameWithOwner) is:pr in:title \(term)")
+        )
     }
 
     // MARK: Decoding

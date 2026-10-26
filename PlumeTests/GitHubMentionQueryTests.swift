@@ -12,22 +12,31 @@ struct GitHubMentionQueryTests {
         """
 
     @Test func theListAsksForFiftyOpenPullRequestsNewestFirst() {
-        let query = GitHubMentionQuery.openPullRequests
-        #expect(query.contains("repository(owner: $owner, name: $name) { nameWithOwner "))
-        #expect(query.contains("pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC})"))
-        #expect(query.contains("number title url state isDraft updatedAt"))
-        #expect(GitHubMentionQuery.arguments(for: query).suffix(4) == ["-F", "owner={owner}", "-F", "name={repo}"])
+        let request = GitHubMentionQuery.openPullRequests
+        #expect(request.query.contains("repository(owner: $owner, name: $name) { nameWithOwner "))
+        #expect(request.query.contains("pullRequests(first: 50, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC})"))
+        #expect(request.query.contains("number title url state isDraft updatedAt"))
+        #expect(request.arguments.suffix(4) == ["-F", "owner={owner}", "-F", "name={repo}"])
     }
 
     @Test func aNumberLookupNamesThePullRequest() {
-        #expect(GitHubMentionQuery.pullRequest(number: 123).contains("pullRequest(number: 123) {"))
+        #expect(GitHubMentionQuery.pullRequest(number: 123).query.contains("pullRequest(number: 123) {"))
     }
 
     @Test func aTitleSearchIsScopedToTheRepository() {
-        let query = GitHubMentionQuery.titleSearch("fix \"it\"", nameWithOwner: "o/r")
-        #expect(query.contains(#"search(query: "repo:o/r is:pr in:title fix \"it\"", type: ISSUE, first: 10)"#))
-        #expect(query.contains("... on PullRequest {"))
-        #expect(GitHubMentionQuery.arguments(for: query) == ["api", "graphql", "-f", "query=" + query])
+        let request = GitHubMentionQuery.titleSearch("fix \"it\"", nameWithOwner: "o/r")
+        #expect(request.query.contains("search(query: $search, type: ISSUE, first: 10)"))
+        #expect(request.query.contains("... on PullRequest {"))
+        #expect(request.arguments == [
+            "api", "graphql", "-f", "query=" + request.query, "-f", #"search=repo:o/r is:pr in:title fix "it""#,
+        ])
+    }
+
+    @Test func aSearchTermNamingAVariableStaysSearchText() {
+        let request = GitHubMentionQuery.titleSearch("$owner fix", nameWithOwner: "o/r")
+        #expect(!request.query.contains("$owner"))
+        #expect(!request.arguments.contains("-F"))
+        #expect(request.arguments.last == "search=repo:o/r is:pr in:title $owner fix")
     }
 
     @Test func decodesTheList() throws {
@@ -70,7 +79,7 @@ struct PullRequestMentionSourceTests {
         init(fails: Bool = false) { self.fails = fails }
 
         func respond(_ arguments: [String]) throws -> Data {
-            let query = arguments[3]
+            let query = arguments.joined(separator: " ")
             calls.withLock { $0.append(query) }
             if fails { throw ForgeError(message: "gh: not logged in") }
             let pull: (Int, String) -> String = { number, title in
@@ -140,6 +149,58 @@ struct PullRequestMentionSourceTests {
         #expect(script.count == 1)
         #expect(numbers(await source.matches(for: try query("#lay"), in: "/repo")) == [3])
         #expect(script.calls.withLock { $0.last?.contains("repo:o/r is:pr in:title lay") } == true)
+    }
+
+    /// Parks every caller until opened, and lets a test wait for the first.
+    private actor Gate {
+        private var isOpen = false
+        private var hasWaiter = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var watchers: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            guard !isOpen else { return }
+            hasWaiter = true
+            for watcher in watchers { watcher.resume() }
+            watchers = []
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func firstWaiter() async {
+            guard !hasWaiter else { return }
+            await withCheckedContinuation { watchers.append($0) }
+        }
+
+        func open() {
+            isOpen = true
+            for waiter in waiters { waiter.resume() }
+            waiters = []
+        }
+    }
+
+    @Test func overlappingLookupsKeepEachOthersAnswers() async throws {
+        let script = Script()
+        let gate = Gate()
+        let source = PullRequestMentionSource(
+            run: { arguments, _ in
+                if arguments.joined().contains("number: 7") { await gate.wait() }
+                return try script.respond(arguments)
+            },
+            resolve: { _ in ("/repo", RepositoryFacts(originURL: "git@github.com:o/r.git", defaultBranch: "main")) }
+        )
+        let seven = try query("#7")
+        let eight = try query("#8")
+
+        let slow = Task { await source.matches(for: seven, in: "/repo") }
+        await gate.firstWaiter()
+        _ = await source.matches(for: eight, in: "/repo")
+        await gate.open()
+        _ = await slow.value
+        let calls = script.count
+
+        _ = await source.matches(for: seven, in: "/repo")
+        _ = await source.matches(for: eight, in: "/repo")
+        #expect(script.count == calls)
     }
 
     @Test func aFailingGHIsCachedAsNoResults() async throws {

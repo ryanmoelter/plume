@@ -62,52 +62,55 @@ actor PullRequestMentionSource {
         limit: Int = PullRequestMentionMatcher.defaultLimit
     ) async -> [RankedMention] {
         guard query.scope != .files, let directory, let root = await repositoryRoot(for: directory) else { return [] }
-        guard var repository = await openPullRequests(in: root), var pulls = repository.pulls else { return [] }
+        guard let repository = await openPullRequests(in: root), var pulls = repository.pulls else { return [] }
 
         var term = query.text.trimmingCharacters(in: .whitespaces)
         if term.hasPrefix("#") { term.removeFirst() }
         let known = Set(pulls.map(\.number))
 
         if let number = Int(term), term.allSatisfy(\.isASCII), !known.contains(number) {
-            if repository.byNumber[number] == nil {
+            var found = repository.byNumber[number]
+            if found == nil {
                 guard !Task.isCancelled else { return [] }
                 let pull = await fetch(GitHubMentionQuery.pullRequest(number: number), in: root) {
                     try GitHubMentionQuery.decodePullRequest($0)
                 }
-                repository.byNumber[number] = .some(pull ?? nil)
+                found = .some(pull ?? nil)
+                update(root, listedAt: repository.fetchedAt) { $0.byNumber[number] = found }
             }
-            if let pull = repository.byNumber[number] ?? nil { pulls.append(pull) }
+            if let pull = found ?? nil { pulls.append(pull) }
         } else if Int(term) == nil, term.count >= Self.minimumSearchLength, let nameWithOwner = repository.nameWithOwner {
             let key = term.lowercased()
-            if repository.searches[key] == nil {
+            var found = repository.searches[key]
+            if found == nil {
                 guard !Task.isCancelled else { return [] }
-                let query = GitHubMentionQuery.titleSearch(term, nameWithOwner: nameWithOwner)
-                let found = await fetch(query, in: root) { try GitHubMentionQuery.decodeSearch($0) }
-                repository.searches[key] = found ?? []
+                let request = GitHubMentionQuery.titleSearch(term, nameWithOwner: nameWithOwner)
+                let searched = await fetch(request, in: root) { try GitHubMentionQuery.decodeSearch($0) } ?? []
+                found = searched
+                update(root, listedAt: repository.fetchedAt) { $0.searches[key] = searched }
             }
             let listed = Set(pulls.map(\.number))
-            pulls += (repository.searches[key] ?? []).filter { !listed.contains($0.number) }
+            pulls += (found ?? []).filter { !listed.contains($0.number) }
         }
-        store(repository, for: root)
 
         guard !Task.isCancelled else { return [] }
         return PullRequestMentionMatcher.matches(term, in: pulls, limit: limit)
     }
 
     private func fetch<Result>(
-        _ query: String,
+        _ request: GitHubMentionQuery.Request,
         in root: String,
         decode: (Data) throws -> Result
     ) async -> Result? {
-        guard let data = try? await run(GitHubMentionQuery.arguments(for: query), root) else { return nil }
+        guard let data = try? await run(request.arguments, root) else { return nil }
         return try? decode(data)
     }
 
-    /// Keeps lookups made since the list was read, unless the list has been
-    /// replaced meanwhile.
-    private func store(_ repository: Repository, for root: String) {
-        guard repositories[root]?.fetchedAt == repository.fetchedAt else { return }
-        repositories[root] = repository
+    /// Records a lookup on the repository's current entry, unless its list has
+    /// been replaced since the lookup began.
+    private func update(_ root: String, listedAt fetchedAt: Date, _ change: (inout Repository) -> Void) {
+        guard repositories[root]?.fetchedAt == fetchedAt else { return }
+        change(&repositories[root]!)
     }
 
     private func repositoryRoot(for directory: String) async -> String? {
@@ -134,7 +137,7 @@ actor PullRequestMentionSource {
         let now = now
         let load = Task {
             let fetchedAt = now()
-            guard let data = try? await run(GitHubMentionQuery.arguments(for: GitHubMentionQuery.openPullRequests), root),
+            guard let data = try? await run(GitHubMentionQuery.openPullRequests.arguments, root),
                   let list = try? GitHubMentionQuery.decodeOpenPullRequests(data)
             else { return Repository(fetchedAt: fetchedAt, nameWithOwner: nil, pulls: nil) }
             return Repository(fetchedAt: fetchedAt, nameWithOwner: list.nameWithOwner, pulls: list.pulls)
