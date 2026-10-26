@@ -7,7 +7,7 @@ nonisolated enum ForgeKind: String, Sendable, Equatable {
     case none
 }
 
-extension ForgeKind {
+nonisolated extension ForgeKind {
     /// Sniffs the forge from an origin URL's host, handling both ssh
     /// (`git@host:path.git`) and https forms.
     static func sniffing(originURL: String?) -> ForgeKind {

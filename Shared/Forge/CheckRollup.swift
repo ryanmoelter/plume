@@ -10,7 +10,7 @@ nonisolated enum CheckRollup: Sendable, Equatable {
     case none
 }
 
-extension CheckRollup {
+nonisolated extension CheckRollup {
     private static let failing: Set<String> = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"]
     /// CANCELLED sits here to match GitHub's own PR page: an auto-superseded
     /// duplicate run neither fails nor blocks a merge.
@@ -34,7 +34,7 @@ extension CheckRollup {
     }
 }
 
-extension PullRequest {
+nonisolated extension PullRequest {
     func checkRollup(ignoredWhenPending: Set<String> = []) -> CheckRollup {
         CheckRollup.folding(checkContexts, ignoredWhenPending: ignoredWhenPending)
     }
