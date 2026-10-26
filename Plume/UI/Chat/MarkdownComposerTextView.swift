@@ -607,6 +607,11 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if let autocompleteHandler, event.keyCode == 53 /* Escape */, autocompleteHandler.claimsEscape,
+           !event.modifierFlags.contains(.command) {
+            autocompleteHandler.dismiss()
+            return
+        }
         if let autocompleteHandler, autocompleteHandler.isShowing, !event.modifierFlags.contains(.command) {
             switch event.keyCode {
             case 125 /* Down */:
@@ -617,9 +622,6 @@ final class ComposerNSTextView: NSTextView {
                 return
             case 48 /* Tab */:
                 autocompleteHandler.acceptSelection()
-                return
-            case 53 /* Escape */:
-                autocompleteHandler.dismiss()
                 return
             case 36 /* Return */:
                 autocompleteHandler.acceptSelection()
@@ -681,9 +683,16 @@ final class ComposerNSTextView: NSTextView {
 /// through to the text view's normal behavior, send-on-Return included.
 protocol ComposerAutocompleteHandler: AnyObject {
     var isShowing: Bool { get }
+    /// Esc closes the list rather than reaching `onEscape`. A list can claim
+    /// it while it has no rows yet, so Esc never interrupts a turn by surprise.
+    var claimsEscape: Bool { get }
     func moveSelection(by delta: Int)
     func acceptSelection()
     func dismiss()
+}
+
+extension ComposerAutocompleteHandler {
+    var claimsEscape: Bool { isShowing }
 }
 
 /// Hosts the text view in a scroll view sized to its content, between

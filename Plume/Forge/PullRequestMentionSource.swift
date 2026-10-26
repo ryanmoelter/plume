@@ -49,16 +49,16 @@ actor PullRequestMentionSource {
     }
 
     static let runGH: Runner = { arguments, directory in
-        try await Task.detached(priority: .userInitiated) {
-            try GHCommand.run(arguments: arguments, in: directory, timeout: .seconds(10))
-        }.value
+        try await GHCommand.run(arguments: arguments, in: directory, timeout: .seconds(10))
     }
 
     /// Empty for a files-only query, a directory outside a GitHub
-    /// repository, or while `gh` is failing.
+    /// repository, or while `gh` is failing. Without `includingLookups` only
+    /// the open list and lookups already cached answer.
     func matches(
         for query: MentionQuery,
         in directory: String?,
+        includingLookups: Bool = true,
         limit: Int = PullRequestMentionMatcher.defaultLimit
     ) async -> [RankedMention] {
         guard query.scope != .files, let directory, let root = await repositoryRoot(for: directory) else { return [] }
@@ -70,11 +70,12 @@ actor PullRequestMentionSource {
 
         if let number = Int(term), term.allSatisfy(\.isASCII), !known.contains(number) {
             var found = repository.byNumber[number]
-            if found == nil {
+            if found == nil, includingLookups {
                 guard !Task.isCancelled else { return [] }
                 let pull = await fetch(GitHubMentionQuery.pullRequest(number: number), in: root) {
                     try GitHubMentionQuery.decodePullRequest($0)
                 }
+                guard !Task.isCancelled else { return [] }
                 found = .some(pull ?? nil)
                 update(root, listedAt: repository.fetchedAt) { $0.byNumber[number] = found }
             }
@@ -82,10 +83,11 @@ actor PullRequestMentionSource {
         } else if Int(term) == nil, term.count >= Self.minimumSearchLength, let nameWithOwner = repository.nameWithOwner {
             let key = term.lowercased()
             var found = repository.searches[key]
-            if found == nil {
+            if found == nil, includingLookups {
                 guard !Task.isCancelled else { return [] }
                 let request = GitHubMentionQuery.titleSearch(term, nameWithOwner: nameWithOwner)
                 let searched = await fetch(request, in: root) { try GitHubMentionQuery.decodeSearch($0) } ?? []
+                guard !Task.isCancelled else { return [] }
                 found = searched
                 update(root, listedAt: repository.fetchedAt) { $0.searches[key] = searched }
             }

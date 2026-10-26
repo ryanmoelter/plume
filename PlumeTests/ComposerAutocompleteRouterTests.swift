@@ -65,7 +65,7 @@ struct ComposerAutocompleteRouterTests {
         #expect(router.mention.selectedIndex == 0)
     }
 
-    @Test func aLoadingMentionMenuLetsEscapeThrough() async {
+    @Test func escapeClosesALoadingMentionMenuWithoutInterrupting() async {
         sources.holdsFiles = true
         defer { sources.releaseAll() }
         let router = makeRouter()
@@ -78,8 +78,10 @@ struct ComposerAutocompleteRouterTests {
 
         textView.keyDown(with: Self.key(53))
 
-        #expect(escapes == 1)
-        #expect(router.mention.isPresented)
+        #expect(escapes == 0)
+        #expect(!router.mention.isPresented)
+        router.mention.update(text: "@zzz", caretLocation: 4, directory: "/repo", isCommandMode: false)
+        #expect(!router.mention.isPresented)
     }
 
     private static func key(_ keyCode: UInt16) -> NSEvent {

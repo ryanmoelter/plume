@@ -156,10 +156,9 @@ struct MentionAutocompleteControllerTests {
         type("#12", into: controller)
         await controller.settled()
 
-        #expect(sources.pullRequestQueries == ["12"])
+        #expect(sources.pullRequestQueries == ["12", "12"])
         #expect(sources.fileQueries.isEmpty)
         #expect(sources.linearSearches.isEmpty)
-        #expect(sleep.durations.isEmpty)
         #expect(controller.candidates.map(\.id) == ["pr:https://github.com/acme/app/pull/12"])
     }
 
@@ -170,6 +169,28 @@ struct MentionAutocompleteControllerTests {
         await controller.settled()
 
         #expect(sleep.durations == [MentionAutocompleteController.Debounce().pullRequestSearch])
+        #expect(sources.pullRequestLookups == ["lay"])
+    }
+
+    @Test func aPullRequestNumberLookupIsDebouncedButTheListIsNot() async {
+        let controller = makeController()
+
+        type("#7", into: controller)
+        await controller.settled()
+
+        #expect(sleep.durations == [MentionAutocompleteController.Debounce().pullRequestNumber])
+        #expect(sources.pullRequestQueries == ["7", "7"])
+        #expect(sources.pullRequestLookups == ["7"])
+    }
+
+    @Test func aShortTitleTermAsksOnceWithNoDebounce() async {
+        let controller = makeController()
+
+        type("#la", into: controller)
+        await controller.settled()
+
+        #expect(sleep.durations.isEmpty)
+        #expect(sources.pullRequestQueries == ["la"])
     }
 
     @Test func acceptingReplacesTheTokenWithALink() async {

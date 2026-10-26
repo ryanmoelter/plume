@@ -7,7 +7,8 @@ import Observation
 protocol MentionSources: AnyObject, Sendable {
     var teamKeys: Set<String> { get }
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention]
-    func pullRequests(for query: MentionQuery, in directory: String?) async -> [RankedMention]
+    /// Without `includingLookups`, only what needs no new request.
+    func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention]
     /// The cache only, with no request.
     func cachedLinearIssues(matching text: String) async -> [RankedMention]
     /// Fills the cache with what a remote search finds.
@@ -22,8 +23,8 @@ final class LiveMentionSources: MentionSources {
         await FileMentionIndex.shared.matches(for: query, in: directory)
     }
 
-    func pullRequests(for query: MentionQuery, in directory: String?) async -> [RankedMention] {
-        await PullRequestMentionSource.shared.matches(for: query, in: directory)
+    func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention] {
+        await PullRequestMentionSource.shared.matches(for: query, in: directory, includingLookups: includingLookups)
     }
 
     func cachedLinearIssues(matching text: String) async -> [RankedMention] {
@@ -47,6 +48,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     struct Debounce {
         var linearSearch: Duration = .milliseconds(300)
         var pullRequestSearch: Duration = .milliseconds(400)
+        var pullRequestNumber: Duration = .milliseconds(250)
     }
 
     typealias Sleep = @MainActor (Duration) async throws -> Void
@@ -62,6 +64,8 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     /// There is a row to pick, so the composer's keys belong to the menu. A
     /// panel that is only loading takes none, so Return still sends.
     var isShowing: Bool { query != nil && !candidates.isEmpty }
+
+    var claimsEscape: Bool { isPresented }
 
     @ObservationIgnored var onAccept: (SlashCommandMatcher.AcceptedCommand) -> Void = { _ in }
     /// Called each time a query's every source has answered. For tests.
@@ -188,11 +192,22 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
                     }
                 }
                 if wanted.contains(.pullRequests) {
+                    let lookupDelay = Self.pullRequestLookupDelay(for: query.text, debounce: debounce)
                     group.addTask { @MainActor in
-                        if Self.searchesPullRequestTitles(query.text) {
-                            do { try await sleep(debounce.pullRequestSearch) } catch { return Answer(.pullRequests, nil) }
+                        Answer(
+                            .pullRequests,
+                            await sources.pullRequests(for: query, in: directory, includingLookups: lookupDelay == nil),
+                            isFinal: lookupDelay == nil
+                        )
+                    }
+                    if let lookupDelay {
+                        group.addTask { @MainActor in
+                            do { try await sleep(lookupDelay) } catch { return Answer(.pullRequests, nil) }
+                            return Answer(
+                                .pullRequests,
+                                await sources.pullRequests(for: query, in: directory, includingLookups: true)
+                            )
                         }
-                        return Answer(.pullRequests, await sources.pullRequests(for: query, in: directory))
                     }
                 }
                 for await answer in group {
@@ -268,12 +283,14 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         }
     }
 
-    /// `PullRequestMentionSource` sends a title search for these, which is
-    /// worth waiting out a burst of typing for.
-    private static func searchesPullRequestTitles(_ text: String) -> Bool {
+    /// `PullRequestMentionSource` may send a request for a number or a long
+    /// enough title term, which is worth waiting out a burst of typing for.
+    /// The open list answers at once in the meantime.
+    private static func pullRequestLookupDelay(for text: String, debounce: Debounce) -> Duration? {
         var term = text.trimmingCharacters(in: .whitespaces)
         if term.hasPrefix("#") { term.removeFirst() }
-        return Int(term) == nil && term.count >= PullRequestMentionSource.minimumSearchLength
+        if Int(term) != nil { return debounce.pullRequestNumber }
+        return term.count >= PullRequestMentionSource.minimumSearchLength ? debounce.pullRequestSearch : nil
     }
 
     private static func narrowedFiles(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {

@@ -31,6 +31,8 @@ final class FakeMentionSources: MentionSources {
 
     private(set) var fileQueries: [String] = []
     private(set) var pullRequestQueries: [String] = []
+    /// The queries asked with `includingLookups`.
+    private(set) var pullRequestLookups: [String] = []
     private(set) var linearSearches: [String] = []
     private(set) var heldFiles: [Call] = []
     private(set) var heldPullRequests: [Call] = []
@@ -46,8 +48,9 @@ final class FakeMentionSources: MentionSources {
         }
     }
 
-    func pullRequests(for query: MentionQuery, in directory: String?) async -> [RankedMention] {
+    func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention] {
         pullRequestQueries.append(query.text)
+        if includingLookups { pullRequestLookups.append(query.text) }
         guard holdsPullRequests else { return pullRequestAnswer(query) }
         return await withCheckedContinuation { continuation in
             heldPullRequests.append(Call(query: query, continuation: continuation))
