@@ -117,9 +117,24 @@ struct FileMentionIndexTests {
             try write(path, in: root)
         }
 
-        let entries = FileMentionIndex.walk(root, limits: .init())
+        let entries = FileMentionIndex.walk(root, limits: .init(), homeDirectory: "/nowhere")
 
         #expect(paths(entries) == ["notes.md", ".env", "src", "src/app.js"])
+    }
+
+    @Test func aWalkNeverListsHomeOrEntersItsProtectedFolders() throws {
+        let parent = try makeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        let home = parent + "/home"
+        for path in ["home/notes.md", "home/Documents/private.txt", "home/Library/Prefs/x.plist", "home/code/app.js"] {
+            try write(path, in: parent)
+        }
+
+        #expect(FileMentionIndex.walk(home, limits: .init(), homeDirectory: home).isEmpty)
+        #expect(paths(FileMentionIndex.walk(parent, limits: .init(), homeDirectory: home)) == [
+            "home", "home/notes.md", "home/Documents", "home/Library", "home/code", "home/code/app.js",
+        ])
+        #expect(paths(FileMentionIndex.walk(home + "/Documents", limits: .init(), homeDirectory: home)) == ["private.txt"])
     }
 
     @Test func aWalkStopsAtItsDepthAndEntryCaps() throws {
@@ -127,11 +142,18 @@ struct FileMentionIndexTests {
         defer { try? FileManager.default.removeItem(atPath: root) }
         try write("a/b/c/d.txt", in: root)
 
-        let shallow = FileMentionIndex.walk(root, limits: .init(maxDepth: 2, maxEntries: 100))
+        let shallow = FileMentionIndex.walk(root, limits: .init(maxDepth: 2, maxEntries: 100), homeDirectory: "/nowhere")
         #expect(paths(shallow) == ["a", "a/b"])
 
-        let capped = FileMentionIndex.walk(root, limits: .init(maxDepth: 6, maxEntries: 3))
+        let capped = FileMentionIndex.walk(root, limits: .init(maxDepth: 6, maxEntries: 3), homeDirectory: "/nowhere")
         #expect(capped.count == 3)
+    }
+
+    @Test func aGitListingIsCapped() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+
+        #expect(FileMentionIndex.gitPaths(in: repository, limit: 2)?.count == 2)
     }
 
     @Test func aTildeQueryListsTheDeepestTypedFolderUnderTheInjectedHome() async throws {
