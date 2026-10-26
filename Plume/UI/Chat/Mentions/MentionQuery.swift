@@ -64,9 +64,10 @@ nonisolated struct MentionQuery: Equatable, Sendable {
         let query = ns.substring(with: queryRange)
         guard isOpen(query, trigger: trigger) else { return nil }
 
-        let triggerRange = NSRange(location: triggerLocation, length: 1)
-        if ComposerCodeRanges.intersectsCode(triggerRange, codeRanges: codeRanges) { return nil }
-        if isInsideLink(triggerLocation, text: text) { return nil }
+        // Spanning an accepted mention's link would reopen the menu on prose.
+        let range = NSRange(location: triggerLocation, length: caretLocation - triggerLocation)
+        if ComposerCodeRanges.intersectsCode(range, codeRanges: codeRanges) { return nil }
+        if intersectsLink(range, text: text) { return nil }
 
         return MentionQuery(
             trigger: trigger,
@@ -110,9 +111,9 @@ nonisolated struct MentionQuery: Equatable, Sendable {
         return words.count <= maximumWords
     }
 
-    private static func isInsideLink(_ location: Int, text: String) -> Bool {
+    private static func intersectsLink(_ range: NSRange, text: String) -> Bool {
         MarkdownHighlighter.spans(in: text).contains { span in
-            span.style == .link && NSLocationInRange(location, span.range)
+            span.style == .link && NSIntersectionRange(range, span.range).length > 0
         }
     }
 }

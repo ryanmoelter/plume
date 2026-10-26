@@ -79,6 +79,11 @@ struct MentionQueryTests {
         #expect(query(text, caret: 5) == nil)
     }
 
+    @Test func aQuerySpanningALinkDoesNotOpen() {
+        #expect(query("ping @sam about [ChatComposer.swift](Plume/UI/Chat/ChatComposer.swift) ") == nil)
+        #expect(query("ping @sam `x` ") == nil)
+    }
+
     @Test func multiWordQueriesStayOpen() {
         #expect(query("@dro layout")?.text == "dro layout")
         #expect(query("@dro ")?.text == "dro ")
