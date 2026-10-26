@@ -881,6 +881,61 @@ struct LinearStoreTests {
         #expect(await queued.value == ["DROID-7"])
     }
 
+    @Test func aRateLimitedSearchPausesSearchesButNotTheWorkspace() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let clock = TestClock()
+        let until = clock.now().addingTimeInterval(120)
+        await a.set(searchError: LinearError.rateLimited(until: until))
+        let harness = try await makeHarness([a], now: clock.now)
+
+        await harness.store.searchIssues("layout")
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
+
+        harness.store.setWanted(["DROID-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(await a.issueCalls == [["DROID-1"]])
+
+        await a.set(searchError: nil)
+        await harness.store.searchIssues("text")
+        #expect(await a.searchCalls.count == 1)
+
+        clock.advance(121)
+        await harness.store.searchIssues("text")
+        #expect(await a.searchCalls.count == 2)
+    }
+
+    @Test func anyOtherSearchFailureLeavesTheWorkspaceConnected() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(searchError: LinearError.failed("bad query"))
+        let harness = try await makeHarness([a])
+
+        await harness.store.searchIssues("layout")
+        await harness.store.searchIssues("text")
+
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
+        #expect(await a.searchCalls.count == 2)
+    }
+
+    @Test func aSearchThatChangesNothingDoesNotSave() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        let file = directory.appending(path: "issues-A.json")
+
+        await harness.store.searchIssues("layout")
+        await harness.store.settle()
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        try FileManager.default.removeItem(at: file)
+
+        await harness.store.searchIssues("text")
+        await harness.store.settle()
+
+        #expect(await a.searchCalls.count == 2)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
     @Test func aSearchAnsweringBeforeTheDiskCacheLoadsKeepsTheCachedIssues() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -842,6 +842,7 @@ final class LinearStore: LinearActivitySink {
         runningSearches.removeValue(forKey: orgID)
         queuedSearches.removeValue(forKey: orgID)
         searchedAt = searchedAt.filter { $0.key.orgID != orgID }
+        searchPausedUntil.removeValue(forKey: orgID)
         searchHits.removeValue(forKey: orgID)
     }
 
@@ -876,6 +877,7 @@ final class LinearStore: LinearActivitySink {
     /// cache's retention, which is most of what a search finds.
     @ObservationIgnored private var searchHits: [String: [String: LinearIssueSnapshot]] = [:]
     @ObservationIgnored private var searchedAt: [SearchKey: Date] = [:]
+    @ObservationIgnored private var searchPausedUntil: [String: Date] = [:]
     @ObservationIgnored private var runningSearches: [String: Task<Void, Never>] = [:]
     /// The latest search that arrived while one was running, per workspace,
     /// and the task that sends it once the running one finishes.
@@ -963,6 +965,10 @@ final class LinearStore: LinearActivitySink {
 
     private func startSearch(_ search: LinearMentionSearch, orgID: String) -> Task<Void, Never>? {
         guard blocker(orgID: orgID) == nil, !isLowOnBudget(orgID: orgID) else { return nil }
+        if let until = searchPausedUntil[orgID] {
+            guard until <= now() else { return nil }
+            searchPausedUntil.removeValue(forKey: orgID)
+        }
         let key = SearchKey(orgID: orgID, search: search)
         if let at = searchedAt[key], now().timeIntervalSince(at) < Self.searchMemory { return nil }
         if let running = runningSearches[orgID] { return queue(search, behind: running, orgID: orgID) }
@@ -998,11 +1004,25 @@ final class LinearStore: LinearActivitySink {
                 mergeSearchHits(snapshots, orgID: orgID)
             case .failure(let error):
                 searchedAt.removeValue(forKey: key)
-                record(error, orgID: orgID)
+                recordSearchFailure(error, orgID: orgID)
             }
         }
         runningSearches[orgID] = task
         return task
+    }
+
+    /// Search has its own rate limit, so a rate-limited search pauses only
+    /// searches, and any other failure is dropped: a mention is optional, and
+    /// neither should stop the workspace's sync or mark it failed.
+    private func recordSearchFailure(_ error: any Error, orgID: String) {
+        switch error as? LinearError {
+        case .unauthorized:
+            record(error, orgID: orgID)
+        case .rateLimited(let until):
+            searchPausedUntil[orgID] = until
+        case .failed, nil:
+            break
+        }
     }
 
     private func queue(
@@ -1032,6 +1052,7 @@ final class LinearStore: LinearActivitySink {
     private func mergeSearchHits(_ snapshots: [LinearIssueSnapshot], orgID: String) {
         guard !snapshots.isEmpty else { return }
         var hits = searchHits[orgID] ?? [:]
+        let before = caches[orgID]
         for snapshot in snapshots {
             caches[orgID, default: LinearSyncCache(orgID: orgID)].upsert(snapshot)
             hits[snapshot.issue.identifier.uppercased()] = snapshot
@@ -1041,7 +1062,7 @@ final class LinearStore: LinearActivitySink {
             hits = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
         }
         searchHits[orgID] = hits
-        saveIssues(orgID: orgID)
+        if caches[orgID] != before { saveIssues(orgID: orgID) }
         republishWanted(orgID: orgID)
     }
 
@@ -1158,6 +1179,7 @@ final class LinearStore: LinearActivitySink {
         reportedStarted.removeAll()
         searchHits.removeAll()
         searchedAt.removeAll()
+        searchPausedUntil.removeAll()
         runningSearches.removeAll()
         queuedSearches.removeAll()
 #if DEBUG
