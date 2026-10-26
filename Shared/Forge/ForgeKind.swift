@@ -1,10 +1,20 @@
 import Foundation
 
 /// Which forge a repository's origin points at.
-nonisolated enum ForgeKind: String, Sendable, Equatable {
+nonisolated enum ForgeKind: String, Codable, Sendable, Equatable {
     case github
     case gitlab
     case none
+}
+
+nonisolated extension ForgeKind {
+    /// `override` (a project's `forge` setting) wins: the escape hatch for a
+    /// self-hosted host the sniff can't classify. Otherwise sniffed from the
+    /// origin URL.
+    static func resolving(originURL: String?, override: ForgeKind?) -> ForgeKind {
+        // TODO(PLUME-316 group A)
+        .none
+    }
 }
 
 nonisolated extension ForgeKind {
