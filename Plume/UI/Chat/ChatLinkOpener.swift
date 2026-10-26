@@ -44,7 +44,9 @@ enum ChatLinkOpener {
 
         // Scheme-less. Either a path the agent wrote, or a bare host like
         // `example.com` that only a path check can tell apart.
-        return pathTarget(url.absoluteString, relativeTo: base)
+        // A `<…>` target with a space arrives percent-encoded.
+        let raw = url.absoluteString
+        return pathTarget(raw.removingPercentEncoding ?? raw, relativeTo: base)
     }
 
     private static func pathTarget(_ raw: String, relativeTo base: URL?) -> Target {

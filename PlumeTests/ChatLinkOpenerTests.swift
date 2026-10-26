@@ -105,4 +105,21 @@ struct ChatLinkOpenerTests {
         #expect(link?.scheme == nil)
         #expect(link?.absoluteString == "docs/Notes.md")
     }
+
+    /// A mention of a path with a space is written as a `<…>` target, which
+    /// the parse hands over percent-encoded.
+    @Test func anAngleBracketTargetWithASpaceResolves() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let name = "My Notes.md"
+        try "hello".write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
+
+        let parsed = try AttributedString(
+            markdown: "See [\(name)](<\(name)>).",
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )
+        let link = try #require(parsed.runs.compactMap(\.link).first)
+        let expected = directory.appendingPathComponent(name).standardizedFileURL
+        #expect(ChatLinkOpener.target(for: link, relativeTo: directory) == .file(expected))
+    }
 }
