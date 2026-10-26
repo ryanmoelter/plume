@@ -46,7 +46,7 @@ struct ChatComposer: View, ThemedView {
     @State private var tabDirectories = TabDirectoryStore.shared
     @State private var caretLocation = 0
     @State private var pendingCaretLocation: Int?
-    @State private var autocomplete = ComposerAutocompleteController()
+    @State private var autocomplete = ComposerAutocompleteRouter()
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -187,6 +187,45 @@ struct ChatComposer: View, ThemedView {
         pendingCaretLocation = accepted.caretLocation
     }
 
+    private func acceptMention(_ accepted: SlashCommandMatcher.AcceptedCommand) {
+        drafts.setDraft(accepted.text, forTab: tab.id)
+        hasSendableText = sendableText(accepted.text)
+        pendingCaretLocation = accepted.caretLocation
+    }
+
+    private func updateMentions(text: String, caretLocation: Int) {
+        autocomplete.mention.update(
+            text: text,
+            caretLocation: caretLocation,
+            directory: tabDirectories.directory(for: tab),
+            isCommandMode: isCommandMode
+        )
+    }
+
+    /// Types an `@` at the caret, apart from any word it would otherwise
+    /// join, and puts the caret after it so the menu opens there.
+    private func insertMentionTrigger() {
+        let text = drafts.draft(forTab: tab.id) as NSString
+        let location = min(caretLocation, text.length)
+        let previous = location > 0 ? text.substring(with: NSRange(location: location - 1, length: 1)) : ""
+        let trigger = previous.isEmpty || previous.allSatisfy(\.isWhitespace) ? "@" : " @"
+        let newText = text.replacingCharacters(in: NSRange(location: location, length: 0), with: trigger)
+        let caret = location + (trigger as NSString).length
+        drafts.setDraft(newText, forTab: tab.id)
+        hasSendableText = sendableText(newText)
+        pendingCaretLocation = caret
+        caretLocation = caret
+        updateMentions(text: newText, caretLocation: caret)
+        // Only a change to true claims focus, so a stale true has to drop
+        // for one update first.
+        if inputFocused {
+            inputFocused = false
+            DispatchQueue.main.async { inputFocused = true }
+        } else {
+            inputFocused = true
+        }
+    }
+
     /// Pulls a queued message back into the composer for editing — the
     /// operation behind both the queued row's edit button and Up-arrow
     /// recall from an empty composer. Takes an index rather than always the
@@ -208,14 +247,22 @@ struct ChatComposer: View, ThemedView {
 
     var body: some View {
         VStack(spacing: dimensions.panelContentInset) {
-            if autocomplete.isShowing {
+            if autocomplete.slash.isShowing {
                 SlashCommandAutocompleteView(
-                    commands: autocomplete.matches,
-                    selectedIndex: autocomplete.selectedIndex,
-                    onSelect: { autocomplete.select($0) },
+                    commands: autocomplete.slash.matches,
+                    selectedIndex: autocomplete.slash.selectedIndex,
+                    onSelect: { autocomplete.slash.select($0) },
                     isTopOfPanel: !hasContentAbove,
                     isRemembered: slashCommandsAreRemembered,
                     tokenPrefix: completionPrefix
+                )
+            } else if autocomplete.mention.isPresented {
+                MentionAutocompleteView(
+                    candidates: autocomplete.mention.candidates,
+                    selectedIndex: autocomplete.mention.selectedIndex,
+                    isLoading: autocomplete.mention.isLoading,
+                    onSelect: { autocomplete.mention.select($0) },
+                    isTopOfPanel: !hasContentAbove
                 )
             }
 
@@ -242,11 +289,13 @@ struct ChatComposer: View, ThemedView {
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
                         updateCommandMode(for: text)
-                        autocomplete.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
+                        autocomplete.slash.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
                     },
                     onCaretChange: { location in
                         caretLocation = location
-                        autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: location, commands: availableSlashCommands, prefix: completionPrefix)
+                        let text = drafts.draft(forTab: tab.id)
+                        autocomplete.slash.update(text: text, caretLocation: location, commands: availableSlashCommands, prefix: completionPrefix)
+                        updateMentions(text: text, caretLocation: location)
                     },
                     pendingCaretLocation: $pendingCaretLocation,
                     autocompleteHandler: autocomplete,
@@ -269,6 +318,9 @@ struct ChatComposer: View, ThemedView {
                 .plumeID(AccessibilityID.composerField)
 
                 HStack(spacing: dimensions.panelContentInset) {
+                    if !isCommandMode {
+                        mentionButton
+                    }
                     ComposerControlsRow(
                         task: task,
                         tab: tab,
@@ -322,10 +374,14 @@ struct ChatComposer: View, ThemedView {
             if let directory = skillDirectory { await CodexSkillStore.shared.refresh(directory: directory) }
         }
         .onChange(of: availableSlashCommands) { _, commands in
-            autocomplete.update(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation, commands: commands, prefix: completionPrefix)
+            autocomplete.slash.update(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation, commands: commands, prefix: completionPrefix)
+        }
+        .onChange(of: isCommandMode) {
+            updateMentions(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation)
         }
         .onAppear {
-            autocomplete.onAccept = acceptSlashCommand
+            autocomplete.slash.onAccept = acceptSlashCommand
+            autocomplete.mention.onAccept = acceptMention
             let draft = drafts.draft(forTab: tab.id)
             hasSendableText = sendableText(draft)
             // A composer mounting with an existing draft — returning from
@@ -345,6 +401,19 @@ struct ChatComposer: View, ThemedView {
             return "Send after the current tool call"
         }
         return "Queue for the next turn"
+    }
+
+    private var mentionButton: some View {
+        Button(action: insertMentionTrigger) {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .bold))
+                .frame(width: dimensions.composerControlHeight, height: dimensions.composerControlHeight)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
+        .help("Mention a file, issue or pull request")
+        .accessibilityLabel("Mention")
+        .plumeID(AccessibilityID.composerMentionButton, invoke: insertMentionTrigger)
     }
 
     private var sendButton: some View {
