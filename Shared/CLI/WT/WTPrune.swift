@@ -24,8 +24,14 @@ nonisolated extension WT {
     /// fast-forward and rebase merges: a squash merge leaves no local trace,
     /// which is why the PR state is consulted first.
     static func isMergedLocally(_ git: any WorktreeGit, branch: String, baseRef: String) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        git.isAncestor(branch, of: baseRef)
+    }
+
+    /// Why a branch is prunable, or nil when it isn't.
+    private static func mergeReason(_ pr: PullRequest?, branch: String, baseBranch: String, locallyMerged: (String) -> Bool) -> String? {
+        if let pr, pr.state == .merged || pr.state == .closed { return pr.state.rawValue.lowercased() }
+        if locallyMerged(branch) { return "merged into \(baseBranch)" }
+        return nil
     }
 
     /// The worktrees whose PR is merged or closed, or whose branch is merged
@@ -39,8 +45,13 @@ nonisolated extension WT {
         baseBranch: String,
         locallyMerged: (String) -> Bool
     ) -> [PruneCandidate] {
-        // TODO(PLUME-316 group D)
-        []
+        records.compactMap { record in
+            let name = (record.path as NSString).lastPathComponent
+            if protected.contains(name) || name == cwdName || record.branch == baseBranch { return nil }
+            let pr = prs[record.branch]
+            guard let reason = mergeReason(pr, branch: record.branch, baseBranch: baseBranch, locallyMerged: locallyMerged) else { return nil }
+            return PruneCandidate(name: name, branch: record.branch, path: record.path, pr: pr, reason: reason)
+        }
     }
 
     /// Local branches with no worktree that are safe to delete, skipping
@@ -54,7 +65,14 @@ nonisolated extension WT {
         baseBranch: String,
         locallyMerged: (String) -> Bool
     ) -> [BareBranchCandidate] {
-        // TODO(PLUME-316 group D)
-        []
+        // Trunk branches rather than the protected list, which names folders.
+        var skip = Set(worktreeBranches).union(trunkBranches)
+        if let currentBranch { skip.insert(currentBranch) }
+        return branches.compactMap { branch in
+            if skip.contains(branch) { return nil }
+            let pr = prs[branch]
+            guard let reason = mergeReason(pr, branch: branch, baseBranch: baseBranch, locallyMerged: locallyMerged) else { return nil }
+            return BareBranchCandidate(branch: branch, pr: pr, reason: reason)
+        }
     }
 }

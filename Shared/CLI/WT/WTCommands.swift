@@ -89,47 +89,412 @@ nonisolated extension WT {
         }
     }
 
+    /// The tab flags `checkout`, `cob` and `background` share. `--surface`
+    /// was the opt-in for what is now the default, so it is accepted and
+    /// ignored.
+    private struct TabFlags {
+        var openTab = true
+        var asTask = false
+
+        /// Consumes `argument` when it is a tab flag.
+        mutating func take(_ argument: String, allowNoTab: Bool = true) -> Bool {
+            switch argument {
+            case "--no-tab" where allowNoTab: openTab = false
+            case "--task", "--workspace": asTask = true
+            case "--surface": break
+            default: return false
+            }
+            return true
+        }
+    }
+
+    /// The one positional argument, failing on a second or on an unknown flag.
+    private static func takePositional(_ argument: String, into name: inout String) throws {
+        if argument.hasPrefix("-") { throw CLIFailure("unknown flag: \(argument)") }
+        if !name.isEmpty { throw CLIFailure("too many arguments") }
+        name = argument
+    }
+
+    private static func isYes(_ reply: String) -> Bool {
+        ["y", "Y", "yes", "YES"].contains(reply.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// A prompt's answer; end of input aborts the command, as Ctrl-D should.
+    private static func readReply(_ ctx: any WTContext, _ prompt: String) throws -> String {
+        guard let reply = ctx.console.readLine(prompt: prompt) else { throw CLIFailure(nil) }
+        return reply
+    }
+
     /// `checkout|co [-b] <branch> [--no-tab|--task]`, and `cob` with
-    /// `create`.
+    /// `create`. Without `-b`, an existing branch is matched exactly or by a
+    /// unique `/<branch>` suffix; with it, the configured prefix is added
+    /// unless the name already has it.
     static func checkout(_ ctx: any WTContext, _ arguments: [String], create: Bool = false) throws {
-        // TODO(PLUME-316 group D)
+        var create = create
+        var tabs = TabFlags()
+        var name = ""
+        for argument in arguments {
+            if argument == "-b" {
+                create = true
+            } else if !tabs.take(argument) {
+                try takePositional(argument, into: &name)
+            }
+        }
+        if name.isEmpty {
+            throw CLIFailure(create
+                ? "checkout: branch name required (e.g. `wt co -b my-feature`)"
+                : "checkout: branch name required (e.g. `wt co some-branch`, or `wt co -b` to create)")
+        }
+
+        let branch: String
+        if create {
+            branch = try branchFor(ctx, name)
+        } else {
+            branch = try resolveBranch(ctx, name)
+            if branch != name { ctx.console.print("\(programName): matched \(name) → \(branch)") }
+        }
+        let folder = folderForBranch(branch)
+        let path = "\(ctx.newWorktreesDirectory)/\(folder)"
+        if ctx.worktreeExists(folder) {
+            throw CLIFailure("worktree already exists: \(ctx.describeExisting(folder))")
+        }
+        try ctx.ensureWorktreesDirectory()
+
+        if create {
+            if ctx.git.branchExists(branch) {
+                throw CLIFailure("branch already exists: \(branch) (use `wt co \(branch)` to check it out)")
+            }
+            ctx.console.print("\(programName): fetching \(ctx.baseRef)...")
+            try ctx.git.fetchBase(ctx.baseBranch, quiet: false)
+            try ctx.git.worktreeAdd(path: path, branch: branch, new: true, baseRef: ctx.baseRef, fatal: true)
+            ctx.console.print("\(programName): created \(path) (\(branch))")
+        } else {
+            // Git refuses a branch already checked out elsewhere.
+            try ctx.git.worktreeAdd(path: path, branch: branch, new: false, baseRef: nil, fatal: true)
+            ctx.console.print("\(programName): created \(path) (checked out \(branch))")
+        }
+        ctx.git.enableUntrackedCache(path)
+        if tabs.openTab { ctx.tabs.open(path, asTask: tabs.asTask) }
     }
 
     /// `open|o <name> [--task]`.
     static func open(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        var tabs = TabFlags()
+        var name = ""
+        for argument in arguments where !tabs.take(argument, allowNoTab: false) {
+            try takePositional(argument, into: &name)
+        }
+        ctx.tabs.open(try ctx.worktreePath(name), asTask: tabs.asTask)
     }
 
     /// `background|bg [name] [--no-tab|--task]`: moves the current branch and
-    /// its uncommitted work to a new worktree.
+    /// its uncommitted work to a new worktree, leaving the current one on the
+    /// base branch.
     static func background(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        var tabs = TabFlags()
+        var name = ""
+        for argument in arguments where !tabs.take(argument) {
+            try takePositional(argument, into: &name)
+        }
+
+        let cwdPath = try ctx.currentWorktreePath()
+        let cwdName = (cwdPath as NSString).lastPathComponent
+        let originalBranch = try ctx.git.branchOf(cwdPath)
+        let clean = try ctx.git.isClean(cwdPath)
+        if clean, originalBranch == ctx.baseBranch {
+            throw CLIFailure("nothing to move: \(cwdName) is clean and on \(ctx.baseBranch) (use `wt co -b` instead)")
+        }
+
+        let prefix = try branchPrefix(ctx)
+        if name.isEmpty { name = folderForBranch(originalBranch) }
+        let newFolder = folderForBranch(try branchFor(ctx, name, prefix: prefix))
+        let newPath = "\(ctx.newWorktreesDirectory)/\(newFolder)"
+        if ctx.worktreeExists(newFolder) {
+            throw CLIFailure("worktree already exists: \(ctx.describeExisting(newFolder)) (pass a different name: `wt bg <name>`)")
+        }
+        try ctx.ensureWorktreesDirectory()
+
+        let stashed = !clean
+        if stashed {
+            ctx.console.print("\(programName): stashing changes in \(cwdName)...")
+            try ctx.git.stashPush(cwdPath, message: "wt move from \(cwdName) \(Int(Date().timeIntervalSince1970))")
+        }
+
+        if originalBranch != ctx.baseBranch {
+            ctx.console.print("\(programName): moving \(originalBranch) out of \(cwdName)...")
+            // Detached first, so the branch is free to check out elsewhere.
+            try ctx.git.checkoutFatal(cwdPath, ref: originalBranch, detach: true, quietStdout: true)
+            if try !ctx.git.worktreeAdd(path: newPath, branch: originalBranch, new: false, baseRef: nil, fatal: false) {
+                let reattached = ctx.git.checkoutOK(cwdPath, ref: originalBranch, detach: false, silent: true)
+                let popped = stashed ? ctx.git.stashPopOK(cwdPath, silent: true) : true
+                switch (reattached, popped) {
+                case (true, true):
+                    throw CLIFailure("failed to create new worktree; state restored in \(cwdName)")
+                case (true, false):
+                    throw CLIFailure("failed to create new worktree; branch reattached in \(cwdName) but stash pop failed — see `git stash list`")
+                case (false, true):
+                    throw CLIFailure("failed to create new worktree; reattach of \(originalBranch) failed — \(cwdName) is left detached")
+                case (false, false):
+                    throw CLIFailure("failed to create new worktree AND recovery failed: \(cwdName) detached, stash still in `git stash list`")
+                }
+            }
+            // The base branch may be checked out in another worktree, which
+            // leaves only a detached checkout of the base ref.
+            try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
+            if ctx.git.checkoutOK(cwdPath, ref: ctx.baseBranch, detach: false, silent: true) {
+                ctx.console.print("\(programName): \(cwdName) now on \(ctx.baseBranch)")
+            } else {
+                try ctx.git.checkoutFatal(cwdPath, ref: ctx.baseRef, detach: true, quietStdout: true)
+                ctx.console.print("\(programName): \(cwdName) now at \(ctx.baseRef) (detached; \(ctx.baseBranch) is checked out elsewhere)")
+            }
+        } else {
+            ctx.console.print("\(programName): creating new branch for moved changes...")
+            let newBranch = try branchFor(ctx, name, prefix: prefix)
+            if ctx.git.branchExists(newBranch) { throw CLIFailure("branch already exists: \(newBranch)") }
+            try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
+            if try !ctx.git.worktreeAdd(path: newPath, branch: newBranch, new: true, baseRef: ctx.baseRef, fatal: false) {
+                if !stashed || ctx.git.stashPopOK(cwdPath, silent: true) {
+                    throw CLIFailure("failed to create new worktree; stash restored in \(cwdName)")
+                }
+                throw CLIFailure("failed to create new worktree; stash pop failed — see `git stash list`")
+            }
+        }
+
+        if stashed {
+            ctx.console.print("\(programName): restoring changes in \(newFolder)...")
+            if !ctx.git.stashPopOK(newPath, silent: false) {
+                ctx.console.printError("\(programName): stash pop had conflicts in \(newPath); the stash is still in `git stash list`")
+            }
+        }
+        ctx.console.print("\(programName): moved to \(newPath)")
+        ctx.git.enableUntrackedCache(newPath)
+        if tabs.openTab { ctx.tabs.open(newPath, asTask: tabs.asTask) }
     }
 
     /// `foreground|fg <name>`: takes another worktree's branch and changes
     /// into the current one, then removes it.
     static func foreground(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        guard let name = arguments.first, !name.isEmpty else { throw CLIFailure("foreground: worktree name required") }
+
+        let cwdPath = try ctx.currentWorktreePath()
+        let cwdName = (cwdPath as NSString).lastPathComponent
+        let sourcePath = try ctx.worktreePath(name)
+        if cwdPath == sourcePath { throw CLIFailure("checkout: that's the current worktree") }
+        if ctx.protected.contains(name) { throw CLIFailure("refusing to consume protected worktree: \(name)") }
+        if try !ctx.git.isClean(cwdPath) { throw CLIFailure("current worktree (\(cwdName)) has uncommitted changes") }
+
+        let sourceBranch = try ctx.git.branchOf(sourcePath)
+        let stashed = try !ctx.git.isClean(sourcePath)
+        if stashed {
+            ctx.console.print("\(programName): stashing changes in \(name)...")
+            try ctx.git.stashPush(sourcePath, message: "wt checkout from \(name) \(Int(Date().timeIntervalSince1970))")
+        }
+
+        // The source is detached first, which is reversible, and removed
+        // only once the checkout here succeeds.
+        try ctx.git.checkoutFatal(sourcePath, ref: sourceBranch, detach: true, quietStdout: false)
+        if !ctx.git.checkoutOK(cwdPath, ref: sourceBranch, detach: false, silent: false) {
+            let reattached = ctx.git.checkoutOK(sourcePath, ref: sourceBranch, detach: false, silent: true)
+            let popped = stashed ? ctx.git.stashPopOK(sourcePath, silent: true) : true
+            switch (reattached, popped) {
+            case (true, true):
+                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact")
+            case (true, false):
+                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact, but stash pop failed — see `git stash list`")
+            case (false, true):
+                throw CLIFailure("checkout \(sourceBranch) failed; reattach in \(name) also failed — \(name) is left detached")
+            case (false, false):
+                throw CLIFailure("checkout \(sourceBranch) failed AND recovery failed: \(name) detached, stash still in `git stash list`")
+            }
+        }
+
+        if stashed {
+            ctx.console.print("\(programName): restoring changes in \(cwdName)...")
+            if !ctx.git.stashPopOK(cwdPath, silent: false) {
+                ctx.console.printError("\(programName): stash pop had conflicts in \(cwdPath); the stash is still in `git stash list`")
+            }
+        }
+        try ctx.git.worktreeRemove(path: sourcePath, force: false)
+        ctx.console.print("\(programName): checked out \(sourceBranch) in \(cwdName) (removed \(name))")
     }
 
-    /// `delete|d <name> [-f|--force]`.
+    /// `delete|d <name> [-f|--force]`. The branch stays.
     static func delete(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        var force = false
+        var name = ""
+        for argument in arguments {
+            if argument == "-f" || argument == "--force" {
+                force = true
+            } else {
+                try takePositional(argument, into: &name)
+            }
+        }
+        if name.isEmpty { throw CLIFailure("worktree name required") }
+        if ctx.protected.contains(name) { throw CLIFailure("refusing to delete protected worktree: \(name)") }
+
+        let path = try ctx.worktreePath(name)
+        let branch = try ctx.git.branchOf(path)
+        if !force, try !ctx.git.isClean(path) { throw CLIFailure("\(name) has uncommitted changes (use -f to force)") }
+        try ctx.git.worktreeRemove(path: path, force: force)
+        ctx.console.print("\(programName): deleted worktree \(name) (branch \(branch) left intact)")
     }
 
-    /// `prune|p [-y|--yes]`.
+    /// How long `prune` waits on the forge. Pruning is deliberate, so it
+    /// waits far longer than a listing.
+    static let prunePRWait: TimeInterval = 30
+
+    /// `prune|p [-y|--yes]`: merged or closed worktrees with their branches,
+    /// then merged branches that have no worktree.
     static func prune(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        var autoYes = false
+        for argument in arguments {
+            guard argument == "-y" || argument == "--yes" else { throw CLIFailure("unknown flag: \(argument)") }
+            autoYes = true
+        }
+
+        // A squash merge leaves no local trace, so without PR state prune
+        // finds fewer branches, never wrong ones.
+        var prs: PullRequestMap = [:]
+        var numberPrefix = "#"
+        var forgeIcon: String?
+        if let fetch = ctx.startPRFetch(allBranches: true) {
+            numberPrefix = fetch.numberPrefix
+            forgeIcon = fetch.forgeIcon
+            _ = fetch.completion.wait(timeout: prunePRWait)
+            if let fetched = fetch.completion.result {
+                prs = fetched
+            } else {
+                ctx.console.printError("\(programName): could not fetch PR/MR status — only locally merged branches will be found")
+            }
+        } else {
+            ctx.console.printError("\(programName): no PR/MR status (no forge configured or gh/glab missing) — only locally merged branches will be found")
+        }
+
+        try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
+        let baseRef = ctx.git.refExists(ctx.baseRef) ? ctx.baseRef : ctx.baseBranch
+        let locallyMerged = { (branch: String) in isMergedLocally(ctx.git, branch: branch, baseRef: baseRef) }
+
+        let records = ctx.git.worktreeRecords()
+        let candidates = pruneCandidates(
+            records: records, prs: prs, protected: ctx.protected, cwdName: ctx.currentWorktreeNameOrNone(),
+            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged
+        )
+        func chip(_ pr: PullRequest?) -> String {
+            pr.map { ctx.ui.prChip($0, numberPrefix: numberPrefix, forgeIcon: forgeIcon).text } ?? ""
+        }
+
+        var deletedBranches: Set<String> = []
+        var skipped: [String] = []
+        for candidate in candidates {
+            let prChip = chip(candidate.pr)
+            if try !ctx.git.isClean(candidate.path) {
+                skipped.append(candidate.name)
+                ctx.console.print("  skip \(candidate.name)  \(prChip)  (uncommitted changes)")
+                continue
+            }
+            if !autoYes {
+                let reply = try readReply(ctx, "  delete \(candidate.name) (\(candidate.branch))  \(prChip) \(candidate.reason)? [y/N]> ")
+                if !isYes(reply) { continue }
+            }
+            try ctx.git.worktreeRemove(path: candidate.path, force: false)
+            try ctx.git.branchDelete(candidate.branch, force: true)
+            deletedBranches.insert(candidate.branch)
+            ctx.console.print("\(programName): deleted worktree \(candidate.name) and branch \(candidate.branch)")
+        }
+        if !skipped.isEmpty {
+            ctx.console.print("\(programName): skipped (uncommitted changes): \(skipped.joined(separator: ", "))")
+        }
+
+        // A branch whose worktree is gone, or never existed, is invisible to
+        // the pass above.
+        let currentBranch = try ctx.currentWorktree().map { try ctx.git.branchOf($0.path) }
+        let bare = bareBranchCandidates(
+            branches: ctx.git.localBranches(),
+            worktreeBranches: records.map(\.branch).filter { !deletedBranches.contains($0) },
+            prs: prs, currentBranch: currentBranch, trunkBranches: ctx.trunkBranches,
+            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged
+        )
+        if candidates.isEmpty, bare.isEmpty {
+            ctx.console.print("\(programName): nothing to prune")
+            return
+        }
+        for candidate in bare {
+            if !autoYes {
+                let reply = try readReply(ctx, "  delete branch \(candidate.branch)  \(chip(candidate.pr)) \(candidate.reason)? [y/N]> ")
+                if !isYes(reply) { continue }
+            }
+            // One stubborn branch shouldn't abandon the rest of the run.
+            if ctx.git.branchDeleteOK(candidate.branch, force: true) {
+                ctx.console.print("\(programName): deleted branch \(candidate.branch)")
+            }
+        }
     }
 
-    /// `rename|r [name] <new> [-f|--folder]`.
+    /// `rename|r [name] <new> [-f|--folder]`. The folder moves first, so a
+    /// failure leaves the branch name unchanged and easy to retry.
     static func rename(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        var renameFolder = false
+        var positional: [String] = []
+        for argument in arguments {
+            if argument == "-f" || argument == "--folder" {
+                renameFolder = true
+            } else if argument.hasPrefix("-") {
+                throw CLIFailure("unknown flag: \(argument)")
+            } else {
+                positional.append(argument)
+            }
+        }
+
+        let targetName: String
+        let newName: String
+        switch positional.count {
+        case 1: (targetName, newName) = (try ctx.currentWorktreeName(), positional[0])
+        case 2: (targetName, newName) = (positional[0], positional[1])
+        default: throw CLIFailure("rename: usage: wt rename [name] <new-name> [-f|--folder]")
+        }
+        if ctx.protected.contains(targetName) { throw CLIFailure("refusing to rename protected worktree: \(targetName)") }
+
+        var oldPath = try ctx.worktreePath(targetName)
+        let oldBranch = try ctx.git.branchOf(oldPath)
+        let detached = oldBranch == "HEAD"
+        let newBranch = try branchFor(ctx, newName)
+        let newFolder = folderForBranch(newBranch)
+        let newPath = "\(ctx.newWorktreesDirectory)/\(newFolder)"
+
+        if detached, !renameFolder {
+            throw CLIFailure("\(targetName) is detached — nothing to rename (pass -f to move its folder)")
+        }
+        if !detached {
+            if oldBranch == newBranch { throw CLIFailure("branch is already \(oldBranch)") }
+            if ctx.git.branchExists(newBranch) { throw CLIFailure("branch already exists: \(newBranch)") }
+        }
+
+        if renameFolder, oldPath != newPath {
+            if ctx.worktreeExists(newFolder) { throw CLIFailure("worktree already exists: \(ctx.describeExisting(newFolder))") }
+            try ctx.git.worktreeMove(from: oldPath, to: newPath)
+            ctx.console.print("\(programName): moved worktree folder → \(newPath)")
+            oldPath = newPath
+        }
+        if detached { return }
+        try ctx.git.branchMove(oldPath, from: oldBranch, to: newBranch)
+        ctx.console.print("\(programName): renamed branch \(oldBranch) → \(newBranch)")
     }
 
-    /// `commit|cm <name> [git-args]`.
+    /// `commit|cm <name> [git-args]`: `git commit -a` in another worktree,
+    /// exiting with git's status.
     static func commit(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        guard let name = arguments.first, !name.isEmpty else {
+            throw CLIFailure("commit: worktree name required (use plain `git commit` for the current one)")
+        }
+        let status = ctx.git.commitAll(try ctx.worktreePath(name), extraArguments: Array(arguments.dropFirst()))
+        if status != 0 { throw CLIFailure(nil, code: status) }
+    }
+
+    /// A worktree's path by name, else the worktree with that branch out.
+    private static func resolvePath(_ ctx: any WTContext, _ name: String) throws -> String {
+        if ctx.worktreeExists(name) { return try ctx.worktreePath(name) }
+        if let branchPath = pathForBranch(ctx, name) { return branchPath }
+        throw CLIFailure("no worktree or checked-out branch matching: \(name)")
     }
 
     /// `path <name|branch>`: prints the path, preferring a worktree name over
@@ -138,28 +503,41 @@ nonisolated extension WT {
         guard let name = arguments.first, !name.isEmpty else {
             throw CLIFailure("path: worktree name or branch required")
         }
-        let path: String
-        if ctx.worktreeExists(name) {
-            path = try ctx.worktreePath(name)
-        } else if let branchPath = pathForBranch(ctx, name) {
-            path = branchPath
-        } else {
-            throw CLIFailure("no worktree or checked-out branch matching: \(name)")
-        }
-        ctx.console.print(path)
+        ctx.console.print(try resolvePath(ctx, name))
     }
 
     /// `switch|s <name|branch>`. The `plume init zsh` wrapper turns this into
     /// a `cd`, so reaching the binary means the wrapper is absent: inside
     /// Plume it opens a tab there, otherwise it fails naming the wrapper.
     static func switchTo(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        guard ctx.tabs.canOpenTabs else {
+            throw CLIFailure("""
+                switch needs a shell wrapper to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
+
+                  eval "$(plume init zsh)"
+
+                Then reload. For a plain path (scripts, other shells), use `plume wt path`.
+                """)
+        }
+        guard let name = arguments.first, !name.isEmpty else {
+            throw CLIFailure("switch: worktree name or branch required")
+        }
+        ctx.tabs.open(try resolvePath(ctx, name), asTask: false)
     }
 
     /// `setup`: opens Settings ▸ Projects when Plume runs, else says where
     /// the settings live.
     static func setup(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group D)
+        if !arguments.isEmpty { throw CLIFailure("setup: takes no arguments") }
+        if ctx.tabs.openSettings(section: "projects") {
+            ctx.console.print("\(programName): opened Plume's Settings ▸ Projects")
+            return
+        }
+        ctx.console.print("""
+            \(programName): project settings live in Plume's Settings ▸ Projects, for every
+            repository and per repository. Open Plume and choose Settings ▸ Projects,
+            then re-run `wt help` to see the resolved values.
+            """)
     }
 
     /// Hidden `__complete worktrees|branches|checkoutable`, for the zsh

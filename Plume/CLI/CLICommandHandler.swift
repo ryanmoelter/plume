@@ -63,6 +63,16 @@ final class CLICommandHandler {
             return .success
         case .newTab(let params):
             return newTab(params)
+        case .newTask:
+            // TODO(PLUME-316 app side): create a task for `worktreePath` in
+            // the caller's group and answer its `taskID`. `wt` treats this
+            // refusal as "print the cd hint".
+            return .failure("task.new is not supported yet")
+        case .openSettings:
+            // TODO(PLUME-316 app side): show Settings on `section`, once the
+            // Projects pane exists. `wt setup` treats this refusal as "print
+            // where the settings live".
+            return .failure("settings.open is not supported yet")
         }
     }
 

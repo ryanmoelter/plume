@@ -9,8 +9,21 @@ nonisolated enum PlumeCaller: Equatable, Sendable {
     case task(UUID)
 
     static func from(environment: [String: String]) -> PlumeCaller? {
-        // TODO(PLUME-316 group D)
-        nil
+        if let tabID = environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            return .tab(tabID)
+        }
+        if let taskID = environment[CLISocket.taskIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            return .task(taskID)
+        }
+        return nil
+    }
+
+    var tabID: UUID? {
+        if case .tab(let id) = self { id } else { nil }
+    }
+
+    var taskID: UUID? {
+        if case .task(let id) = self { id } else { nil }
     }
 }
 
@@ -23,6 +36,12 @@ nonisolated protocol PlumeAppClient: AnyObject {
     /// (`task.new`). The app reads the repository and branch from the
     /// worktree.
     func openTask(worktreePath: String, caller: PlumeCaller) -> Bool
+    /// The Settings window on `section` (`settings.open`). Needs no caller.
+    func openSettings(section: String?) -> Bool
+}
+
+nonisolated extension PlumeAppClient {
+    func openSettings(section: String?) -> Bool { false }
 }
 
 /// `PlumeAppClient` over the socket at `socketPath`.
@@ -33,14 +52,21 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
         self.socketPath = socketPath
     }
 
+    private func succeeds(_ request: CLIRequest) -> Bool {
+        guard !socketPath.isEmpty else { return false }
+        return (try? CLISocket.send(request, to: socketPath))?.ok == true
+    }
+
     func openTab(directory: String, caller: PlumeCaller) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        succeeds(.newTab(.init(taskID: caller.taskID, tabID: caller.tabID, directory: directory, select: false)))
     }
 
     func openTask(worktreePath: String, caller: PlumeCaller) -> Bool {
-        // TODO(PLUME-316 group D, after the app serves `task.new`)
-        false
+        succeeds(.newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)))
+    }
+
+    func openSettings(section: String?) -> Bool {
+        succeeds(.openSettings(.init(section: section)))
     }
 }
 
@@ -53,6 +79,13 @@ nonisolated protocol TabOpener: AnyObject {
     /// A tab in the calling task, or with `asTask` a new task. Anywhere it
     /// can't, prints the `cd` hint instead.
     func open(_ directory: String, asTask: Bool)
+    /// Asks the running app to show Settings on `section`; false when it is
+    /// unreachable or refuses.
+    func openSettings(section: String?) -> Bool
+}
+
+nonisolated extension TabOpener {
+    func openSettings(section: String?) -> Bool { false }
 }
 
 /// Opens tabs through the running app. Outside Plume, or when the app
@@ -69,12 +102,26 @@ nonisolated final class PlumeTabOpener: TabOpener {
         self.console = console
     }
 
+    private var caller: PlumeCaller? {
+        PlumeCaller.from(environment: environment)
+    }
+
     var canOpenTabs: Bool {
-        // TODO(PLUME-316 group D)
-        false
+        caller != nil
     }
 
     func open(_ directory: String, asTask: Bool) {
-        // TODO(PLUME-316 group D)
+        if let caller {
+            let opened = asTask
+                ? client.openTask(worktreePath: directory, caller: caller)
+                : client.openTab(directory: directory, caller: caller)
+            if opened { return }
+        }
+        console.print("\(WT.programName): \(directory)")
+        console.print("\(WT.programName): (cd \"\(directory)\")")
+    }
+
+    func openSettings(section: String?) -> Bool {
+        client.openSettings(section: section)
     }
 }

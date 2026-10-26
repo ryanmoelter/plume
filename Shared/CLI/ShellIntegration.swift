@@ -36,19 +36,78 @@ nonisolated enum ShellIntegration {
                 '--select[Select the new tab]'
             fi
             """),
+        Command(name: "wt", summary: "Manage worktrees", completion: wtCompletion),
         Command(name: "init", summary: "Print shell integration", completion: """
             if (( CURRENT == 2 )); then
               _values 'shell' zsh
+            else
+              shift words
+              (( CURRENT-- ))
+              _arguments '--aliases[Also define bare wt]'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
     ]
 
-    /// `aliases` adds bare `wt` (and later `stack`) functions that call
-    /// through `plume`.
+    /// The `wt` arm of `_plume`, with `words[1]` = `wt`.
+    private static let wtCompletion = """
+        if (( CURRENT == 2 )); then
+          local -a wt_commands=(
+            'list:show worktrees + status'
+            'l:show worktrees + status'
+            'checkout:check out a branch in a new worktree (-b creates)'
+            'co:check out a branch in a new worktree (-b creates)'
+            'cob:create a branch and check it out in a new worktree'
+            'background:move the current branch and changes to a new worktree'
+            'bg:move the current branch and changes to a new worktree'
+            'foreground:take another worktree branch and changes into this one'
+            'fg:take another worktree branch and changes into this one'
+            'rename:rename the branch, -f also the folder'
+            'r:rename the branch, -f also the folder'
+            'commit:commit -a in another worktree'
+            'cm:commit -a in another worktree'
+            'open:open a worktree in a new Plume tab'
+            'o:open a worktree in a new Plume tab'
+            'switch:cd to a worktree or checked-out branch'
+            's:cd to a worktree or checked-out branch'
+            'path:print the path to a worktree'
+            'current:report the current worktree and branch'
+            'delete:remove a worktree, keeping its branch'
+            'd:remove a worktree, keeping its branch'
+            'prune:delete merged worktrees, then merged branches'
+            'p:delete merged worktrees, then merged branches'
+            'setup:open Settings, Projects in Plume'
+            'help:show usage and the resolved settings'
+          )
+          _describe -t commands 'wt command' wt_commands
+        else
+          local -a worktrees branches
+          case $words[2] in
+            switch|s|path)
+              worktrees=("${(@f)$(command plume wt __complete worktrees)}")
+              branches=("${(@f)$(command plume wt __complete branches)}")
+              _describe 'worktree' worktrees
+              _describe 'branch' branches
+              ;;
+            checkout|co)
+              branches=("${(@f)$(command plume wt __complete checkoutable)}")
+              _describe 'branch' branches
+              ;;
+            open|o|delete|d|rename|r|commit|cm|foreground|fg)
+              worktrees=("${(@f)$(command plume wt __complete worktrees)}")
+              _describe 'worktree' worktrees
+              ;;
+          esac
+        fi
+        """
+
+    /// The `plume` subcommands `--aliases` also defines as bare functions,
+    /// each completing as its `plume` form.
+    static let aliasedSubcommands = ["wt"]
+
+    /// `aliases` adds bare functions for `aliasedSubcommands` that call
+    /// through `plume`, so they share its wrapper.
     static func zsh(aliases: Bool = false) -> String {
-        // TODO(PLUME-316 group D): the wt completion, the `plume` wrapper
-        // that turns `plume wt switch` into a `cd`, and the alias functions.
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
             let body = command.completion.split(separator: "\n").map { "      " + $0 }.joined(separator: "\n")
@@ -79,11 +138,45 @@ nonisolated enum ShellIntegration {
               _plume
             }
 
+            # A subprocess can't cd this shell, so `wt switch` becomes a cd to
+            # the path `wt path` prints.
+            plume() {
+              if [[ $1 == wt && ( $2 == switch || $2 == s ) ]]; then
+                local target
+                target="$(command plume wt path "${@:3}")" || return $?
+                cd "$target"
+              else
+                command plume "$@"
+              fi
+            }
+
             if (( $+functions[compdef] )); then
               compdef _plume plume
               compdef '_plume_notify' plume-notify
             fi
+            \(aliases ? aliasFunctions : "")
+            """
+    }
+
+    private static var aliasFunctions: String {
+        aliasedSubcommands.map { name in
+            """
+
+            \(name)() {
+              plume \(name) "$@"
+            }
+
+            _plume_\(name)() {
+              words=(plume \(name) "${(@)words[2,-1]}")
+              (( CURRENT++ ))
+              _plume
+            }
+
+            if (( $+functions[compdef] )); then
+              compdef _plume_\(name) \(name)
+            fi
 
             """
+        }.joined()
     }
 }

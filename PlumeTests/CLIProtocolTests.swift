@@ -11,6 +11,9 @@ struct CLIProtocolTests {
         .notify(.init(tabID: UUID(), title: "Done; really", body: "line\nbreak")),
         .newTab(.init(taskID: UUID(), directory: "/tmp/a b", select: true)),
         .newTab(.init(taskID: UUID(), directory: nil, select: false)),
+        .newTask(.init(worktreePath: "/repo/.plume/worktrees/x", tabID: UUID(), select: false)),
+        .openSettings(.init(section: "projects")),
+        .openSettings(.init(section: nil)),
     ])
     func requestsRoundTrip(_ request: CLIRequest) throws {
         let line = try CLILineCodec.encode(request)

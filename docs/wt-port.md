@@ -64,3 +64,11 @@ Each group owns whole suites, so a group is done when its suites pass. Group A h
 | D: mutating commands, tabs, shell | `checkout`/`cob`, `open`, `background`, `foreground`, `delete`, `prune`, `rename`, `commit`, `switch`, `setup`, `TabOpener`, `WTPrune`, `ShellIntegration.zsh(aliases:)` | `WTPruneTests`, `WTTabsTests`, `WTInitTests`, `WTDispatchTests`, `CLICommandLineTests.initCompletesTheShellNameThenAliases`, `WTGitIntegrationTests.cobCreatesASelfIgnoredWorktree` |
 
 `WTDispatchTests` checks that each alias fails the same way as its full name on bad arguments. It includes `l`/`list`, so it passes only once C has landed as well as D.
+
+## App side still to do
+
+Groups A to D cover the tool. Three pieces of the app remain, and until they land `wt` falls back as it does outside Plume:
+
+- `task.new` in `CLICommandHandler`: create a task for `worktreePath` beside the caller's task, and answer its `taskID`. `docs/cli.md` has the request shape. Until then `--task` prints the `cd` hint.
+- `settings.open` in `CLICommandHandler`: show Settings on `section`. Until then `wt setup` prints where the settings live.
+- The Settings ▸ Projects pane that writes `projectsConfiguration`.

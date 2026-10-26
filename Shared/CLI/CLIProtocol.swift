@@ -9,6 +9,8 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case ping
     case notify(Notify)
     case newTab(NewTab)
+    case newTask(NewTask)
+    case openSettings(OpenSettings)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -24,6 +26,21 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var directory: String?
         var select: Bool
     }
+
+    /// A task for the worktree at `worktreePath`, beside the caller's task
+    /// (`taskID`, else the task holding `tabID`). The app reads the
+    /// repository and branch from the worktree itself.
+    struct NewTask: Codable, Equatable, Sendable {
+        var worktreePath: String
+        var taskID: UUID?
+        var tabID: UUID?
+        var select: Bool
+    }
+
+    /// Shows the Settings window, on `section` when given (`projects`, say).
+    struct OpenSettings: Codable, Equatable, Sendable {
+        var section: String?
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -34,6 +51,8 @@ nonisolated extension CLIRequest: Codable {
     private enum Command: String, Codable {
         case ping, notify
         case newTab = "tab.new"
+        case newTask = "task.new"
+        case openSettings = "settings.open"
     }
 
     init(from decoder: any Decoder) throws {
@@ -48,6 +67,8 @@ nonisolated extension CLIRequest: Codable {
         case .ping: self = .ping
         case .notify: self = .notify(try container.decode(Notify.self, forKey: .params))
         case .newTab: self = .newTab(try container.decode(NewTab.self, forKey: .params))
+        case .newTask: self = .newTask(try container.decode(NewTask.self, forKey: .params))
+        case .openSettings: self = .openSettings(try container.decode(OpenSettings.self, forKey: .params))
         }
     }
 
@@ -62,6 +83,12 @@ nonisolated extension CLIRequest: Codable {
         case .newTab(let params):
             try container.encode(Command.newTab, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .newTask(let params):
+            try container.encode(Command.newTask, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .openSettings(let params):
+            try container.encode(Command.openSettings, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -72,6 +99,7 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var ok: Bool
     var error: String?
     var tabID: UUID?
+    var taskID: UUID?
     var version: String?
 
     static let success = CLIResponse(ok: true)

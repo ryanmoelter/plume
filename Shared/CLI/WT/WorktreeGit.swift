@@ -126,7 +126,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     /// Output suppressed, success only.
     private func silentOK(_ arguments: [String]) -> Bool {
-        capture(arguments)?.status == 0
+        status(arguments, .silent) == 0
     }
 
     private func lines(_ output: String?) -> [String] {
@@ -142,6 +142,44 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     private func worktreeGit(_ path: String, _ arguments: String...) -> [String] {
         ["git", "-C", path] + arguments
+    }
+
+    enum Output {
+        /// Both streams reach the terminal.
+        case inherit
+        /// Stdout discarded, stderr to the terminal.
+        case quiet
+        /// Both discarded.
+        case silent
+    }
+
+    /// The exit status of `arguments`, its output routed by `output`. A git
+    /// that can't be launched reads as status 1.
+    private func status(_ arguments: [String], _ output: Output) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = arguments
+        if let workingDirectory { process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory) }
+        if output != .inherit { process.standardOutput = FileHandle.nullDevice }
+        if output == .silent { process.standardError = FileHandle.nullDevice }
+        do {
+            try process.run()
+        } catch {
+            return 1
+        }
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private func visibleOK(_ arguments: [String]) -> Bool {
+        status(arguments, .inherit) == 0
+    }
+
+    /// On failure, exits with git's own code: its error already reached the
+    /// terminal.
+    private func visibleFatal(_ arguments: [String], quietStdout: Bool = false) throws {
+        let code = status(arguments, quietStdout ? .quiet : .inherit)
+        if code != 0 { throw CLIFailure(nil, code: code) }
     }
 
     /// Stdout trimmed, or a silent failure carrying git's exit code.
@@ -168,8 +206,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func configSet(_ key: String, _ value: String) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        capture(repoGit("config", key, value))?.status == 0
     }
 
     func originURL() -> String? {
@@ -189,8 +226,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func isAncestor(_ ref: String, of other: String) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        silentOK(repoGit("merge-base", "--is-ancestor", ref, other))
     }
 
     func localBranches() -> [String] {
@@ -202,34 +238,45 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func fetchBase(_ baseBranch: String, quiet: Bool) throws {
-        // TODO(PLUME-316 group D)
+        let arguments = repoGit("fetch", "origin", baseBranch)
+        if quiet {
+            _ = silentOK(arguments)
+        } else {
+            try visibleFatal(arguments)
+        }
     }
 
     func worktreeAdd(path: String, branch: String, new: Bool, baseRef: String?, fatal: Bool) throws -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        // `--no-track`: the new branch starts at the base without adopting it
+        // as upstream, so its first push creates its own remote branch.
+        let arguments = new
+            ? repoGit("worktree", "add", "--no-track", "-b", branch, path, baseRef ?? "HEAD")
+            : repoGit("worktree", "add", path, branch)
+        if fatal {
+            try visibleFatal(arguments)
+            return true
+        }
+        return visibleOK(arguments)
     }
 
     func worktreeRemove(path: String, force: Bool) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(force ? repoGit("worktree", "remove", "--force", path) : repoGit("worktree", "remove", path))
     }
 
     func branchDelete(_ branch: String, force: Bool) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(repoGit("branch", force ? "-D" : "-d", branch))
     }
 
     func branchDeleteOK(_ branch: String, force: Bool) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        visibleOK(repoGit("branch", force ? "-D" : "-d", branch))
     }
 
     func worktreeMove(from: String, to: String) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(repoGit("worktree", "move", from, to))
     }
 
     func testUntrackedCache() -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        silentOK(repoGit("update-index", "--test-untracked-cache"))
     }
 
     // MARK: Per worktree
@@ -254,34 +301,38 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         outputOrNil(worktreeGit(path, "rev-list", "--count", "\(baseRef)..HEAD")) ?? ""
     }
 
+    private func checkoutArguments(_ path: String, ref: String, detach: Bool) -> [String] {
+        ["git", "-C", path, "checkout"] + (detach ? ["--detach"] : []) + [ref]
+    }
+
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        let arguments = checkoutArguments(path, ref: ref, detach: detach)
+        return silent ? silentOK(arguments) : visibleOK(arguments)
     }
 
     func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(checkoutArguments(path, ref: ref, detach: detach), quietStdout: quietStdout)
     }
 
     func stashPush(_ path: String, message: String) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(worktreeGit(path, "stash", "push", "--include-untracked", "-m", message))
     }
 
     func stashPopOK(_ path: String, silent: Bool) -> Bool {
-        // TODO(PLUME-316 group D)
-        false
+        let arguments = worktreeGit(path, "stash", "pop")
+        return silent ? silentOK(arguments) : visibleOK(arguments)
     }
 
     func branchMove(_ path: String, from: String, to: String) throws {
-        // TODO(PLUME-316 group D)
+        try visibleFatal(worktreeGit(path, "branch", "-m", from, to))
     }
 
     func commitAll(_ path: String, extraArguments: [String]) -> Int32 {
-        // TODO(PLUME-316 group D)
-        1
+        status(["git", "-C", path, "commit", "-a"] + extraArguments, .inherit)
     }
 
     func enableUntrackedCache(_ path: String) {
-        // TODO(PLUME-316 group D)
+        // Best effort: a file system without support refuses, harmlessly.
+        _ = silentOK(worktreeGit(path, "update-index", "--untracked-cache"))
     }
 }

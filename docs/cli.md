@@ -17,10 +17,13 @@ The code is split three ways:
 | `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. Arguments apply in order and the last to name a field wins, again as the script did, so the first positional sets the title even after `--title`. `--` is skipped without ending the flags, and `-h` prints the usage to stderr and exits 2. |
 | `plume presence [--json]` | No | Prints `awake`, `asleep` or `locked`. |
 | `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. Like every terminal tab, it reopens after a relaunch in the folder it last reported, unless that folder is gone. |
-| `plume init zsh` | No | Prints zsh completions; load with `eval "$(plume init zsh)"`. |
+| `plume wt <command>` | Some | Manages git worktrees; `plume wt help` lists the commands. `docs/wt-port.md` maps it to the Python tool it replaces. |
+| `plume init zsh [--aliases]` | No | Prints zsh completions and a `plume()` wrapper that turns `plume wt switch` into a `cd`; load with `eval "$(plume init zsh)"`. `--aliases` also defines a bare `wt()` that calls `plume wt`, with its own completion. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
-`plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments.
+`plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments. Invoked as `wt`, it runs `plume wt` with all of them.
+
+**`wt` uses the app only to open things.** Every command reads git and the Projects settings itself. Inside a Plume tab, `co`, `cob`, `bg`, `open` and `switch` send `tab.new` for the worktree, or `task.new` with `--task`. Outside Plume, or when the app refuses, they print `wt: (cd "<dir>")` instead, and `switch` fails naming the wrapper. `wt setup` sends `settings.open` for the `projects` section and, when that fails, prints where the settings live.
 
 **`notify` never fails its caller**, which is often a hook. It tries, in order:
 
@@ -84,13 +87,18 @@ Requests name a `command` and carry its `params`:
 {"command":"notify","params":{"tabID":"<uuid>","title":"Done","body":"All green"}}
 {"command":"tab.new","params":{"taskID":"<uuid>","directory":"/abs/path","select":false}}
 {"command":"tab.new","params":{"tabID":"<uuid>","select":false}}
+{"command":"task.new","params":{"worktreePath":"/abs/worktree","tabID":"<uuid>","select":false}}
+{"command":"settings.open","params":{"section":"projects"}}
 ```
 
-`tab.new` names its task with `taskID`, or with `tabID`, a tab in that task; `taskID` wins when both are present. `directory` is absolute and optional. Responses carry `ok`, plus `error` on failure and whatever the command returns:
+`tab.new` names its task with `taskID`, or with `tabID`, a tab in that task; `taskID` wins when both are present. `directory` is absolute and optional.
+
+`task.new` asks for a new task for the worktree at `worktreePath`, in the same group as the caller's task, named the same two ways. The app reads the repository and branch from the worktree. It answers `{"ok":true,"taskID":"<uuid>"}`. `settings.open` shows the Settings window, on `section` when given; `section` is optional and names a pane, such as `projects`. **The app does not serve either yet**: both answer `ok: false`, and `wt` falls back as it does for an unreachable app. Responses carry `ok`, plus `error` on failure and whatever the command returns:
 
 ```
 {"ok":true,"version":"0.16.1"}
 {"ok":true,"tabID":"<uuid>"}
+{"ok":true,"taskID":"<uuid>"}
 {"ok":false,"error":"no Plume task <uuid>"}
 ```
 
