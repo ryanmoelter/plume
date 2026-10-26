@@ -41,8 +41,14 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
     /// These settings over `fallback`: each non-nil field here wins, and a
     /// list replaces the fallback's list rather than adding to it.
     func overriding(_ fallback: ProjectSettings) -> ProjectSettings {
-        // TODO(PLUME-316 group A)
-        ProjectSettings()
+        ProjectSettings(
+            baseBranch: baseBranch ?? fallback.baseBranch,
+            branchPrefix: branchPrefix ?? fallback.branchPrefix,
+            forge: forge ?? fallback.forge,
+            nerdFont: nerdFont ?? fallback.nerdFont,
+            protectedWorktrees: protectedWorktrees ?? fallback.protectedWorktrees,
+            ignoredPendingChecks: ignoredPendingChecks ?? fallback.ignoredPendingChecks
+        )
     }
 }
 
@@ -64,8 +70,7 @@ nonisolated struct ProjectsConfiguration: Codable, Equatable, Sendable {
     /// need git (`user.email`, `origin/HEAD`, the origin URL) are applied by
     /// the caller.
     func settings(forRepository root: String) -> ProjectSettings {
-        // TODO(PLUME-316 group A)
-        ProjectSettings()
+        (repositories[root] ?? ProjectSettings()).overriding(defaults)
     }
 }
 
@@ -87,13 +92,18 @@ nonisolated struct UserDefaultsProjectSettingsSource: ProjectSettingsSource {
     }
 
     init(environment: [String: String]) {
-        // TODO(PLUME-316 group A)
-        self.init(suiteName: "")
+        let bundleID = environment[Self.bundleIDEnvironmentKey] ?? ""
+        self.init(suiteName: bundleID.isEmpty ? Self.releaseBundleID : bundleID)
     }
 
     /// An empty configuration when nothing is stored or it doesn't decode.
     func load() -> ProjectsConfiguration {
-        // TODO(PLUME-316 group A)
-        ProjectsConfiguration()
+        // UserDefaults refuses a suite named for the running app's own
+        // bundle, where the app keeps the value in its standard defaults.
+        let defaults = suiteName == Bundle.main.bundleIdentifier ? .standard : UserDefaults(suiteName: suiteName)
+        guard let data = defaults?.data(forKey: ProjectsConfiguration.userDefaultsKey),
+              let configuration = try? JSONDecoder().decode(ProjectsConfiguration.self, from: data)
+        else { return ProjectsConfiguration() }
+        return configuration
     }
 }

@@ -29,25 +29,33 @@ nonisolated protocol PRFetchCompletion: AnyObject, Sendable {
 /// Runs a fetch on a background thread, so a slow or hung forge can neither
 /// block the listing nor outlive the process.
 nonisolated final class PRFetch: PRFetchCompletion, @unchecked Sendable {
+    private let done = DispatchGroup()
+    private let lock = NSLock()
+    private var finished: PullRequestMap?
+
     init(branches: [String], fetch: @escaping @Sendable ([String]) -> PullRequestMap?) {
-        // TODO(PLUME-316 group A)
+        done.enter()
+        // A plain thread rather than a queue, so a hung fetch never holds up
+        // process exit.
+        Thread { [self] in
+            let prs = fetch(branches)
+            lock.withLock { finished = prs }
+            done.leave()
+        }.start()
     }
 
     func wait(timeout: TimeInterval) -> Bool {
-        // TODO(PLUME-316 group A)
-        false
+        done.wait(timeout: .now() + timeout) == .success
     }
 
     var result: PullRequestMap? {
-        // TODO(PLUME-316 group A)
-        nil
+        lock.withLock { finished }
     }
 
     /// A finished fetch's result as a column state: `on` with the map, or
     /// `error` with an empty one when the fetch failed.
     static func resolve(_ result: PullRequestMap?) -> (state: PRState, prs: PullRequestMap) {
-        // TODO(PLUME-316 group A)
-        (.off, [:])
+        result.map { (.on, $0) } ?? (.error, [:])
     }
 }
 

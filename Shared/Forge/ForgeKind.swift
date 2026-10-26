@@ -12,8 +12,7 @@ nonisolated extension ForgeKind {
     /// self-hosted host the sniff can't classify. Otherwise sniffed from the
     /// origin URL.
     static func resolving(originURL: String?, override: ForgeKind?) -> ForgeKind {
-        // TODO(PLUME-316 group A)
-        .none
+        override ?? sniffing(originURL: originURL)
     }
 }
 

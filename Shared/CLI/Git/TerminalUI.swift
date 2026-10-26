@@ -66,53 +66,33 @@ nonisolated struct TerminalUI: Equatable, Sendable {
 
     /// Whether `hyperlink` emits OSC 8 links. Follows the palette: links only
     /// make sense on an interactive terminal.
-    var linksEnabled: Bool {
-        // TODO(PLUME-316 group A)
-        false
-    }
+    var linksEnabled: Bool { palette == .ansi }
 
     private func escape(_ code: String) -> String {
-        // TODO(PLUME-316 group A)
-        ""
+        palette == .ansi ? "\u{1B}[\(code)m" : ""
     }
 
     // MARK: Glyphs that follow the glyph set
 
-    var checksPass: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
-    var checksFail: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
-    var checksPending: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
-    var merged: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
+    // Every Nerd Font replacement is one narrow codepoint, so chip widths
+    // hold in either set.
+    var checksPass: String { glyphSet == .nerd ? "\u{F058}" : "✔" }
+    var checksFail: String { glyphSet == .nerd ? "\u{F057}" : "✘" }
+    var checksPending: String { glyphSet == .nerd ? "\u{F111}" : "•" }
+    var merged: String { glyphSet == .nerd ? "\u{F17F}" : "⑃" }
     /// Empty in the plain set: the number prefix already names the forge.
-    var github: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
+    var github: String { glyphSet == .nerd ? "\u{F09B}" : "" }
     /// Empty in the plain set: the number prefix already names the forge.
-    var gitlab: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
-    var netOff: String {
-        // TODO(PLUME-316 group A)
-        ""
-    }
+    var gitlab: String { glyphSet == .nerd ? "\u{F296}" : "" }
+    var netOff: String { glyphSet == .nerd ? "\u{F0A8E}" : "∅" }
 
     /// The forge's icon in this glyph set, empty for `.none`.
     func forgeIcon(for kind: ForgeKind) -> String {
-        // TODO(PLUME-316 group A)
-        ""
+        switch kind {
+        case .github: github
+        case .gitlab: gitlab
+        case .none: ""
+        }
     }
 
     // MARK: Glyphs that never change
@@ -140,57 +120,184 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     /// `text` wrapped in an OSC 8 hyperlink, or unchanged when links are off
     /// or there is no URL.
     func hyperlink(_ text: String, url: String?) -> String {
-        // TODO(PLUME-316 group A)
-        text
+        guard linksEnabled, let url, !url.isEmpty else { return text }
+        return "\u{1B}]8;;\(url)\u{1B}\\\(text)\u{1B}]8;;\u{1B}\\"
     }
 
     /// An optional dim forge icon, then `<prefix><number>`, a leading draft
     /// marker, then the checks and review glyphs, or the open marker when an
     /// open, non-draft PR has neither. `(no PR)` when `pr` is nil.
     func prChip(_ pr: PullRequest?, numberPrefix: String = "#", forgeIcon: String? = nil) -> Chip {
-        // TODO(PLUME-316 group A)
-        Chip(text: "", width: 0)
+        guard let pr else { return Chip(text: "\(dim)(no PR)\(reset)", width: "(no PR)".count) }
+        let (lead, leadWidth) = forgeIcon.map { !$0.isEmpty ? ("\(dim)\($0)\(reset) ", 2) : ("", 0) } ?? ("", 0)
+        let prefix = "\(numberPrefix)\(pr.number) "
+
+        let glyphs: String
+        let width: Int
+        switch pr.state {
+        case .merged:
+            (glyphs, width) = ("\(magenta)\(merged)\(reset)", 1)
+        case .closed:
+            (glyphs, width) = ("\(red)\(Self.closed)\(reset)", 1)
+        case .open:
+            var parts: [String] = []
+            switch pr.checkRollup(ignoredWhenPending: ignoredPendingChecks) {
+            case .success: parts.append("\(green)\(checksPass)\(reset)")
+            case .failure: parts.append("\(red)\(checksFail)\(reset)")
+            case .pending: parts.append("\(yellow)\(checksPending)\(reset)")
+            case .none: break
+            }
+            switch pr.reviewDecision {
+            case .approved: parts.append("\(green)\(Self.approved)\(reset)")
+            case .changesRequested: parts.append("\(red)\(Self.changesRequested)\(reset)")
+            case .none: break
+            }
+            if pr.isDraft {
+                let separator = parts.isEmpty ? "" : " "
+                glyphs = Self.draft + separator + parts.joined()
+                width = parts.count + 1 + separator.count
+            } else if !parts.isEmpty {
+                (glyphs, width) = (parts.joined(), parts.count)
+            } else {
+                (glyphs, width) = (Self.open, 1)
+            }
+        }
+        return Chip(text: hyperlink(lead + prefix + glyphs, url: pr.url), width: leadWidth + prefix.count + width)
+    }
+
+    /// A chip's optional forge icon, which collapses away entirely when empty.
+    private func forgeLead(_ forgeIcon: String?) -> (text: String, width: Int) {
+        guard let forgeIcon, !forgeIcon.isEmpty else { return ("", 0) }
+        return ("\(forgeIcon) ", 2)
     }
 
     /// The forge icon and an ellipsis, while the fetch is in flight.
     func loadingChip(forgeIcon: String?) -> Chip {
-        // TODO(PLUME-316 group A)
-        Chip(text: "", width: 0)
+        let lead = forgeLead(forgeIcon)
+        return Chip(text: "\(dim)\(lead.text)\(Self.loading)\(reset)", width: lead.width + 1)
     }
 
     /// The forge icon, `netOff` and `netOffLabel`: red when the fetch failed,
     /// dim when it timed out.
     func netOffChip(forgeIcon: String?, failed: Bool) -> Chip {
-        // TODO(PLUME-316 group A)
-        Chip(text: "", width: 0)
+        let lead = forgeLead(forgeIcon)
+        let color = failed ? red : dim
+        return Chip(
+            text: "\(color)\(lead.text)\(netOff) \(Self.netOffLabel)\(reset)",
+            width: lead.width + 1 + 1 + Self.netOffLabel.count
+        )
     }
 
     /// A branch's PR column once the fetch succeeded: the PR chip, a dim dash
     /// when pushed with no PR, or a bare dim `netOff` when never pushed.
     func branchPRChip(_ pr: PullRequest?, hasUpstream: Bool, forgeIcon: String?, numberPrefix: String = "#") -> Chip {
-        // TODO(PLUME-316 group A)
-        Chip(text: "", width: 0)
+        if let pr { return prChip(pr, numberPrefix: numberPrefix, forgeIcon: forgeIcon) }
+        if hasUpstream {
+            let lead = forgeLead(forgeIcon)
+            return Chip(text: "\(dim)\(lead.text)\(Self.noPullRequest)\(reset)", width: lead.width + 1)
+        }
+        return Chip(text: "\(dim)\(netOff)\(reset)", width: 1)
     }
 
     /// The help page's symbol legend, as lines, in this glyph set and palette.
     /// `forgeIcon` is listed only when non-empty; `extra` adds a "stack graph"
     /// section.
     func glyphKey(forgeIcon: String? = nil, numberPrefix: String = "#", extra: [GlyphKeyEntry] = []) -> [String] {
-        // TODO(PLUME-316 group A)
-        []
+        // Each glyph is painted the color it renders in, so the key reads as
+        // a sample of the output.
+        var prColumn = [
+            GlyphKeyEntry(Self.open, "open, no checks or review yet"),
+            GlyphKeyEntry(Self.draft, "draft"),
+            GlyphKeyEntry(checksPass, color: green, "checks passing"),
+            GlyphKeyEntry(checksFail, color: red, "checks failing"),
+            GlyphKeyEntry(checksPending, color: yellow, "checks running"),
+            GlyphKeyEntry(Self.approved, color: green, "approved"),
+            GlyphKeyEntry(Self.changesRequested, color: red, "changes requested"),
+            GlyphKeyEntry(merged, color: magenta, "merged"),
+            GlyphKeyEntry(Self.closed, color: red, "closed without merging"),
+            GlyphKeyEntry(Self.noPullRequest, color: dim, "pushed, no PR/MR yet"),
+            GlyphKeyEntry(Self.loading, color: dim, "fetching from the forge"),
+            GlyphKeyEntry("\(netOff) \(Self.netOffLabel)", color: red, "forge unreachable"),
+            GlyphKeyEntry(netOff, color: dim, "local-only branch, never pushed"),
+        ]
+        let local = [
+            GlyphKeyEntry(Self.ahead, color: dim, "commits not on the parent branch"),
+            GlyphKeyEntry(Self.up, color: green, "commits not pushed"),
+            GlyphKeyEntry(Self.down, color: green, "commits on the remote, not local"),
+            GlyphKeyEntry("+", color: green, "uncommitted changes"),
+        ]
+        prColumn.insert(GlyphKeyEntry("\(numberPrefix)12", "PR/MR number (# GitHub, ! GitLab)"), at: 0)
+        if let forgeIcon, !forgeIcon.isEmpty {
+            prColumn.insert(GlyphKeyEntry(forgeIcon, color: dim, "the forge the PR/MR lives on"), at: 0)
+        }
+
+        // The net-off row's trailing label may overhang rather than push
+        // every meaning past it.
+        let width = (prColumn + local + extra)
+            .filter { !$0.glyph.contains(Self.netOffLabel) }
+            .map(\.glyph.count)
+            .max() ?? 0
+
+        func section(_ title: String, _ entries: [GlyphKeyEntry]) -> [String] {
+            ["  \(title)"] + entries.map { entry in
+                // Pad on the bare glyph: the escapes are zero-width.
+                let pad = String(repeating: " ", count: max(0, width - entry.glyph.count))
+                let close = entry.color.isEmpty ? "" : reset
+                return "    \(entry.color)\(entry.glyph)\(close)\(pad)  \(dim)\(entry.meaning)\(reset)"
+            }
+        }
+
+        var lines = ["Symbols:"]
+        lines += section("PR/MR column", prColumn)
+        lines.append("")
+        lines += section("local status", local)
+        if !extra.isEmpty {
+            lines.append("")
+            lines += section("stack graph", extra)
+        }
+        return lines
     }
 
     /// Rewinds over an `lines`-tall block already printed: cursor up, then
     /// clear to the end of the screen.
     static func redrawPrefix(lines: Int) -> String {
-        // TODO(PLUME-316 group A)
-        ""
+        "\u{1B}[\(lines)A\u{1B}[J"
     }
 
     /// Asks the user to pick one of `candidates` (value, display). Off a
     /// terminal it fails listing the values, so a script can correct itself.
     func pick(_ candidates: [(value: String, display: String)], what: String, console: any CLIConsole) throws -> String {
-        // TODO(PLUME-316 group A)
-        throw CLIFailure("cancelled")
+        if candidates.isEmpty { throw CLIFailure("no \(what) to pick from") }
+        guard console.stdinIsTerminal, console.stdoutIsTerminal else {
+            let names = candidates.map { "  \($0.value)" }.joined(separator: "\n")
+            throw CLIFailure("no TTY — pass the \(what) as an argument. Candidates:\n\(names)")
+        }
+
+        // fzf draws on the real terminal, so only a real console hands off to it.
+        if console is StandardConsole, CLIProcess.which("fzf") != nil {
+            let result = try CLIProcess.run(
+                ["fzf", "--height=40%", "--reverse", "--prompt", "\(what)> "],
+                check: false,
+                input: candidates.map(\.display).joined(separator: "\n")
+            )
+            let selection = result.stdout.hasSuffix("\n") ? String(result.stdout.dropLast()) : result.stdout
+            guard result.status == 0, !selection.isEmpty,
+                  let match = candidates.first(where: { $0.display == selection })
+            else { throw CLIFailure("cancelled") }
+            return match.value
+        }
+
+        console.print("pick a \(what):")
+        for (index, candidate) in candidates.enumerated() {
+            let number = String(index + 1)
+            console.print("  \(String(repeating: " ", count: max(0, 2 - number.count)))\(number)) \(candidate.display)")
+        }
+        guard let raw = console.readLine(prompt: "> ")?.trimmingCharacters(in: .whitespaces) else {
+            throw CLIFailure("cancelled")
+        }
+        guard raw.allSatisfy({ $0.isASCII && $0.isNumber }), let choice = Int(raw), (1...candidates.count).contains(choice) else {
+            throw CLIFailure("invalid choice: '\(raw)'")
+        }
+        return candidates[choice - 1].value
     }
 }
