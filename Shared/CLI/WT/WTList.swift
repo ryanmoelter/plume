@@ -84,8 +84,12 @@ nonisolated extension WT {
     /// The plain `↗<ahead> ↑<remote ahead> ↓<remote behind> +` cluster. Width
     /// math runs on this, never on the colored twin.
     static func statusCluster(ahead: String, dirty: Bool, remoteAhead: Int = 0, remoteBehind: Int = 0) -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        var parts: [String] = []
+        if !ahead.isEmpty, ahead != "0" { parts.append("\(TerminalUI.ahead)\(ahead)") }
+        if remoteAhead != 0 { parts.append("\(TerminalUI.up)\(remoteAhead)") }
+        if remoteBehind != 0 { parts.append("\(TerminalUI.down)\(remoteBehind)") }
+        if dirty { parts.append("+") }
+        return parts.joined(separator: " ")
     }
 
     /// `statusCluster` colored: `↗` dim, `↑` `↓` `+` green.
@@ -103,8 +107,20 @@ nonisolated extension WT {
     /// A row per worktree, in list order. The base branch's own row drops its
     /// ahead count, which would only re-count what `↑` already shows.
     static func buildRows(_ ctx: any WTContext) -> [WorktreeRow] {
-        // TODO(PLUME-316 group B)
-        []
+        // Paths come from the parallel list: a shared name is ambiguous to
+        // `worktreePath` but still has one path per row.
+        zip(ctx.listWorktreeNames(), ctx.worktreePathsInListOrder()).map { name, path in
+            let status = ctx.worktreeStatus(path)
+            return WorktreeRow(
+                name: name,
+                branch: status.display,
+                ahead: status.display == ctx.baseBranch ? "" : status.ahead,
+                dirty: status.dirty,
+                remoteAhead: status.remoteAhead,
+                remoteBehind: status.remoteBehind,
+                hasUpstream: status.hasUpstream
+            )
+        }
     }
 
     /// The `wt list` table, without a trailing newline.

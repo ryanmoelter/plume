@@ -60,7 +60,18 @@ nonisolated extension WT {
     /// `path <name|branch>`: prints the path, preferring a worktree name over
     /// a checked-out branch.
     static func path(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group B)
+        guard let name = arguments.first, !name.isEmpty else {
+            throw CLIFailure("path: worktree name or branch required")
+        }
+        let path: String
+        if ctx.worktreeExists(name) {
+            path = try ctx.worktreePath(name)
+        } else if let branchPath = pathForBranch(ctx, name) {
+            path = branchPath
+        } else {
+            throw CLIFailure("no worktree or checked-out branch matching: \(name)")
+        }
+        ctx.console.print(path)
     }
 
     /// `switch|s <name|branch>`. The `plume init zsh` wrapper turns this into
@@ -79,7 +90,17 @@ nonisolated extension WT {
     /// Hidden `__complete worktrees|branches|checkoutable`, for the zsh
     /// completion. Prints one candidate per line.
     static func complete(_ ctx: any WTContext, _ arguments: [String]) throws {
-        // TODO(PLUME-316 group B)
+        switch arguments.first {
+        case "worktrees":
+            ctx.listWorktreeNames().forEach { ctx.console.print($0) }
+        case "branches":
+            ctx.git.worktreeRecords().forEach { ctx.console.print($0.branch) }
+        case "checkoutable":
+            let checkedOut = Set(ctx.git.worktreeRecords().map(\.branch))
+            ctx.git.localBranches().filter { !checkedOut.contains($0) }.forEach { ctx.console.print($0) }
+        default:
+            break
+        }
     }
 
     /// The help page: commands, the symbol key, then the resolved settings.

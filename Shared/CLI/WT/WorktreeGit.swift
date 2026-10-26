@@ -21,14 +21,23 @@ nonisolated enum WorktreePorcelain {
     /// `branch` line, so a detached worktree, which has none, still yields an
     /// entry and never absorbs the next record's branch.
     static func entries(from text: String) -> [WorktreeEntry] {
-        // TODO(PLUME-316 group B)
-        []
+        var entries: [WorktreeEntry] = []
+        var current: WorktreeEntry?
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("worktree ") {
+                if let current { entries.append(current) }
+                current = WorktreeEntry(path: String(line.dropFirst("worktree ".count)), branch: nil)
+            } else if line.hasPrefix("branch refs/heads/") {
+                current?.branch = String(line.dropFirst("branch refs/heads/".count))
+            }
+        }
+        if let current { entries.append(current) }
+        return entries
     }
 
     /// The entries with a branch, dropping detached HEADs.
     static func records(from entries: [WorktreeEntry]) -> [WorktreeRecord] {
-        // TODO(PLUME-316 group B)
-        []
+        entries.compactMap { entry in entry.branch.map { WorktreeRecord(branch: $0, path: entry.path) } }
     }
 }
 
@@ -101,19 +110,61 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         self.workingDirectory = workingDirectory
     }
 
+    // MARK: Runners
+
+    private func capture(_ arguments: [String]) -> CLIProcessResult? {
+        try? CLIProcess.run(arguments, check: false, workingDirectory: workingDirectory)
+    }
+
+    /// Stdout without its trailing newlines, or nil on a non-zero exit.
+    private func outputOrNil(_ arguments: [String]) -> String? {
+        guard let result = capture(arguments), result.status == 0 else { return nil }
+        var output = Substring(result.stdout)
+        while output.last == "\n" { output = output.dropLast() }
+        return String(output)
+    }
+
+    /// Output suppressed, success only.
+    private func silentOK(_ arguments: [String]) -> Bool {
+        capture(arguments)?.status == 0
+    }
+
+    private func lines(_ output: String?) -> [String] {
+        guard let output, !output.isEmpty else { return [] }
+        return output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    /// Anchored to `repoDir` once the layout is known, else the working
+    /// directory.
+    private func repoGit(_ arguments: String...) -> [String] {
+        repoDir.map { ["git", "-C", $0] + arguments } ?? ["git"] + arguments
+    }
+
+    private func worktreeGit(_ path: String, _ arguments: String...) -> [String] {
+        ["git", "-C", path] + arguments
+    }
+
+    /// Stdout trimmed, or a silent failure carrying git's exit code.
+    private func outputOrExit(_ arguments: [String]) throws -> String {
+        guard let result = capture(arguments) else { throw CLIFailure(nil) }
+        guard result.status == 0 else { throw CLIFailure(nil, code: result.status) }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: Bootstrap
+
     func toplevel() -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(["git", "rev-parse", "--show-toplevel"])
     }
 
     func commonDir(root: String) -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(worktreeGit(root, "rev-parse", "--git-common-dir"))
     }
 
+    // MARK: Repository-wide
+
     func configGet(_ key: String) -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(repoGit("config", "--get", key))
     }
 
     func configSet(_ key: String, _ value: String) -> Bool {
@@ -122,23 +173,19 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func originURL() -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(repoGit("remote", "get-url", "origin"))
     }
 
     func originHead() -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(repoGit("symbolic-ref", "--short", "refs/remotes/origin/HEAD"))
     }
 
     func branchExists(_ branch: String) -> Bool {
-        // TODO(PLUME-316 group B)
-        false
+        silentOK(repoGit("show-ref", "--verify", "refs/heads/\(branch)"))
     }
 
     func refExists(_ ref: String) -> Bool {
-        // TODO(PLUME-316 group B)
-        false
+        silentOK(repoGit("rev-parse", "--verify", "--quiet", ref))
     }
 
     func isAncestor(_ ref: String, of other: String) -> Bool {
@@ -147,13 +194,11 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func localBranches() -> [String] {
-        // TODO(PLUME-316 group B)
-        []
+        lines(outputOrNil(repoGit("for-each-ref", "--format=%(refname:short)", "refs/heads")))
     }
 
     func worktreeEntries() -> [WorktreeEntry] {
-        // TODO(PLUME-316 group B)
-        []
+        WorktreePorcelain.entries(from: outputOrNil(repoGit("worktree", "list", "--porcelain")) ?? "")
     }
 
     func fetchBase(_ baseBranch: String, quiet: Bool) throws {
@@ -187,29 +232,26 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         false
     }
 
+    // MARK: Per worktree
+
     func branchOf(_ path: String) throws -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        try outputOrExit(worktreeGit(path, "rev-parse", "--abbrev-ref", "HEAD"))
     }
 
     func isClean(_ path: String) throws -> Bool {
-        // TODO(PLUME-316 group B)
-        false
+        try outputOrExit(worktreeGit(path, "status", "--porcelain")).isEmpty
     }
 
     func statusV2Lines(_ path: String) -> [String] {
-        // TODO(PLUME-316 group B)
-        []
+        lines(outputOrNil(worktreeGit(path, "status", "-b", "--porcelain=v2")))
     }
 
     func shortHead(_ path: String) -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        outputOrNil(worktreeGit(path, "rev-parse", "--short", "HEAD"))
     }
 
     func aheadCount(_ path: String, baseRef: String) -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        outputOrNil(worktreeGit(path, "rev-list", "--count", "\(baseRef)..HEAD")) ?? ""
     }
 
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool {

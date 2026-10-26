@@ -6,34 +6,48 @@ nonisolated enum WTSettings {
     /// prefix"); otherwise the local part of `userEmail` plus `/`. Nil when
     /// the email is missing or has no `@`.
     static func branchPrefix(configured: String?, userEmail: String?) -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        if let configured { return configured }
+        guard let userEmail, let at = userEmail.firstIndex(of: "@") else { return nil }
+        return String(userEmail[..<at]) + "/"
     }
 
     /// `configured` when set and non-empty, else origin's default branch from
     /// `originHead` (`origin/main` → `main`), else `main`.
     static func baseBranch(configured: String?, originHead: String?) -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        if let configured, !configured.isEmpty { return configured }
+        let originDefault = originDefaultBranch(originHead)
+        return originDefault.isEmpty ? "main" : originDefault
     }
 
     /// The base branch and origin's default branch, which never show a PR.
     static func trunkBranches(baseBranch: String, originHead: String?) -> Set<String> {
-        // TODO(PLUME-316 group B)
-        []
+        Set([baseBranch, originDefaultBranch(originHead)].filter { !$0.isEmpty })
+    }
+
+    private static func originDefaultBranch(_ originHead: String?) -> String {
+        guard let originHead else { return "" }
+        return originHead.hasPrefix("origin/") ? String(originHead.dropFirst("origin/".count)) : originHead
     }
 
     /// The configured names plus `.bare` in the bare layout, or the main
     /// worktree's name in the standard one.
     static func protectedWorktrees(configured: [String]?, layout: WorktreeLayout, mainName: String) -> [String] {
-        // TODO(PLUME-316 group B)
-        []
+        var protected = configured ?? []
+        switch layout {
+        case .bare: protected.append(".bare")
+        case .standard: if !mainName.isEmpty { protected.append(mainName) }
+        }
+        return protected
     }
 
     /// The glyph set, palette and ignored checks the settings ask for. Color
     /// needs a terminal on stdout and no `NO_COLOR`.
     static func terminalUI(settings: ProjectSettings, stdoutIsTerminal: Bool, environment: [String: String]) -> TerminalUI {
-        // TODO(PLUME-316 group B)
-        .plain
+        let noColor = !(environment["NO_COLOR"] ?? "").isEmpty
+        return TerminalUI(
+            palette: stdoutIsTerminal && !noColor ? .ansi : .plain,
+            glyphSet: settings.nerdFont == true ? .nerd : .plain,
+            ignoredPendingChecks: Set(settings.ignoredPendingChecks ?? [])
+        )
     }
 }

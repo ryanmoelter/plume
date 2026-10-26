@@ -151,18 +151,65 @@ nonisolated final class WorktreeContext: WTContext {
         console: any CLIConsole,
         environment: [String: String]
     ) throws -> WorktreeContext {
-        // TODO(PLUME-316 group B)
-        throw CLIFailure("not inside a git repo")
+        guard let top = git.toplevel() else { throw CLIFailure("not inside a git repo") }
+        guard var common = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
+        // `--git-common-dir` can be relative to the directory it ran in.
+        if !common.hasPrefix("/") { common = lexicallyNormalized("\(top)/\(common)") }
+
+        let layoutRoot = (common as NSString).deletingLastPathComponent
+        let layout: WorktreeLayout = (common as NSString).lastPathComponent == ".bare" ? .bare : .standard
+        // A standard repository's common dir is `<main worktree>/.git`, so its
+        // parent is the main worktree from any linked worktree.
+        let repoDir = layout == .bare ? common : layoutRoot
+        git.repoDir = repoDir
+
+        let settings = settingsSource.load().settings(forRepository: layoutRoot)
+        let tabs = PlumeTabOpener(
+            client: SocketPlumeAppClient(socketPath: CLISocket.resolvedPath(environment: environment)),
+            environment: environment,
+            console: console
+        )
+        return WorktreeContext(
+            git: git,
+            layout: layout,
+            root: layoutRoot,
+            repoDir: repoDir,
+            newWorktreesDirectory: layout == .bare ? layoutRoot : "\(layoutRoot)/.plume/worktrees",
+            mainName: layout == .bare ? "" : (layoutRoot as NSString).lastPathComponent,
+            settings: settings,
+            console: console,
+            ui: WTSettings.terminalUI(settings: settings, stdoutIsTerminal: console.stdoutIsTerminal, environment: environment),
+            tabs: tabs
+        )
+    }
+
+    /// Collapses `.` and `..` without touching the file system, which would
+    /// resolve symlinks such as `/var` → `/private/var`.
+    private static func lexicallyNormalized(_ path: String) -> String {
+        var components: [Substring] = []
+        for component in path.split(separator: "/") {
+            switch component {
+            case ".": continue
+            case "..": if !components.isEmpty { components.removeLast() }
+            default: components.append(component)
+            }
+        }
+        return "/" + components.joined(separator: "/")
     }
 
     var forgeKind: ForgeKind {
-        // TODO(PLUME-316 group B)
-        .none
+        ForgeKind.resolving(originURL: git.originURL(), override: settings.forge)
     }
 
+    /// Resolved on first use, so a missing `user.email` only fails commands
+    /// that create a branch. The outer optional means "not yet resolved".
+    private var prefixResolution: String??
+
     func branchPrefixResolution() -> String? {
-        // TODO(PLUME-316 group B)
-        nil
+        if let prefixResolution { return prefixResolution }
+        let resolved = WTSettings.branchPrefix(configured: settings.branchPrefix, userEmail: git.configGet("user.email"))
+        prefixResolution = .some(resolved)
+        return resolved
     }
 
     func startPRFetch(allBranches: Bool) -> PRFetchSession? {
@@ -170,52 +217,145 @@ nonisolated final class WorktreeContext: WTContext {
         nil
     }
 
+    // MARK: Registry
+
+    private var registryCache: [String: [String]]?
+
+    /// Every registered worktree's paths by folder name. Names collect into
+    /// lists because two worktrees in different directories can share one.
+    private var registry: [String: [String]] {
+        if let registryCache { return registryCache }
+        var registry: [String: [String]] = [:]
+        for entry in git.worktreeEntries() {
+            let name: String
+            if entry.path == root {
+                // The bare layout's root is no worktree, so it has no name.
+                name = mainName
+            } else {
+                name = (entry.path as NSString).lastPathComponent
+                // Skips the bare layout's own `.bare`. Only linked worktrees
+                // are filtered: a main worktree in `~/.dotfiles` keeps its name.
+                if name.hasPrefix(".") { continue }
+            }
+            if name.isEmpty { continue }
+            registry[name, default: []].append(entry.path)
+        }
+        registryCache = registry
+        return registry
+    }
+
+    /// (name, path) in display order: the main worktree first in the
+    /// standard layout, then by name and path.
+    private var rows: [(name: String, path: String)] {
+        let sorted = registry
+            .flatMap { name, paths in paths.map { (name: name, path: $0) } }
+            .sorted { ($0.name, $0.path) < ($1.name, $1.path) }
+        guard layout == .standard else { return sorted }
+        return sorted.filter { $0.name == mainName } + sorted.filter { $0.name != mainName }
+    }
+
     func listWorktreeNames() -> [String] {
-        // TODO(PLUME-316 group B)
-        []
+        rows.map(\.name)
     }
 
     func worktreePathsInListOrder() -> [String] {
-        // TODO(PLUME-316 group B)
-        []
+        rows.map(\.path)
     }
 
     func worktreePath(_ name: String) throws -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        if name.isEmpty { throw CLIFailure("worktree name required") }
+        guard let paths = registry[name], let first = paths.first else {
+            throw CLIFailure("no worktree named \(name)")
+        }
+        if paths.count > 1 {
+            let listed = paths.sorted().map { "    \($0)" }.joined(separator: "\n")
+            throw CLIFailure("ambiguous name \(name) — \(paths.count) worktrees match:\n\(listed)")
+        }
+        return first
     }
 
+    /// One `git status -b --porcelain=v2` gives the branch, the upstream
+    /// delta and dirtiness. Ahead is measured against the base ref, not the
+    /// upstream, so it needs its own call.
     func worktreeStatus(_ path: String) -> WorktreeStatus {
-        // TODO(PLUME-316 group B)
-        WorktreeStatus(display: "", ahead: "", dirty: false, hasUpstream: false)
+        var head: String?
+        var dirty = false
+        var remoteAhead = 0
+        var remoteBehind = 0
+        var hasUpstream = false
+        for line in git.statusV2Lines(path) {
+            if line.hasPrefix("# branch.head ") {
+                head = String(line.dropFirst("# branch.head ".count))
+            } else if line.hasPrefix("# branch.ab ") {
+                // `+A -B`, present only with an upstream.
+                let counts = line.dropFirst("# branch.ab ".count).split(separator: " ")
+                if counts.count == 2, let ahead = Int(counts[0]), let behind = Int(counts[1]) {
+                    remoteAhead = ahead
+                    remoteBehind = -behind
+                    hasUpstream = true
+                }
+            } else if !line.hasPrefix("#") {
+                dirty = true
+            }
+        }
+        let display = switch head {
+        case nil, "": "?"
+        case "(detached)": "\(git.shortHead(path) ?? "?") (detached)"
+        case let head?: head
+        }
+        return WorktreeStatus(
+            display: display,
+            ahead: git.aheadCount(path, baseRef: baseRef),
+            dirty: dirty,
+            remoteAhead: remoteAhead,
+            remoteBehind: remoteBehind,
+            hasUpstream: hasUpstream
+        )
+    }
+
+    private var registeredPaths: Set<String> {
+        Set(registry.values.joined())
     }
 
     func currentWorktreePath() throws -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        guard let top = git.toplevel() else { throw CLIFailure("not inside a git worktree") }
+        guard registeredPaths.contains(top) else { throw CLIFailure("cwd (\(top)) is not a worktree of \(root)") }
+        return top
     }
 
     func currentWorktreeName() throws -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        name(ofWorktreeAt: try currentWorktreePath())
     }
 
     func currentWorktree() -> (name: String, path: String)? {
-        // TODO(PLUME-316 group B)
-        nil
+        guard let top = git.toplevel(), registeredPaths.contains(top) else { return nil }
+        return (name(ofWorktreeAt: top), top)
+    }
+
+    private func name(ofWorktreeAt path: String) -> String {
+        layout == .standard && path == root ? mainName : (path as NSString).lastPathComponent
     }
 
     func worktreeExists(_ name: String) -> Bool {
-        // TODO(PLUME-316 group B)
-        false
+        registry[name] != nil
     }
 
     func describeExisting(_ name: String) -> String {
-        // TODO(PLUME-316 group B)
-        ""
+        (registry[name] ?? []).sorted().joined(separator: ", ")
     }
 
     func ensureWorktreesDirectory() throws {
-        // TODO(PLUME-316 group B)
+        guard layout == .standard else { return }
+        let plumeDirectory = "\(root)/.plume"
+        let gitignore = "\(plumeDirectory)/.gitignore"
+        do {
+            try FileManager.default.createDirectory(atPath: newWorktreesDirectory, withIntermediateDirectories: true)
+            var isDirectory: ObjCBool = false
+            if !FileManager.default.fileExists(atPath: gitignore, isDirectory: &isDirectory) {
+                try "*\n".write(toFile: gitignore, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            throw CLIFailure("can't create \(newWorktreesDirectory): \(error.localizedDescription)")
+        }
     }
 }
