@@ -27,7 +27,7 @@ The console hides Swift Testing's `Expectation failed: …` text and prints only
 
 Plume is installed by hand — no archive, no DMG — but `scripts/install-release.sh` signs with Developer ID and notarizes, because Apple documents that the sleep helper daemon requires it (a Debug build can register it too, but only for a human: Debug builds skip the helper unless `defaults write com.ryanmoelter.Plume.debug PlumeRegisterSleepHelperInDebug -bool true` is set, and **agents must never set it** — launchd has one job for every install, so a Debug registration repoints the installed app's helper at DerivedData, and a rebuild breaks it, PLUME-217). **`docs/releasing.md` is the reference**: version bump, build, verify, tag. Read it before cutting a release.
 
-Release links Ghostty **statically**, so the only embedded framework is Sparkle's — `otool -L` on the binary shows exactly `@rpath/Sparkle.framework` and nothing else non-system. `install-release.sh` fails the build if that's not true. `PlumeSleepHelper` is the other exception: a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`. `scripts/lib/sign-bundle.sh` signs everything inside out — Sparkle's nested code, then the helper, then the outer bundle — since `codesign` without `--deep` leaves nested code alone.
+Release links Ghostty **statically**, so the only embedded framework is Sparkle's — `otool -L` on the binary shows exactly `@rpath/Sparkle.framework` and nothing else non-system. `install-release.sh` fails the build if that's not true. `PlumeSleepHelper` is the other exception: a LaunchDaemon embedded in `Contents/MacOS` with its plist in `Contents/Library/LaunchDaemons`. The `plume` command-line tool is embedded at `Contents/Helpers/plume` and links only system libraries. `scripts/lib/sign-bundle.sh` signs everything inside out — Sparkle's nested code, then the helper and the tool, then the outer bundle — since `codesign` without `--deep` leaves nested code alone.
 
 ## Layout
 
@@ -46,13 +46,18 @@ Plume/
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
   Android/    SDK, AVD, emulator and adb device discovery, EmulatorLauncher, DeviceSession(Manager), connection adapters, input mappers
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
+  CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
-  Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
+  Resources/  Fonts, Themes, Mermaid, Skills
   UI/         Sidebar/, Task/, Settings/, Device/
+PlumeCLI/     The `plume` tool's entry point and command dispatch (target PlumeCLI)
+Shared/CLI/   Compiled into both the app and PlumeCLI: wire types, socket path, Presence, argument parsing
 Packages/
   EmulatorControl/  The emulator's gRPC client: generated code plus a small public facade
   ScrcpyControl/    A physical device over scrcpy-server: launch, demuxer, H.264 decoder, control messages
 ```
+
+`Shared/` is a synchronized group in two targets with different default isolation, so every declaration in it is marked `nonisolated`. `docs/cli.md` is the reference for the tool.
 
 ## Terminals
 
@@ -206,8 +211,8 @@ For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` recor
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - **A test that waits on a file watcher must await the store's own read signal, never a wall clock.** `RealTranscriptCorpusTests` parses every transcript on the machine — hundreds of files, tens of seconds — and Swift Testing runs it in parallel with everything else, so a deadline generous enough to look safe still expires under that load. `TranscriptStore.didRead` and `MarkdownFileStore.didRead` exist for this; the `waitUntil` helpers in their suites resume on the signal and finish instantly. Lengthening a timeout only moves the threshold.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
-- **A shell script under `Plume/Resources/` ships executable.** The synchronized group flattens it into `Contents/Resources/`, and neither the copy nor the codesign clears its mode bits, so `plume-notify` needs no build phase of its own. `docs/releasing.md` covers how it reaches PATH.
-- **`[ -w /dev/tty ]` is true even with no controlling terminal**, and the redirect then fails at the shell, where `2>/dev/null` on the command does not catch it. A script that must write to the real terminal has to *attempt* the open inside a subshell — `if ! (printf … >/dev/tty) 2>/dev/null`. `plume-notify` falls back to stdout that way.
+- **Never embed anything named `plume` in `Contents/MacOS`.** The volume is case-insensitive, so it is the same file as the app's `Plume` executable, and the copy phase silently replaces the app; the test host then runs the tool and exits 2 before connecting. The tool lives in `Contents/Helpers`. A tool target named `plume` also needs `PRODUCT_MODULE_NAME` set to something else, or its `plume.swiftmodule` collides with `Plume.swiftmodule` and PlumeTests fails with "Unable to resolve module dependency: 'Plume'".
+- **Writable `/dev/tty` doesn't mean a controlling terminal exists.** `[ -w /dev/tty ]` is true without one, so code that must reach the real terminal has to *attempt* the open and treat failure as "no terminal". `plume notify` does that with `open(2)` and stays silent when it fails.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - **A GUI-launched app does not inherit your shell PATH.** Launched from Xcode or a terminal it does, so a PATH bug hides completely until the app is opened from Finder or the Dock — `claude` at `~/.local/bin` then fails with `No such file or directory`. Both transports run through `LoginShellCommand.wrap` for this reason. Test PATH-sensitive changes by opening the installed bundle, not from a terminal.
 - **SwiftUI never re-evaluates a `Commands` body for a changed `@Observable`.** The menu bar is built once, so a rebindable chord read from `AppSettings` stays on whatever it was at launch — a recorded shortcut does nothing and the one it replaced keeps working. `ShortcutMenuApplier` writes the new chord onto the built `NSMenuItem` instead. **`docs/keyboard-shortcuts.md` is the reference**, and it also covers why a test must never read `PlumeShortcuts.all` (it reads the developer's own bindings) or assign to `AppSettings.shared.shortcutBindings`.

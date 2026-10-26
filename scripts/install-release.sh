@@ -84,6 +84,8 @@ HELPER="$APP/Contents/MacOS/$HELPER_NAME"
 [ -x "$HELPER" ] || fail "sleep helper missing at $HELPER"
 [ -f "$APP/Contents/Library/LaunchDaemons/$DAEMON_PLIST" ] \
   || fail "daemon plist missing from Contents/Library/LaunchDaemons"
+TOOL="$APP/Contents/Helpers/plume"
+[ -x "$TOOL" ] || fail "plume tool missing at $TOOL"
 
 echo "--- re-signing ---"
 sign_bundle "$IDENTITY" "$APP"
@@ -99,6 +101,8 @@ if [ "$dylib_count" -eq 0 ]; then
 elif [ "$dylib_count" -ne 1 ] || ! grep -q '@rpath/Sparkle\.framework' <<<"$non_system_dylibs"; then
   fail "unexpected non-system dylibs — expected exactly @rpath/Sparkle.framework"
 fi
+tool_dylibs="$(otool -L "$TOOL" | tail -n +2 | grep -v '/usr/lib\|/System/Library')"
+[ -z "$tool_dylibs" ] || fail "the plume tool links non-system dylibs: $tool_dylibs"
 
 check_scrcpy_server_bundled "$APP"
 
@@ -216,21 +220,29 @@ codesign -d --verbose=2 "$DEST/Contents/MacOS/$HELPER_NAME" 2>&1 \
   | grep -iE '^Identifier=|Authority=Developer ID|flags='
 /usr/libexec/PlistBuddy -c 'Print :BundleProgram' \
   "$DEST/Contents/Library/LaunchDaemons/$DAEMON_PLIST"
+echo "--- plume tool ---"
+codesign -d --verbose=2 "$DEST/Contents/Helpers/plume" 2>&1 \
+  | grep -iE '^Identifier=|Authority=Developer ID|flags='
+"$DEST/Contents/Helpers/plume" --version
 echo "--- non-system dylibs (already checked on the staged bundle above) ---"
 otool -L "$DEST/Contents/MacOS/Plume" | tail -n +2 | grep -v '/usr/lib\|/System/Library'
 
-# The symlink points at a path inside the bundle, so replacing the bundle
-# re-resolves it. It only breaks if the helper stopped shipping.
-echo "--- plume-notify on PATH ---"
-if [ -L "$HOME/.local/bin/plume-notify" ]; then
-  if [ -x "$HOME/.local/bin/plume-notify" ]; then
-    echo "ok -> $(readlink "$HOME/.local/bin/plume-notify")"
+# The symlinks point at a path inside the bundle, so replacing the bundle
+# re-resolves them. A link still at the old Resources/plume-notify script
+# reads BROKEN here and is repointed when the new build launches.
+echo "--- plume on PATH ---"
+for name in plume plume-notify; do
+  link="$HOME/.local/bin/$name"
+  if [ -L "$link" ]; then
+    if [ -x "$link" ]; then
+      echo "$name ok -> $(readlink "$link")"
+    else
+      echo "$name BROKEN -> $(readlink "$link") — relaunch Plume, or reinstall from Settings"
+    fi
   else
-    echo "BROKEN -> $(readlink "$HOME/.local/bin/plume-notify") — reinstall from Settings"
+    echo "$name not installed (Settings → General → Command line tool)"
   fi
-else
-  echo "not installed (Settings → Command Line)"
-fi
+done
 
 # Only relaunched when the release was run from inside Plume, where quitting
 # the app killed the session driving it and reopening is what brings the
