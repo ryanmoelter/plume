@@ -35,8 +35,18 @@ nonisolated struct WorktreeListPayload: Encodable, Equatable, Sendable {
         var url: String?
         var title: String?
 
+        private enum CodingKeys: String, CodingKey {
+            case number, state, url, title
+            case isDraft = "is_draft"
+        }
+
         func encode(to encoder: any Encoder) throws {
-            // TODO(PLUME-316 group C)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(number, forKey: .number)
+            try container.encode(state, forKey: .state)
+            try container.encode(isDraft, forKey: .isDraft)
+            try container.encodeOrNull(url, forKey: .url)
+            try container.encodeOrNull(title, forKey: .title)
         }
     }
 
@@ -52,22 +62,52 @@ nonisolated struct WorktreeListPayload: Encodable, Equatable, Sendable {
         var hasUpstream: Bool
         var pr: PR?
 
+        private enum CodingKeys: String, CodingKey {
+            case name, path, branch, current, ahead, dirty, pr
+            case remoteAhead = "remote_ahead"
+            case remoteBehind = "remote_behind"
+            case hasUpstream = "has_upstream"
+        }
+
         func encode(to encoder: any Encoder) throws {
-            // TODO(PLUME-316 group C)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encodeOrNull(path, forKey: .path)
+            try container.encode(branch, forKey: .branch)
+            try container.encode(current, forKey: .current)
+            try container.encode(ahead, forKey: .ahead)
+            try container.encode(dirty, forKey: .dirty)
+            try container.encode(remoteAhead, forKey: .remoteAhead)
+            try container.encode(remoteBehind, forKey: .remoteBehind)
+            try container.encode(hasUpstream, forKey: .hasUpstream)
+            try container.encodeOrNull(pr, forKey: .pr)
         }
     }
 
     var prState: PRState
     var worktrees: [Worktree]
 
+    private enum CodingKeys: String, CodingKey {
+        case worktrees
+        case prState = "pr_state"
+    }
+
     func encode(to encoder: any Encoder) throws {
-        // TODO(PLUME-316 group C)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(prState, forKey: .prState)
+        try container.encode(worktrees, forKey: .worktrees)
     }
 
     /// One line of JSON, without a trailing newline.
     func jsonString() -> String {
-        // TODO(PLUME-316 group C)
-        ""
+        WT.jsonLine(self)
+    }
+}
+
+nonisolated extension KeyedEncodingContainer {
+    /// `encodeIfPresent` drops the key; the `--json` readers expect `null`.
+    mutating func encodeOrNull<T: Encodable>(_ value: T?, forKey key: Key) throws {
+        if let value { try encode(value, forKey: key) } else { try encodeNil(forKey: key) }
     }
 }
 
@@ -94,14 +134,25 @@ nonisolated extension WT {
 
     /// `statusCluster` colored: `↗` dim, `↑` `↓` `+` green.
     static func colorizeCluster(_ plain: String, ui: TerminalUI) -> String {
-        // TODO(PLUME-316 group C)
-        ""
+        if plain.isEmpty { return "" }
+        return plain.split(separator: " ").map { segment in
+            let color = segment.hasPrefix(TerminalUI.ahead) ? ui.dim : ui.green
+            return "\(color)\(segment)\(ui.reset)"
+        }.joined(separator: " ")
     }
 
     /// `s` cut to `cap` columns, ending in an ellipsis when cut.
     static func truncate(_ s: String, cap: Int) -> String {
-        // TODO(PLUME-316 group C)
-        ""
+        if s.count <= cap { return s }
+        return cap >= 1 ? String(s.prefix(cap - 1)) + "…" : ""
+    }
+
+    /// `value` as one line of JSON, slashes unescaped.
+    static func jsonLine(_ value: some Encodable) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        guard let data = try? encoder.encode(value) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// A row per worktree, in list order. The base branch's own row drops its
@@ -139,8 +190,54 @@ nonisolated extension WT {
         dirs: [String]? = nil,
         ui: TerminalUI = .plain
     ) -> String {
-        // TODO(PLUME-316 group C)
-        ""
+        let names = rows.map { truncate($0.name, cap: nameMax) }
+        let maxName = names.map(\.count).max() ?? 0
+
+        func cluster(_ row: WorktreeRow) -> String {
+            statusCluster(ahead: row.ahead, dirty: row.dirty, remoteAhead: row.remoteAhead, remoteBehind: row.remoteBehind)
+        }
+        /// "<branch>  <cluster>", or the bare branch with no cluster.
+        func fieldWidth(_ branch: String, _ plain: String) -> Int {
+            branch.count + (plain.isEmpty ? 0 : 2 + plain.count)
+        }
+        let maxBranchStatus = rows.map { fieldWidth(truncate($0.branch, cap: nameMax), cluster($0)) }.max() ?? 0
+
+        return rows.enumerated().map { index, row in
+            let isCurrent = row.name == cwdName
+            let branchName = truncate(row.branch, cap: nameMax)
+            let plain = cluster(row)
+            let branchStatus = plain.isEmpty ? branchName : "\(branchName)  \(colorizeCluster(plain, ui: ui))"
+            // Padded by the plain width: the colored cluster's escapes take no columns.
+            let pad = String(repeating: " ", count: maxBranchStatus - fieldWidth(branchName, plain))
+
+            let prText: String
+            if !row.hasUpstream, prState != .off {
+                // A branch never pushed can't have a PR, whatever the fetch says.
+                prText = ui.branchPRChip(nil, hasUpstream: false, forgeIcon: forgeIcon, numberPrefix: numberPrefix).text
+            } else {
+                switch prState {
+                case .on:
+                    let pr = trunkBranches.contains(row.branch) ? nil : prs[row.branch]
+                    prText = ui.branchPRChip(pr, hasUpstream: row.hasUpstream, forgeIcon: forgeIcon, numberPrefix: numberPrefix).text
+                case .loading: prText = ui.loadingChip(forgeIcon: forgeIcon).text
+                case .wait: prText = ui.netOffChip(forgeIcon: forgeIcon, failed: false).text
+                case .error: prText = ui.netOffChip(forgeIcon: forgeIcon, failed: true).text
+                case .off: prText = ""
+                }
+            }
+
+            let paddedName = names[index] + String(repeating: " ", count: maxName - names[index].count)
+            var line = "\(isCurrent ? "→" : " ") \(paddedName)  \(branchStatus)\(pad)  \(prText)"
+            if let dirs {
+                while line.last == " " { line.removeLast() }
+                line += "  \(ui.dim)\(index < dirs.count ? dirs[index] : "")\(ui.reset)"
+            }
+            if isCurrent, !ui.reset.isEmpty {
+                // Each interior reset also clears bold, so bold is re-armed after it.
+                line = ui.bold + line.replacingOccurrences(of: ui.reset, with: ui.reset + ui.bold) + ui.reset
+            }
+            return line
+        }.joined(separator: "\n")
     }
 
     /// The `--json` twin of `renderList`. `paths` runs parallel to `rows`,
@@ -153,8 +250,22 @@ nonisolated extension WT {
         paths: [String],
         trunkBranches: Set<String> = []
     ) -> WorktreeListPayload {
-        // TODO(PLUME-316 group C)
-        WorktreeListPayload(prState: .off, worktrees: [])
+        let worktrees = rows.enumerated().map { index, row in
+            let pr = prState == .on && !trunkBranches.contains(row.branch) ? prs[row.branch] : nil
+            return WorktreeListPayload.Worktree(
+                name: row.name,
+                path: index < paths.count ? paths[index] : nil,
+                branch: row.branch,
+                current: row.name == cwdName,
+                ahead: Int(row.ahead) ?? 0,
+                dirty: row.dirty,
+                remoteAhead: row.remoteAhead,
+                remoteBehind: row.remoteBehind,
+                hasUpstream: row.hasUpstream,
+                pr: pr.map { .init(number: $0.number, state: $0.state.rawValue, isDraft: $0.isDraft, url: $0.url, title: $0.title) }
+            )
+        }
+        return WorktreeListPayload(prState: prState, worktrees: worktrees)
     }
 
     /// Prints the table, filling in the PR column when the fetch lands.
@@ -173,6 +284,33 @@ nonisolated extension WT {
         ui: TerminalUI = .plain,
         console: any CLIConsole
     ) {
-        // TODO(PLUME-316 group C)
+        guard let fetch else {
+            console.print(renderList(rows, cwdName: cwdName, prState: .off, prs: [:], numberPrefix: "#", trunkBranches: trunkBranches, dirs: dirs, ui: ui))
+            return
+        }
+
+        func table(_ state: PRState, _ prs: PullRequestMap) -> String {
+            renderList(
+                rows, cwdName: cwdName, prState: state, prs: prs, numberPrefix: fetch.numberPrefix,
+                forgeIcon: fetch.forgeIcon, trunkBranches: trunkBranches, dirs: dirs, ui: ui
+            )
+        }
+
+        guard live else {
+            let resolved = collectPRs(fetch, timeout: listPRTotal)
+            console.print(table(resolved.state, resolved.prs))
+            return
+        }
+
+        let provisional = table(.loading, [:])
+        console.print(provisional)
+        let resolved = collectPRs(fetch, timeout: listPRTotal)
+        console.write(TerminalUI.redrawPrefix(lines: provisional.components(separatedBy: "\n").count))
+        console.print(table(resolved.state, resolved.prs))
+    }
+
+    /// The fetch's column state once it lands, or `wait` past `timeout`.
+    static func collectPRs(_ fetch: PRFetchSession, timeout: TimeInterval) -> (state: PRState, prs: PullRequestMap) {
+        fetch.completion.wait(timeout: timeout) ? PRFetch.resolve(fetch.completion.result) : (.wait, [:])
     }
 }

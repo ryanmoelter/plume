@@ -213,8 +213,19 @@ nonisolated final class WorktreeContext: WTContext {
     }
 
     func startPRFetch(allBranches: Bool) -> PRFetchSession? {
-        // TODO(PLUME-316 group C)
-        nil
+        let kind = forgeKind
+        guard let backend = ForgeBackends.backend(for: kind, originURL: git.originURL(), workingDirectory: repoDir),
+              backend.isInstalled
+        else { return nil }
+        // Only the checked-out branches by default: a query over every branch
+        // is slow enough on a big repository to time out.
+        let branches = allBranches ? git.localBranches() : git.worktreeRecords().map(\.branch)
+        if branches.isEmpty { return nil }
+        return PRFetchSession(
+            completion: PRFetch(branches: branches, fetch: { backend.pullRequests(forBranches: $0) }),
+            numberPrefix: backend.numberPrefix,
+            forgeIcon: ui.forgeIcon(for: kind)
+        )
     }
 
     // MARK: Registry
