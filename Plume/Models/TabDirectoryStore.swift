@@ -49,6 +49,12 @@ final class TabDirectoryStore {
         directories[tab.id] ?? tab.workingDirectoryPath ?? tab.task?.workingDirectoryPath
     }
 
+    /// Where a tab's terminal starts: a directory already set for it, as by
+    /// `plume tab new --cwd`, else where a new tab in its task starts.
+    func startingDirectory(for tab: TaskTab, in task: WorkTask) -> String? {
+        directories[tab.id] ?? startingDirectory(for: task)
+    }
+
     /// Where a *new* tab in this task should start: wherever the task's work
     /// has moved to, else the task's own folder.
     ///

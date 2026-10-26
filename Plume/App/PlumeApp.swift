@@ -32,9 +32,13 @@ struct PlumeApp: App {
                 plumeSetting: setting
             )
         }
-        // A test host must never reach the real Keychain or Linear.
+        // A test host must never reach the real Keychain or Linear, nor take
+        // the CLI socket from a debug app launched while tests run.
         if NSClassFromString("XCTestCase") == nil {
             LinearStore.shared.start()
+            // Before any view exists: a tab's environment names this socket
+            // when it is built, and keeps that environment for life.
+            CLIServer.shared.startIfEnabled()
         }
     }
 

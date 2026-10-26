@@ -12,8 +12,6 @@ func run(_ invocation: CLIInvocation) -> Int32 {
     switch invocation {
     case .help:
         print(CLICommandLine.usage)
-    case .notifyHelp:
-        print(CLICommandLine.notifyUsage)
     case .version:
         print("plume \(BundleVersion.current() ?? "(not inside Plume.app)")")
     case .notify(let title, let body):
@@ -135,7 +133,7 @@ do {
     let invocation = try CLICommandLine.parse(Array(CommandLine.arguments.dropFirst()), executableName: executableName)
     exit(run(invocation))
 } catch let error as CLIUsageError {
-    printError("plume: \(error.message)")
+    if let message = error.message { printError("plume: \(message)") }
     printError(error.usage)
     exit(CLIExitCode.usage)
 } catch {

@@ -277,23 +277,47 @@ enum CommandLineHelper {
     /// to the helper, adds `plume` beside it. Links into any other bundle
     /// are left for Settings, so a debug build never claims the installed
     /// app's links.
+    ///
+    /// Returns whether each name now links to the tool, empty when there was
+    /// nothing to repoint.
+    @discardableResult
     static func repointLegacyLinks(
         in directory: URL = installDirectory,
         bundleURL: URL = Bundle.main.bundleURL,
         bundledURL: URL? = bundledURL
-    ) {
-        guard let bundledURL else { return }
+    ) -> [(name: String, isLinked: Bool)] {
+        guard let bundledURL else { return [] }
         let link = directory.appending(path: "plume-notify")
         guard
             let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
             URL(fileURLWithPath: destination, relativeTo: link).standardizedFileURL
                 == legacyScriptURL(inBundle: bundleURL).standardizedFileURL
-        else { return }
+        else { return [] }
+        var installError: Error?
         do {
             try install(in: directory, bundledURL: bundledURL)
-            Log.app.info("Repointed the plume-notify link at the plume tool")
         } catch {
-            Log.app.error("Could not repoint the plume-notify link: \(error.localizedDescription, privacy: .public)")
+            installError = error
         }
+        return states(in: directory, bundledURL: bundledURL).map { name, state in
+            let url = directory.appending(path: name)
+            switch state {
+            case .installed:
+                Log.app.info("\(url.path, privacy: .public) links to the plume tool")
+                return (name, true)
+            case .occupiedByOther(let destination):
+                logLinkFailure(url, InstallError.occupied(url, destination: destination))
+            case .ownedByOtherPlume(let destination):
+                logLinkFailure(url, InstallError.occupied(url, destination: destination))
+            case .notInstalled, .outdated, .brokenLink:
+                logLinkFailure(url, installError)
+            }
+            return (name, false)
+        }
+    }
+
+    private static func logLinkFailure(_ url: URL, _ error: Error?) {
+        let reason = error?.localizedDescription ?? "unknown error"
+        Log.app.error("Could not link \(url.path, privacy: .public) to the plume tool: \(reason, privacy: .public)")
     }
 }

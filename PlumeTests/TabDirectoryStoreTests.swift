@@ -174,4 +174,27 @@ struct TabDirectoryStoreTests {
 
         #expect(tab.workingDirectoryPath == "/worktrees/feature")
     }
+
+    /// A tab opened with a directory starts there, not beside the task's
+    /// other work, and every reader agrees on it before its shell reports.
+    @Test func aTabGivenADirectoryStartsThere() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let store = TabDirectoryStore()
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        store.setDirectory("/elsewhere", forTab: tab)
+
+        #expect(store.startingDirectory(for: tab, in: task) == "/elsewhere")
+        #expect(store.directory(for: tab) == "/elsewhere")
+        #expect(store.startingDirectory(for: task) == "/elsewhere")
+    }
+
+    @Test func aTabWithNoDirectoryStartsWhereANewTabWould() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+
+        #expect(TabDirectoryStore().startingDirectory(for: task.tabs[0], in: task) == "/repo")
+    }
 }

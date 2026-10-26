@@ -23,7 +23,25 @@ struct CLICommandLineTests {
     @Test func notifyTakesTheScriptsFlags() throws {
         #expect(try parse(["notify", "--title", "T", "--body", "B"]) == .notify(title: "T", body: "B"))
         #expect(try parse(["notify", "--title", "T", "--message", "M"]) == .notify(title: "T", body: "M"))
-        #expect(try parse(["notify", "--", "--title"]) == .notify(title: "--title", body: ""))
+    }
+
+    /// As in the script, `--` is skipped and the flags after it still parse.
+    @Test func aDoubleDashDoesNotEndTheFlags() throws {
+        #expect(try parse(["notify", "--", "--title", "T"]) == .notify(title: "T", body: ""))
+        #expect(try parse(["notify", "T", "--", "B"]) == .notify(title: "T", body: "B"))
+        #expect(throws: CLIUsageError.self) { try parse(["notify", "--", "--title"]) }
+    }
+
+    @Test func helpIsAUsageErrorUnderEitherName() {
+        #expect(throws: CLIUsageError(message: nil, usage: CLICommandLine.notifyUsage)) {
+            try parse(["notify", "-h"])
+        }
+        #expect(throws: CLIUsageError(message: nil, usage: CLICommandLine.notifyAliasUsage)) {
+            try parse(["--help"], as: "plume-notify")
+        }
+        #expect(throws: CLIUsageError(message: nil, usage: CLICommandLine.notifyAliasUsage)) {
+            try parse(["T", "-h"], as: "plume-notify")
+        }
     }
 
     /// The script assigned fields in argument order, the first positional
@@ -37,7 +55,6 @@ struct CLICommandLineTests {
 
     @Test func thePlumeNotifyNameSkipsTheSubcommand() throws {
         #expect(try parse(["Hi", "there"], as: "plume-notify") == .notify(title: "Hi", body: "there"))
-        #expect(try parse(["--help"], as: "plume-notify") == .notifyHelp)
     }
 
     @Test func notifyRejectsAMissingTitleOrExtraArguments() {

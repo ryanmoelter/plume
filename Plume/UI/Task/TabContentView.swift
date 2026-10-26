@@ -349,7 +349,7 @@ private struct TerminalTabHost: View {
             session = SurfaceManager.shared.session(
                 for: tab.id,
                 options: TerminalSurfaceOptions(
-                    workingDirectory: tab.launchDirectoryPath ?? TabDirectoryStore.shared.startingDirectory(for: task),
+                    workingDirectory: TabDirectoryStore.shared.startingDirectory(for: tab, in: task),
                     envVars: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id),
                     command: LoginShellCommand.loginShell()
                 )

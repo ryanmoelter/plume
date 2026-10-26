@@ -14,7 +14,7 @@ The code is split three ways:
 
 | Command | Needs the app | What it does |
 |---|---|---|
-| `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. Arguments apply in order and the last to name a field wins, again as the script did, so the first positional sets the title even after `--title`. |
+| `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. Arguments apply in order and the last to name a field wins, again as the script did, so the first positional sets the title even after `--title`. `--` is skipped without ending the flags, and `-h` prints the usage to stderr and exits 2. |
 | `plume presence [--json]` | No | Prints `awake`, `asleep` or `locked`. |
 | `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. |
 | `plume init zsh` | No | Prints zsh completions; load with `eval "$(plume init zsh)"`. |
@@ -28,7 +28,7 @@ Invoked as `plume-notify` (argv[0]'s basename), the tool runs `notify` with the 
 2. If that fails, an OSC 777 escape written to `/dev/tty`. The tool attempts the open rather than testing for it, since a writable `/dev/tty` doesn't mean a controlling terminal exists.
 3. If there is no terminal either, nothing, exit 0.
 
-**`tab new` fails loudly**, because the user asked for an app action. It opens the tab in `--task` if given. Otherwise it sends `PLUME_TAB_ID`, and the app opens the tab in that tab's current task, which changes when the tab is moved to another task. It falls back to `PLUME_TASK_ID` only when no tab ID is set. With none of the three it fails with "not inside a Plume task", and with nothing listening on the socket it fails with "Plume isn't running". A relative `--cwd` resolves against the caller's directory. The tab opens behind the current selection unless `--select` is passed, which also shows its task in the window. The directory is stored on the tab as `TaskTab.launchDirectoryPath` and read when its terminal surface is built.
+**`tab new` fails loudly**, because the user asked for an app action. It opens the tab in `--task` if given. Otherwise it sends `PLUME_TAB_ID`, and the app opens the tab in that tab's current task, which changes when the tab is moved to another task. It falls back to `PLUME_TASK_ID` only when no tab ID is set. With none of the three it fails with "not inside a Plume task", and with nothing listening on the socket it fails with "Plume isn't running". A relative `--cwd` resolves against the caller's directory; the app itself refuses a relative `directory`. The tab opens behind the current selection unless `--select` is passed, which also shows its task in the frontmost main window. Every main window registers with `CLICommandHandler` while it is open, and any of them can find the task. The directory seeds the tab's entry in `TabDirectoryStore`, so the new terminal, the info pane and a later ⌘T all read it before the shell reports its own.
 
 **`presence` runs in the tool**, from CoreGraphics. The screen reads `locked` while `CGSessionCopyCurrentDictionary` carries `CGSSessionScreenIsLocked`, then `asleep` when every online display reports `CGDisplayIsAsleep` (including no online display at all), and `awake` otherwise. `Presence.classify` is the pure rule. `--json` prints `{"displays":[{"asleep":false,"id":1}],"locked":false,"state":"awake"}`.
 
@@ -44,7 +44,7 @@ A new subcommand adds its completion to `ShellIntegration.commands`.
 
 ## Environment
 
-The app exports these into every tab's process, terminal and agent alike (`LoginShellCommand.plumeEnvironment(taskID:tabID:)`):
+The app exports these into every tab's process, terminal and agent alike, and into a `!` command a chat runs (`LoginShellCommand.plumeEnvironment(taskID:tabID:)`):
 
 | Variable | Value |
 |---|---|
@@ -57,7 +57,7 @@ The app exports these into every tab's process, terminal and agent alike (`Login
 
 A Claude Code terminal tab already carried `PLUME_TAB_ID` and `PLUME_TASK_ID` for hook instrumentation. The hook command keys off `PLUME_EVENTS_DIR`, which only that path sets, so exporting the IDs elsewhere writes no events.
 
-At launch the app unsets any of these it inherited, along with `PLUME_EVENTS_DIR`, and `LoginShellCommand.childEnvironment` strips them again when building a child's environment. A debug Plume launched from another Plume's tab would otherwise hand its own children that Plume's socket and IDs.
+At launch the app unsets any of these it inherited, along with `PLUME_EVENTS_DIR` (`LoginShellCommand.dropInheritedInstanceKeys`), so no child inherits them. A debug Plume launched from another Plume's tab would otherwise hand its own children that Plume's socket and IDs.
 
 Outside any Plume tab, `PLUME_SOCKET` is unset and the tool uses the installed app's socket, `~/Library/Application Support/Plume/run/cli.sock`.
 
@@ -71,11 +71,11 @@ Only the user who runs Plume can connect. The socket is mode 0600 inside that 07
 
 Because of that same refusal, the tool retries a refused connect a few times, about 0.4 s in all, while a socket file exists at the path (`CLISocket.Retry`). Only then does it report "Plume isn't running".
 
-A process with no bundle identifier never starts the server. The test host is the debug app, so it does start one, at the worktree's debug data directory.
+The app starts the server in `PlumeApp.init`, before any view exists, because a tab's environment names the socket when it is built and keeps it for life. A process with no bundle identifier never starts the server, and neither does the test host, so a debug app launched while tests run still gets the socket. Tests that need a server start their own.
 
 ## Wire protocol
 
-Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool sets three-second send and receive timeouts (two for `notify`), so a wedged app can't hang a hook. A last request with no trailing newline is still answered when the client shuts down its writing side.
+Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool sets three-second send and receive timeouts (two for `notify`), so a wedged app can't hang a hook. It reads the reply once; only after a failed write does it read again, for a refusal the server sent first. A last request with no trailing newline is still answered when the client shuts down its writing side.
 
 Requests name a `command` and carry its `params`:
 

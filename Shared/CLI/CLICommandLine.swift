@@ -6,14 +6,14 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case help
     case version
     case notify(title: String, body: String)
-    case notifyHelp
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
     case shellInit
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
-    var message: String
+    /// Nil when the usage alone answers, as for `-h`.
+    var message: String?
     var usage: String
 }
 
@@ -45,13 +45,18 @@ nonisolated enum CLICommandLine {
                plume notify --title <title> [--body <body>]
         """
 
+    static let notifyAliasUsage = """
+        usage: plume-notify <title> [body]
+               plume-notify --title <title> [--body <body>]
+        """
+
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
     static let initUsage = "usage: plume init zsh"
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
     static func parse(_ arguments: [String], executableName: String) throws -> CLIInvocation {
         if executableName == notifyAlias {
-            return try parseNotify(arguments)
+            return try parseNotify(arguments, usage: notifyAliasUsage)
         }
         guard let command = arguments.first else { return .help }
         let rest = Array(arguments.dropFirst())
@@ -73,15 +78,14 @@ nonisolated enum CLICommandLine {
         }
     }
 
-    /// Matches the `plume-notify` shell script this replaced: arguments apply
-    /// in order and the last one naming a field wins, so the first positional
-    /// sets the title even after `--title`.
-    static func parseNotify(_ arguments: [String]) throws -> CLIInvocation {
+    /// Arguments apply in order and the last one naming a field wins, so the
+    /// first positional sets the title even after `--title`. `--` is skipped
+    /// without ending the options, and `-h` is a usage error.
+    static func parseNotify(_ arguments: [String], usage notifyUsage: String = notifyUsage) throws -> CLIInvocation {
         var title: String?
         var body: String?
         var positionalCount = 0
         var index = 0
-        var optionsEnded = false
 
         func value(after flag: String) throws -> String {
             guard index + 1 < arguments.count else {
@@ -102,16 +106,12 @@ nonisolated enum CLICommandLine {
 
         while index < arguments.count {
             let argument = arguments[index]
-            if optionsEnded {
-                try takePositional(argument)
-            } else {
-                switch argument {
-                case "--title": title = try value(after: argument)
-                case "--body", "--message": body = try value(after: argument)
-                case "-h", "--help": return .notifyHelp
-                case "--": optionsEnded = true
-                default: try takePositional(argument)
-                }
+            switch argument {
+            case "--title": title = try value(after: argument)
+            case "--body", "--message": body = try value(after: argument)
+            case "-h", "--help": throw CLIUsageError(message: nil, usage: notifyUsage)
+            case "--": break
+            default: try takePositional(argument)
             }
             index += 1
         }

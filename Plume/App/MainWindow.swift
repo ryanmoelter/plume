@@ -12,6 +12,7 @@ struct MainWindow: View {
     @State private var importSource: ImportSource?
     @State private var importRequest = ImportRequest.shared
     @State private var hostWindow: NSWindow?
+    @State private var cliRegistrationID = UUID()
     @State private var fullDiskAccessShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -183,6 +184,9 @@ struct MainWindow: View {
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif
         }
+        .onDisappear {
+            CLICommandHandler.shared.unregisterWindow(cliRegistrationID)
+        }
     }
 
     /// These closures read live view state, so they are installed here rather
@@ -214,11 +218,13 @@ struct MainWindow: View {
             tasks.first { $0.tabs.contains { $0.id == tabID } }?.id
         }
         TerminalAlerts.shared.tabDisplayTitle = tabDisplayTitle
-        CLICommandHandler.shared.workspace = { taskID in
-            guard let task = tasks.first(where: { $0.id == taskID }) else { return nil }
-            return .init(task: task, context: context) { selection = taskID }
-        }
-        CLICommandHandler.shared.taskIDForTab = TerminalAlerts.shared.taskID
+        CLICommandHandler.shared.registerWindow(cliRegistrationID, .init(
+            window: { hostWindow },
+            task: { taskID in tasks.first { $0.id == taskID } },
+            taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
+            context: context,
+            reveal: { taskID in selection = taskID }
+        ))
     }
 
     /// A notification click selects its task, then its tab within that task.

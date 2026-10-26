@@ -264,4 +264,22 @@ struct CLIServerTests {
             _ = try CLISocket.connect(to: stale, retry: retry)
         }
     }
+
+    @Test func aReplyThatTimesOutIsReadOnce() throws {
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        #expect(mkdir((path as NSString).deletingLastPathComponent, 0o700) == 0)
+        let listener = try bindWithoutListening(at: path)
+        defer { close(listener) }
+        #expect(listen(listener, 1) == 0)
+
+        var reads = 0
+        #expect(throws: CLISocket.ClientError.self) {
+            try CLISocket.send(.ping, to: path, timeout: 0.1) { fd in
+                reads += 1
+                return try CLISocket.readLine(from: fd)
+            }
+        }
+        #expect(reads == 1)
+    }
 }

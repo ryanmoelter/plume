@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftData
 import Testing
@@ -18,11 +19,25 @@ struct CLICommandHandlerTests {
         context = ModelContext(container)
     }
 
+    private func registration(
+        tasks: [WorkTask],
+        window: NSWindow? = nil,
+        revealed: @escaping (UUID) -> Void = { _ in }
+    ) -> CLICommandHandler.WindowRegistration {
+        .init(
+            window: { window },
+            task: { id in tasks.first { $0.id == id } },
+            taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
+            context: context,
+            reveal: revealed
+        )
+    }
+
     private func makeHandler(task: WorkTask, revealed: @escaping () -> Void = {}) -> CLICommandHandler {
         let handler = CLICommandHandler()
-        handler.workspace = { [context] id in
-            id == task.id ? .init(task: task, context: context, reveal: revealed) : nil
-        }
+        handler.orderedWindows = { [] }
+        handler.directories = TabDirectoryStore()
+        handler.registerWindow(UUID(), registration(tasks: [task]) { _ in revealed() })
         return handler
     }
 
@@ -37,7 +52,7 @@ struct CLICommandHandlerTests {
         let tab = try #require(task.tabs.first { $0.id == tabID })
         #expect(response.ok)
         #expect(tab.kind == .terminal)
-        #expect(tab.launchDirectoryPath == "/tmp")
+        #expect(handler.directories.startingDirectory(for: tab, in: task) == "/tmp")
         #expect(task.selectedTabID == selected)
     }
 
@@ -67,12 +82,9 @@ struct CLICommandHandlerTests {
         let destination = TaskStore.createTask(in: context, siblings: [original])
         let caller = TaskStore.addTab(to: original, kind: .terminal, in: context)
         TaskStore.moveTab(caller, to: destination)
-        let tasks = [original, destination]
         let handler = CLICommandHandler()
-        handler.workspace = { [context] id in
-            tasks.first { $0.id == id }.map { .init(task: $0, context: context, reveal: {}) }
-        }
-        handler.taskIDForTab = { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id }
+        handler.orderedWindows = { [] }
+        handler.registerWindow(UUID(), registration(tasks: [original, destination]))
 
         let response = handler.handle(.newTab(.init(tabID: caller.id, select: false)))
 
@@ -89,6 +101,47 @@ struct CLICommandHandlerTests {
         #expect(response.ok)
         #expect(!handler.handle(.newTab(.init(tabID: UUID(), select: false))).ok)
         #expect(!handler.handle(.newTab(.init(select: false))).ok)
+    }
+
+    @Test func aRelativeDirectoryFails() {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeHandler(task: task)
+
+        let response = handler.handle(.newTab(.init(taskID: task.id, directory: "tmp", select: false)))
+
+        #expect(response.error == "directory must be an absolute path: tmp")
+        #expect(task.tabs.count == 1)
+    }
+
+    /// Selecting reveals in the frontmost window, though any window can find
+    /// the task.
+    @Test func selectingRevealsInTheFrontmostWindow() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let back = NSWindow()
+        let front = NSWindow()
+        var revealedIn: [String] = []
+        let handler = CLICommandHandler()
+        handler.orderedWindows = { [front, back] }
+        handler.registerWindow(UUID(), registration(tasks: [task], window: front) { _ in revealedIn.append("front") })
+        handler.registerWindow(UUID(), registration(tasks: [], window: back) { _ in revealedIn.append("back") })
+
+        #expect(handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
+        #expect(revealedIn == ["front"])
+    }
+
+    @Test func aClosedWindowIsNeverRevealed() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        var revealedIn: [String] = []
+        let handler = CLICommandHandler()
+        handler.orderedWindows = { [] }
+        let open = UUID()
+        let closed = UUID()
+        handler.registerWindow(open, registration(tasks: [task]) { _ in revealedIn.append("open") })
+        handler.registerWindow(closed, registration(tasks: [task]) { _ in revealedIn.append("closed") })
+        handler.unregisterWindow(closed)
+
+        #expect(handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
+        #expect(revealedIn == ["open"])
     }
 
     @Test func notifyReportsATabNothingOwns() {

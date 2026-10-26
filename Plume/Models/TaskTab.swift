@@ -31,9 +31,6 @@ final class TaskTab {
     /// relaunch. Nil until the tab reports, so a new tab starts at its task's
     /// folder. `TabDirectoryStore` owns the live value and writes through here.
     var workingDirectoryPath: String?
-    /// Where a terminal tab's shell starts, when whoever opened the tab named
-    /// one (`plume tab new --cwd`). Nil starts it beside the task's other work.
-    var launchDirectoryPath: String? = nil
     /// The CLI's own identifier for this conversation, passed back to it to
     /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?

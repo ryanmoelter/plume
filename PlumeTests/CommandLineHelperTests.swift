@@ -186,13 +186,25 @@ struct CommandLineHelperTests {
         #expect(try destination("plume") == tool.path)
     }
 
+    @Test func launchReportsEachNameItCouldNotLink() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try link("plume-notify", to: CommandLineHelper.legacyScriptURL(inBundle: bundle))
+        #expect(FileManager.default.createFile(atPath: bin.appending(path: "plume").path, contents: Data()))
+
+        let outcomes = CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
+
+        #expect(outcomes.map(\.name) == ["plume", "plume-notify"])
+        #expect(outcomes.map(\.isLinked) == [false, true])
+        #expect(try destination("plume-notify") == tool.path)
+    }
+
     @Test func launchLeavesAnotherBundlesLinksAlone() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let installed = scratch.appending(path: "Applications/Plume.app")
         let legacy = CommandLineHelper.legacyScriptURL(inBundle: installed)
         try link("plume-notify", to: legacy)
 
-        CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
+        #expect(CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool).isEmpty)
 
         #expect(try destination("plume-notify") == legacy.path)
         #expect(state("plume") == .notInstalled)

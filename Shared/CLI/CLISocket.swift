@@ -125,19 +125,28 @@ nonisolated enum CLISocket {
     }
 
     /// Sends one request and waits for its one reply line.
-    static func send(_ request: CLIRequest, to path: String, timeout: TimeInterval = 3, retry: Retry = Retry()) throws -> CLIResponse {
+    static func send(
+        _ request: CLIRequest,
+        to path: String,
+        timeout: TimeInterval = 3,
+        retry: Retry = Retry(),
+        readReply: (Int32) throws -> Data? = readLine(from:)
+    ) throws -> CLIResponse {
+        let requestLine = try CLILineCodec.encode(request)
         let fd = try connect(to: path, timeout: timeout, retry: retry)
         defer { close(fd) }
-        let line: Data?
         do {
-            try writeAll(try CLILineCodec.encode(request), to: fd)
-            line = try readLine(from: fd)
+            try writeAll(requestLine, to: fd)
         } catch {
             // A server that refuses this peer may answer and close before the
             // request is written; its answer explains more than the write error.
-            guard let reply = try? readLine(from: fd) else { throw error }
-            line = reply
+            guard let reply = try? readReply(fd) else { throw error }
+            return try decodeResponse(reply)
         }
+        return try decodeResponse(readReply(fd))
+    }
+
+    private static func decodeResponse(_ line: Data?) throws -> CLIResponse {
         guard let line else { throw ClientError.badResponse }
         do {
             return try CLILineCodec.decode(CLIResponse.self, from: line)

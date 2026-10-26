@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         UpdateController.shared.start()
 
-        CLIServer.shared.startIfEnabled()
         CommandLineHelper.repointLegacyLinks()
 
         #if DEBUG

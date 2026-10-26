@@ -64,20 +64,14 @@ struct LoginShellCommandTests {
         #expect(LoginShellCommand.sharedPlumeEnvironment()["PLUME_SOCKET"] == served)
     }
 
-    /// As when this Plume was launched from another Plume's tab.
+    /// The test host is the app, so launch has already dropped any keys an
+    /// enclosing Plume's tab handed it.
     @Test func aChildEnvironmentCarriesOnlyThisAppsInstanceKeys() {
-        let inherited = [
-            "PATH": "/usr/bin",
-            "PLUME_SOCKET": "/other/cli.sock",
-            "PLUME_TAB_ID": "inherited-tab",
-            "PLUME_TASK_ID": "inherited-task",
-            "PLUME_EVENTS_DIR": "/other/events",
-        ]
-
-        let shared = LoginShellCommand.childEnvironment(inheriting: inherited, overrides: ["PLUME_SOCKET": "/mine.sock"])
-        #expect(shared == ["PATH": "/usr/bin", "PLUME_SOCKET": "/mine.sock"])
-
-        let bare = LoginShellCommand.childEnvironment(inheriting: inherited, overrides: LoginShellCommand.plumeEnvironment)
-        #expect(bare == ["PATH": "/usr/bin", "PLUME": "1"])
+        let environment = LoginShellCommand.childEnvironment(overrides: ["PLUME_SOCKET": "/mine.sock"])
+        #expect(environment["PLUME_SOCKET"] == "/mine.sock")
+        #expect(environment["PLUME_TAB_ID"] == nil)
+        #expect(environment["PLUME_TASK_ID"] == nil)
+        #expect(environment["PLUME_EVENTS_DIR"] == nil)
+        #expect(environment["PATH"] != nil)
     }
 }

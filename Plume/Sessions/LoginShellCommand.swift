@@ -52,17 +52,14 @@ enum LoginShellCommand {
         "PLUME_EVENTS_DIR",
     ]
 
-    /// `base` without any inherited `instanceKeys`, plus `overrides`, so a
-    /// child carries only the values this app sets for it.
-    nonisolated static func childEnvironment(
-        inheriting base: [String: String] = ProcessInfo.processInfo.environment,
-        overrides: [String: String]
-    ) -> [String: String] {
-        base.filter { !instanceKeys.contains($0.key) }.merging(overrides) { $1 }
+    /// This process's environment plus `overrides`. It carries no inherited
+    /// `instanceKeys`, since `dropInheritedInstanceKeys` cleared them at launch.
+    nonisolated static func childEnvironment(overrides: [String: String]) -> [String: String] {
+        ProcessInfo.processInfo.environment.merging(overrides) { $1 }
     }
 
-    /// Clears `instanceKeys` from this process at launch, for children whose
-    /// environment is built elsewhere — terminal surfaces inherit it whole.
+    /// Clears `instanceKeys` from this process at launch, so no child
+    /// inherits them, however its environment is built.
     static func dropInheritedInstanceKeys() {
         for key in instanceKeys { unsetenv(key) }
     }

@@ -146,4 +146,21 @@ struct RunRetirementTests {
             spokenFor: runs.queuedText(forTab: tabID)
         ).count == 1)
     }
+
+    /// So `! plume notify` and `! plume tab new` reach this app and this tab.
+    @Test func aCommandRunsWithItsTabsPlumeEnvironment() async throws {
+        let runs = CommandModeRuns()
+        let tabID = UUID()
+        let taskID = UUID()
+        let result = await withCheckedContinuation { continuation in
+            runs.start(
+                #"printf '%s|%s|%s|%s' "$PLUME" "$PLUME_TAB_ID" "$PLUME_TASK_ID" "$PLUME_SOCKET""#,
+                in: nil,
+                tabID: tabID,
+                taskID: taskID
+            ) { continuation.resume(returning: $1) }
+        }
+        let socket = CLIServer.shared.socketPath ?? ""
+        #expect(result.stdout == "1|\(tabID.uuidString)|\(taskID.uuidString)|\(socket)")
+    }
 }

@@ -141,8 +141,6 @@ struct CodexRecoveryTests {
         #expect(h.interrupts.first?["params"]?["turnId"] == .string("new-turn"))
     }
 
-    /// Headless Codex tabs share one app-server, so a tab's IDs reach the
-    /// commands it runs only through its thread's config.
     @Test(arguments: [nil, "thread"])
     func theThreadRequestCarriesTheTabsEnvironment(resumeThreadID: String?) async throws {
         let h = Harness()
