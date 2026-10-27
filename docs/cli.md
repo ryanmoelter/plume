@@ -20,7 +20,7 @@ The code is split three ways:
 | `plume init zsh` | No | Prints zsh completions; load with `eval "$(plume init zsh)"`. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
-Invoked as `plume-notify` (argv[0]'s basename), the tool runs `notify` with the rest of the arguments.
+`plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments.
 
 **`notify` never fails its caller**, which is often a hook. It tries, in order:
 

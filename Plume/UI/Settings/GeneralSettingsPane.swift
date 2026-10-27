@@ -107,7 +107,7 @@ struct GeneralSettingsPane: View {
             }
         } label: {
             Text("Command line tool")
-            Text("Links `plume` and `plume-notify` into `~/.local/bin`")
+            Text("Links `plume` into `~/.local/bin`, plus `plume-notify` for older scripts")
                 .foregroundStyle(.secondary)
         }
     }

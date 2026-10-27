@@ -52,7 +52,7 @@ A Sonnet verifier builds and launches the worktree's own bundle:
 
 - Find it with `-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`, and launch with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE open <app>`. Without the `env -u`, every agent tab's `claude` reads itself as nested and the chat shows nothing.
 - Quit or relaunch only PIDs matching this bundle path (`pgrep -f "^<app>/Contents/MacOS/Plume"`). Other agents run their own builds.
-- Confirm the launch with the `drive-plume` skill, then send `plume-notify "Ready to test" "PLUME-<n>"` (guarded per the user's notification rule).
+- Confirm the launch with the `drive-plume` skill, then send `command -v plume >/dev/null && plume notify "Ready to test" "PLUME-<n>"`.
 
 Tell the user it is running and give a short checklist of what to try. Iterate on their feedback: a sub-agent edits, the verifier rebuilds and relaunches. Skip the review loop between iterations. Rebase onto `main` or the release branch when asked. If the user waives manual testing, note it and move on.
 
