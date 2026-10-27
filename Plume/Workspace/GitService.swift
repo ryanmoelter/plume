@@ -42,8 +42,8 @@ actor GitService {
         GitRunner.repositoryFacts(in: repository)
     }
 
-    func ignoredPendingChecks(in repository: String, plumeSetting: [String]) -> Set<String> {
-        IgnoredChecksResolver.resolve(repository: repository, plumeSetting: plumeSetting)
+    func ignoredPendingChecks(in repository: String, plumeSetting: [String], configuration: ProjectsConfiguration) -> Set<String> {
+        IgnoredChecksResolver.resolve(repository: repository, plumeSetting: plumeSetting, configuration: configuration)
     }
 
     func worktrees(in repository: String) -> [GitWorktree] {
@@ -72,8 +72,8 @@ actor GitService {
         )
     }
 
-    func configuredBranchPrefix(in repository: String?) -> String? {
-        WorkspaceProvisioner.configuredBranchPrefix(in: repository)
+    func configuredBranchPrefix(in repository: String?, configuration: ProjectsConfiguration) -> String? {
+        WorkspaceProvisioner.configuredBranchPrefix(in: repository, configuration: configuration)
     }
 
     func uncommittedChanges(in path: String) -> [String] {

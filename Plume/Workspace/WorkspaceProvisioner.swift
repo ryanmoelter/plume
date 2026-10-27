@@ -49,22 +49,18 @@ nonisolated enum WorkspaceProvisioner {
         return slug.isEmpty ? "worktree" : slug
     }
 
-    /// The branch prefix the user's own tooling already uses, from
-    /// `wt.branchprefix` or `stack.branchprefix` — the keys `wt` and `stack`
-    /// read. Nil when neither is set, which is when Plume falls back to its
-    /// own `plume/`.
+    /// The branch prefix `plume wt` would use in `repository`: its Settings ▸
+    /// Projects value over the defaults row, else the local part of
+    /// `user.email` plus `/`. An empty string means no prefix. Nil when
+    /// nothing is set and there is no usable email, which is when Plume falls
+    /// back to its own `plume/`.
     ///
-    /// Read from git rather than mirrored into a setting so one answer serves
-    /// every tool, and normalized to end in `/` because a prefix is a path
-    /// segment whether or not the config spells the slash.
-    static func configuredBranchPrefix(in repository: String? = nil) -> String? {
-        for key in ["wt.branchprefix", "stack.branchprefix"] {
-            guard let value = try? GitRunner.run(["config", "--get", key], in: repository) else { continue }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            return trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
-        }
-        return nil
+    /// Blocks on `git`, so call it off the main actor.
+    static func configuredBranchPrefix(in repository: String?, configuration: ProjectsConfiguration) -> String? {
+        let root = repository.flatMap(ProjectRoot.containing)
+        let settings = root.map(configuration.settings(forRepository:)) ?? configuration.defaults
+        let email = try? GitRunner.run(["config", "--get", "user.email"], in: repository)
+        return WTSettings.branchPrefix(configured: settings.branchPrefix, userEmail: email)
     }
 
     static func randomSuffix() -> String {

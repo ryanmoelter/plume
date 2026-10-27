@@ -56,12 +56,10 @@ struct IntegrationsSettingsPane: View {
                     Button("Add", action: addIgnoredCheck)
                         .disabled(newIgnoredCheckName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-
-                GitConfigIgnoredChecksRow()
             } header: {
                 Text("Ignored pending checks")
             } footer: {
-                Text("These checks don't count towards a pending state, e.g. if they're waiting for approval to run. They only count if they're a pass or fail.")
+                Text("These checks don't count towards a pending state, e.g. if they're waiting for approval to run. They only count if they're a pass or fail. This list applies to every repository, and Projects adds one per project.")
                     .foregroundStyle(.secondary)
             }
         }

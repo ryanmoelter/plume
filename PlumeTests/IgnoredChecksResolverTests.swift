@@ -3,7 +3,7 @@ import Foundation
 @testable import Plume
 
 struct IgnoredChecksResolverTests {
-    @Test func unionsANameFromGitConfigAlone() {
+    @Test func unionsANameFromTheProjectAlone() {
         let result = IgnoredChecksResolver.union(["flaky-lint"], [])
         #expect(result == ["flaky-lint"])
     }
@@ -14,15 +14,8 @@ struct IgnoredChecksResolverTests {
     }
 
     @Test func unionsNamesPresentInBothSources() {
-        let result = IgnoredChecksResolver.union(["from-git"], ["from-plume"])
-        #expect(result == ["from-git", "from-plume"])
-    }
-
-    @Test func neitherSourceSuppressesTheOther() {
-        // The CLI's tool-key-wins rule would drop one side; Plume unions both.
-        let result = IgnoredChecksResolver.union(["only-in-git"], ["only-in-plume"])
-        #expect(result.contains("only-in-git"))
-        #expect(result.contains("only-in-plume"))
+        let result = IgnoredChecksResolver.union(["from-project"], ["from-plume"])
+        #expect(result == ["from-project", "from-plume"])
     }
 
     @Test func duplicatesAcrossSourcesCollapse() {
@@ -35,31 +28,38 @@ struct IgnoredChecksResolverTests {
         #expect(result == ["dup"])
     }
 
-    // `git config --get-all` merges the repo-local file with the user's real
-    // global config (by design — see IgnoredChecksResolver's doc comment), so
-    // these assert containment rather than exact equality: this machine's own
-    // global `wt`/`stack` config may legitimately add more names.
-
-    @Test func resolveReadsGitConfigFromARealRepository() throws {
+    @Test func resolveReadsTheProjectsListFromASubdirectory() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
-
-        try GitRunner.run(["config", "--add", "wt.ignoredPendingChecks", "wt-check"], in: repository)
-        try GitRunner.run(
-            ["config", "--add", "ryanmoelter-cli-tools.ignoredPendingChecks", "shared-check"],
-            in: repository
+        let nested = "\(repository)/sub"
+        try FileManager.default.createDirectory(atPath: nested, withIntermediateDirectories: true)
+        let root = try #require(ProjectRoot.containing(repository))
+        let configuration = ProjectsConfiguration(
+            defaults: ProjectSettings(ignoredPendingChecks: ["default-check"]),
+            repositories: [root: ProjectSettings(ignoredPendingChecks: ["project-check"])]
         )
 
-        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: ["plume-check"])
-        #expect(result.isSuperset(of: ["wt-check", "shared-check", "plume-check"]))
+        let result = IgnoredChecksResolver.resolve(repository: nested, plumeSetting: ["plume-check"], configuration: configuration)
+        #expect(result == ["project-check", "plume-check"])
     }
 
-    @Test func resolveWithNoGitConfigStillIncludesThePlumeSetting() throws {
+    @Test func aProjectWithNoListTakesTheDefaultsRow() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
+        let configuration = ProjectsConfiguration(defaults: ProjectSettings(ignoredPendingChecks: ["default-check"]))
 
-        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: ["plume-check"])
-        #expect(result.contains("plume-check"))
+        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: [], configuration: configuration)
+        #expect(result == ["default-check"])
+    }
+
+    /// Ignored checks live in Settings ▸ Projects, never in git config.
+    @Test func gitConfigIsNotASource() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try GitRunner.run(["config", "--add", "wt.ignoredPendingChecks", "wt-check"], in: repository)
+
+        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: ["plume-check"], configuration: ProjectsConfiguration())
+        #expect(result == ["plume-check"])
     }
 
     private func makeRepository() throws -> String {

@@ -26,10 +26,13 @@ struct PlumeApp: App {
 
         GhosttyRuntime.shared.start()
         PullRequestStore.shared.resolveIgnoredPendingChecks = { repository in
-            let setting = await MainActor.run { AppSettings.shared.ignoredPendingChecks }
+            let (setting, configuration) = await MainActor.run {
+                (AppSettings.shared.ignoredPendingChecks, AppSettings.shared.projectsConfiguration)
+            }
             return await GitService.shared.ignoredPendingChecks(
                 in: repository,
-                plumeSetting: setting
+                plumeSetting: setting,
+                configuration: configuration
             )
         }
         // A test host must never reach the real Keychain or Linear, nor take

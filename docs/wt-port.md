@@ -1,8 +1,6 @@
 # Porting `wt` into `plume wt`
 
-PLUME-316 ports Ryan's Python `wt` tool (`dotfiles/cli-tools/src/wt` and `src/_common/`) into the `plume` CLI as `plume wt …`. A `wt` executable name, or the `wt` function from `plume init zsh --aliases`, routes to the same code. This page maps the Python to the Swift and splits the remaining work into four groups.
-
-Stage 1 is the skeleton and the ported tests. Every unported function is a stub that returns an empty value or does nothing; none of them traps. Each stub carries a `TODO(PLUME-316 group X)` naming the group that implements it, and the tests fail until that group lands.
+PLUME-316 ported Ryan's Python `wt` tool (`dotfiles/cli-tools/src/wt` and `src/_common/`) into the `plume` CLI as `plume wt …`. A `wt` executable name, or the `wt` function from `plume init zsh --aliases`, routes to the same code. This page records the decisions behind the port and maps the Python to the Swift, so a change to either side can find its counterpart.
 
 ## Decisions
 
@@ -11,7 +9,9 @@ Stage 1 is the skeleton and the ported tests. Every unported function is a stub 
 - Plume tabs replace cmux and Ghostty. Inside Plume, a worktree opens with `tab.new`. `--task` (or `--workspace`, kept for muscle memory) opens it as a task instead. `--no-tab` opens nothing. Outside Plume, or when the request fails, `wt` prints `wt: <dir>` and `wt: (cd "<dir>")`. A failed tab request never falls back to a task.
 - `switch` opens a tab inside Plume. Outside Plume it fails and tells the user to load `eval "$(plume init zsh)"`, whose `plume()` wrapper `cd`s through `command plume wt path`.
 - Settings come from Settings ▸ Projects, not `git config`. The app stores a `ProjectsConfiguration` as JSON data under the `projectsConfiguration` key. The tool reads it from the suite named by `PLUME_BUNDLE_ID`, else `com.ryanmoelter.Plume`. A repository's value overrides the defaults field by field, an explicit empty string counts as a value, and a list replaces the default list. Settings ▸ Projects (`ProjectsSettingsPane`) writes it through `AppSettings.projectsConfiguration`, keyed by `ProjectRoot.containing`, which derives the root through the same `WorktreeContext.locate` the tool uses.
+- The app reads the same settings. The New Worktree sheet suggests a branch under the prefix `wt` would use (`WorkspaceProvisioner.configuredBranchPrefix`), including the `user.email` fallback. The sidebar's PR chips ignore the project's pending checks, plus the Plume-wide list in Settings ▸ Integrations (`IgnoredChecksResolver`). Neither reads git config.
 - The ignored-pending-checks list is a `TerminalUI` parameter read from settings, not a global.
+- `help`, `-h`, `--help` and a bare `wt` work outside a git repository. There they print only the commands, with no resolved-settings summary.
 
 ## Python to Swift
 
@@ -51,16 +51,3 @@ The Python stack fields in `forge.py` belong to the `stack` port (PLUME-317), no
 | `test_wt_tabs.py` | `WTTabsTests.swift` |
 | `test_init.py` | `WTInitTests.swift`, `CLICommandLineTests.swift` |
 | `test_version.py` | `WTMainTests.swift`, `WTDispatchTests.swift` |
-
-## Groups
-
-Each group owns whole suites, so a group is done when its suites pass. Group A has no dependencies. B needs A. C and D need B and can run in parallel.
-
-| Group | Implements | Suites that must pass |
-|---|---|---|
-| A: shared layer | `CLIProcess`, `ProjectSettings`, `TerminalUI`, `ForgeKind.resolving`, `GitLabQuery`, `ForgeBackend`, `PRFetch` | `ForgeTests`, `TerminalUITests`, `ProjectSettingsTests` |
-| B: discovery and dispatch | `WorktreeGit`, `WorktreeContext`, `WTHelpers`, `WTSettings`, `WT.main`/`run`, `path`, `__complete`, `buildRows`, `statusCluster` | `WTDiscoveryTests`, `WTHelperTests`, `WTMainTests`, `WTDerivedSettingsTests`; in `WTGitIntegrationTests`, every test but `cobCreatesASelfIgnoredWorktree` |
-| C: list and current | `list`, `current`, `usage`, the rest of `WTList` | `WTListTests`, `WTCurrentTests` |
-| D: mutating commands, tabs, shell | `checkout`/`cob`, `open`, `background`, `foreground`, `delete`, `prune`, `rename`, `commit`, `switch`, `setup`, `TabOpener`, `WTPrune`, `ShellIntegration.zsh(aliases:)` | `WTPruneTests`, `WTTabsTests`, `WTInitTests`, `WTDispatchTests`, `CLICommandLineTests.initCompletesTheShellNameThenAliases`, `WTGitIntegrationTests.cobCreatesASelfIgnoredWorktree` |
-
-`WTDispatchTests` checks that each alias fails the same way as its full name on bad arguments. It includes `l`/`list`, so it passes only once C has landed as well as D.
