@@ -134,11 +134,13 @@ nonisolated final class StackContext {
         !branchPrefix.isEmpty && !name.hasPrefix(branchPrefix) ? branchPrefix + name : name
     }
 
-    /// Fails with the setup hint when origin is on no forge `stack` knows.
+    /// Fails with the setup hint when origin is on no forge `stack` knows,
+    /// and with the cause when its CLI is missing or signed out.
     func requireForge() throws -> any StackForge {
         guard let forge else {
             throw CLIFailure("no GitHub or GitLab remote detected — set the forge for this repository in Plume's Settings ▸ Projects")
         }
+        try forge.requireReady()
         return forge
     }
 }

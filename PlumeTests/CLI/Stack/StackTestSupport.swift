@@ -146,6 +146,7 @@ let nerdUI = TerminalUI(glyphSet: .nerd)
 nonisolated final class RecordingStackForge: StackForge, @unchecked Sendable {
     var prs: PullRequestMap
     var fetchFails = false
+    var notReady: CLIFailure?
     private(set) var edits: [(number: Int, base: String)] = []
     private(set) var created: [(head: String, base: String, title: String, draft: Bool)] = []
     var stacks: FakeNativeStacks?
@@ -160,7 +161,7 @@ nonisolated final class RecordingStackForge: StackForge, @unchecked Sendable {
     var noun: String { kind == .gitlab ? "MR" : "PR" }
     var cliName: String { kind == .gitlab ? "glab" : "gh" }
     var isInstalled: Bool { true }
-    func requireReady() throws {}
+    func requireReady() throws { if let notReady { throw notReady } }
 
     func pullRequests(forBranches branches: [String]) -> PullRequestMap? {
         if fetchFails { return nil }
