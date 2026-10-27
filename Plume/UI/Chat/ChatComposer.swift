@@ -246,6 +246,26 @@ struct ChatComposer: View, ThemedView {
         hasSendableText = sendableText(text)
     }
 
+    /// What sets the suggestion panel's height. The composer eases when this
+    /// changes, so a keystroke that keeps the row count animates nothing.
+    private struct SuggestionPanelLayout: Equatable {
+        enum Kind { case slash, mention }
+        var kind: Kind?
+        var rows = 0
+        var hasCaption = false
+    }
+
+    private var suggestionPanelLayout: SuggestionPanelLayout {
+        if autocomplete.slash.isShowing {
+            return SuggestionPanelLayout(kind: .slash, rows: autocomplete.slash.matches.count, hasCaption: slashCommandsAreRemembered)
+        }
+        let mention = autocomplete.mention
+        if mention.isPresented {
+            return SuggestionPanelLayout(kind: .mention, rows: mention.candidates.count, hasCaption: mention.candidates.isEmpty && mention.isLoading)
+        }
+        return SuggestionPanelLayout()
+    }
+
     var body: some View {
         VStack(spacing: dimensions.panelContentInset) {
             if autocomplete.slash.isShowing {
@@ -257,6 +277,7 @@ struct ChatComposer: View, ThemedView {
                     isRemembered: slashCommandsAreRemembered,
                     tokenPrefix: completionPrefix
                 )
+                .transition(.opacity)
             } else if autocomplete.mention.isPresented {
                 MentionAutocompleteView(
                     candidates: autocomplete.mention.candidates,
@@ -265,6 +286,7 @@ struct ChatComposer: View, ThemedView {
                     onSelect: { autocomplete.mention.select($0) },
                     isTopOfPanel: !hasContentAbove
                 )
+                .transition(.opacity)
             }
 
             VStack(spacing: 0) {
@@ -347,6 +369,7 @@ struct ChatComposer: View, ThemedView {
             // drags the controls row with it.
             .animatedHeight(.snappy(duration: 0.2), alignment: .bottom)
         }
+        .animation(.easeOut(duration: 0.18), value: suggestionPanelLayout)
         // The composer's whole content sits at one inset from the glass
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
