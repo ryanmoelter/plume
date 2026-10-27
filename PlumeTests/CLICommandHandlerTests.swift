@@ -56,6 +56,18 @@ struct CLICommandHandlerTests {
         #expect(task.selectedTabID == selected)
     }
 
+    @Test func aNewTabSavesItsDirectoryForTheNextLaunch() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let directory = FileManager.default.temporaryDirectory.path
+        let handler = makeHandler(task: task)
+
+        let response = handler.handle(.newTab(.init(taskID: task.id, directory: directory, select: false)))
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.workingDirectoryPath == directory)
+        #expect(TabDirectoryStore().startingDirectory(for: tab, in: task) == directory)
+    }
+
     @Test func selectingTheNewTabRevealsItsTask() throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         var revealed = false

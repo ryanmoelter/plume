@@ -197,4 +197,30 @@ struct TabDirectoryStoreTests {
 
         #expect(TabDirectoryStore().startingDirectory(for: task.tabs[0], in: task) == "/repo")
     }
+
+    /// After a relaunch the store is empty, so only the tab's saved folder can
+    /// keep it from following the task's selected tab.
+    @Test func aSavedFolderWinsOverTheTaskAfterARelaunch() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let first = task.tabs[0]
+        first.workingDirectoryPath = "/worktrees/feature"
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.selectTab(first, in: task)
+        let saved = FileManager.default.temporaryDirectory.path
+        tab.workingDirectoryPath = saved
+
+        #expect(TabDirectoryStore().startingDirectory(for: tab, in: task) == saved)
+    }
+
+    @Test func aDeletedSavedFolderFallsBackToWhereANewTabWouldStart() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.workingDirectoryPath = "/repo"
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        tab.workingDirectoryPath = "/nonexistent-\(UUID().uuidString)"
+
+        #expect(TabDirectoryStore().startingDirectory(for: tab, in: task) == "/repo")
+    }
 }

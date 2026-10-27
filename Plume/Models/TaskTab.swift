@@ -28,8 +28,8 @@ final class TaskTab {
     var providerID: String?
     /// Where this tab last reported being, which is not always its task's
     /// folder: an agent that moves into a worktree stays there across a
-    /// relaunch. Nil until the tab reports, so a new tab starts at its task's
-    /// folder. `TabDirectoryStore` owns the live value and writes through here.
+    /// relaunch, and so does a terminal opened with `plume tab new --cwd`.
+    /// Nil until the tab reports, so a new tab starts at its task's folder. `TabDirectoryStore` owns the live value and writes through here.
     var workingDirectoryPath: String?
     /// The CLI's own identifier for this conversation, passed back to it to
     /// resume: a Claude Code `session_id`, or a Codex `threadId`.
