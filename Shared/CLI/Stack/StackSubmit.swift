@@ -36,7 +36,7 @@ nonisolated extension Stack {
                 continue
             }
             // No PR, or an old closed one: create a fresh one.
-            let subjects = try ctx.git.git("log", "--reverse", "--format=%s", "\(try ctx.parentTip(branches, branch))..\(branch)")
+            let subjects = try ctx.git.git("log", "--reverse", "--format=%s", "\(try ctx.parentTip(branches, branch))..\(StackRef.local(branch))")
                 .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
                 .filter { !$0.isEmpty }
             guard let title = subjects.first else {
@@ -95,7 +95,7 @@ nonisolated extension Stack {
             throw CLIFailure("fetch failed")
         }
         // Advances the local trunk; fails harmlessly when it is checked out.
-        _ = try? ctx.git.run(["fetch", "origin", "\(ctx.trunk):\(ctx.trunk)"])
+        _ = try? ctx.git.run(["fetch", "origin", "\(StackRef.local(ctx.trunk)):\(StackRef.local(ctx.trunk))"])
         var hadErrors = false
         do {
             try ctx.state.withLock {
@@ -223,7 +223,7 @@ nonisolated extension Stack {
         }
         let result: CLIProcessResult
         do {
-            result = try ctx.git.run(["push", "--force-with-lease", "origin", branch])
+            result = try ctx.git.run(["push", "--force-with-lease", "origin", "\(StackRef.local(branch)):\(StackRef.local(branch))"])
         } catch {
             ctx.warn("push failed for '\(branch)': \(error)")
             return false

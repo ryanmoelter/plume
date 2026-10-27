@@ -60,7 +60,7 @@ nonisolated extension Stack {
                 }
                 base = mergeBase
             }
-            let listed = try ctx.git.git("rev-list", "--reverse", "\(base)..\(current)")
+            let listed = try ctx.git.git("rev-list", "--reverse", "\(base)..\(StackRef.local(current))")
             let commits = listed.isEmpty ? [] : listed.components(separatedBy: "\n")
             if commits.count < 2 {
                 throw CLIFailure("'\(current)' has \(commits.count) commit(s) on '\(entry.parent)' — nothing to split")
@@ -102,7 +102,7 @@ nonisolated extension Stack {
             let name = String(argument[..<colon])
             let committish = String(argument[argument.index(after: colon)...])
             if name.isEmpty || committish.isEmpty { throw CLIFailure("expected <name>:<commit>, got '\(argument)'") }
-            let sha = try ctx.rev(committish)
+            guard let sha = ctx.git.resolve(committish) else { throw CLIFailure("unknown ref: \(committish)") }
             guard let index = commits.firstIndex(of: sha) else {
                 throw CLIFailure("\(committish) (\(sha.prefix(12))) is not one of this branch's own commits")
             }
@@ -124,7 +124,7 @@ nonisolated extension Stack {
         _ commits: [String]
     ) throws -> [(name: String, sha: String)] {
         var subjects: [String: String] = [:]
-        for line in try ctx.git.git("log", "--reverse", "--format=%H %s", "\(commits[0])~..\(current)").components(separatedBy: "\n") {
+        for line in try ctx.git.git("log", "--reverse", "--format=%H %s", "\(commits[0])~..\(StackRef.local(current))").components(separatedBy: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             subjects[String(line[..<space])] = String(line[line.index(after: space)...])
         }

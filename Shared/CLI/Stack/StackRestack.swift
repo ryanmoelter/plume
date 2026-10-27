@@ -85,13 +85,13 @@ nonisolated extension Stack {
 
     /// `origin/<branch>` as of the last fetch, or nil. Local only.
     static func originTip(_ ctx: StackContext, _ branch: String) -> String? {
-        ctx.git.resolve("refs/remotes/origin/\(branch)")
+        ctx.git.resolve(StackRef.origin(branch))
     }
 
     /// Every sha `origin/<branch>` has pointed at here; push and fetch both
     /// log it.
     static func formerOriginTips(_ ctx: StackContext, _ branch: String) -> Set<String> {
-        guard let result = try? ctx.git.run(["reflog", "show", "--format=%H", "refs/remotes/origin/\(branch)"]),
+        guard let result = try? ctx.git.run(["reflog", "show", "--format=%H", StackRef.origin(branch)]),
               result.status == 0
         else { return [] }
         return Set(result.stdout.split(whereSeparator: \.isWhitespace).map(String.init))
@@ -118,7 +118,7 @@ nonisolated extension Stack {
             .split(whereSeparator: \.isWhitespace).map(String.init))
         var replayed = parentTip
         var keep: String?
-        let commits = try ctx.git.git("rev-list", "--reverse", "--no-merges", "\(floor)..\(branch)")
+        let commits = try ctx.git.git("rev-list", "--reverse", "--no-merges", "\(floor)..\(StackRef.local(branch))")
             .split(whereSeparator: \.isWhitespace).map(String.init)
         for commit in commits {
             let merge = try ctx.git.run(["merge-tree", "--write-tree", "--merge-base=\(commit)^", replayed, commit])
@@ -207,7 +207,7 @@ nonisolated extension Stack {
                         predicted[branch] = adopt.onto
                         adopted.insert(branch)
                     } else {
-                        let count = try ctx.git.revListCount("\(adopt.floor)..\(branch)")
+                        let count = try ctx.git.revListCount("\(adopt.floor)..\(StackRef.local(branch))")
                         results.append((branch, "would adopt origin/\(branch) (already restacked on the remote) and replay \(count) local commit(s)"))
                         moved.insert(branch)
                     }
@@ -235,7 +235,7 @@ nonisolated extension Stack {
             branches[branch]?.base = parentTip
             try ctx.saveState(branches)
             if adopt != nil {
-                let count = try ctx.git.revListCount("\(onto)..\(branch)")
+                let count = try ctx.git.revListCount("\(onto)..\(StackRef.local(branch))")
                 if count == 0 { adopted.insert(branch) }
                 let replayed = count > 0 ? ", replayed \(count) local commit(s)" : ""
                 results.append((branch, "adopted origin/\(branch) (already restacked on the remote)\(replayed)"))
@@ -253,7 +253,7 @@ nonisolated extension Stack {
     private static func interactiveRestack(_ ctx: StackContext, _ branches: inout StackBranches, _ current: String) throws {
         let parentTip = try ctx.parentTip(branches, current)
         let parent = branches[current]?.parent ?? ctx.trunk
-        if try ctx.git.revListCount("\(parentTip)..\(current)") == 0 {
+        if try ctx.git.revListCount("\(parentTip)..\(StackRef.local(current))") == 0 {
             throw CLIFailure("'\(current)' has no commits on '\(parent)' — nothing to rebase")
         }
         // Stored bases move the branches above; git must not drag them along.
