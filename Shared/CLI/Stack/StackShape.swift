@@ -60,7 +60,7 @@ nonisolated extension Stack {
                 }
                 base = mergeBase
             }
-            let listed = try ctx.git.git("rev-list", "--reverse", "\(base)..\(StackRef.local(current))")
+            let listed = try ctx.git.git("rev-list", "--reverse", "\(base)..\(GitRef.local(current))")
             let commits = listed.isEmpty ? [] : listed.components(separatedBy: "\n")
             if commits.count < 2 {
                 throw CLIFailure("'\(current)' has \(commits.count) commit(s) on '\(entry.parent)' — nothing to split")
@@ -124,7 +124,7 @@ nonisolated extension Stack {
         _ commits: [String]
     ) throws -> [(name: String, sha: String)] {
         var subjects: [String: String] = [:]
-        for line in try ctx.git.git("log", "--reverse", "--format=%H %s", "\(commits[0])~..\(StackRef.local(current))").components(separatedBy: "\n") {
+        for line in try ctx.git.git("log", "--reverse", "--format=%H %s", "\(commits[0])~..\(GitRef.local(current))").components(separatedBy: "\n") {
             guard let space = line.firstIndex(of: " ") else { continue }
             subjects[String(line[..<space])] = String(line[line.index(after: space)...])
         }

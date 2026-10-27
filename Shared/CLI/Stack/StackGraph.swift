@@ -127,7 +127,7 @@ nonisolated enum StackUpdatePlan: Equatable, Sendable {
 nonisolated extension StackContext {
     /// The trunk tip: `origin/<trunk>`, else the local branch.
     func trunkTip() throws -> String {
-        for ref in [StackRef.origin(trunk), StackRef.local(trunk)] {
+        for ref in [GitRef.origin(trunk), GitRef.local(trunk)] {
             if let sha = git.resolve(ref) { return sha }
         }
         throw CLIFailure("cannot resolve trunk '\(trunk)' — no origin/\(trunk) or local branch")
@@ -135,7 +135,7 @@ nonisolated extension StackContext {
 
     /// The tip of local branch `branch`; fails when there is none.
     func rev(_ branch: String) throws -> String {
-        guard let sha = git.resolve(StackRef.local(branch)) else { throw CLIFailure("unknown ref: \(branch)") }
+        guard let sha = git.resolve(GitRef.local(branch)) else { throw CLIFailure("unknown ref: \(branch)") }
         return sha
     }
 
@@ -171,7 +171,7 @@ nonisolated extension StackContext {
 
     /// The commits `branch` adds on its parent.
     func commitsOverParent(_ branches: StackBranches, _ branch: String) throws -> Int {
-        try git.revListCount("\(try parentTip(branches, branch))..\(StackRef.local(branch))")
+        try git.revListCount("\(try parentTip(branches, branch))..\(GitRef.local(branch))")
     }
 
     /// Trunk commits between `base` and the trunk tip.

@@ -25,13 +25,6 @@ nonisolated protocol StackGit: AnyObject {
     func run(_ arguments: [String], capture: Bool, input: String?) throws -> CLIProcessResult
 }
 
-/// Full ref names for branches handed to git as revisions. A bare name
-/// resolves `refs/tags/<name>` before `refs/heads/<name>`.
-nonisolated enum StackRef {
-    static func local(_ branch: String) -> String { "refs/heads/\(branch)" }
-    static func origin(_ branch: String) -> String { "refs/remotes/origin/\(branch)" }
-}
-
 nonisolated extension StackGit {
     @discardableResult
     func run(_ arguments: [String], capture: Bool = true) throws -> CLIProcessResult {
@@ -96,7 +89,7 @@ nonisolated final class ProcessStackGit: StackGit {
     }
 
     func branchExists(_ branch: String) -> Bool {
-        succeeds("rev-parse", "--verify", "--quiet", StackRef.local(branch))
+        succeeds("rev-parse", "--verify", "--quiet", GitRef.local(branch))
     }
 
     func isAncestor(_ ancestor: String, _ descendant: String) -> Bool {
@@ -114,8 +107,8 @@ nonisolated final class ProcessStackGit: StackGit {
     }
 
     func originAheadBehind(_ branch: String) -> (ahead: Int, behind: Int)? {
-        guard succeeds("rev-parse", "--verify", "--quiet", StackRef.origin(branch)),
-              let out = output("rev-list", "--count", "--left-right", "\(StackRef.local(branch))...\(StackRef.origin(branch))")
+        guard succeeds("rev-parse", "--verify", "--quiet", GitRef.origin(branch)),
+              let out = output("rev-list", "--count", "--left-right", "\(GitRef.local(branch))...\(GitRef.origin(branch))")
         else { return nil }
         let parts = out.split(separator: "\t").compactMap { Int($0) }
         guard parts.count == 2 else { return nil }
