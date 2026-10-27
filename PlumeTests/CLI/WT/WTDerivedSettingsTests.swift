@@ -18,6 +18,16 @@ struct WTDerivedSettingsTests {
         #expect(WTSettings.branchPrefix(configured: "", userEmail: "ryan@example.com") == "")
     }
 
+    @Test func aConfiguredPrefixIsTrimmedAndEndsInASlash() {
+        #expect(WTSettings.branchPrefix(configured: "  me ", userEmail: nil) == "me/")
+        #expect(WTSettings.branchPrefix(configured: "me/\n", userEmail: nil) == "me/")
+        #expect(WTSettings.normalizedBranchPrefix("team/me") == "team/me/")
+    }
+
+    @Test func aWhitespaceOnlyPrefixFallsBackToTheEmail() {
+        #expect(WTSettings.branchPrefix(configured: "   ", userEmail: "ryan@example.com") == "ryan/")
+    }
+
     @Test func aMissingOrMalformedEmailCannotSupplyAPrefix() {
         #expect(WTSettings.branchPrefix(configured: nil, userEmail: nil) == nil)
         #expect(WTSettings.branchPrefix(configured: nil, userEmail: "") == nil)

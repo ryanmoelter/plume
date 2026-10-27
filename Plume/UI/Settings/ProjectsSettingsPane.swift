@@ -89,11 +89,16 @@ struct ProjectsSettingsPane: View {
         .task(id: repoPaths) {
             let paths = repoPaths
             let roots = await Task.detached { Set(paths.compactMap(ProjectRoot.containing)) }.value
+            // The detached work outlives cancellation, so a superseded scan
+            // would otherwise overwrite a newer one.
+            guard !Task.isCancelled, paths == repoPaths else { return }
             discoveredRoots = Array(roots)
         }
         .task(id: scope) {
             let root = scope.root
-            fallbacks = await Task.detached { ProjectFallbacks.load(root: root) }.value
+            let loaded = await Task.detached { ProjectFallbacks.load(root: root) }.value
+            guard !Task.isCancelled, root == scope.root else { return }
+            fallbacks = loaded
         }
     }
 
@@ -192,8 +197,10 @@ private struct ProjectSettingsFields: View {
             HStack {
                 TextField("Branch prefix", text: text(\.branchPrefix), prompt: Text(prefixPlaceholder))
                     .labelsHidden()
+                    .onSubmit(normalizePrefix)
                     .plumeID(AccessibilityID.settingsProjectField, label: "branchPrefix", value: settings.branchPrefix ?? "", setValue: { value in
                         update { $0.branchPrefix = value.isEmpty ? nil : value }
+                        normalizePrefix()
                     })
                     .disabled(settings.branchPrefix == "")
                 Toggle("No prefix", isOn: noPrefix)
@@ -238,7 +245,18 @@ private struct ProjectSettingsFields: View {
         switch inherited.branchPrefix {
         case nil: "None (no user.email)"
         case "": "No prefix"
-        case let prefix?: prefix
+        case let prefix?: WTSettings.normalizedBranchPrefix(prefix)
+        }
+    }
+
+    /// Applied on submit rather than per keystroke, which would add the `/`
+    /// mid-word. Resolution normalizes too, so a field left unsubmitted
+    /// still resolves the same.
+    private func normalizePrefix() {
+        update { settings in
+            guard let prefix = settings.branchPrefix, !prefix.isEmpty else { return }
+            let normalized = WTSettings.normalizedBranchPrefix(prefix)
+            settings.branchPrefix = normalized.isEmpty ? nil : normalized
         }
     }
 

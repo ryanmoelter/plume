@@ -2,13 +2,21 @@ import Foundation
 
 /// The fallbacks applied to a project's settings when it leaves a field nil.
 nonisolated enum WTSettings {
-    /// `configured` when set, including an explicit empty string ("no
-    /// prefix"); otherwise the local part of `userEmail` plus `/`. Nil when
-    /// the email is missing or has no `@`.
+    /// `configured`, normalized, when set, including an explicit empty
+    /// string ("no prefix"); otherwise the local part of `userEmail` plus
+    /// `/`. A whitespace-only value counts as unset. Nil when it falls back
+    /// and the email is missing or has no `@`.
     static func branchPrefix(configured: String?, userEmail: String?) -> String? {
-        if let configured { return configured }
+        if configured == "" { return "" }
+        if let normalized = configured.map(normalizedBranchPrefix), !normalized.isEmpty { return normalized }
         guard let userEmail, let at = userEmail.firstIndex(of: "@") else { return nil }
         return String(userEmail[..<at]) + "/"
+    }
+
+    /// `prefix` without surrounding whitespace, ending in `/` unless empty.
+    static func normalizedBranchPrefix(_ prefix: String) -> String {
+        let trimmed = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
     }
 
     /// `configured` when set and non-empty, else origin's default branch from
