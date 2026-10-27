@@ -19,7 +19,7 @@ enum MarkdownComposerStyler {
         recognizedSlashCommandNames: Set<String> = [],
         isCommandMode: Bool = false,
         accent: NSColor = ThemeChrome.accentNSColor(),
-        references: [NSRange] = []
+        references: [ComposerReferenceChip] = []
     ) {
         let metrics = ComposerMarkdownMetrics(fontSize: fontSize)
         let bodyFont = isCommandMode ? metrics.mono : metrics.body
@@ -103,16 +103,17 @@ enum MarkdownComposerStyler {
     }
 
     /// A reference chip's trigger is hidden, and kerned wide enough to hold
-    /// the icon `ComposerDecorations` draws over it. The token is padded like
+    /// the icons `ComposerDecorations` draws over it. The token is padded like
     /// a code chip, and a quoted path's quotes are dimmed rather than hidden.
-    private static func styleReferences(_ ranges: [NSRange], in storage: NSTextStorage, text ns: NSString, metrics: ComposerMarkdownMetrics, accent: NSColor) {
+    private static func styleReferences(_ references: [ComposerReferenceChip], in storage: NSTextStorage, text ns: NSString, metrics: ComposerMarkdownMetrics, accent: NSColor) {
         let chip = ReferenceChipMetrics(fontSize: metrics.fontSize)
-        for range in ranges where range.length > 1 && NSMaxRange(range) <= ns.length {
+        for reference in references where reference.range.length > 1 && NSMaxRange(reference.range) <= ns.length {
+            let range = reference.range
             storage.addAttribute(.foregroundColor, value: accent, range: range)
             storage.addAttributes([
                 .foregroundColor: NSColor.clear,
                 .font: hiddenMarkerFont,
-                .kern: chip.iconSize + chip.iconGap,
+                .kern: chip.triggerKern(brand: reference.brand),
             ], range: NSRange(location: range.location, length: 1))
             let last = NSMaxRange(range) - 1
             if range.length > 3, ns.character(at: range.location + 1) == quote, ns.character(at: last) == quote {

@@ -32,6 +32,9 @@ enum ComposerDecorations {
         var symbol: String
         var tint: NSColor
         var wash: NSColor
+        var brandRect: NSRect?
+        var brand: ReferenceChipBrand?
+        var brandTint: NSColor = .secondaryLabelColor
     }
 
     struct Decorations: Equatable {
@@ -93,6 +96,11 @@ enum ComposerDecorations {
             chip.wash.setFill()
             path.fill()
         }
+        if let brand = chip.brand, let brandRect = chip.brandRect, brandRect.intersects(dirtyRect),
+           let logo = NSImage(named: brand.imageName) {
+            let inset = brandRect.width * (1 - ReferenceChipMetrics.brandScale) / 2
+            drawTemplate(logo, tint: chip.brandTint, fittedIn: brandRect.insetBy(dx: inset, dy: inset))
+        }
         guard chip.iconRect.intersects(dirtyRect),
               let image = NSImage(systemSymbolName: chip.symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chip.iconRect.height, weight: .regular)
@@ -108,6 +116,26 @@ enum ComposerDecorations {
             height: size.height
         )
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
+    private static func drawTemplate(_ image: NSImage, tint: NSColor, fittedIn square: NSRect) {
+        guard image.size.width > 0, image.size.height > 0 else { return }
+        let scale = min(square.width / image.size.width, square.height / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let tinted = NSImage(size: size, flipped: false) { bounds in
+            image.draw(in: bounds)
+            tint.set()
+            bounds.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.draw(
+            in: NSRect(x: square.midX - size.width / 2, y: square.midY - size.height / 2, width: size.width, height: size.height),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
     }
 
     private static func drawCheckbox(_ checkbox: Checkbox) {
@@ -317,12 +345,11 @@ enum ComposerDecorations {
         return merged(rects)
     }
 
-    /// A code chip's rects around the token, and the icon square at its
-    /// hidden trigger's glyph, centered on the body font's capitals.
+    /// A code chip's rects around the token, and the icon squares at its
+    /// hidden trigger's glyph.
     private static func referenceChipRects(_ chips: [ComposerReferenceChip], _ context: Context) -> [ReferenceChip] {
         let padding = context.metrics.chipPadding
-        let iconSize = ReferenceChipMetrics(fontSize: context.metrics.fontSize).iconSize
-        let font = context.metrics.body
+        let chipMetrics = ReferenceChipMetrics(fontSize: context.metrics.fontSize)
         return chips.compactMap { chip in
             guard chip.range.length > 1, NSMaxRange(chip.range) <= context.length else { return nil }
             var frames = context.segmentFrames(for: chip.range)
@@ -337,16 +364,21 @@ enum ComposerDecorations {
                 let minX = max(context.columnStart, frame.minX)
                 return NSRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height)
             })
-            // The trigger is set in a 1 pt font, so the line's height comes
-            // from the character after it.
-            let line = context.segmentFrames(for: NSRange(location: chip.range.location + 1, length: 1)).first ?? frames[0]
-            let centerY = line.minY + font.ascender - font.capHeight / 2
+            guard let firstLine = rects.first else { return nil }
+            let icons = chipMetrics.iconRects(
+                leadingX: max(context.columnStart, iconX),
+                chipMidY: firstLine.midY,
+                brand: chip.brand
+            )
             return ReferenceChip(
                 rects: rects,
-                iconRect: NSRect(x: max(context.columnStart, iconX), y: centerY - iconSize / 2, width: iconSize, height: iconSize),
+                iconRect: icons.status,
                 symbol: chip.symbol,
                 tint: chip.tint,
-                wash: chip.wash
+                wash: chip.wash,
+                brandRect: icons.brand,
+                brand: chip.brand,
+                brandTint: chip.brandTint
             )
         }
     }

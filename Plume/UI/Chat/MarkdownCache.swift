@@ -128,7 +128,7 @@ enum MarkdownCache {
             } else if let link = run.link, piece.characters.first == ReferenceChipText.placeholder {
                 var reference = piece
                 reference[reference.startIndex..<reference.characters.index(after: reference.startIndex)].kern =
-                    ReferenceChipMetrics(fontSize: fontSize).placeholderKern
+                    ReferenceChipMetrics(fontSize: fontSize).placeholderKern(brand: ReferenceTarget.classify(link, base: nil)?.brand)
                 segments.append(StyledInline.Segment(text: reference, chip: .reference(id: nextChipID, url: link)))
                 nextChipID += 1
             } else if let link = run.link, let last = segments.indices.last,

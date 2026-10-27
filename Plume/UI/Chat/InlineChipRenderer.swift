@@ -18,20 +18,22 @@ struct ReferenceChipAttribute: TextAttribute, Hashable {
 }
 
 /// How a `Text`'s reference chips draw: the wash over the code fill, and the
-/// icon each link's chip leads with.
+/// icons each link's chip leads with.
 struct ReferenceChipDrawing {
     struct Icon {
         var symbol: String
         var color: Color
+        var brand: ReferenceChipBrand?
     }
 
     var wash: Color
+    var brandColor: Color
     var icons: [URL: Icon]
-    var iconSize: CGFloat
+    var metrics: ReferenceChipMetrics
 }
 
 /// Paints a rounded chip behind every run carrying a `CodeChipAttribute` or
-/// a `ReferenceChipAttribute`, and a reference chip's icon over its
+/// a `ReferenceChipAttribute`, and a reference chip's icons over its
 /// placeholder.
 ///
 /// A chip can split into several runs on one line — mixed fonts, or the kern
@@ -46,9 +48,19 @@ struct InlineChips {
     var verticalPad: CGFloat = 1.5
     var radius: CGFloat = 4
 
-    private enum Chip: Equatable {
+    enum Chip: Equatable {
         case code(Int)
         case reference(Int, URL)
+    }
+
+    /// One chip's rect on one line, and where its icons go when this is the
+    /// line holding its placeholder.
+    struct Placement {
+        var chip: Chip
+        var line: Int
+        var firstCharacter: Text.Layout.CharacterIndex?
+        var rect: CGRect
+        var icons: ReferenceChipMetrics.IconRects?
     }
 
     private func chip(of run: Text.Layout.Run) -> Chip? {
@@ -57,13 +69,8 @@ struct InlineChips {
         return nil
     }
 
-    /// Fades each chip with the word it opens, so a chip never shows ahead of
-    /// its text.
-    func draw(layout: Text.Layout, reveal: WordReveal?, in context: inout GraphicsContext) {
-        let origin = layout.lazy.compactMap { $0.first?.characterIndices.first }.first
-        let lineStarts = reveal.flatMap { reveal in
-            origin.map { WordReveal.lineStarts(of: layout, from: $0, paragraphStarts: reveal.paragraphStarts) }
-        }
+    func placements(in layout: Text.Layout) -> [Placement] {
+        var placements: [Placement] = []
         for (lineIndex, line) in layout.enumerated() {
             var index = line.startIndex
             while index < line.endIndex {
@@ -75,42 +82,76 @@ struct InlineChips {
                 while next < line.endIndex, self.chip(of: line[next]) == chip {
                     next += 1
                 }
-                var chipContext = context
-                if let reveal, let origin, let lineStarts,
-                   let first = line[index].characterIndices.first {
-                    chipContext.opacity = reveal.opacity(at: lineStarts[lineIndex] + origin.distance(to: first))
+                let rect = rect(from: line[index], through: line[next - 1], opensLine: index == line.startIndex, in: line)
+                var icons: ReferenceChipMetrics.IconRects?
+                if case .reference(_, let url) = chip, let references,
+                   let placeholder = (index..<next).first(where: { line[$0][ReferenceChipAttribute.self]?.isPlaceholder == true }) {
+                    icons = references.metrics.iconRects(
+                        leadingX: line[placeholder].typographicBounds.origin.x,
+                        chipMidY: rect.midY,
+                        brand: references.icons[url]?.brand
+                    )
                 }
-                if chipContext.opacity > 0 {
-                    let rect = rect(from: line[index], through: line[next - 1], opensLine: index == line.startIndex, in: line)
-                    let path = Path(roundedRect: rect, cornerRadius: radius)
-                    chipContext.fill(path, with: .color(fill))
-                    if case .reference(_, let url) = chip, let references {
-                        chipContext.fill(path, with: .color(references.wash))
-                        if let icon = references.icons[url],
-                           let placeholder = (index..<next).first(where: { line[$0][ReferenceChipAttribute.self]?.isPlaceholder == true }) {
-                            drawIcon(icon, size: references.iconSize, over: line[placeholder], in: &chipContext)
-                        }
-                    }
-                }
+                placements.append(Placement(
+                    chip: chip,
+                    line: lineIndex,
+                    firstCharacter: line[index].characterIndices.first,
+                    rect: rect,
+                    icons: icons
+                ))
                 index = next
+            }
+        }
+        return placements
+    }
+
+    /// Fades each chip with the word it opens, so a chip never shows ahead of
+    /// its text.
+    func draw(layout: Text.Layout, reveal: WordReveal?, in context: inout GraphicsContext) {
+        let origin = layout.lazy.compactMap { $0.first?.characterIndices.first }.first
+        let lineStarts = reveal.flatMap { reveal in
+            origin.map { WordReveal.lineStarts(of: layout, from: $0, paragraphStarts: reveal.paragraphStarts) }
+        }
+        for placement in placements(in: layout) {
+            var chipContext = context
+            if let reveal, let origin, let lineStarts, let first = placement.firstCharacter {
+                chipContext.opacity = reveal.opacity(at: lineStarts[placement.line] + origin.distance(to: first))
+            }
+            guard chipContext.opacity > 0 else { continue }
+            let path = Path(roundedRect: placement.rect, cornerRadius: radius)
+            chipContext.fill(path, with: .color(fill))
+            guard case .reference(_, let url) = placement.chip, let references else { continue }
+            chipContext.fill(path, with: .color(references.wash))
+            guard let icon = references.icons[url], let rects = placement.icons else { continue }
+            if let brand = icon.brand, let brandRect = rects.brand {
+                let inset = brandRect.width * (1 - ReferenceChipMetrics.brandScale) / 2
+                drawLogo(brand, color: references.brandColor, in: brandRect.insetBy(dx: inset, dy: inset), context: &chipContext)
+            }
+            var symbol = chipContext.resolve(Image(systemName: icon.symbol))
+            symbol.shading = .color(icon.color)
+            if let rect = Self.fitted(symbol.size, in: rects.status) {
+                chipContext.draw(symbol, in: rect)
             }
         }
     }
 
-    /// Fitted into a square the icon's size, leading the placeholder and
-    /// centered on the line's text.
-    private func drawIcon(_ icon: ReferenceChipDrawing.Icon, size: CGFloat, over run: Text.Layout.Run, in context: inout GraphicsContext) {
-        var image = context.resolve(Image(systemName: icon.symbol))
-        image.shading = .color(icon.color)
-        let natural = image.size
-        guard natural.width > 0, natural.height > 0 else { return }
-        let scale = size / max(natural.width, natural.height)
-        let width = natural.width * scale
-        let height = natural.height * scale
-        let bounds = run.typographicBounds
-        let center = bounds.origin.y - (bounds.ascent - bounds.descent) / 2
-        let rect = CGRect(x: bounds.origin.x + (size - width) / 2, y: center - height / 2, width: width, height: height)
-        context.draw(image, in: rect)
+    /// An asset-catalog image given a shading draws nothing here, so the
+    /// logo is a mask the color fills.
+    private func drawLogo(_ brand: ReferenceChipBrand, color: Color, in square: CGRect, context: inout GraphicsContext) {
+        let logo = context.resolve(Image(brand.imageName))
+        guard let rect = Self.fitted(logo.size, in: square) else { return }
+        context.drawLayer { layer in
+            layer.clipToLayer { mask in mask.draw(logo, in: rect) }
+            layer.fill(Path(rect), with: .color(color))
+        }
+    }
+
+    /// `natural` scaled to fit `square`, centered in it.
+    private static func fitted(_ natural: CGSize, in square: CGRect) -> CGRect? {
+        guard natural.width > 0, natural.height > 0 else { return nil }
+        let scale = min(square.width / natural.width, square.height / natural.height)
+        let size = CGSize(width: natural.width * scale, height: natural.height * scale)
+        return CGRect(x: square.midX - size.width / 2, y: square.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     private func rect(

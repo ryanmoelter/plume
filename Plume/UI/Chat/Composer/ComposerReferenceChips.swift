@@ -8,6 +8,8 @@ struct ComposerReferenceChip: Equatable {
     var symbol: String
     var tint: NSColor
     var wash: NSColor
+    var brand: ReferenceChipBrand?
+    var brandTint: NSColor = .secondaryLabelColor
 }
 
 /// Where the composer learns what its references name: `MentionResolver`,
@@ -45,6 +47,7 @@ extension ComposerReferenceChip {
         var chips: [ComposerReferenceChip] = []
         var misses: [MentionReference.Kind] = []
         let wash = NSColor(palette.accentWash)
+        let brandTint = NSColor(palette.neutral)
         for reference in MentionReference.references(in: text) {
             let range = reference.range
             if caret.length == 0, caret.location > range.location, caret.location <= NSMaxRange(range) { continue }
@@ -54,7 +57,14 @@ extension ComposerReferenceChip {
             }
             let number: Int? = if case .pullRequest(let number) = reference.kind { number } else { nil }
             let icon = resolved.state.chipIcon(number: number)
-            chips.append(ComposerReferenceChip(range: range, symbol: icon.symbol, tint: palette.nsColor(for: icon.tint), wash: wash))
+            chips.append(ComposerReferenceChip(
+                range: range,
+                symbol: icon.symbol,
+                tint: palette.nsColor(for: icon.tint),
+                wash: wash,
+                brand: reference.kind.brand,
+                brandTint: brandTint
+            ))
         }
         return (chips, misses)
     }

@@ -191,7 +191,7 @@ struct MarkdownCacheTests {
         }
 
         #expect(lastKern(styled.segments[0].text) == styled.pad)
-        #expect(chip.runs[chip.startIndex].kern == ReferenceChipMetrics(fontSize: 16).placeholderKern)
+        #expect(chip.runs[chip.startIndex].kern == ReferenceChipMetrics(fontSize: 16).placeholderKern(brand: .github))
         #expect(lastKern(chip) == styled.pad)
         #expect(styled.segments[2].text.runs.allSatisfy { $0.kern == nil })
     }

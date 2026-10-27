@@ -287,9 +287,14 @@ struct InlineMarkdownText: View, ThemedView {
             let target = ReferenceTarget.classify(url, base: linkDirectory)
             let icon = target.map { ReferenceChipStore.shared.icon(for: $0) ?? .placeholder(for: $0) }
                 ?? ReferenceChipIcon(symbol: "link", tint: .neutral)
-            icons[url] = ReferenceChipDrawing.Icon(symbol: icon.symbol, color: palette.color(for: icon.tint))
+            icons[url] = ReferenceChipDrawing.Icon(symbol: icon.symbol, color: palette.color(for: icon.tint), brand: target?.brand)
         }
-        return ReferenceChipDrawing(wash: palette.accentWash, icons: icons, iconSize: ReferenceChipMetrics(fontSize: fontSize).iconSize)
+        return ReferenceChipDrawing(
+            wash: palette.accentWash,
+            brandColor: palette.neutral,
+            icons: icons,
+            metrics: ReferenceChipMetrics(fontSize: fontSize)
+        )
     }
 
     private func chipped(_ styled: StyledInline) -> StyledInline {

@@ -260,7 +260,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 recognizedSlashCommandNames: recognizedSlashCommandNames,
                 isCommandMode: isCommandMode,
                 accent: accent,
-                references: chips.map(\.range)
+                references: chips
             )
             (textView as? ComposerNSTextView)?.referenceChips = chips
         }

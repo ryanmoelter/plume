@@ -35,7 +35,7 @@ struct ComposerReferenceChipTests {
         let textView = ComposerNSTextView()
         textView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         textView.string = text
-        MarkdownComposerStyler.style(textView.textStorage!, text: text, fontSize: metrics.fontSize, references: chips.map(\.range))
+        MarkdownComposerStyler.style(textView.textStorage!, text: text, fontSize: metrics.fontSize, references: chips)
         textView.markdownMetrics = metrics
         textView.referenceChips = chips
         textView.textLayoutManager?.ensureLayout(for: textView.textLayoutManager!.documentRange)
@@ -98,7 +98,7 @@ struct ComposerReferenceChipTests {
             let host = ScrollableComposerTextView()
             host.composerTextView.string = text
             host.composerTextView.bodyFont = metrics.body
-            MarkdownComposerStyler.style(host.composerTextView.textStorage!, text: text, fontSize: metrics.fontSize, references: references.map(\.range))
+            MarkdownComposerStyler.style(host.composerTextView.textStorage!, text: text, fontSize: metrics.fontSize, references: references)
             return host.contentHeight(forWidth: 400)
         }
         let text = "@PLUME-1 first"
