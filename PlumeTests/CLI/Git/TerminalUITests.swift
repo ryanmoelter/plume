@@ -46,7 +46,7 @@ struct TerminalUITests {
         #expect(nerd.checksPass == "\u{F058}")
         #expect(nerd.checksFail == "\u{F057}")
         #expect(nerd.checksPending == "\u{F111}")
-        #expect(nerd.merged == "\u{F17F}")
+        #expect(nerd.merged == "\u{F419}")
         #expect(nerd.github == "\u{F09B}")
         #expect(nerd.gitlab == "\u{F296}")
         #expect(nerd.netOff == "\u{F0A8E}")

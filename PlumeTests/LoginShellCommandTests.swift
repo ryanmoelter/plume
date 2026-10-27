@@ -76,21 +76,6 @@ struct LoginShellCommandTests {
         #expect(UserDefaultsProjectSettingsSource(environment: environment).suiteName == "com.example.Plume")
     }
 
-    /// `plume wt`'s automatic Nerd Font mode turns off under a font the
-    /// user chose, which may lack the icons.
-    @Test func aCustomTerminalFontIsExportedOnlyWhenSet() {
-        let custom = LoginShellCommand.plumeEnvironment(
-            taskID: UUID(), tabID: UUID(), socketPath: nil, bundleID: nil, customTerminalFont: true
-        )
-        #expect(custom["PLUME_CUSTOM_TERMINAL_FONT"] == "1")
-        #expect(NerdFontMode.usesNerdFont(.automatic, environment: custom) == false)
-
-        let bundled = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil, bundleID: nil)
-        #expect(bundled["PLUME_CUSTOM_TERMINAL_FONT"] == nil)
-        #expect(NerdFontMode.usesNerdFont(.automatic, environment: bundled))
-        #expect(LoginShellCommand.instanceKeys.contains("PLUME_CUSTOM_TERMINAL_FONT"))
-    }
-
     @MainActor
     @Test func theDefaultsExportThePathTheServerServes() {
         let served = CLIServer.shared.socketPath

@@ -2,33 +2,33 @@ import Foundation
 import Testing
 @testable import Plume
 
-/// Automatic uses the icons only inside a Plume tab whose terminal keeps the
-/// bundled font; On and Off ignore the environment. A `Bool` stored before
+/// Automatic uses the icons inside a Plume tab or a Ghostty terminal; On and Off ignore the environment. A `Bool` stored before
 /// the automatic mode decodes as On or Off. The mode is one global setting:
 /// the Projects defaults row's value migrates into it once, a project's is
 /// ignored, and the tool reads it from the app's domain.
 struct NerdFontModeTests {
     private let tab = ["PLUME_TAB_ID": UUID().uuidString]
 
-    @Test func automaticIsOnInsidePlumeWithTheBundledFont() {
+    private let ghostty = ["TERM_PROGRAM": "ghostty"]
+
+    @Test func automaticIsOnInsidePlume() {
         #expect(NerdFontMode.usesNerdFont(.automatic, environment: tab))
         #expect(NerdFontMode.usesNerdFont(nil, environment: tab))
     }
 
-    @Test func automaticIsOffInsidePlumeWithACustomFont() {
-        let environment = tab.merging(["PLUME_CUSTOM_TERMINAL_FONT": "1"]) { $1 }
-        #expect(!NerdFontMode.usesNerdFont(.automatic, environment: environment))
-        #expect(!NerdFontMode.usesNerdFont(nil, environment: environment))
+    @Test func automaticIsOnInsideGhostty() {
+        #expect(NerdFontMode.usesNerdFont(.automatic, environment: ghostty))
+        #expect(NerdFontMode.usesNerdFont(nil, environment: ghostty))
     }
 
-    @Test func automaticIsOffOutsidePlume() {
+    @Test func automaticIsOffElsewhere() {
         #expect(!NerdFontMode.usesNerdFont(.automatic, environment: [:]))
         #expect(!NerdFontMode.usesNerdFont(.automatic, environment: ["PLUME_TAB_ID": ""]))
+        #expect(!NerdFontMode.usesNerdFont(.automatic, environment: ["TERM_PROGRAM": "Apple_Terminal"]))
     }
 
     @Test func onAndOffIgnoreTheEnvironment() {
-        let customFont = tab.merging(["PLUME_CUSTOM_TERMINAL_FONT": "1"]) { $1 }
-        for environment in [[:], tab, customFont] {
+        for environment in [[:], tab, ghostty] {
             #expect(NerdFontMode.usesNerdFont(.on, environment: environment))
             #expect(!NerdFontMode.usesNerdFont(.off, environment: environment))
         }
@@ -140,18 +140,13 @@ struct NerdFontModeTests {
     // MARK: Settings status
 
     @Test(arguments: [
-        (NerdFontMode.on, false, true, true),
-        (.on, true, true, true),
-        (.off, false, false, false),
-        (.off, true, false, false),
-        (.automatic, false, true, false),
-        (.automatic, true, false, false),
+        (NerdFontMode.on, true, true),
+        (.off, false, false),
+        (.automatic, true, false),
     ])
-    func iconAvailabilityFollowsTheModeAndTheTerminalFont(
-        mode: NerdFontMode, customFont: Bool, plume: Bool, other: Bool
-    ) {
-        let availability = mode.iconAvailability(hasCustomTerminalFont: customFont)
-        #expect(availability.plumeTerminals == plume)
+    func iconAvailabilityFollowsTheMode(mode: NerdFontMode, plume: Bool, other: Bool) {
+        let availability = mode.iconAvailability
+        #expect(availability.plumeAndGhostty == plume)
         #expect(availability.otherTerminals == other)
     }
 }

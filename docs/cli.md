@@ -25,6 +25,8 @@ The code is split three ways:
 
 `plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments. Invoked as `wt`, it runs `plume wt` with all of them.
 
+**`wt` prints Nerd Font icons by the global Nerd Font mode** (Settings → Command line): automatic means inside a Plume tab or a Ghostty terminal (`TERM_PROGRAM=ghostty`), which both fall back to an embedded Symbols Nerd Font; `on` and `off` always apply.
+
 **`wt` uses the app only to open things.** Every command reads git and the Projects settings itself. Inside a Plume tab, `co`, `cob`, `bg`, `open` and `switch` send `tab.new` for the worktree, or `task.new` with `--task`. Outside Plume, or when the app refuses, they print `wt: (cd "<dir>")` instead, and `switch` fails naming the wrapper. `wt setup` sends `settings.open` for the `projects` section and, when that fails, prints where the settings live.
 
 **`notify` never fails its caller**, which is often a hook. It tries, in order:

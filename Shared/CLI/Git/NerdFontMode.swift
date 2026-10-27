@@ -5,15 +5,12 @@ import Foundation
 /// per-project field, a `Bool` from before the automatic mode still decodes,
 /// as `on` or `off`.
 nonisolated enum NerdFontMode: String, Codable, CaseIterable, Sendable {
-    /// On inside a Plume tab whose terminal uses the bundled font, which has
-    /// the icons; off anywhere else.
+    /// On inside a Plume tab or a Ghostty terminal, which fall back to an
+    /// embedded Symbols Nerd Font whatever the configured font; off anywhere
+    /// else.
     case automatic
     case on
     case off
-
-    /// Set to `1` in every tab when the user's ghostty config names its own
-    /// `font-family`, which may lack the icons.
-    static let customTerminalFontEnvironmentKey = "PLUME_CUSTOM_TERMINAL_FONT"
 
     /// The UserDefaults key, in the app's domain, holding the mode.
     static let userDefaultsKey = "nerdFontMode"
@@ -49,18 +46,16 @@ nonisolated enum NerdFontMode: String, Codable, CaseIterable, Sendable {
         case .off: false
         case .automatic:
             !(environment[CLISocket.tabIDEnvironmentKey] ?? "").isEmpty
-                && environment[customTerminalFontEnvironmentKey] != "1"
+                || environment["TERM_PROGRAM"] == "ghostty"
         }
     }
 
-    /// Where the icons show for this mode: Plume's terminals, and others.
-    /// `hasCustomTerminalFont` is the signal exported as
-    /// `customTerminalFontEnvironmentKey`.
-    func iconAvailability(hasCustomTerminalFont: Bool) -> (plumeTerminals: Bool, otherTerminals: Bool) {
+    /// Where the icons show for this mode: Plume and Ghostty, and others.
+    var iconAvailability: (plumeAndGhostty: Bool, otherTerminals: Bool) {
         switch self {
         case .on: (true, true)
         case .off: (false, false)
-        case .automatic: (!hasCustomTerminalFont, false)
+        case .automatic: (true, false)
         }
     }
 }

@@ -207,11 +207,9 @@ struct CommandLineSettingsPane: View {
     }
 
     private var nerdFontStatus: some View {
-        let availability = settings.nerdFontMode.iconAvailability(
-            hasCustomTerminalFont: GhosttyRuntime.shared.resolvedCodeFontFamily != nil
-        )
+        let availability = settings.nerdFontMode.iconAvailability
         return VStack(alignment: .trailing, spacing: 2) {
-            statusLine("Plume terminals", isOn: availability.plumeTerminals)
+            statusLine("Plume and Ghostty", isOn: availability.plumeAndGhostty)
             statusLine("Other terminals", isOn: availability.otherTerminals)
         }
         .foregroundStyle(.secondary)

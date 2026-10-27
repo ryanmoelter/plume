@@ -89,7 +89,7 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     var checksPass: String { glyphSet == .nerd ? "\u{F058}" : "✔" }
     var checksFail: String { glyphSet == .nerd ? "\u{F057}" : "✘" }
     var checksPending: String { glyphSet == .nerd ? "\u{F111}" : "•" }
-    var merged: String { glyphSet == .nerd ? "\u{F17F}" : "⑃" }
+    var merged: String { glyphSet == .nerd ? "\u{F419}" : "⑃" }
     /// Empty in the plain set: the number prefix already names the forge.
     var github: String { glyphSet == .nerd ? "\u{F09B}" : "" }
     /// Empty in the plain set: the number prefix already names the forge.
