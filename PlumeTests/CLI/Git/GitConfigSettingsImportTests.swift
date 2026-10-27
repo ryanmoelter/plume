@@ -45,8 +45,8 @@ struct GitConfigSettingsImportTests {
     @Test func forgeAndNerdFontParse() {
         let imported = settings([("ryanmoelter-cli-tools.forge", "GitLab"), ("stack.nerdfont", "yes")])
         #expect(imported.forge == .gitlab)
-        #expect(imported.nerdFont == true)
-        #expect(settings([("wt.nerdfont", "")]).nerdFont == false)
+        #expect(imported.nerdFont == .on)
+        #expect(settings([("wt.nerdfont", "")]).nerdFont == .off)
         #expect(settings([("wt.forge", "bitbucket")]).forge == nil)
     }
 
@@ -84,7 +84,7 @@ struct GitConfigSettingsImportTests {
             repositories: ["/repo": ProjectSettings(ignoredPendingChecks: ["mine"])]
         )
         let imported = ProjectsConfiguration(
-            defaults: ProjectSettings(branchPrefix: "git/", nerdFont: true),
+            defaults: ProjectSettings(branchPrefix: "git/", nerdFont: .on),
             repositories: [
                 "/repo": ProjectSettings(baseBranch: "develop", ignoredPendingChecks: ["theirs"]),
                 "/other": ProjectSettings(forge: .github),
@@ -92,7 +92,7 @@ struct GitConfigSettingsImportTests {
             ]
         )
         let merged = GitConfigSettingsImport.merging(imported, into: existing)
-        #expect(merged.defaults == ProjectSettings(branchPrefix: "kept/", nerdFont: true))
+        #expect(merged.defaults == ProjectSettings(branchPrefix: "kept/", nerdFont: .on))
         #expect(merged.repositories["/repo"] == ProjectSettings(baseBranch: "develop", ignoredPendingChecks: ["mine"]))
         #expect(merged.repositories["/other"] == ProjectSettings(forge: .github))
         #expect(merged.repositories["/empty"] == nil)

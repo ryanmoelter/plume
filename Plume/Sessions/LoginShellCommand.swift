@@ -18,30 +18,54 @@ enum LoginShellCommand {
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
     /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
-    /// through, when this app serves one, and this app's bundle ID, whose
-    /// defaults domain holds the settings the tool reads. For a process
-    /// serving many tabs, which has no one tab to name.
+    /// through, when this app serves one, this app's bundle ID, whose
+    /// defaults domain holds the settings the tool reads, and whether the
+    /// terminal font is the user's own. For a process serving many tabs,
+    /// which has no one tab to name.
     static func sharedPlumeEnvironment() -> [String: String] {
-        sharedPlumeEnvironment(socketPath: CLIServer.shared.socketPath, bundleID: Bundle.main.bundleIdentifier)
+        sharedPlumeEnvironment(
+            socketPath: CLIServer.shared.socketPath,
+            bundleID: Bundle.main.bundleIdentifier,
+            customTerminalFont: hasCustomTerminalFont
+        )
     }
 
-    static func sharedPlumeEnvironment(socketPath: String?, bundleID: String?) -> [String: String] {
+    static func sharedPlumeEnvironment(socketPath: String?, bundleID: String?, customTerminalFont: Bool = false) -> [String: String] {
         var environment = plumeEnvironment
         environment[CLISocket.pathEnvironmentKey] = socketPath
         environment[UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey] = bundleID
+        if customTerminalFont { environment[NerdFontMode.customTerminalFontEnvironmentKey] = "1" }
         return environment
+    }
+
+    /// Without a `font-family` in the ghostty config, terminals fall back to
+    /// a face that draws Nerd Font icons.
+    private static var hasCustomTerminalFont: Bool {
+        GhosttyRuntime.shared.resolvedCodeFontFamily != nil
     }
 
     /// Everything `plume` needs inside one tab: the shared environment, and
     /// which tab and task it runs in.
     static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
         plumeEnvironment(
-            taskID: taskID, tabID: tabID, socketPath: CLIServer.shared.socketPath, bundleID: Bundle.main.bundleIdentifier
+            taskID: taskID,
+            tabID: tabID,
+            socketPath: CLIServer.shared.socketPath,
+            bundleID: Bundle.main.bundleIdentifier,
+            customTerminalFont: hasCustomTerminalFont
         )
     }
 
-    static func plumeEnvironment(taskID: UUID?, tabID: UUID, socketPath: String?, bundleID: String?) -> [String: String] {
-        var environment = sharedPlumeEnvironment(socketPath: socketPath, bundleID: bundleID)
+    static func plumeEnvironment(
+        taskID: UUID?,
+        tabID: UUID,
+        socketPath: String?,
+        bundleID: String?,
+        customTerminalFont: Bool = false
+    ) -> [String: String] {
+        var environment = sharedPlumeEnvironment(
+            socketPath: socketPath, bundleID: bundleID, customTerminalFont: customTerminalFont
+        )
         environment[CLISocket.tabIDEnvironmentKey] = tabID.uuidString
         environment[CLISocket.taskIDEnvironmentKey] = taskID?.uuidString
         return environment
@@ -55,6 +79,7 @@ enum LoginShellCommand {
         CLISocket.tabIDEnvironmentKey,
         CLISocket.taskIDEnvironmentKey,
         UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey,
+        NerdFontMode.customTerminalFontEnvironmentKey,
         "PLUME_EVENTS_DIR",
     ]
 

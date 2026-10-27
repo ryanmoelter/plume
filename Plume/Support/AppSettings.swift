@@ -48,7 +48,8 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
-        static let ignoredPendingChecks = IgnoredChecksResolver.plumeSettingDefaultsKey
+        /// The retired Settings ▸ Integrations list, read only to migrate it.
+        static let legacyIgnoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
@@ -181,7 +182,6 @@ final class AppSettings {
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)
-        self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
         self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
             ? true
@@ -605,22 +605,6 @@ final class AppSettings {
         }
     }
 
-    /// Plume-level half of `IgnoredChecksResolver`'s union: check names whose
-    /// perpetual PENDING is ignored, across every repo. Matched by exact
-    /// string equality against the check's name/context.
-    var ignoredPendingChecks: [String] {
-        didSet {
-            let trimmed = ignoredPendingChecks
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            if trimmed != ignoredPendingChecks {
-                ignoredPendingChecks = trimmed
-                return
-            }
-            defaults.set(ignoredPendingChecks, forKey: Key.ignoredPendingChecks)
-        }
-    }
-
     /// How much say Plume has over system sleep. `auto` holds the Mac awake
     /// only while `KeepAwakeCoordinator` finds a reason.
     var keepAwakeMode: KeepAwakeMode {
@@ -730,6 +714,29 @@ final class AppSettings {
         didSet {
             defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
         }
+    }
+
+    /// Moves the retired Settings ▸ Integrations ignored-checks list into
+    /// the Projects defaults row, then deletes it, so this runs once.
+    func migrateLegacyIgnoredPendingChecks() {
+        guard let legacy = defaults.stringArray(forKey: Key.legacyIgnoredPendingChecks) else { return }
+        projectsConfiguration = Self.addingDefaultIgnoredPendingChecks(legacy, to: projectsConfiguration)
+        defaults.removeObject(forKey: Key.legacyIgnoredPendingChecks)
+    }
+
+    /// `names` appended to the defaults row's list, skipping blanks and
+    /// names already there.
+    nonisolated static func addingDefaultIgnoredPendingChecks(
+        _ names: [String],
+        to configuration: ProjectsConfiguration
+    ) -> ProjectsConfiguration {
+        let additions = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !additions.isEmpty else { return configuration }
+        var updated = configuration
+        var list = configuration.defaults.ignoredPendingChecks ?? []
+        for name in additions where !list.contains(name) { list.append(name) }
+        updated.defaults.ignoredPendingChecks = list
+        return updated
     }
 
     /// The bindings now, then every later set. `AppDelegate` writes each onto

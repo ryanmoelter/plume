@@ -3,29 +3,16 @@ import Foundation
 @testable import Plume
 
 struct IgnoredChecksResolverTests {
-    @Test func unionsANameFromTheProjectAlone() {
-        let result = IgnoredChecksResolver.union(["flaky-lint"], [])
-        #expect(result == ["flaky-lint"])
+    @Test func resolvesTheProjectsList() {
+        #expect(IgnoredChecksResolver.resolve(settings: ProjectSettings(ignoredPendingChecks: ["flaky-lint"])) == ["flaky-lint"])
     }
 
-    @Test func unionsANameFromThePlumeSettingAlone() {
-        let result = IgnoredChecksResolver.union([], ["flaky-lint"])
-        #expect(result == ["flaky-lint"])
+    @Test func noListIgnoresNothing() {
+        #expect(IgnoredChecksResolver.resolve(settings: ProjectSettings()).isEmpty)
     }
 
-    @Test func unionsNamesPresentInBothSources() {
-        let result = IgnoredChecksResolver.union(["from-project"], ["from-plume"])
-        #expect(result == ["from-project", "from-plume"])
-    }
-
-    @Test func duplicatesAcrossSourcesCollapse() {
-        let result = IgnoredChecksResolver.union(["shared-name"], ["shared-name"])
-        #expect(result == ["shared-name"])
-    }
-
-    @Test func duplicatesWithinTheSameSourceCollapse() {
-        let result = IgnoredChecksResolver.union(["dup", "dup"], [])
-        #expect(result == ["dup"])
+    @Test func duplicatesCollapse() {
+        #expect(IgnoredChecksResolver.resolve(settings: ProjectSettings(ignoredPendingChecks: ["dup", "dup"])) == ["dup"])
     }
 
     @Test func resolveReadsTheProjectsListFromASubdirectory() throws {
@@ -39,8 +26,8 @@ struct IgnoredChecksResolverTests {
             repositories: [root: ProjectSettings(ignoredPendingChecks: ["project-check"])]
         )
 
-        let result = IgnoredChecksResolver.resolve(repository: nested, plumeSetting: ["plume-check"], configuration: configuration)
-        #expect(result == ["project-check", "plume-check"])
+        let result = IgnoredChecksResolver.resolve(repository: nested, configuration: configuration)
+        #expect(result == ["project-check"])
     }
 
     @Test func aProjectWithNoListTakesTheDefaultsRow() throws {
@@ -48,7 +35,7 @@ struct IgnoredChecksResolverTests {
         defer { try? FileManager.default.removeItem(atPath: repository) }
         let configuration = ProjectsConfiguration(defaults: ProjectSettings(ignoredPendingChecks: ["default-check"]))
 
-        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: [], configuration: configuration)
+        let result = IgnoredChecksResolver.resolve(repository: repository, configuration: configuration)
         #expect(result == ["default-check"])
     }
 
@@ -58,8 +45,8 @@ struct IgnoredChecksResolverTests {
         defer { try? FileManager.default.removeItem(atPath: repository) }
         try GitRunner.run(["config", "--add", "wt.ignoredPendingChecks", "wt-check"], in: repository)
 
-        let result = IgnoredChecksResolver.resolve(repository: repository, plumeSetting: ["plume-check"], configuration: ProjectsConfiguration())
-        #expect(result == ["plume-check"])
+        let result = IgnoredChecksResolver.resolve(repository: repository, configuration: ProjectsConfiguration())
+        #expect(result.isEmpty)
     }
 
     private func makeRepository() throws -> String {
@@ -73,23 +60,23 @@ struct IgnoredChecksResolverTests {
 }
 
 struct IgnoredChecksResolverExactMatchTests {
-    /// The resolver itself only unions strings; these confirm the exact-match
+    /// The resolver itself only collects strings; these confirm the exact-match
     /// contract callers rely on, so a future rollup implementation doesn't
     /// accidentally add fuzzy matching.
     @Test func differingCaseDoesNotMatch() {
-        let ignored = IgnoredChecksResolver.union(["Build"], [])
+        let ignored = IgnoredChecksResolver.resolve(settings: ProjectSettings(ignoredPendingChecks: ["Build"]))
         #expect(!ignored.contains("build"))
         #expect(ignored.contains("Build"))
     }
 
     @Test func surroundingWhitespaceDoesNotMatch() {
-        let ignored = IgnoredChecksResolver.union([" build "], [])
+        let ignored = IgnoredChecksResolver.resolve(settings: ProjectSettings(ignoredPendingChecks: [" build "]))
         #expect(!ignored.contains("build"))
         #expect(ignored.contains(" build "))
     }
 
     @Test func substringDoesNotMatch() {
-        let ignored = IgnoredChecksResolver.union(["build"], [])
+        let ignored = IgnoredChecksResolver.resolve(settings: ProjectSettings(ignoredPendingChecks: ["build"]))
         #expect(!ignored.contains("build-and-test"))
         #expect(ignored.contains("build"))
     }

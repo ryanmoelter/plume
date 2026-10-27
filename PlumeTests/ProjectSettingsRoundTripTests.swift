@@ -39,7 +39,7 @@ struct ProjectSettingsRoundTripTests {
         let root = try #require(await Task.detached { ProjectRoot.containing(checkout) }.value)
         let defaults = try #require(UserDefaults(suiteName: suite))
         let app = AppSettings(defaults: defaults, domainName: suite)
-        app.projectsConfiguration.defaults.nerdFont = true
+        app.projectsConfiguration.defaults.nerdFont = .on
         app.projectsConfiguration.repositories = [root: ProjectSettings(branchPrefix: "", protectedWorktrees: ["keep"])]
         let suite = suite
         return try await Task.detached { try Self.settingsTheToolReads(from: directory, suite: suite) }.value
@@ -63,7 +63,7 @@ struct ProjectSettingsRoundTripTests {
             let settings = try await roundTrip(savingFrom: saving, readingFrom: reading)
             #expect(settings.branchPrefix == "")
             #expect(settings.protectedWorktrees == ["keep"])
-            #expect(settings.nerdFont == true)
+            #expect(settings.nerdFont == .on)
         }
     }
 
@@ -92,11 +92,14 @@ struct ProjectSettingsRoundTripTests {
         #expect(await Task.detached { ProjectRoot.containing(scratch) }.value == nil)
     }
 
-    @Test func theToolReadsTheIntegrationsIgnoredChecksTheAppWrote() throws {
+    /// The retired Integrations list reaches the tool through the defaults
+    /// row once the app migrates it.
+    @Test func theToolReadsTheMigratedIntegrationsList() throws {
         defer { cleanUp() }
         let defaults = try #require(UserDefaults(suiteName: suite))
-        AppSettings(defaults: defaults, domainName: suite).ignoredPendingChecks = ["flaky-lint"]
-        #expect(UserDefaultsProjectSettingsSource(suiteName: suite).loadPlumeIgnoredPendingChecks() == ["flaky-lint"])
+        defaults.set(["flaky-lint"], forKey: "ignoredPendingChecks")
+        AppSettings(defaults: defaults, domainName: suite).migrateLegacyIgnoredPendingChecks()
+        #expect(UserDefaultsProjectSettingsSource(suiteName: suite).load().defaults.ignoredPendingChecks == ["flaky-lint"])
     }
 
     @Test func aStoredConfigurationSurvivesAReload() throws {
@@ -104,7 +107,7 @@ struct ProjectSettingsRoundTripTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         let configuration = ProjectsConfiguration(
             defaults: ProjectSettings(baseBranch: "develop", forge: .gitlab),
-            repositories: ["/r": ProjectSettings(nerdFont: false, ignoredPendingChecks: ["slow"])]
+            repositories: ["/r": ProjectSettings(nerdFont: .off, ignoredPendingChecks: ["slow"])]
         )
         AppSettings(defaults: defaults, domainName: suite).projectsConfiguration = configuration
 

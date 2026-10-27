@@ -97,6 +97,7 @@ enum AccessibilityID {
     static let settingsProjectNoPrefixToggle = "settings-project-no-prefix-toggle"
     static let settingsProjectListAddButton = "settings-project-list-add-button"
     static let settingsProjectListRemoveButton = "settings-project-list-remove-button"
+    static let settingsProjectListUseDefaultButton = "settings-project-list-use-default-button"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsImportOrcaButton = "settings-import-orca-button"
     static let settingsImportClaudeDesktopButton = "settings-import-claude-desktop-button"

@@ -74,19 +74,18 @@ struct WTGitIntegrationTests {
         #expect((ctx.console as? BufferConsole)?.stdout.contains("main") == true)
     }
 
-    @Test func detectUnionsThePlumeWideIgnoredChecks() throws {
+    @Test func detectReadsTheProjectsIgnoredChecks() throws {
         let tmp = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(atPath: tmp) }
         let repo = try makeScratchRepository(in: tmp)
         let ctx = try WorktreeContext.detect(
             git: ProcessWorktreeGit(workingDirectory: repo),
             settingsSource: StaticSettingsSource(
-                configuration: ProjectsConfiguration(repositories: [repo: ProjectSettings(ignoredPendingChecks: ["project-check"])]),
-                plumeIgnoredPendingChecks: ["plume-check"]
+                configuration: ProjectsConfiguration(repositories: [repo: ProjectSettings(ignoredPendingChecks: ["project-check"])])
             ),
             console: BufferConsole(), environment: [:]
         )
-        #expect(ctx.ui.ignoredPendingChecks == ["project-check", "plume-check"])
+        #expect(ctx.ui.ignoredPendingChecks == ["project-check"])
     }
 
     @Test func processEntriesIncludeDetachedWorktrees() throws {

@@ -1,0 +1,63 @@
+import Foundation
+import Testing
+@testable import Plume
+
+/// Automatic uses the icons only inside a Plume tab whose terminal keeps the
+/// bundled font; On and Off ignore the environment. A `Bool` stored before
+/// the automatic mode decodes as On or Off.
+struct NerdFontModeTests {
+    private let tab = ["PLUME_TAB_ID": UUID().uuidString]
+
+    @Test func automaticIsOnInsidePlumeWithTheBundledFont() {
+        #expect(NerdFontMode.usesNerdFont(.automatic, environment: tab))
+        #expect(NerdFontMode.usesNerdFont(nil, environment: tab))
+    }
+
+    @Test func automaticIsOffInsidePlumeWithACustomFont() {
+        let environment = tab.merging(["PLUME_CUSTOM_TERMINAL_FONT": "1"]) { $1 }
+        #expect(!NerdFontMode.usesNerdFont(.automatic, environment: environment))
+        #expect(!NerdFontMode.usesNerdFont(nil, environment: environment))
+    }
+
+    @Test func automaticIsOffOutsidePlume() {
+        #expect(!NerdFontMode.usesNerdFont(.automatic, environment: [:]))
+        #expect(!NerdFontMode.usesNerdFont(.automatic, environment: ["PLUME_TAB_ID": ""]))
+    }
+
+    @Test func onAndOffIgnoreTheEnvironment() {
+        let customFont = tab.merging(["PLUME_CUSTOM_TERMINAL_FONT": "1"]) { $1 }
+        for environment in [[:], tab, customFont] {
+            #expect(NerdFontMode.usesNerdFont(.on, environment: environment))
+            #expect(!NerdFontMode.usesNerdFont(.off, environment: environment))
+        }
+    }
+
+    @Test func aStoredBoolDecodes() throws {
+        let decoded = try JSONDecoder().decode(ProjectSettings.self, from: Data(#"{"nerdFont":true}"#.utf8))
+        #expect(decoded.nerdFont == .on)
+        let off = try JSONDecoder().decode(ProjectSettings.self, from: Data(#"{"nerdFont":false}"#.utf8))
+        #expect(off.nerdFont == .off)
+    }
+
+    @Test func aStoredConfigurationWithBoolsDecodes() throws {
+        let json = #"{"defaults":{"nerdFont":true,"branchPrefix":""},"repositories":{"/r":{"nerdFont":false}}}"#
+        let decoded = try JSONDecoder().decode(ProjectsConfiguration.self, from: Data(json.utf8))
+        #expect(decoded == ProjectsConfiguration(
+            defaults: ProjectSettings(branchPrefix: "", nerdFont: .on),
+            repositories: ["/r": ProjectSettings(nerdFont: .off)]
+        ))
+    }
+
+    @Test func everyModeRoundTripsAsAString() throws {
+        for mode in NerdFontMode.allCases {
+            let data = try JSONEncoder().encode(ProjectSettings(nerdFont: mode))
+            #expect(String(decoding: data, as: UTF8.self).contains(#""nerdFont":"\#(mode.rawValue)""#))
+            #expect(try JSONDecoder().decode(ProjectSettings.self, from: data).nerdFont == mode)
+        }
+    }
+
+    @Test func anUnknownModeDecodesAsAutomatic() throws {
+        let decoded = try JSONDecoder().decode(ProjectSettings.self, from: Data(#"{"nerdFont":"sometimes","baseBranch":"dev"}"#.utf8))
+        #expect(decoded == ProjectSettings(baseBranch: "dev", nerdFont: .automatic))
+    }
+}

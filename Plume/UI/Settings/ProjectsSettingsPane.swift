@@ -49,7 +49,7 @@ struct ProjectsSettingsPane: View {
             baseBranch: fallbacks.baseBranch,
             branchPrefix: fallbacks.branchPrefix,
             forge: fallbacks.forge,
-            nerdFont: false,
+            nerdFont: .automatic,
             protectedWorktrees: [],
             ignoredPendingChecks: []
         )
@@ -102,59 +102,94 @@ struct ProjectsSettingsPane: View {
         }
     }
 
-    @ViewBuilder
     private var projectList: some View {
-        projectRow(.defaults, title: "Defaults", subtitle: "Every project unless it sets its own")
-        ForEach(projectRoots, id: \.self) { root in
-            projectRow(
-                .project(root),
-                title: (root as NSString).lastPathComponent,
-                subtitle: (root as NSString).abbreviatingWithTildeInPath
-            )
-        }
-        HStack {
+        VStack(alignment: .leading, spacing: 2) {
+            projectRow(.defaults, title: "Defaults", subtitle: "Every project unless it sets its own")
+            ForEach(projectRoots, id: \.self) { root in
+                projectRow(
+                    .project(root),
+                    title: (root as NSString).lastPathComponent,
+                    subtitle: (root as NSString).abbreviatingWithTildeInPath
+                )
+            }
+            Button(action: addProject) {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus").frame(width: Self.leadingIconWidth)
+                    Text("Add Project…")
+                }
+                .padding(.horizontal, Self.rowPadding)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Self.accent)
+            .plumeID(AccessibilityID.settingsProjectAddButton, invoke: addProject)
             if let addError {
                 Text(addError)
+                    .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.horizontal, Self.rowPadding)
             }
-            Spacer()
-            if let root = scope.root, configuration.repositories[root] != nil {
-                let title = discoveredRoots.contains(root) ? "Reset" : "Remove"
-                Button(title) { remove(root) }
-                    .plumeID(AccessibilityID.settingsProjectRemoveButton, label: title, invoke: { remove(root) })
-            }
-            Button("Add Project…", action: addProject)
-                .plumeID(AccessibilityID.settingsProjectAddButton, invoke: addProject)
         }
     }
 
+    private static var accent: Color { Color(nsColor: ThemeChrome.accentNSColor()) }
+
+    /// Keeps the project names and the "Add Project…" text in one column.
+    private static let leadingIconWidth: CGFloat = 18
+    private static let rowPadding: CGFloat = 6
+
     private func projectRow(_ rowScope: Scope, title: String, subtitle: String) -> some View {
-        HStack {
-            VStack(alignment: .leading) {
+        let isSelected = scope == rowScope
+        return HStack(spacing: 8) {
+            removeButton(for: rowScope)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            if scope == rowScope {
-                Image(systemName: "checkmark")
-                    .foregroundStyle(.tint)
-            }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, Self.rowPadding)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Self.accent.opacity(0.15) : .clear)
+        )
         .contentShape(Rectangle())
         .onTapGesture { scope = rowScope }
         .plumeID(
             AccessibilityID.settingsProjectRow,
             label: rowScope.root ?? "defaults",
-            value: scope == rowScope ? "selected" : nil,
+            value: isSelected ? "selected" : nil,
             invoke: { scope = rowScope }
         )
     }
 
+    /// Only a row with stored settings has anything to delete. A project
+    /// found through a task keeps its row once its settings are gone.
+    @ViewBuilder
+    private func removeButton(for rowScope: Scope) -> some View {
+        if let root = rowScope.root, configuration.repositories[root] != nil {
+            let help = discoveredRoots.contains(root) ? "Clear this project's settings" : "Remove this project"
+            Button {
+                remove(root)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .foregroundStyle(.red)
+                    .frame(width: Self.leadingIconWidth)
+            }
+            .buttonStyle(.borderless)
+            .help(help)
+            .plumeID(AccessibilityID.settingsProjectRemoveButton, label: root, invoke: { remove(root) })
+        } else {
+            Color.clear.frame(width: Self.leadingIconWidth, height: 1)
+        }
+    }
+
     private func remove(_ root: String) {
         settings.projectsConfiguration.repositories[root] = nil
-        if !discoveredRoots.contains(root) { scope = .defaults }
+        if !discoveredRoots.contains(root), scope == .project(root) { scope = .defaults }
     }
 
     private func addProject() {
@@ -218,25 +253,34 @@ private struct ProjectSettingsFields: View {
         }
         .plumeID(AccessibilityID.settingsProjectForgePicker, value: settings.forge?.rawValue ?? "auto")
 
-        Picker("Nerd Font icons", selection: Binding(get: { settings.nerdFont }, set: { value in update { $0.nerdFont = value } })) {
-            Text("Default (\(inherited.nerdFont == true ? "on" : "off"))").tag(Bool?.none)
-            Text("On").tag(Bool?.some(true))
-            Text("Off").tag(Bool?.some(false))
+        Picker(selection: nerdFont) {
+            if isDefaults {
+                Text(Self.name(NerdFontMode.automatic)).tag(NerdFontMode?.none)
+            } else {
+                Text("Default (\(Self.name(inherited.nerdFont ?? .automatic)))").tag(NerdFontMode?.none)
+                Text(Self.name(NerdFontMode.automatic)).tag(NerdFontMode?.some(.automatic))
+            }
+            Text(Self.name(NerdFontMode.on)).tag(NerdFontMode?.some(.on))
+            Text(Self.name(NerdFontMode.off)).tag(NerdFontMode?.some(.off))
+        } label: {
+            Text("Nerd Font icons")
+            NerdFontPreview()
+            Text("Automatic shows them in Plume's terminals unless your Ghostty config sets its own font-family.")
         }
-        .plumeID(AccessibilityID.settingsProjectNerdFontPicker, value: settings.nerdFont.map { $0 ? "on" : "off" } ?? "default")
+        .plumeID(AccessibilityID.settingsProjectNerdFontPicker, value: settings.nerdFont?.rawValue ?? "default")
 
         NameListEditor(
             title: "Protected worktrees",
-            prompt: "Worktree folder name",
-            names: settings.protectedWorktrees,
-            inherited: inherited.protectedWorktrees ?? [],
+            caption: "Worktree folders that wt refuses to delete, rename or foreground.",
+            prompt: "Name of worktree folder",
+            display: NameListDisplay(own: settings.protectedWorktrees, inherited: inherited.protectedWorktrees ?? [], isDefaults: isDefaults),
             set: { names in update { $0.protectedWorktrees = names } }
         )
         NameListEditor(
             title: "Ignored pending checks",
-            prompt: "Check name",
-            names: settings.ignoredPendingChecks,
-            inherited: inherited.ignoredPendingChecks ?? [],
+            caption: "Checks whose pending state doesn't count, e.g. ones waiting for approval to run. A pass or fail still counts.",
+            prompt: "Name of check",
+            display: NameListDisplay(own: settings.ignoredPendingChecks, inherited: inherited.ignoredPendingChecks ?? [], isDefaults: isDefaults),
             set: { names in update { $0.ignoredPendingChecks = names } }
         )
     }
@@ -275,6 +319,22 @@ private struct ProjectSettingsFields: View {
         )
     }
 
+    /// The defaults row stores Automatic as nil, so it has one option for it.
+    private var nerdFont: Binding<NerdFontMode?> {
+        Binding(
+            get: { isDefaults && settings.nerdFont == .automatic ? nil : settings.nerdFont },
+            set: { value in update { $0.nerdFont = value } }
+        )
+    }
+
+    private static func name(_ mode: NerdFontMode) -> String {
+        switch mode {
+        case .automatic: "Automatic"
+        case .on: "On"
+        case .off: "Off"
+        }
+    }
+
     private static func name(_ kind: ForgeKind) -> String {
         switch kind {
         case .github: "GitHub"
@@ -284,46 +344,95 @@ private struct ProjectSettingsFields: View {
     }
 }
 
-/// A list setting. Nil inherits; once edited, the list replaces the
-/// inherited one, even when emptied, until "Use Default" clears it.
+/// What a list setting shows. A project's nil list inherits the defaults
+/// row's; once edited, its own list replaces the inherited one, even when
+/// emptied, until "Use Default" clears it. The defaults row has nothing to
+/// inherit, so it never offers "Use Default".
+struct NameListDisplay: Equatable {
+    let names: [String]
+    let isInherited: Bool
+    let offersUseDefault: Bool
+
+    init(own: [String]?, inherited: [String], isDefaults: Bool) {
+        if isDefaults {
+            names = own ?? []
+            isInherited = false
+            offersUseDefault = false
+        } else if let own {
+            names = own
+            isInherited = false
+            offersUseDefault = true
+        } else {
+            names = inherited
+            isInherited = true
+            offersUseDefault = false
+        }
+    }
+
+    /// The list after adding comma-separated `input`, skipping blanks and
+    /// names already there. Edits start from whatever is shown, inherited
+    /// or not.
+    func adding(_ input: String) -> [String] {
+        var updated = names
+        for name in input.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !name.isEmpty {
+            if !updated.contains(name) { updated.append(name) }
+        }
+        return updated
+    }
+
+    func removing(_ name: String) -> [String] {
+        names.filter { $0 != name }
+    }
+}
+
 private struct NameListEditor: View {
     let title: String
+    let caption: String
     let prompt: String
-    let names: [String]?
-    let inherited: [String]
+    let display: NameListDisplay
     let set: ([String]?) -> Void
     @State private var draft = ""
 
     var body: some View {
-        LabeledContent(title) {
-            VStack(alignment: .trailing) {
-                if let names {
-                    ForEach(names, id: \.self) { name in
-                        HStack {
-                            Text(name)
-                            Button {
-                                set(names.filter { $0 != name })
-                            } label: {
-                                Image(systemName: "minus.circle")
-                            }
-                            .buttonStyle(.borderless)
-                            .plumeID(AccessibilityID.settingsProjectListRemoveButton, label: "\(title): \(name)", invoke: {
-                                set(names.filter { $0 != name })
-                            })
+        LabeledContent {
+            VStack(alignment: .trailing, spacing: 6) {
+                ForEach(display.names, id: \.self) { name in
+                    HStack {
+                        Text(name)
+                            .foregroundStyle(display.isInherited ? .secondary : .primary)
+                        Button {
+                            set(display.removing(name))
+                        } label: {
+                            Image(systemName: "minus.circle")
+                                .foregroundStyle(.red)
                         }
+                        .buttonStyle(.borderless)
+                        .help(display.isInherited ? "Stop inheriting, and remove \(name) from this project" : "Remove \(name)")
+                        .plumeID(AccessibilityID.settingsProjectListRemoveButton, label: "\(title): \(name)", invoke: {
+                            set(display.removing(name))
+                        })
                     }
-                    if names.isEmpty {
-                        Text("None").foregroundStyle(.secondary)
-                    }
-                    Button("Use Default") { set(nil) }
-                        .buttonStyle(.link)
-                } else {
-                    Text(inherited.isEmpty ? "Default: none" : "Default: \(inherited.joined(separator: ", "))")
+                }
+                if display.names.isEmpty {
+                    Text("None").foregroundStyle(.secondary)
+                }
+                if display.isInherited {
+                    Text("Inherited from Defaults")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                if display.offersUseDefault {
+                    Button("Use Default") { set(nil) }
+                        .buttonStyle(.bordered)
+                        .tint(.yellow)
+                        .help("Inherit this list from Defaults")
+                        .plumeID(AccessibilityID.settingsProjectListUseDefaultButton, label: title, invoke: { set(nil) })
                 }
                 HStack {
                     TextField(title, text: $draft, prompt: Text(prompt))
                         .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 160)
                         .onSubmit(add)
                         .plumeID(AccessibilityID.settingsProjectField, label: title, value: draft, setValue: { draft = $0 })
                     Button("Add", action: add)
@@ -331,17 +440,57 @@ private struct NameListEditor: View {
                         .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+        } label: {
+            Text(title)
+            Text(caption)
         }
     }
 
-    /// Comma-separated input adds several. A first edit starts from the
-    /// inherited list rather than replacing it with one name.
     private func add() {
-        var updated = names ?? inherited
-        for name in draft.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !name.isEmpty {
-            if !updated.contains(name) { updated.append(name) }
-        }
+        guard !draft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let updated = display.adding(draft)
         draft = ""
         set(updated)
+    }
+}
+
+/// The glyphs `wt` prints in each mode, in the bundled Nerd Font, so the
+/// choice can be made by eye.
+private struct NerdFontPreview: View {
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+            row("Nerd Font", TerminalUI(glyphSet: .nerd))
+            row("Plain", TerminalUI(glyphSet: .plain))
+        }
+    }
+
+    private func row(_ title: String, _ ui: TerminalUI) -> some View {
+        GridRow {
+            Text(title)
+            HStack(spacing: 6) {
+                ForEach(Array(Self.glyphs(ui).enumerated()), id: \.offset) { _, glyph in
+                    Text(glyph.text).foregroundStyle(glyph.color)
+                }
+            }
+            .font(Self.font)
+        }
+    }
+
+    private static var font: Font {
+        BundledFonts.isCodeAvailable ? .custom(BundledFonts.code, size: 13) : .system(size: 13, design: .monospaced)
+    }
+
+    /// The glyphs that differ between the sets, each in the color `wt`
+    /// paints it. The plain set has no forge icon, so that one drops out.
+    private static func glyphs(_ ui: TerminalUI) -> [(text: String, color: Color)] {
+        [
+            (ui.github, Color.secondary),
+            (ui.gitlab, Color.secondary),
+            (ui.checksPass, Color.green),
+            (ui.checksFail, Color.red),
+            (ui.checksPending, Color.yellow),
+            (ui.merged, Color.purple),
+            (ui.netOff, Color.red),
+        ].filter { !$0.0.isEmpty }
     }
 }

@@ -49,7 +49,7 @@ nonisolated enum GitConfigSettingsImport {
         let baseBranch = first(chain("baseBranch")).flatMap { $0.isEmpty ? nil : $0 }
         let forge = first(chain("forge")).flatMap { ForgeKind(rawValue: $0.trimmingCharacters(in: .whitespaces).lowercased()) }
         let nerdFont = first(chain("nerdFont")).map {
-            ["true", "yes", "on", "1"].contains($0.trimmingCharacters(in: .whitespaces).lowercased())
+            ["true", "yes", "on", "1"].contains($0.trimmingCharacters(in: .whitespaces).lowercased()) ? NerdFontMode.on : .off
         }
         return ProjectSettings(
             baseBranch: baseBranch,
@@ -116,16 +116,22 @@ nonisolated enum GitConfigSettingsImport {
 
 extension GitConfigSettingsImport {
     /// Runs the import once per install, at launch: before the New Worktree
-    /// sheet or a `wt` from a Plume tab could want the values.
+    /// sheet or a `wt` from a Plume tab could want the values. The retired
+    /// Integrations list migrates after it, since the import never fills a
+    /// field that is already set and would skip git config's list.
     @MainActor
     static func runOnce(modelContext: ModelContext, settings: AppSettings = .shared, defaults: UserDefaults = .standard) {
-        guard !defaults.bool(forKey: completedDefaultsKey) else { return }
+        guard !defaults.bool(forKey: completedDefaultsKey) else {
+            settings.migrateLegacyIgnoredPendingChecks()
+            return
+        }
         let taskPaths = ((try? modelContext.fetch(FetchDescriptor<WorkTask>())) ?? []).compactMap(\.repoPath)
         let paths = Array(Set(taskPaths).union(settings.projectsConfiguration.repositories.keys))
         Task {
             let imported = await Task.detached { read(repositoryPaths: paths) }.value
             settings.projectsConfiguration = merging(imported, into: settings.projectsConfiguration)
             defaults.set(true, forKey: completedDefaultsKey)
+            settings.migrateLegacyIgnoredPendingChecks()
             Log.app.info("Imported git config settings for \(imported.repositories.count) repositories")
         }
     }

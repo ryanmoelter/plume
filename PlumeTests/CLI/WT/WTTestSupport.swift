@@ -412,9 +412,7 @@ nonisolated final class FakeWTContext: WTContext {
 
 struct StaticSettingsSource: ProjectSettingsSource {
     var configuration = ProjectsConfiguration()
-    var plumeIgnoredPendingChecks: [String] = []
     func load() -> ProjectsConfiguration { configuration }
-    func loadPlumeIgnoredPendingChecks() -> [String] { plumeIgnoredPendingChecks }
 }
 
 // MARK: Scratch repositories

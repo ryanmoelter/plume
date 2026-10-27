@@ -176,7 +176,6 @@ nonisolated final class WorktreeContext: WTContext {
             console: console,
             ui: WTSettings.terminalUI(
                 settings: settings,
-                plumeIgnoredPendingChecks: settingsSource.loadPlumeIgnoredPendingChecks(),
                 stdoutIsTerminal: console.stdoutIsTerminal,
                 environment: environment
             ),

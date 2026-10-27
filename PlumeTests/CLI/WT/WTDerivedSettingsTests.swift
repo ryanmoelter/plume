@@ -65,9 +65,12 @@ struct WTDerivedSettingsTests {
         #expect(WTSettings.terminalUI(settings: settings, stdoutIsTerminal: true, environment: ["NO_COLOR": "1"]).palette == .plain)
     }
 
-    @Test func nerdFontIsOptIn() {
+    @Test func nerdFontFollowsTheResolvedMode() {
+        let insidePlume = ["PLUME_TAB_ID": UUID().uuidString]
         #expect(WTSettings.terminalUI(settings: ProjectSettings(), stdoutIsTerminal: true, environment: [:]).glyphSet == .plain)
-        #expect(WTSettings.terminalUI(settings: ProjectSettings(nerdFont: true), stdoutIsTerminal: true, environment: [:]).glyphSet == .nerd)
+        #expect(WTSettings.terminalUI(settings: ProjectSettings(), stdoutIsTerminal: true, environment: insidePlume).glyphSet == .nerd)
+        #expect(WTSettings.terminalUI(settings: ProjectSettings(nerdFont: .on), stdoutIsTerminal: true, environment: [:]).glyphSet == .nerd)
+        #expect(WTSettings.terminalUI(settings: ProjectSettings(nerdFont: .off), stdoutIsTerminal: true, environment: insidePlume).glyphSet == .plain)
     }
 
     @Test func ignoredPendingChecksComeFromTheSettings() {

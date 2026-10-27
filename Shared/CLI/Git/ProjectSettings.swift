@@ -13,8 +13,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
     var branchPrefix: String?
     /// Default: sniffed from the origin URL.
     var forge: ForgeKind?
-    /// Default: false.
-    var nerdFont: Bool?
+    /// Default: `automatic`.
+    var nerdFont: NerdFontMode?
     /// Worktree folder names (basenames, never branches) that refuse delete,
     /// rename and foreground. Default: none.
     var protectedWorktrees: [String]?
@@ -26,7 +26,7 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
         baseBranch: String? = nil,
         branchPrefix: String? = nil,
         forge: ForgeKind? = nil,
-        nerdFont: Bool? = nil,
+        nerdFont: NerdFontMode? = nil,
         protectedWorktrees: [String]? = nil,
         ignoredPendingChecks: [String]? = nil
     ) {
@@ -76,9 +76,6 @@ nonisolated struct ProjectsConfiguration: Codable, Equatable, Sendable {
 
 nonisolated protocol ProjectSettingsSource {
     func load() -> ProjectsConfiguration
-    /// Settings ▸ Integrations' ignored checks, which apply to every
-    /// repository on top of the project's own list.
-    func loadPlumeIgnoredPendingChecks() -> [String]
 }
 
 /// Reads the app's own UserDefaults domain, so the tool sees Settings ▸
@@ -111,9 +108,5 @@ nonisolated struct UserDefaultsProjectSettingsSource: ProjectSettingsSource {
               let configuration = try? JSONDecoder().decode(ProjectsConfiguration.self, from: data)
         else { return ProjectsConfiguration() }
         return configuration
-    }
-
-    func loadPlumeIgnoredPendingChecks() -> [String] {
-        defaults?.stringArray(forKey: IgnoredChecksResolver.plumeSettingDefaultsKey) ?? []
     }
 }

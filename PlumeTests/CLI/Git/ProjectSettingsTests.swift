@@ -22,8 +22,8 @@ struct ProjectSettingsTests {
     }
 
     @Test func anUnknownRepositoryGetsTheDefaults() {
-        #expect(resolve(nil, defaults: ProjectSettings(baseBranch: "shared", nerdFont: true))
-            == ProjectSettings(baseBranch: "shared", nerdFont: true))
+        #expect(resolve(nil, defaults: ProjectSettings(baseBranch: "shared", nerdFont: .on))
+            == ProjectSettings(baseBranch: "shared", nerdFont: .on))
     }
 
     @Test func neitherSetStaysNil() {
@@ -46,17 +46,17 @@ struct ProjectSettingsTests {
     }
 
     @Test func theRepositoryCanTurnOffADefaultOptIn() {
-        #expect(resolve(ProjectSettings(nerdFont: false), defaults: ProjectSettings(nerdFont: true)).nerdFont == false)
+        #expect(resolve(ProjectSettings(nerdFont: .off), defaults: ProjectSettings(nerdFont: .on)).nerdFont == .off)
     }
 
     @Test func overridingKeepsEveryFieldIndependently() {
         let mine = ProjectSettings(branchPrefix: "", forge: .gitlab)
         let fallback = ProjectSettings(
-            baseBranch: "main", branchPrefix: "me/", forge: .github, nerdFont: true,
+            baseBranch: "main", branchPrefix: "me/", forge: .github, nerdFont: .on,
             protectedWorktrees: ["keep"], ignoredPendingChecks: ["slow"]
         )
         #expect(mine.overriding(fallback) == ProjectSettings(
-            baseBranch: "main", branchPrefix: "", forge: .gitlab, nerdFont: true,
+            baseBranch: "main", branchPrefix: "", forge: .gitlab, nerdFont: .on,
             protectedWorktrees: ["keep"], ignoredPendingChecks: ["slow"]
         ))
     }
@@ -74,7 +74,7 @@ struct ProjectSettingsTests {
     /// tool reads from the app's domain.
     @Test func theUserDefaultsSourceReadsWhatTheAppStored() throws {
         let configuration = ProjectsConfiguration(
-            defaults: ProjectSettings(nerdFont: true),
+            defaults: ProjectSettings(nerdFont: .on),
             repositories: ["/repo": ProjectSettings(baseBranch: "staging", branchPrefix: "", forge: .gitlab)]
         )
         try withSuite { suite, defaults in
