@@ -18,19 +18,29 @@ nonisolated extension Stack {
         var branches: StackBranches = [:]
         var current = ""
         var results: [(branch: String, action: String)] = []
-        try ctx.state.withLock {
-            branches = try ctx.loadAndFlushLocked()
-            current = try requireCurrentTracked(ctx, branches)
-            if interactive {
-                try interactiveRestack(ctx, &branches, current)
-                return
+        let starting = ctx.git.currentBranch()
+        do {
+            try ctx.state.withLock {
+                branches = try ctx.loadAndFlushLocked()
+                current = try requireCurrentTracked(ctx, branches)
+                if interactive {
+                    try interactiveRestack(ctx, &branches, current)
+                    return
+                }
+                let members = all
+                    ? StackGraph.subtree(branches, of: StackGraph.root(branches, of: current))
+                    : StackGraph.path(branches, to: current)
+                var adopted = Set<String>()
+                results = try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted)
+                if !dryRun { try ctx.saveState(branches) }
             }
-            let members = all
-                ? StackGraph.subtree(branches, of: StackGraph.root(branches, of: current))
-                : StackGraph.path(branches, to: current)
-            var adopted = Set<String>()
-            results = try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted)
-            if !dryRun { try ctx.saveState(branches) }
+        } catch let failure as CLIFailure where failure.code == conflictExitCode {
+            throw failure
+        } catch {
+            if !dryRun, let starting, ctx.git.currentBranch() != starting {
+                try? ctx.git.switchTo(starting, quiet: true)
+            }
+            throw error
         }
         if interactive {
             try warnDescendantsNeedRestack(ctx, branches, current)
