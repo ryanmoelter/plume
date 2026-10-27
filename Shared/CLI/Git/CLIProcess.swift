@@ -56,22 +56,24 @@ nonisolated enum CLIProcess {
 
         if let stdinPipe, let input {
             let handle = stdinPipe.fileHandleForWriting
-            DispatchQueue.global().async {
+            Thread {
                 try? handle.write(contentsOf: Data(input.utf8))
                 try? handle.close()
-            }
+            }.start()
         }
 
         // Drain stderr concurrently: a child that fills either pipe while
-        // the other is being read would deadlock.
+        // the other is being read would deadlock. On its own thread rather
+        // than a dispatch queue, because the callers block while they wait,
+        // and enough of them in parallel starve the queue of threads.
         let errorData = DataBox()
         let errorRead = DispatchGroup()
         if let errorPipe {
             errorRead.enter()
-            DispatchQueue.global().async {
+            Thread {
                 errorData.data = errorPipe.fileHandleForReading.readDataToEndOfFile()
                 errorRead.leave()
-            }
+            }.start()
         }
         let outputData = outputPipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
         errorRead.wait()
