@@ -1,7 +1,7 @@
 import Foundation
 
-/// Every `wt` subcommand. Each takes the arguments after its name and throws
-/// `CLIFailure` where the Python tool called `die` or `sys.exit`.
+/// Every `wt` subcommand. Each takes the arguments after its name and fails
+/// by throwing `CLIFailure`, which `WT.main` turns into the exit status.
 nonisolated extension WT {
     /// `list|l [--json] [--paths]`.
     static func list(_ ctx: any WTContext, _ arguments: [String]) throws {
@@ -17,7 +17,7 @@ nonisolated extension WT {
 
         // Started first, so the network round trip overlaps the status scan.
         let fetch = ctx.startPRFetch(allBranches: false)
-        let cwdName = ctx.currentWorktreeNameOrNone()
+        let currentIndex = currentRowIndex(ctx)
         let rows = buildRows(ctx)
         if rows.isEmpty {
             if asJSON {
@@ -32,7 +32,7 @@ nonisolated extension WT {
             // The payload is parsed, not watched, so it waits once and never redraws.
             let resolved = fetch.map { collectPRs($0, timeout: jsonPRWait) } ?? (state: .off, prs: [:])
             let payload = buildListJSON(
-                rows, cwdName: cwdName, prState: resolved.state, prs: resolved.prs,
+                rows, currentIndex: currentIndex, prState: resolved.state, prs: resolved.prs,
                 paths: ctx.worktreePathsInListOrder(), trunkBranches: ctx.trunkBranches
             )
             ctx.console.print(payload.jsonString())
@@ -41,7 +41,7 @@ nonisolated extension WT {
 
         let dirs = showPaths ? ctx.worktreePathsInListOrder().map { displayLocation($0, root: ctx.root) } : nil
         printListLive(
-            rows, cwdName: cwdName, fetch: fetch, trunkBranches: ctx.trunkBranches,
+            rows, currentIndex: currentIndex, fetch: fetch, trunkBranches: ctx.trunkBranches,
             live: ctx.console.stdoutIsTerminal, dirs: dirs, ui: ctx.ui, console: ctx.console
         )
     }
@@ -90,8 +90,8 @@ nonisolated extension WT {
     }
 
     /// The tab flags `checkout`, `cob` and `background` share. `--surface`
-    /// was the opt-in for what is now the default, so it is accepted and
-    /// ignored.
+    /// asks for the default, a tab, so it changes nothing; it stays accepted
+    /// for scripts that pass it.
     private struct TabFlags {
         var openTab = true
         var asTask = false
@@ -559,8 +559,38 @@ nonisolated extension WT {
     /// The help page: commands, the symbol key, then the resolved settings.
     static func usage(_ ctx: any WTContext) {
         let ui = ctx.ui
-        let b = ui.bold, r = ui.reset, d = ui.dim
+        usage(console: ctx.console, ui: ui)
+
+        let prefix: String
+        switch ctx.branchPrefixResolution() {
+        case nil: prefix = "(unset: git user.email missing)"
+        case ""?: prefix = "(none — no prefix)"
+        case let resolved?: prefix = resolved
+        }
+        let kind = ctx.forgeKind
+        let ignored = ctx.settings.ignoredPendingChecks ?? []
+        let untrackedCache = ctx.git.configGet("core.untrackedCache") ?? ""
+
+        ctx.console.print()
+        ctx.console.print(ui.glyphKey(forgeIcon: ui.forgeIcon(for: kind), numberPrefix: kind == .gitlab ? "!" : "#").joined(separator: "\n"))
         ctx.console.print("""
+
+        Current config (resolved), set in Plume's Settings ▸ Projects (see `wt setup`):
+          baseBranch           \(ctx.baseBranch)
+          branchPrefix         \(prefix)
+          forge                \(kind.rawValue)
+          nerdFont             \(ctx.settings.nerdFont == true ? "yes" : "no")
+          protectedWorktrees   \(ctx.protected.isEmpty ? "(none)" : ctx.protected.joined(separator: ", "))
+          ignoredPendingChecks \(ignored.isEmpty ? "(none)" : "\(ignored.count) check(s)")
+          core.untrackedCache  \(untrackedCache.isEmpty ? "(unset — `git config core.untrackedCache true` speeds up `wt list`)" : untrackedCache)
+        """)
+    }
+
+    /// Only the commands, for outside a repository, where there are no
+    /// settings to resolve.
+    static func usage(console: any CLIConsole, ui: TerminalUI) {
+        let b = ui.bold, r = ui.reset, d = ui.dim
+        console.print("""
         \(b)wt\(r) — worktree helper (also `plume wt`)
 
         usage: \(b)wt <command> [args]\(r)
@@ -591,30 +621,6 @@ nonisolated extension WT {
         --no-tab opens nothing; --task (or --workspace) opens it as a new task
         instead. Outside Plume, wt prints the directory to cd into.
         Shell integration: eval "$(plume init zsh)" in .zshrc.
-        """)
-
-        let prefix: String
-        switch ctx.branchPrefixResolution() {
-        case nil: prefix = "(unset: git user.email missing)"
-        case ""?: prefix = "(none — no prefix)"
-        case let resolved?: prefix = resolved
-        }
-        let kind = ctx.forgeKind
-        let ignored = ctx.settings.ignoredPendingChecks ?? []
-        let untrackedCache = ctx.git.configGet("core.untrackedCache") ?? ""
-
-        ctx.console.print()
-        ctx.console.print(ui.glyphKey(forgeIcon: ui.forgeIcon(for: kind), numberPrefix: kind == .gitlab ? "!" : "#").joined(separator: "\n"))
-        ctx.console.print("""
-
-        Current config (resolved), set in Plume's Settings ▸ Projects (see `wt setup`):
-          baseBranch           \(ctx.baseBranch)
-          branchPrefix         \(prefix)
-          forge                \(kind.rawValue)
-          nerdFont             \(ctx.settings.nerdFont == true ? "yes" : "no")
-          protectedWorktrees   \(ctx.protected.isEmpty ? "(none)" : ctx.protected.joined(separator: ", "))
-          ignoredPendingChecks \(ignored.isEmpty ? "(none)" : "\(ignored.count) check(s)")
-          core.untrackedCache  \(untrackedCache.isEmpty ? "(unset — `git config core.untrackedCache true` speeds up `wt list`)" : untrackedCache)
         """)
     }
 }

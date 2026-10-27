@@ -44,9 +44,9 @@ nonisolated enum WorktreePorcelain {
 /// Every git call `wt` makes. `ProcessWorktreeGit` shells out; tests
 /// substitute an in-memory fake.
 ///
-/// Methods that would exit in the Python tool on a git failure throw a
-/// `CLIFailure` carrying git's exit code. Git's own error output has already
-/// reached the terminal, so those failures carry no message.
+/// A throwing method's git failure ends the command: it throws a `CLIFailure`
+/// carrying git's exit code. Git's own error output has already reached the
+/// terminal, so those failures carry no message.
 nonisolated protocol WorktreeGit: AnyObject {
     /// The `git -C` anchor for repository-wide calls, set once the layout is
     /// known: the main worktree, or the `.bare` directory.
@@ -58,7 +58,6 @@ nonisolated protocol WorktreeGit: AnyObject {
 
     // Repository-wide.
     func configGet(_ key: String) -> String?
-    @discardableResult func configSet(_ key: String, _ value: String) -> Bool
     func originURL() -> String?
     /// `origin/HEAD`'s short name, such as `origin/main`.
     func originHead() -> String?
@@ -74,7 +73,6 @@ nonisolated protocol WorktreeGit: AnyObject {
     func branchDelete(_ branch: String, force: Bool) throws
     func branchDeleteOK(_ branch: String, force: Bool) -> Bool
     func worktreeMove(from: String, to: String) throws
-    func testUntrackedCache() -> Bool
 
     // Per worktree.
     func branchOf(_ path: String) throws -> String
@@ -205,10 +203,6 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         outputOrNil(repoGit("config", "--get", key))
     }
 
-    func configSet(_ key: String, _ value: String) -> Bool {
-        capture(repoGit("config", key, value))?.status == 0
-    }
-
     func originURL() -> String? {
         outputOrNil(repoGit("remote", "get-url", "origin"))
     }
@@ -273,10 +267,6 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     func worktreeMove(from: String, to: String) throws {
         try visibleFatal(repoGit("worktree", "move", from, to))
-    }
-
-    func testUntrackedCache() -> Bool {
-        silentOK(repoGit("update-index", "--test-untracked-cache"))
     }
 
     // MARK: Per worktree

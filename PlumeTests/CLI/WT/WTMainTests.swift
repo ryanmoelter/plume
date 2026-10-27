@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Plume
 
-/// `wt`'s entry point: the version, the dispatcher's own failures, and the
-/// `path` and `__complete` lookups. `--version` replaces the Python
-/// tool's VERSION-file check: the version is the app's.
+/// `wt`'s entry point: the version, which is the app's, help outside a
+/// repository, the dispatcher's own failures, and the `path` and
+/// `__complete` lookups.
 struct WTMainTests {
     @Test(arguments: ["--version", "-V", "version"])
     func versionPrintsTheAppsVersion(_ spelling: String) {
@@ -17,6 +17,34 @@ struct WTMainTests {
         let console = BufferConsole()
         #expect(WT.main(["--version"], environment: [:], console: console, version: nil) == 0)
         #expect(console.stdout == "wt (not inside Plume.app)\n")
+    }
+
+    @Test(arguments: [["help"], ["-h"], ["--help"], []])
+    func helpWorksOutsideARepository(_ arguments: [String]) throws {
+        let directory = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let console = BufferConsole()
+
+        let status = WT.main(
+            arguments, environment: ["PLUME_BUNDLE_ID": "plume-wt-help-\(UUID().uuidString)"], console: console,
+            version: nil, git: ProcessWorktreeGit(workingDirectory: directory)
+        )
+
+        #expect(status == (arguments.isEmpty ? 1 : 0))
+        #expect(console.stdout.contains("usage: wt <command> [args]"))
+        #expect(!console.stdout.contains("Current config"))
+        #expect(console.stderr.isEmpty)
+    }
+
+    @Test func otherCommandsStillNeedARepository() throws {
+        let directory = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let console = BufferConsole()
+
+        let status = WT.main(["list"], environment: [:], console: console, version: nil, git: ProcessWorktreeGit(workingDirectory: directory))
+
+        #expect(status == 1)
+        #expect(console.stderr == "wt: not inside a git repo\n")
     }
 
     @Test func anUnknownSubcommandFailsNamingIt() {

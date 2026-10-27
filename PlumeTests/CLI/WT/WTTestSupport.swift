@@ -140,10 +140,6 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func toplevel() -> String? { top }
     func commonDir(root: String) -> String? { common }
     func configGet(_ key: String) -> String? { config[key] }
-    func configSet(_ key: String, _ value: String) -> Bool {
-        config[key] = value
-        return true
-    }
     func originURL() -> String? { origin }
     func originHead() -> String? { head }
     func branchExists(_ branch: String) -> Bool { branches.contains(branch) }
@@ -160,7 +156,6 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func branchDelete(_ branch: String, force: Bool) throws { branches.remove(branch) }
     func branchDeleteOK(_ branch: String, force: Bool) -> Bool { branches.remove(branch) != nil }
     func worktreeMove(from: String, to: String) throws {}
-    func testUntrackedCache() -> Bool { true }
     func branchOf(_ path: String) throws -> String {
         guard let branch = branchByPath[path] else { throw CLIFailure(nil) }
         return branch
@@ -277,6 +272,8 @@ nonisolated final class FakeWTContext: WTContext {
     var worktrees: [Worktree]
     var prefix: String?
     var current: String?
+    /// Wins over `current`, for a name more than one worktree has.
+    var currentPath: String?
     var fetchSession: PRFetchSession?
     private(set) var ensuredWorktreesDirectory = false
 
@@ -290,6 +287,7 @@ nonisolated final class FakeWTContext: WTContext {
         branches: Set<String> = [],
         baseBranch: String = "",
         current: String? = nil,
+        currentPath: String? = nil,
         branchByPath: [String: String] = [:],
         canOpenTabs: Bool = true
     ) {
@@ -303,6 +301,7 @@ nonisolated final class FakeWTContext: WTContext {
         self.prefix = prefix
         self.baseBranch = baseBranch
         self.current = current
+        self.currentPath = currentPath
         fakeGit = FakeWorktreeGit(branches: branches, branchByPath: branchByPath)
         git = fakeGit
         buffer = BufferConsole()
@@ -351,6 +350,9 @@ nonisolated final class FakeWTContext: WTContext {
     }
 
     func currentWorktree() -> (name: String, path: String)? {
+        if let currentPath, let worktree = worktrees.first(where: { path(of: $0) == currentPath }) {
+            return (worktree.row.name, currentPath)
+        }
         guard let current, let path = try? worktreePath(current) else { return nil }
         return (current, path)
     }

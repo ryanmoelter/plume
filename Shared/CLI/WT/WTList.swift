@@ -176,14 +176,22 @@ nonisolated extension WT {
         }
     }
 
+    /// The row of the working directory's worktree in `buildRows` order.
+    /// Matched by path, since two worktrees can share a folder name.
+    static func currentRowIndex(_ ctx: any WTContext) -> Int? {
+        guard let current = ctx.currentWorktree()?.path else { return nil }
+        return ctx.worktreePathsInListOrder().firstIndex(of: current)
+    }
+
     /// The `wt list` table, without a trailing newline.
     ///
     /// A branch without an upstream renders local-only in every state but
     /// `off`, and a trunk branch renders as having no PR. `dirs` appends the
-    /// `--paths` column.
+    /// `--paths` column. `currentIndex` is the working directory's row, from
+    /// `currentRowIndex`.
     static func renderList(
         _ rows: [WorktreeRow],
-        cwdName: String?,
+        currentIndex: Int?,
         prState: PRState,
         prs: PullRequestMap,
         numberPrefix: String,
@@ -205,7 +213,7 @@ nonisolated extension WT {
         let maxBranchStatus = rows.map { fieldWidth(truncate($0.branch, cap: nameMax), cluster($0)) }.max() ?? 0
 
         return rows.enumerated().map { index, row in
-            let isCurrent = row.name == cwdName
+            let isCurrent = index == currentIndex
             let branchName = truncate(row.branch, cap: nameMax)
             let plain = cluster(row)
             let branchStatus = plain.isEmpty ? branchName : "\(branchName)  \(colorizeCluster(plain, ui: ui))"
@@ -246,7 +254,7 @@ nonisolated extension WT {
     /// since names are not unique.
     static func buildListJSON(
         _ rows: [WorktreeRow],
-        cwdName: String?,
+        currentIndex: Int?,
         prState: PRState,
         prs: PullRequestMap,
         paths: [String],
@@ -258,7 +266,7 @@ nonisolated extension WT {
                 name: row.name,
                 path: index < paths.count ? paths[index] : nil,
                 branch: row.branch,
-                current: row.name == cwdName,
+                current: index == currentIndex,
                 ahead: Int(row.ahead) ?? 0,
                 dirty: row.dirty,
                 remoteAhead: row.remoteAhead,
@@ -278,7 +286,7 @@ nonisolated extension WT {
     /// reader never sees a stale one.
     static func printListLive(
         _ rows: [WorktreeRow],
-        cwdName: String?,
+        currentIndex: Int?,
         fetch: PRFetchSession?,
         trunkBranches: Set<String>,
         live: Bool,
@@ -287,13 +295,13 @@ nonisolated extension WT {
         console: any CLIConsole
     ) {
         guard let fetch else {
-            console.print(renderList(rows, cwdName: cwdName, prState: .off, prs: [:], numberPrefix: "#", trunkBranches: trunkBranches, dirs: dirs, ui: ui))
+            console.print(renderList(rows, currentIndex: currentIndex, prState: .off, prs: [:], numberPrefix: "#", trunkBranches: trunkBranches, dirs: dirs, ui: ui))
             return
         }
 
         func table(_ state: PRState, _ prs: PullRequestMap) -> String {
             renderList(
-                rows, cwdName: cwdName, prState: state, prs: prs, numberPrefix: fetch.numberPrefix,
+                rows, currentIndex: currentIndex, prState: state, prs: prs, numberPrefix: fetch.numberPrefix,
                 forgeIcon: fetch.forgeIcon, trunkBranches: trunkBranches, dirs: dirs, ui: ui
             )
         }

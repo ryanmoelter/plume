@@ -1,6 +1,8 @@
 import Foundation
 
 nonisolated extension WT {
+    static let helpCommands: Set<String> = ["-h", "--help", "help"]
+
     /// `plume wt …`, and `wt …` through the opt-in link. Handles the
     /// commands that need no repository, builds the context, runs the
     /// subcommand, and turns a `CLIFailure` into `wt: <message>` on stderr.
@@ -9,7 +11,8 @@ nonisolated extension WT {
         _ arguments: [String],
         environment: [String: String],
         console: any CLIConsole,
-        version: String?
+        version: String?,
+        git: any WorktreeGit = ProcessWorktreeGit()
     ) -> Int32 {
         if let first = arguments.first, ["--version", "-V", "version"].contains(first) {
             console.print("\(programName) \(version ?? "(not inside Plume.app)")")
@@ -22,12 +25,25 @@ nonisolated extension WT {
             if arguments.first == "init" {
                 throw CLIFailure(#"shell integration moved to plume: eval "$(plume init zsh)""#)
             }
-            let ctx = try WorktreeContext.detect(
-                git: ProcessWorktreeGit(),
-                settingsSource: UserDefaultsProjectSettingsSource(environment: environment),
-                console: console,
-                environment: environment
-            )
+            let settingsSource = UserDefaultsProjectSettingsSource(environment: environment)
+            let ctx: WorktreeContext
+            do {
+                ctx = try WorktreeContext.detect(
+                    git: git,
+                    settingsSource: settingsSource,
+                    console: console,
+                    environment: environment
+                )
+            } catch is CLIFailure where arguments.isEmpty || helpCommands.contains(arguments[0]) {
+                let ui = WTSettings.terminalUI(
+                    settings: settingsSource.load().defaults,
+                    stdoutIsTerminal: console.stdoutIsTerminal,
+                    environment: environment
+                )
+                usage(console: console, ui: ui)
+                if arguments.isEmpty { throw CLIFailure(nil) }
+                return CLIExitCode.success
+            }
             try run(ctx, arguments)
             return CLIExitCode.success
         } catch let failure as CLIFailure {
@@ -60,7 +76,7 @@ nonisolated extension WT {
         case "foreground", "fg": try foreground(ctx, rest)
         case "setup": try setup(ctx, rest)
         case "__complete": try complete(ctx, rest)
-        case "-h", "--help", "help": usage(ctx)
+        case _ where helpCommands.contains(command): usage(ctx)
         case "":
             usage(ctx)
             throw CLIFailure(nil)

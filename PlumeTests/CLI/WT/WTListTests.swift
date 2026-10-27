@@ -26,9 +26,13 @@ struct WTListTests {
         ui: TerminalUI = .plain
     ) -> String {
         WT.renderList(
-            rows ?? self.rows, cwdName: cwd, prState: state, prs: prs, numberPrefix: prefix,
+            rows ?? self.rows, currentIndex: index(of: cwd, in: rows ?? self.rows), prState: state, prs: prs, numberPrefix: prefix,
             forgeIcon: icon, trunkBranches: trunk, dirs: dirs, ui: ui
         )
+    }
+
+    private func index(of name: String?, in rows: [WorktreeRow]) -> Int? {
+        name.flatMap { name in rows.firstIndex { $0.name == name } }
     }
 
     // MARK: render
@@ -209,7 +213,7 @@ struct WTListTests {
         prs: PullRequestMap = [:],
         trunk: Set<String> = []
     ) -> NSDictionary? {
-        let built = WT.buildListJSON(rows, cwdName: cwd, prState: state, prs: prs, paths: WTFixtures.paths, trunkBranches: trunk)
+        let built = WT.buildListJSON(rows, currentIndex: index(of: cwd, in: rows), prState: state, prs: prs, paths: WTFixtures.paths, trunkBranches: trunk)
         return jsonObject(built.jsonString())
     }
 
@@ -231,6 +235,29 @@ struct WTListTests {
 
     @Test func jsonMarksOnlyTheWorkingDirectorysRowCurrent() {
         #expect(worktrees(payload()).compactMap { $0["current"] as? Bool } == [true, false, false])
+    }
+
+    /// Two worktrees named `feature`, in different directories; the working
+    /// directory is the second.
+    @Test func onlyTheWorkingDirectorysRowIsCurrentWhenNamesRepeat() throws {
+        let rows = [wtRow("feature", "ryanm/a", ""), wtRow("feature", "ryanm/b", "")]
+        let ctx = FakeWTContext(
+            worktrees: rows,
+            paths: ["/repo/.plume/worktrees/feature", "/elsewhere/feature"],
+            currentPath: "/elsewhere/feature"
+        )
+
+        try WT.list(ctx, [])
+        #expect(ctx.buffer.stdout.split(separator: "\n").map { $0.hasPrefix("→") } == [false, true])
+
+        let json = FakeWTContext(
+            worktrees: rows,
+            paths: ["/repo/.plume/worktrees/feature", "/elsewhere/feature"],
+            currentPath: "/elsewhere/feature"
+        )
+        try WT.list(json, ["--json"])
+        let payload = try #require(jsonObject(json.buffer.stdout))
+        #expect(worktrees(payload).compactMap { $0["current"] as? Bool } == [false, true])
     }
 
     @Test func jsonHasNoCurrentRowOutsideEveryWorktree() {
@@ -271,7 +298,7 @@ struct WTListTests {
     private func printLive(_ completion: ScriptedFetchCompletion?, live: Bool = true) -> String {
         let console = BufferConsole()
         let session = completion.map { PRFetchSession(completion: $0, numberPrefix: "#", forgeIcon: gh) }
-        WT.printListLive(rows, cwdName: "dotfiles", fetch: session, trunkBranches: [], live: live, console: console)
+        WT.printListLive(rows, currentIndex: 0, fetch: session, trunkBranches: [], live: live, console: console)
         return console.stdout
     }
 

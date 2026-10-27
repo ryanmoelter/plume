@@ -263,41 +263,4 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     static func redrawPrefix(lines: Int) -> String {
         "\u{1B}[\(lines)A\u{1B}[J"
     }
-
-    /// Asks the user to pick one of `candidates` (value, display). Off a
-    /// terminal it fails listing the values, so a script can correct itself.
-    func pick(_ candidates: [(value: String, display: String)], what: String, console: any CLIConsole) throws -> String {
-        if candidates.isEmpty { throw CLIFailure("no \(what) to pick from") }
-        guard console.stdinIsTerminal, console.stdoutIsTerminal else {
-            let names = candidates.map { "  \($0.value)" }.joined(separator: "\n")
-            throw CLIFailure("no TTY — pass the \(what) as an argument. Candidates:\n\(names)")
-        }
-
-        // fzf draws on the real terminal, so only a real console hands off to it.
-        if console is StandardConsole, CLIProcess.which("fzf") != nil {
-            let result = try CLIProcess.run(
-                ["fzf", "--height=40%", "--reverse", "--prompt", "\(what)> "],
-                check: false,
-                input: candidates.map(\.display).joined(separator: "\n")
-            )
-            let selection = result.stdout.hasSuffix("\n") ? String(result.stdout.dropLast()) : result.stdout
-            guard result.status == 0, !selection.isEmpty,
-                  let match = candidates.first(where: { $0.display == selection })
-            else { throw CLIFailure("cancelled") }
-            return match.value
-        }
-
-        console.print("pick a \(what):")
-        for (index, candidate) in candidates.enumerated() {
-            let number = String(index + 1)
-            console.print("  \(String(repeating: " ", count: max(0, 2 - number.count)))\(number)) \(candidate.display)")
-        }
-        guard let raw = console.readLine(prompt: "> ")?.trimmingCharacters(in: .whitespaces) else {
-            throw CLIFailure("cancelled")
-        }
-        guard raw.allSatisfy({ $0.isASCII && $0.isNumber }), let choice = Int(raw), (1...candidates.count).contains(choice) else {
-            throw CLIFailure("invalid choice: '\(raw)'")
-        }
-        return candidates[choice - 1].value
-    }
 }
