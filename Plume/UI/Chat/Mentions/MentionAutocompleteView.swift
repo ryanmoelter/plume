@@ -18,7 +18,7 @@ struct MentionAutocompleteView: View, ThemedView {
             selectedIndex: selectedIndex,
             onSelect: onSelect,
             isTopOfPanel: isTopOfPanel,
-            footer: isLoading ? "Searching…" : nil,
+            status: isLoading ? "Searching…" : nil,
             row: row
         )
         .plumeID(AccessibilityID.composerMentionMenu)

@@ -15,24 +15,58 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
     var isTopOfPanel = true
     /// A caption under the rows, set off by a divider.
     var footer: String?
+    /// A passing state, such as a search still running. Over rows it draws
+    /// across their bottom rather than adding height, so the panel doesn't
+    /// jump each time it comes and goes.
+    var status: String?
     @ViewBuilder let row: (Int, Item) -> Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            list
+            if items.isEmpty, let status {
+                caption(status)
+            } else {
+                list
+                    .overlay(alignment: .bottom) {
+                        if let status {
+                            statusOverlay(status)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.15), value: status)
+            }
             if let footer {
                 Divider()
-                Text(footer)
-                    .font(typography.caption.font)
-                    .emphasis(.subtle)
-                    .padding(.horizontal, textInset)
-                    .padding(.vertical, 5)
+                caption(footer)
             }
         }
+        .clipShape(shape)
         .background(washColor, in: shape)
         .overlay { shape.strokeBorder(.separator) }
         .padding(.horizontal, -textInset)
         .padding(.top, isTopOfPanel ? -textInset : 0)
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(typography.caption.font)
+            .emphasis(.subtle)
+            .padding(.horizontal, textInset)
+            .padding(.vertical, 5)
+    }
+
+    /// Rows scrolling under it fade into the panel's own fill.
+    private func statusOverlay(_ text: String) -> some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(washColor)
+                .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+                .frame(height: 8)
+            caption(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(washColor)
+        }
+        .allowsHitTesting(false)
     }
 
     private var list: some View {
