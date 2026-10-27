@@ -42,27 +42,38 @@ struct LoginShellCommandTests {
     @Test func aTabsEnvironmentNamesItsTabTaskAndSocket() {
         let taskID = UUID()
         let tabID = UUID()
-        let environment = LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID, socketPath: "/serving/cli.sock")
+        let environment = LoginShellCommand.plumeEnvironment(
+            taskID: taskID, tabID: tabID, socketPath: "/serving/cli.sock", bundleID: "com.example.Plume.debug"
+        )
         #expect(environment["PLUME"] == "1")
+        #expect(environment["PLUME_BUNDLE_ID"] == "com.example.Plume.debug")
         #expect(environment["PLUME_TASK_ID"] == taskID.uuidString)
         #expect(environment["PLUME_TAB_ID"] == tabID.uuidString)
         #expect(environment["PLUME_SOCKET"] == "/serving/cli.sock")
-        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: "/serving/cli.sock")["PLUME_TAB_ID"] == nil)
+        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: "/serving/cli.sock", bundleID: nil)["PLUME_TAB_ID"] == nil)
     }
 
     @Test func aTabWithNoTaskStillExportsItsTab() {
         let tabID = UUID()
-        let environment = LoginShellCommand.plumeEnvironment(taskID: nil, tabID: tabID, socketPath: "/serving/cli.sock")
+        let environment = LoginShellCommand.plumeEnvironment(taskID: nil, tabID: tabID, socketPath: "/serving/cli.sock", bundleID: nil)
         #expect(environment["PLUME_TAB_ID"] == tabID.uuidString)
         #expect(environment["PLUME_TASK_ID"] == nil)
         #expect(environment["PLUME_SOCKET"] == "/serving/cli.sock")
     }
 
     @Test func noSocketIsExportedWhenTheServerIsNotServing() {
-        let environment = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil)
+        let environment = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil, bundleID: nil)
         #expect(environment["PLUME_SOCKET"] == nil)
         #expect(environment["PLUME_TAB_ID"] != nil)
-        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: nil) == ["PLUME": "1"])
+        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: nil) == ["PLUME": "1"])
+    }
+
+    /// A process serving many tabs still names the app, so `plume wt` reads
+    /// this build's Projects settings.
+    @Test func theSharedEnvironmentNamesTheBundleWithoutASocket() {
+        let environment = LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: "com.example.Plume")
+        #expect(environment == ["PLUME": "1", "PLUME_BUNDLE_ID": "com.example.Plume"])
+        #expect(UserDefaultsProjectSettingsSource(environment: environment).suiteName == "com.example.Plume")
     }
 
     @MainActor
@@ -70,6 +81,7 @@ struct LoginShellCommandTests {
         let served = CLIServer.shared.socketPath
         #expect(LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID())["PLUME_SOCKET"] == served)
         #expect(LoginShellCommand.sharedPlumeEnvironment()["PLUME_SOCKET"] == served)
+        #expect(LoginShellCommand.sharedPlumeEnvironment()["PLUME_BUNDLE_ID"] == Bundle.main.bundleIdentifier)
     }
 
     /// The test host is the app, so launch has already dropped any keys an
@@ -80,6 +92,8 @@ struct LoginShellCommandTests {
         #expect(environment["PLUME_TAB_ID"] == nil)
         #expect(environment["PLUME_TASK_ID"] == nil)
         #expect(environment["PLUME_EVENTS_DIR"] == nil)
+        #expect(environment["PLUME_BUNDLE_ID"] == nil)
+        #expect(LoginShellCommand.instanceKeys.contains("PLUME_BUNDLE_ID"))
         #expect(environment["PATH"] != nil)
     }
 }

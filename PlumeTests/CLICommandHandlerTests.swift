@@ -41,12 +41,12 @@ struct CLICommandHandlerTests {
         return handler
     }
 
-    @Test func aNewTabOpensBehindTheSelectionWithItsDirectory() throws {
+    @Test func aNewTabOpensBehindTheSelectionWithItsDirectory() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let selected = task.selectedTabID
         let handler = makeHandler(task: task)
 
-        let response = handler.handle(.newTab(.init(taskID: task.id, directory: "/tmp", select: false)))
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: "/tmp", select: false)))
 
         let tabID = try #require(response.tabID)
         let tab = try #require(task.tabs.first { $0.id == tabID })
@@ -56,40 +56,40 @@ struct CLICommandHandlerTests {
         #expect(task.selectedTabID == selected)
     }
 
-    @Test func aNewTabSavesItsDirectoryForTheNextLaunch() throws {
+    @Test func aNewTabSavesItsDirectoryForTheNextLaunch() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let directory = FileManager.default.temporaryDirectory.path
         let handler = makeHandler(task: task)
 
-        let response = handler.handle(.newTab(.init(taskID: task.id, directory: directory, select: false)))
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: directory, select: false)))
 
         let tab = try #require(task.tabs.first { $0.id == response.tabID })
         #expect(tab.workingDirectoryPath == directory)
         #expect(TabDirectoryStore().startingDirectory(for: tab, in: task) == directory)
     }
 
-    @Test func selectingTheNewTabRevealsItsTask() throws {
+    @Test func selectingTheNewTabRevealsItsTask() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         var revealed = false
         let handler = makeHandler(task: task) { revealed = true }
 
-        let response = handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true)))
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true)))
 
         #expect(task.selectedTabID == response.tabID)
         #expect(revealed)
     }
 
-    @Test func anUnknownTaskOrDirectoryFails() {
+    @Test func anUnknownTaskOrDirectoryFails() async {
         let task = TaskStore.createTask(in: context, siblings: [])
         let handler = makeHandler(task: task)
 
-        #expect(!handler.handle(.newTab(.init(taskID: UUID(), directory: nil, select: false))).ok)
+        #expect(await !handler.handle(.newTab(.init(taskID: UUID(), directory: nil, select: false))).ok)
         let missing = "/nonexistent-\(UUID().uuidString)"
-        #expect(!handler.handle(.newTab(.init(taskID: task.id, directory: missing, select: false))).ok)
+        #expect(await !handler.handle(.newTab(.init(taskID: task.id, directory: missing, select: false))).ok)
         #expect(task.tabs.count == 1)
     }
 
-    @Test func aTabIDOpensInThatTabsCurrentTask() throws {
+    @Test func aTabIDOpensInThatTabsCurrentTask() async throws {
         let original = TaskStore.createTask(in: context, siblings: [])
         let destination = TaskStore.createTask(in: context, siblings: [original])
         let caller = TaskStore.addTab(to: original, kind: .terminal, in: context)
@@ -98,28 +98,28 @@ struct CLICommandHandlerTests {
         handler.orderedWindows = { [] }
         handler.registerWindow(UUID(), registration(tasks: [original, destination]))
 
-        let response = handler.handle(.newTab(.init(tabID: caller.id, select: false)))
+        let response = await handler.handle(.newTab(.init(tabID: caller.id, select: false)))
 
         let tabID = try #require(response.tabID)
         #expect(destination.tabs.contains { $0.id == tabID })
         #expect(!original.tabs.contains { $0.id == tabID })
     }
 
-    @Test func aTaskIDWinsOverATabIDAndAnUnknownTabFails() throws {
+    @Test func aTaskIDWinsOverATabIDAndAnUnknownTabFails() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let handler = makeHandler(task: task)
 
-        let response = handler.handle(.newTab(.init(taskID: task.id, tabID: UUID(), select: false)))
+        let response = await handler.handle(.newTab(.init(taskID: task.id, tabID: UUID(), select: false)))
         #expect(response.ok)
-        #expect(!handler.handle(.newTab(.init(tabID: UUID(), select: false))).ok)
-        #expect(!handler.handle(.newTab(.init(select: false))).ok)
+        #expect(await !handler.handle(.newTab(.init(tabID: UUID(), select: false))).ok)
+        #expect(await !handler.handle(.newTab(.init(select: false))).ok)
     }
 
-    @Test func aRelativeDirectoryFails() {
+    @Test func aRelativeDirectoryFails() async {
         let task = TaskStore.createTask(in: context, siblings: [])
         let handler = makeHandler(task: task)
 
-        let response = handler.handle(.newTab(.init(taskID: task.id, directory: "tmp", select: false)))
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: "tmp", select: false)))
 
         #expect(response.error == "directory must be an absolute path: tmp")
         #expect(task.tabs.count == 1)
@@ -127,7 +127,7 @@ struct CLICommandHandlerTests {
 
     /// Selecting reveals in the frontmost window, though any window can find
     /// the task.
-    @Test func selectingRevealsInTheFrontmostWindow() throws {
+    @Test func selectingRevealsInTheFrontmostWindow() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let back = NSWindow()
         let front = NSWindow()
@@ -137,11 +137,11 @@ struct CLICommandHandlerTests {
         handler.registerWindow(UUID(), registration(tasks: [task], window: front) { _ in revealedIn.append("front") })
         handler.registerWindow(UUID(), registration(tasks: [], window: back) { _ in revealedIn.append("back") })
 
-        #expect(handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
+        #expect(await handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
         #expect(revealedIn == ["front"])
     }
 
-    @Test func aClosedWindowIsNeverRevealed() throws {
+    @Test func aClosedWindowIsNeverRevealed() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         var revealedIn: [String] = []
         let handler = CLICommandHandler()
@@ -152,16 +152,16 @@ struct CLICommandHandlerTests {
         handler.registerWindow(closed, registration(tasks: [task]) { _ in revealedIn.append("closed") })
         handler.unregisterWindow(closed)
 
-        #expect(handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
+        #expect(await handler.handle(.newTab(.init(taskID: task.id, directory: nil, select: true))).ok)
         #expect(revealedIn == ["open"])
     }
 
-    @Test func notifyReportsATabNothingOwns() {
+    @Test func notifyReportsATabNothingOwns() async {
         let handler = CLICommandHandler()
         let known = UUID()
         handler.notify = { tabID, _, _ in tabID == known }
 
-        #expect(handler.handle(.notify(.init(tabID: known, title: "t", body: ""))).ok)
-        #expect(!handler.handle(.notify(.init(tabID: UUID(), title: "t", body: ""))).ok)
+        #expect(await handler.handle(.notify(.init(tabID: known, title: "t", body: ""))).ok)
+        #expect(await !handler.handle(.notify(.init(tabID: UUID(), title: "t", body: ""))).ok)
     }
 }

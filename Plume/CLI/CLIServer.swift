@@ -9,10 +9,11 @@ import OSLog
 /// 0700 directory, and every accepted peer's uid is checked with `getpeereid`.
 ///
 /// Everything runs on the main queue, so nothing here may block: sockets are
-/// non-blocking, and output a client isn't reading waits in a buffer.
+/// non-blocking, output a client isn't reading waits in a buffer, and a
+/// handler that waits on a subprocess awaits it and replies when done.
 @MainActor
 final class CLIServer {
-    static let shared = CLIServer(handler: { CLICommandHandler.shared.handle($0) })
+    static let shared = CLIServer(handler: { await CLICommandHandler.shared.handle($0) })
 
     struct Limits {
         /// The most unread input, or unsent output, one connection may hold.
@@ -22,7 +23,9 @@ final class CLIServer {
         var acceptRetryDelay: TimeInterval = 0.5
     }
 
-    private let handler: (CLIRequest) -> CLIResponse
+    typealias Handler = @MainActor (CLIRequest) async -> CLIResponse
+
+    private let handler: Handler
     private let allowedUID: uid_t
     private let limits: Limits
     private var listenFD: Int32 = -1
@@ -54,7 +57,7 @@ final class CLIServer {
         }
     }
 
-    init(handler: @escaping (CLIRequest) -> CLIResponse, allowedUID: uid_t = getuid(), limits: Limits = Limits()) {
+    init(handler: @escaping Handler, allowedUID: uid_t = getuid(), limits: Limits = Limits()) {
         self.handler = handler
         self.allowedUID = allowedUID
         self.limits = limits
@@ -251,12 +254,12 @@ final class CLIServer {
     }
 }
 
-/// One accepted client. Requests are answered in order, synchronously on the
-/// main queue: each is a small model change.
+/// One accepted client. Requests are answered one at a time, in order, on the
+/// main actor.
 @MainActor
 private final class CLIConnection {
     private let fd: Int32
-    private let handler: (CLIRequest) -> CLIResponse
+    private let handler: CLIServer.Handler
     private let limits: CLIServer.Limits
     private let onClose: (Int32) -> Void
     private var readSource: DispatchSourceRead?
@@ -265,6 +268,16 @@ private final class CLIConnection {
     /// only once none remain.
     private var liveSources = 0
     private var input = CLILineCodec.Buffer()
+    private enum Pending {
+        case request(Data)
+        /// A reply the connection makes itself, queued so it keeps its place
+        /// behind requests still being answered.
+        case reply(CLIResponse)
+    }
+    private var pending: [Pending] = []
+    private var isAnswering = false
+    /// Reading has stopped; the connection finishes once `pending` is answered.
+    private var isInputDone = false
     private var output = Data()
     private var idleTimer: DispatchWorkItem?
     /// Reading has stopped; the connection closes once `output` drains.
@@ -278,7 +291,7 @@ private final class CLIConnection {
 
     init(
         fd: Int32,
-        handler: @escaping (CLIRequest) -> CLIResponse,
+        handler: @escaping CLIServer.Handler,
         limits: CLIServer.Limits,
         refusal: CLIResponse? = nil,
         onClose: @escaping (Int32) -> Void
@@ -349,7 +362,7 @@ private final class CLIConnection {
     // MARK: Input
 
     private func readAvailable() {
-        guard !isFinishing else { return }
+        guard !isFinishing, !isInputDone else { return }
         resetIdleTimer()
         var chunk = [UInt8](repeating: 0, count: 16 * 1024)
         var reachedEnd = false
@@ -374,26 +387,55 @@ private final class CLIConnection {
             return
         }
         while let line = input.nextLine() {
-            send(respond(to: line))
-            if isClosed { return }
+            pending.append(.request(line))
         }
         if input.count > limits.maxBufferedBytes {
-            send(.failure("request exceeds \(limits.maxBufferedBytes) bytes"))
-            finish()
+            pending.append(.reply(.failure("request exceeds \(limits.maxBufferedBytes) bytes")))
+            endInput()
         } else if reachedEnd {
             if let line = input.takeRemainder() {
-                send(respond(to: line))
+                pending.append(.request(line))
             }
-            finish()
+            endInput()
+        }
+        answerPending()
+    }
+
+    private func endInput() {
+        isInputDone = true
+        readSource?.cancel()
+        readSource = nil
+    }
+
+    private func answerPending() {
+        guard !isAnswering, !isClosed else { return }
+        guard !pending.isEmpty else {
+            if isInputDone { finish() }
+            return
+        }
+        switch pending.removeFirst() {
+        case .reply(let response):
+            send(response)
+            answerPending()
+        case .request(let line):
+            isAnswering = true
+            Task { @MainActor [self] in
+                let response = await respond(to: line)
+                isAnswering = false
+                send(response)
+                answerPending()
+            }
         }
     }
 
-    private func respond(to line: Data) -> CLIResponse {
+    private func respond(to line: Data) async -> CLIResponse {
+        let request: CLIRequest
         do {
-            return handler(try CLILineCodec.decode(CLIRequest.self, from: line))
+            request = try CLILineCodec.decode(CLIRequest.self, from: line)
         } catch {
             return .failure("bad request: \(Self.describe(error))")
         }
+        return await handler(request)
     }
 
     private static func describe(_ error: any Error) -> String {

@@ -228,4 +228,74 @@ struct CommandLineHelperTests {
         #expect(try destination("plume-notify") == legacy.path)
         #expect(state("plume") == .notInstalled)
     }
+
+    // MARK: wt
+
+    private func wtState(claimsOtherPlumeBundles: Bool = true) -> CommandLineHelper.State {
+        CommandLineHelper.wtState(in: bin, bundledURL: tool, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
+    }
+
+    @Test func wtIsLinkedOnlyWhenAskedAndRemovedOnItsOwn() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try link("plume-notify", to: CommandLineHelper.legacyScriptURL(inBundle: bundle))
+        CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
+        try CommandLineHelper.install(in: bin, bundledURL: tool)
+        #expect(wtState() == .notInstalled)
+        #expect(CommandLineHelper.wtSummary(of: wtState()).installTitle == "Link")
+
+        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        #expect(try destination("wt") == tool.path)
+        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(status: "Linked", installTitle: nil, canRemove: true))
+
+        try CommandLineHelper.uninstall(in: bin, bundledURL: tool)
+        #expect(try destination("wt") == tool.path)
+        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        #expect(wtState() == .notInstalled)
+    }
+
+    @Test func anotherToolsWTIsNeverReplaced() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let homebrew = scratch.appending(path: "Cellar/wt/1.0/bin/wt")
+        try FileManager.default.createDirectory(at: homebrew.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: homebrew)
+        try link("wt", to: homebrew)
+
+        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(status: "Another tool owns wt", installTitle: nil, canRemove: false))
+        #expect(throws: CommandLineHelper.InstallError.self) {
+            try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        }
+        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        #expect(try destination("wt") == homebrew.path)
+    }
+
+    /// A dangling `wt` outside any Plume bundle may be the user's own tool,
+    /// moved, so it is not Plume's to replace.
+    @Test func aDanglingForeignWTIsTakenButADanglingPlumeOneIsOurs() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let gone = scratch.appending(path: "scripts/wt")
+        try link("wt", to: gone)
+        #expect(wtState() == .occupiedByOther(gone.standardizedFileURL))
+
+        try FileManager.default.removeItem(at: bin.appending(path: "wt"))
+        try link("wt", to: scratch.appending(path: "Old/Plume.app/Contents/Helpers/plume"))
+        #expect(wtState() == .brokenLink)
+        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        #expect(try destination("wt") == tool.path)
+    }
+
+    @Test func aDebugBuildLeavesAnotherPlumesWTAlone() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let otherTool = try makeOtherPlumeTool()
+        try link("wt", to: otherTool)
+
+        #expect(wtState(claimsOtherPlumeBundles: false) == .ownedByOtherPlume(otherTool.standardizedFileURL))
+        #expect(throws: CommandLineHelper.InstallError.self) {
+            try CommandLineHelper.installWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
+        }
+        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
+        #expect(try destination("wt") == otherTool.path)
+
+        try CommandLineHelper.installWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: true)
+        #expect(try destination("wt") == tool.path)
+    }
 }

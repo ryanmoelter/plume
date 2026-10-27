@@ -313,6 +313,78 @@ enum CommandLineHelper {
         }
     }
 
+    // MARK: wt
+
+    /// Invoked as `wt`, the tool runs `plume wt`. Linked only when the user
+    /// asks, never by `install` or at launch, because `wt` is a common name
+    /// that another tool may already own.
+    static let wtCommandName = "wt"
+
+    /// As `state(of:)`, except that a dangling link outside any Plume bundle
+    /// is someone else's: it may be the user's own `wt`, moved.
+    static func wtState(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) -> State {
+        let url = directory.appending(path: wtCommandName)
+        let state = state(of: url, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
+        guard state == .brokenLink, let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+        else { return state }
+        let resolved = URL(fileURLWithPath: destination, relativeTo: url).standardizedFileURL
+        return isInsidePlumeBundle(resolved) ? state : .occupiedByOther(resolved)
+    }
+
+    struct WTSummary: Equatable {
+        var status: String
+        /// Nil when there is nothing to link.
+        var installTitle: String?
+        var canRemove: Bool
+    }
+
+    static func wtSummary(of state: State) -> WTSummary {
+        switch state {
+        case .installed: WTSummary(status: "Linked", installTitle: nil, canRemove: true)
+        case .notInstalled: WTSummary(status: "Not linked", installTitle: "Link", canRemove: false)
+        case .outdated: WTSummary(status: "Needs updating", installTitle: "Update", canRemove: true)
+        case .brokenLink: WTSummary(status: "Needs updating", installTitle: "Update", canRemove: false)
+        case .occupiedByOther: WTSummary(status: "Another tool owns wt", installTitle: nil, canRemove: false)
+        case .ownedByOtherPlume: WTSummary(status: "Another copy of Plume owns wt", installTitle: nil, canRemove: false)
+        }
+    }
+
+    static func installWT(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) throws {
+        guard let bundledURL else { throw InstallError.notBundled }
+        let url = directory.appending(path: wtCommandName)
+        switch wtState(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles) {
+        case .installed:
+            return
+        case .occupiedByOther(let destination):
+            throw InstallError.occupied(url, destination: destination)
+        case .ownedByOtherPlume(let destination):
+            throw InstallError.occupied(url, destination: destination)
+        case .brokenLink, .outdated:
+            try FileManager.default.removeItem(at: url)
+        case .notInstalled:
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try FileManager.default.createSymbolicLink(at: url, withDestinationURL: bundledURL)
+    }
+
+    static func uninstallWT(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL,
+        claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
+    ) throws {
+        guard wtState(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles).isPlumeOwned
+        else { return }
+        try FileManager.default.removeItem(at: directory.appending(path: wtCommandName))
+    }
+
     private static func logLinkFailure(_ url: URL, _ error: Error?) {
         let reason = error?.localizedDescription ?? "unknown error"
         Log.app.error("Could not link \(url.path, privacy: .public) to the plume tool: \(reason, privacy: .public)")

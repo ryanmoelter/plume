@@ -5,6 +5,7 @@ import SwiftData
 struct MainWindow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openSettings) private var openSettings
     @State private var selection: UUID?
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
@@ -223,7 +224,8 @@ struct MainWindow: View {
             task: { taskID in tasks.first { $0.id == taskID } },
             taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
             context: context,
-            reveal: { taskID in selection = taskID }
+            reveal: { taskID in selection = taskID },
+            openSettings: { openSettings() }
         ))
     }
 

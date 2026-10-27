@@ -5,6 +5,8 @@ struct GeneralSettingsPane: View {
     @State private var settings = AppSettings.shared
     @State private var helperState = CommandLineHelper.summary(of: CommandLineHelper.states())
     @State private var helperError: String?
+    @State private var wtState = CommandLineHelper.wtSummary(of: CommandLineHelper.wtState())
+    @State private var wtError: String?
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
     var body: some View {
@@ -12,6 +14,7 @@ struct GeneralSettingsPane: View {
             Section {
                 fullDiskAccessRow
                 commandLineHelperRow
+                wtLinkRow
                 KeepAwakeHelperRow()
             } header: {
                 Text("Permissions + helpers")
@@ -65,6 +68,7 @@ struct GeneralSettingsPane: View {
         .formStyle(.grouped)
         .onAppear {
             helperState = CommandLineHelper.summary(of: CommandLineHelper.states())
+            wtState = CommandLineHelper.wtSummary(of: CommandLineHelper.wtState())
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -110,6 +114,44 @@ struct GeneralSettingsPane: View {
             Text("Links `plume` into `~/.local/bin`, plus `plume-notify` for older scripts")
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var wtLinkRow: some View {
+        LabeledContent {
+            VStack(alignment: .trailing) {
+                Text(wtState.status)
+                    .foregroundStyle(.secondary)
+                    .plumeID(AccessibilityID.settingsWTLinkStatus, value: wtState.status)
+                HStack {
+                    if let installTitle = wtState.installTitle {
+                        Button(installTitle) { changeWTLink { try CommandLineHelper.installWT() } }
+                            .plumeID(AccessibilityID.settingsWTLinkButton, invoke: { changeWTLink { try CommandLineHelper.installWT() } })
+                    }
+                    if wtState.canRemove {
+                        Button("Remove") { changeWTLink { try CommandLineHelper.uninstallWT() } }
+                            .plumeID(AccessibilityID.settingsWTUnlinkButton, invoke: { changeWTLink { try CommandLineHelper.uninstallWT() } })
+                    }
+                }
+                if let wtError {
+                    Text(wtError)
+                        .foregroundStyle(.red)
+                }
+            }
+        } label: {
+            Text("`wt` command")
+            Text("Also links `wt` into `~/.local/bin`, running `plume wt`")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func changeWTLink(_ change: () throws -> Void) {
+        wtError = nil
+        do {
+            try change()
+        } catch {
+            wtError = error.localizedDescription
+        }
+        wtState = CommandLineHelper.wtSummary(of: CommandLineHelper.wtState())
     }
 
     private func requestImport(_ source: ImportSource) {

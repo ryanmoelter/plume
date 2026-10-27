@@ -42,7 +42,7 @@ Plume/
   Sessions/   SurfaceManager, LoginShellCommand
   Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
   Status/     StatusEngine, StatusPersistence
-  Workspace/  WorkspaceProvisioner, GitRunner
+  Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
   Android/    SDK, AVD, emulator and adb device discovery, EmulatorLauncher, DeviceSession(Manager), connection adapters, input mappers
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)

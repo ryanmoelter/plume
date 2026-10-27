@@ -18,25 +18,30 @@ enum LoginShellCommand {
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
     /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
-    /// through, when this app serves one. For a process serving many tabs,
-    /// which has no one tab to name.
+    /// through, when this app serves one, and this app's bundle ID, whose
+    /// defaults domain holds the settings the tool reads. For a process
+    /// serving many tabs, which has no one tab to name.
     static func sharedPlumeEnvironment() -> [String: String] {
-        sharedPlumeEnvironment(socketPath: CLIServer.shared.socketPath)
+        sharedPlumeEnvironment(socketPath: CLIServer.shared.socketPath, bundleID: Bundle.main.bundleIdentifier)
     }
 
-    static func sharedPlumeEnvironment(socketPath: String?) -> [String: String] {
-        guard let socketPath else { return plumeEnvironment }
-        return plumeEnvironment.merging([CLISocket.pathEnvironmentKey: socketPath]) { $1 }
+    static func sharedPlumeEnvironment(socketPath: String?, bundleID: String?) -> [String: String] {
+        var environment = plumeEnvironment
+        environment[CLISocket.pathEnvironmentKey] = socketPath
+        environment[UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey] = bundleID
+        return environment
     }
 
-    /// Everything `plume` needs inside one tab: the socket, and which tab and
-    /// task it runs in.
+    /// Everything `plume` needs inside one tab: the shared environment, and
+    /// which tab and task it runs in.
     static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
-        plumeEnvironment(taskID: taskID, tabID: tabID, socketPath: CLIServer.shared.socketPath)
+        plumeEnvironment(
+            taskID: taskID, tabID: tabID, socketPath: CLIServer.shared.socketPath, bundleID: Bundle.main.bundleIdentifier
+        )
     }
 
-    static func plumeEnvironment(taskID: UUID?, tabID: UUID, socketPath: String?) -> [String: String] {
-        var environment = sharedPlumeEnvironment(socketPath: socketPath)
+    static func plumeEnvironment(taskID: UUID?, tabID: UUID, socketPath: String?, bundleID: String?) -> [String: String] {
+        var environment = sharedPlumeEnvironment(socketPath: socketPath, bundleID: bundleID)
         environment[CLISocket.tabIDEnvironmentKey] = tabID.uuidString
         environment[CLISocket.taskIDEnvironmentKey] = taskID?.uuidString
         return environment
@@ -49,6 +54,7 @@ enum LoginShellCommand {
         CLISocket.pathEnvironmentKey,
         CLISocket.tabIDEnvironmentKey,
         CLISocket.taskIDEnvironmentKey,
+        UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey,
         "PLUME_EVENTS_DIR",
     ]
 

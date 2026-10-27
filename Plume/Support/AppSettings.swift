@@ -265,6 +265,10 @@ final class AppSettings {
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
 
+        self.projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
+            .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
+            ?? ProjectsConfiguration()
+
         self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
             .flatMap(UpdateInstallSource.init(rawValue:))
 
@@ -718,6 +722,15 @@ final class AppSettings {
     }
 
     private var shortcutBindingsContinuation: AsyncStream<ShortcutBindings>.Continuation?
+
+    /// Settings ▸ Projects. The `plume wt` tool reads the same key from this
+    /// app's domain (`UserDefaultsProjectSettingsSource`), so it is stored in
+    /// the tool's own JSON shape.
+    var projectsConfiguration: ProjectsConfiguration {
+        didSet {
+            defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
+        }
+    }
 
     /// The bindings now, then every later set. `AppDelegate` writes each onto
     /// the menu; observation alone cannot, because the menu is built from a

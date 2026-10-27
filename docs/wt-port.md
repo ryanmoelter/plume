@@ -10,7 +10,7 @@ Stage 1 is the skeleton and the ported tests. Every unported function is a stub 
 - In the standard layout, new worktrees go under `<repo>/.plume/worktrees`. `<repo>/.plume/.gitignore` contains `*`, so the directory ignores itself and the repository's own `.gitignore` stays untouched. The bare layout keeps its sibling directories.
 - Plume tabs replace cmux and Ghostty. Inside Plume, a worktree opens with `tab.new`. `--task` (or `--workspace`, kept for muscle memory) opens it as a task instead. `--no-tab` opens nothing. Outside Plume, or when the request fails, `wt` prints `wt: <dir>` and `wt: (cd "<dir>")`. A failed tab request never falls back to a task.
 - `switch` opens a tab inside Plume. Outside Plume it fails and tells the user to load `eval "$(plume init zsh)"`, whose `plume()` wrapper `cd`s through `command plume wt path`.
-- Settings come from Settings ▸ Projects, not `git config`. The app stores a `ProjectsConfiguration` as JSON data under the `projectsConfiguration` key. The tool reads it from the suite named by `PLUME_BUNDLE_ID`, else `com.ryanmoelter.Plume`. A repository's value overrides the defaults field by field, an explicit empty string counts as a value, and a list replaces the default list. The Settings pane that writes it is not part of this skeleton.
+- Settings come from Settings ▸ Projects, not `git config`. The app stores a `ProjectsConfiguration` as JSON data under the `projectsConfiguration` key. The tool reads it from the suite named by `PLUME_BUNDLE_ID`, else `com.ryanmoelter.Plume`. A repository's value overrides the defaults field by field, an explicit empty string counts as a value, and a list replaces the default list. Settings ▸ Projects (`ProjectsSettingsPane`) writes it through `AppSettings.projectsConfiguration`, keyed by `ProjectRoot.containing`, which derives the root through the same `WorktreeContext.locate` the tool uses.
 - The ignored-pending-checks list is a `TerminalUI` parameter read from settings, not a global.
 
 ## Python to Swift
@@ -64,11 +64,3 @@ Each group owns whole suites, so a group is done when its suites pass. Group A h
 | D: mutating commands, tabs, shell | `checkout`/`cob`, `open`, `background`, `foreground`, `delete`, `prune`, `rename`, `commit`, `switch`, `setup`, `TabOpener`, `WTPrune`, `ShellIntegration.zsh(aliases:)` | `WTPruneTests`, `WTTabsTests`, `WTInitTests`, `WTDispatchTests`, `CLICommandLineTests.initCompletesTheShellNameThenAliases`, `WTGitIntegrationTests.cobCreatesASelfIgnoredWorktree` |
 
 `WTDispatchTests` checks that each alias fails the same way as its full name on bad arguments. It includes `l`/`list`, so it passes only once C has landed as well as D.
-
-## App side still to do
-
-Groups A to D cover the tool. Three pieces of the app remain, and until they land `wt` falls back as it does outside Plume:
-
-- `task.new` in `CLICommandHandler`: create a task for `worktreePath` beside the caller's task, and answer its `taskID`. `docs/cli.md` has the request shape. Until then `--task` prints the `cd` hint.
-- `settings.open` in `CLICommandHandler`: show Settings on `section`. Until then `wt setup` prints where the settings live.
-- The Settings ▸ Projects pane that writes `projectsConfiguration`.

@@ -151,12 +151,7 @@ nonisolated final class WorktreeContext: WTContext {
         console: any CLIConsole,
         environment: [String: String]
     ) throws -> WorktreeContext {
-        guard let top = git.toplevel() else { throw CLIFailure("not inside a git repo") }
-        guard var common = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
-        // `--git-common-dir` can be relative to the directory it ran in.
-        if !common.hasPrefix("/") { common = lexicallyNormalized("\(top)/\(common)") }
-
-        let layoutRoot = (common as NSString).deletingLastPathComponent
+        let (layoutRoot, common) = try locate(git: git)
         let layout: WorktreeLayout = (common as NSString).lastPathComponent == ".bare" ? .bare : .standard
         // A standard repository's common dir is `<main worktree>/.git`, so its
         // parent is the main worktree from any linked worktree.
@@ -181,6 +176,17 @@ nonisolated final class WorktreeContext: WTContext {
             ui: WTSettings.terminalUI(settings: settings, stdoutIsTerminal: console.stdoutIsTerminal, environment: environment),
             tabs: tabs
         )
+    }
+
+    /// The repository's root, which keys its project settings, and git's
+    /// common dir, from the working directory. Settings ▸ Projects keys its
+    /// writes the same way.
+    static func locate(git: any WorktreeGit) throws -> (root: String, commonDir: String) {
+        guard let top = git.toplevel() else { throw CLIFailure("not inside a git repo") }
+        guard var common = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
+        // `--git-common-dir` can be relative to the directory it ran in.
+        if !common.hasPrefix("/") { common = lexicallyNormalized("\(top)/\(common)") }
+        return ((common as NSString).deletingLastPathComponent, common)
     }
 
     /// Collapses `.` and `..` without touching the file system, which would

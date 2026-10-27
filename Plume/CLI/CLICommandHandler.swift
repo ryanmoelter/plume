@@ -17,6 +17,14 @@ final class CLICommandHandler {
         var context: ModelContext
         /// Shows the task in this window, for `tab new --select`.
         var reveal: (UUID) -> Void
+        var openSettings: () -> Void = {}
+    }
+
+    /// A checkout `task.new` opens: which project it belongs to, and its
+    /// branch, nil when detached.
+    nonisolated struct Checkout: Sendable {
+        var facts: CheckoutFacts
+        var branch: String?
     }
 
     /// Most recently registered last.
@@ -50,7 +58,17 @@ final class CLICommandHandler {
         TerminalAlerts.shared.notify(tabID: tabID, title: title, body: body)
     }
 
-    func handle(_ request: CLIRequest) -> CLIResponse {
+    var inspectCheckout: @Sendable (String) async -> Checkout? = { path in
+        guard let facts = await GitService.shared.checkoutFacts(containing: path) else { return nil }
+        let branch = await GitService.shared.currentBranch(in: path)
+        return Checkout(facts: facts, branch: branch == "HEAD" ? nil : branch)
+    }
+
+    /// Where `SettingsView` keeps its selected pane.
+    var settingsDefaults: UserDefaults = .standard
+    var activateApp: () -> Void = { NSApp.activate() }
+
+    func handle(_ request: CLIRequest) async -> CLIResponse {
         switch request {
         case .ping:
             var response = CLIResponse.success
@@ -63,17 +81,78 @@ final class CLICommandHandler {
             return .success
         case .newTab(let params):
             return newTab(params)
-        case .newTask:
-            // TODO(PLUME-316 app side): create a task for `worktreePath` in
-            // the caller's group and answer its `taskID`. `wt` treats this
-            // refusal as "print the cd hint".
-            return .failure("task.new is not supported yet")
-        case .openSettings:
-            // TODO(PLUME-316 app side): show Settings on `section`, once the
-            // Projects pane exists. `wt setup` treats this refusal as "print
-            // where the settings live".
-            return .failure("settings.open is not supported yet")
+        case .newTask(let params):
+            return await newTask(params)
+        case .openSettings(let params):
+            return openSettings(params)
         }
+    }
+
+    /// The worktree already exists, since `wt` made it; this only opens a
+    /// task on it. An unknown caller puts the task outside any group rather
+    /// than failing, because the worktree is there either way.
+    private func newTask(_ params: CLIRequest.NewTask) async -> CLIResponse {
+        let path = params.worktreePath
+        guard path.hasPrefix("/") else {
+            return .failure("worktreePath must be an absolute path: \(path)")
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return .failure("no such directory: \(path)")
+        }
+        guard let checkout = await inspectCheckout(path),
+              Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(path)
+        else { return .failure("not a git worktree: \(path)") }
+
+        let windows = frontmostFirst
+        let callerTaskID = params.taskID ?? params.tabID.flatMap { tabID in
+            windows.lazy.compactMap { $0.taskIDForTab(tabID) }.first
+        }
+        let caller = callerTaskID.flatMap { id in
+            windows.lazy.compactMap { window in window.task(id).map { (task: $0, context: window.context) } }.first
+        }
+        guard let context = caller?.context ?? windows.first?.context else {
+            return .failure("no Plume window is open")
+        }
+        let group = caller?.task.group
+        let siblings = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? [])
+            .filter { !$0.isArchived && $0.group?.id == group?.id }
+        let task = TaskStore.createTask(
+            in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
+        )
+        task.workingDirectoryPath = path
+        task.repoPath = checkout.facts.projectRoot
+        task.branchName = checkout.branch
+        // Deleting a worktree task offers to remove the worktree, which the
+        // main checkout must never be.
+        task.workspaceKind = checkout.facts.isWorktree ? .worktree : .directory
+        if params.select { windows.first?.reveal(task.id) }
+        var response = CLIResponse.success
+        response.taskID = task.id
+        return response
+    }
+
+    /// Git answers with symlinks resolved, so `/var/…` must match
+    /// `/private/var/…`.
+    private static func resolvedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private func openSettings(_ params: CLIRequest.OpenSettings) -> CLIResponse {
+        var pane: SettingsPane?
+        if let section = params.section {
+            guard let named = SettingsPane(rawValue: section) else {
+                return .failure("no settings section \(section)")
+            }
+            pane = named
+        }
+        guard let window = frontmostFirst.first else {
+            return .failure("no Plume window is open")
+        }
+        if let pane { settingsDefaults.set(pane.rawValue, forKey: SettingsPane.selectionKey) }
+        activateApp()
+        window.openSettings()
+        return .success
     }
 
     private func newTab(_ params: CLIRequest.NewTab) -> CLIResponse {

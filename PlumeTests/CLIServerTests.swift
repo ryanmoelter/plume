@@ -62,6 +62,47 @@ struct CLIServerTests {
         #expect(received == [request])
     }
 
+    /// A handler that suspends answers later, and a request sent behind it
+    /// on the same connection still gets its reply second.
+    @Test func repliesKeepRequestOrderAcrossASuspendingHandler() async throws {
+        let first = UUID()
+        let second = UUID()
+        let server = CLIServer(handler: { request in
+            guard case .newTab(let params) = request else { return .failure("unexpected") }
+            if params.taskID == first {
+                for _ in 0..<20 { await Task.yield() }
+            }
+            var response = CLIResponse.success
+            response.taskID = params.taskID
+            return response
+        })
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let lines = try await Task.detached {
+            let fd = try CLISocket.connect(to: path)
+            defer { close(fd) }
+            var data = try CLILineCodec.encode(CLIRequest.newTab(.init(taskID: first, select: false)))
+            data.append(try CLILineCodec.encode(CLIRequest.newTab(.init(taskID: second, select: false))))
+            try CLISocket.writeAll(data, to: fd)
+            // `readLine` drops whatever follows the first line in its read.
+            var buffer = CLILineCodec.Buffer()
+            var lines: [Data] = []
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while lines.count < 2 {
+                let count = read(fd, &chunk, chunk.count)
+                guard count > 0 else { break }
+                buffer.append(Data(chunk[0..<count]))
+                while let line = buffer.nextLine() { lines.append(line) }
+            }
+            return lines
+        }.value
+        let responses = try lines.map { try CLILineCodec.decode(CLIResponse.self, from: $0) }
+        #expect(responses.map(\.taskID) == [first, second])
+    }
+
     @Test func theSocketsDirectoryIsMadePrivate() throws {
         let path = temporarySocketPath()
         let directory = (path as NSString).deletingLastPathComponent
