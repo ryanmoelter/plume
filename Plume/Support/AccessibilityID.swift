@@ -82,6 +82,8 @@ enum AccessibilityID {
     static let settingsSidebarSuggestsFilledIconsToggle = "settings-sidebar-suggests-filled-icons-toggle"
     static let importSourceItem = "import-source-item"
     static let sidebarImportMenu = "sidebar-import-menu"
+    static let settingsCommandLineToolToggle = "settings-command-line-tool-toggle"
+    static let settingsCommandLineToolUpdateButton = "settings-command-line-tool-update-button"
     static let settingsWTLinkButton = "settings-wt-link-button"
     static let settingsWTUnlinkButton = "settings-wt-unlink-button"
     static let settingsWTLinkStatus = "settings-wt-link-status"

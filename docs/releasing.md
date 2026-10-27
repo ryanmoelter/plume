@@ -144,7 +144,7 @@ That must print nothing.
 
 `sign-bundle.sh` re-signs it with Developer ID beside the sleep helper, before the outer bundle, and fails if it is missing. `install-release.sh` also fails if it links anything outside `/usr/lib` and `/System/Library` — it never needs Sparkle or Ghostty.
 
-It reaches the user's PATH as two symlinks in `~/.local/bin`, `plume` and `plume-notify`, both to `Contents/Helpers/plume` and created from **Settings → General → Command line tool**. `plume-notify` is the name the tool had when it was a shell script; invoked under that name, the tool runs `plume notify`. Symlinks rather than copies, so the tool follows whatever Plume is installed instead of going stale after an upgrade.
+It reaches the user's PATH as two symlinks in `~/.local/bin`, `plume` and `plume-notify`, both to `Contents/Helpers/plume` and created by the **Command line tool** switch in **Settings → Command line**. `plume-notify` is the name the tool had when it was a shell script; invoked under that name, the tool runs `plume notify`. Symlinks rather than copies, so the tool follows whatever Plume is installed instead of going stale after an upgrade.
 
 Replacing the bundle does not break the links. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but a link stores a *path*, so it re-resolves to the new bundle. The script prints each link's state after installing. A `plume-notify` link from before the tool still points at the deleted `Contents/Resources/plume-notify` script and reads `BROKEN` there; the new build repoints it, and adds `plume`, when it launches.
 

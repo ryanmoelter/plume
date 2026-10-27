@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Plume
 
-/// Settings ▸ General's Add to .zshrc: appends the init line once, creates a
-/// missing file, separates it from a last line with no newline, and keeps a
-/// symlinked `.zshrc` a symlink.
+/// Settings ▸ Command line's Add to .zshrc: appends the init line once,
+/// creates a missing file, separates it from a last line with no newline, and
+/// keeps a symlinked `.zshrc` a symlink.
 struct ZshrcSetupTests {
     private let directory: URL
 

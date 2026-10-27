@@ -9,7 +9,7 @@ import os
 /// installed instead of going stale after an upgrade. A link points into the
 /// app bundle, which means moving or deleting Plume breaks it — `state`
 /// reports that as `.brokenLink` so the UI can offer to relink.
-enum CommandLineHelper {
+nonisolated enum CommandLineHelper {
     static let commandNames = ["plume", "plume-notify"]
 
     /// Not `/usr/local/bin`: writing there needs admin rights, and this
@@ -56,6 +56,14 @@ enum CommandLineHelper {
             switch self {
             case .installed, .outdated: true
             case .notInstalled, .occupiedByOther, .ownedByOtherPlume, .brokenLink: false
+            }
+        }
+
+        /// A link to a Plume tool that exists, whoever placed it.
+        var isLinked: Bool {
+            switch self {
+            case .installed, .outdated, .ownedByOtherPlume: true
+            case .notInstalled, .occupiedByOther, .brokenLink: false
             }
         }
 
@@ -133,77 +141,38 @@ enum CommandLineHelper {
         }
     }
 
-    /// What Settings shows and offers. Names something else owns are listed
-    /// in `taken`, and `progress` covers the rest.
+    /// What the Command line tool switch in Settings shows and offers.
     struct Summary: Equatable {
-        enum Progress: Equatable {
-            case installed
-            case notInstalled
-            /// Some names are missing or point at an older or vanished tool.
-            case needsUpdate
-            /// Every name is taken, so there is nothing to install.
-            case allTaken
-        }
-
-        struct Taken: Equatable {
-            var name: String
-            var byOtherPlume: Bool
-        }
-
-        var progress: Progress
-        /// The names `progress` covers.
-        var available: [String]
-        var taken: [Taken] = []
-        /// True while any link is Plume's, so Remove stays reachable even
-        /// when another name is taken.
-        var canRemove: Bool
-
-        /// Nil when there is nothing left to link.
-        var installTitle: String? {
-            switch progress {
-            case .notInstalled: "Install"
-            case .needsUpdate: "Update"
-            case .installed, .allTaken: nil
-            }
-        }
-
-        var statusLines: [String] {
-            var lines: [String] = []
-            let progressText: String? = switch progress {
-            case .installed: "Installed"
-            case .notInstalled: "Not installed"
-            case .needsUpdate: "Needs updating"
-            case .allTaken: nil
-            }
-            if let progressText {
-                lines.append(taken.isEmpty ? progressText : "\(available.joined(separator: ", ")): \(progressText.lowercased())")
-            }
-            for entry in taken {
-                lines.append("\(entry.byOtherPlume ? "Another copy of Plume" : "Another tool") owns \(entry.name)")
-            }
-            return lines
-        }
+        /// True while any name links to a Plume tool, this build's or another copy's.
+        var isOn: Bool
+        /// False when flipping the switch could change nothing: on only through
+        /// another copy of Plume's links, which a debug build leaves alone, or
+        /// off with every name taken.
+        var canToggle: Bool
+        /// Plume owns a link, but some name is missing or points at an older
+        /// or vanished tool.
+        var needsUpdate: Bool
+        var notes: [String]
     }
 
     static func summary(of states: [(name: String, state: State)]) -> Summary {
-        let taken = states.compactMap { entry -> Summary.Taken? in
+        let isOn = states.contains { $0.state.isLinked }
+        let ownsALink = states.contains { $0.state.isPlumeOwned }
+        let available = states.filter { !$0.state.isTaken }
+        let needsUpdate = ownsALink && available.contains { $0.state != .installed }
+        var notes = states.compactMap { entry -> String? in
             switch entry.state {
-            case .occupiedByOther: Summary.Taken(name: entry.name, byOtherPlume: false)
-            case .ownedByOtherPlume: Summary.Taken(name: entry.name, byOtherPlume: true)
+            case .occupiedByOther: "Another tool owns \(entry.name)"
+            case .ownedByOtherPlume: "Another copy of Plume owns \(entry.name)"
             case .installed, .notInstalled, .outdated, .brokenLink: nil
             }
         }
-        let available = states.filter { !$0.state.isTaken }
-        let progress: Summary.Progress =
-            if available.isEmpty { .allTaken }
-            else if available.allSatisfy({ $0.state == .installed }) { .installed }
-            else if available.allSatisfy({ $0.state == .notInstalled }) { .notInstalled }
-            else { .needsUpdate }
+        if needsUpdate { notes.append("Needs updating") }
         return Summary(
-            progress: progress,
-            available: available.map(\.name),
-            taken: taken,
-            canRemove: states.contains { $0.state.isPlumeOwned }
+            isOn: isOn,
+            canToggle: isOn ? ownsALink : !available.isEmpty,
+            needsUpdate: needsUpdate,
+            notes: notes
         )
     }
 
@@ -257,16 +226,29 @@ enum CommandLineHelper {
         if let firstConflict { throw firstConflict }
     }
 
-    /// Removes the links Plume placed, leaving anything else alone.
+    /// Removes every link Plume owns, `wt` included, since a `wt` left behind
+    /// would keep part of the tool on PATH with its switch off. A dangling
+    /// link is removed only when it pointed into a Plume bundle.
     static func uninstall(
         in directory: URL = installDirectory,
         bundledURL: URL? = bundledURL,
         claimsOtherPlumeBundles: Bool = claimsOtherPlumeBundles
     ) throws {
-        for (name, state) in states(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
-        where state.isPlumeOwned {
-            try FileManager.default.removeItem(at: directory.appending(path: name))
+        var entries = states(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
+        entries.append(
+            (wtCommandName, wtState(in: directory, bundledURL: bundledURL, claimsOtherPlumeBundles: claimsOtherPlumeBundles))
+        )
+        for (name, state) in entries {
+            let url = directory.appending(path: name)
+            if state.isPlumeOwned || (state == .brokenLink && linksIntoPlumeBundle(url)) {
+                try FileManager.default.removeItem(at: url)
+            }
         }
+    }
+
+    private static func linksIntoPlumeBundle(_ url: URL) -> Bool {
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) else { return false }
+        return isInsidePlumeBundle(URL(fileURLWithPath: destination, relativeTo: url).standardizedFileURL)
     }
 
     /// A `plume-notify` link to this bundle's old script dangles once the
@@ -277,7 +259,7 @@ enum CommandLineHelper {
     ///
     /// Returns whether each name now links to the tool, empty when there was
     /// nothing to repoint.
-    @discardableResult
+    @MainActor @discardableResult
     static func repointLegacyLinks(
         in directory: URL = installDirectory,
         bundleURL: URL = Bundle.main.bundleURL,
@@ -385,7 +367,7 @@ enum CommandLineHelper {
         try FileManager.default.removeItem(at: directory.appending(path: wtCommandName))
     }
 
-    private static func logLinkFailure(_ url: URL, _ error: Error?) {
+    @MainActor private static func logLinkFailure(_ url: URL, _ error: Error?) {
         let reason = error?.localizedDescription ?? "unknown error"
         Log.app.error("Could not link \(url.path, privacy: .public) to the plume tool: \(reason, privacy: .public)")
     }

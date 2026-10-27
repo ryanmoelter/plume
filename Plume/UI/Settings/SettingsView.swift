@@ -79,6 +79,7 @@ struct SettingsView: View {
         case .general: GeneralSettingsPane()
         case .agents: AgentsSettingsPane()
         case .projects: ProjectsSettingsPane()
+        case .commandLine: CommandLineSettingsPane()
         case .visuals: VisualsSettingsPane()
         case .keepAwake: KeepAwakeSettingsPane()
         case .shortcuts: ShortcutsSettingsPane()
@@ -97,6 +98,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case agents
     case projects
+    case commandLine
     case visuals
     case keepAwake
     case shortcuts
@@ -119,6 +121,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: "General"
         case .agents: "Agents"
         case .projects: "Projects"
+        case .commandLine: "Command line"
         case .visuals: "Visuals"
         case .keepAwake: "Keep awake"
         case .shortcuts: "Shortcuts"
@@ -137,6 +140,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .agents: "person.2"
         case .projects: "folder"
+        case .commandLine: "terminal"
         case .visuals: "paintpalette"
         case .keepAwake: "cup.and.saucer"
         case .shortcuts: "keyboard"
