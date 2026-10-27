@@ -10,6 +10,8 @@ The code is split three ways:
 | `Shared/CLI/` | Compiled into both the app and the tool: the wire types, the line codec, socket path resolution, the socket client, `Presence`, argument parsing, and the zsh integration. PlumeTests reaches it through `@testable import Plume`. |
 | `Plume/CLI/` | The app side: `CLIServer` (the socket) and `CLICommandHandler` (what each request does). |
 
+**Settings → General → Shell integration** shows `eval "$(plume init zsh --aliases)"` with **Copy** and **Add to .zshrc** (`ZshrcSetup`). Add appends the line to `$ZDOTDIR/.zshrc`, else `~/.zshrc`, and creates the file if it is missing. It asks `zsh -c` for `ZDOTDIR`, because a GUI-launched app rarely inherits it from `~/.zshenv`. Any uncommented line containing `plume init zsh` counts as already added, so the row shows "Added" and appends nothing. Add appends through a file handle, so a `.zshrc` symlinked into a dotfiles repository stays a symlink. The line names `plume` rather than the bundled path, since the functions it defines call `command plume`. So until a `plume` link is on PATH, Add is disabled and the row says to install the command line tool first.
+
 ## Commands
 
 | Command | Needs the app | What it does |
