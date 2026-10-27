@@ -89,7 +89,6 @@ nonisolated struct PullRequest: Sendable, Equatable {
         checkContexts: [CheckContext] = [],
         githubStack: GitHubStackMembership? = nil
     ) {
-        self.githubStack = githubStack
         self.number = number
         self.state = state
         self.isDraft = isDraft
@@ -99,5 +98,6 @@ nonisolated struct PullRequest: Sendable, Equatable {
         self.headRefOid = headRefOid
         self.reviewDecision = reviewDecision
         self.checkContexts = checkContexts
+        self.githubStack = githubStack
     }
 }

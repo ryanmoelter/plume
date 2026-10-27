@@ -48,7 +48,7 @@ struct StackMainTests {
 
     @Test func helpWorksOutsideARepository() {
         #expect(main(["help"]) == CLIExitCode.success)
-        #expect(console.stdout.contains("stack create <name>"))
+        #expect(console.stdout.contains("create|c <name> [--insert]"))
         #expect(!console.stdout.contains("Current config"))
     }
 
