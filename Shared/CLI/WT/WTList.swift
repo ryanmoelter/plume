@@ -256,8 +256,8 @@ nonisolated extension WT {
     /// `columns`, the terminal's width, caps every line. The name and branch
     /// columns narrow to fit (`TerminalUI.fitColumns`, down to
     /// `fittedColumnFloor`), and a line still too wide is cut at its tail.
-    /// The fit reserves the widest PR column any fetch state could print, so
-    /// the loading frame and the resolved one share their column widths.
+    /// The fit reserves only the PR column this frame prints, so the columns
+    /// can shift when PR status arrives.
     static func renderListLines(
         _ rows: [WorktreeRow],
         currentIndex: Int?,
@@ -299,10 +299,7 @@ nonisolated extension WT {
         var nameColumn = names.map(TerminalUI.displayWidth).max() ?? 0
         var branchColumn = branches.map(TerminalUI.displayWidth).max() ?? 0
         if let columns {
-            var prColumn = prChips.map(\.width).max() ?? 0
-            if prState != .off, rows.contains(where: \.hasUpstream) {
-                prColumn = max(prColumn, ui.netOffChip(forgeIcon: forgeIcon, failed: false).width)
-            }
+            let prColumn = prChips.map(\.width).max() ?? 0
             let fitted = TerminalUI.fitColumns([nameColumn, branchColumn], floor: fittedColumnFloor) { widths in
                 let field = zip(branches, clusters).map { branch, plain in
                     min(TerminalUI.displayWidth(branch), widths[1]) + fieldWidth("", plain)

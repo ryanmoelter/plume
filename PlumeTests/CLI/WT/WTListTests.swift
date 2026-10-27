@@ -459,8 +459,6 @@ struct WTListTests {
         )
     }
 
-    /// The `wait` chip is as wide as the PR column the fit reserves, so its
-    /// lines fill the terminal to the last column.
     @Test func aTableFitsANarrowTerminalWithItsFixedColumnsIntact() {
         let lines = fitted(longRows, .wait, columns: 60)
         let widths = lines.map { TerminalUI.displayWidth($0.text) }
@@ -502,14 +500,20 @@ struct WTListTests {
         #expect(lines[2].text.hasSuffix("…"))
     }
 
-    @Test func theLoadingAndResolvedFramesShareColumnWidths() {
+    @Test func eachFrameFitsItsOwnPRColumn() {
         let prs = [longRows[0].branch: WTFixtures.openPR]
-        func beforePRColumn(_ chips: [Chip]) -> [String] {
-            chips.map { String($0.text.prefix { $0 != Character(gh) && $0 != Character(netOff) }) }
+        let frames = [
+            fitted(longRows, .loading, columns: 60),
+            fitted(longRows, .on, prs, columns: 60),
+            fitted(longRows, .wait, columns: 60),
+        ]
+        for frame in frames {
+            #expect(frame.map { TerminalUI.displayWidth($0.text) }.max() == 60)
         }
-        let loading = beforePRColumn(fitted(longRows, .loading, columns: 60))
-        #expect(loading == beforePRColumn(fitted(longRows, .on, prs, columns: 60)))
-        #expect(loading == beforePRColumn(fitted(longRows, .wait, columns: 60)))
+        func branchCell(_ frame: [Chip]) -> Int {
+            TerminalUI.displayWidth(String(frame[1].text.dropFirst(2).drop { $0 != " " }.drop { $0 == " " }.prefix { $0 != " " }))
+        }
+        #expect(branchCell(frames[0]) > branchCell(frames[2]))
     }
 
     @Test func pipedOutputIsNeverCut() {
