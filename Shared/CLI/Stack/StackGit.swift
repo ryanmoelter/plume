@@ -80,7 +80,8 @@ nonisolated final class ProcessStackGit: StackGit {
     }
 
     func currentBranch() -> String? {
-        output("symbolic-ref", "--short", "-q", "HEAD").flatMap { $0.isEmpty ? nil : $0 }
+        guard let ref = output("symbolic-ref", "-q", "HEAD"), ref.hasPrefix("refs/heads/") else { return nil }
+        return String(ref.dropFirst("refs/heads/".count))
     }
 
     func localBranches() throws -> [String] {

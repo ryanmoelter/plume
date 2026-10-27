@@ -60,4 +60,38 @@ struct StackTagNamedBranchTests {
         #expect(try ctx.commitsOverParent(state, "v2") == 2)
         #expect(try ctx.needsRestack(state, "child") == false)
     }
+
+    @Test func theCurrentBranchReadsAsItsNameDespiteTheTag() throws {
+        let repo = try taggedRepo()
+
+        #expect(repo.context().git.currentBranch() == "v2")
+    }
+
+    @Test func prevMovesToTheParentFromATagNamedBranch() throws {
+        let repo = try taggedRepo()
+
+        try Stack.navigate(repo.context(), .prev, [])
+
+        #expect(repo.context().git.currentBranch() == "main")
+    }
+
+    @Test func listJSONMarksATagNamedBranchCurrent() throws {
+        let repo = try taggedRepo()
+        let console = BufferConsole()
+
+        try Stack.list(repo.context(console: console), ["--json", "--no-pr"])
+
+        #expect(console.stdout.contains("\"current\": \"v2\""))
+        #expect(!console.stdout.contains("heads/"))
+    }
+
+    private func taggedRepo() throws -> StackScratchRepo {
+        let repo = try StackScratchRepo()
+        let base = try repo.rev("main")
+        try repo.git("tag", "v2")
+        try repo.git("switch", "-qc", "v2")
+        try repo.commit("v2-one")
+        try repo.writeState(["v2": entry("main", base)])
+        return repo
+    }
 }
