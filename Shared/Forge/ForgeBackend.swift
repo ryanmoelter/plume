@@ -19,6 +19,7 @@ nonisolated protocol ForgeBackend: Sendable {
 /// `{owner}`/`{repo}` placeholders from `workingDirectory`.
 nonisolated struct GitHubBackend: ForgeBackend {
     var workingDirectory: String?
+    var includeStacks = false
 
     /// Enough concurrent chunks to hide latency without a burst the forge's
     /// rate limiter would notice.
@@ -51,7 +52,7 @@ nonisolated struct GitHubBackend: ForgeBackend {
     }
 
     private func fetch(_ chunk: [String]) -> PullRequestMap? {
-        let (query, aliasToBranch) = GitHubQuery.build(branches: chunk)
+        let (query, aliasToBranch) = GitHubQuery.build(branches: chunk, includeStacks: includeStacks)
         let arguments = ["gh", "api", "graphql", "-f", "query=\(query)", "-F", "owner={owner}", "-F", "name={repo}"]
         guard let result = try? CLIProcess.run(arguments, check: false, workingDirectory: workingDirectory),
               result.status == 0,

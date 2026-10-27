@@ -19,6 +19,8 @@ nonisolated enum GitHubQuery {
         ... on CheckRun { name conclusion status } } } } } } }
         """
 
+    private static let stackFields = "stack { number size } stackEntry { position }"
+
     static func chunks(of branches: [String]) -> [[String]] {
         stride(from: 0, to: branches.count, by: chunkSize).map {
             Array(branches[$0..<min($0 + chunkSize, branches.count)])
@@ -28,16 +30,20 @@ nonisolated enum GitHubQuery {
     /// The query plus the alias-to-branch map. Responses route by alias — the
     /// query never asks for `headRefName`, so there is nothing else to route
     /// by.
-    static func build(branches: [String]) -> (query: String, aliasToBranch: [String: String]) {
+    ///
+    /// `includeStacks` adds GitHub's native stack membership, which only
+    /// `stack` reads.
+    static func build(branches: [String], includeStacks: Bool = false) -> (query: String, aliasToBranch: [String: String]) {
         var fields: [String] = []
         var aliasToBranch: [String: String] = [:]
+        let nodeFields = includeStacks ? "\(prNodeFields) \(stackFields)" : prNodeFields
         for (index, branch) in branches.enumerated() {
             let alias = "b\(index)"
             aliasToBranch[alias] = branch
             fields.append("""
                 \(alias): pullRequests(headRefName: \(jsonString(branch)), first: 10, \
                 orderBy: {field: CREATED_AT, direction: DESC}) \
-                { nodes { \(prNodeFields) } }
+                { nodes { \(nodeFields) } }
                 """)
         }
         let query = "query($owner: String!, $name: String!) { "
@@ -87,6 +93,11 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
     struct Commit: Decodable, Sendable { let statusCheckRollup: Rollup? }
     struct CommitNode: Decodable, Sendable { let commit: Commit? }
     struct Commits: Decodable, Sendable { let nodes: [CommitNode]? }
+    struct NativeStack: Decodable, Sendable {
+        let number: Int?
+        let size: Int?
+    }
+    struct NativeStackEntry: Decodable, Sendable { let position: Int? }
 
     let number: Int
     let state: String?
@@ -98,6 +109,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
     let reviewDecision: String?
     let headRepositoryOwner: Owner?
     let commits: Commits?
+    let stack: NativeStack?
+    let stackEntry: NativeStackEntry?
 }
 
 nonisolated struct GitHubResponse: Decodable, Sendable {
@@ -155,8 +168,15 @@ nonisolated extension PullRequest {
             baseRefName: node.baseRefName,
             headRefOid: node.headRefOid,
             reviewDecision: ReviewDecision(rawValue: node.reviewDecision),
-            checkContexts: contexts
+            checkContexts: contexts,
+            githubStack: Self.stackMembership(node)
         )
+    }
+
+    /// Nil without a `stackEntry`, since a position is what places the PR.
+    private static func stackMembership(_ node: GitHubPRNode) -> GitHubStackMembership? {
+        guard let number = node.stack?.number, let position = node.stackEntry?.position else { return nil }
+        return GitHubStackMembership(number: number, size: node.stack?.size, position: position)
     }
 }
 
