@@ -10,6 +10,8 @@ struct CommandLineSettingsPane: View {
     @State private var zshrcURL: URL?
     @State private var zshrcHasInitLine = false
     @State private var zshrcError: String?
+    @State private var initLine = ZshrcSetup.initLine
+    @State private var loginPathDirectories: [String]?
 
     private struct Links {
         var helper: CommandLineHelper.Summary
@@ -67,12 +69,12 @@ struct CommandLineSettingsPane: View {
         .task {
             let url = await Task.detached { ZshrcSetup.resolveZshrcURL() }.value
             zshrcURL = url
-            await refresh()
+            await refresh(rereadingLoginPath: true)
         }
         // Returning from a terminal, where the user may have pasted the
         // line or linked a name by hand, activates the app and keys a window.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refresh() }
+            Task { await refresh(rereadingLoginPath: true) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             Task { await refresh() }
@@ -174,7 +176,7 @@ struct CommandLineSettingsPane: View {
         LabeledContent {
             VStack(alignment: .trailing) {
                 HStack(spacing: 6) {
-                    Text(ZshrcSetup.initLine)
+                    Text(initLine)
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
                     Button(action: copyInitLine) {
@@ -248,12 +250,19 @@ struct CommandLineSettingsPane: View {
         }
     }
 
-    private func refresh() async {
+    /// The login-shell PATH runs a shell, so only the pane appearing and the
+    /// app becoming active reread it; a window becoming key reuses it.
+    private func refresh(rereadingLoginPath: Bool = false) async {
         let url = zshrcURL
-        let (links, hasInitLine) = await Task.detached {
-            (Links.read(), url.map(ZshrcSetup.isAdded(to:)))
+        let knownPath = rereadingLoginPath ? nil : loginPathDirectories
+        let (links, hasInitLine, path, line) = await Task.detached { () -> (Links, Bool?, [String], String) in
+            let path = knownPath ?? LoginShellPath.directories()
+            let line = ZshrcSetup.recommendedLine(executables: ZshrcSetup.executables(in: path))
+            return (Links.read(), url.map(ZshrcSetup.isAdded(to:)), path, line)
         }.value
         self.links = links
+        loginPathDirectories = path
+        initLine = line
         if let hasInitLine { zshrcHasInitLine = hasInitLine }
     }
 
@@ -290,16 +299,17 @@ struct CommandLineSettingsPane: View {
 
     private func copyInitLine() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ZshrcSetup.initLine, forType: .string)
+        NSPasteboard.general.setString(initLine, forType: .string)
     }
 
     private func addInitLine() {
         guard let zshrcURL else { return }
         zshrcError = nil
+        let line = initLine
         Task {
             let error = await Task.detached { () -> String? in
                 do {
-                    try ZshrcSetup.add(to: zshrcURL)
+                    try ZshrcSetup.add(to: zshrcURL, line: line)
                     return nil
                 } catch {
                     return error.localizedDescription

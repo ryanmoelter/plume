@@ -3,8 +3,8 @@ import Testing
 @testable import Plume
 
 /// `plume init zsh` carries wt's completion and leaves `plume` itself a
-/// plain command. `--aliases` (or `--alias wt`) adds a bare `wt()`, the only place
-/// `wt switch` becomes a `cd`. Ported from the wt half of `test_init.py`.
+/// plain command. `--aliases` defines a bare `wt()`, the only place `wt switch`
+/// becomes a `cd`, and a bare `stack()`; `--alias wt` defines only the first. Ported from the wt half of `test_init.py`.
 struct WTInitTests {
     private func parses(_ script: String) throws -> Bool {
         try zsh(["-n", "-c", script]).status == 0
@@ -106,12 +106,23 @@ struct WTInitTests {
         #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
     }
 
-    @Test func aliasesAddABareWtFunctionAndItsCompletionButNotStack() throws {
-        let invocation = try CLICommandLine.parse(["init", "zsh", "--aliases"], executableName: "plume")
-        guard case .shellInit(let names) = invocation else { Issue.record("not shellInit"); return }
-        let script = lines(ShellIntegration.zsh(aliasNames: names))
+    private func script(for flags: [String]) throws -> [String] {
+        let invocation = try CLICommandLine.parse(["init", "zsh"] + flags, executableName: "plume")
+        guard case .shellInit(let names) = invocation else { Issue.record("not shellInit"); return [] }
+        return lines(ShellIntegration.zsh(aliasNames: names))
+    }
+
+    @Test func aliasesAddBareWtAndStackFunctionsWithTheirCompletions() throws {
+        let script = try script(for: ["--aliases"])
         #expect(script.contains("wt() {"))
         #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
+        #expect(script.contains("stack() {"))
+        #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
+    }
+
+    @Test func aliasWtAddsOnlyABareWtFunction() throws {
+        let script = try script(for: ["--alias", "wt"])
+        #expect(script.contains("wt() {"))
         #expect(!script.contains("stack() {"))
         #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
     }

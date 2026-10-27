@@ -360,7 +360,7 @@ struct StackInitTests {
         #expect(!lines(ShellIntegration.zsh()).contains("stack() {"))
         let script = lines(ShellIntegration.zsh(aliasNames: ["stack"]))
         #expect(script.contains("stack() {"))
-        #expect(script.contains("plume stack \"$@\""))
+        #expect(script.contains("command plume stack \"$@\""))
         #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
         #expect(!script.contains("wt() {"))
         #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })

@@ -619,7 +619,7 @@ nonisolated extension WT {
 
                   eval "$(plume init zsh --aliases)"
 
-                Then reload and run bare `wt switch`; `plume wt switch` never changes directory.
+                Then reload and run bare `wt switch`. Use `--alias wt` for only `wt`; `plume wt switch` never changes directory.
                 For a plain path (scripts, other shells), use `plume wt path`.
                 """)
         }

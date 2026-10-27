@@ -44,8 +44,8 @@ nonisolated enum ShellIntegration {
             else
               shift words
               (( CURRENT-- ))
-              _arguments '--aliases[Also define a bare wt, whose switch cds]' \\
-                '*--alias[Also define a bare function]:name:(wt stack)'
+              _arguments '--aliases[Also define a bare wt, whose switch cds, and stack]' \\
+                '*--alias[Also define one bare function]:name:(wt stack)'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
@@ -142,16 +142,13 @@ nonisolated enum ShellIntegration {
         fi
         """
 
-    /// The `plume` subcommands `--alias` can define as bare functions, each
-    /// completing as its `plume` form.
+    /// The `plume` subcommands `--aliases` defines as bare functions, and
+    /// `--alias` defines one at a time, each completing as its `plume` form.
     static let aliasedSubcommands = ["wt", "stack"]
 
-    /// The one name `--aliases` defines.
-    static let wtAliasName = "wt"
-
     /// `aliasNames` picks which bare functions to define. `wt()` cds on
-    /// `wt switch`; `stack()` calls through to `plume stack`. Each name is its
-    /// own opt-in because a bare `stack` shadows other tools of that name.
+    /// `wt switch`; `stack()` calls through to `plume stack`. `--alias` exists
+    /// because a bare `stack` shadows other tools of that name.
     static func zsh(aliasNames: [String] = []) -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in

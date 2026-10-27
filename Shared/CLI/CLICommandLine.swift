@@ -192,7 +192,7 @@ nonisolated enum CLICommandLine {
         while let argument = rest.popFirst() {
             switch argument {
             case "--aliases":
-                add(ShellIntegration.wtAliasName)
+                ShellIntegration.aliasedSubcommands.forEach(add)
             case "--alias":
                 guard let name = rest.popFirst() else {
                     throw CLIUsageError(message: "--alias needs a name", usage: initUsage)
