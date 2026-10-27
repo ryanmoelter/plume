@@ -37,13 +37,14 @@ nonisolated enum ShellIntegration {
             fi
             """),
         Command(name: "wt", summary: "Manage worktrees", completion: wtCompletion),
+        Command(name: "stack", summary: "Manage stacked branches", completion: stackCompletion),
         Command(name: "init", summary: "Print shell integration", completion: """
             if (( CURRENT == 2 )); then
               _values 'shell' zsh
             else
               shift words
               (( CURRENT-- ))
-              _arguments '--aliases[Also define bare wt, whose switch cds]'
+              _arguments '--aliases[Also define bare wt, whose switch cds, and stack]'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
@@ -101,7 +102,46 @@ nonisolated enum ShellIntegration {
         fi
         """
 
-    /// `aliases` adds a bare `wt()`, completing as `plume wt`.
+    /// The `stack` arm of `_plume`, with `words[1]` = `stack`.
+    private static let stackCompletion = """
+        if (( CURRENT == 2 )); then
+          local -a stack_commands=(
+            'list:show the stack + PR status'
+            'ls:show the stack + PR status'
+            'create:new branch on top of the current one'
+            'c:new branch on top of the current one'
+            'split:split the current branch at commit boundaries'
+            'track:start tracking a branch (auto-discovers the chain)'
+            'untrack:stop tracking a branch'
+            'checkout:switch to a stack branch'
+            'co:switch to a stack branch'
+            'prev:switch to the parent branch'
+            'next:switch to the child branch'
+            'first:switch to the stack root'
+            'last:switch to the stack tip'
+            'restack:rebase each branch onto its parent'
+            'submit:push + create/retarget draft PRs'
+            'sync:fetch, absorb merged PRs, restack'
+            'setup:open Settings, Projects in Plume'
+            'help:show usage'
+          )
+          _describe -t commands 'stack command' stack_commands
+        else
+          local -a branches
+          case $words[2] in
+            checkout|co|untrack)
+              branches=("${(@f)$(command plume stack __complete stack-branches 2>/dev/null)}")
+              _describe 'branch' branches
+              ;;
+            track)
+              branches=("${(@f)$(command plume stack __complete all-branches 2>/dev/null)}")
+              _describe 'branch' branches
+              ;;
+          esac
+        fi
+        """
+
+    /// `aliases` adds a bare `wt()`, whose `switch` cds, and a bare `stack()`.
     static func zsh(aliases: Bool = false) -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
@@ -137,8 +177,12 @@ nonisolated enum ShellIntegration {
               compdef _plume plume
               compdef '_plume_notify' plume-notify
             fi
-            \(aliases ? wtFunction : "")
+            \(aliases ? aliasFunctions : "")
             """
+    }
+
+    private static var aliasFunctions: String {
+        wtFunction + stackFunction
     }
 
     private static let wtFunction = """
@@ -163,6 +207,24 @@ nonisolated enum ShellIntegration {
 
         if (( $+functions[compdef] )); then
           compdef _plume_wt wt
+        fi
+
+        """
+
+    private static let stackFunction = """
+
+        stack() {
+          command plume stack "$@"
+        }
+
+        _plume_stack() {
+          words=(plume stack "${(@)words[2,-1]}")
+          (( CURRENT++ ))
+          _plume
+        }
+
+        if (( $+functions[compdef] )); then
+          compdef _plume_stack stack
         fi
 
         """

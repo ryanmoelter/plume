@@ -6,27 +6,34 @@ struct CommandLineSettingsPane: View {
     @State private var links: Links?
     @State private var isChangingLinks = false
     @State private var helperError: String?
-    @State private var wtError: String?
+    @State private var optInErrors: [CommandLineHelper.OptInCommand: String] = [:]
     @State private var zshrcURL: URL?
     @State private var zshrcHasInitLine = false
     @State private var zshrcError: String?
 
     private struct Links {
         var helper: CommandLineHelper.Summary
-        var wt: CommandLineHelper.WTSummary
+        var optIn: [CommandLineHelper.OptInCommand: CommandLineHelper.OptInSummary]
 
         nonisolated static func read() -> Links {
-            Links(
-                helper: CommandLineHelper.summary(of: CommandLineHelper.states()),
-                wt: CommandLineHelper.wtSummary(of: CommandLineHelper.wtState())
-            )
+            var optIn: [CommandLineHelper.OptInCommand: CommandLineHelper.OptInSummary] = [:]
+            for command in CommandLineHelper.OptInCommand.allCases {
+                optIn[command] = CommandLineHelper.summary(of: CommandLineHelper.state(of: command), for: command)
+            }
+            return Links(helper: CommandLineHelper.summary(of: CommandLineHelper.states()), optIn: optIn)
         }
     }
 
-    private enum Row { case helper, wt }
+    private enum Row: Equatable {
+        case helper
+        case optIn(CommandLineHelper.OptInCommand)
+    }
 
     private var isToolOn: Bool { links?.helper.isOn ?? false }
-    private var isWTOn: Bool { links?.wt.isOn ?? false }
+
+    private func isOn(_ command: CommandLineHelper.OptInCommand) -> Bool {
+        links?.optIn[command]?.isOn ?? false
+    }
 
     private var zshrcDisplayPath: String {
         ZshrcSetup.displayPath(zshrcURL ?? ZshrcSetup.zshrcURL(zdotdir: nil))
@@ -39,7 +46,9 @@ struct CommandLineSettingsPane: View {
             Section {
                 commandLineToolRow
                 if isToolOn {
-                    wtRow
+                    ForEach(CommandLineHelper.OptInCommand.allCases, id: \.self) { command in
+                        optInRow(command)
+                    }
                     shellSetupRow
                 }
             } header: {
@@ -112,45 +121,52 @@ struct CommandLineSettingsPane: View {
         }
     }
 
-    private var wtRow: some View {
-        LabeledContent {
+    private func optInRow(_ command: CommandLineHelper.OptInCommand) -> some View {
+        let title = "`\(command.rawValue)` command"
+        let summary = links?.optIn[command]
+        let ids = Self.accessibilityIDs(command)
+        return LabeledContent {
             VStack(alignment: .trailing) {
-                Toggle("`wt` command", isOn: Binding(get: { isWTOn }, set: { setWT(on: $0) }))
+                Toggle(title, isOn: Binding(get: { isOn(command) }, set: { set(command, on: $0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .plumeID(
-                        AccessibilityID.settingsWTToggle,
-                        value: isWTOn ? "on" : "off",
-                        invoke: { setWT(on: !isWTOn) }
+                        ids.toggle,
+                        value: isOn(command) ? "on" : "off",
+                        invoke: { set(command, on: !isOn(command)) }
                     )
-                    .disabled(links?.wt.canToggle != true || isChangingLinks)
-                if let note = links?.wt.note {
+                    .disabled(summary?.canToggle != true || isChangingLinks)
+                if let note = summary?.note {
                     Text(note)
                         .foregroundStyle(.secondary)
                 }
-                if links?.wt.needsUpdate == true {
-                    Button("Update") { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
-                        .plumeID(
-                            AccessibilityID.settingsWTUpdateButton,
-                            invoke: { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
-                        )
+                if summary?.needsUpdate == true {
+                    Button("Update") { set(command, on: true) }
+                        .plumeID(ids.update, invoke: { set(command, on: true) })
                         .disabled(isChangingLinks)
                 }
-                if let wtError {
-                    Text(wtError)
+                if let error = optInErrors[command] {
+                    Text(error)
                         .foregroundStyle(.red)
                 }
             }
         } label: {
-            Text("`wt` command")
-            Text("Links `wt` into `~/.local/bin`, for agents and non-interactive terminals")
+            Text(title)
+            Text("Links `\(command.rawValue)` into `~/.local/bin`, for agents and non-interactive terminals")
                 .foregroundStyle(.secondary)
         }
     }
 
-    private func setWT(on: Bool) {
-        changeLinks(of: .wt) {
-            if on { try CommandLineHelper.installWT() } else { try CommandLineHelper.uninstallWT() }
+    private static func accessibilityIDs(_ command: CommandLineHelper.OptInCommand) -> (toggle: String, update: String) {
+        switch command {
+        case .wt: (AccessibilityID.settingsWTToggle, AccessibilityID.settingsWTUpdateButton)
+        case .stack: (AccessibilityID.settingsStackToggle, AccessibilityID.settingsStackUpdateButton)
+        }
+    }
+
+    private func set(_ command: CommandLineHelper.OptInCommand, on: Bool) {
+        changeLinks(of: .optIn(command)) {
+            if on { try CommandLineHelper.install(command) } else { try CommandLineHelper.uninstall(command) }
         }
     }
 
@@ -242,13 +258,12 @@ struct CommandLineSettingsPane: View {
     }
 
     /// Runs a link change off the main actor, then rereads every link, since
-    /// turning the tool off also removes `wt`. The error lands beside the row
-    /// that asked.
+    /// turning the tool off also removes the opt-in commands. The error lands
+    /// beside the row that asked.
     private func changeLinks(of row: Row, _ change: @escaping @Sendable () throws -> Void) {
         guard !isChangingLinks else { return }
         isChangingLinks = true
-        let isHelperRow = row == .helper
-        if isHelperRow { helperError = nil } else { wtError = nil }
+        setError(nil, for: row)
         Task {
             let (error, links) = await Task.detached { () -> (String?, Links) in
                 var message: String?
@@ -259,10 +274,17 @@ struct CommandLineSettingsPane: View {
                 }
                 return (message, Links.read())
             }.value
-            if isHelperRow { helperError = error } else { wtError = error }
-            if isHelperRow, !links.helper.isOn { wtError = nil }
+            setError(error, for: row)
+            if row == .helper, !links.helper.isOn { optInErrors = [:] }
             self.links = links
             isChangingLinks = false
+        }
+    }
+
+    private func setError(_ error: String?, for row: Row) {
+        switch row {
+        case .helper: helperError = error
+        case .optIn(let command): optInErrors[command] = error
         }
     }
 

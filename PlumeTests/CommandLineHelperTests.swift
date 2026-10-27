@@ -216,7 +216,7 @@ struct CommandLineHelperTests {
     @Test func uninstallRemovesWTButNotAnotherToolsWT() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         try CommandLineHelper.install(in: bin, bundledURL: tool)
-        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
 
         try CommandLineHelper.uninstall(in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
@@ -265,7 +265,7 @@ struct CommandLineHelperTests {
     // MARK: wt
 
     private func wtState() -> CommandLineHelper.State {
-        CommandLineHelper.wtState(in: bin, bundledURL: tool)
+        CommandLineHelper.state(of: .wt, in: bin, bundledURL: tool)
     }
 
     @Test func wtIsLinkedOnlyWhenAskedAndRemovableOnItsOwn() throws {
@@ -274,13 +274,13 @@ struct CommandLineHelperTests {
         CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
         try CommandLineHelper.install(in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
-        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(isOn: false, canToggle: true, needsUpdate: false, note: nil))
+        #expect(CommandLineHelper.summary(of: wtState(), for: .wt) == .init(isOn: false, canToggle: true, needsUpdate: false, note: nil))
 
-        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
         #expect(try destination("wt") == tool.path)
-        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(isOn: true, canToggle: true, needsUpdate: false, note: nil))
+        #expect(CommandLineHelper.summary(of: wtState(), for: .wt) == .init(isOn: true, canToggle: true, needsUpdate: false, note: nil))
 
-        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.uninstall(.wt, in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
         #expect(try destination("plume") == tool.path)
     }
@@ -292,12 +292,12 @@ struct CommandLineHelperTests {
         try Data().write(to: homebrew)
         try link("wt", to: homebrew)
 
-        #expect(CommandLineHelper.wtSummary(of: wtState())
+        #expect(CommandLineHelper.summary(of: wtState(), for: .wt)
             == .init(isOn: false, canToggle: false, needsUpdate: false, note: "Another tool owns wt"))
         #expect(throws: CommandLineHelper.InstallError.self) {
-            try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+            try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
         }
-        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.uninstall(.wt, in: bin, bundledURL: tool)
         #expect(try destination("wt") == homebrew.path)
     }
 
@@ -312,7 +312,7 @@ struct CommandLineHelperTests {
         try FileManager.default.removeItem(at: bin.appending(path: "wt"))
         try link("wt", to: scratch.appending(path: "Old/Plume.app/Contents/Helpers/plume"))
         #expect(wtState() == .brokenLink)
-        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
         #expect(try destination("wt") == tool.path)
     }
 
@@ -322,15 +322,61 @@ struct CommandLineHelperTests {
         try link("wt", to: otherTool)
 
         #expect(wtState() == .ownedByOtherPlume(otherTool.standardizedFileURL))
-        #expect(CommandLineHelper.wtSummary(of: wtState())
+        #expect(CommandLineHelper.summary(of: wtState(), for: .wt)
             == .init(isOn: true, canToggle: true, needsUpdate: true, note: "Another copy of Plume owns wt"))
 
-        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
         #expect(try destination("wt") == tool.path)
 
         try FileManager.default.removeItem(at: bin.appending(path: "wt"))
         try link("wt", to: otherTool)
-        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        try CommandLineHelper.uninstall(.wt, in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
+    }
+
+    // MARK: stack
+
+    private func stackState() -> CommandLineHelper.State {
+        CommandLineHelper.state(of: .stack, in: bin, bundledURL: tool)
+    }
+
+    @Test func stackIsLinkedOnlyWhenAskedAndIndependentOfWT() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try CommandLineHelper.install(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.wt, in: bin, bundledURL: tool)
+        #expect(stackState() == .notInstalled)
+
+        try CommandLineHelper.install(.stack, in: bin, bundledURL: tool)
+        #expect(try destination("stack") == tool.path)
+        #expect(CommandLineHelper.summary(of: stackState(), for: .stack) == .init(isOn: true, canToggle: true, needsUpdate: false, note: nil))
+
+        try CommandLineHelper.uninstall(.stack, in: bin, bundledURL: tool)
+        #expect(stackState() == .notInstalled)
+        #expect(try destination("wt") == tool.path)
+    }
+
+    @Test func anotherToolsStackIsNeverReplacedOrRemoved() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let dotfiles = scratch.appending(path: "dotfiles/bin/stack")
+        try FileManager.default.createDirectory(at: dotfiles.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: dotfiles)
+        try link("stack", to: dotfiles)
+
+        #expect(CommandLineHelper.summary(of: stackState(), for: .stack)
+            == .init(isOn: false, canToggle: false, needsUpdate: false, note: "Another tool owns stack"))
+        #expect(throws: CommandLineHelper.InstallError.self) {
+            try CommandLineHelper.install(.stack, in: bin, bundledURL: tool)
+        }
+        try CommandLineHelper.uninstall(in: bin, bundledURL: tool)
+        #expect(try destination("stack") == dotfiles.path)
+    }
+
+    @Test func turningTheToolOffRemovesPlumesStack() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try CommandLineHelper.install(in: bin, bundledURL: tool)
+        try CommandLineHelper.install(.stack, in: bin, bundledURL: tool)
+
+        try CommandLineHelper.uninstall(in: bin, bundledURL: tool)
+        #expect(stackState() == .notInstalled)
     }
 }

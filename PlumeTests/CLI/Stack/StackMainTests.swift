@@ -342,3 +342,25 @@ struct StackNavigationTests {
         #expect(console.stdout.hasPrefix("pick a branch:\n   1) a\n   2)   b  ← current\n"))
     }
 }
+
+/// `plume init zsh` completes `stack` as a subcommand, and `--aliases` adds
+/// a bare `stack()` that calls through `plume`.
+struct StackInitTests {
+    private func lines(_ script: String) -> [String] {
+        script.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    @Test func stackIsACompletedSubcommand() {
+        #expect(ShellIntegration.commands.contains { $0.name == "stack" })
+        #expect(ShellIntegration.zsh().contains("    stack)\n"))
+        #expect(ShellIntegration.zsh().contains("command plume stack __complete stack-branches"))
+    }
+
+    @Test func onlyAliasesAddABareStackFunction() {
+        #expect(!lines(ShellIntegration.zsh()).contains("stack() {"))
+        let script = lines(ShellIntegration.zsh(aliases: true))
+        #expect(script.contains("stack() {"))
+        #expect(script.contains("plume stack \"$@\""))
+        #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
+    }
+}

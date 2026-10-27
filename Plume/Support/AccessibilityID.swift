@@ -86,6 +86,8 @@ enum AccessibilityID {
     static let settingsCommandLineToolUpdateButton = "settings-command-line-tool-update-button"
     static let settingsWTToggle = "settings-wt-toggle"
     static let settingsWTUpdateButton = "settings-wt-update-button"
+    static let settingsStackToggle = "settings-stack-toggle"
+    static let settingsStackUpdateButton = "settings-stack-update-button"
     static let settingsShellSetupCopyButton = "settings-shell-setup-copy-button"
     static let settingsShellSetupAddButton = "settings-shell-setup-add-button"
     static let settingsShellSetupStatus = "settings-shell-setup-status"

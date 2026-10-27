@@ -205,16 +205,18 @@ nonisolated enum CommandLineHelper {
         if let firstConflict { throw firstConflict }
     }
 
-    /// Removes every link any copy of Plume placed, `wt` included, since a
-    /// `wt` left behind would keep part of the tool on PATH with its switch
-    /// off. A dangling link is removed only when it pointed into a Plume
-    /// bundle.
+    /// Removes every link any copy of Plume placed, the opt-in commands
+    /// included, since one left behind would keep part of the tool on PATH
+    /// with its switch off. A dangling link is removed only when it pointed
+    /// into a Plume bundle.
     static func uninstall(
         in directory: URL = installDirectory,
         bundledURL: URL? = bundledURL
     ) throws {
         var entries = states(in: directory, bundledURL: bundledURL)
-        entries.append((wtCommandName, wtState(in: directory, bundledURL: bundledURL)))
+        for command in OptInCommand.allCases {
+            entries.append((command.rawValue, state(of: command, in: directory, bundledURL: bundledURL)))
+        }
         for (name, state) in entries {
             let url = directory.appending(path: name)
             if state.isPlumeOwned || (state == .brokenLink && linksIntoPlumeBundle(url)) {
@@ -270,20 +272,25 @@ nonisolated enum CommandLineHelper {
         }
     }
 
-    // MARK: wt
+    // MARK: Opt-in commands
 
-    /// Invoked as `wt`, the tool runs `plume wt`. Linked only when the user
-    /// asks, never by `install` or at launch, because `wt` is a common name
-    /// that another tool may already own.
-    static let wtCommandName = "wt"
+    /// Invoked by one of these names, the tool runs that subcommand, so
+    /// `wt` runs `plume wt`. Each is linked only when the user asks, never
+    /// by `install` or at launch, because these are common names that
+    /// another tool may already own.
+    enum OptInCommand: String, CaseIterable {
+        case wt
+        case stack
+    }
 
     /// As `state(of:)`, except that a dangling link outside any Plume bundle
-    /// is someone else's: it may be the user's own `wt`, moved.
-    static func wtState(
+    /// is someone else's: it may be the user's own tool of that name, moved.
+    static func state(
+        of command: OptInCommand,
         in directory: URL = installDirectory,
         bundledURL: URL? = bundledURL
     ) -> State {
-        let url = directory.appending(path: wtCommandName)
+        let url = directory.appending(path: command.rawValue)
         let state = state(of: url, bundledURL: bundledURL)
         guard state == .brokenLink, let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
         else { return state }
@@ -291,34 +298,35 @@ nonisolated enum CommandLineHelper {
         return isInsidePlumeBundle(resolved) ? state : .occupiedByOther(resolved)
     }
 
-    /// What the `wt` switch in Settings shows and offers.
-    struct WTSummary: Equatable {
-        /// True while `wt` links to a Plume tool, this build's or another copy's.
+    /// What an opt-in command's switch in Settings shows and offers.
+    struct OptInSummary: Equatable {
+        /// True while the name links to a Plume tool, this build's or another copy's.
         var isOn: Bool
-        /// False only when another tool owns `wt`.
+        /// False only when another tool owns the name.
         var canToggle: Bool
         /// On, but through another copy's tool or this bundle's old script.
         var needsUpdate: Bool
         var note: String?
     }
 
-    static func wtSummary(of state: State) -> WTSummary {
+    static func summary(of state: State, for command: OptInCommand) -> OptInSummary {
         let needsUpdate = switch state {
         case .outdated, .ownedByOtherPlume: true
         case .installed, .notInstalled, .occupiedByOther, .brokenLink: false
         }
-        let note = note(for: state, name: wtCommandName) ?? (needsUpdate ? "Needs updating" : nil)
-        return WTSummary(isOn: state.isLinked, canToggle: !state.isTaken, needsUpdate: needsUpdate, note: note)
+        let note = note(for: state, name: command.rawValue) ?? (needsUpdate ? "Needs updating" : nil)
+        return OptInSummary(isOn: state.isLinked, canToggle: !state.isTaken, needsUpdate: needsUpdate, note: note)
     }
 
-    /// Links `wt`, replacing a link any copy of Plume placed.
-    static func installWT(
+    /// Links `command`, replacing a link any copy of Plume placed.
+    static func install(
+        _ command: OptInCommand,
         in directory: URL = installDirectory,
         bundledURL: URL? = bundledURL
     ) throws {
         guard let bundledURL else { throw InstallError.notBundled }
-        let url = directory.appending(path: wtCommandName)
-        switch wtState(in: directory, bundledURL: bundledURL) {
+        let url = directory.appending(path: command.rawValue)
+        switch state(of: command, in: directory, bundledURL: bundledURL) {
         case .installed:
             return
         case .occupiedByOther(let destination):
@@ -331,13 +339,14 @@ nonisolated enum CommandLineHelper {
         try FileManager.default.createSymbolicLink(at: url, withDestinationURL: bundledURL)
     }
 
-    /// Removes a `wt` link any copy of Plume placed, never another tool's.
-    static func uninstallWT(
+    /// Removes a link to `command` any copy of Plume placed, never another tool's.
+    static func uninstall(
+        _ command: OptInCommand,
         in directory: URL = installDirectory,
         bundledURL: URL? = bundledURL
     ) throws {
-        let url = directory.appending(path: wtCommandName)
-        let state = wtState(in: directory, bundledURL: bundledURL)
+        let url = directory.appending(path: command.rawValue)
+        let state = state(of: command, in: directory, bundledURL: bundledURL)
         guard state.isPlumeOwned || (state == .brokenLink && linksIntoPlumeBundle(url)) else { return }
         try FileManager.default.removeItem(at: url)
     }
