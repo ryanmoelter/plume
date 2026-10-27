@@ -15,6 +15,8 @@ nonisolated enum GitHubMentionQuery {
             /// placeholders, which it resolves from its working directory.
             case repository
             case search(String)
+            /// `$search0`, `$search1`, … in order.
+            case searches([String])
         }
 
         let query: String
@@ -25,6 +27,8 @@ nonisolated enum GitHubMentionQuery {
             switch variables {
             case .repository: arguments += ["-F", "owner={owner}", "-F", "name={repo}"]
             case .search(let search): arguments += ["-f", "search=" + search]
+            case .searches(let searches):
+                for (index, search) in searches.enumerated() { arguments += ["-f", "search\(index)=" + search] }
             }
             return arguments
         }
@@ -51,6 +55,22 @@ nonisolated enum GitHubMentionQuery {
             query: "query($search: String!) { search(query: $search, type: ISSUE, first: \(searchSize)) "
                 + "{ nodes { ... on PullRequest { \(fields) } } } }",
             variables: .search("repo:\(nameWithOwner) is:pr in:title \(term)")
+        )
+    }
+
+    /// The viewer's own open pull requests: authored, assigned, or with a
+    /// review requested of them directly rather than through a team. Search
+    /// can't OR qualifiers, so each is its own aliased search in one request.
+    static func relatedPullRequests(nameWithOwner: String) -> Request {
+        let qualifiers = ["author:@me", "assignee:@me", "user-review-requested:@me"]
+        let declarations = qualifiers.indices.map { "$search\($0): String!" }.joined(separator: ", ")
+        let searches = qualifiers.indices.map { index in
+            "related\(index): search(query: $search\(index), type: ISSUE, first: \(searchSize)) "
+                + "{ nodes { ... on PullRequest { \(fields) } } }"
+        }
+        return Request(
+            query: "query(\(declarations)) { \(searches.joined(separator: " ")) }",
+            variables: .searches(qualifiers.map { "repo:\(nameWithOwner) is:pr is:open \($0)" })
         )
     }
 
@@ -118,6 +138,18 @@ nonisolated enum GitHubMentionQuery {
 
     static func decodePullRequest(_ data: Data) throws -> MentionCandidate.PullRequestEntry? {
         try decode(NumberPayload.self, from: data)?.repository?.pullRequest?.entry
+    }
+
+    /// Every aliased search's pull requests, each once, most recently updated
+    /// first.
+    static func decodeRelatedPullRequests(_ data: Data) throws -> [MentionCandidate.PullRequestEntry] {
+        let searches = try decode([String: Nodes?].self, from: data) ?? [:]
+        var seen = Set<Int>()
+        let pulls = searches.keys.sorted()
+            .flatMap { (searches[$0] ?? nil)?.nodes ?? [] }
+            .compactMap { $0?.entry }
+            .filter { seen.insert($0.number).inserted }
+        return pulls.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
     }
 
     static func decodeSearch(_ data: Data) throws -> [MentionCandidate.PullRequestEntry] {

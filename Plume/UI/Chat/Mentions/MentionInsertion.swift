@@ -1,44 +1,52 @@
 import Foundation
 
-/// The text an accepted mention leaves in the composer: a Markdown link in
-/// place of the typed token.
+/// The text an accepted mention leaves in the composer: a plain reference
+/// (`@DROID-123`, `#123`, `@path`) in place of the typed token. Sending
+/// expands it into a Markdown link (`MentionExpansion`), whose helpers live
+/// here too.
 nonisolated enum MentionInsertion {
     /// Replaces the trigger through the caret, plus the rest of the word the
-    /// caret sits in, with the candidate's link, and puts the caret after it.
-    /// Punctuation closing the word, and a sentence's final `.`, stay. A
-    /// space follows the link unless the text already goes on with one or
-    /// with that punctuation.
+    /// caret sits in, with the candidate's reference, and puts the caret
+    /// after it. Punctuation closing the word, and a sentence's final `.`,
+    /// stay. A space follows the reference unless the text already goes on
+    /// with one or with that punctuation, or the candidate drills in.
     static func accepting(
         _ candidate: MentionCandidate,
         query: MentionQuery,
-        in text: String,
-        homeDirectory: String
+        in text: String
     ) -> SlashCommandMatcher.AcceptedCommand {
         let ns = text as NSString
         var end = query.caretLocation
         while end < ns.length, !isWhitespace(ns.character(at: end)), !closesWord(ns.character(at: end)) { end += 1 }
         while end > query.caretLocation, ns.character(at: end - 1) == period { end -= 1 }
 
-        let link = markdownLink(for: candidate, homeDirectory: homeDirectory)
+        let inserted = insertedText(for: candidate)
+        let replaced = NSRange(location: query.triggerLocation, length: end - query.triggerLocation)
+        let caretAfterInsertion = query.triggerLocation + (inserted as NSString).length
+        if candidate.drillsIn {
+            return .init(text: ns.replacingCharacters(in: replaced, with: inserted), caretLocation: caretAfterInsertion)
+        }
+
         let next = end < ns.length ? ns.character(at: end) : nil
         let followedBySpace = next == space
         let followedByPunctuation = next.map { closesWord($0) || $0 == period } ?? false
-        let replacement = followedBySpace || followedByPunctuation ? link : link + " "
-        let replaced = NSRange(location: query.triggerLocation, length: end - query.triggerLocation)
+        let replacement = followedBySpace || followedByPunctuation ? inserted : inserted + " "
         let newText = ns.replacingCharacters(in: replaced, with: replacement)
-        let caret = query.triggerLocation + (link as NSString).length + (followedByPunctuation ? 0 : 1)
-        return SlashCommandMatcher.AcceptedCommand(text: newText, caretLocation: caret)
+        return .init(text: newText, caretLocation: caretAfterInsertion + (followedByPunctuation ? 0 : 1))
     }
 
-    static func markdownLink(for candidate: MentionCandidate, homeDirectory: String) -> String {
+    /// A folder leaves its quote open, if it has one, so the path can go on.
+    static func insertedText(for candidate: MentionCandidate) -> String {
         switch candidate {
-        case .linear(let issue):
-            return link(label: issue.identifier, target: issue.url)
-        case .pullRequest(let pull):
-            return link(label: "#\(pull.number)", target: pull.url)
+        case .linear(let issue): return MentionReference.token(for: .linear(identifier: issue.identifier))
+        case .pullRequest(let pull): return MentionReference.token(for: .pullRequest(number: pull.number))
+        case .filter(let filter): return filter.token
         case .file(let entry):
-            let label = entry.isDirectory ? entry.name + "/" : entry.name
-            return link(label: label, target: expandingTilde(entry.path, homeDirectory: homeDirectory))
+            let path = MentionReference.displayPath(entry.path, isDirectory: entry.isDirectory)
+            guard entry.isDirectory, MentionReference.needsQuotes(path) else {
+                return "@" + MentionReference.quotedIfNeeded(path)
+            }
+            return "@\"" + MentionReference.escapedForQuotes(path)
         }
     }
 

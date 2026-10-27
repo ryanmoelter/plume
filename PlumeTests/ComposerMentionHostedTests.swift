@@ -5,7 +5,7 @@ import Testing
 @testable import Plume
 
 /// Return in a hosted composer, typed key by key the way `ComposerHostedTypingTests`
-/// types: with a mention row to pick it inserts the link, and with none it
+/// types: with a mention row to pick it inserts the reference, and with none it
 /// sends.
 @MainActor
 struct ComposerMentionHostedTests {
@@ -110,7 +110,7 @@ struct ComposerMentionHostedTests {
         #expect(router.isShowing)
         try await harness.type("\r")
 
-        let expected = "[DROID-123](https://linear.app/acme/issue/droid-123) "
+        let expected = "@DROID-123 "
         #expect(harness.state.markdown == expected)
         #expect(harness.view.string == expected)
         #expect(harness.view.selectedRange().location == (expected as NSString).length)

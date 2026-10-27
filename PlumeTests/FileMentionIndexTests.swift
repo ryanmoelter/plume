@@ -34,7 +34,7 @@ struct FileMentionIndexTests {
 
     private func query(_ text: String) throws -> MentionQuery {
         let typed = "@" + text
-        return try #require(MentionQuery.query(text: typed, caretLocation: (typed as NSString).length, codeRanges: []))
+        return try #require(MentionQuery.query(text: typed, caretLocation: (typed as NSString).length))
     }
 
     private func paths(_ entries: [MentionCandidate.FileEntry]) -> Set<String> {
@@ -84,7 +84,7 @@ struct FileMentionIndexTests {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
         let index = FileMentionIndex()
-        let hash = try #require(MentionQuery.query(text: "#main", caretLocation: 5, codeRanges: []))
+        let hash = try #require(MentionQuery.query(text: "#main", caretLocation: 5))
 
         #expect(await index.matches(for: hash, in: repository).isEmpty)
         #expect(await index.matches(for: try query("main"), in: nil).isEmpty)
@@ -118,7 +118,7 @@ struct FileMentionIndexTests {
             try write(path, in: root)
         }
 
-        let entries = FileMentionIndex.walk(root, limits: .init(), homeDirectory: "/nowhere")
+        let entries = FileMentionIndex.walk(root, limits: .init(), homeDirectory: "/nowhere").entries
 
         #expect(paths(entries) == ["notes.md", ".env", "src", "src/app.js"])
     }
@@ -131,11 +131,11 @@ struct FileMentionIndexTests {
             try write(path, in: parent)
         }
 
-        #expect(FileMentionIndex.walk(home, limits: .init(), homeDirectory: home).isEmpty)
-        #expect(paths(FileMentionIndex.walk(parent, limits: .init(), homeDirectory: home)) == [
+        #expect(FileMentionIndex.walk(home, limits: .init(), homeDirectory: home).entries.isEmpty)
+        #expect(paths(FileMentionIndex.walk(parent, limits: .init(), homeDirectory: home).entries) == [
             "home", "home/notes.md", "home/Documents", "home/Library", "home/code", "home/code/app.js",
         ])
-        #expect(paths(FileMentionIndex.walk(home + "/Documents", limits: .init(), homeDirectory: home)) == ["private.txt"])
+        #expect(paths(FileMentionIndex.walk(home + "/Documents", limits: .init(), homeDirectory: home).entries) == ["private.txt"])
     }
 
     @Test func aWalkStopsAtItsDepthAndEntryCaps() throws {
@@ -143,11 +143,21 @@ struct FileMentionIndexTests {
         defer { try? FileManager.default.removeItem(atPath: root) }
         try write("a/b/c/d.txt", in: root)
 
-        let shallow = FileMentionIndex.walk(root, limits: .init(maxDepth: 2, maxEntries: 100), homeDirectory: "/nowhere")
+        let shallow = FileMentionIndex.walk(root, limits: .init(maxDepth: 2, maxEntries: 100), homeDirectory: "/nowhere").entries
         #expect(paths(shallow) == ["a", "a/b"])
 
-        let capped = FileMentionIndex.walk(root, limits: .init(maxDepth: 6, maxEntries: 3), homeDirectory: "/nowhere")
+        let capped = FileMentionIndex.walk(root, limits: .init(maxDepth: 6, maxEntries: 3), homeDirectory: "/nowhere").entries
         #expect(capped.count == 3)
+    }
+
+    @Test func aWalkPastItsDeadlineIsMarkedIncomplete() throws {
+        let root = try makeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try write("a.txt", in: root)
+
+        let late = FileMentionIndex.walk(root, limits: .init(walkTimeout: .zero), homeDirectory: "/nowhere")
+        #expect(!late.isComplete)
+        #expect(FileMentionIndex.walk(root, limits: .init(), homeDirectory: "/nowhere").isComplete)
     }
 
     @Test func aGitListingIsCapped() throws {

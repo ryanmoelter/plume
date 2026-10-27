@@ -15,7 +15,15 @@ actor FileMentionIndex {
         var maxEntries = 20_000
         var maxGitPaths = 200_000
         var gitTimeout: Duration = .seconds(10)
+        var walkTimeout: Duration = .seconds(5)
         var maxCachedDirectories = 8
+    }
+
+    /// `isComplete` is false when git timed out or the walk ran out of time,
+    /// so the listing is retried on the next lookup.
+    nonisolated struct Loaded: Sendable {
+        let entries: [MentionCandidate.FileEntry]
+        let isComplete: Bool
     }
 
     nonisolated enum GitListing: Sendable, Equatable {
@@ -62,7 +70,7 @@ actor FileMentionIndex {
         in directory: String?,
         limit: Int = FileMentionMatcher.defaultLimit
     ) async -> [RankedMention] {
-        guard query.scope != .pullRequests else { return [] }
+        guard query.sources.contains(.files) else { return [] }
         let entries: [FileMentionMatcher.Prepared]
         if query.isAbsolutePath {
             entries = Self.listing(typedPath: query.text, homeDirectory: homeDirectory).map(FileMentionMatcher.Prepared.init)
@@ -102,21 +110,22 @@ actor FileMentionIndex {
         let homeDirectory = homeDirectory
         let listGitPaths = listGitPaths
         let load = Task {
-            let entries = await Task.detached(priority: .userInitiated) {
-                Self.loadEntries(in: directory, limits: limits, homeDirectory: homeDirectory, listGitPaths: listGitPaths)
-                    .map { $0.map(FileMentionMatcher.Prepared.init) }
+            let (entries, isComplete) = await Task.detached(priority: .userInitiated) {
+                let loaded = Self.loadEntries(
+                    in: directory, limits: limits, homeDirectory: homeDirectory, listGitPaths: listGitPaths)
+                return (loaded.entries.map(FileMentionMatcher.Prepared.init), loaded.isComplete)
             }.value
-            finishLoad(directory, entries: entries)
-            return entries ?? []
+            finishLoad(directory, entries: entries, isComplete: isComplete)
+            return entries
         }
         loads[directory] = load
         return load
     }
 
-    /// A timed-out listing is cached empty and already stale, so the next
-    /// lookup serves it at once and retries.
-    private func finishLoad(_ directory: String, entries: [FileMentionMatcher.Prepared]?) {
-        listings[directory] = Listing(entries: entries ?? [], fetchedAt: entries == nil ? .distantPast : now())
+    /// An incomplete listing is cached already stale, so the next lookup
+    /// serves it at once and retries.
+    private func finishLoad(_ directory: String, entries: [FileMentionMatcher.Prepared], isComplete: Bool) {
+        listings[directory] = Listing(entries: entries, fetchedAt: isComplete ? now() : .distantPast)
         loads[directory] = nil
         markUsed(directory)
     }
@@ -131,24 +140,24 @@ actor FileMentionIndex {
 
     // MARK: - Loading
 
-    /// Nil when git timed out. The home directory lists nothing before git
-    /// runs, so a dotfiles repository at home never lists the whole tree.
+    /// The home directory lists nothing before git runs, so a dotfiles
+    /// repository at home never lists the whole tree.
     nonisolated static func loadEntries(
         in directory: String,
         limits: Limits,
         homeDirectory: String,
         listGitPaths: ListGitPaths
-    ) -> [MentionCandidate.FileEntry]? {
+    ) -> Loaded {
         let root = standardizedPath(directory)
         let home = standardizedPath(homeDirectory)
-        guard root != home else { return [] }
+        guard root != home else { return Loaded(entries: [], isComplete: true) }
         switch listGitPaths(directory, limits) {
         case .paths(let paths):
             let protected = protectedPrefixes(from: root, homeDirectory: home)
-            guard !protected.isEmpty else { return entries(fromFilePaths: paths) }
-            return entries(fromFilePaths: paths.filter { path in !protected.contains { path.hasPrefix($0) } })
+            let kept = protected.isEmpty ? paths : paths.filter { path in !protected.contains { path.hasPrefix($0) } }
+            return Loaded(entries: entries(fromFilePaths: kept), isComplete: true)
         case .timedOut:
-            return nil
+            return Loaded(entries: [], isComplete: false)
         case .notARepository:
             return walk(directory, limits: limits, homeDirectory: homeDirectory)
         }
@@ -218,19 +227,22 @@ actor FileMentionIndex {
         _ directory: String,
         limits: Limits,
         homeDirectory: String
-    ) -> [MentionCandidate.FileEntry] {
+    ) -> Loaded {
         let root = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
         let home = standardizedPath(homeDirectory)
-        guard root.path != home else { return [] }
+        guard root.path != home else { return Loaded(entries: [], isComplete: true) }
         let protected = Set(protectedHomeFolders.map { (home as NSString).appendingPathComponent($0) })
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.producesRelativePathURLs]
-        ) else { return [] }
+        ) else { return Loaded(entries: [], isComplete: true) }
 
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: limits.walkTimeout)
         var entries: [MentionCandidate.FileEntry] = []
         for case let url as URL in enumerator {
+            if entries.count % 64 == 0, clock.now >= deadline { return Loaded(entries: entries, isComplete: false) }
             let name = url.lastPathComponent
             let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDirectory {
@@ -246,7 +258,7 @@ actor FileMentionIndex {
             entries.append(.init(path: url.relativePath, isDirectory: isDirectory))
             if entries.count >= limits.maxEntries { break }
         }
-        return entries
+        return Loaded(entries: entries, isComplete: true)
     }
 
     /// The children of the deepest folder typed so far, in the form typed:

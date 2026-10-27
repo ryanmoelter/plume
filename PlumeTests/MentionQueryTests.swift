@@ -5,12 +5,10 @@ import Testing
 struct MentionQueryTests {
     private func query(_ text: String, caret: Int? = nil) -> MentionQuery? {
         let caret = caret ?? (text as NSString).length
-        return MentionQuery.query(
-            text: text,
-            caretLocation: caret,
-            codeRanges: ComposerCodeRanges.codeRanges(in: text)
-        )
+        return MentionQuery.query(text: text, caretLocation: caret)
     }
+
+    private let everySource: Set<MentionCandidate.Source> = [.linear, .pullRequests, .files]
 
     // MARK: - Opening
 
@@ -43,7 +41,7 @@ struct MentionQueryTests {
     }
 
     @Test func theHashTriggerSearchesOnlyPullRequests() {
-        #expect(query("#12")?.scope == .pullRequests)
+        #expect(query("#12")?.sources == [.pullRequests])
     }
 
     @Test func theQueryRunsOnlyToTheCaret() {
@@ -119,11 +117,83 @@ struct MentionQueryTests {
     // MARK: - Path shapes
 
     @Test func pathShapedQueriesSearchOnlyFiles() {
-        #expect(query("@~/Dev")?.scope == .files)
-        #expect(query("@/Users")?.scope == .files)
-        #expect(query("@./Plume")?.scope == .files)
-        #expect(query("@UI/Chat")?.scope == .files)
-        #expect(query("@Chat")?.scope == .all)
+        #expect(query("@~/Dev")?.sources == [.files])
+        #expect(query("@/Users")?.sources == [.files])
+        #expect(query("@./Plume")?.sources == [.files])
+        #expect(query("@UI/Chat")?.sources == [.files])
+        #expect(query("@Chat")?.sources == everySource)
+    }
+
+    @Test func aQuotedPathSearchesFilesWithoutItsQuote() {
+        let result = query("see @\"My No")
+        #expect(result?.isQuoted == true)
+        #expect(result?.text == "My No")
+        #expect(result?.sources == [.files])
+    }
+
+    @Test func aClosedQuoteIsAReferenceNotAQuery() {
+        #expect(query("@\"My Notes.md\" and") == nil)
+    }
+
+    @Test func aTriggerInsideAnOpenQuotedPathIsPartOfThePath() {
+        let result = query("@\"Notes #2")
+        #expect(result?.triggerLocation == 0)
+        #expect(result?.text == "Notes #2")
+    }
+
+    // MARK: - Complete references
+
+    @Test func proseAfterACompleteReferenceCloses() {
+        #expect(query("@DROID-123 ") == nil)
+        #expect(query("see @DROID-123 and more") == nil)
+        #expect(query("#12 fixes it") == nil)
+        #expect(query("@Plume/UI/Chat.swift is it") == nil)
+        #expect(query("@DROID-123")?.text == "DROID-123")
+        #expect(query("@droid- layout")?.text == "droid- layout")
+    }
+
+    // MARK: - Filters
+
+    @Test func aFilterPrefixKeepsTheMenuToOneSource() {
+        let linear = query("@linear:dro layout")
+        #expect(linear?.filter == .linear)
+        #expect(linear?.text == "dro layout")
+        #expect(linear?.sources == [.linear])
+        #expect(query("@pr:12")?.sources == [.pullRequests])
+        #expect(query("@file:src/a")?.sources == [.files])
+        #expect(query("@File:x")?.filter == .file)
+        #expect(query("#pr:1")?.filter == nil)
+    }
+
+    @Test func aFilterPrefixWithNothingAfterItIsNotBare() {
+        #expect(query("@linear:")?.text == "")
+        #expect(query("@linear:")?.isBare == false)
+        #expect(query("@")?.isBare == true)
+    }
+
+    @Test func twoLettersStartingAFilterSuggestIt() {
+        #expect(query("@li")?.suggestedFilters == [.linear])
+        #expect(query("@pr")?.suggestedFilters == [.pr])
+        #expect(query("@FI")?.suggestedFilters == [.file])
+        #expect(query("@linear")?.suggestedFilters == [.linear])
+        #expect(query("@l")?.suggestedFilters == [])
+        #expect(query("@lix")?.suggestedFilters == [])
+        #expect(query("@linear:x")?.suggestedFilters == [])
+        #expect(query("#pr")?.suggestedFilters == [])
+    }
+
+    // MARK: - Markup
+
+    @Test func onlyTheCaretsLineIsParsedWithoutAFence() {
+        let text = "`code @x`\nsee [a](b) @foo"
+        let markup = MentionMarkup.around((text as NSString).length, in: text)
+        #expect(markup.codeRanges.isEmpty)
+        #expect(markup.linkRanges == [NSRange(location: 14, length: 6)])
+    }
+
+    @Test func aFenceEarlierInTheTextStillHidesTheCaretsLine() {
+        #expect(query("intro\n```\ncode\n@foo") == nil)
+        #expect(query("```\ncode\n```\n@foo")?.text == "foo")
     }
 
     @Test func homeAndRootQueriesAreAbsolute() {

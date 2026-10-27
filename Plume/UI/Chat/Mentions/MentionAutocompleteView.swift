@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The mention menu above the composer: files, Linear issues and pull
-/// requests, already matched and ranked by `MentionAutocompleteController`.
+/// The mention menu above the composer: Linear issues, pull requests and
+/// files, already matched and ranked by `MentionAutocompleteController`.
 struct MentionAutocompleteView: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -27,6 +27,13 @@ struct MentionAutocompleteView: View, ThemedView {
     private func row(_ index: Int, _ candidate: MentionCandidate) -> some View {
         HStack(spacing: 8) {
             switch candidate {
+            case .filter(let filter):
+                Image(systemName: "line.3.horizontal.decrease")
+                    .imageScale(.small)
+                    .emphasis(.secondary)
+                Text(filter.rawValue + ":")
+                    .font(typography.caption.monoMedium)
+                title(filter.summary)
             case .linear(let issue):
                 LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
                     .imageScale(.small)
@@ -77,6 +84,7 @@ struct MentionAutocompleteView: View, ThemedView {
         case .linear(let issue): issue.identifier
         case .pullRequest(let pull): "#\(pull.number)"
         case .file(let entry): entry.path
+        case .filter(let filter): filter.rawValue + ":"
         }
     }
 

@@ -103,27 +103,27 @@ struct MentionAutocompleteControllerTests {
     }
 
     @Test func lateResultsKeepTheSelection() async {
-        sources.holdsFiles = true
-        let first = MentionFixtures.issue("DROID-1", "One")
-        let second = MentionFixtures.issue("DROID-2", "Two")
-        sources.linearAnswer = { _ in
-            [MentionFixtures.ranked(.linear(first), .loose), MentionFixtures.ranked(.linear(second), .loose)]
+        sources.holdsPullRequests = true
+        let second = MentionFixtures.file("drop.txt")
+        sources.fileAnswer = { _ in
+            [MentionFixtures.ranked(.file(MentionFixtures.file("dro.txt"))), MentionFixtures.ranked(.file(second))]
         }
         let controller = makeController()
         defer { sources.releaseAll() }
 
         type("@dro", into: controller)
-        await sources.waitForHeldFiles(1)
+        await sources.waitForHeldPullRequests(2)
         for _ in 0..<1_000 where controller.candidates.count < 2 { await Task.yield() }
         controller.moveSelection(by: 1)
         #expect(controller.selectedIndex == 1)
 
-        sources.heldFiles[0].release([MentionFixtures.ranked(.file(MentionFixtures.file("dro.txt")), .exact)])
+        let pull = MentionFixtures.ranked(.pullRequest(MentionFixtures.pull(3, "Drop it")))
+        for call in sources.heldPullRequests { call.release([pull]) }
         await controller.settled()
 
-        #expect(controller.candidates.first?.id == "file:dro.txt")
+        #expect(controller.candidates.first == pull.candidate)
         #expect(controller.selectedIndex == 2)
-        #expect(controller.candidates[controller.selectedIndex] == .linear(second))
+        #expect(controller.candidates[controller.selectedIndex] == .file(second))
     }
 
     @Test func aMultiWordQueryWithNoResultsCloses() async {
@@ -193,19 +193,80 @@ struct MentionAutocompleteControllerTests {
         #expect(sources.pullRequestQueries == ["la"])
     }
 
-    @Test func acceptingReplacesTheTokenWithALink() async {
+    @Test func acceptingReplacesTheTokenWithAReferenceAndResolvesIt() async {
         sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Layout")))] }
         let controller = makeController()
         var accepted: SlashCommandMatcher.AcceptedCommand?
+        var resolved: (MentionReference.Kind, ResolvedMention)?
         controller.onAccept = { accepted = $0 }
+        controller.onResolve = { resolved = ($0, $1) }
 
         type("see @dro", into: controller)
         await controller.settled()
         controller.acceptSelection()
 
-        let link = "[DROID-1](https://linear.app/acme/issue/droid-1)"
-        #expect(accepted?.text == "see \(link) ")
-        #expect(accepted?.caretLocation == ("see \(link) " as NSString).length)
+        #expect(accepted?.text == "see @DROID-1 ")
+        #expect(accepted?.caretLocation == ("see @DROID-1 " as NSString).length)
+        #expect(resolved?.0 == .linear(identifier: "DROID-1"))
+        #expect(resolved?.1.target == "https://linear.app/acme/issue/droid-1")
+        #expect(resolved?.1.title == "Layout")
         #expect(!controller.isPresented)
+    }
+
+    @Test func anAcceptedReferenceDoesNotReopenTheMenuOnItself() async throws {
+        sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Layout")))] }
+        let controller = makeController()
+        var accepted: SlashCommandMatcher.AcceptedCommand?
+        controller.onAccept = { accepted = $0 }
+
+        controller.update(text: "(see @dro)", caretLocation: 9, directory: "/repo", isCommandMode: false)
+        await controller.settled()
+        controller.acceptSelection()
+        let result = try #require(accepted)
+        #expect(result.text == "(see @DROID-1)")
+
+        controller.update(text: result.text, caretLocation: result.caretLocation, directory: "/repo", isCommandMode: false)
+        #expect(controller.query == nil)
+    }
+
+    @Test func acceptingAFolderKeepsTheMenuOpenInsideIt() async {
+        sources.fileAnswer = { query in
+            query.text.hasSuffix("/")
+                ? [MentionFixtures.ranked(.file(MentionFixtures.file("Plume/UI/Chat.swift")))]
+                : [MentionFixtures.ranked(.file(MentionFixtures.file("Plume/UI", isDirectory: true)))]
+        }
+        let controller = makeController()
+        var accepted: SlashCommandMatcher.AcceptedCommand?
+        controller.onAccept = { accepted = $0 }
+
+        type("see @UI", into: controller)
+        await controller.settled()
+        controller.acceptSelection()
+
+        #expect(accepted?.text == "see @Plume/UI/")
+        #expect(controller.query?.text == "Plume/UI/")
+        await controller.settled()
+        #expect(sources.fileQueries.last == "Plume/UI/")
+        #expect(controller.candidates.map(\.id) == ["file:Plume/UI/Chat.swift"])
+    }
+
+    @Test func twoLettersOfAFilterOfferItFirst() async {
+        sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
+        let controller = makeController()
+        var accepted: SlashCommandMatcher.AcceptedCommand?
+        controller.onAccept = { accepted = $0 }
+
+        type("@li", into: controller)
+        await controller.settled()
+        #expect(controller.candidates.map(\.id) == ["filter:linear", "file:lib.swift"])
+
+        let askedFiles = sources.fileQueries.count
+        let askedPullRequests = sources.pullRequestQueries.count
+        controller.acceptSelection()
+        #expect(accepted?.text == "@linear:")
+        #expect(controller.query?.filter == .linear)
+        await controller.settled()
+        #expect(sources.fileQueries.count == askedFiles)
+        #expect(sources.pullRequestQueries.count == askedPullRequests)
     }
 }

@@ -5,6 +5,8 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
     case file(FileEntry)
     case linear(LinearIssue)
     case pullRequest(PullRequestEntry)
+    /// A row that types a filter prefix, `@linear:`.
+    case filter(MentionQuery.Filter)
 
     enum Source: Hashable, Sendable {
         case files
@@ -63,14 +65,27 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         case .file(let entry): "file:\(entry.path)"
         case .linear(let issue): "linear:\(issue.identifier)"
         case .pullRequest(let pull): "pr:\(pull.url)"
+        case .filter(let filter): "filter:\(filter.rawValue)"
         }
     }
 
-    var source: Source {
+    /// Nil for a filter row, which no source supplies.
+    var source: Source? {
         switch self {
         case .file: .files
         case .linear: .linear
         case .pullRequest: .pullRequests
+        case .filter: nil
+        }
+    }
+
+    /// Accepting it types a prefix and keeps the menu open on what follows:
+    /// a folder lists what is inside it, a filter row its one source.
+    var drillsIn: Bool {
+        switch self {
+        case .file(let entry): entry.isDirectory
+        case .filter: true
+        case .linear, .pullRequest: false
         }
     }
 }

@@ -63,6 +63,29 @@ struct GitHubMentionQueryTests {
         #expect(try GitHubMentionQuery.decodePullRequest(data(found))?.number == 12)
     }
 
+    @Test func theRelatedListAsksForThreeSearchesInOneRequest() {
+        let request = GitHubMentionQuery.relatedPullRequests(nameWithOwner: "o/r")
+        #expect(request.query.hasPrefix("query($search0: String!, $search1: String!, $search2: String!) { "))
+        #expect(request.query.contains("related0: search(query: $search0, type: ISSUE, first: 10)"))
+        #expect(request.query.contains("related2: search(query: $search2"))
+        #expect(Array(request.arguments.dropFirst(4)) == [
+            "-f", "search0=repo:o/r is:pr is:open author:@me",
+            "-f", "search1=repo:o/r is:pr is:open assignee:@me",
+            "-f", "search2=repo:o/r is:pr is:open user-review-requested:@me",
+        ])
+    }
+
+    @Test func decodesTheRelatedListOncePerPullRequestNewestFirst() throws {
+        let older = """
+            {"number":4,"title":"Older","url":"u4","state":"OPEN","isDraft":false,"updatedAt":"2026-09-01T12:00:00Z"}
+            """
+        let json = """
+            {"data":{"related0":{"nodes":[\(older)]},"related1":{"nodes":[{},\(openPull)]},
+             "related2":{"nodes":[\(openPull)]}}}
+            """
+        #expect(try GitHubMentionQuery.decodeRelatedPullRequests(data(json)).map(\.number) == [12, 4])
+    }
+
     @Test func aSearchSkipsResultsThatAreNotPullRequests() throws {
         let json = "{\"data\":{\"search\":{\"nodes\":[{},\(openPull)]}}}"
         #expect(try GitHubMentionQuery.decodeSearch(data(json)).map(\.number) == [12])
@@ -74,14 +97,14 @@ struct GitHubMentionQueryTests {
 struct PullRequestMentionSourceTests {
     private final class Script: Sendable {
         let calls = Mutex<[String]>([])
-        let fails: Bool
+        let fails: Mutex<Bool>
 
-        init(fails: Bool = false) { self.fails = fails }
+        init(fails: Bool = false) { self.fails = Mutex(fails) }
 
         func respond(_ arguments: [String]) throws -> Data {
             let query = arguments.joined(separator: " ")
             calls.withLock { $0.append(query) }
-            if fails { throw ForgeError(message: "gh: not logged in") }
+            if fails.withLock({ $0 }) { throw ForgeError(message: "gh: not logged in") }
             let pull: (Int, String) -> String = { number, title in
                 """
                 {"number":\(number),"title":"\(title)","url":"https://github.com/o/r/pull/\(number)",\
@@ -89,7 +112,9 @@ struct PullRequestMentionSourceTests {
                 """
             }
             let json: String
-            if query.contains("search(") {
+            if query.contains("related0:") {
+                json = "{\"data\":{\"related0\":{\"nodes\":[\(pull(5, "Mine"))]},\"related1\":{\"nodes\":[]},\"related2\":null}}"
+            } else if query.contains("search(") {
                 json = "{\"data\":{\"search\":{\"nodes\":[\(pull(3, "Old layout fix"))]}}}"
             } else if query.contains("pullRequest(number: 7)") {
                 json = "{\"data\":{\"repository\":{\"pullRequest\":\(pull(7, "Closed long ago"))}}}"
@@ -106,15 +131,24 @@ struct PullRequestMentionSourceTests {
         var count: Int { calls.withLock { $0.count } }
     }
 
-    private func source(_ script: Script, origin: String = "git@github.com:o/r.git") -> PullRequestMentionSource {
+    private func source(
+        _ script: Script,
+        origin: String = "git@github.com:o/r.git",
+        clock: Clock? = nil
+    ) -> PullRequestMentionSource {
         PullRequestMentionSource(
             run: { arguments, _ in try script.respond(arguments) },
-            resolve: { _ in ("/repo", RepositoryFacts(originURL: origin, defaultBranch: "main")) }
+            resolve: { _ in ("/repo", RepositoryFacts(originURL: origin, defaultBranch: "main")) },
+            now: { clock?.now.withLock { $0 } ?? Date() }
         )
     }
 
+    private final class Clock: Sendable {
+        let now = Mutex(Date(timeIntervalSince1970: 0))
+    }
+
     private func query(_ typed: String) throws -> MentionQuery {
-        try #require(MentionQuery.query(text: typed, caretLocation: (typed as NSString).length, codeRanges: []))
+        try #require(MentionQuery.query(text: typed, caretLocation: (typed as NSString).length))
     }
 
     private func numbers(_ ranked: [RankedMention]) -> [Int] {
@@ -125,10 +159,30 @@ struct PullRequestMentionSourceTests {
         let script = Script()
         let source = source(script)
 
-        #expect(numbers(await source.matches(for: try query("#"), in: "/repo/sub")) == [12])
         #expect(numbers(await source.matches(for: try query("#12"), in: "/repo/sub")) == [12])
-        #expect(numbers(await source.matches(for: try query("#add"), in: "/repo/sub")) == [12])
+        #expect(numbers(await source.matches(for: try query("#ad"), in: "/repo/sub")) == [12])
+        #expect(script.count == 1)
+    }
+
+    @Test func anEmptyQueryListsOnlyTheViewersPullRequestsAndCachesThem() async throws {
+        let script = Script()
+        let source = source(script)
+
+        #expect(numbers(await source.matches(for: try query("#"), in: "/repo")) == [5])
+        #expect(numbers(await source.matches(for: try query("@pr:"), in: "/repo")) == [5])
         #expect(script.count == 2)
+        #expect(script.calls.withLock { $0.last?.contains("related0:") } == true)
+    }
+
+    @Test func aNumberIsFoundForTheResolver() async throws {
+        let script = Script()
+        let source = source(script)
+
+        #expect(await source.pullRequest(number: 12, in: "/repo")?.title == "Add mentions")
+        #expect(await source.pullRequest(number: 7, in: "/repo")?.title == "Closed long ago")
+        #expect(await source.pullRequest(number: 99, in: "/repo") == nil)
+        #expect(await source.pullRequest(number: 99, in: "/repo") == nil)
+        #expect(script.count == 3)
     }
 
     @Test func aNumberMissingFromTheListIsLookedUpOnce() async throws {
@@ -214,13 +268,19 @@ struct PullRequestMentionSourceTests {
         #expect(script.count == calls)
     }
 
-    @Test func aFailingGHIsCachedAsNoResults() async throws {
+    @Test func aFailingGHIsRetriedAfterItsBackoff() async throws {
         let script = Script(fails: true)
-        let source = source(script)
+        let clock = Clock()
+        let source = source(script, clock: clock)
 
         #expect(await source.matches(for: try query("#1"), in: "/repo").isEmpty)
         #expect(await source.matches(for: try query("#12"), in: "/repo").isEmpty)
         #expect(script.count == 1)
+
+        script.fails.withLock { $0 = false }
+        clock.now.withLock { $0 = $0.addingTimeInterval(PullRequestMentionSource.failureBackoff + 1) }
+        #expect(numbers(await source.matches(for: try query("#12"), in: "/repo")) == [12])
+        #expect(script.count == 2)
     }
 
     @Test func aNonGitHubOriginOrAFileQuerySendsNothing() async throws {

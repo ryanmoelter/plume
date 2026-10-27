@@ -5,7 +5,6 @@ import Observation
 /// source's answer.
 @MainActor
 protocol MentionSources: AnyObject, Sendable {
-    var teamKeys: Set<String> { get }
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention]
     /// Without `includingLookups`, only what needs no new request.
     func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention]
@@ -17,8 +16,6 @@ protocol MentionSources: AnyObject, Sendable {
 
 @MainActor
 final class LiveMentionSources: MentionSources {
-    var teamKeys: Set<String> { LinearStore.shared.teamKeys }
-
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention] {
         await FileMentionIndex.shared.matches(for: query, in: directory)
     }
@@ -68,6 +65,9 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     var claimsEscape: Bool { isPresented }
 
     @ObservationIgnored var onAccept: (SlashCommandMatcher.AcceptedCommand) -> Void = { _ in }
+    /// Called with the reference an accepted row leaves and what it names,
+    /// before `onAccept`.
+    @ObservationIgnored var onResolve: (MentionReference.Kind, ResolvedMention) -> Void = { _, _ in }
     /// Called each time a query's every source has answered. For tests.
     @ObservationIgnored var didSettle: (() -> Void)?
     /// Called when a superseded query's results arrive and are dropped. For
@@ -100,6 +100,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     /// A multi-word query that found nothing, which by then is most likely
     /// prose. Anything typed on after it stays closed too.
     @ObservationIgnored private var abandoned: (trigger: Int, text: String)?
+    @ObservationIgnored private var wholeMarkup: (text: String, markup: MentionMarkup)?
 
     init(
         sources: (any MentionSources)? = nil,
@@ -119,7 +120,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         lastInput = input
         self.text = text
 
-        guard !isCommandMode, let query = Self.query(in: text, caretLocation: caretLocation) else {
+        guard !isCommandMode, let query = query(in: text, caretLocation: caretLocation) else {
             dismissedTrigger = nil
             abandoned = nil
             close()
@@ -135,20 +136,31 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         }
 
         if let current = self.query, current.triggerLocation == query.triggerLocation,
-           current.text == query.text, directory == self.directory {
+           current.text == query.text, current.filter == query.filter, current.isQuoted == query.isQuoted,
+           directory == self.directory {
             self.query = query
             return
         }
         start(query, directory: directory)
     }
 
-    private static func query(in text: String, caretLocation: Int) -> MentionQuery? {
+    private func query(in text: String, caretLocation: Int) -> MentionQuery? {
         guard text.contains(where: { $0 == "@" || $0 == "#" }) else { return nil }
-        return MentionQuery.query(
-            text: text,
-            caretLocation: caretLocation,
-            codeRanges: ComposerCodeRanges.codeRanges(in: text)
-        )
+        return MentionQuery.query(text: text, caretLocation: caretLocation, markup: markup(for: text, around: caretLocation))
+    }
+
+    /// Only a draft with a fence needs the whole text parsed, and that parse
+    /// is kept until the text changes, so moving the caret costs one line.
+    private func markup(for text: String, around caretLocation: Int) -> MentionMarkup {
+        let ns = text as NSString
+        let lineStart = ns.lineRange(for: NSRange(location: min(caretLocation, ns.length), length: 0)).location
+        guard MentionMarkup.mayBeFenced(before: lineStart, in: ns) else {
+            return MentionMarkup.around(caretLocation, in: text)
+        }
+        if let wholeMarkup, wholeMarkup.text == text { return wholeMarkup.markup }
+        let markup = MentionMarkup.whole(text)
+        wholeMarkup = (text, markup)
+        return markup
     }
 
     // MARK: Loading
@@ -161,7 +173,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         self.directory = directory
         selectedID = nil
 
-        let wanted = Self.sources(for: query.scope)
+        let wanted = query.sources
         var next: [MentionCandidate.Source: [RankedMention]] = [:]
         if wanted.contains(.files) { next[.files] = Self.narrowedFiles(results[.files], to: query.text) }
         if wanted.contains(.pullRequests) {
@@ -254,7 +266,8 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
 
     private func publish() {
         guard let query else { return }
-        let merged = MentionRanker.merge(results, query: query.text, teamKeys: sources.teamKeys)
+        let filters = query.suggestedFilters.map(MentionCandidate.filter)
+        let merged = filters + MentionRanker.merge(results, isBare: query.isBare)
         if merged != candidates { candidates = merged }
         let index = MentionRanker.selectionIndex(keeping: selectedID, in: merged)
         if index != selectedIndex { selectedIndex = index }
@@ -273,14 +286,6 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         if !candidates.isEmpty { candidates = [] }
         if selectedIndex != 0 { selectedIndex = 0 }
         if isLoading { isLoading = false }
-    }
-
-    private static func sources(for scope: MentionQuery.Scope) -> Set<MentionCandidate.Source> {
-        switch scope {
-        case .all: [.files, .linear, .pullRequests]
-        case .files: [.files]
-        case .pullRequests: [.pullRequests]
-        }
     }
 
     /// `PullRequestMentionSource` may send a request for a number or a long
@@ -325,14 +330,21 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
 
     func acceptSelection() {
         guard let query, candidates.indices.contains(selectedIndex) else { return }
-        let accepted = MentionInsertion.accepting(
-            candidates[selectedIndex],
-            query: query,
-            in: text,
-            homeDirectory: homeDirectory
-        )
+        let candidate = candidates[selectedIndex]
+        let accepted = MentionInsertion.accepting(candidate, query: query, in: text)
+        if let (kind, resolution) = candidate.resolvedReference(homeDirectory: homeDirectory) {
+            onResolve(kind, resolution)
+        }
+        let directory = lastInput?.directory ?? self.directory
         close()
         onAccept(accepted)
+        if candidate.drillsIn {
+            update(text: accepted.text, caretLocation: accepted.caretLocation, directory: directory, isCommandMode: false)
+        } else {
+            // The reference just typed would otherwise reopen the menu on
+            // itself.
+            dismissedTrigger = query.triggerLocation
+        }
     }
 
     func dismiss() {

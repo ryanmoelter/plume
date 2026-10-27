@@ -11,8 +11,8 @@ struct MentionInsertionTests {
         caret: Int? = nil
     ) throws -> SlashCommandMatcher.AcceptedCommand {
         let caret = caret ?? (text as NSString).length
-        let query = try #require(MentionQuery.query(text: text, caretLocation: caret, codeRanges: []))
-        return MentionInsertion.accepting(candidate, query: query, in: text, homeDirectory: home)
+        let query = try #require(MentionQuery.query(text: text, caretLocation: caret))
+        return MentionInsertion.accepting(candidate, query: query, in: text)
     }
 
     private func file(_ path: String, isDirectory: Bool = false) -> MentionCandidate {
@@ -39,43 +39,64 @@ struct MentionInsertionTests {
 
     // MARK: - Formats
 
-    @Test func aLinearIssueLinksItsIdentifierToItsURL() throws {
-        let result = try accept(issue, in: "see @dro layout")
-        #expect(result.text == "see [DROID-123](https://linear.app/acme/issue/DROID-123/fix-the-text-layout) ")
+    @Test func aLinearIssueLeavesItsIdentifier() throws {
+        #expect(try accept(issue, in: "see @dro layout").text == "see @DROID-123 ")
     }
 
-    @Test func aPullRequestLinksItsNumber() throws {
-        let result = try accept(pull, in: "#12")
-        #expect(result.text == "[#123](https://github.com/o/r/pull/123) ")
+    @Test func aPullRequestLeavesItsNumberFromEitherTrigger() throws {
+        #expect(try accept(pull, in: "#12").text == "#123 ")
+        #expect(try accept(pull, in: "@add").text == "#123 ")
     }
 
-    @Test func aFileLinksItsNameToItsRelativePath() throws {
+    @Test func aFileLeavesItsRelativePath() throws {
         let result = try accept(file("Plume/UI/Chat/ChatComposer.swift"), in: "@ChatCo")
-        #expect(result.text == "[ChatComposer.swift](Plume/UI/Chat/ChatComposer.swift) ")
+        #expect(result.text == "@Plume/UI/Chat/ChatComposer.swift ")
     }
 
-    @Test func aFolderLabelEndsInASlash() throws {
-        let result = try accept(file("Plume/UI", isDirectory: true), in: "@UI")
-        #expect(result.text == "[UI/](Plume/UI) ")
+    @Test func aTypedHomePathKeepsItsTilde() throws {
+        #expect(try accept(file("~/Development/notes.md"), in: "@~/Dev").text == "@~/Development/notes.md ")
+        #expect(try accept(file("/etc/hosts"), in: "@/etc/ho").text == "@/etc/hosts ")
     }
 
-    @Test func aHomePathIsExpanded() throws {
-        let result = try accept(file("~/Development/Plume", isDirectory: true), in: "@~/Dev")
-        #expect(result.text == "[Plume/](/Users/tester/Development/Plume) ")
+    @Test func aPathThatWouldEndEarlyIsQuoted() throws {
+        #expect(try accept(file("Docs/My Notes (draft).md"), in: "@notes").text == #"@"Docs/My Notes (draft).md" "#)
+        #expect(try accept(file(#"a"b.txt"#), in: "@a").text == #"@"a\"b.txt" "#)
+        #expect(try accept(file("DROID-12"), in: "@DRO").text == #"@"DROID-12" "#)
     }
 
-    @Test func anAbsolutePathStaysAsIs() throws {
-        let result = try accept(file("/etc/hosts"), in: "@/etc/ho")
-        #expect(result.text == "[hosts](/etc/hosts) ")
+    // MARK: - Drilling in
+
+    @Test func aFolderLeavesItsPathWithASlashAndNoSpace() throws {
+        let result = try accept(file("Plume/UI", isDirectory: true), in: "see @UI")
+        #expect(result.text == "see @Plume/UI/")
+        #expect(result.caretLocation == ("see @Plume/UI/" as NSString).length)
     }
+
+    @Test func aQuotedFolderLeavesItsQuoteOpen() throws {
+        let result = try accept(file("My Docs", isDirectory: true), in: "@My")
+        #expect(result.text == #"@"My Docs/"#)
+        let inside = try #require(MentionQuery.query(text: result.text, caretLocation: result.caretLocation))
+        #expect(inside.text == "My Docs/")
+        #expect(inside.isQuoted)
+    }
+
+    @Test func aFilterRowLeavesItsPrefix() throws {
+        let result = try accept(.filter(.linear), in: "@li")
+        #expect(result.text == "@linear:")
+        #expect(result.caretLocation == 8)
+    }
+
+    @Test func theFilterPrefixGoesOnTheFinalAccept() throws {
+        #expect(try accept(issue, in: "@linear:dro").text == "@DROID-123 ")
+    }
+
+    // MARK: - Links
 
     @Test func tildeExpansionToleratesATrailingSlashOnHome() {
         #expect(MentionInsertion.expandingTilde("~/a", homeDirectory: "/Users/tester/") == "/Users/tester/a")
         #expect(MentionInsertion.expandingTilde("~", homeDirectory: home) == home)
         #expect(MentionInsertion.expandingTilde("~other/a", homeDirectory: home) == "~other/a")
     }
-
-    // MARK: - Escaping
 
     @Test func bracketsAndBackslashesInTheLabelAreEscaped() {
         #expect(MentionInsertion.escapedLabel(#"a[1]\b"#) == #"a\[1\]\\b"#)
@@ -88,13 +109,6 @@ struct MentionInsertionTests {
         #expect(MentionInsertion.formattedTarget("a <b>.txt") == #"<a \<b\>.txt>"#)
     }
 
-    @Test func aFileWithSpacesProducesAParseableLink() throws {
-        let result = try accept(file("Docs/My Notes (draft).md"), in: "@notes")
-        #expect(result.text == "[My Notes (draft).md](<Docs/My Notes (draft).md>) ")
-        let parsed = try AttributedString(markdown: result.text)
-        #expect(parsed.runs.contains { $0.link != nil })
-    }
-
     // MARK: - Replacement and caret
 
     @Test func theCaretLandsAfterTheTrailingSpace() throws {
@@ -103,43 +117,31 @@ struct MentionInsertionTests {
     }
 
     @Test func theRestOfTheWordAfterTheCaretIsReplaced() throws {
-        let text = "@ChatComp and more"
-        let result = try accept(file("ChatComposer.swift"), in: text, caret: 5)
-        #expect(result.text == "[ChatComposer.swift](ChatComposer.swift) and more")
-        #expect(result.caretLocation == ("[ChatComposer.swift](ChatComposer.swift) " as NSString).length)
-    }
-
-    @Test func textAfterTheMentionIsKept() throws {
-        let text = "see @dro and then"
-        let result = try accept(issue, in: text, caret: 8)
-        #expect(result.text.hasPrefix("see [DROID-123]("))
-        #expect(result.text.hasSuffix(") and then"))
+        let result = try accept(file("ChatComposer.swift"), in: "@ChatComp and more", caret: 5)
+        #expect(result.text == "@ChatComposer.swift and more")
+        #expect(result.caretLocation == ("@ChatComposer.swift " as NSString).length)
     }
 
     @Test func anExistingSpaceAfterTheMentionIsNotDoubled() throws {
-        let result = try accept(pull, in: "#12 later", caret: 3)
-        #expect(result.text == "[#123](https://github.com/o/r/pull/123) later")
+        #expect(try accept(pull, in: "#12 later", caret: 3).text == "#123 later")
     }
 
     @Test func closingPunctuationAfterTheCaretIsKept() throws {
-        let link = "[Plume.swift](Plume.swift)"
         let parenthesized = try accept(file("Plume.swift"), in: "(see @Plum)", caret: 10)
-        #expect(parenthesized.text == "(see \(link))")
-        #expect(parenthesized.caretLocation == ("(see \(link)" as NSString).length)
+        #expect(parenthesized.text == "(see @Plume.swift)")
+        #expect(parenthesized.caretLocation == ("(see @Plume.swift" as NSString).length)
 
-        let comma = try accept(file("Plume.swift"), in: "@Plum, then", caret: 5)
-        #expect(comma.text == "\(link), then")
+        #expect(try accept(file("Plume.swift"), in: "@Plum, then", caret: 5).text == "@Plume.swift, then")
     }
 
     @Test func aDotInsideTheWordIsReplacedButASentenceEndingOneIsKept() throws {
-        let link = "[Plume.swift](Plume.swift)"
-        #expect(try accept(file("Plume.swift"), in: "@Plum.sw later", caret: 5).text == "\(link) later")
-        #expect(try accept(file("Plume.swift"), in: "see @Plum.", caret: 9).text == "see \(link).")
+        #expect(try accept(file("Plume.swift"), in: "@Plum.sw later", caret: 5).text == "@Plume.swift later")
+        #expect(try accept(file("Plume.swift"), in: "see @Plum.", caret: 9).text == "see @Plume.swift.")
     }
 
     @Test func caretOffsetsAreUTF16() throws {
         let result = try accept(pull, in: "🎉 #1")
-        #expect(result.text == "🎉 [#123](https://github.com/o/r/pull/123) ")
+        #expect(result.text == "🎉 #123 ")
         #expect(result.caretLocation == (result.text as NSString).length)
     }
 }

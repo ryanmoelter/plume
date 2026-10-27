@@ -22,7 +22,6 @@ final class FakeMentionSources: MentionSources {
         }
     }
 
-    var teamKeys: Set<String> = ["DROID"]
     var holdsFiles = false
     var holdsPullRequests = false
     var fileAnswer: (MentionQuery) -> [RankedMention] = { _ in [] }
@@ -75,7 +74,15 @@ final class FakeMentionSources: MentionSources {
     }
 
     func waitForHeldFiles(_ count: Int) async {
-        while heldFiles.count < count {
+        await waitUntil { self.heldFiles.count >= count }
+    }
+
+    func waitForHeldPullRequests(_ count: Int) async {
+        await waitUntil { self.heldPullRequests.count >= count }
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        while !condition() {
             await withCheckedContinuation { continuation in
                 didHold = {
                     self.didHold = nil
