@@ -62,7 +62,7 @@ Keys are case-insensitive. The shared section is `ryanmoelter-cli-tools`. Each f
 | `wt`: `main` | `Shared/CLI/WT/WTMain.swift` (`WT.main`, `WT.run`), routed from `CLICommandLine` and `PlumeCLI/main.swift` |
 | `wt`: `cmd_init` | `Shared/CLI/ShellIntegration.swift` (`plume init zsh [--aliases]`) |
 
-The Python stack fields in `forge.py` belong to the `stack` port (PLUME-317), not this one.
+The Python stack fields in `forge.py` belong to the `stack` port (PLUME-317); `docs/stack-port.md` maps them.
 
 ## Tests
 

@@ -74,7 +74,7 @@ struct ProjectsSettingsPane: View {
             } header: {
                 Text("Projects")
             } footer: {
-                Text("Read by `plume wt`. A project's setting wins over Defaults; anything left empty falls back to what git says.")
+                Text("Read by `plume wt` and `plume stack`. A project's setting wins over Defaults; anything left empty falls back to what git says.")
                     .foregroundStyle(.secondary)
             }
 
