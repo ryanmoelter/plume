@@ -26,8 +26,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         }
     case .newTab(let directory, let taskID, let select):
         return NewTab.run(directory: directory, taskID: taskID, select: select)
-    case .shellInit(let aliases):
-        print(ShellIntegration.zsh(aliases: aliases), terminator: "")
+    case .shellInit(let aliasNames):
+        print(ShellIntegration.zsh(aliasNames: aliasNames), terminator: "")
     case .wt(let arguments):
         return WT.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
     case .stack(let arguments):

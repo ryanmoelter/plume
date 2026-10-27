@@ -8,7 +8,7 @@ nonisolated enum ZshrcSetup {
     static let initLine = #"eval "$(plume init zsh --aliases)""#
 
     /// Whether any uncommented line already loads the integration, with or
-    /// without `--aliases`, so a hand-written variant counts.
+    /// without `--aliases` or `--alias` flags, so a hand-written variant counts.
     static func containsInitLine(_ contents: String) -> Bool {
         contents.split(whereSeparator: \.isNewline).contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)

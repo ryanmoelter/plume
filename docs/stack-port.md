@@ -1,6 +1,6 @@
 # Porting `stack` into `plume stack`
 
-PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, version 0.1.2, and `src/_common/`) into the `plume` CLI as `plume stack …`. A `stack` executable name, or the `stack` function from `plume init zsh --aliases`, routes to the same code. This page records the decisions behind the port and maps the Python to the Swift, so a change to either side can find its counterpart. `docs/wt-port.md` covers the shared layers: settings, the forge backends, `TerminalUI`, and the imported git config.
+PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, version 0.1.2, and `src/_common/`) into the `plume` CLI as `plume stack …`. A `stack` executable name, or the `stack` function from `plume init zsh --alias stack`, routes to the same code. This page records the decisions behind the port and maps the Python to the Swift, so a change to either side can find its counterpart. `docs/wt-port.md` covers the shared layers: settings, the forge backends, `TerminalUI`, and the imported git config.
 
 ## Decisions
 
@@ -40,7 +40,7 @@ PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, ver
 | `require_current_tracked`, `rebase_in_progress`, `restack_preflight`, `origin_tip`, `remote_restack`, `former_origin_tips`, `rebase_branch`, `restack_stack`, `interactive_restack`, `warn_descendants_need_restack`, `cmd_restack` | `Shared/CLI/Stack/StackRestack.swift` |
 | `push_branch`, `retarget_pr`, `sync_github_stack`, `cmd_submit`, `cmd_sync` | `Shared/CLI/Stack/StackSubmit.swift` |
 | `cmd_setup`, `cmd_complete`, `usage`, `main` | `Shared/CLI/Stack/StackMain.swift` (`Stack.main`, `Stack.run`), routed from `CLICommandLine` and `PlumeCLI/main.swift` |
-| `cmd_init`, `STACK_ZSH_INIT` | `Shared/CLI/ShellIntegration.swift` (`plume init zsh [--aliases]`) |
+| `cmd_init`, `STACK_ZSH_INIT` | `Shared/CLI/ShellIntegration.swift` (`plume init zsh [--aliases] [--alias NAME]`) |
 
 ## Tests
 

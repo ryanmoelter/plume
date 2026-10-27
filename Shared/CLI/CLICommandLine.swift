@@ -8,7 +8,8 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case notify(title: String, body: String)
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
-    case shellInit(aliases: Bool)
+    /// `aliasNames` are the bare functions to define, in the order asked.
+    case shellInit(aliasNames: [String])
     /// `plume wt …`, or any arguments when invoked as `wt`.
     case wt([String])
     /// `plume stack …`, or any arguments when invoked as `stack`.
@@ -45,7 +46,8 @@ nonisolated enum CLICommandLine {
                                     Open a terminal tab in this task, print its ID
           wt <command>              Manage worktrees (`plume wt help`)
           stack <command>           Manage stacked branches (`plume stack help`)
-          init zsh [--aliases]      Print zsh completions, for `eval "$(plume init zsh)"`;
+          init zsh [--aliases] [--alias NAME]
+                                    Print zsh completions, for `eval "$(plume init zsh)"`;
                                     --aliases adds a bare `wt`, whose `wt switch` cds
           help                      Show this help
           --version                 Print Plume's version
@@ -62,7 +64,7 @@ nonisolated enum CLICommandLine {
         """
 
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
-    static let initUsage = "usage: plume init zsh [--aliases]"
+    static let initUsage = "usage: plume init zsh [--aliases] [--alias wt|stack]..."
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
     static func parse(_ arguments: [String], executableName: String) throws -> CLIInvocation {
@@ -182,11 +184,29 @@ nonisolated enum CLICommandLine {
         guard arguments.first == "zsh" else {
             throw CLIUsageError(message: "only zsh is supported", usage: initUsage)
         }
-        switch Array(arguments.dropFirst()) {
-        case []: return .shellInit(aliases: false)
-        case ["--aliases"]: return .shellInit(aliases: true)
-        case let extra: throw CLIUsageError(message: "unexpected argument '\(extra[0])'", usage: initUsage)
+        var names: [String] = []
+        func add(_ name: String) {
+            if !names.contains(name) { names.append(name) }
         }
+        var rest = arguments.dropFirst()
+        while let argument = rest.popFirst() {
+            switch argument {
+            case "--aliases":
+                add(ShellIntegration.wtAliasName)
+            case "--alias":
+                guard let name = rest.popFirst() else {
+                    throw CLIUsageError(message: "--alias needs a name", usage: initUsage)
+                }
+                guard ShellIntegration.aliasedSubcommands.contains(name) else {
+                    let valid = ShellIntegration.aliasedSubcommands.joined(separator: ", ")
+                    throw CLIUsageError(message: "unknown alias '\(name)'; use one of: \(valid)", usage: initUsage)
+                }
+                add(name)
+            default:
+                throw CLIUsageError(message: "unexpected argument '\(argument)'", usage: initUsage)
+            }
+        }
+        return .shellInit(aliasNames: names)
     }
 
     // MARK: Notify fallback

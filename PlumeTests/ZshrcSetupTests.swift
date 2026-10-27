@@ -54,6 +54,10 @@ struct ZshrcSetupTests {
         #expect(try contents(file) == original)
     }
 
+    @Test func aLineWithAliasFlagsCounts() {
+        #expect(ZshrcSetup.containsInitLine("eval \"$(plume init zsh --alias wt --alias stack)\"\n"))
+    }
+
     @Test func aCommentedOutLineDoesNotCount() {
         #expect(!ZshrcSetup.containsInitLine("# eval \"$(plume init zsh --aliases)\"\n"))
     }

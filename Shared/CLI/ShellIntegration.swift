@@ -44,7 +44,8 @@ nonisolated enum ShellIntegration {
             else
               shift words
               (( CURRENT-- ))
-              _arguments '--aliases[Also define bare wt, whose switch cds, and stack]'
+              _arguments '--aliases[Also define a bare wt, whose switch cds]' \\
+                '*--alias[Also define a bare function]:name:(wt stack)'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
@@ -141,8 +142,17 @@ nonisolated enum ShellIntegration {
         fi
         """
 
-    /// `aliases` adds a bare `wt()`, whose `switch` cds, and a bare `stack()`.
-    static func zsh(aliases: Bool = false) -> String {
+    /// The `plume` subcommands `--alias` can define as bare functions, each
+    /// completing as its `plume` form.
+    static let aliasedSubcommands = ["wt", "stack"]
+
+    /// The one name `--aliases` defines.
+    static let wtAliasName = "wt"
+
+    /// `aliasNames` picks which bare functions to define. `wt()` cds on
+    /// `wt switch`; `stack()` calls through to `plume stack`. Each name is its
+    /// own opt-in because a bare `stack` shadows other tools of that name.
+    static func zsh(aliasNames: [String] = []) -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
             let body = command.completion.split(separator: "\n").map { "      " + $0 }.joined(separator: "\n")
@@ -177,12 +187,14 @@ nonisolated enum ShellIntegration {
               compdef _plume plume
               compdef '_plume_notify' plume-notify
             fi
-            \(aliases ? aliasFunctions : "")
+            \(aliasFunctions(for: aliasNames))
             """
     }
 
-    private static var aliasFunctions: String {
-        wtFunction + stackFunction
+    private static func aliasFunctions(for names: [String]) -> String {
+        aliasedSubcommands.filter(names.contains).map { name in
+            name == "wt" ? wtFunction : stackFunction
+        }.joined()
     }
 
     private static let wtFunction = """

@@ -3,8 +3,8 @@ import Testing
 @testable import Plume
 
 /// `plume init zsh` carries wt's completion and leaves `plume` itself a
-/// plain command. `--aliases` adds a bare `wt()`, the only place `wt switch`
-/// becomes a `cd`. Ported from the wt half of `test_init.py`.
+/// plain command. `--aliases` (or `--alias wt`) adds a bare `wt()`, the only place
+/// `wt switch` becomes a `cd`. Ported from the wt half of `test_init.py`.
 struct WTInitTests {
     private func parses(_ script: String) throws -> Bool {
         try zsh(["-n", "-c", script]).status == 0
@@ -30,7 +30,7 @@ struct WTInitTests {
     /// `script` after the integration with `--aliases`, in a shell whose
     /// PATH finds only `bin` and the system.
     private func runWithAliases(_ script: String, bin: URL) throws -> (status: Int32, stdout: String) {
-        try zsh(["-f", "-c", ShellIntegration.zsh(aliases: true) + "\n" + script], path: "\(bin.path):/usr/bin:/bin")
+        try zsh(["-f", "-c", ShellIntegration.zsh(aliasNames: ["wt"]) + "\n" + script], path: "\(bin.path):/usr/bin:/bin")
     }
 
     /// A directory holding a fake `plume` that logs its arguments to
@@ -56,7 +56,7 @@ struct WTInitTests {
 
     @Test(arguments: [false, true])
     func plumeStaysAPlainCommand(_ aliases: Bool) throws {
-        let script = ShellIntegration.zsh(aliases: aliases)
+        let script = ShellIntegration.zsh(aliasNames: aliases ? ["wt"] : [])
         #expect(!lines(script).contains("plume() {"))
         let (bin, _, _, root) = try fakePlume()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -106,17 +106,21 @@ struct WTInitTests {
         #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
     }
 
-    @Test func aliasesAddABareWtFunctionAndItsCompletion() {
-        let script = lines(ShellIntegration.zsh(aliases: true))
+    @Test func aliasesAddABareWtFunctionAndItsCompletionButNotStack() throws {
+        let invocation = try CLICommandLine.parse(["init", "zsh", "--aliases"], executableName: "plume")
+        guard case .shellInit(let names) = invocation else { Issue.record("not shellInit"); return }
+        let script = lines(ShellIntegration.zsh(aliasNames: names))
         #expect(script.contains("wt() {"))
         #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
+        #expect(!script.contains("stack() {"))
+        #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
     }
 
     /// The script is eval'd at shell startup, so a quoting slip would break
     /// every new shell.
-    @Test(arguments: [false, true])
-    func theScriptParses(_ aliases: Bool) throws {
-        #expect(try parses(ShellIntegration.zsh(aliases: aliases)))
+    @Test(arguments: [[], ["wt"], ["stack"], ["wt", "stack"]])
+    func theScriptParses(_ names: [String]) throws {
+        #expect(try parses(ShellIntegration.zsh(aliasNames: names)))
     }
 
     /// `init` belongs to `plume`, which needs no repository.

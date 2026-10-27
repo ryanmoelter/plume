@@ -74,9 +74,15 @@ struct CLICommandLineTests {
     @Test func presenceAndInitParse() throws {
         #expect(try parse(["presence"]) == .presence(json: false))
         #expect(try parse(["presence", "--json"]) == .presence(json: true))
-        #expect(try parse(["init", "zsh"]) == .shellInit(aliases: false))
-        #expect(try parse(["init", "zsh", "--aliases"]) == .shellInit(aliases: true))
+        #expect(try parse(["init", "zsh"]) == .shellInit(aliasNames: []))
+        #expect(try parse(["init", "zsh", "--aliases"]) == .shellInit(aliasNames: ["wt"]))
+        #expect(try parse(["init", "zsh", "--alias", "stack"]) == .shellInit(aliasNames: ["stack"]))
+        #expect(try parse(["init", "zsh", "--alias", "wt", "--alias", "stack"]) == .shellInit(aliasNames: ["wt", "stack"]))
+        #expect(try parse(["init", "zsh", "--aliases", "--alias", "stack"]) == .shellInit(aliasNames: ["wt", "stack"]))
+        #expect(try parse(["init", "zsh", "--alias", "stack", "--aliases", "--alias", "wt"]) == .shellInit(aliasNames: ["stack", "wt"]))
         #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--bogus"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--alias"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["init", "zsh", "--alias", "foo"]) }
         #expect(throws: CLIUsageError.self) { try parse(["init", "bash"]) }
         #expect(throws: CLIUsageError.self) { try parse(["frobnicate"]) }
     }
@@ -98,12 +104,14 @@ struct CLICommandLineTests {
         #expect(script.contains("compdef _plume plume"))
     }
 
-    /// Past the shell name, `init` offers only `--aliases`; an `_arguments`
+    /// Past the shell name, `init` offers only `--aliases` and `--alias`; an `_arguments`
     /// at the shell position would read `zsh` as its own argument.
-    @Test func initCompletesTheShellNameThenAliases() throws {
+    @Test func initCompletesTheShellNameThenAliasFlags() throws {
         let initCommand = try #require(ShellIntegration.commands.first { $0.name == "init" })
         #expect(initCommand.completion.contains("_values 'shell' zsh"))
         #expect(initCommand.completion.contains("--aliases"))
+        #expect(initCommand.completion.contains("--alias["))
+        #expect(initCommand.completion.contains("wt stack"))
     }
 
     @Test func wtRoutesItsArgumentsVerbatim() throws {
