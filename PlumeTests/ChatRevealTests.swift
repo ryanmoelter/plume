@@ -237,6 +237,36 @@ struct ChatRevealModelTests {
         #expect(reveal.position > 0)
         #expect(reveal.position <= 100)
     }
+
+    @Test func aSettledMessageGrowingWhileSettlingJumpsToItsTarget() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = makeAwakeModel()
+        model.update(targets: [(messageID: "a", length: 40)])
+        model.update(targets: [(messageID: "a", length: 60)], settling: ["a"])
+        let reveal = try #require(model.reveal(for: "a"))
+        #expect(reveal.position == 60)
+        #expect(reveal.isSettled)
+    }
+
+    @Test func aSettledMessageGrowingOtherwiseRevealsTheDifference() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = makeAwakeModel()
+        model.update(targets: [(messageID: "a", length: 40)])
+        model.update(targets: [(messageID: "a", length: 60)])
+        let reveal = try #require(model.reveal(for: "a"))
+        #expect(reveal.position == 40)
+    }
+
+    @Test func settlingLeavesARevealStillInProgress() throws {
+        guard AppSettings.shared.animateCharacterReveal else { return }
+        let model = makeAwakeModel()
+        model.update(targets: [(messageID: "a", length: 40)])
+        model.update(targets: [(messageID: "a", length: 40), (messageID: "b", length: 100)])
+        model.update(targets: [(messageID: "a", length: 40), (messageID: "b", length: 120)], settling: ["b"])
+        let reveal = try #require(model.reveal(for: "b"))
+        #expect(reveal.position == 0)
+        #expect(reveal.target == 120)
+    }
     @Test func aPieceIsHeldUntilTheRevealReachesItsOffset() {
         guard AppSettings.shared.animateCharacterReveal else { return }
         let model = makeAwakeModel()

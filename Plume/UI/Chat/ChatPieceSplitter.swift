@@ -362,7 +362,7 @@ enum ChatPieceSplitter {
                     // segment has no lines of its own, so it is written back.
                     copySource: segments.count == 1
                         ? entry.source
-                        : MarkdownSource.markdown(of: segment.content)
+                        : MarkdownSource.markdown(of: segment.content).map(ReferenceChipText.restoringCanonical(in:))
                 ))
             }
         }

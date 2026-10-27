@@ -295,7 +295,11 @@ final class ChatRevealModel: NSObject {
 
     /// Retargets each message at `length` characters, and forgets any
     /// message no longer listed.
-    func update(targets: [(messageID: String, length: Int)]) {
+    ///
+    /// A message in `settling` whose reveal had already finished jumps to its
+    /// new length instead of revealing the difference: it grew because a
+    /// chip's title arrived, not because more of it was written.
+    func update(targets: [(messageID: String, length: Int)], settling: Set<String> = []) {
         let animates = isPrimed && !screensAreAsleep && AppSettings.shared.animateCharacterReveal
         // A stream that never named its message, taken over by the
         // transcript's copy under a real id.
@@ -306,8 +310,10 @@ final class ChatRevealModel: NSObject {
         for (id, length) in targets {
             let target = Double(length)
             let reveal: MessageReveal
+            var wasSettled = false
             if let existing = reveals[id] {
                 reveal = existing
+                wasSettled = existing.isSettled
             } else if let claimed = unclaimed {
                 reveal = claimed
                 unclaimed = nil
@@ -315,7 +321,7 @@ final class ChatRevealModel: NSObject {
                 reveal = MessageReveal(position: animates ? 0 : target, target: target)
             }
             reveal.target = target
-            if !animates || reveal.position > target { reveal.settle() }
+            if !animates || reveal.position > target || (wasSettled && settling.contains(id)) { reveal.settle() }
             next[id] = reveal
         }
         reveals = next
