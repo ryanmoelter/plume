@@ -332,13 +332,6 @@ struct WTListTests {
         #expect(linked.map(\.width) == plain.map(\.width))
     }
 
-    @Test func onlyATerminalWithRoomToSpareRedrawsInPlace() {
-        #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 3, terminalRows: nil))
-        #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 23, terminalRows: 24))
-        #expect(!WT.redrawsInPlace(isTerminal: true, frameRows: 24, terminalRows: 24))
-        #expect(!WT.redrawsInPlace(isTerminal: false, frameRows: 3, terminalRows: 24))
-    }
-
     @Test func aNarrowTerminalRewindsOneRowPerLine() throws {
         let out = printLive(ScriptedFetchCompletion(true, result: [:]), rows: longRows, size: TerminalSize(columns: 60, rows: 100))
         let frames = out.components(separatedBy: TerminalUI.redrawPrefix(lines: longRows.count))

@@ -500,6 +500,21 @@ struct StackPrintLiveTests {
         #expect(fetch.waits == [Stack.listPRBudget])
     }
 
+    @Test func aGraphThatFitsRewindsItsLines() throws {
+        console.terminalSize = TerminalSize(columns: 200, rows: 50)
+        let loading = try graph(.loading)
+        let lines = loading.components(separatedBy: "\n").count
+        let out = try printLive(ScriptedFetchCompletion(true, result: [:]))
+        #expect(out == "\(loading)\n\(TerminalUI.redrawPrefix(lines: lines))\(try graph(.on))\n")
+    }
+
+    @Test func aGraphTallerThanTheTerminalPrintsBelowWithoutRewinding() throws {
+        console.terminalSize = TerminalSize(columns: 200, rows: 2)
+        let out = try printLive(ScriptedFetchCompletion(true, result: [:]))
+        #expect(out == "\(try graph(.loading))\n\(try graph(.on))\n")
+        #expect(!out.contains(cursorUp))
+    }
+
     @Test func aFailedFetchRedrawsTheErrorState() throws {
         #expect(try printLive(ScriptedFetchCompletion(true, result: nil)).hasSuffix((try graph(.error)) + "\n"))
     }

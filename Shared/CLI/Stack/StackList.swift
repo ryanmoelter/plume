@@ -158,11 +158,14 @@ nonisolated extension Stack {
         live: Bool
     ) throws {
         let cache = AheadBehindCache()
-        func graph(_ state: PRState, _ prs: PullRequestMap) throws -> String {
-            try render(
+        func lines(_ state: PRState, _ prs: PullRequestMap) throws -> [Chip] {
+            try renderLines(
                 ctx, branches, roots: roots, current: current, prs: prs, prState: state,
                 forgeIcon: forgeIcon, numberPrefix: numberPrefix, aheadBehind: cache
             )
+        }
+        func graph(_ state: PRState, _ prs: PullRequestMap) throws -> String {
+            LiveRedraw.text(try lines(state, prs))
         }
         guard let fetch else {
             ctx.console.print(try graph(.off, [:]))
@@ -176,12 +179,13 @@ nonisolated extension Stack {
             ctx.console.print(try graph(resolved.state, resolved.prs))
             return
         }
-        let provisional = try graph(.loading, [:])
-        ctx.console.print(provisional)
-        let resolved = collect()
-        let frame = try graph(resolved.state, resolved.prs)
-        ctx.console.write(TerminalUI.redrawPrefix(lines: provisional.components(separatedBy: "\n").count))
-        ctx.console.print(frame)
+        try LiveRedraw.print(
+            provisional: try lines(.loading, [:]), isTerminal: true,
+            terminalSize: ctx.console.terminalSize, console: ctx.console
+        ) {
+            let resolved = collect()
+            return try lines(resolved.state, resolved.prs)
+        }
     }
 
     /// The fetch's pull requests, or none when it failed or timed out, so a
@@ -213,6 +217,24 @@ nonisolated extension Stack {
         numberPrefix: String = "#",
         aheadBehind: AheadBehindCache? = nil
     ) throws -> String {
+        LiveRedraw.text(try renderLines(
+            ctx, branches, roots: roots, current: current, prs: prs, prState: prState,
+            forgeIcon: forgeIcon, numberPrefix: numberPrefix, aheadBehind: aheadBehind
+        ))
+    }
+
+    /// `render`'s lines, each with its display width for counting screen rows.
+    static func renderLines(
+        _ ctx: StackContext,
+        _ branches: StackBranches,
+        roots: [String],
+        current: String?,
+        prs: PullRequestMap,
+        prState: PRState,
+        forgeIcon: String? = nil,
+        numberPrefix: String = "#",
+        aheadBehind: AheadBehindCache? = nil
+    ) throws -> [Chip] {
         var renderer = GraphRenderer(
             ctx: ctx,
             current: current,
@@ -272,7 +294,7 @@ private nonisolated struct GraphRenderer {
         self.drift = drift
     }
 
-    mutating func render(_ branches: StackBranches, roots: [String]) throws -> String {
+    mutating func render(_ branches: StackBranches, roots: [String]) throws -> [Chip] {
         // Nearest fork first; the sort is stable, so a tie keeps the roots'
         // own order.
         let distances = try roots.map { try ctx.trunkDistance(branches[$0]?.base ?? "") }
@@ -311,8 +333,9 @@ private nonisolated struct GraphRenderer {
             } else if let label = row.label {
                 line += label
             }
-            return Self.trimmingTrailingWhitespace(line)
-        }.joined(separator: "\n")
+            line = Self.trimmingTrailingWhitespace(line)
+            return Chip(text: line, width: TerminalUI.visibleWidth(line))
+        }
     }
 
     private mutating func emitRoot(_ branches: StackBranches, _ root: String) throws {

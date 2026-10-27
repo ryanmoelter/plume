@@ -393,42 +393,30 @@ nonisolated extension WT {
         ui: TerminalUI = .plain,
         console: any CLIConsole
     ) {
-        func table(_ state: PRState, _ prs: PullRequestMap) -> String {
+        func table(_ state: PRState, _ prs: PullRequestMap) -> [Chip] {
             renderListLines(
                 rows, currentIndex: currentIndex, prState: state, prs: prs, numberPrefix: fetch?.numberPrefix ?? "#",
                 forgeIcon: fetch?.forgeIcon, trunkBranches: trunkBranches, dirs: dirs,
                 columns: live ? terminalSize?.columns : nil, ui: ui
-            ).map(\.text).joined(separator: "\n")
+            )
         }
 
         guard let fetch else {
-            console.print(table(.off, [:]))
+            console.print(LiveRedraw.text(table(.off, [:])))
             return
         }
         guard live else {
             let resolved = collectPRs(fetch, timeout: listPRTotal)
-            console.print(table(resolved.state, resolved.prs))
+            console.print(LiveRedraw.text(table(resolved.state, resolved.prs)))
             return
         }
 
-        console.print(table(.loading, [:]))
-        let resolved = collectPRs(fetch, timeout: listPRTotal)
-        // A fitted line never wraps, so the frame is one screen row per worktree.
-        if redrawsInPlace(isTerminal: live, frameRows: rows.count, terminalRows: terminalSize?.rows) {
-            // Clearing to the end of the screen also clears what is left of a
-            // longer old line, since column widths change once PRs arrive.
-            console.write(TerminalUI.redrawPrefix(lines: rows.count))
+        LiveRedraw.print(
+            provisional: table(.loading, [:]), isTerminal: live, terminalSize: terminalSize, console: console
+        ) {
+            let resolved = collectPRs(fetch, timeout: listPRTotal)
+            return table(resolved.state, resolved.prs)
         }
-        console.print(table(resolved.state, resolved.prs))
-    }
-
-    /// Whether a frame `frameRows` tall can be painted and then redrawn.
-    /// The cursor ends a row below the frame, and cursor-up stops at the
-    /// top of the screen, so the frame needs a row to spare.
-    static func redrawsInPlace(isTerminal: Bool, frameRows: Int, terminalRows: Int?) -> Bool {
-        guard isTerminal else { return false }
-        guard let terminalRows else { return true }
-        return frameRows < terminalRows
     }
 
     /// The fetch's column state once it lands, or `wait` past `timeout`.
