@@ -8,7 +8,7 @@ nonisolated protocol StackGit: AnyObject {
     /// `rev-parse --verify --quiet`: the sha, or nil when `ref` names nothing.
     func resolve(_ ref: String) -> String?
     func currentBranch() -> String?
-    func localBranches() -> [String]
+    func localBranches() throws -> [String]
     func branchExists(_ branch: String) -> Bool
     func isAncestor(_ ancestor: String, _ descendant: String) -> Bool
     func mergeBase(_ lhs: String, _ rhs: String) -> String?
@@ -83,9 +83,9 @@ nonisolated final class ProcessStackGit: StackGit {
         output("symbolic-ref", "--short", "-q", "HEAD").flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    func localBranches() -> [String] {
-        guard let out = output("for-each-ref", "refs/heads", "--format=%(refname:short)"), !out.isEmpty else { return [] }
-        return out.components(separatedBy: "\n")
+    func localBranches() throws -> [String] {
+        let out = try git("for-each-ref", "refs/heads", "--format=%(refname:short)")
+        return out.isEmpty ? [] : out.components(separatedBy: "\n")
     }
 
     func branchExists(_ branch: String) -> Bool {

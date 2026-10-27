@@ -47,6 +47,18 @@ struct StackStateTests {
         try FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as! Date
     }
 
+    @Test func aFailedBranchListingLeavesTheStateAlone() throws {
+        try write(state)
+        let notARepository = try makeScratchDirectory()
+        let broken = stackContext(
+            ProcessStackGit(workingDirectory: notARepository),
+            console: console,
+            stateDirectory: directory
+        )
+        #expect(stackFailure { _ = try broken.loadAndFlush() } != nil)
+        #expect(try onDisk() == state)
+    }
+
     @Test func pruneIsWrittenBack() throws {
         try write(state)
         git.branches.remove("b")

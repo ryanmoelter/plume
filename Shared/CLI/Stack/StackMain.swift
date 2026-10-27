@@ -138,7 +138,7 @@ nonisolated enum Stack {
                 ctx.console.print(branch)
             }
         case "all-branches":
-            for branch in ctx.git.localBranches() { ctx.console.print(branch) }
+            for branch in try ctx.git.localBranches() { ctx.console.print(branch) }
         default:
             break
         }

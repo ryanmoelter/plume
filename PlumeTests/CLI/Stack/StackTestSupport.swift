@@ -48,7 +48,7 @@ nonisolated final class FakeStackGit: StackGit {
     }
 
     func currentBranch() -> String? { current }
-    func localBranches() -> [String] { branches.sorted() }
+    func localBranches() throws -> [String] { branches.sorted() }
     func branchExists(_ branch: String) -> Bool { branches.contains(branch) }
 
     func isAncestor(_ ancestor: String, _ descendant: String) -> Bool {

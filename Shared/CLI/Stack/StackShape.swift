@@ -200,7 +200,7 @@ nonisolated extension Stack {
             throw CLIFailure("'\(branch)' shares no history with trunk '\(ctx.trunk)'")
         }
         var candidates: [(name: String, tip: String)] = []
-        for local in ctx.git.localBranches() where local != branch && local != ctx.trunk {
+        for local in try ctx.git.localBranches() where local != branch && local != ctx.trunk {
             let tip = try ctx.rev(local)
             if tip != branchTip, ctx.git.isAncestor(tip, branchTip), !ctx.git.isAncestor(tip, trunkBase) {
                 candidates.append((local, tip))

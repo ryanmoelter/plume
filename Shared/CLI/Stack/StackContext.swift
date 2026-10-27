@@ -110,13 +110,13 @@ nonisolated final class StackContext {
 
     /// The state as loaded, without writing back a prune.
     func loadState() throws -> StackBranches {
-        try state.load(localBranches: Set(git.localBranches()), warn: warn).branches
+        try state.load(localBranches: Set(try git.localBranches()), warn: warn).branches
     }
 
     /// Loads the state and writes back anything the load repaired. The
     /// caller holds the lock.
     func loadAndFlushLocked() throws -> StackBranches {
-        let result = try state.load(localBranches: Set(git.localBranches()), warn: warn)
+        let result = try state.load(localBranches: Set(try git.localBranches()), warn: warn)
         if result.dirty { try saveState(result.branches) }
         return result.branches
     }

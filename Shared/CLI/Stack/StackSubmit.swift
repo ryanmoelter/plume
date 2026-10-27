@@ -91,7 +91,7 @@ nonisolated extension Stack {
         // Read only to scope the query, which overlaps the fetches below; the
         // load under the lock filters out anything tracked meanwhile.
         let knownBranches = try ctx.loadAndFlush()
-        let candidates = ctx.git.localBranches().filter { $0 != ctx.trunk && knownBranches[$0] == nil }
+        let candidates = try ctx.git.localBranches().filter { $0 != ctx.trunk && knownBranches[$0] == nil }
         let untrackedFetch = startFetch(forge, candidates)
         if try ctx.git.run(["fetch", "--prune", "origin"], capture: false).status != 0 {
             throw CLIFailure("fetch failed")
