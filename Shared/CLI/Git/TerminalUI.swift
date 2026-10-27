@@ -138,7 +138,7 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     /// marker, then the checks and review glyphs, or the open marker when an
     /// open, non-draft PR has neither. `(no PR)` when `pr` is nil.
     func prChip(_ pr: PullRequest?, numberPrefix: String = "#", forgeIcon: String? = nil) -> Chip {
-        guard let pr else { return Chip(text: "\(dim)(no PR)\(reset)", width: "(no PR)".count) }
+        guard let pr else { return Chip(text: "\(dim)(no PR)\(reset)", width: TerminalUI.displayWidth("(no PR)")) }
         let (lead, leadWidth) = forgeIcon.map { !$0.isEmpty ? ("\(dim)\($0)\(reset) ", 2) : ("", 0) } ?? ("", 0)
         let prefix = "\(numberPrefix)\(pr.number) "
 
@@ -172,7 +172,7 @@ nonisolated struct TerminalUI: Equatable, Sendable {
                 (glyphs, width) = (Self.open, 1)
             }
         }
-        return Chip(text: hyperlink(lead + prefix + glyphs, url: pr.url), width: leadWidth + prefix.count + width)
+        return Chip(text: hyperlink(lead + prefix + glyphs, url: pr.url), width: leadWidth + Self.displayWidth(prefix) + width)
     }
 
     /// A chip's optional forge icon, which collapses away entirely when empty.
@@ -194,7 +194,7 @@ nonisolated struct TerminalUI: Equatable, Sendable {
         let color = failed ? red : dim
         return Chip(
             text: "\(color)\(lead.text)\(netOff) \(Self.netOffLabel)\(reset)",
-            width: lead.width + 1 + 1 + Self.netOffLabel.count
+            width: lead.width + 1 + 1 + Self.displayWidth(Self.netOffLabel)
         )
     }
 
@@ -315,6 +315,28 @@ nonisolated struct TerminalUI: Equatable, Sendable {
 
     /// Rewinds over an `lines`-tall block already printed: cursor up, then
     /// clear to the end of the screen.
+    /// Terminal columns `text` occupies: East Asian wide and emoji graphemes
+    /// take two, everything else one. Counts no escapes, since callers pass
+    /// plain text.
+    static func displayWidth(_ text: String) -> Int {
+        text.reduce(0) { $0 + (isWide($1) ? 2 : 1) }
+    }
+
+    private static func isWide(_ character: Character) -> Bool {
+        guard let first = character.unicodeScalars.first else { return false }
+        if character.unicodeScalars.contains(where: { $0.value == 0xFE0F }) { return true }
+        if first.properties.isEmojiPresentation { return true }
+        switch first.value {
+        case 0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF,
+             0x4E00...0x9FFF, 0xA000...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF,
+             0xFE30...0xFE4F, 0xFF00...0xFF60, 0xFFE0...0xFFE6,
+             0x20000...0x2FFFD, 0x30000...0x3FFFD:
+            return true
+        default:
+            return false
+        }
+    }
+
     static func redrawPrefix(lines: Int) -> String {
         "\u{1B}[\(lines)A\u{1B}[J"
     }

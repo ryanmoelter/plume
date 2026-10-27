@@ -109,7 +109,7 @@ nonisolated enum ShellIntegration {
             return "    \(command.name))\n\(body)\n      ;;"
         }.joined(separator: "\n")
         return """
-            # Plume shell integration. Load with: eval "$(plume init zsh)"
+            # Plume shell integration. Load with: eval "$(plume init zsh)", or add --aliases for wt switch
 
             _plume() {
               local -a plume_commands=(

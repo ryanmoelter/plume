@@ -16,10 +16,13 @@ struct WTInitTests {
         process.arguments = arguments
         if let path { process.environment = ["PATH": path] }
         let output = Pipe()
+        let errors = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errors
         try process.run()
+        errors.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        errors.fileHandleForReading.readabilityHandler = nil
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
@@ -32,7 +35,7 @@ struct WTInitTests {
 
     /// A directory holding a fake `plume` that logs its arguments to
     /// `calls` and answers `wt path <name>` with `<target>/<name>`.
-    private func fakePlume(exitStatus: Int = 0) throws -> (bin: URL, target: URL, calls: URL) {
+    private func fakePlume(exitStatus: Int = 0) throws -> (bin: URL, target: URL, calls: URL, root: URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "wt-init-\(UUID().uuidString)")
         let bin = root.appending(path: "bin")
         let target = root.appending(path: "target")
@@ -48,14 +51,15 @@ struct WTInitTests {
         let tool = bin.appending(path: "plume")
         try script.write(to: tool, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
-        return (bin, target, calls)
+        return (bin, target, calls, root)
     }
 
     @Test(arguments: [false, true])
     func plumeStaysAPlainCommand(_ aliases: Bool) throws {
         let script = ShellIntegration.zsh(aliases: aliases)
         #expect(!lines(script).contains("plume() {"))
-        let (bin, _, _) = try fakePlume()
+        let (bin, _, _, root) = try fakePlume()
+        defer { try? FileManager.default.removeItem(at: root) }
         let result = try zsh(["-f", "-c", script + "\nwhence -w plume"], path: "\(bin.path):/usr/bin:/bin")
         #expect(result.stdout == "plume: command\n")
     }
@@ -64,7 +68,8 @@ struct WTInitTests {
     /// is the error that tells users to load the aliases.
     @Test(arguments: ["switch", "s"])
     func bareWtSwitchCdsToThePathPlumePrints(_ command: String) throws {
-        let (bin, target, calls) = try fakePlume()
+        let (bin, target, calls, root) = try fakePlume()
+        defer { try? FileManager.default.removeItem(at: root) }
         let result = try runWithAliases("wt \(command) foo && pwd", bin: bin)
         #expect(result.status == 0)
         #expect(result.stdout == target.appending(path: "foo").path + "\n")
@@ -72,13 +77,15 @@ struct WTInitTests {
     }
 
     @Test func bareWtPassesEverythingElseToPlumeWt() throws {
-        let (bin, _, calls) = try fakePlume()
+        let (bin, _, calls, root) = try fakePlume()
+        defer { try? FileManager.default.removeItem(at: root) }
         #expect(try runWithAliases("wt list --json", bin: bin).status == 0)
         #expect(try String(contentsOf: calls, encoding: .utf8) == "wt list --json\n")
     }
 
     @Test func aFailedPathLeavesTheDirectoryAlone() throws {
-        let (bin, _, _) = try fakePlume(exitStatus: 3)
+        let (bin, _, _, root) = try fakePlume(exitStatus: 3)
+        defer { try? FileManager.default.removeItem(at: root) }
         let result = try runWithAliases("cd /; wt switch foo; code=$?; pwd; exit $code", bin: bin)
         #expect(result.status == 3)
         #expect(result.stdout == "/\n")
@@ -117,7 +124,7 @@ struct WTInitTests {
         let console = BufferConsole()
         let status = WT.main(["init", "zsh"], environment: [:], console: console, version: "1.0")
         #expect(status != 0)
-        #expect(console.stderr.contains("plume init zsh"))
+        #expect(console.stderr.contains("plume init zsh --aliases"))
     }
 
     @Test func versionRunsOutsideARepository() {

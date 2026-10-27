@@ -302,16 +302,38 @@ struct WTListTests {
         return console.stdout
     }
 
-    @Test func screenRowsCountWrappedLinesAndSkipEscapes() {
-        #expect(WT.screenRows("ab\ncdef\n", columns: nil) == 3)
-        #expect(WT.screenRows("ab\ncdef", columns: 2) == 3)
-        #expect(WT.screenRows("abc", columns: 2) == 2)
-        #expect(WT.screenRows("\u{1B}[2mab\u{1B}[0m", columns: 2) == 1)
-        #expect(WT.screenRows("", columns: 2) == 1)
+    @Test func screenRowsCountWrappedLines() {
+        #expect(WT.screenRows(widths: [2, 4, 0], columns: nil) == 3)
+        #expect(WT.screenRows(widths: [2, 4], columns: 2) == 3)
+        #expect(WT.screenRows(widths: [3], columns: 2) == 2)
+        #expect(WT.screenRows(widths: [0], columns: 2) == 1)
     }
 
-    /// The cursor ends one row below the frame, and cursor-up stops at the
-    /// screen's top row, so a frame needs a row to spare to be redrawn.
+    @Test func displayWidthCountsWideGlyphsAsTwoColumns() {
+        #expect(TerminalUI.displayWidth("abc") == 3)
+        #expect(TerminalUI.displayWidth("日本語") == 6)
+        #expect(TerminalUI.displayWidth("한글") == 4)
+        #expect(TerminalUI.displayWidth("🚀") == 2)
+        #expect(TerminalUI.displayWidth("a🚀b") == 4)
+    }
+
+    @Test(arguments: ["日本語-fix", "rocket-🚀"])
+    func lineWidthsMatchTheVisibleText(_ branch: String) {
+        let wide = [WorktreeRow(name: "wide", branch: branch, ahead: "", dirty: false, remoteAhead: 0, remoteBehind: 0, hasUpstream: true)]
+        let lines = WT.renderListLines(rows + wide, currentIndex: 0, prState: .off, prs: [:], numberPrefix: "#")
+        let plain = lines.map { TerminalUI.displayWidth($0.text) }
+        #expect(lines.map(\.width) == plain)
+    }
+
+    @Test func aHyperlinkAddsNoColumns() throws {
+        let pr = PullRequest(number: 7, state: .open, isDraft: false, url: "https://example.com/pull/7")
+        let prs = ["main": pr]
+        let plain = WT.renderListLines(rows, currentIndex: 0, prState: .on, prs: prs, numberPrefix: "#", forgeIcon: gh)
+        let linked = WT.renderListLines(rows, currentIndex: 0, prState: .on, prs: prs, numberPrefix: "#", forgeIcon: gh, ui: ansi)
+        try #require(linked[0].text.contains("\u{1B}]8;;"))
+        #expect(linked.map(\.width) == plain.map(\.width))
+    }
+
     @Test func onlyATerminalWithRoomToSpareRedrawsInPlace() {
         #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 3, terminalRows: nil))
         #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 23, terminalRows: 24))
@@ -322,17 +344,20 @@ struct WTListTests {
     @Test func aWrappedFrameRewindsEveryScreenRow() throws {
         let loadingFrame = render(.loading, icon: gh)
         let columns = 20
-        let expectedRows = WT.screenRows(loadingFrame, columns: columns)
+        let expectedRows = WT.screenRows(
+            widths: WT.renderListLines(rows, currentIndex: 0, prState: .loading, prs: [:], numberPrefix: "#", forgeIcon: gh).map(\.width),
+            columns: columns
+        )
         try #require(expectedRows > 3)
         let out = printLive(ScriptedFetchCompletion(true, result: [:]), size: TerminalSize(columns: columns, rows: 100))
         #expect(out.hasPrefix("\(loadingFrame)\n\u{1B}[\(expectedRows)A\u{1B}[J"))
     }
 
-    @Test func aFrameTallerThanTheTerminalPrintsOnceResolved() {
+    @Test func aFrameTallerThanTheTerminalPrintsBelowTheLoadingFrame() {
         let prs = ["main": WTFixtures.openPR]
         let done = ScriptedFetchCompletion(true, result: prs)
         let out = printLive(done, size: TerminalSize(columns: 200, rows: 3))
-        #expect(out == render(.on, prs, icon: gh) + "\n")
+        #expect(out == render(.loading, icon: gh) + "\n" + render(.on, prs, icon: gh) + "\n")
         #expect(done.waits == [WT.listPRTotal])
     }
 

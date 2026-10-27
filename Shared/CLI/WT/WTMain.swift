@@ -23,7 +23,7 @@ nonisolated extension WT {
             // Runs at shell startup from any directory, so it answers before
             // the repository is looked up.
             if arguments.first == "init" {
-                throw CLIFailure(#"shell integration moved to plume: eval "$(plume init zsh)""#)
+                throw CLIFailure(#"shell integration moved to plume: eval "$(plume init zsh --aliases)""#)
             }
             let settingsSource = UserDefaultsProjectSettingsSource(environment: environment)
             let ctx: WorktreeContext
