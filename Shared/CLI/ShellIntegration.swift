@@ -43,7 +43,7 @@ nonisolated enum ShellIntegration {
             else
               shift words
               (( CURRENT-- ))
-              _arguments '--aliases[Also define bare wt]'
+              _arguments '--aliases[Also define bare wt, whose switch cds]'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
@@ -101,12 +101,7 @@ nonisolated enum ShellIntegration {
         fi
         """
 
-    /// The `plume` subcommands `--aliases` also defines as bare functions,
-    /// each completing as its `plume` form.
-    static let aliasedSubcommands = ["wt"]
-
-    /// `aliases` adds bare functions for `aliasedSubcommands` that call
-    /// through `plume`, so they share its wrapper.
+    /// `aliases` adds a bare `wt()`, completing as `plume wt`.
     static func zsh(aliases: Bool = false) -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
@@ -138,45 +133,37 @@ nonisolated enum ShellIntegration {
               _plume
             }
 
-            # A subprocess can't cd this shell, so `wt switch` becomes a cd to
-            # the path `wt path` prints.
-            plume() {
-              if [[ $1 == wt && ( $2 == switch || $2 == s ) ]]; then
-                local target
-                target="$(command plume wt path "${@:3}")" || return $?
-                cd "$target"
-              else
-                command plume "$@"
-              fi
-            }
-
             if (( $+functions[compdef] )); then
               compdef _plume plume
               compdef '_plume_notify' plume-notify
             fi
-            \(aliases ? aliasFunctions : "")
+            \(aliases ? wtFunction : "")
             """
     }
 
-    private static var aliasFunctions: String {
-        aliasedSubcommands.map { name in
-            """
+    private static let wtFunction = """
 
-            \(name)() {
-              plume \(name) "$@"
-            }
+        # A subprocess can't cd this shell, so `wt switch` becomes a cd to the
+        # path `wt path` prints.
+        wt() {
+          if [[ $1 == switch || $1 == s ]]; then
+            local target
+            target="$(command plume wt path "${@:2}")" || return $?
+            cd "$target"
+          else
+            command plume wt "$@"
+          fi
+        }
 
-            _plume_\(name)() {
-              words=(plume \(name) "${(@)words[2,-1]}")
-              (( CURRENT++ ))
-              _plume
-            }
+        _plume_wt() {
+          words=(plume wt "${(@)words[2,-1]}")
+          (( CURRENT++ ))
+          _plume
+        }
 
-            if (( $+functions[compdef] )); then
-              compdef _plume_\(name) \(name)
-            fi
+        if (( $+functions[compdef] )); then
+          compdef _plume_wt wt
+        fi
 
-            """
-        }.joined()
-    }
+        """
 }

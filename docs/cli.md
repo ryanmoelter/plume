@@ -20,14 +20,14 @@ The code is split three ways:
 | `plume presence [--json]` | No | Prints `awake`, `asleep` or `locked`. |
 | `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. Like every terminal tab, it reopens after a relaunch in the folder it last reported, unless that folder is gone. |
 | `plume wt <command>` | Some | Manages git worktrees; `plume wt help` lists the commands. `docs/wt-port.md` maps it to the Python tool it replaces. |
-| `plume init zsh [--aliases]` | No | Prints zsh completions and a `plume()` wrapper that turns `plume wt switch` into a `cd`; load with `eval "$(plume init zsh)"`. `--aliases` also defines a bare `wt()` that calls `plume wt`, with its own completion. |
+| `plume init zsh [--aliases]` | No | Prints zsh completions for `plume`; load with `eval "$(plume init zsh)"`. It defines no `plume()` function, so `plume` always runs the tool. `--aliases` also defines a bare `wt()`, with its own completion, that turns `wt switch` and `wt s` into a `cd` to the path `command plume wt path` prints and passes every other call to `plume wt`. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
 `plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments. Invoked as `wt`, it runs `plume wt` with all of them.
 
 **`wt` prints Nerd Font icons by the global Nerd Font mode** (Settings → Command line): automatic means inside a Plume tab or a Ghostty terminal (`TERM_PROGRAM=ghostty`), which both fall back to an embedded Symbols Nerd Font; `on` and `off` always apply.
 
-**`wt` uses the app only to open things.** Every command reads git and the Projects settings itself. Inside a Plume tab, `co`, `cob`, `bg`, `open` and `switch` send `tab.new` for the worktree, or `task.new` with `--task`. Outside Plume, or when the app refuses, they print `wt: (cd "<dir>")` instead, and `switch` fails naming the wrapper. `wt setup` sends `settings.open` for the `projects` section and, when that fails, prints where the settings live.
+**`wt` uses the app only to open things.** Every command reads git and the Projects settings itself. Inside a Plume tab, `co`, `cob`, `bg`, `open` and `switch` send `tab.new` for the worktree, or `task.new` with `--task`. Outside Plume, or when the app refuses, they print `wt: (cd "<dir>")` instead, and `switch` fails, telling the user to load `--aliases` and run bare `wt switch`. `wt setup` sends `settings.open` for the `projects` section and, when that fails, prints where the settings live.
 
 **`notify` never fails its caller**, which is often a hook. It tries, in order:
 

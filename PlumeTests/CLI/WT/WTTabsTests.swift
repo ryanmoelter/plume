@@ -173,12 +173,11 @@ struct WTTabsTests {
         let ctx = FakeWTContext(worktrees: [wtRow("foo", "ryanm/foo", "0")], canOpenTabs: false)
         let failure = cliFailure { try WT.switchTo(ctx, ["foo"]) }
         #expect(failure?.message == """
-            switch needs a shell wrapper to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
+            switch needs a shell function to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
 
               eval "$(plume init zsh --aliases)"
 
-            That wraps `plume wt switch`; `--aliases` also defines a bare `wt` that goes
-            through the wrapper, so leave it off if you only run `plume wt`. Then reload.
+            Then reload and run bare `wt switch`; `plume wt switch` never changes directory.
             For a plain path (scripts, other shells), use `plume wt path`.
             """)
         #expect(ctx.recordingTabs.opened.isEmpty)

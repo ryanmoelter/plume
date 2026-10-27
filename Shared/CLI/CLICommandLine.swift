@@ -40,7 +40,8 @@ nonisolated enum CLICommandLine {
           tab new [--cwd DIR] [--task ID] [--select]
                                     Open a terminal tab in this task, print its ID
           wt <command>              Manage worktrees (`plume wt help`)
-          init zsh [--aliases]      Print zsh integration, for `eval "$(plume init zsh)"`
+          init zsh [--aliases]      Print zsh completions, for `eval "$(plume init zsh)"`;
+                                    --aliases adds a bare `wt`, whose `wt switch` cds
           help                      Show this help
           --version                 Print Plume's version
         """

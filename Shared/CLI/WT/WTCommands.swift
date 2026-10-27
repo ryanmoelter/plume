@@ -608,18 +608,18 @@ nonisolated extension WT {
         ctx.console.print(try resolvePath(ctx, name))
     }
 
-    /// `switch|s <name|branch>`. The `plume init zsh` wrapper turns this into
-    /// a `cd`, so reaching the binary means the wrapper is absent: inside
-    /// Plume it opens a tab there, otherwise it fails naming the wrapper.
+    /// `switch|s <name|branch>`. The bare `wt()` from `plume init zsh
+    /// --aliases` turns this into a `cd`, so reaching the binary means it was
+    /// called some other way: inside Plume it opens a tab there, otherwise
+    /// it fails naming the function.
     static func switchTo(_ ctx: any WTContext, _ arguments: [String]) throws {
         guard ctx.tabs.canOpenTabs else {
             throw CLIFailure("""
-                switch needs a shell wrapper to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
+                switch needs a shell function to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
 
                   eval "$(plume init zsh --aliases)"
 
-                That wraps `plume wt switch`; `--aliases` also defines a bare `wt` that goes
-                through the wrapper, so leave it off if you only run `plume wt`. Then reload.
+                Then reload and run bare `wt switch`; `plume wt switch` never changes directory.
                 For a plain path (scripts, other shells), use `plume wt path`.
                 """)
         }
@@ -713,7 +713,7 @@ nonisolated extension WT {
                                                  rename branch; -f also renames the folder
           \(b)wt commit|cm     <name> [git-args...]\(r)  commit -a in another worktree
           \(b)wt open|o        <name> [--task]\(r)       open a worktree in a new Plume tab
-          \(b)wt switch|s      <name|branch>\(r)         cd to that worktree (via `plume init zsh`)
+          \(b)wt switch|s      <name|branch>\(r)         cd to that worktree (bare `wt`, see below)
           \(b)wt path          <name|branch>\(r)         print its path (scripts, other shells)
           \(b)wt current       [--json]\(r)              report the cwd's worktree + branch
           \(b)wt delete|d      <name> [-f|--force]\(r)   remove worktree (branch left intact)
@@ -724,7 +724,8 @@ nonisolated extension WT {
         Tab flags: inside Plume a worktree opens as a tab in the current task.
         --no-tab opens nothing; --task (or --workspace) opens it as a new task
         instead. Outside Plume, wt prints the directory to cd into.
-        Shell integration: eval "$(plume init zsh)" in .zshrc.
+        Shell integration: eval "$(plume init zsh --aliases)" in .zshrc defines the
+        bare `wt` that `switch` needs to cd.
         """)
     }
 }
