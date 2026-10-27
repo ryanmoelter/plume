@@ -52,4 +52,15 @@ nonisolated enum NerdFontMode: String, Codable, CaseIterable, Sendable {
                 && environment[customTerminalFontEnvironmentKey] != "1"
         }
     }
+
+    /// Where the icons show for this mode: Plume's terminals, and others.
+    /// `hasCustomTerminalFont` is the signal exported as
+    /// `customTerminalFontEnvironmentKey`.
+    func iconAvailability(hasCustomTerminalFont: Bool) -> (plumeTerminals: Bool, otherTerminals: Bool) {
+        switch self {
+        case .on: (true, true)
+        case .off: (false, false)
+        case .automatic: (!hasCustomTerminalFont, false)
+        }
+    }
 }

@@ -272,7 +272,13 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     /// so Settings can preview them against the terminal theme. A glyph this
     /// set leaves empty drops out.
     var listGlyphs: [(glyph: String, color: TerminalColor)] {
-        let glyphs: [(glyph: String, color: TerminalColor)] = [
+        listGlyphSlots.filter { !$0.glyph.isEmpty }
+    }
+
+    /// `listGlyphs` with the empty glyphs kept in place, so two sets line up
+    /// slot for slot.
+    var listGlyphSlots: [(glyph: String, color: TerminalColor)] {
+        [
             (github, .dim),
             (gitlab, .dim),
             (Self.open, .foreground),
@@ -293,7 +299,6 @@ nonisolated struct TerminalUI: Equatable, Sendable {
             (Self.down, .green),
             ("+", .green),
         ]
-        return glyphs.filter { !$0.glyph.isEmpty }
     }
 
     /// The escape that paints `color`, empty for the default foreground.

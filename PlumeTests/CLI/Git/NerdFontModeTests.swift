@@ -136,4 +136,22 @@ struct NerdFontModeTests {
         let decoded = try JSONDecoder().decode(ProjectSettings.self, from: Data(#"{"nerdFont":"sometimes","baseBranch":"dev"}"#.utf8))
         #expect(decoded == ProjectSettings(baseBranch: "dev", nerdFont: .automatic))
     }
+
+    // MARK: Settings status
+
+    @Test(arguments: [
+        (NerdFontMode.on, false, true, true),
+        (.on, true, true, true),
+        (.off, false, false, false),
+        (.off, true, false, false),
+        (.automatic, false, true, false),
+        (.automatic, true, false, false),
+    ])
+    func iconAvailabilityFollowsTheModeAndTheTerminalFont(
+        mode: NerdFontMode, customFont: Bool, plume: Bool, other: Bool
+    ) {
+        let availability = mode.iconAvailability(hasCustomTerminalFont: customFont)
+        #expect(availability.plumeTerminals == plume)
+        #expect(availability.otherTerminals == other)
+    }
 }

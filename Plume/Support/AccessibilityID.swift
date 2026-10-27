@@ -90,6 +90,7 @@ enum AccessibilityID {
     static let settingsShellSetupAddButton = "settings-shell-setup-add-button"
     static let settingsShellSetupStatus = "settings-shell-setup-status"
     static let settingsNerdFontPicker = "settings-nerd-font-picker"
+    static let settingsNerdFontStatus = "settings-nerd-font-status"
     static let settingsProjectRow = "settings-project-row"
     static let settingsProjectAddButton = "settings-project-add-button"
     static let settingsProjectRemoveButton = "settings-project-remove-button"

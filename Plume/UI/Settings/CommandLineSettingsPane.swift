@@ -48,6 +48,7 @@ struct CommandLineSettingsPane: View {
 
             Section {
                 nerdFontPicker
+                nerdFontStatus
                 NerdFontPreview()
             } header: {
                 Text("Customization")
@@ -201,9 +202,28 @@ struct CommandLineSettingsPane: View {
             }
         } label: {
             Text("Nerd Font icons")
-            Text("Automatic shows them in Plume's terminals unless your Ghostty config sets its own font-family.")
         }
         .plumeID(AccessibilityID.settingsNerdFontPicker, value: settings.nerdFontMode.rawValue)
+    }
+
+    private var nerdFontStatus: some View {
+        let availability = settings.nerdFontMode.iconAvailability(
+            hasCustomTerminalFont: GhosttyRuntime.shared.resolvedCodeFontFamily != nil
+        )
+        return VStack(alignment: .trailing, spacing: 2) {
+            statusLine("Plume terminals", isOn: availability.plumeTerminals)
+            statusLine("Other terminals", isOn: availability.otherTerminals)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func statusLine(_ title: String, isOn: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: isOn ? "checkmark" : "xmark")
+        }
+        .plumeID(AccessibilityID.settingsNerdFontStatus, label: title, value: isOn ? "yes" : "no")
     }
 
     private static func name(_ mode: NerdFontMode) -> String {
@@ -279,25 +299,32 @@ private struct NerdFontPreview: View {
 
     var body: some View {
         let colors = ThemeChrome.terminalColors(for: colorScheme)
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
-            row("Nerd Font", TerminalUI(glyphSet: .nerd), colors)
-            row("Plain", TerminalUI(glyphSet: .plain), colors)
+        let nerd = TerminalUI(glyphSet: .nerd).listGlyphSlots
+        let plain = TerminalUI(glyphSet: .plain).listGlyphSlots
+        Grid(alignment: .center, horizontalSpacing: 6, verticalSpacing: 4) {
+            row("Nerd Font", nerd, colors)
+            row("Plain", plain, colors)
         }
+        .font(Self.font)
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(colors.background, in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private func row(_ title: String, _ ui: TerminalUI, _ colors: ThemeChrome.TerminalColors) -> some View {
+    private func row(
+        _ title: String,
+        _ glyphs: [(glyph: String, color: TerminalColor)],
+        _ colors: ThemeChrome.TerminalColors
+    ) -> some View {
         GridRow {
             Text(title)
                 .foregroundStyle(Self.color(.dim, colors))
-            HStack(spacing: 6) {
-                ForEach(Array(ui.listGlyphs.enumerated()), id: \.offset) { _, glyph in
-                    Text(glyph.glyph).foregroundStyle(Self.color(glyph.color, colors))
-                }
+                .gridColumnAlignment(.leading)
+            ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
+                Text(glyph.glyph.isEmpty ? " " : glyph.glyph)
+                    .foregroundStyle(Self.color(glyph.color, colors))
+                    .frame(minWidth: 16)
             }
-            .font(Self.font)
         }
     }
 
