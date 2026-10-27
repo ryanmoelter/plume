@@ -71,6 +71,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Read in the caller's body so a change in settings re-runs
     /// `updateNSView`, which an `NSTextStorage` attribute would not.
     var accentPaletteSlot: Int? = AppSettings.shared.accentPaletteSlot
+    /// Where references in the draft are looked up. Nil draws no chips.
+    var referenceResolver: ComposerReferenceResolver?
+    var referencePalette: ReferenceChipPalette?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -89,6 +92,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.isCommandMode = isCommandMode
         context.coordinator.accentPaletteSlot = accentPaletteSlot
         context.coordinator.isActive = context.environment.appearsActive
+        context.coordinator.referenceResolver = referenceResolver
+        context.coordinator.referencePalette = referencePalette
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         view.setVerticalInset(verticalInset)
         return view
@@ -118,11 +123,15 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             || context.coordinator.isActive != context.environment.appearsActive
         context.coordinator.accentPaletteSlot = accentPaletteSlot
         context.coordinator.isActive = context.environment.appearsActive
+        let referencesChanged = context.coordinator.referenceResolver != referenceResolver
+            || context.coordinator.referencePalette != referencePalette
+        context.coordinator.referenceResolver = referenceResolver
+        context.coordinator.referencePalette = referencePalette
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged || accentChanged {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged || accentChanged || referencesChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
@@ -178,6 +187,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         var isCommandMode = false
         var accentPaletteSlot: Int?
         var isActive = true
+        var referenceResolver: ComposerReferenceResolver?
+        var referencePalette: ReferenceChipPalette?
+        private var attemptedReferences: Set<MentionReference.Kind> = []
+        private var referenceLookup: Task<Void, Never>?
         /// True inside `makeNSView`/`updateNSView`. Selection and focus
         /// changes made there reach the caller on the next main-queue turn,
         /// because writing SwiftUI state during a view update is undefined.
@@ -222,14 +235,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let accent = ThemeChrome.accentNSColor(isActive: isActive)
             textView.insertionPointColor = accent
             textView.selectedTextAttributes = [.backgroundColor: accent.withAlphaComponent(0.3)]
-            MarkdownComposerStyler.style(
-                textView.textStorage!,
-                text: text,
-                fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames,
-                isCommandMode: isCommandMode,
-                accent: accent
-            )
+            style(textView, text: text, caret: selectedRanges.first?.rangeValue ?? textView.selectedRange(), accent: accent)
             (textView as? ComposerNSTextView)?.markdownMetrics = isCommandMode ? nil : ComposerMarkdownMetrics(fontSize: fontSize)
             layOutAllText(in: textView)
             textView.selectedRanges = selectedRanges
@@ -243,6 +249,56 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         private func layOutAllText(in textView: NSTextView) {
             guard let layoutManager = textView.textLayoutManager else { return }
             layoutManager.ensureLayout(for: layoutManager.documentRange)
+        }
+
+        private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor) {
+            let chips = referenceChips(in: text, caret: caret)
+            MarkdownComposerStyler.style(
+                textView.textStorage!,
+                text: text,
+                fontSize: fontSize,
+                recognizedSlashCommandNames: recognizedSlashCommandNames,
+                isCommandMode: isCommandMode,
+                accent: accent,
+                references: chips.map(\.range)
+            )
+            (textView as? ComposerNSTextView)?.referenceChips = chips
+        }
+
+        private func referenceChips(in text: String, caret: NSRange) -> [ComposerReferenceChip] {
+            guard !isCommandMode, let referenceResolver, let referencePalette else { return [] }
+            let found = ComposerReferenceChip.chips(in: text, caret: caret, palette: referencePalette, resolution: referenceResolver.cached)
+            lookUp(found.misses.filter { !attemptedReferences.contains($0) }, with: referenceResolver)
+            return found.chips
+        }
+
+        /// Each reference is looked up once per composer, after typing
+        /// pauses, so a half-typed identifier never reaches the network.
+        private func lookUp(_ kinds: [MentionReference.Kind], with resolver: ComposerReferenceResolver) {
+            guard !kinds.isEmpty else { return }
+            referenceLookup?.cancel()
+            referenceLookup = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled, let self else { return }
+                var found = false
+                for kind in kinds where !self.attemptedReferences.contains(kind) {
+                    self.attemptedReferences.insert(kind)
+                    if await resolver.resolve(kind) != nil { found = true }
+                }
+                if found { self.restyle() }
+            }
+        }
+
+        /// Re-styles in place for a change that is not an edit: a lookup
+        /// answering, or the caret leaving a reference.
+        private func restyle() {
+            guard let textView, !textView.hasMarkedText() else { return }
+            let selectedRanges = textView.selectedRanges
+            style(textView, text: textView.string, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
+            layOutAllText(in: textView)
+            textView.selectedRanges = selectedRanges
+            textView.needsDisplay = true
+            host?.invalidateContentHeight()
         }
 
         func updatePlaceholderVisibility(_ textView: NSTextView) {
@@ -260,14 +316,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let newText = textView.string
             textBinding.wrappedValue = newText
             onTextChange(newText)
-            MarkdownComposerStyler.style(
-                textView.textStorage!,
-                text: newText,
-                fontSize: fontSize,
-                recognizedSlashCommandNames: recognizedSlashCommandNames,
-                isCommandMode: isCommandMode,
-                accent: ThemeChrome.accentNSColor(isActive: isActive)
-            )
+            style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
             layOutAllText(in: textView)
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
@@ -296,6 +345,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             let location = textView.selectedRange().location
             notifyCaller { self.onCaretChange(location) }
+            if let composer = textView as? ComposerNSTextView,
+               referenceChips(in: composer.string, caret: composer.selectedRange()).map(\.range) != composer.referenceChips.map(\.range) {
+                restyle()
+            }
         }
 
         /// Driven from the text view's responder overrides rather than
@@ -475,6 +528,10 @@ final class ComposerNSTextView: NSTextView {
     /// which is a hidden marker's 1 pt font when the text opens with a list
     /// or quote.
     var bodyFont: NSFont?
+
+    var referenceChips: [ComposerReferenceChip] = [] {
+        didSet { if referenceChips != oldValue { needsDisplay = true } }
+    }
 
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the

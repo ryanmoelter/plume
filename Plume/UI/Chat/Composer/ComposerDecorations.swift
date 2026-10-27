@@ -25,8 +25,18 @@ enum ComposerDecorations {
         var baselineOrigin: NSPoint
     }
 
+    struct ReferenceChip: Equatable {
+        /// One per line the token occupies.
+        var rects: [NSRect]
+        var iconRect: NSRect
+        var symbol: String
+        var tint: NSColor
+        var wash: NSColor
+    }
+
     struct Decorations: Equatable {
         var chips: [NSRect] = []
+        var referenceChips: [ReferenceChip] = []
         var codeBoxes: [NSRect] = []
         var quoteBars: [NSRect] = []
         var rules: [NSRect] = []
@@ -41,6 +51,9 @@ enum ComposerDecorations {
         }
         for chip in decorations.chips where chip.intersects(dirtyRect) {
             NSBezierPath(roundedRect: chip, xRadius: metrics.chipCornerRadius, yRadius: metrics.chipCornerRadius).fill()
+        }
+        for chip in decorations.referenceChips {
+            drawReferenceChip(chip, in: dirtyRect, metrics: metrics)
         }
 
         ComposerMarkdownMetrics.quoteBar.setFill()
@@ -72,6 +85,31 @@ enum ComposerDecorations {
         }
     }
 
+    private static func drawReferenceChip(_ chip: ReferenceChip, in dirtyRect: NSRect, metrics: ComposerMarkdownMetrics) {
+        for rect in chip.rects where rect.intersects(dirtyRect) {
+            let path = NSBezierPath(roundedRect: rect, xRadius: metrics.chipCornerRadius, yRadius: metrics.chipCornerRadius)
+            ComposerMarkdownMetrics.codeBackground.setFill()
+            path.fill()
+            chip.wash.setFill()
+            path.fill()
+        }
+        guard chip.iconRect.intersects(dirtyRect),
+              let image = NSImage(systemSymbolName: chip.symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chip.iconRect.height, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [chip.tint]))),
+              image.size.width > 0, image.size.height > 0
+        else { return }
+        let scale = min(chip.iconRect.width / image.size.width, chip.iconRect.height / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        let rect = NSRect(
+            x: chip.iconRect.midX - size.width / 2,
+            y: chip.iconRect.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
     private static func drawCheckbox(_ checkbox: Checkbox) {
         let rect = checkbox.rect.insetBy(dx: 0.5, dy: 0.5)
         let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
@@ -94,7 +132,8 @@ enum ComposerDecorations {
         }
     }
 
-    static func rects(in textView: NSTextView, metrics: ComposerMarkdownMetrics) -> Decorations {
+    /// `references` defaults to the chips the text view holds.
+    static func rects(in textView: NSTextView, metrics: ComposerMarkdownMetrics, references: [ComposerReferenceChip]? = nil) -> Decorations {
         guard let layoutManager = textView.textLayoutManager,
               let contentStorage = layoutManager.textContentManager as? NSTextContentStorage,
               let storage = textView.textStorage,
@@ -114,6 +153,7 @@ enum ComposerDecorations {
 
         var decorations = Decorations()
         decorations.chips = chipRects(MarkdownHighlighter.spans(in: text, lines: lines), context)
+        decorations.referenceChips = referenceChipRects(references ?? (textView as? ComposerNSTextView)?.referenceChips ?? [], context)
         decorations.codeBoxes = codeBoxRects(lines, context)
         decorations.quoteBars = quoteBarRects(lines, context)
         for line in lines {
@@ -275,6 +315,40 @@ enum ComposerDecorations {
             }
         }
         return merged(rects)
+    }
+
+    /// A code chip's rects around the token, and the icon square at its
+    /// hidden trigger's glyph, centered on the body font's capitals.
+    private static func referenceChipRects(_ chips: [ComposerReferenceChip], _ context: Context) -> [ReferenceChip] {
+        let padding = context.metrics.chipPadding
+        let iconSize = ReferenceChipMetrics(fontSize: context.metrics.fontSize).iconSize
+        let font = context.metrics.body
+        return chips.compactMap { chip in
+            guard chip.range.length > 1, NSMaxRange(chip.range) <= context.length else { return nil }
+            var frames = context.segmentFrames(for: chip.range)
+            guard !frames.isEmpty else { return nil }
+            let leadingKern = context.kern(at: chip.range.location - 1)
+            let trailingKern = context.kern(at: NSMaxRange(chip.range) - 1)
+            let iconX = frames[0].minX + leadingKern / 2
+            let firstMinX = iconX - padding
+            frames[0] = NSRect(x: firstMinX, y: frames[0].minY, width: frames[0].maxX - firstMinX, height: frames[0].height)
+            frames[frames.count - 1].size.width += padding - trailingKern / 2
+            let rects = merged(frames.map { frame in
+                let minX = max(context.columnStart, frame.minX)
+                return NSRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height)
+            })
+            // The trigger is set in a 1 pt font, so the line's height comes
+            // from the character after it.
+            let line = context.segmentFrames(for: NSRange(location: chip.range.location + 1, length: 1)).first ?? frames[0]
+            let centerY = line.minY + font.ascender - font.capHeight / 2
+            return ReferenceChip(
+                rects: rects,
+                iconRect: NSRect(x: max(context.columnStart, iconX), y: centerY - iconSize / 2, width: iconSize, height: iconSize),
+                symbol: chip.symbol,
+                tint: chip.tint,
+                wash: chip.wash
+            )
+        }
     }
 
     /// Unions rects that sit on the same line and touch, so one span never

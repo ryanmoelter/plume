@@ -40,6 +40,7 @@ struct ChatComposer: View, ThemedView {
     @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
     @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var settings = AppSettings.shared
     @State private var drafts = DraftStore.shared
     @State private var commandMemory = SlashCommandMemory.shared
@@ -308,7 +309,9 @@ struct ChatComposer: View, ThemedView {
                     isCommandMode: isCommandMode,
                     onDeleteBackwardWhenEmpty: isCommandMode
                         ? { drafts.setCommandMode(false, forTab: tab.id) }
-                        : nil
+                        : nil,
+                    referenceResolver: ComposerReferenceResolver(tabID: tab.id, directory: tabDirectories.directory(for: tab)),
+                    referencePalette: ReferenceChipPalette(colors: colors, colorScheme: colorScheme)
                 )
                 // Its own line-fragment padding already covers part of the
                 // composer's inset, so the first glyph lands over the control

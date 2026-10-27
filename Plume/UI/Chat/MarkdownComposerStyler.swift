@@ -18,7 +18,8 @@ enum MarkdownComposerStyler {
         fontSize: CGFloat,
         recognizedSlashCommandNames: Set<String> = [],
         isCommandMode: Bool = false,
-        accent: NSColor = ThemeChrome.accentNSColor()
+        accent: NSColor = ThemeChrome.accentNSColor(),
+        references: [NSRange] = []
     ) {
         let metrics = ComposerMarkdownMetrics(fontSize: fontSize)
         let bodyFont = isCommandMode ? metrics.mono : metrics.body
@@ -47,6 +48,7 @@ enum MarkdownComposerStyler {
             storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
         }
         padChips(spans, in: storage, text: ns, metrics: metrics)
+        styleReferences(references, in: storage, text: ns, metrics: metrics, accent: accent)
         var isInsideFence = false
         for (index, line) in lines.enumerated() {
             if line.kind == .fence { isInsideFence.toggle() }
@@ -99,6 +101,34 @@ enum MarkdownComposerStyler {
             storage.addAttribute(.kern, value: metrics.chipPadding, range: NSRange(location: NSMaxRange(span.range) - 1, length: 1))
         }
     }
+
+    /// A reference chip's trigger is hidden, and kerned wide enough to hold
+    /// the icon `ComposerDecorations` draws over it. The token is padded like
+    /// a code chip, and a quoted path's quotes are dimmed rather than hidden.
+    private static func styleReferences(_ ranges: [NSRange], in storage: NSTextStorage, text ns: NSString, metrics: ComposerMarkdownMetrics, accent: NSColor) {
+        let chip = ReferenceChipMetrics(fontSize: metrics.fontSize)
+        for range in ranges where range.length > 1 && NSMaxRange(range) <= ns.length {
+            storage.addAttribute(.foregroundColor, value: accent, range: range)
+            storage.addAttributes([
+                .foregroundColor: NSColor.clear,
+                .font: hiddenMarkerFont,
+                .kern: chip.iconSize + chip.iconGap,
+            ], range: NSRange(location: range.location, length: 1))
+            let last = NSMaxRange(range) - 1
+            if range.length > 3, ns.character(at: range.location + 1) == quote, ns.character(at: last) == quote {
+                for location in [range.location + 1, last] {
+                    storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: location, length: 1))
+                }
+            }
+            let before = range.location - 1
+            if before >= 0, !isNewline(ns.character(at: before)) {
+                storage.addAttribute(.kern, value: metrics.chipPadding, range: NSRange(location: before, length: 1))
+            }
+            storage.addAttribute(.kern, value: metrics.chipPadding, range: NSRange(location: last, length: 1))
+        }
+    }
+
+    private static let quote = "\"".utf16.first!
 
     /// Line-level presentation: hidden or dimmed markers, and the paragraph
     /// style that places the content at its column. A paragraph style covers
