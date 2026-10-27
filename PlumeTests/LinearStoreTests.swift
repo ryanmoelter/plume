@@ -770,6 +770,45 @@ struct LinearStoreTests {
         #expect(await a.searchCalls.map(\.term) == ["layout"])
     }
 
+    @Test func aBareMentionListsTheViewersOpenIssuesNewestFirst() async throws {
+        func issue(_ identifier: String, assignee: String?, done: Bool = false) -> LinearIssue {
+            LinearIssue(
+                identifier: identifier,
+                title: "Work on it",
+                url: "https://linear.app/x/issue/\(identifier)",
+                stateName: done ? "Done" : "Todo",
+                stateType: done ? .completed : .unstarted,
+                stateColor: "#e2e2e2",
+                assigneeName: assignee,
+                teamKey: "DROID"
+            )
+        }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(viewerID: "user-Ryan")
+        await a.set(issues: ["DROID-1": issue("DROID-1", assignee: "Ryan")])
+        await a.set(issues: [
+            "DROID-1": issue("DROID-1", assignee: "Ryan"),
+            "DROID-2": issue("DROID-2", assignee: "Ryan"),
+            "DROID-3": issue("DROID-3", assignee: "Sam"),
+            "DROID-4": issue("DROID-4", assignee: nil),
+            "DROID-5": issue("DROID-5", assignee: "Ryan", done: true),
+        ])
+        let harness = try await makeHarness([a])
+        await harness.store.searchIssues("work")
+
+        #expect(await mentionIdentifiers(harness.store, "") == ["DROID-2", "DROID-1"])
+        #expect(await mentionIdentifiers(harness.store, "work").count == 5)
+    }
+
+    @Test func aBareMentionListsNothingBeforeTheViewerIsKnown() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-1": LinearTestFixtures.issue("DROID-1", title: "Work")])
+        let harness = try await makeHarness([a])
+        await harness.store.searchIssues("work")
+
+        #expect(await mentionIdentifiers(harness.store, "").isEmpty)
+    }
+
     @Test func aTeamPrefixFiltersTheWorkspacesOwningThatTeamAndIsTitleTextElsewhere() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
         let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["IOS"])

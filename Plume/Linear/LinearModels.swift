@@ -71,6 +71,9 @@ nonisolated struct LinearCatalog: Sendable, Equatable, Codable {
     let orgID: String
     let teams: [LinearTeam]
     let fetchedAt: Date
+    /// The API key's user in this workspace. Nil in a catalog saved before
+    /// it was fetched, until the next refresh.
+    var viewerID: String?
 
     var teamKeys: Set<String> { Set(teams.map(\.key)) }
 

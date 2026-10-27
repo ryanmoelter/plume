@@ -54,6 +54,7 @@ actor FakeLinearWorkspace {
     }
 
     func set(deltaPageSize: Int) { self.deltaPageSize = deltaPageSize }
+    func set(viewerID: String?) { catalog.viewerID = viewerID }
 
     private func tick() -> Date {
         lastUpdatedAt = max(Date(), lastUpdatedAt.addingTimeInterval(1))

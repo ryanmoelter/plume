@@ -195,6 +195,16 @@ struct LinearQueryTests {
         #expect(page.orgID == "org-1")
         #expect(page.teams.map(\.id) == ["t1", "t2"])
         #expect(page.nextCursor == "c1")
+        #expect(page.viewerID == nil)
+    }
+
+    @Test func theTeamsPageNamesTheViewerForTheCatalog() throws {
+        let json = #"{"data":{"organization":{"id":"org-1"},"viewer":{"id":"u1"},"teams":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}"#
+        let page = try LinearQuery.decodeTeamsPage(data(json))
+        #expect(page.viewerID == "u1")
+        #expect(LinearQuery.teamsQuery.contains("viewer { id }"))
+        let catalog = LinearQuery.assembleCatalog(orgID: "org-1", teams: [], states: [], viewerID: page.viewerID)
+        #expect(catalog.viewerID == "u1")
     }
 
     @Test func decodesStatesPageAndStopsWithoutNextPage() throws {

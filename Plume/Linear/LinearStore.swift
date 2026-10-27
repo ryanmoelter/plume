@@ -615,7 +615,8 @@ final class LinearStore: LinearActivitySink {
             catalogInFlight.remove(orgID)
             switch result {
             case .success(let fetched):
-                let catalog = LinearCatalog(orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt)
+                let catalog = LinearCatalog(
+                    orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt, viewerID: fetched.viewerID)
                 setStatus(.connected, orgID: orgID)
                 install(catalog)
                 save(catalog)
@@ -628,7 +629,8 @@ final class LinearStore: LinearActivitySink {
     private func install(_ catalog: LinearCatalog) {
         catalogFetchedAt[catalog.orgID] = catalog.fetchedAt
         caches[catalog.orgID]?.install(catalog)
-        guard catalogs[catalog.orgID]?.teams != catalog.teams else { return }
+        let installed = catalogs[catalog.orgID]
+        guard installed?.teams != catalog.teams || installed?.viewerID != catalog.viewerID else { return }
         catalogs[catalog.orgID] = catalog
         refreshTeamKeys()
         catalogsDidChange()
@@ -903,32 +905,59 @@ final class LinearStore: LinearActivitySink {
             if disk != nil, cacheLoads[orgID] == nil {
                 track { [self] in await ensureLoaded(orgID: orgID) }
             }
-            sources.append(MentionSource(cache: caches[orgID], hits: searchHits[orgID] ?? [:]))
+            sources.append(MentionSource(
+                cache: caches[orgID],
+                hits: searchHits[orgID] ?? [:],
+                viewerID: catalogs[orgID]?.viewerID
+            ))
         }
+        let isBare = query.trimmingCharacters(in: .whitespaces).isEmpty
         return await Task.detached(priority: .userInitiated) {
-            LinearMentionMatcher.matches(query, in: Self.mentionIssues(sources), limit: limit)
+            LinearMentionMatcher.matches(query, in: Self.mentionIssues(sources, assignedToViewer: isBare), limit: limit)
         }.value
+    }
+
+    /// The cached issue or search hit `identifier` names, with no request.
+    func mentionIssue(identifier: String) -> MentionCandidate.LinearIssue? {
+        let identifier = identifier.uppercased()
+        if let (orgID, _) = cachedIssue(identifier), let cache = caches[orgID],
+           let id = cache.issueID(identifier: identifier), let issue = cache.issues[id] {
+            return MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID])
+        }
+        for account in accounts.accounts {
+            if let hit = searchHits[account.orgID]?[identifier] { return MentionCandidate.LinearIssue(hit) }
+        }
+        return nil
     }
 
     private nonisolated struct MentionSource: Sendable {
         let cache: LinearSyncCache?
         let hits: [String: LinearIssueSnapshot]
+        let viewerID: String?
     }
 
-    private nonisolated static func mentionIssues(_ sources: [MentionSource]) -> [MentionCandidate.LinearIssue] {
+    /// With `assignedToViewer`, only the open issues assigned to the API
+    /// key's user, which is nothing until the catalog knows who that is.
+    private nonisolated static func mentionIssues(
+        _ sources: [MentionSource],
+        assignedToViewer: Bool
+    ) -> [MentionCandidate.LinearIssue] {
         var seen = Set<String>()
         var issues: [MentionCandidate.LinearIssue] = []
         for source in sources {
+            if assignedToViewer, source.viewerID == nil { continue }
             if let cache = source.cache {
                 for issue in cache.issues.values where seen.insert(issue.identifier).inserted {
+                    if assignedToViewer, issue.assigneeID != source.viewerID { continue }
                     issues.append(MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID]))
                 }
             }
             for (identifier, snapshot) in source.hits where seen.insert(identifier).inserted {
+                if assignedToViewer, snapshot.assignee?.id != source.viewerID { continue }
                 issues.append(MentionCandidate.LinearIssue(snapshot))
             }
         }
-        return issues
+        return assignedToViewer ? issues.filter(\.isOpen) : issues
     }
 
     /// Asks Linear for what the cache may lack: a title search, or a lookup
