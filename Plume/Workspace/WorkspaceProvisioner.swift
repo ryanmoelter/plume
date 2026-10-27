@@ -212,9 +212,10 @@ nonisolated enum WorkspaceProvisioner {
     /// anything `uncommittedChanges(in:)` reports, since nothing here can be
     /// recovered afterwards.
     static func removeWorktree(repository: String, path: String, branch: String?, deleteBranch: Bool) throws {
-        try GitRunner.run(["worktree", "remove", "--force", path], in: repository)
+        let gitDirectory = ProjectRoot.repositoryDirectory(forRoot: repository)
+        try GitRunner.run(["worktree", "remove", "--force", path], in: gitDirectory)
         if deleteBranch, let branch {
-            try GitRunner.run(["branch", "-D", branch], in: repository)
+            try GitRunner.run(["branch", "-D", branch], in: gitDirectory)
         }
     }
 }

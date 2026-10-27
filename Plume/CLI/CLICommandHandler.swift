@@ -130,7 +130,7 @@ final class CLICommandHandler {
             in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
         )
         task.workingDirectoryPath = path
-        task.repoPath = checkout.facts.repositoryPath
+        task.repoPath = checkout.facts.projectRoot
         task.branchName = checkout.branch
         // Deleting a worktree task offers to remove the worktree, which the
         // main checkout must never be.

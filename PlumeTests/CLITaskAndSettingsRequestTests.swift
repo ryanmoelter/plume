@@ -127,16 +127,16 @@ struct CLITaskAndSettingsRequestTests {
         #expect(task.branchName == "main")
     }
 
-    /// In the `.bare` layout the project folder is no repository, so the
-    /// task's repository must be `.bare` itself for git to remove the
-    /// worktree from it.
-    @Test func aBareLayoutWorktreeRecordsARepositoryGitCanRemoveItFrom() async throws {
+    /// The task records the project root, as every other task does, though
+    /// in the `.bare` layout that folder is no repository; removal still has
+    /// to find `.bare` from it.
+    @Test func aBareLayoutWorktreeRecordsItsProjectRootAndCanBeRemoved() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let scratch = scratch
-        let (bare, worktree) = try await Task.detached {
+        let (project, worktree) = try await Task.detached {
             let source = "\(scratch)/source"
-            let bare = "\(scratch)/project/.bare"
-            let worktree = "\(scratch)/project/feature"
+            let project = "\(scratch)/project"
+            let worktree = "\(project)/feature"
             try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: true)
             try GitRunner.run(["init", "-b", "main"], in: source)
             try GitRunner.run(
@@ -144,9 +144,9 @@ struct CLITaskAndSettingsRequestTests {
                  "commit", "--allow-empty", "-m", "init"],
                 in: source
             )
-            try GitRunner.run(["clone", "--bare", source, bare], in: scratch)
-            try GitRunner.run(["worktree", "add", "-b", "feature", worktree], in: bare)
-            return (bare, worktree)
+            try GitRunner.run(["clone", "--bare", source, "\(project)/.bare"], in: scratch)
+            try GitRunner.run(["worktree", "add", "-b", "feature", worktree], in: "\(project)/.bare")
+            return (project, worktree)
         }.value
         let handler = makeHandler(tasks: [])
 
@@ -155,11 +155,13 @@ struct CLITaskAndSettingsRequestTests {
         let task = try #require(try allTasks().first { $0.id == response.taskID })
         #expect(task.workspaceKind == .worktree)
         let repository = try #require(task.repoPath)
-        #expect(resolved(repository) == resolved(bare))
-        try await Task.detached {
-            try WorkspaceProvisioner.removeWorktree(repository: repository, path: worktree, branch: nil, deleteBranch: false)
+        #expect(resolved(repository) == resolved(project))
+        let branches = try await Task.detached {
+            try WorkspaceProvisioner.removeWorktree(repository: repository, path: worktree, branch: "feature", deleteBranch: true)
+            return try GitRunner.run(["branch", "--format=%(refname:short)"], in: "\(project)/.bare")
         }.value
         #expect(!FileManager.default.fileExists(atPath: worktree))
+        #expect(branches.trimmingCharacters(in: .whitespacesAndNewlines) == "main")
     }
 
     /// A client that timed out retries, and the retry must not open a second

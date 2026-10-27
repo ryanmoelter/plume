@@ -25,6 +25,13 @@ nonisolated enum ProjectRoot {
         defer { free(resolved) }
         return String(cString: resolved)
     }
+
+    /// Where git runs repository-wide commands for `root`: its `.bare` in the
+    /// bare layout, where the root itself is no repository, else `root`.
+    static func repositoryDirectory(forRoot root: String) -> String {
+        let bare = (root as NSString).appendingPathComponent(".bare")
+        return FileManager.default.fileExists(atPath: bare) ? bare : root
+    }
 }
 
 /// What a project's unset fields fall back to, as `plume wt` derives them
@@ -41,10 +48,7 @@ nonisolated struct ProjectFallbacks: Equatable, Sendable {
     /// defaults row, reads only global config and has no origin.
     static func load(root: String?) -> ProjectFallbacks {
         let git = ProcessWorktreeGit(workingDirectory: root == nil ? NSHomeDirectory() : nil)
-        if let root {
-            let bare = (root as NSString).appendingPathComponent(".bare")
-            git.repoDir = FileManager.default.fileExists(atPath: bare) ? bare : root
-        }
+        if let root { git.repoDir = ProjectRoot.repositoryDirectory(forRoot: root) }
         return ProjectFallbacks(
             branchPrefix: WTSettings.branchPrefix(configured: nil, userEmail: git.configGet("user.email")),
             baseBranch: WTSettings.baseBranch(configured: nil, originHead: root == nil ? nil : git.originHead()),
