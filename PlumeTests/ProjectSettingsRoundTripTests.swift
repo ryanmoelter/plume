@@ -92,6 +92,13 @@ struct ProjectSettingsRoundTripTests {
         #expect(await Task.detached { ProjectRoot.containing(scratch) }.value == nil)
     }
 
+    @Test func theToolReadsTheIntegrationsIgnoredChecksTheAppWrote() throws {
+        defer { cleanUp() }
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        AppSettings(defaults: defaults, domainName: suite).ignoredPendingChecks = ["flaky-lint"]
+        #expect(UserDefaultsProjectSettingsSource(suiteName: suite).loadPlumeIgnoredPendingChecks() == ["flaky-lint"])
+    }
+
     @Test func aStoredConfigurationSurvivesAReload() throws {
         defer { cleanUp() }
         let defaults = try #require(UserDefaults(suiteName: suite))

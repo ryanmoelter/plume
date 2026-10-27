@@ -89,15 +89,20 @@ nonisolated enum WorkspaceProvisioner {
             if !trimmed.isEmpty { return (trimmed as NSString).expandingTildeInPath }
         }
         let directoryName = worktreeDirectoryName(for: branch, strippingPrefix: strippingPrefix)
+        let project = placementFolder(for: repository)
         guard let basePath, !basePath.isEmpty else {
-            return URL(fileURLWithPath: repository)
+            // `plume wt` puts a bare layout's worktrees directly in its folder.
+            if ProjectRoot.isBareLayoutRepository(repository) {
+                return URL(fileURLWithPath: project).appending(path: directoryName).path
+            }
+            return URL(fileURLWithPath: project)
                 .appending(path: plumeDirectoryName)
                 .appending(path: "worktrees")
                 .appending(path: directoryName)
                 .path
         }
         let expanded = (basePath as NSString).expandingTildeInPath
-        let repositoryURL = URL(fileURLWithPath: repository).standardizedFileURL
+        let repositoryURL = URL(fileURLWithPath: project).standardizedFileURL
         let base = expanded.hasPrefix("/")
             ? URL(fileURLWithPath: expanded).standardizedFileURL
             : repositoryURL.appending(path: expanded).standardizedFileURL
@@ -108,6 +113,12 @@ nonisolated enum WorkspaceProvisioner {
             .appending(path: repositoryURL.lastPathComponent)
             .appending(path: directoryName)
             .path
+    }
+
+    /// The folder worktree locations resolve against: the project folder
+    /// holding a bare layout's `.bare`, else the repository itself.
+    private static func placementFolder(for repository: String) -> String {
+        ProjectRoot.isBareLayoutRepository(repository) ? (repository as NSString).deletingLastPathComponent : repository
     }
 
     private static func isInside(_ path: String, _ directory: String) -> Bool {
@@ -180,8 +191,9 @@ nonisolated enum WorkspaceProvisioner {
             strippingPrefix: strippingPrefix,
             explicitPath: explicitPath
         )
-        if isInsidePlumeDirectory(path: path, repository: repository) {
-            try ensurePlumeDirectoryIgnored(in: repository)
+        let project = placementFolder(for: repository)
+        if isInsidePlumeDirectory(path: path, repository: project) {
+            try ensurePlumeDirectoryIgnored(in: project)
         } else {
             try FileManager.default.createDirectory(
                 at: URL(fileURLWithPath: path).deletingLastPathComponent(),

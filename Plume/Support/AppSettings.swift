@@ -48,7 +48,7 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
-        static let ignoredPendingChecks = "ignoredPendingChecks"
+        static let ignoredPendingChecks = IgnoredChecksResolver.plumeSettingDefaultsKey
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"

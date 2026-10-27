@@ -137,14 +137,18 @@ extension GitRunner {
         return output.components(separatedBy: "\n\n").enumerated().compactMap { index, record in
             var path: String?
             var branch: String?
+            var isBare = false
             for line in record.split(separator: "\n") {
                 if let value = line.dropPrefix("worktree ") {
                     path = value
                 } else if let value = line.dropPrefix("branch refs/heads/") {
                     branch = value
+                } else if line == "bare" {
+                    isBare = true
                 }
             }
-            guard let path else { return nil }
+            // A bare repository lists itself first, but has no files to work in.
+            guard let path, !isBare else { return nil }
             return GitWorktree(path: path, branch: branch, isMain: index == 0)
         }
     }

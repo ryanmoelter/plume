@@ -216,20 +216,30 @@ nonisolated extension WT {
         let cwdPath = try ctx.currentWorktreePath()
         let cwdName = (cwdPath as NSString).lastPathComponent
         let originalBranch = try ctx.git.branchOf(cwdPath)
+        // `worktree add` resolves `HEAD` in the repository, not here, so a
+        // detached move would take some other worktree's commit.
+        if originalBranch == "HEAD" {
+            throw CLIFailure("\(cwdName) is detached — check out a branch first (or use `wt co -b`)")
+        }
         let clean = try ctx.git.isClean(cwdPath)
-        if clean, originalBranch == ctx.baseBranch {
+        let onBase = originalBranch == ctx.baseBranch
+        if clean, onBase {
             throw CLIFailure("nothing to move: \(cwdName) is clean and on \(ctx.baseBranch) (use `wt co -b` instead)")
         }
 
         let prefix = try branchPrefix(ctx)
         if name.isEmpty { name = folderForBranch(originalBranch) }
-        let newFolder = folderForBranch(try branchFor(ctx, name, prefix: prefix))
+        let newBranch = try branchFor(ctx, name, prefix: prefix)
+        let newFolder = folderForBranch(newBranch)
         let newPath = "\(ctx.newWorktreesDirectory)/\(newFolder)"
         if ctx.worktreeExists(newFolder) {
             throw CLIFailure("worktree already exists: \(ctx.describeExisting(newFolder)) (pass a different name: `wt bg <name>`)")
         }
+        if onBase, ctx.git.branchExists(newBranch) { throw CLIFailure("branch already exists: \(newBranch)") }
         try ctx.ensureWorktreesDirectory()
 
+        // Every check that can refuse has run: from here on, a failure must
+        // hand the stash back.
         var stash: String?
         if !clean {
             ctx.console.print("\(programName): stashing changes in \(cwdName)...")
@@ -238,56 +248,73 @@ nonisolated extension WT {
         func restoreStash(in path: String, silent: Bool) -> Bool {
             stash.map { ctx.git.stashRestoreOK(path, sha: $0, silent: silent) } ?? true
         }
+        func failureRestoringStash(_ what: String) -> CLIFailure {
+            guard let stash else { return CLIFailure(what) }
+            if restoreStash(in: cwdPath, silent: true) { return CLIFailure("\(what); changes restored in \(cwdName)") }
+            return CLIFailure("\(what); \(stashKeptNote(stash))")
+        }
 
-        if originalBranch != ctx.baseBranch {
+        var unfinished: String?
+        if !onBase {
             ctx.console.print("\(programName): moving \(originalBranch) out of \(cwdName)...")
             // Detached first, so the branch is free to check out elsewhere.
-            try ctx.git.checkoutFatal(cwdPath, ref: originalBranch, detach: true, quietStdout: true)
-            if try !ctx.git.worktreeAdd(path: newPath, branch: originalBranch, new: false, baseRef: nil, fatal: false) {
+            do {
+                try ctx.git.checkoutFatal(cwdPath, ref: originalBranch, detach: true, quietStdout: true)
+            } catch {
+                throw failureRestoringStash("could not detach \(cwdName)")
+            }
+            if !((try? ctx.git.worktreeAdd(path: newPath, branch: originalBranch, new: false, baseRef: nil, fatal: false)) ?? false) {
                 let reattached = ctx.git.checkoutOK(cwdPath, ref: originalBranch, detach: false, silent: true)
                 let popped = restoreStash(in: cwdPath, silent: true)
-                switch (reattached, popped) {
-                case (true, true):
+                let stashNote = popped ? nil : stash.map(stashKeptNote)
+                switch (reattached, stashNote) {
+                case (true, nil):
                     throw CLIFailure("failed to create new worktree; state restored in \(cwdName)")
-                case (true, false):
-                    throw CLIFailure("failed to create new worktree; branch reattached in \(cwdName) but stash apply failed — see `git stash list`")
-                case (false, true):
+                case let (true, note?):
+                    throw CLIFailure("failed to create new worktree; branch reattached in \(cwdName), but \(note)")
+                case (false, nil):
                     throw CLIFailure("failed to create new worktree; reattach of \(originalBranch) failed — \(cwdName) is left detached")
-                case (false, false):
-                    throw CLIFailure("failed to create new worktree AND recovery failed: \(cwdName) detached, stash still in `git stash list`")
+                case let (false, note?):
+                    throw CLIFailure("failed to create new worktree AND recovery failed: \(cwdName) is left detached, and \(note)")
                 }
             }
             // The base branch may be checked out in another worktree, which
-            // leaves only a detached checkout of the base ref.
-            try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
+            // leaves only a detached checkout of the base ref. A quiet fetch
+            // that fails leaves the last fetched base, which still serves.
+            try? ctx.git.fetchBase(ctx.baseBranch, quiet: true)
             if ctx.git.checkoutOK(cwdPath, ref: ctx.baseBranch, detach: false, silent: true) {
                 ctx.console.print("\(programName): \(cwdName) now on \(ctx.baseBranch)")
-            } else {
-                try ctx.git.checkoutFatal(cwdPath, ref: ctx.baseRef, detach: true, quietStdout: true)
+            } else if ctx.git.checkoutOK(cwdPath, ref: ctx.baseRef, detach: true, silent: false) {
                 ctx.console.print("\(programName): \(cwdName) now at \(ctx.baseRef) (detached; \(ctx.baseBranch) is checked out elsewhere)")
+            } else {
+                // The branch already lives in the new worktree, so its
+                // changes still go there.
+                unfinished = "could not check out \(ctx.baseBranch) or \(ctx.baseRef) in \(cwdName); it is left detached at \(originalBranch)'s commit"
             }
         } else {
             ctx.console.print("\(programName): creating new branch for moved changes...")
-            let newBranch = try branchFor(ctx, name, prefix: prefix)
-            if ctx.git.branchExists(newBranch) { throw CLIFailure("branch already exists: \(newBranch)") }
-            try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
-            if try !ctx.git.worktreeAdd(path: newPath, branch: newBranch, new: true, baseRef: ctx.baseRef, fatal: false) {
-                if restoreStash(in: cwdPath, silent: true) {
-                    throw CLIFailure("failed to create new worktree; stash restored in \(cwdName)")
-                }
-                throw CLIFailure("failed to create new worktree; stash apply failed — see `git stash list`")
+            try? ctx.git.fetchBase(ctx.baseBranch, quiet: true)
+            if !((try? ctx.git.worktreeAdd(path: newPath, branch: newBranch, new: true, baseRef: ctx.baseRef, fatal: false)) ?? false) {
+                throw failureRestoringStash("failed to create new worktree")
             }
         }
 
-        if stash != nil {
+        if let stash {
             ctx.console.print("\(programName): restoring changes in \(newFolder)...")
             if !restoreStash(in: newPath, silent: false) {
-                ctx.console.printError("\(programName): stash apply had conflicts in \(newPath); the stash is still in `git stash list`")
+                ctx.console.printError("\(programName): stash apply had conflicts in \(newPath); \(stashKeptNote(stash))")
             }
         }
         ctx.console.print("\(programName): moved to \(newPath)")
         ctx.git.enableUntrackedCache(newPath)
         if tabs.openTab { ctx.tabs.open(newPath, asTask: tabs.asTask) }
+        if let unfinished { throw CLIFailure(unfinished) }
+    }
+
+    /// Where a stash that could not be restored is, and how to get it back.
+    /// By SHA, since other processes push to the same stash list.
+    private static func stashKeptNote(_ sha: String) -> String {
+        "the changes are still stashed as \(sha) — apply them with `git stash apply \(sha)`"
     }
 
     /// `foreground|fg <name>`: takes another worktree's branch and changes
@@ -303,6 +330,11 @@ nonisolated extension WT {
         if try !ctx.git.isClean(cwdPath) { throw CLIFailure("current worktree (\(cwdName)) has uncommitted changes") }
 
         let sourceBranch = try ctx.git.branchOf(sourcePath)
+        // Its commits are reachable from no branch, so removing it would
+        // orphan them.
+        if sourceBranch == "HEAD" {
+            throw CLIFailure("\(name) is detached — nothing to move (check out a branch in it first)")
+        }
         var stash: String?
         if try !ctx.git.isClean(sourcePath) {
             ctx.console.print("\(programName): stashing changes in \(name)...")
@@ -314,29 +346,42 @@ nonisolated extension WT {
 
         // The source is detached first, which is reversible, and removed
         // only once the checkout here succeeds.
-        try ctx.git.checkoutFatal(sourcePath, ref: sourceBranch, detach: true, quietStdout: false)
+        do {
+            try ctx.git.checkoutFatal(sourcePath, ref: sourceBranch, detach: true, quietStdout: false)
+        } catch {
+            guard let stash else { throw CLIFailure("could not detach \(name)") }
+            if restoreStash(in: sourcePath, silent: true) { throw CLIFailure("could not detach \(name); changes restored there") }
+            throw CLIFailure("could not detach \(name); \(stashKeptNote(stash))")
+        }
         if !ctx.git.checkoutOK(cwdPath, ref: sourceBranch, detach: false, silent: false) {
             let reattached = ctx.git.checkoutOK(sourcePath, ref: sourceBranch, detach: false, silent: true)
             let popped = restoreStash(in: sourcePath, silent: true)
-            switch (reattached, popped) {
-            case (true, true):
+            let stashNote = popped ? nil : stash.map(stashKeptNote)
+            switch (reattached, stashNote) {
+            case (true, nil):
                 throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact")
-            case (true, false):
-                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact, but stash apply failed — see `git stash list`")
-            case (false, true):
+            case let (true, note?):
+                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact, but \(note)")
+            case (false, nil):
                 throw CLIFailure("checkout \(sourceBranch) failed; reattach in \(name) also failed — \(name) is left detached")
-            case (false, false):
-                throw CLIFailure("checkout \(sourceBranch) failed AND recovery failed: \(name) detached, stash still in `git stash list`")
+            case let (false, note?):
+                throw CLIFailure("checkout \(sourceBranch) failed AND recovery failed: \(name) is left detached, and \(note)")
             }
         }
 
-        if stash != nil {
+        if let stash {
             ctx.console.print("\(programName): restoring changes in \(cwdName)...")
             if !restoreStash(in: cwdPath, silent: false) {
-                ctx.console.printError("\(programName): stash apply had conflicts in \(cwdPath); the stash is still in `git stash list`")
+                ctx.console.printError("\(programName): stash apply had conflicts in \(cwdPath); \(stashKeptNote(stash))")
             }
         }
-        try ctx.git.worktreeRemove(path: sourcePath, force: false)
+        // The branch and its changes are already here, so a source git
+        // refuses to remove costs nothing but a leftover folder.
+        do {
+            try ctx.git.worktreeRemove(path: sourcePath, force: false)
+        } catch {
+            throw CLIFailure("checked out \(sourceBranch) in \(cwdName), but could not remove \(name) (left detached at \(sourcePath))")
+        }
         ctx.console.print("\(programName): checked out \(sourceBranch) in \(cwdName) (removed \(name))")
     }
 
@@ -408,6 +453,7 @@ nonisolated extension WT {
 
         var deletedBranches: Set<String> = []
         var skipped: [String] = []
+        var failed: [String] = []
         for candidate in candidates {
             let prChip = chip(candidate.pr)
             if let note = candidate.skipNote {
@@ -430,8 +476,21 @@ nonisolated extension WT {
                 let reply = try readReply(ctx, "  delete \(candidate.name) (\(candidate.branch))  \(prChip) \(candidate.reason)? [y/N]> ")
                 if !isYes(reply) { continue }
             }
-            try ctx.git.worktreeRemove(path: candidate.path, force: false)
-            try ctx.git.branchDelete(candidate.branch, force: true)
+            // One worktree git refuses to remove shouldn't abandon the rest.
+            do {
+                try ctx.git.worktreeRemove(path: candidate.path, force: false)
+            } catch {
+                failed.append(candidate.name)
+                ctx.console.printError("\(programName): could not remove worktree \(candidate.name) at \(candidate.path); skipping it")
+                continue
+            }
+            do {
+                try ctx.git.branchDelete(candidate.branch, force: true)
+            } catch {
+                failed.append(candidate.branch)
+                ctx.console.printError("\(programName): deleted worktree \(candidate.name), but could not delete branch \(candidate.branch)")
+                continue
+            }
             deletedBranches.insert(candidate.branch)
             ctx.console.print("\(programName): deleted worktree \(candidate.name) and branch \(candidate.branch)")
         }
@@ -461,10 +520,15 @@ nonisolated extension WT {
                 let reply = try readReply(ctx, "  delete branch \(candidate.branch)  \(chip(candidate.pr)) \(candidate.reason)? [y/N]> ")
                 if !isYes(reply) { continue }
             }
-            // One stubborn branch shouldn't abandon the rest of the run.
             if ctx.git.branchDeleteOK(candidate.branch, force: true) {
                 ctx.console.print("\(programName): deleted branch \(candidate.branch)")
+            } else {
+                failed.append(candidate.branch)
+                ctx.console.printError("\(programName): could not delete branch \(candidate.branch); skipping it")
             }
+        }
+        if !failed.isEmpty {
+            throw CLIFailure("could not prune: \(failed.joined(separator: ", "))")
         }
     }
 
@@ -608,7 +672,7 @@ nonisolated extension WT {
         case let resolved?: prefix = resolved
         }
         let kind = ctx.forgeKind
-        let ignored = ctx.settings.ignoredPendingChecks ?? []
+        let ignored = ui.ignoredPendingChecks
         let untrackedCache = ctx.git.configGet("core.untrackedCache") ?? ""
 
         ctx.console.print()

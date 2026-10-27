@@ -127,10 +127,10 @@ struct CLITaskAndSettingsRequestTests {
         #expect(task.branchName == "main")
     }
 
-    /// The task records the project root, as every other task does, though
-    /// in the `.bare` layout that folder is no repository; removal still has
-    /// to find `.bare` from it.
-    @Test func aBareLayoutWorktreeRecordsItsProjectRootAndCanBeRemoved() async throws {
+    /// In the `.bare` layout the project folder is no repository, so the task
+    /// records `.bare`, which every consumer of `repoPath` can run git in. A
+    /// new worktree still lands beside `.bare`, as `plume wt` puts it.
+    @Test func aBareLayoutWorktreeRecordsARepositoryEveryConsumerCanUse() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let scratch = scratch
         let (project, worktree) = try await Task.detached {
@@ -155,12 +155,22 @@ struct CLITaskAndSettingsRequestTests {
         let task = try #require(try allTasks().first { $0.id == response.taskID })
         #expect(task.workspaceKind == .worktree)
         let repository = try #require(task.repoPath)
-        #expect(resolved(repository) == resolved(project))
+        #expect(resolved(repository) == resolved("\(project)/.bare"))
+
+        let listing = await GitService.shared.worktreeListing(in: repository)
+        #expect(listing.worktrees.map { resolved($0.path) } == [resolved(worktree)])
+        #expect(listing.branch == "main")
+
+        let created = try await GitService.shared.createWorktree(repository: repository, branch: "next", basePath: nil)
+        #expect(resolved(created) == resolved("\(project)/next"))
+
         let branches = try await Task.detached {
             try WorkspaceProvisioner.removeWorktree(repository: repository, path: worktree, branch: "feature", deleteBranch: true)
+            try WorkspaceProvisioner.removeWorktree(repository: repository, path: created, branch: "next", deleteBranch: true)
             return try GitRunner.run(["branch", "--format=%(refname:short)"], in: "\(project)/.bare")
         }.value
         #expect(!FileManager.default.fileExists(atPath: worktree))
+        #expect(!FileManager.default.fileExists(atPath: created))
         #expect(branches.trimmingCharacters(in: .whitespacesAndNewlines) == "main")
     }
 

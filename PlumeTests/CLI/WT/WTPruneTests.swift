@@ -249,6 +249,29 @@ struct WTPruneTests {
         #expect(ctx.buffer.stderr.contains("skip gone: could not read its status"))
     }
 
+    @Test func pruneCarriesOnPastAWorktreeGitRefusesToRemoveAndFailsAtTheEnd() {
+        let ctx = pruneContext(prs: Self.commandPRs)
+        atPRHead(ctx, ["ryanm/gone": 1, "ryanm/ahead": 2, "ryanm/done": 3, "ryanm/bare": 4])
+        ctx.fakeGit.unremovablePaths = ["/repo/.wt/gone"]
+        ctx.fakeGit.undeletableBranches = ["ryanm/ahead"]
+        let failure = cliFailure { try WT.prune(ctx, ["-y"]) }
+        #expect(failure?.message == "could not prune: gone, ryanm/ahead")
+        #expect(ctx.fakeGit.removed == ["/repo/.wt/ahead", "/repo/.wt/done"])
+        #expect(!ctx.fakeGit.branches.contains("ryanm/done"))
+        #expect(!ctx.fakeGit.branches.contains("ryanm/bare"))
+        #expect(ctx.buffer.stderr.contains("could not remove worktree gone"))
+        #expect(ctx.buffer.stderr.contains("could not delete branch ryanm/ahead"))
+    }
+
+    @Test func pruneFailsAtTheEndWhenABareBranchWontDelete() {
+        let ctx = pruneContext(prs: Self.commandPRs)
+        atPRHead(ctx, ["ryanm/gone": 1, "ryanm/ahead": 2, "ryanm/done": 3, "ryanm/bare": 4])
+        ctx.fakeGit.undeletableBranches = ["ryanm/bare"]
+        let failure = cliFailure { try WT.prune(ctx, ["-y"]) }
+        #expect(failure?.message == "could not prune: ryanm/bare")
+        #expect(ctx.fakeGit.removed == ["/repo/.wt/gone", "/repo/.wt/ahead", "/repo/.wt/done"])
+    }
+
     @Test func pruneKeepsABareBranchWithCommitsItsPRLacks() throws {
         let ctx = pruneContext(prs: Self.commandPRs)
         atPRHead(ctx, ["ryanm/gone": 1, "ryanm/ahead": 2, "ryanm/done": 3])

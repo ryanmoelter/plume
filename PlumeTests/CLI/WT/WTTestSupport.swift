@@ -110,6 +110,13 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     /// Paths whose `isClean` fails, as a deleted folder's does.
     var unreadablePaths: Set<String> = []
     var stashRestoreSucceeds = true
+    var worktreeAddSucceeds = true
+    /// Paths whose `worktreeRemove` fails, as a locked worktree's does.
+    var unremovablePaths: Set<String> = []
+    /// Branches whose deletion fails.
+    var undeletableBranches: Set<String> = []
+    /// Which checkouts fail, by path, ref and whether detached.
+    var checkoutFails: (_ path: String, _ ref: String, _ detach: Bool) -> Bool = { _, _, _ in false }
 
     private(set) var added: [AddedWorktree] = []
     private(set) var fetched: [String] = []
@@ -145,6 +152,8 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
         self.init(entries: entries.map { WorktreeEntry(path: $0.0, branch: $0.1) }, top: top)
     }
 
+    /// No `.bare` lives here, so `locate` falls through to `top`.
+    var workingDirectoryPath = "/nonexistent-wt-fake"
     func toplevel() -> String? { top }
     func commonDir(root: String) -> String? { common }
     func configGet(_ key: String) -> String? { config[key] }
@@ -158,12 +167,24 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func worktreeEntries() -> [WorktreeEntry] { entries }
     func fetchBase(_ baseBranch: String, quiet: Bool) throws { fetched.append(baseBranch) }
     func worktreeAdd(path: String, branch: String, new: Bool, baseRef: String?, fatal: Bool) throws -> Bool {
+        guard worktreeAddSucceeds else {
+            if fatal { throw CLIFailure(nil, code: 128) }
+            return false
+        }
         added.append(AddedWorktree(path: path, branch: branch, new: new, baseRef: baseRef))
         return true
     }
-    func worktreeRemove(path: String, force: Bool) throws { removed.append(path) }
-    func branchDelete(_ branch: String, force: Bool) throws { branches.remove(branch) }
-    func branchDeleteOK(_ branch: String, force: Bool) -> Bool { branches.remove(branch) != nil }
+    func worktreeRemove(path: String, force: Bool) throws {
+        if unremovablePaths.contains(path) { throw CLIFailure(nil, code: 128) }
+        removed.append(path)
+    }
+    func branchDelete(_ branch: String, force: Bool) throws {
+        if undeletableBranches.contains(branch) { throw CLIFailure(nil, code: 1) }
+        branches.remove(branch)
+    }
+    func branchDeleteOK(_ branch: String, force: Bool) -> Bool {
+        !undeletableBranches.contains(branch) && branches.remove(branch) != nil
+    }
     func worktreeMove(from: String, to: String) throws {}
     func branchOf(_ path: String) throws -> String {
         guard let branch = branchByPath[path] else { throw CLIFailure(nil) }
@@ -176,8 +197,12 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func statusV2Lines(_ path: String) -> [String] { statusLines[path] ?? [] }
     func shortHead(_ path: String) -> String? { "abc123" }
     func aheadCount(_ path: String, baseRef: String) -> String { "" }
-    func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool { true }
-    func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws {}
+    func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool {
+        !checkoutFails(path, ref, detach)
+    }
+    func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws {
+        if checkoutFails(path, ref, detach) { throw CLIFailure(nil, code: 1) }
+    }
     func stashPush(_ path: String, message: String) throws -> String {
         let sha = "stash-\(stashes.count + 1)"
         stashes.append((path, sha))
@@ -387,7 +412,9 @@ nonisolated final class FakeWTContext: WTContext {
 
 struct StaticSettingsSource: ProjectSettingsSource {
     var configuration = ProjectsConfiguration()
+    var plumeIgnoredPendingChecks: [String] = []
     func load() -> ProjectsConfiguration { configuration }
+    func loadPlumeIgnoredPendingChecks() -> [String] { plumeIgnoredPendingChecks }
 }
 
 // MARK: Scratch repositories

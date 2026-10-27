@@ -50,12 +50,17 @@ nonisolated enum WTSettings {
 
     /// The glyph set, palette and ignored checks the settings ask for. Color
     /// needs a terminal on stdout and no `NO_COLOR`.
-    static func terminalUI(settings: ProjectSettings, stdoutIsTerminal: Bool, environment: [String: String]) -> TerminalUI {
+    static func terminalUI(
+        settings: ProjectSettings,
+        plumeIgnoredPendingChecks: [String] = [],
+        stdoutIsTerminal: Bool,
+        environment: [String: String]
+    ) -> TerminalUI {
         let noColor = !(environment["NO_COLOR"] ?? "").isEmpty
         return TerminalUI(
             palette: stdoutIsTerminal && !noColor ? .ansi : .plain,
             glyphSet: settings.nerdFont == true ? .nerd : .plain,
-            ignoredPendingChecks: Set(settings.ignoredPendingChecks ?? [])
+            ignoredPendingChecks: IgnoredChecksResolver.resolve(settings: settings, plumeSetting: plumeIgnoredPendingChecks)
         )
     }
 }

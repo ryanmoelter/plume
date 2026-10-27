@@ -76,6 +76,9 @@ nonisolated struct ProjectsConfiguration: Codable, Equatable, Sendable {
 
 nonisolated protocol ProjectSettingsSource {
     func load() -> ProjectsConfiguration
+    /// Settings ▸ Integrations' ignored checks, which apply to every
+    /// repository on top of the project's own list.
+    func loadPlumeIgnoredPendingChecks() -> [String]
 }
 
 /// Reads the app's own UserDefaults domain, so the tool sees Settings ▸
@@ -96,14 +99,21 @@ nonisolated struct UserDefaultsProjectSettingsSource: ProjectSettingsSource {
         self.init(suiteName: bundleID.isEmpty ? Self.releaseBundleID : bundleID)
     }
 
+    /// UserDefaults refuses a suite named for the running app's own bundle,
+    /// where the app keeps its values in its standard defaults.
+    private var defaults: UserDefaults? {
+        suiteName == Bundle.main.bundleIdentifier ? .standard : UserDefaults(suiteName: suiteName)
+    }
+
     /// An empty configuration when nothing is stored or it doesn't decode.
     func load() -> ProjectsConfiguration {
-        // UserDefaults refuses a suite named for the running app's own
-        // bundle, where the app keeps the value in its standard defaults.
-        let defaults = suiteName == Bundle.main.bundleIdentifier ? .standard : UserDefaults(suiteName: suiteName)
         guard let data = defaults?.data(forKey: ProjectsConfiguration.userDefaultsKey),
               let configuration = try? JSONDecoder().decode(ProjectsConfiguration.self, from: data)
         else { return ProjectsConfiguration() }
         return configuration
+    }
+
+    func loadPlumeIgnoredPendingChecks() -> [String] {
+        defaults?.stringArray(forKey: IgnoredChecksResolver.plumeSettingDefaultsKey) ?? []
     }
 }

@@ -55,6 +55,40 @@ struct WTGitIntegrationTests {
         #expect(ctx.listWorktreeNames() == ["main"])
     }
 
+    @Test(arguments: ["", "/.bare"])
+    func detectFromTheBareLayoutsRootFolderFindsTheLayout(_ suffix: String) throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let source = try makeScratchRepository(in: tmp, name: "source")
+        let project = "\(tmp)/proj"
+        try FileManager.default.createDirectory(atPath: project, withIntermediateDirectories: true)
+        try runGit(["clone", "-q", "--bare", source, "\(project)/.bare"], in: tmp)
+        try runGit(["worktree", "add", "-q", "\(project)/main", "main"], in: "\(project)/.bare")
+        let ctx = try detect(from: project + suffix)
+        #expect(ctx.layout == .bare)
+        #expect(ctx.root == project)
+        #expect(ctx.repoDir == "\(project)/.bare")
+        #expect(ctx.currentWorktree() == nil)
+
+        try WT.list(ctx, [])
+        #expect((ctx.console as? BufferConsole)?.stdout.contains("main") == true)
+    }
+
+    @Test func detectUnionsThePlumeWideIgnoredChecks() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try makeScratchRepository(in: tmp)
+        let ctx = try WorktreeContext.detect(
+            git: ProcessWorktreeGit(workingDirectory: repo),
+            settingsSource: StaticSettingsSource(
+                configuration: ProjectsConfiguration(repositories: [repo: ProjectSettings(ignoredPendingChecks: ["project-check"])]),
+                plumeIgnoredPendingChecks: ["plume-check"]
+            ),
+            console: BufferConsole(), environment: [:]
+        )
+        #expect(ctx.ui.ignoredPendingChecks == ["project-check", "plume-check"])
+    }
+
     @Test func processEntriesIncludeDetachedWorktrees() throws {
         let tmp = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(atPath: tmp) }

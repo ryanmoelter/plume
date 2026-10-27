@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 nonisolated enum WorktreeLayout: String, Codable, Sendable, Equatable {
@@ -173,7 +174,12 @@ nonisolated final class WorktreeContext: WTContext {
             mainName: layout == .bare ? "" : (layoutRoot as NSString).lastPathComponent,
             settings: settings,
             console: console,
-            ui: WTSettings.terminalUI(settings: settings, stdoutIsTerminal: console.stdoutIsTerminal, environment: environment),
+            ui: WTSettings.terminalUI(
+                settings: settings,
+                plumeIgnoredPendingChecks: settingsSource.loadPlumeIgnoredPendingChecks(),
+                stdoutIsTerminal: console.stdoutIsTerminal,
+                environment: environment
+            ),
             tabs: tabs
         )
     }
@@ -182,11 +188,29 @@ nonisolated final class WorktreeContext: WTContext {
     /// common dir, from the working directory. Settings ▸ Projects keys its
     /// writes the same way.
     static func locate(git: any WorktreeGit) throws -> (root: String, commonDir: String) {
+        if let bareLayout = bareLayoutAtWorkingDirectory(git: git) { return bareLayout }
         guard let top = git.toplevel() else { throw CLIFailure("not inside a git repo") }
         guard var common = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
         // `--git-common-dir` can be relative to the directory it ran in.
         if !common.hasPrefix("/") { common = lexicallyNormalized("\(top)/\(common)") }
         return ((common as NSString).deletingLastPathComponent, common)
+    }
+
+    /// Neither the bare layout's root nor its `.bare` is a checkout, so
+    /// `--show-toplevel` fails in both. Resolved, as git reports the paths
+    /// beneath it.
+    private static func bareLayoutAtWorkingDirectory(git: any WorktreeGit) -> (root: String, commonDir: String)? {
+        let directory = git.workingDirectoryPath as NSString
+        let root = directory.lastPathComponent == ".bare" ? directory.deletingLastPathComponent : directory as String
+        let bare = (root as NSString).appendingPathComponent(".bare")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: bare, isDirectory: &isDirectory), isDirectory.boolValue,
+              git.commonDir(root: bare) != nil,
+              let resolved = realpath(root, nil)
+        else { return nil }
+        defer { free(resolved) }
+        let resolvedRoot = String(cString: resolved)
+        return (resolvedRoot, "\(resolvedRoot)/.bare")
     }
 
     /// Collapses `.` and `..` without touching the file system, which would

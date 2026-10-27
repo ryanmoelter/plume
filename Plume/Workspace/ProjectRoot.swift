@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// The key Settings ▸ Projects stores a repository's settings under: the one
@@ -11,26 +10,21 @@ nonisolated enum ProjectRoot {
     /// Nil outside a git repository. Blocks on `git`, so call it off the
     /// main actor.
     static func containing(_ path: String) -> String? {
-        if let located = try? WorktreeContext.locate(git: ProcessWorktreeGit(workingDirectory: path)) {
-            return located.root
-        }
-        // Neither the root of a bare layout nor its `.bare`, which a task
-        // records as its repository, is a checkout, so `--show-toplevel` fails
-        // there. Git reports the paths beneath it fully resolved.
-        let root = (path as NSString).lastPathComponent == ".bare" ? (path as NSString).deletingLastPathComponent : path
-        let bare = (root as NSString).appendingPathComponent(".bare")
-        guard (try? GitRunner.run(["rev-parse", "--git-dir"], in: bare)) != nil,
-              let resolved = realpath(root, nil)
-        else { return nil }
-        defer { free(resolved) }
-        return String(cString: resolved)
+        try? WorktreeContext.locate(git: ProcessWorktreeGit(workingDirectory: path)).root
     }
 
     /// Where git runs repository-wide commands for `root`: its `.bare` in the
     /// bare layout, where the root itself is no repository, else `root`.
+    /// This is what a task records as its `repoPath`.
     static func repositoryDirectory(forRoot root: String) -> String {
         let bare = (root as NSString).appendingPathComponent(".bare")
         return FileManager.default.fileExists(atPath: bare) ? bare : root
+    }
+
+    /// Whether `repository` is the bare layout's `.bare`, whose worktrees
+    /// belong beside it in the project folder, never inside it.
+    static func isBareLayoutRepository(_ repository: String) -> Bool {
+        (repository as NSString).lastPathComponent == ".bare"
     }
 }
 

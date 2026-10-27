@@ -53,6 +53,7 @@ nonisolated protocol WorktreeGit: AnyObject {
     var repoDir: String? { get set }
 
     // Bootstrap, from the working directory.
+    var workingDirectoryPath: String { get }
     func toplevel() -> String?
     func commonDir(root: String) -> String?
 
@@ -196,6 +197,10 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     // MARK: Bootstrap
+
+    var workingDirectoryPath: String {
+        workingDirectory ?? FileManager.default.currentDirectoryPath
+    }
 
     func toplevel() -> String? {
         outputOrNil(["git", "rev-parse", "--show-toplevel"])
