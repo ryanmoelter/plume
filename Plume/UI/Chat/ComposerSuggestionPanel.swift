@@ -88,8 +88,9 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
         .frame(maxHeight: 200)
     }
 
-    /// What a row's text pays inside the box before it starts.
-    private var textInset: CGFloat { rowInset + dimensions.panelContentInset }
+    private var textInset: CGFloat {
+        ComposerPanelMetrics.suggestionTextInset(contentInset: dimensions.panelContentInset)
+    }
 
     /// The box steps out past the composer by everything its text pays
     /// inside it, so a row reads down the same edge as the message being
@@ -106,7 +107,7 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
         RoundedRectangle(cornerRadius: boxCornerRadius, style: .continuous)
     }
 
-    private let rowInset: CGFloat = 4
+    private var rowInset: CGFloat { ComposerPanelMetrics.suggestionRowInset }
 
     private func rowChrome(_ item: Item, at index: Int, isSelected: Bool) -> some View {
         row(index, item)

@@ -48,6 +48,8 @@ struct ChatComposer: View, ThemedView {
     @State private var caretLocation = 0
     @State private var pendingCaretLocation: Int?
     @State private var autocomplete = ComposerAutocompleteRouter()
+    /// The panel that just closed, kept on screen while it collapses.
+    @State private var closingSuggestionPanel: SuggestionPanel?
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -246,47 +248,74 @@ struct ChatComposer: View, ThemedView {
         hasSendableText = sendableText(text)
     }
 
-    /// What sets the suggestion panel's height. The composer eases when this
-    /// changes, so a keystroke that keeps the row count animates nothing.
-    private struct SuggestionPanelLayout: Equatable {
-        enum Kind { case slash, mention }
-        var kind: Kind?
-        var rows = 0
-        var hasCaption = false
+    private enum SuggestionPanel: Equatable {
+        case slash([SlashCommand], selectedIndex: Int)
+        case mention([MentionCandidate], selectedIndex: Int, isLoading: Bool)
     }
 
-    private var suggestionPanelLayout: SuggestionPanelLayout {
+    private var suggestionPanel: SuggestionPanel? {
         if autocomplete.slash.isShowing {
-            return SuggestionPanelLayout(kind: .slash, rows: autocomplete.slash.matches.count, hasCaption: slashCommandsAreRemembered)
+            return .slash(autocomplete.slash.matches, selectedIndex: autocomplete.slash.selectedIndex)
         }
         let mention = autocomplete.mention
         if mention.isPresented {
-            return SuggestionPanelLayout(kind: .mention, rows: mention.candidates.count, hasCaption: mention.candidates.isEmpty && mention.isLoading)
+            return .mention(mention.candidates, selectedIndex: mention.selectedIndex, isLoading: mention.isLoading)
         }
-        return SuggestionPanelLayout()
+        return nil
+    }
+
+    @ViewBuilder
+    private func suggestionPanelView(_ panel: SuggestionPanel) -> some View {
+        switch panel {
+        case .slash(let commands, let selectedIndex):
+            SlashCommandAutocompleteView(
+                commands: commands,
+                selectedIndex: selectedIndex,
+                onSelect: { autocomplete.slash.select($0) },
+                isTopOfPanel: !hasContentAbove,
+                isRemembered: slashCommandsAreRemembered,
+                tokenPrefix: completionPrefix
+            )
+        case .mention(let candidates, let selectedIndex, let isLoading):
+            MentionAutocompleteView(
+                candidates: candidates,
+                selectedIndex: selectedIndex,
+                isLoading: isLoading,
+                onSelect: { autocomplete.mention.select($0) },
+                isTopOfPanel: !hasContentAbove
+            )
+        }
+    }
+
+    /// The panel steps out past the composer's content on the sides, and
+    /// above it when nothing else sits there.
+    private var suggestionPanelOverhang: EdgeInsets {
+        let inset = ComposerPanelMetrics.suggestionTextInset(contentInset: dimensions.panelContentInset)
+        return EdgeInsets(top: hasContentAbove ? 0 : inset, leading: inset, bottom: 0, trailing: inset)
     }
 
     var body: some View {
-        VStack(spacing: dimensions.panelContentInset) {
-            if autocomplete.slash.isShowing {
-                SlashCommandAutocompleteView(
-                    commands: autocomplete.slash.matches,
-                    selectedIndex: autocomplete.slash.selectedIndex,
-                    onSelect: { autocomplete.slash.select($0) },
-                    isTopOfPanel: !hasContentAbove,
-                    isRemembered: slashCommandsAreRemembered,
-                    tokenPrefix: completionPrefix
-                )
-                .transition(.opacity)
-            } else if autocomplete.mention.isPresented {
-                MentionAutocompleteView(
-                    candidates: autocomplete.mention.candidates,
-                    selectedIndex: autocomplete.mention.selectedIndex,
-                    isLoading: autocomplete.mention.isLoading,
-                    onSelect: { autocomplete.mention.select($0) },
-                    isTopOfPanel: !hasContentAbove
-                )
-                .transition(.opacity)
+        VStack(spacing: 0) {
+            // The composer is pinned to the bottom of the chat, so the panel
+            // grows upward from the field.
+            ZStack(alignment: .bottom) {
+                if let panel = suggestionPanel ?? closingSuggestionPanel {
+                    suggestionPanelView(panel)
+                        .padding(.bottom, dimensions.panelContentInset)
+                }
+            }
+            .bottomReveal(
+                isRevealed: suggestionPanel != nil,
+                overhang: suggestionPanelOverhang,
+                animation: .easeOut(duration: 0.18),
+                onHidden: { closingSuggestionPanel = nil }
+            )
+            .onChange(of: suggestionPanel) { old, new in
+                if new == nil {
+                    closingSuggestionPanel = old
+                } else if closingSuggestionPanel != nil {
+                    closingSuggestionPanel = nil
+                }
             }
 
             VStack(spacing: 0) {
@@ -369,7 +398,6 @@ struct ChatComposer: View, ThemedView {
             // drags the controls row with it.
             .animatedHeight(.snappy(duration: 0.2), alignment: .bottom)
         }
-        .animation(.easeOut(duration: 0.18), value: suggestionPanelLayout)
         // The composer's whole content sits at one inset from the glass
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
