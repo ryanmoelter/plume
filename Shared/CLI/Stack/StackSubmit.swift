@@ -21,10 +21,8 @@ nonisolated extension Stack {
         if try ctx.cascadedNeedsRestack(branches).values.contains(true) {
             ctx.warn("stack needs a restack — consider `stack restack` first (submitting anyway)")
         }
-        // A push never changes which PRs exist, so the query overlaps the pushes.
-        let fetch = startFetch(forge, order)
+        let prs = try requirePRs(startFetch(forge, order), forge)
         var failed = order.filter { !pushBranch(ctx, $0, dryRun: dryRun) }
-        let prs = collectPRs(fetch)
         let ref = { (pr: PullRequest) in "\(forge.noun) \(forge.numberPrefix)\(pr.number)" }
         for branch in order {
             guard let parent = branches[branch]?.parent else { continue }
@@ -118,7 +116,9 @@ nonisolated extension Stack {
             }
 
             // Absorb squash-merged PRs.
-            let trackedPRs = forge.pullRequestsOrEmpty(forBranches: branches.keys.sorted(by: StackJSON.codePointPrecedes))
+            guard let trackedPRs = forge.pullRequests(forBranches: branches.keys.sorted(by: StackJSON.codePointPrecedes)) else {
+                throw CLIFailure("could not read \(noun)s from \(forge.cliName)")
+            }
             var skipped = Set<String>()
             for root in StackGraph.roots(branches) {
                 for branch in StackGraph.subtree(branches, of: root) {

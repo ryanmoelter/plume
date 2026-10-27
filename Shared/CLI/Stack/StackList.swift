@@ -190,6 +190,15 @@ nonisolated extension Stack {
         fetch.wait(timeout: blockingPRBudget) ? fetch.result ?? [:] : [:]
     }
 
+    /// The fetch's pull requests, failing when it failed or timed out: a
+    /// command that pushes or creates must not read that as "no PR here".
+    static func requirePRs(_ fetch: any PRFetchCompletion, _ forge: any StackForge) throws -> PullRequestMap {
+        guard fetch.wait(timeout: blockingPRBudget), let prs = fetch.result else {
+            throw CLIFailure("could not read \(forge.noun)s from \(forge.cliName) — nothing was pushed or created")
+        }
+        return prs
+    }
+
     /// The git-log-style graph, without a trailing newline. The far-left
     /// column is the trunk; each root attaches at its fork point, nearest
     /// first. `prState` decides the PR column.

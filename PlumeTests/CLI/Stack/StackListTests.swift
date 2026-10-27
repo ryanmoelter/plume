@@ -626,3 +626,23 @@ struct StackListCommandTests {
         #expect(console.stdout.contains("● b"))
     }
 }
+
+/// A failed forge query stops `submit` before it pushes or creates, so an
+/// already-merged branch never gets a duplicate PR.
+struct StackSubmitFetchFailureTests {
+    @Test func submitStopsBeforePushingWhenTheForgeQueryFails() throws {
+        let repo = try StackScratchRepo()
+        try repo.git("switch", "-qc", "feat")
+        try repo.commit("feat-one")
+        try repo.writeState(["feat": entry("main", try repo.rev("main"))])
+        let forge = RecordingStackForge()
+        forge.fetchFails = true
+
+        let failure = stackFailure { try Stack.submit(repo.context(forge: forge), []) }
+
+        #expect(failure?.code == 1)
+        #expect(failure?.message?.contains("could not read PRs") == true)
+        #expect(forge.created.isEmpty)
+        #expect(try repo.git("ls-remote", "--heads", "origin", "feat").isEmpty)
+    }
+}
