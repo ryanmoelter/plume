@@ -34,7 +34,9 @@ nonisolated enum StackStateCodec {
         ""
     }
 
-    static func decode(_ data: Data) throws -> StackBranches {
+    /// The entries in file order, which decides the winner when legacy
+    /// files name a branch twice.
+    static func decode(_ data: Data) throws -> [(name: String, entry: StackEntry)] {
         throw DecodeError.unreadable("not implemented")
     }
 }

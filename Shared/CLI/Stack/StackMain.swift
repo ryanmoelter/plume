@@ -25,7 +25,8 @@ nonisolated enum Stack {
         environment: [String: String],
         console: any CLIConsole,
         version: String?,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        settingsSource: (any ProjectSettingsSource)? = nil
     ) -> Int32 {
         console.printError("\(programName): not implemented")
         return CLIExitCode.failure

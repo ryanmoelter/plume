@@ -113,6 +113,13 @@ struct CLICommandLineTests {
         #expect(try CLICommandLine.parse(["--version"], executableName: "wt") == .wt(["--version"]))
     }
 
+    @Test func stackRoutesItsArgumentsVerbatim() throws {
+        #expect(try parse(["stack"]) == .stack([]))
+        #expect(try parse(["stack", "restack", "--all"]) == .stack(["restack", "--all"]))
+        #expect(try CLICommandLine.parse(["list", "--json"], executableName: "stack") == .stack(["list", "--json"]))
+        #expect(try CLICommandLine.parse(["--version"], executableName: "stack") == .stack(["--version"]))
+    }
+
     @Test func zshIntegrationParses() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")

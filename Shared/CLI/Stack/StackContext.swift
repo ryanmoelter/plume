@@ -60,4 +60,23 @@ nonisolated final class StackContext {
 
     /// `stack: <message>` on stderr, unless quiet.
     func warn(_ message: String) {}
+
+    /// The state as loaded, without writing back a prune.
+    func loadState() throws -> StackBranches {
+        throw CLIFailure("not implemented")
+    }
+
+    /// Loads the state and writes back anything the load repaired. The
+    /// caller holds the lock.
+    func loadAndFlushLocked() throws -> StackBranches {
+        throw CLIFailure("not implemented")
+    }
+
+    func loadAndFlush() throws -> StackBranches {
+        throw CLIFailure("not implemented")
+    }
+
+    func saveState(_ branches: StackBranches) throws {
+        throw CLIFailure("not implemented")
+    }
 }
