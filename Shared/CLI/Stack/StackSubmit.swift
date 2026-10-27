@@ -97,111 +97,116 @@ nonisolated extension Stack {
         // Advances the local trunk; fails harmlessly when it is checked out.
         _ = try? ctx.git.run(["fetch", "origin", "\(ctx.trunk):\(ctx.trunk)"])
         var hadErrors = false
-        try ctx.state.withLock {
-            var branches = try ctx.loadAndFlushLocked()
+        do {
+            try ctx.state.withLock {
+                var branches = try ctx.loadAndFlushLocked()
 
-            // Fresh-clone recovery: track local branches with open PRs.
-            let untrackedPRs = collectPRs(untrackedFetch)
-            var changed = true
-            while changed {
-                changed = false
-                for branch in candidates where branches[branch] == nil {
-                    guard let pr = untrackedPRs[branch], pr.state == .open, let base = pr.baseRefName else { continue }
-                    if base == ctx.trunk || branches[base] != nil {
-                        ctx.console.print((dryRun ? "would track" : "tracking") + " '\(branch)' (\(noun) \(prefix)\(pr.number), base \(base))")
-                        try trackWithParent(ctx, &branches, branch, base, announce: false)
-                        changed = true
+                // Fresh-clone recovery: track local branches with open PRs.
+                let untrackedPRs = collectPRs(untrackedFetch)
+                var changed = true
+                while changed {
+                    changed = false
+                    for branch in candidates where branches[branch] == nil {
+                        guard let pr = untrackedPRs[branch], pr.state == .open, let base = pr.baseRefName else { continue }
+                        if base == ctx.trunk || branches[base] != nil {
+                            ctx.console.print((dryRun ? "would track" : "tracking") + " '\(branch)' (\(noun) \(prefix)\(pr.number), base \(base))")
+                            try trackWithParent(ctx, &branches, branch, base, announce: false)
+                            changed = true
+                        }
                     }
                 }
-            }
 
-            // Absorb squash-merged PRs.
-            guard let trackedPRs = forge.pullRequests(forBranches: branches.keys.sorted(by: StackJSON.codePointPrecedes)) else {
-                throw CLIFailure("could not read \(noun)s from \(forge.cliName)")
-            }
-            var skipped = Set<String>()
-            for root in StackGraph.roots(branches) {
-                for branch in StackGraph.subtree(branches, of: root) {
-                    guard let pr = trackedPRs[branch], pr.state == .merged else { continue }
-                    if try ctx.rev(branch) != pr.headRefOid {
-                        ctx.warn("'\(branch)' has local commits beyond merged \(noun) \(prefix)\(pr.number) — reconcile manually; skipping its stack")
-                        skipped.formUnion(StackGraph.subtree(branches, of: StackGraph.root(branches, of: branch)))
+                // Absorb squash-merged PRs.
+                guard let trackedPRs = forge.pullRequests(forBranches: branches.keys.sorted(by: StackJSON.codePointPrecedes)) else {
+                    throw CLIFailure("could not read \(noun)s from \(forge.cliName)")
+                }
+                var skipped = Set<String>()
+                for root in StackGraph.roots(branches) {
+                    for branch in StackGraph.subtree(branches, of: root) {
+                        guard let pr = trackedPRs[branch], pr.state == .merged else { continue }
+                        if try ctx.rev(branch) != pr.headRefOid {
+                            ctx.warn("'\(branch)' has local commits beyond merged \(noun) \(prefix)\(pr.number) — reconcile manually; skipping its stack")
+                            skipped.formUnion(StackGraph.subtree(branches, of: StackGraph.root(branches, of: branch)))
+                            hadErrors = true
+                            break
+                        }
+                        guard let parent = branches[branch]?.parent else { continue }
+                        ctx.console.print((dryRun ? "would remove" : "removing") + " '\(branch)' (\(noun) \(prefix)\(pr.number) merged) — children move onto '\(parent)'")
+                        // The children's bases still name the merged branch's old
+                        // tip, so the next restack replays only their own commits.
+                        for (name, entry) in branches where entry.parent == branch {
+                            branches[name]?.parent = parent
+                        }
+                        if !dryRun {
+                            if ctx.git.currentBranch() == branch {
+                                let target = branches[parent] != nil || ctx.git.branchExists(parent) ? parent : ctx.trunk
+                                try ctx.git.switchTo(target, quiet: true)
+                            }
+                            let deletion = try ctx.git.run(["branch", "-D", branch])
+                            if deletion.status != 0 {
+                                let detail = ctx.git.worktreeMap()[branch].map { " — checked out in \($0)" }
+                                    ?? ": \(deletion.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+                                ctx.warn("could not delete '\(branch)'\(detail)")
+                            }
+                        }
+                        branches[branch] = nil
+                    }
+                }
+
+                // Rebasing and force-pushing can clobber a child checked out in
+                // another worktree, so by default they stay on the current
+                // branch's chain. The anchor is wherever absorption left the
+                // checkout.
+                let scoped: [String]
+                var anchor: String?
+                if all {
+                    scoped = StackGraph.roots(branches).flatMap { StackGraph.subtree(branches, of: $0) }
+                } else {
+                    anchor = ctx.git.currentBranch()
+                    scoped = anchor.flatMap { branches[$0] != nil ? StackGraph.path(branches, to: $0) : nil } ?? []
+                    if scoped.isEmpty {
+                        ctx.warn("current branch is not in a stack — nothing scoped to restack (use --all to sync every stack)")
+                    }
+                }
+                let scopedSet = Set(scoped)
+
+                var adopted = Set<String>()
+                for root in StackGraph.roots(branches) {
+                    let subtree = StackGraph.subtree(branches, of: root)
+                    if !skipped.isDisjoint(with: subtree) { continue }
+                    let members = subtree.filter(scopedSet.contains)
+                    for result in try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted) {
+                        ctx.console.print("  \(result.branch): \(result.action)")
+                    }
+                }
+                if !dryRun { try ctx.saveState(branches) }
+                if !all, let anchor, branches[anchor] != nil {
+                    try warnDescendantsNeedRestack(ctx, branches, anchor)
+                }
+                guard push else { return }
+                let pushable = StackGraph.roots(branches)
+                    .flatMap { StackGraph.subtree(branches, of: $0) }
+                    .filter { scopedSet.contains($0) && !skipped.contains($0) }
+                // Re-read: the maps above predate absorption, and GitHub retargets
+                // a stacked child itself the moment its parent merges, so the old
+                // map would aim a base back at a deleted branch.
+                let freshPRs = pushable.isEmpty ? [:] : forge.pullRequestsOrEmpty(forBranches: pushable)
+                for branch in pushable {
+                    let tip = try ctx.rev(branch)
+                    if adopted.contains(branch) || originTip(ctx, branch) == tip {
+                        ctx.console.print("  \(branch): up to date on origin — not pushing")
+                    } else if !pushBranch(ctx, branch, dryRun: dryRun) {
                         hadErrors = true
-                        break
+                        continue
                     }
-                    guard let parent = branches[branch]?.parent else { continue }
-                    ctx.console.print((dryRun ? "would remove" : "removing") + " '\(branch)' (\(noun) \(prefix)\(pr.number) merged) — children move onto '\(parent)'")
-                    // The children's bases still name the merged branch's old
-                    // tip, so the next restack replays only their own commits.
-                    for (name, entry) in branches where entry.parent == branch {
-                        branches[name]?.parent = parent
+                    if let pr = freshPRs[branch], pr.state == .open, let parent = branches[branch]?.parent {
+                        try retargetPR(ctx, forge, branch: branch, pr: pr, parent: parent, dryRun: dryRun)
                     }
-                    if !dryRun {
-                        if ctx.git.currentBranch() == branch {
-                            let target = branches[parent] != nil || ctx.git.branchExists(parent) ? parent : ctx.trunk
-                            try ctx.git.switchTo(target, quiet: true)
-                        }
-                        let deletion = try ctx.git.run(["branch", "-D", branch])
-                        if deletion.status != 0 {
-                            let detail = ctx.git.worktreeMap()[branch].map { " — checked out in \($0)" }
-                                ?? ": \(deletion.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
-                            ctx.warn("could not delete '\(branch)'\(detail)")
-                        }
-                    }
-                    branches[branch] = nil
                 }
             }
-
-            // Rebasing and force-pushing can clobber a child checked out in
-            // another worktree, so by default they stay on the current
-            // branch's chain. The anchor is wherever absorption left the
-            // checkout.
-            let scoped: [String]
-            var anchor: String?
-            if all {
-                scoped = StackGraph.roots(branches).flatMap { StackGraph.subtree(branches, of: $0) }
-            } else {
-                anchor = ctx.git.currentBranch()
-                scoped = anchor.flatMap { branches[$0] != nil ? StackGraph.path(branches, to: $0) : nil } ?? []
-                if scoped.isEmpty {
-                    ctx.warn("current branch is not in a stack — nothing scoped to restack (use --all to sync every stack)")
-                }
-            }
-            let scopedSet = Set(scoped)
-
-            var adopted = Set<String>()
-            for root in StackGraph.roots(branches) {
-                let subtree = StackGraph.subtree(branches, of: root)
-                if !skipped.isDisjoint(with: subtree) { continue }
-                let members = subtree.filter(scopedSet.contains)
-                for result in try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted) {
-                    ctx.console.print("  \(result.branch): \(result.action)")
-                }
-            }
-            if !dryRun { try ctx.saveState(branches) }
-            if !all, let anchor, branches[anchor] != nil {
-                try warnDescendantsNeedRestack(ctx, branches, anchor)
-            }
-            guard push else { return }
-            let pushable = StackGraph.roots(branches)
-                .flatMap { StackGraph.subtree(branches, of: $0) }
-                .filter { scopedSet.contains($0) && !skipped.contains($0) }
-            // Re-read: the maps above predate absorption, and GitHub retargets
-            // a stacked child itself the moment its parent merges, so the old
-            // map would aim a base back at a deleted branch.
-            let freshPRs = pushable.isEmpty ? [:] : forge.pullRequestsOrEmpty(forBranches: pushable)
-            for branch in pushable {
-                let tip = try ctx.rev(branch)
-                if adopted.contains(branch) || originTip(ctx, branch) == tip {
-                    ctx.console.print("  \(branch): up to date on origin — not pushing")
-                } else if !pushBranch(ctx, branch, dryRun: dryRun) {
-                    hadErrors = true
-                    continue
-                }
-                if let pr = freshPRs[branch], pr.state == .open, let parent = branches[branch]?.parent {
-                    try retargetPR(ctx, forge, branch: branch, pr: pr, parent: parent, dryRun: dryRun)
-                }
-            }
+        } catch {
+            returnToStartingBranch(ctx, original, after: error, dryRun: dryRun)
+            throw error
         }
         if !dryRun, let original, ctx.git.branchExists(original), ctx.git.currentBranch() != original {
             try ctx.git.switchTo(original, quiet: true)

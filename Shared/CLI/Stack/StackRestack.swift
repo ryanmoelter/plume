@@ -34,12 +34,8 @@ nonisolated extension Stack {
                 results = try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted)
                 if !dryRun { try ctx.saveState(branches) }
             }
-        } catch let failure as CLIFailure where failure.code == conflictExitCode {
-            throw failure
         } catch {
-            if !dryRun, let starting, ctx.git.currentBranch() != starting {
-                try? ctx.git.switchTo(starting, quiet: true)
-            }
+            returnToStartingBranch(ctx, starting, after: error, dryRun: dryRun)
             throw error
         }
         if interactive {
@@ -65,6 +61,15 @@ nonisolated extension Stack {
     static func rebaseInProgress(_ ctx: StackContext) throws -> Bool {
         try ["rebase-merge", "rebase-apply"].contains { name in
             FileManager.default.fileExists(atPath: try ctx.git.git("rev-parse", "--path-format=absolute", "--git-path", name))
+        }
+    }
+
+    /// A conflict leaves the rebase in place for the user to resolve; any
+    /// other error puts the checkout back where the command started.
+    static func returnToStartingBranch(_ ctx: StackContext, _ starting: String?, after error: Error, dryRun: Bool) {
+        if let failure = error as? CLIFailure, failure.code == conflictExitCode { return }
+        if !dryRun, let starting, ctx.git.currentBranch() != starting {
+            try? ctx.git.switchTo(starting, quiet: true)
         }
     }
 
