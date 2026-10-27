@@ -4,9 +4,12 @@ import Testing
 
 @testable import Plume
 
-/// Return in a hosted composer, typed key by key the way `ComposerHostedTypingTests`
-/// types: with a mention row to pick it inserts the reference, and with none it
-/// sends.
+/// Return and Esc in a hosted composer, typed key by key the way
+/// `ComposerHostedTypingTests` types. With a mention row to pick, Return
+/// inserts the reference. With the menu only searching, Return closes it and
+/// types a space whichever key sends, and ⌘↩ still sends. Esc closes the menu
+/// for that token without reaching the interrupt, and only the next Esc
+/// interrupts.
 @MainActor
 struct ComposerMentionHostedTests {
     @Observable
@@ -14,11 +17,13 @@ struct ComposerMentionHostedTests {
         var markdown = ""
         var pendingCaret: Int?
         var sends = 0
+        var escapes = 0
     }
 
     private struct Host: View {
         let state: State
         let router: ComposerAutocompleteRouter
+        let sendKey: ComposerSendKey
         @SwiftUI.State private var isFocused = true
 
         var body: some View {
@@ -27,7 +32,7 @@ struct ComposerMentionHostedTests {
                 placeholder: "",
                 fontSize: 13,
                 isFocused: $isFocused,
-                sendKey: .returnKey,
+                sendKey: sendKey,
                 onSend: { state.sends += 1 },
                 onCaretChange: { location in
                     router.mention.update(
@@ -38,7 +43,11 @@ struct ComposerMentionHostedTests {
                     )
                 },
                 pendingCaretLocation: Binding(get: { state.pendingCaret }, set: { state.pendingCaret = $0 }),
-                autocompleteHandler: router
+                autocompleteHandler: router,
+                onEscape: { _ in
+                    state.escapes += 1
+                    return true
+                }
             )
             .frame(width: 400, height: 200)
         }
@@ -55,9 +64,13 @@ struct ComposerMentionHostedTests {
             }
         }
 
-        func press(_ characters: String, keyCode: UInt16) async throws {
+        func escape() async throws {
+            try await press("\u{1b}", keyCode: 53)
+        }
+
+        func press(_ characters: String, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags = []) async throws {
             let event = try #require(NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: [],
+                with: .keyDown, location: .zero, modifierFlags: modifierFlags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, characters: characters, charactersIgnoringModifiers: characters,
                 isARepeat: false, keyCode: keyCode
@@ -72,7 +85,10 @@ struct ComposerMentionHostedTests {
         }
     }
 
-    private static func makeHarness(router: ComposerAutocompleteRouter) async throws -> Harness {
+    private static func makeHarness(
+        router: ComposerAutocompleteRouter,
+        sendKey: ComposerSendKey = .returnKey
+    ) async throws -> Harness {
         let state = State()
         router.mention.onAccept = { accepted in
             state.markdown = accepted.text
@@ -85,7 +101,7 @@ struct ComposerMentionHostedTests {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        let content = NSHostingView(rootView: Host(state: state, router: router))
+        let content = NSHostingView(rootView: Host(state: state, router: router, sendKey: sendKey))
         window.contentView = content
         content.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(50))
@@ -117,14 +133,19 @@ struct ComposerMentionHostedTests {
         #expect(harness.state.sends == 0)
     }
 
-    @Test func returnSendsWhileTheMenuIsOnlyLoading() async throws {
-        let sources = FakeMentionSources()
+    private static func loadingRouter(_ sources: FakeMentionSources) -> ComposerAutocompleteRouter {
         sources.holdsFiles = true
-        defer { sources.releaseAll() }
-        let router = ComposerAutocompleteRouter(
+        return ComposerAutocompleteRouter(
             mention: MentionAutocompleteController(sources: sources, sleep: { _ in }, homeDirectory: "/Users/test")
         )
-        let harness = try await Self.makeHarness(router: router)
+    }
+
+    @Test(arguments: [ComposerSendKey.returnKey, .commandReturn])
+    func returnClosesALoadingMenuAndTypesASpace(sendKey: ComposerSendKey) async throws {
+        let sources = FakeMentionSources()
+        defer { sources.releaseAll() }
+        let router = Self.loadingRouter(sources)
+        let harness = try await Self.makeHarness(router: router, sendKey: sendKey)
         defer { harness.close() }
 
         try await harness.type("@zz")
@@ -132,6 +153,73 @@ struct ComposerMentionHostedTests {
         #expect(!router.isShowing)
         try await harness.type("\r")
 
+        #expect(harness.state.markdown == "@zz ")
+        #expect(harness.state.sends == 0)
+        #expect(!router.mention.isPresented)
+        try await harness.type("y")
+        #expect(!router.mention.isPresented)
+    }
+
+    @Test func commandReturnStillSendsWhileTheMenuIsOnlyLoading() async throws {
+        let sources = FakeMentionSources()
+        defer { sources.releaseAll() }
+        let router = Self.loadingRouter(sources)
+        let harness = try await Self.makeHarness(router: router, sendKey: .commandReturn)
+        defer { harness.close() }
+
+        try await harness.type("@zz")
+        #expect(router.mention.isPresented)
+        try await harness.press("\r", keyCode: 36, modifierFlags: .command)
+
         #expect(harness.state.sends == 1)
+        #expect(harness.state.markdown == "@zz")
+    }
+
+    @Test func escapeClosesALoadingMenuBeforeInterrupting() async throws {
+        let sources = FakeMentionSources()
+        defer { sources.releaseAll() }
+        let router = Self.loadingRouter(sources)
+        let harness = try await Self.makeHarness(router: router)
+        defer { harness.close() }
+
+        try await harness.type("@foo")
+        #expect(router.mention.isPresented)
+        try await harness.escape()
+
+        #expect(harness.state.escapes == 0)
+        #expect(!router.mention.isPresented)
+        try await harness.type("bar")
+        #expect(harness.state.markdown == "@foobar")
+        #expect(!router.mention.isPresented)
+
+        try await harness.escape()
+        #expect(harness.state.escapes == 1)
+
+        try await harness.type(" @b")
+        #expect(router.mention.isPresented)
+    }
+
+    @Test func escapeClosesTheMenuWithRowsBeforeInterrupting() async throws {
+        let sources = FakeMentionSources()
+        let issue = MentionFixtures.issue("DROID-123", "Fix the text layout")
+        sources.linearAnswer = { LinearMentionMatcher.matches($0, in: [issue]) }
+        let router = ComposerAutocompleteRouter(
+            mention: MentionAutocompleteController(sources: sources, sleep: { _ in }, homeDirectory: "/Users/test")
+        )
+        let harness = try await Self.makeHarness(router: router)
+        defer { harness.close() }
+
+        try await harness.type("@dro")
+        await router.mention.settled()
+        #expect(router.isShowing)
+        try await harness.escape()
+
+        #expect(harness.state.escapes == 0)
+        #expect(!router.mention.isPresented)
+        try await harness.type("i")
+        await router.mention.settled()
+        #expect(!router.mention.isPresented)
+        try await harness.escape()
+        #expect(harness.state.escapes == 1)
     }
 }

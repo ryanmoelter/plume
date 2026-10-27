@@ -58,11 +58,12 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     /// The panel is on screen, possibly with nothing but a loading footer.
     var isPresented: Bool { query != nil && (!candidates.isEmpty || isLoading) }
 
-    /// There is a row to pick, so the composer's keys belong to the menu. A
-    /// panel that is only loading takes none, so Return still sends.
+    /// There is a row to pick, so the arrows, Tab and Return belong to the
+    /// menu.
     var isShowing: Bool { query != nil && !candidates.isEmpty }
 
     var claimsEscape: Bool { isPresented }
+    var claimsReturn: Bool { isPresented && !isShowing }
 
     @ObservationIgnored var onAccept: (SlashCommandMatcher.AcceptedCommand) -> Void = { _ in }
     /// Called with the reference an accepted row leaves and what it names,

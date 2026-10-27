@@ -4,7 +4,8 @@ import Testing
 @testable import Plume
 
 /// Keys reach whichever of the composer's two lists has rows, and fall
-/// through to the text view when neither does.
+/// through to the text view when neither does. Esc and Return also reach a
+/// mention menu that is still searching.
 @MainActor
 struct ComposerAutocompleteRouterTests {
     private let sources = FakeMentionSources()
@@ -82,6 +83,34 @@ struct ComposerAutocompleteRouterTests {
         #expect(!router.mention.isPresented)
         router.mention.update(text: "@zzz", caretLocation: 4, directory: "/repo", isCommandMode: false)
         #expect(!router.mention.isPresented)
+    }
+
+    @Test func onlyALoadingMentionMenuClaimsReturn() async {
+        sources.holdsFiles = true
+        defer { sources.releaseAll() }
+        let router = makeRouter()
+        #expect(!router.claimsReturn)
+
+        router.mention.update(text: "@zz", caretLocation: 3, directory: "/repo", isCommandMode: false)
+        #expect(router.claimsReturn)
+
+        router.slash.update(text: "/re", caretLocation: 3, commands: [SlashCommand(name: "review", description: "", argumentHint: "")])
+        #expect(!router.claimsReturn)
+    }
+
+    @Test func escapeKeepsTheSlashListClosedForThatCommand() {
+        let router = makeRouter()
+        let commands = [SlashCommand(name: "review", description: "", argumentHint: ""), SlashCommand(name: "resume", description: "", argumentHint: "")]
+        router.slash.update(text: "/r", caretLocation: 2, commands: commands)
+        #expect(router.claimsEscape)
+
+        router.dismiss()
+        router.slash.update(text: "/re", caretLocation: 3, commands: commands)
+        #expect(!router.slash.isShowing)
+
+        router.slash.update(text: "", caretLocation: 0, commands: commands)
+        router.slash.update(text: "/r", caretLocation: 2, commands: commands)
+        #expect(router.slash.isShowing)
     }
 
     private static func key(_ keyCode: UInt16) -> NSEvent {

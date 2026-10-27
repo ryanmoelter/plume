@@ -344,7 +344,12 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let location = textView.selectedRange().location
-            notifyCaller { self.onCaretChange(location) }
+            // Mid-edit the binding still holds the old text, and a caret
+            // paired with it reads the wrong token. `textDidChange` reports
+            // this caret with the new text.
+            if textView.string == textBinding.wrappedValue {
+                notifyCaller { self.onCaretChange(location) }
+            }
             if let composer = textView as? ComposerNSTextView,
                referenceChips(in: composer.string, caret: composer.selectedRange()).map(\.range) != composer.referenceChips.map(\.range) {
                 restyle()
@@ -687,6 +692,12 @@ final class ComposerNSTextView: NSTextView {
                 break
             }
         }
+        if let autocompleteHandler, event.keyCode == 36 /* Return */, autocompleteHandler.claimsReturn,
+           !event.modifierFlags.contains(.command) {
+            autocompleteHandler.dismiss()
+            insertText(" ", replacementRange: NSRange(location: NSNotFound, length: 0))
+            return
+        }
 
         if event.keyCode == 53 /* Escape */, let onEscape, onEscape(event.modifierFlags) {
             return
@@ -743,6 +754,10 @@ protocol ComposerAutocompleteHandler: AnyObject {
     /// Esc closes the list rather than reaching `onEscape`. A list can claim
     /// it while it has no rows yet, so Esc never interrupts a turn by surprise.
     var claimsEscape: Bool { get }
+    /// With no row to accept, Return closes the list and types a space,
+    /// rather than sending a message the user was still composing a
+    /// reference in.
+    var claimsReturn: Bool { get }
     func moveSelection(by delta: Int)
     func acceptSelection()
     func dismiss()
@@ -750,6 +765,7 @@ protocol ComposerAutocompleteHandler: AnyObject {
 
 extension ComposerAutocompleteHandler {
     var claimsEscape: Bool { isShowing }
+    var claimsReturn: Bool { false }
 }
 
 /// Hosts the text view in a scroll view sized to its content, between

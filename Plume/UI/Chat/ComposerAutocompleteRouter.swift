@@ -1,8 +1,9 @@
 import Foundation
 
 /// The one handler the composer's text view holds, so it never swaps between
-/// updates. Each key goes to whichever list has rows, and Esc also to a
-/// mention panel still loading; the slash list wins if both somehow qualify.
+/// updates. Each key goes to whichever list has rows, and Esc and Return
+/// also to a mention panel still loading; the slash list wins if both somehow
+/// qualify.
 final class ComposerAutocompleteRouter: ComposerAutocompleteHandler {
     let slash: ComposerAutocompleteController
     let mention: MentionAutocompleteController
@@ -23,6 +24,7 @@ final class ComposerAutocompleteRouter: ComposerAutocompleteHandler {
 
     var isShowing: Bool { active != nil }
     var claimsEscape: Bool { slash.claimsEscape || mention.claimsEscape }
+    var claimsReturn: Bool { !isShowing && (slash.claimsReturn || mention.claimsReturn) }
 
     func moveSelection(by delta: Int) { active?.moveSelection(by: delta) }
     func acceptSelection() { active?.acceptSelection() }
