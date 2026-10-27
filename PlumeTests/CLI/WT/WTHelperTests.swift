@@ -14,6 +14,21 @@ struct WTHelperTests {
         #expect(WT.buildRows(ctx) == rows)
     }
 
+    /// Each status call blocks until every row's call has started, which
+    /// only a parallel scan can satisfy. The timeout fails a serial one.
+    @Test func rowsScanEveryWorktreeAtOnce() {
+        let ctx = FakeWTContext(worktrees: rows)
+        let arrived = DispatchGroup()
+        for _ in rows { arrived.enter() }
+        let allArrived = LockedList<Bool>()
+        ctx.onWorktreeStatus = { _ in
+            arrived.leave()
+            allArrived.append(arrived.wait(timeout: .now() + 5) == .success)
+        }
+        #expect(WT.buildRows(ctx) == rows)
+        #expect(allArrived.values == [true, true, true])
+    }
+
     /// On the base branch, ahead-of-base re-counts the unpushed commits `↑`
     /// already shows, so it's dropped; `↑` and `↓` stay.
     @Test func theBaseBranchsRowDropsItsAheadCount() {

@@ -295,11 +295,45 @@ struct WTListTests {
 
     // MARK: live print
 
-    private func printLive(_ completion: ScriptedFetchCompletion?, live: Bool = true) -> String {
+    private func printLive(_ completion: ScriptedFetchCompletion?, live: Bool = true, size: TerminalSize? = nil) -> String {
         let console = BufferConsole()
         let session = completion.map { PRFetchSession(completion: $0, numberPrefix: "#", forgeIcon: gh) }
-        WT.printListLive(rows, currentIndex: 0, fetch: session, trunkBranches: [], live: live, console: console)
+        WT.printListLive(rows, currentIndex: 0, fetch: session, trunkBranches: [], live: live, terminalSize: size, console: console)
         return console.stdout
+    }
+
+    @Test func screenRowsCountWrappedLinesAndSkipEscapes() {
+        #expect(WT.screenRows("ab\ncdef\n", columns: nil) == 3)
+        #expect(WT.screenRows("ab\ncdef", columns: 2) == 3)
+        #expect(WT.screenRows("abc", columns: 2) == 2)
+        #expect(WT.screenRows("\u{1B}[2mab\u{1B}[0m", columns: 2) == 1)
+        #expect(WT.screenRows("", columns: 2) == 1)
+    }
+
+    /// The cursor ends one row below the frame, and cursor-up stops at the
+    /// screen's top row, so a frame needs a row to spare to be redrawn.
+    @Test func onlyATerminalWithRoomToSpareRedrawsInPlace() {
+        #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 3, terminalRows: nil))
+        #expect(WT.redrawsInPlace(isTerminal: true, frameRows: 23, terminalRows: 24))
+        #expect(!WT.redrawsInPlace(isTerminal: true, frameRows: 24, terminalRows: 24))
+        #expect(!WT.redrawsInPlace(isTerminal: false, frameRows: 3, terminalRows: 24))
+    }
+
+    @Test func aWrappedFrameRewindsEveryScreenRow() throws {
+        let loadingFrame = render(.loading, icon: gh)
+        let columns = 20
+        let expectedRows = WT.screenRows(loadingFrame, columns: columns)
+        try #require(expectedRows > 3)
+        let out = printLive(ScriptedFetchCompletion(true, result: [:]), size: TerminalSize(columns: columns, rows: 100))
+        #expect(out.hasPrefix("\(loadingFrame)\n\u{1B}[\(expectedRows)A\u{1B}[J"))
+    }
+
+    @Test func aFrameTallerThanTheTerminalPrintsOnceResolved() {
+        let prs = ["main": WTFixtures.openPR]
+        let done = ScriptedFetchCompletion(true, result: prs)
+        let out = printLive(done, size: TerminalSize(columns: 200, rows: 3))
+        #expect(out == render(.on, prs, icon: gh) + "\n")
+        #expect(done.waits == [WT.listPRTotal])
     }
 
     @Test func withNoForgeTheLocalTableprintsOnce() {

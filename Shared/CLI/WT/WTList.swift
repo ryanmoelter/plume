@@ -104,6 +104,34 @@ nonisolated struct WorktreeListPayload: Encodable, Equatable, Sendable {
     }
 }
 
+private nonisolated final class StatusResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [WorktreeStatus?]
+    private var nextIndex = 0
+
+    init(count: Int) {
+        results = Array(repeating: nil, count: count)
+    }
+
+    /// The next index no worker has taken, or nil once all are taken.
+    func claimNext() -> Int? {
+        lock.withLock {
+            guard nextIndex < results.count else { return nil }
+            defer { nextIndex += 1 }
+            return nextIndex
+        }
+    }
+
+    func set(_ index: Int, _ status: WorktreeStatus) {
+        lock.withLock { results[index] = status }
+    }
+
+    /// Every slot, once the workers have filled them all.
+    var all: [WorktreeStatus] {
+        lock.withLock { results.map { $0! } }
+    }
+}
+
 nonisolated extension KeyedEncodingContainer {
     /// `encodeIfPresent` drops the key; the `--json` readers expect `null`.
     mutating func encodeOrNull<T: Encodable>(_ value: T?, forKey key: Key) throws {
@@ -120,6 +148,10 @@ nonisolated extension WT {
     /// The table never waits on the forge, so the fetch gets a generous
     /// budget.
     static let listPRTotal: TimeInterval = 8
+    /// How many worktrees `buildRows` scans at once. `git status` reads the
+    /// whole tree, so a large repository with many worktrees is held to a
+    /// few at a time.
+    static let statusWorkers = 8
 
     /// The plain `↗<ahead> ↑<remote ahead> ↓<remote behind> +` cluster. Width
     /// math runs on this, never on the colored twin.
@@ -162,8 +194,25 @@ nonisolated extension WT {
     static func buildRows(_ ctx: any WTContext) -> [WorktreeRow] {
         // Paths come from the parallel list: a shared name is ambiguous to
         // `worktreePath` but still has one path per row.
-        zip(ctx.listWorktreeNames(), ctx.worktreePathsInListOrder()).map { name, path in
-            let status = ctx.worktreeStatus(path)
+        let paths = ctx.worktreePathsInListOrder()
+        let statuses = StatusResults(count: paths.count)
+        // Each status is a few git processes, so the scan mostly waits.
+        // Plain threads rather than `concurrentPerform`, which runs serially
+        // when the dispatch pool is busy.
+        let finished = DispatchGroup()
+        // `worktreeStatus` only runs git and reads settings fixed at init.
+        nonisolated(unsafe) let ctx = ctx
+        for _ in 0..<min(statusWorkers, paths.count) {
+            finished.enter()
+            Thread {
+                while let index = statuses.claimNext() {
+                    statuses.set(index, ctx.worktreeStatus(paths[index]))
+                }
+                finished.leave()
+            }.start()
+        }
+        finished.wait()
+        return zip(ctx.listWorktreeNames(), statuses.all).map { name, status in
             return WorktreeRow(
                 name: name,
                 branch: status.display,
@@ -282,14 +331,15 @@ nonisolated extension WT {
     ///
     /// `live` (stdout is a terminal) paints a loading frame at once and
     /// redraws it in place when the fetch resolves or its budget runs out.
-    /// Otherwise it waits the whole budget and prints one frame, so a piped
-    /// reader never sees a stale one.
+    /// Otherwise, or when the frame doesn't fit `terminalSize`, it waits the
+    /// whole budget and prints one frame, so a reader never sees a stale one.
     static func printListLive(
         _ rows: [WorktreeRow],
         currentIndex: Int?,
         fetch: PRFetchSession?,
         trunkBranches: Set<String>,
         live: Bool,
+        terminalSize: TerminalSize? = nil,
         dirs: [String]? = nil,
         ui: TerminalUI = .plain,
         console: any CLIConsole
@@ -306,17 +356,40 @@ nonisolated extension WT {
             )
         }
 
-        guard live else {
+        let provisional = table(.loading, [:])
+        let provisionalRows = screenRows(provisional, columns: terminalSize?.columns)
+        guard redrawsInPlace(isTerminal: live, frameRows: provisionalRows, terminalRows: terminalSize?.rows) else {
             let resolved = collectPRs(fetch, timeout: listPRTotal)
             console.print(table(resolved.state, resolved.prs))
             return
         }
 
-        let provisional = table(.loading, [:])
         console.print(provisional)
         let resolved = collectPRs(fetch, timeout: listPRTotal)
-        console.write(TerminalUI.redrawPrefix(lines: provisional.components(separatedBy: "\n").count))
+        // Clearing to the end of the screen also clears what is left of a
+        // longer old line, since column widths change once PRs arrive.
+        console.write(TerminalUI.redrawPrefix(lines: provisionalRows))
         console.print(table(resolved.state, resolved.prs))
+    }
+
+    /// Whether a frame `frameRows` tall can be painted and then redrawn.
+    /// The cursor ends a row below the frame, and cursor-up stops at the
+    /// top of the screen, so the frame needs a row to spare.
+    static func redrawsInPlace(isTerminal: Bool, frameRows: Int, terminalRows: Int?) -> Bool {
+        guard isTerminal else { return false }
+        guard let terminalRows else { return true }
+        return frameRows < terminalRows
+    }
+
+    /// The screen rows `frame` fills, its lines wrapping at `columns`. Nil
+    /// `columns` counts lines.
+    static func screenRows(_ frame: String, columns: Int?) -> Int {
+        let lines = frame.components(separatedBy: "\n")
+        guard let columns, columns > 0 else { return lines.count }
+        return lines.reduce(0) { total, line in
+            let width = line.replacingOccurrences(of: #"\u001B\[[0-9;?]*[A-Za-z]"#, with: "", options: .regularExpression).count
+            return total + max(1, (width + columns - 1) / columns)
+        }
     }
 
     /// The fetch's column state once it lands, or `wait` past `timeout`.

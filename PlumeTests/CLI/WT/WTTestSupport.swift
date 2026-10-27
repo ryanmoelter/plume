@@ -289,6 +289,20 @@ nonisolated final class ScriptedFetchCompletion: PRFetchCompletion, @unchecked S
     }
 }
 
+/// A list appended to from several threads.
+nonisolated final class LockedList<Element>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var elements: [Element] = []
+
+    func append(_ element: Element) {
+        lock.withLock { elements.append(element) }
+    }
+
+    var values: [Element] {
+        lock.withLock { elements }
+    }
+}
+
 // MARK: Context
 
 /// The slice of `WorktreeContext` that `wt list`, `current` and the naming
@@ -326,6 +340,8 @@ nonisolated final class FakeWTContext: WTContext {
     /// Wins over `current`, for a name more than one worktree has.
     var currentPath: String?
     var fetchSession: PRFetchSession?
+    /// Runs at the start of every `worktreeStatus` call, on its thread.
+    var onWorktreeStatus: (@Sendable (String) -> Void)?
     private(set) var ensuredWorktreesDirectory = false
 
     init(
@@ -380,6 +396,7 @@ nonisolated final class FakeWTContext: WTContext {
     }
 
     func worktreeStatus(_ path: String) -> WorktreeStatus {
+        onWorktreeStatus?(path)
         guard let row = worktrees.first(where: { self.path(of: $0) == path })?.row else {
             Issue.record("FakeWTContext.worktreeStatus: unknown path \(path)")
             return WorktreeStatus(display: "?", ahead: "", dirty: false, hasUpstream: false)

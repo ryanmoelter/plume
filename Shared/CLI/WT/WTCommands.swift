@@ -42,7 +42,7 @@ nonisolated extension WT {
         let dirs = showPaths ? ctx.worktreePathsInListOrder().map { displayLocation($0, root: ctx.root) } : nil
         printListLive(
             rows, currentIndex: currentIndex, fetch: fetch, trunkBranches: ctx.trunkBranches,
-            live: ctx.console.stdoutIsTerminal, dirs: dirs, ui: ctx.ui, console: ctx.console
+            live: ctx.console.stdoutIsTerminal, terminalSize: ctx.console.terminalSize, dirs: dirs, ui: ctx.ui, console: ctx.console
         )
     }
 

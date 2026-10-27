@@ -48,6 +48,11 @@ nonisolated enum CLIProcess {
         if let outputPipe { process.standardOutput = outputPipe }
         if let errorPipe { process.standardError = errorPipe }
 
+        // `waitUntilExit` polls a run loop and adds tens of milliseconds to
+        // every child, which `wt list`'s many git calls add up.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
@@ -77,7 +82,7 @@ nonisolated enum CLIProcess {
         }
         let outputData = outputPipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
         errorRead.wait()
-        process.waitUntilExit()
+        exited.wait()
 
         let result = CLIProcessResult(
             status: process.terminationStatus,

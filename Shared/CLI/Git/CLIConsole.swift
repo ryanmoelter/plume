@@ -13,6 +13,14 @@ nonisolated protocol CLIConsole: AnyObject {
     func readLine(prompt: String) -> String?
     var stdoutIsTerminal: Bool { get }
     var stdinIsTerminal: Bool { get }
+    /// The size of the terminal stdout writes to, or nil when it has none
+    /// or reports none.
+    var terminalSize: TerminalSize? { get }
+}
+
+nonisolated struct TerminalSize: Equatable, Sendable {
+    var columns: Int
+    var rows: Int
 }
 
 nonisolated extension CLIConsole {
@@ -43,6 +51,12 @@ nonisolated final class StandardConsole: CLIConsole {
 
     var stdoutIsTerminal: Bool { isatty(STDOUT_FILENO) == 1 }
     var stdinIsTerminal: Bool { isatty(STDIN_FILENO) == 1 }
+
+    var terminalSize: TerminalSize? {
+        var size = winsize()
+        guard ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0, size.ws_col > 0, size.ws_row > 0 else { return nil }
+        return TerminalSize(columns: Int(size.ws_col), rows: Int(size.ws_row))
+    }
 }
 
 /// Captures output and answers prompts from a script, for tests.
@@ -56,11 +70,13 @@ nonisolated final class BufferConsole: CLIConsole {
     var replies: [String]
     var stdoutIsTerminal: Bool
     var stdinIsTerminal: Bool
+    var terminalSize: TerminalSize?
 
-    init(replies: [String] = [], stdoutIsTerminal: Bool = false, stdinIsTerminal: Bool = false) {
+    init(replies: [String] = [], stdoutIsTerminal: Bool = false, stdinIsTerminal: Bool = false, terminalSize: TerminalSize? = nil) {
         self.replies = replies
         self.stdoutIsTerminal = stdoutIsTerminal
         self.stdinIsTerminal = stdinIsTerminal
+        self.terminalSize = terminalSize
     }
 
     func write(_ text: String) {
