@@ -153,4 +153,42 @@ struct WTGitIntegrationTests {
         #expect(try runGit(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "main")
         #expect(try runGit(["stash", "list", "--format=%gs"], in: repo) == "On main: unrelated")
     }
+
+    // MARK: a branch and a tag with one name
+
+    private func repositoryWithTagAndBranch(in tmp: String) throws -> String {
+        let repo = try makeScratchRepository(in: tmp)
+        try runGit(["tag", "v2"], in: repo)
+        try runGit(["switch", "-q", "-c", "v2"], in: repo)
+        try "more\n".write(toFile: "\(repo)/more.txt", atomically: true, encoding: .utf8)
+        try runGit(["add", "more.txt"], in: repo)
+        try runGit(["commit", "-q", "-m", "Unpushed"], in: repo)
+        try runGit(["switch", "-q", "main"], in: repo)
+        return repo
+    }
+
+    @Test func localBranchesKeepsABranchNamedLikeATag() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try repositoryWithTagAndBranch(in: tmp)
+        #expect(ProcessWorktreeGit(workingDirectory: repo).localBranches().sorted() == ["main", "v2"])
+    }
+
+    @Test func aBranchNamedLikeATagIsNotMergedWhenOnlyTheTagIs() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try repositoryWithTagAndBranch(in: tmp)
+        let git = ProcessWorktreeGit(workingDirectory: repo)
+        let mainHead = try runGit(["rev-parse", "main"], in: repo)
+        #expect(!WT.isMergedLocally(git, branch: "v2", baseRef: GitRef.origin("main")))
+        #expect(!WT.isWithinPRHead(git, branch: "v2", headOid: mainHead))
+    }
+
+    @Test func branchOfNamesABranchSharingATagsName() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try repositoryWithTagAndBranch(in: tmp)
+        try runGit(["switch", "-q", "v2"], in: repo)
+        #expect(try ProcessWorktreeGit(workingDirectory: repo).branchOf(repo) == "v2")
+    }
 }

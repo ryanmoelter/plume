@@ -225,7 +225,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func branchExists(_ branch: String) -> Bool {
-        silentOK(repoGit("show-ref", "--verify", "refs/heads/\(branch)"))
+        silentOK(repoGit("show-ref", "--verify", GitRef.local(branch)))
     }
 
     func refExists(_ ref: String) -> Bool {
@@ -241,7 +241,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     }
 
     func localBranches() -> [String] {
-        lines(outputOrNil(repoGit("for-each-ref", "--format=%(refname:short)", "refs/heads")))
+        lines(outputOrNil(repoGit("for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads")))
     }
 
     func worktreeEntries() -> [WorktreeEntry] {
@@ -289,7 +289,8 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
     // MARK: Per worktree
 
     func branchOf(_ path: String) throws -> String {
-        try outputOrExit(worktreeGit(path, "rev-parse", "--abbrev-ref", "HEAD"))
+        let name = try outputOrExit(worktreeGit(path, "rev-parse", "--symbolic-full-name", "HEAD"))
+        return name.hasPrefix("refs/heads/") ? String(name.dropFirst("refs/heads/".count)) : name
     }
 
     func isClean(_ path: String) throws -> Bool {

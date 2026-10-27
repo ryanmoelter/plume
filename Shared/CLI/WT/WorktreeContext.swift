@@ -352,7 +352,7 @@ nonisolated final class WorktreeContext: WTContext {
         }
         return WorktreeStatus(
             display: display,
-            ahead: git.aheadCount(path, baseRef: baseRef),
+            ahead: git.aheadCount(path, baseRef: GitRef.origin(baseBranch)),
             dirty: dirty,
             remoteAhead: remoteAhead,
             remoteBehind: remoteBehind,

@@ -438,7 +438,7 @@ nonisolated extension WT {
         }
 
         try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
-        let baseRef = ctx.git.refExists(ctx.baseRef) ? ctx.baseRef : ctx.baseBranch
+        let baseRef = ctx.git.refExists(GitRef.origin(ctx.baseBranch)) ? GitRef.origin(ctx.baseBranch) : GitRef.local(ctx.baseBranch)
         let locallyMerged = { (branch: String) in isMergedLocally(ctx.git, branch: branch, baseRef: baseRef) }
         let withinPRHead = { (branch: String, headOid: String) in isWithinPRHead(ctx.git, branch: branch, headOid: headOid) }
 

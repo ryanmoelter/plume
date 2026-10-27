@@ -104,6 +104,9 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     var merged: Set<String>
     var branchByPath: [String: String]
     var statusLines: [String: [String]]
+    /// Tags, each an ancestor of everything: a bare name in a revision position
+    /// resolves to the tag before the branch, as git does.
+    var tags: Set<String> = []
     /// What `revParse` answers, by ref.
     var shas: [String: String] = [:]
     var dirtyPaths: Set<String> = []
@@ -161,8 +164,11 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func originHead() -> String? { head }
     func branchExists(_ branch: String) -> Bool { branches.contains(branch) }
     func refExists(_ ref: String) -> Bool { branches.contains(ref) }
-    func isAncestor(_ ref: String, of other: String) -> Bool { merged.contains(ref) }
-    func revParse(_ ref: String) -> String? { shas[ref] }
+    func isAncestor(_ ref: String, of other: String) -> Bool {
+        if tags.contains(ref) { return true }
+        return merged.contains(ref.hasPrefix("refs/heads/") ? String(ref.dropFirst("refs/heads/".count)) : ref)
+    }
+    func revParse(_ ref: String) -> String? { shas[ref] ?? (tags.contains(ref) ? "tag-\(ref)" : nil) }
     func localBranches() -> [String] { branches.sorted() }
     func worktreeEntries() -> [WorktreeEntry] { entries }
     func fetchBase(_ baseBranch: String, quiet: Bool) throws { fetched.append(baseBranch) }

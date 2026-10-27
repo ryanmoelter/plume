@@ -136,7 +136,7 @@ struct WTPruneTests {
     }
 
     @Test func aBranchBehindThePRHeadIsWithinIt() {
-        let git = FakeWorktreeGit(merged: ["refs/heads/ryanm/x"])
+        let git = FakeWorktreeGit(merged: ["ryanm/x"])
         #expect(WT.isWithinPRHead(git, branch: "ryanm/x", headOid: "def"))
     }
 
@@ -278,6 +278,17 @@ struct WTPruneTests {
         try WT.prune(ctx, ["-y"])
         #expect(ctx.fakeGit.branches.contains("ryanm/bare"))
         #expect(ctx.buffer.stdout.contains("skip branch ryanm/bare"))
+    }
+
+    @Test func pruneKeepsABranchSharingANameWithATag() throws {
+        let ctx = pruneContext(prs: ["v2": Self.pr(5, .merged)])
+        ctx.fakeGit.entries.append(WorktreeEntry(path: "/repo/.wt/v2", branch: "v2"))
+        ctx.fakeGit.branches.insert("v2")
+        ctx.fakeGit.tags = ["v2"]
+        ctx.fakeGit.shas["refs/heads/v2"] = "unpushed"
+        try WT.prune(ctx, ["-y"])
+        #expect(!ctx.fakeGit.removed.contains("/repo/.wt/v2"))
+        #expect(ctx.fakeGit.branches.contains("v2"))
     }
 
     // MARK: flags

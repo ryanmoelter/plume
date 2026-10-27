@@ -27,14 +27,14 @@ nonisolated extension WT {
     /// fast-forward and rebase merges: a squash merge leaves no local trace,
     /// which is why the PR state is consulted first.
     static func isMergedLocally(_ git: any WorktreeGit, branch: String, baseRef: String) -> Bool {
-        git.isAncestor(branch, of: baseRef)
+        git.isAncestor(GitRef.local(branch), of: baseRef)
     }
 
     /// Whether the PR's head commit holds every commit on `branch`: the
     /// branch's head equals `headOid` or is an ancestor of it. A head git
     /// doesn't have locally counts as not containing it.
     static func isWithinPRHead(_ git: any WorktreeGit, branch: String, headOid: String) -> Bool {
-        let ref = "refs/heads/\(branch)"
+        let ref = GitRef.local(branch)
         return git.revParse(ref) == headOid || git.isAncestor(ref, of: headOid)
     }
 
