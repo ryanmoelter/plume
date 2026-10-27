@@ -30,6 +30,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         print(ShellIntegration.zsh(aliases: aliases), terminator: "")
     case .wt(let arguments):
         return WT.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
+    case .stack(let arguments):
+        return Stack.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
     }
     return CLIExitCode.success
 }

@@ -11,6 +11,8 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case shellInit(aliases: Bool)
     /// `plume wt …`, or any arguments when invoked as `wt`.
     case wt([String])
+    /// `plume stack …`, or any arguments when invoked as `stack`.
+    case stack([String])
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
@@ -30,6 +32,8 @@ nonisolated enum CLICommandLine {
     static let notifyAlias = "plume-notify"
     /// The opt-in name for `plume wt`.
     static let wtAlias = "wt"
+    /// The opt-in name for `plume stack`.
+    static let stackAlias = "stack"
 
     static let usage = """
         usage: plume <command> [options]
@@ -40,6 +44,7 @@ nonisolated enum CLICommandLine {
           tab new [--cwd DIR] [--task ID] [--select]
                                     Open a terminal tab in this task, print its ID
           wt <command>              Manage worktrees (`plume wt help`)
+          stack <command>           Manage stacked branches (`plume stack help`)
           init zsh [--aliases]      Print zsh completions, for `eval "$(plume init zsh)"`;
                                     --aliases adds a bare `wt`, whose `wt switch` cds
           help                      Show this help
@@ -67,6 +72,9 @@ nonisolated enum CLICommandLine {
         if executableName == wtAlias {
             return .wt(arguments)
         }
+        if executableName == stackAlias {
+            return .stack(arguments)
+        }
         guard let command = arguments.first else { return .help }
         let rest = Array(arguments.dropFirst())
         switch command {
@@ -84,6 +92,8 @@ nonisolated enum CLICommandLine {
             return try parseInit(rest)
         case "wt":
             return .wt(rest)
+        case "stack":
+            return .stack(rest)
         default:
             throw CLIUsageError(message: "unknown command '\(command)'", usage: usage)
         }
