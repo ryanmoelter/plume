@@ -127,6 +127,59 @@ struct CLITaskAndSettingsRequestTests {
         #expect(task.branchName == "main")
     }
 
+    /// In the `.bare` layout the project folder is no repository, so the
+    /// task's repository must be `.bare` itself for git to remove the
+    /// worktree from it.
+    @Test func aBareLayoutWorktreeRecordsARepositoryGitCanRemoveItFrom() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let scratch = scratch
+        let (bare, worktree) = try await Task.detached {
+            let source = "\(scratch)/source"
+            let bare = "\(scratch)/project/.bare"
+            let worktree = "\(scratch)/project/feature"
+            try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: true)
+            try GitRunner.run(["init", "-b", "main"], in: source)
+            try GitRunner.run(
+                ["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false",
+                 "commit", "--allow-empty", "-m", "init"],
+                in: source
+            )
+            try GitRunner.run(["clone", "--bare", source, bare], in: scratch)
+            try GitRunner.run(["worktree", "add", "-b", "feature", worktree], in: bare)
+            return (bare, worktree)
+        }.value
+        let handler = makeHandler(tasks: [])
+
+        let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
+
+        let task = try #require(try allTasks().first { $0.id == response.taskID })
+        #expect(task.workspaceKind == .worktree)
+        let repository = try #require(task.repoPath)
+        #expect(resolved(repository) == resolved(bare))
+        try await Task.detached {
+            try WorkspaceProvisioner.removeWorktree(repository: repository, path: worktree, branch: nil, deleteBranch: false)
+        }.value
+        #expect(!FileManager.default.fileExists(atPath: worktree))
+    }
+
+    /// A client that timed out retries, and the retry must not open a second
+    /// task on the worktree.
+    @Test func aWorktreeThatAlreadyHasATaskReturnsThatTask() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        var revealed: [UUID] = []
+        let handler = makeHandler(tasks: []) { revealed.append($0) }
+
+        let first = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
+        let retry = await handler.handle(.newTask(.init(worktreePath: worktree + "/", select: true)))
+
+        let taskID = try #require(first.taskID)
+        #expect(retry.error == nil)
+        #expect(retry.taskID == taskID)
+        #expect(try allTasks().count == 1)
+        #expect(revealed == [taskID])
+    }
+
     @Test func aPathThatIsNotAWorktreeRootIsRefused() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let (_, worktree) = try await makeRepositoryWithWorktree()

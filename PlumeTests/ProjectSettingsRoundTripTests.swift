@@ -79,8 +79,10 @@ struct ProjectSettingsRoundTripTests {
             try GitRunner.run(["worktree", "add", "-b", "feature", worktree], in: "\(layout)/.bare")
         }.value
 
-        let settings = try await roundTrip(savingFrom: layout, readingFrom: worktree)
-        #expect(settings.protectedWorktrees == ["keep"])
+        for saving in [layout, "\(layout)/.bare"] {
+            let settings = try await roundTrip(savingFrom: saving, readingFrom: worktree)
+            #expect(settings.protectedWorktrees == ["keep"])
+        }
     }
 
     @Test func aFolderOutsideGitHasNoProjectRoot() async throws {

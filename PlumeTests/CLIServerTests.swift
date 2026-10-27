@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import Testing
 
 @testable import Plume
@@ -174,6 +175,52 @@ struct CLIServerTests {
         #expect(response.error == "request exceeds 64 bytes")
         #expect(afterReply == nil)
         #expect(!handled)
+    }
+
+    /// The first request is still being answered when the next four arrive;
+    /// two fit the queue, and the third gets the error.
+    @Test func requestsPastTheQueueLimitGetAnErrorAndTheConnectionCloses() async throws {
+        var handled = 0
+        let firstStarted = OSAllocatedUnfairLock(initialState: false)
+        let restWritten = OSAllocatedUnfairLock(initialState: false)
+        var limits = CLIServer.Limits()
+        limits.maxQueuedRequests = 2
+        let server = CLIServer(handler: { _ in
+            handled += 1
+            if handled == 1 {
+                firstStarted.withLock { $0 = true }
+                while !restWritten.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(10)) }
+            }
+            return .success
+        }, limits: limits)
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        try server.start(path: path)
+        defer { server.stop() }
+
+        let replies = try await Task.detached {
+            let fd = try CLISocket.connect(to: path, timeout: 10)
+            defer { close(fd) }
+            let ping = try CLILineCodec.encode(CLIRequest.ping)
+            try CLISocket.writeAll(ping, to: fd)
+            while !firstStarted.withLock({ $0 }) { usleep(5_000) }
+            try CLISocket.writeAll(ping + ping + ping + ping, to: fd)
+            restWritten.withLock { $0 = true }
+            var buffer = CLILineCodec.Buffer()
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = read(fd, &chunk, chunk.count)
+                guard count > 0 else { break }
+                buffer.append(Data(chunk[0..<count]))
+            }
+            var replies: [Data] = []
+            while let line = buffer.nextLine() { replies.append(line) }
+            return replies
+        }.value
+        let responses = try replies.map { try CLILineCodec.decode(CLIResponse.self, from: $0) }
+        #expect(responses.map(\.ok) == [true, true, true, false])
+        #expect(responses.last?.error == "too many requests queued")
+        #expect(handled == 3)
     }
 
     /// The client's read returns at end-of-file, which only the server's

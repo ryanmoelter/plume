@@ -14,11 +14,13 @@ nonisolated enum ProjectRoot {
         if let located = try? WorktreeContext.locate(git: ProcessWorktreeGit(workingDirectory: path)) {
             return located.root
         }
-        // The root of a bare layout is no checkout, so `--show-toplevel` fails
+        // Neither the root of a bare layout nor its `.bare`, which a task
+        // records as its repository, is a checkout, so `--show-toplevel` fails
         // there. Git reports the paths beneath it fully resolved.
-        let bare = (path as NSString).appendingPathComponent(".bare")
+        let root = (path as NSString).lastPathComponent == ".bare" ? (path as NSString).deletingLastPathComponent : path
+        let bare = (root as NSString).appendingPathComponent(".bare")
         guard (try? GitRunner.run(["rev-parse", "--git-dir"], in: bare)) != nil,
-              let resolved = realpath(path, nil)
+              let resolved = realpath(root, nil)
         else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)

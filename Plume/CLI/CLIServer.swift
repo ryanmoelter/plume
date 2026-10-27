@@ -17,7 +17,10 @@ final class CLIServer {
 
     struct Limits {
         /// The most unread input, or unsent output, one connection may hold.
+        /// Requests waiting behind one still being answered count as unread.
         var maxBufferedBytes = 1 << 20
+        /// The most requests that may wait behind the one being answered.
+        var maxQueuedRequests = 32
         var idleTimeout: TimeInterval = 30
         /// How long accepting pauses when the process is out of descriptors.
         var acceptRetryDelay: TimeInterval = 0.5
@@ -275,6 +278,8 @@ private final class CLIConnection {
         case reply(CLIResponse)
     }
     private var pending: [Pending] = []
+    private var queuedRequests = 0
+    private var queuedBytes = 0
     private var isAnswering = false
     /// Reading has stopped; the connection finishes once `pending` is answered.
     private var isInputDone = false
@@ -386,19 +391,37 @@ private final class CLIConnection {
             if reachedEnd { close() }
             return
         }
+        var isOverQueued = false
         while let line = input.nextLine() {
-            pending.append(.request(line))
+            guard queue(line) else {
+                isOverQueued = true
+                break
+            }
         }
         if input.count > limits.maxBufferedBytes {
             pending.append(.reply(.failure("request exceeds \(limits.maxBufferedBytes) bytes")))
             endInput()
+        } else if isOverQueued || input.count + queuedBytes > limits.maxBufferedBytes {
+            pending.append(.reply(.failure("too many requests queued")))
+            endInput()
         } else if reachedEnd {
-            if let line = input.takeRemainder() {
-                pending.append(.request(line))
+            if let line = input.takeRemainder(), !queue(line) {
+                pending.append(.reply(.failure("too many requests queued")))
             }
             endInput()
         }
         answerPending()
+    }
+
+    /// False when the request would pass either queue limit.
+    private func queue(_ line: Data) -> Bool {
+        guard queuedRequests < limits.maxQueuedRequests,
+              queuedBytes + line.count <= limits.maxBufferedBytes
+        else { return false }
+        queuedRequests += 1
+        queuedBytes += line.count
+        pending.append(.request(line))
+        return true
     }
 
     private func endInput() {
@@ -418,6 +441,8 @@ private final class CLIConnection {
             send(response)
             answerPending()
         case .request(let line):
+            queuedRequests -= 1
+            queuedBytes -= line.count
             isAnswering = true
             Task { @MainActor [self] in
                 let response = await respond(to: line)

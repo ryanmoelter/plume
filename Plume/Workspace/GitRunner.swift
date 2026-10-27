@@ -86,6 +86,16 @@ nonisolated struct CheckoutFacts: Sendable, Equatable {
     let projectRoot: String
     /// This checkout's own directory.
     let checkoutRoot: String
+    /// Where git runs repository-wide commands such as `worktree remove`.
+    /// It is `projectRoot` unless the shared repository is bare, as in the
+    /// `.bare` layout, where `projectRoot` only holds the repository.
+    let repositoryPath: String
+
+    init(projectRoot: String, checkoutRoot: String, repositoryPath: String? = nil) {
+        self.projectRoot = projectRoot
+        self.checkoutRoot = checkoutRoot
+        self.repositoryPath = repositoryPath ?? projectRoot
+    }
 
     var isWorktree: Bool { projectRoot != checkoutRoot }
 
@@ -104,9 +114,11 @@ nonisolated struct CheckoutFacts: Sendable, Equatable {
         guard lines.count >= 2 else { return nil }
         let commonDirectory = URL(fileURLWithPath: lines[0]).standardizedFileURL
         let checkoutRoot = URL(fileURLWithPath: lines[1]).standardizedFileURL
+        let projectRoot = commonDirectory.deletingLastPathComponent().path
         return CheckoutFacts(
-            projectRoot: commonDirectory.deletingLastPathComponent().path,
-            checkoutRoot: checkoutRoot.path
+            projectRoot: projectRoot,
+            checkoutRoot: checkoutRoot.path,
+            repositoryPath: commonDirectory.lastPathComponent == ".git" ? projectRoot : commonDirectory.path
         )
     }
 }

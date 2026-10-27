@@ -114,14 +114,23 @@ final class CLICommandHandler {
         guard let context = caller?.context ?? windows.first?.context else {
             return .failure("no Plume window is open")
         }
+        let liveTasks = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived }
+        // A client that timed out and retried would otherwise get a second
+        // task for the same worktree.
+        let resolved = Self.resolvedPath(path)
+        if let existing = liveTasks.first(where: { $0.workingDirectoryPath.map(Self.resolvedPath) == resolved }) {
+            if params.select { windows.first?.reveal(existing.id) }
+            var response = CLIResponse.success
+            response.taskID = existing.id
+            return response
+        }
         let group = caller?.task.group
-        let siblings = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? [])
-            .filter { !$0.isArchived && $0.group?.id == group?.id }
+        let siblings = liveTasks.filter { $0.group?.id == group?.id }
         let task = TaskStore.createTask(
             in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
         )
         task.workingDirectoryPath = path
-        task.repoPath = checkout.facts.projectRoot
+        task.repoPath = checkout.facts.repositoryPath
         task.branchName = checkout.branch
         // Deleting a worktree task offers to remove the worktree, which the
         // main checkout must never be.

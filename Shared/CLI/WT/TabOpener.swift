@@ -52,9 +52,13 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
         self.socketPath = socketPath
     }
 
-    private func succeeds(_ request: CLIRequest) -> Bool {
+    /// `task.new` waits on git in the app, which can take longer than the
+    /// default timeout on a large repository.
+    static let newTaskTimeout: TimeInterval = 15
+
+    private func succeeds(_ request: CLIRequest, timeout: TimeInterval = 3) -> Bool {
         guard !socketPath.isEmpty else { return false }
-        return (try? CLISocket.send(request, to: socketPath))?.ok == true
+        return (try? CLISocket.send(request, to: socketPath, timeout: timeout))?.ok == true
     }
 
     func openTab(directory: String, caller: PlumeCaller) -> Bool {
@@ -62,7 +66,10 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
     }
 
     func openTask(worktreePath: String, caller: PlumeCaller) -> Bool {
-        succeeds(.newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)))
+        succeeds(
+            .newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)),
+            timeout: Self.newTaskTimeout
+        )
     }
 
     func openSettings(section: String?) -> Bool {
