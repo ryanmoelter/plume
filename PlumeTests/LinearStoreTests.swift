@@ -936,6 +936,23 @@ struct LinearStoreTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
+    @Test func aSearchReturningOnlyUnwantedOldIssuesDoesNotSave() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let later = Date().addingTimeInterval(LinearSyncCache.retention + 86_400)
+        let harness = try await makeHarness([a], cacheDirectory: directory, now: { later })
+        let file = directory.appending(path: "issues-A.json")
+        try? FileManager.default.removeItem(at: file)
+
+        await harness.store.searchIssues("layout")
+        await harness.store.settle()
+
+        #expect(await a.searchCalls.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
     @Test func aSearchAnsweringBeforeTheDiskCacheLoadsKeepsTheCachedIssues() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

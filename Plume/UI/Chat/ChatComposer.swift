@@ -379,6 +379,9 @@ struct ChatComposer: View, ThemedView {
         .onChange(of: isCommandMode) {
             updateMentions(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation)
         }
+        .onChange(of: tabDirectories.directory(for: tab)) {
+            updateMentions(text: drafts.draft(forTab: tab.id), caretLocation: caretLocation)
+        }
         .onAppear {
             autocomplete.slash.onAccept = acceptSlashCommand
             autocomplete.mention.onAccept = acceptMention

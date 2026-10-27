@@ -1052,17 +1052,22 @@ final class LinearStore: LinearActivitySink {
     private func mergeSearchHits(_ snapshots: [LinearIssueSnapshot], orgID: String) {
         guard !snapshots.isEmpty else { return }
         var hits = searchHits[orgID] ?? [:]
-        let before = caches[orgID]
+        let wanted = Set(wantCounts.keys)
+        var before = caches[orgID] ?? LinearSyncCache(orgID: orgID)
+        before.prune(keeping: wanted, now: now())
+        var merged = before
         for snapshot in snapshots {
-            caches[orgID, default: LinearSyncCache(orgID: orgID)].upsert(snapshot)
+            merged.upsert(snapshot)
             hits[snapshot.issue.identifier.uppercased()] = snapshot
         }
+        merged.prune(keeping: wanted, now: now())
+        caches[orgID] = merged
         if hits.count > Self.maxSearchHits {
             let newest = hits.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(Self.maxSearchHits)
             hits = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
         }
         searchHits[orgID] = hits
-        if caches[orgID] != before { saveIssues(orgID: orgID) }
+        if merged.issues != before.issues || merged.aliases != before.aliases { saveIssues(orgID: orgID) }
         republishWanted(orgID: orgID)
     }
 

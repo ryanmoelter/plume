@@ -161,6 +161,18 @@ struct FileMentionIndexTests {
         #expect(paths.count == 2)
     }
 
+    @Test func aGitListingKeepsLeadingSpacesInNames() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write(" lead.txt", in: repository)
+
+        guard case .paths(let paths) = FileMentionIndex.gitPaths(in: repository, limits: .init()) else {
+            Issue.record("expected a listing")
+            return
+        }
+        #expect(paths.contains(" lead.txt"))
+    }
+
     @Test func aGitTimeoutKillsTheCommand() throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(atPath: directory) }

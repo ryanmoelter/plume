@@ -24,9 +24,8 @@ struct MentionAutocompleteView: View, ThemedView {
         .plumeID(AccessibilityID.composerMentionMenu)
     }
 
-    private func row(_ candidate: MentionCandidate) -> some View {
-        let index = candidates.firstIndex(of: candidate)
-        return HStack(spacing: 8) {
+    private func row(_ index: Int, _ candidate: MentionCandidate) -> some View {
+        HStack(spacing: 8) {
             switch candidate {
             case .linear(let issue):
                 LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
@@ -62,7 +61,7 @@ struct MentionAutocompleteView: View, ThemedView {
             AccessibilityID.composerMentionRow,
             label: Self.label(for: candidate),
             value: index == selectedIndex ? "selected" : nil,
-            invoke: index.map { index in { onSelect(index) } }
+            invoke: { onSelect(index) }
         )
     }
 

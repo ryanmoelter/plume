@@ -13,6 +13,13 @@ actor PullRequestMentionSource {
     static let cacheLifetime: TimeInterval = 120
     static let minimumSearchLength = 3
 
+    /// The pull request number a term names, for ASCII digits only: `Int(_:)`
+    /// alone would also take `+5` and `-5`.
+    nonisolated static func number(in term: String) -> Int? {
+        guard !term.isEmpty, term.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return Int(term)
+    }
+
     typealias Runner = @Sendable (_ arguments: [String], _ directory: String) async throws -> Data
     typealias Resolver = @Sendable (String) async -> (repository: String, facts: RepositoryFacts)?
 
@@ -68,7 +75,7 @@ actor PullRequestMentionSource {
         if term.hasPrefix("#") { term.removeFirst() }
         let known = Set(pulls.map(\.number))
 
-        if let number = Int(term), term.allSatisfy(\.isASCII), !known.contains(number) {
+        if let number = Self.number(in: term), !known.contains(number) {
             var found = repository.byNumber[number]
             if found == nil, includingLookups {
                 guard !Task.isCancelled else { return [] }
@@ -80,7 +87,7 @@ actor PullRequestMentionSource {
                 update(root, listedAt: repository.fetchedAt) { $0.byNumber[number] = found }
             }
             if let pull = found ?? nil { pulls.append(pull) }
-        } else if Int(term) == nil, term.count >= Self.minimumSearchLength, let nameWithOwner = repository.nameWithOwner {
+        } else if Self.number(in: term) == nil, term.count >= Self.minimumSearchLength, let nameWithOwner = repository.nameWithOwner {
             let key = term.lowercased()
             var found = repository.searches[key]
             if found == nil, includingLookups {

@@ -27,7 +27,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
         )
     }
 
-    private func row(_ command: SlashCommand) -> some View {
+    private func row(_ index: Int, _ command: SlashCommand) -> some View {
         HStack(spacing: 8) {
             Text("\(tokenPrefix)\(command.name)")
                 .font(typography.caption.monoMedium)

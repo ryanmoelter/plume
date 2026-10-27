@@ -141,6 +141,17 @@ struct PullRequestMentionSourceTests {
         #expect(script.count == 3)
     }
 
+    @Test func aSignedNumberIsNotLookedUp() async throws {
+        let script = Script()
+        let source = source(script)
+
+        _ = await source.matches(for: try query("#-5"), in: "/repo")
+        _ = await source.matches(for: try query("#+5"), in: "/repo")
+        #expect(script.calls.withLock { $0.allSatisfy { !$0.contains("pullRequest(number:") } })
+        #expect(PullRequestMentionSource.number(in: "-5") == nil)
+        #expect(PullRequestMentionSource.number(in: "5") == 5)
+    }
+
     @Test func aTextQueryOfThreeCharactersSearchesTitles() async throws {
         let script = Script()
         let source = source(script)

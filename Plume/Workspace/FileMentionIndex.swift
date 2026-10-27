@@ -160,7 +160,8 @@ actor FileMentionIndex {
             let output = try GitRunner.run(
                 ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
                 in: directory,
-                timeout: limits.gitTimeout
+                timeout: limits.gitTimeout,
+                trimsOutput: false
             )
             return .paths(output.lazy.split(separator: "\0").prefix(limits.maxGitPaths).map(String.init))
         } catch let error as GitError where error.timedOut {

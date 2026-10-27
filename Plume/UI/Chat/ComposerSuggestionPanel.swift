@@ -15,7 +15,7 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
     var isTopOfPanel = true
     /// A caption under the rows, set off by a divider.
     var footer: String?
-    @ViewBuilder let row: (Item) -> Row
+    @ViewBuilder let row: (Int, Item) -> Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,7 +40,7 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        rowChrome(item, isSelected: index == selectedIndex)
+                        rowChrome(item, at: index, isSelected: index == selectedIndex)
                             .id(index)
                             .onTapGesture { onSelect(index) }
                     }
@@ -74,8 +74,8 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
 
     private let rowInset: CGFloat = 4
 
-    private func rowChrome(_ item: Item, isSelected: Bool) -> some View {
-        row(item)
+    private func rowChrome(_ item: Item, at index: Int, isSelected: Bool) -> some View {
+        row(index, item)
             .padding(.horizontal, dimensions.panelContentInset)
             .padding(.vertical, 5)
             .background(

@@ -289,7 +289,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     private static func pullRequestLookupDelay(for text: String, debounce: Debounce) -> Duration? {
         var term = text.trimmingCharacters(in: .whitespaces)
         if term.hasPrefix("#") { term.removeFirst() }
-        if Int(term) != nil { return debounce.pullRequestNumber }
+        if PullRequestMentionSource.number(in: term) != nil { return debounce.pullRequestNumber }
         return term.count >= PullRequestMentionSource.minimumSearchLength ? debounce.pullRequestSearch : nil
     }
 

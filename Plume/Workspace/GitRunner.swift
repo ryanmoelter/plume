@@ -24,7 +24,12 @@ nonisolated enum GitRunner {
     @discardableResult
     /// A `timeout` SIGKILLs `git` itself, so it bounds only commands that
     /// spawn no children holding its pipes.
-    static func run(_ arguments: [String], in directory: String? = nil, timeout: Duration? = nil) throws -> String {
+    static func run(
+        _ arguments: [String],
+        in directory: String? = nil,
+        timeout: Duration? = nil,
+        trimsOutput: Bool = true
+    ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
@@ -71,8 +76,8 @@ nonisolated enum GitRunner {
             )
         }
 
-        let stdout = String(decoding: outputData, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawOutput = String(decoding: outputData, as: UTF8.self)
+        let stdout = trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
 
         guard process.terminationStatus == 0 else {
             throw GitError(
