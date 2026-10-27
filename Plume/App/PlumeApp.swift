@@ -42,6 +42,7 @@ struct PlumeApp: App {
             // Before any view exists: a tab's environment names this socket
             // when it is built, and keeps that environment for life.
             CLIServer.shared.startIfEnabled()
+            GitConfigSettingsImport.runOnce(modelContext: modelContainer.mainContext)
         }
     }
 

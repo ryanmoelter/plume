@@ -11,12 +11,28 @@ PLUME-316 ported Ryan's Python `wt` tool (`dotfiles/cli-tools/src/wt` and `src/_
 - Settings come from Settings ▸ Projects, not `git config`. The app stores a `ProjectsConfiguration` as JSON data under the `projectsConfiguration` key. The tool reads it from the suite named by `PLUME_BUNDLE_ID`, else `com.ryanmoelter.Plume`. A repository's value overrides the defaults field by field, an explicit empty string counts as a value, and a list replaces the default list. Settings ▸ Projects (`ProjectsSettingsPane`) writes it through `AppSettings.projectsConfiguration`, keyed by `ProjectRoot.containing`, which derives the root through the same `WorktreeContext.locate` the tool uses.
 - The app reads the same settings. The New Worktree sheet suggests a branch under the prefix `wt` would use (`WorkspaceProvisioner.configuredBranchPrefix`), including the `user.email` fallback. Both the sidebar's PR chips and `wt` ignore the project's pending checks plus the Plume-wide list in Settings ▸ Integrations, through the one `IgnoredChecksResolver`. The tool reads that list from the same suite, under `ignoredPendingChecks`. Neither reads git config.
 - The ignored-pending-checks list is a `TerminalUI` parameter read from settings, not a global.
+- The first launch of an upgraded app imports the Python tools' git config into Settings ▸ Projects, once (`GitConfigSettingsImport`). Global config fills the defaults row. Each known repository (tasks' `repoPath`s and rows already in Projects, keyed through `ProjectRoot`) gets the fields where its merged config resolves differently from global. A field already set in Projects is never overwritten, and a repository that imports nothing gets no row. The `importedGitConfigProjectSettings` user default records completion. It runs off the main actor at launch rather than when Settings opens, so the New Worktree sheet and `wt` see the values without Settings ever being shown. The tool does not run the import: the app writes `projectsConfiguration` from its in-memory copy and would overwrite whatever the tool wrote, and an upgrade always relaunches the app before the tool could need the values.
 - `wt` works from the bare layout's root folder and from its `.bare`, though neither is a checkout. `WorktreeContext.locate` finds the layout from a `.bare` in the working directory before it asks git for a toplevel.
 - `help`, `-h`, `--help` and a bare `wt` work outside a git repository. There they print only the commands, with no resolved-settings summary. `current --json` prints every field as `null` there and succeeds, and `__complete` prints nothing and succeeds.
 - A configured branch prefix is trimmed and given a trailing `/` (`WTSettings.normalizedBranchPrefix`), in the tool and the app alike. A whitespace-only prefix counts as unset.
 - `prune` deletes a merged or closed PR's branch only when the PR's head (`headRefOid`) contains it: the local head equals it or is an ancestor of it. Otherwise the branch has commits the PR lacks, and `prune` skips it with a note, unless the base already contains it. A worktree whose status git cannot read, such as one whose folder was deleted by hand, is skipped with a warning, and the run carries on. So is a worktree or branch git refuses to delete, and then `prune` exits non-zero at the end, naming each one.
 - `bg` and `fg` restore their stash by its commit SHA (`git stash apply <sha>`, then a drop of that entry), never by `stash@{0}`. The stash list is shared by every worktree, so another process may push in between.
 - `bg` and `fg` run every check that can refuse before they stash. A step that fails after the stash restores it, or names its SHA and the `git stash apply` that gets it back. Both refuse a detached HEAD: `bg` because `worktree add HEAD` resolves in the repository rather than the current worktree, and `fg` because removing a detached source orphans its commits.
+
+### Imported git-config keys
+
+Keys are case-insensitive. The shared section is `ryanmoelter-cli-tools`. Each field takes the first key in its chain that is set. The Python tools ranked their own section above the shared one; Plume keeps one value for both tools, so `wt`'s chain comes first and `stack` fills only what neither sets. A single-valued key takes its last value, as `git config --get` does. A list comes whole from the first key with any values, as `config_chain_all` did, and is never merged across keys.
+
+| Field | Keys, in order | Notes |
+|---|---|---|
+| `branchPrefix` | `wt.branchPrefix`, `ryanmoelter-cli-tools.branchPrefix`, `stack.branchPrefix` | An empty value imports as "no prefix". |
+| `baseBranch` | `wt.baseBranch`, `ryanmoelter-cli-tools.baseBranch`, `stack.baseBranch` | An empty value is skipped, since Python fell back on it. |
+| `forge` | `wt.forge`, `ryanmoelter-cli-tools.forge`, `stack.forge` | `github`, `gitlab` or `none`, any case. Anything else is skipped. |
+| `nerdFont` | `wt.nerdFont`, `ryanmoelter-cli-tools.nerdFont`, `stack.nerdFont` | `true`/`yes`/`on`/`1` is true, any other value false, as `config_get_bool` read it. |
+| `protectedWorktrees` | `wt.protected`, `ryanmoelter-cli-tools.protectedWorktrees` | Multi-value (`git config --add`). `stack` had none. |
+| `ignoredPendingChecks` | `wt.ignoredPendingChecks`, `ryanmoelter-cli-tools.ignoredPendingChecks`, `stack.ignoredPendingChecks` | Multi-value. |
+
+`stack.githubStacksEnabled` is a cache, not a setting, and is not imported.
 
 ## Python to Swift
 
