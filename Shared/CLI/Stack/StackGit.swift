@@ -84,7 +84,7 @@ nonisolated final class ProcessStackGit: StackGit {
     }
 
     func localBranches() throws -> [String] {
-        let out = try git("for-each-ref", "refs/heads", "--format=%(refname:short)")
+        let out = try git("for-each-ref", "refs/heads", "--format=%(refname:lstrip=2)")
         return out.isEmpty ? [] : out.components(separatedBy: "\n")
     }
 
