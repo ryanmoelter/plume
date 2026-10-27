@@ -132,7 +132,7 @@ Prose selection spans rows, so the list owns it, not the rows (`Plume/UI/Chat/Se
 
 - **The selection is a model, not a view.** `ChatSelectionStore` holds anchor and focus as `ChatTextPosition`s: a piece id and a UTF-16 offset into that piece's `ChatSelectableText`. Freeing a row loses nothing, and copy serializes from the pieces, so unrealized rows copy too. When the pieces change, `ChatSelection.clamped` keeps both ends on surviving text. A piece that splits into segments, as a streaming list does, carries its ends into them.
 - **Each piece observes only its own share.** The store is not observable. It hands each realized piece an `@Observable` `PieceSelection`, created in `makeRoot` and never in a `body`, so a drag re-renders only the pieces whose range it changes.
-- **`ChatSelectionRenderer` draws it.** `RevealFade` attaches this `TextRenderer` to every selectable `Text`. It fills the selected glyphs' band on each line, paints inline code's rounded chips (`CodeChips`) over that, and then draws the reveal, or plain lines. Markdown outside the transcript is SwiftUI-selectable and so draws without a renderer; `InlineMarkdownText` gives its code a flat background instead.
+- **`ChatSelectionRenderer` draws it.** `RevealFade` attaches this `TextRenderer` to every selectable `Text`. It fills the selected glyphs' band on each line, paints inline chips (`InlineChips`: code spans and reference chips) over that, and then draws the reveal, or plain lines. Markdown outside the transcript is SwiftUI-selectable and so draws without a renderer; `InlineMarkdownText` gives its code a flat background instead.
 - **Hit-testing reads recorded layouts.** `ChatSelectionRecorder` stores each `Text`'s `Text.Layout` and row-space frame in `ChatTextLayoutRegistry` from preference and geometry callbacks, never from `body` or a draw. `CharacterIndex` restarts at each paragraph, so offsets go through `WordReveal.lineStarts`. A caret takes the nearest glyph boundary. A word lookup takes the glyph under the pointer, because the boundary after a word's last letter is already outside the word.
 - **A local event monitor tracks the mouse** (`ChatSelectionTracker`), because a drag crosses rows that come and go:
   - A plain click passes through, so links open and the composer keeps the keyboard.
@@ -141,6 +141,16 @@ Prose selection spans rows, so the list owns it, not the rows (`Plume/UI/Chat/Se
   - When the selection is dismissed, focus goes back to the nearest composer below the transcript.
   - A swallowed click is handed to `PaneClickProbe.observe`, or a split's pane focus would stay on the other pane.
 - **Copy writes markdown and RTF.** `ChatSelectionSerializer` rebuilds markdown for partial pieces from inline intents and block kind. A prompt copied with a reply becomes a blockquote. RTF carries font traits and links but no colors. Copy as Plain Text is in the context menu.
+
+## Reference chips
+
+A link to a Linear issue, a GitHub pull request or a local file renders as a chip: an icon for its state, then its title (PLUME-101). `ReferenceTarget.classify` decides what a link names, and `ReferenceChipStore` holds each target's title and icon.
+
+- **The title is written into the block text.** `ChatPieceCache` rewrites `[label](dest)` to `[\u{202F}title](dest)` when it builds pieces, with `dest` unchanged. The reveal, selection, hit-testing and copy all count characters, so they must all count the text the chip shows. Substituting the title at render time would put every one of them out of step with what is drawn.
+- **The U+202F placeholder marks a chip.** `MarkdownCache.chippedInline` makes a reference segment from a link run that opens with one, and kerns the placeholder wide enough to hold the icon. `InlineChips` fills the chip and draws the icon into that space from the `TextRenderer`.
+- **Copy restores what was written.** A whole piece copies its `copySource`, which `ReferenceChipText.restoringCanonical` keeps as the original link. A partial selection widens to whole chips; markdown gets `[canonical](dest)`, while plain text and RTF get the title.
+- **Titles land together, and settle.** The store publishes titles only at a coalesced flush, and bumps the revision `ChatMessageList` builds pieces at. A rebuild at a new revision settles every message that is not live, so a title arriving under an old message never replays its reveal. Icons come from per-target boxes and redraw on their own, without a rebuild.
+- **Lookups are per tab.** Linear issues go through `LinearStore.setWanted` under a per-tab owner. Pull requests go through `PullRequestLinkSource`, one `gh api graphql` query per repository, with its misses and its answers cached for a time. The composer draws the same chips from `MentionResolver` instead (`ComposerReferenceChips.swift`), with the text left untouched.
 
 ## The `chat-list` log category
 
