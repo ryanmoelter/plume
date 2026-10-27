@@ -295,18 +295,16 @@ struct WTListTests {
 
     // MARK: live print
 
-    private func printLive(_ completion: ScriptedFetchCompletion?, live: Bool = true, size: TerminalSize? = nil) -> String {
+    private func printLive(
+        _ completion: ScriptedFetchCompletion?,
+        rows: [WorktreeRow]? = nil,
+        live: Bool = true,
+        size: TerminalSize? = nil
+    ) -> String {
         let console = BufferConsole()
         let session = completion.map { PRFetchSession(completion: $0, numberPrefix: "#", forgeIcon: gh) }
-        WT.printListLive(rows, currentIndex: 0, fetch: session, trunkBranches: [], live: live, terminalSize: size, console: console)
+        WT.printListLive(rows ?? self.rows, currentIndex: 0, fetch: session, trunkBranches: [], live: live, terminalSize: size, console: console)
         return console.stdout
-    }
-
-    @Test func screenRowsCountWrappedLines() {
-        #expect(WT.screenRows(widths: [2, 4, 0], columns: nil) == 3)
-        #expect(WT.screenRows(widths: [2, 4], columns: 2) == 3)
-        #expect(WT.screenRows(widths: [3], columns: 2) == 2)
-        #expect(WT.screenRows(widths: [0], columns: 2) == 1)
     }
 
     @Test func displayWidthCountsWideGlyphsAsTwoColumns() {
@@ -341,16 +339,13 @@ struct WTListTests {
         #expect(!WT.redrawsInPlace(isTerminal: false, frameRows: 3, terminalRows: 24))
     }
 
-    @Test func aWrappedFrameRewindsEveryScreenRow() throws {
-        let loadingFrame = render(.loading, icon: gh)
-        let columns = 20
-        let expectedRows = WT.screenRows(
-            widths: WT.renderListLines(rows, currentIndex: 0, prState: .loading, prs: [:], numberPrefix: "#", forgeIcon: gh).map(\.width),
-            columns: columns
-        )
-        try #require(expectedRows > 3)
-        let out = printLive(ScriptedFetchCompletion(true, result: [:]), size: TerminalSize(columns: columns, rows: 100))
-        #expect(out.hasPrefix("\(loadingFrame)\n\u{1B}[\(expectedRows)A\u{1B}[J"))
+    @Test func aNarrowTerminalRewindsOneRowPerLine() throws {
+        let out = printLive(ScriptedFetchCompletion(true, result: [:]), rows: longRows, size: TerminalSize(columns: 60, rows: 100))
+        let frames = out.components(separatedBy: TerminalUI.redrawPrefix(lines: longRows.count))
+        try #require(frames.count == 2)
+        let loadingLines = frames[0].split(separator: "\n")
+        #expect(loadingLines.count == longRows.count)
+        #expect(loadingLines.allSatisfy { TerminalUI.displayWidth(String($0)) <= 60 })
     }
 
     @Test func aFrameTallerThanTheTerminalPrintsBelowTheLoadingFrame() {
@@ -440,5 +435,102 @@ struct WTListTests {
         let out = render(rows: [wtRow(longWorktree, "ryanm/feat", "")], cwd: longWorktree, .off, ui: ansi)
         #expect(out.contains("→"))
         #expect(out.hasPrefix(ANSI.bold))
+    }
+
+    // MARK: terminal width
+
+    private let longRows = [
+        wtRow("a-thirty-column-worktree-name-", "ryanm/a-forty-column-branch-name-to-test", "4", dirty: true, remoteAhead: 2, remoteBehind: 1),
+        wtRow("short", "ryanm/another-fairly-long-branch-name", ""),
+        wtRow("det", "abc123 (detached)", "0", hasUpstream: false),
+    ]
+
+    private func fitted(
+        _ rows: [WorktreeRow],
+        _ state: PRState,
+        _ prs: PullRequestMap = [:],
+        columns: Int?,
+        dirs: [String]? = nil,
+        ui: TerminalUI = .plain
+    ) -> [Chip] {
+        WT.renderListLines(
+            rows, currentIndex: 0, prState: state, prs: prs, numberPrefix: "#", forgeIcon: gh,
+            dirs: dirs, columns: columns, ui: ui
+        )
+    }
+
+    /// The `wait` chip is as wide as the PR column the fit reserves, so its
+    /// lines fill the terminal to the last column.
+    @Test func aTableFitsANarrowTerminalWithItsFixedColumnsIntact() {
+        let lines = fitted(longRows, .wait, columns: 60)
+        let widths = lines.map { TerminalUI.displayWidth($0.text) }
+        #expect(widths.max() == 60)
+        #expect(lines.map(\.width) == widths)
+        #expect(lines[0].text.contains("↗4 ↑2 ↓1 +"))
+        #expect(lines.prefix(2).allSatisfy { $0.text.hasSuffix("\(gh) \(netOff) \(notConnected)") })
+        #expect(lines[2].text.hasSuffix("  \(netOff)"))
+        #expect(lines[0].text.contains("…"))
+    }
+
+    @Test func aColoredTableFitsByItsVisibleColumns() {
+        let prs = [longRows[0].branch: WTFixtures.openPR]
+        let lines = fitted(longRows, .on, prs, columns: 60, ui: ansi)
+        #expect(lines.allSatisfy { TerminalUI.visibleWidth($0.text) <= 60 })
+        #expect(lines.map(\.width) == lines.map { TerminalUI.visibleWidth($0.text) })
+        #expect(ANSI.strip(lines[0].text).contains("#7 ◉"))
+    }
+
+    @Test func theWiderColumnShrinksFirst() throws {
+        let rows = [wtRow("twelve-chars", "ryanm/a-forty-column-branch-name-to-test", "")]
+        let natural = try #require(fitted(rows, .wait, columns: nil).first)
+        let line = try #require(fitted(rows, .wait, columns: natural.width - 10).first)
+        #expect(line.text.contains("twelve-chars  ryanm/a-forty-column-branch-n…  "))
+        #expect(line.width == natural.width - 10)
+    }
+
+    @Test func theFloorsGiveWayToCuttingTheLineTail() {
+        let lines = fitted(longRows, .wait, columns: 30)
+        #expect(lines.allSatisfy { TerminalUI.displayWidth($0.text) <= 30 })
+        #expect(lines[0].text.hasPrefix("→ a-thirt…  ryanm/a…  ↗4 ↑2 ↓…"))
+        #expect(lines[0].text.hasSuffix("…"))
+    }
+
+    @Test func aLongPathColumnIsCutAtTheTerminalWidth() {
+        let dirs = [".", ".plume/worktrees/short", "/a/very/long/path/that/runs/well/past/the/edge/of/the/screen"]
+        let lines = fitted(longRows, .wait, columns: 80, dirs: dirs)
+        #expect(lines.allSatisfy { TerminalUI.displayWidth($0.text) <= 80 })
+        #expect(lines[2].text.hasSuffix("…"))
+    }
+
+    @Test func theLoadingAndResolvedFramesShareColumnWidths() {
+        let prs = [longRows[0].branch: WTFixtures.openPR]
+        func beforePRColumn(_ chips: [Chip]) -> [String] {
+            chips.map { String($0.text.prefix { $0 != Character(gh) && $0 != Character(netOff) }) }
+        }
+        let loading = beforePRColumn(fitted(longRows, .loading, columns: 60))
+        #expect(loading == beforePRColumn(fitted(longRows, .on, prs, columns: 60)))
+        #expect(loading == beforePRColumn(fitted(longRows, .wait, columns: 60)))
+    }
+
+    @Test func pipedOutputIsNeverCut() {
+        let out = printLive(ScriptedFetchCompletion(true, result: [:]), rows: longRows, live: false, size: TerminalSize(columns: 60, rows: 100))
+        #expect(out.contains(longRows[0].name))
+        #expect(out.contains(longRows[0].branch))
+    }
+
+    @Test func aTerminalWithNoForgeStillFits() {
+        let out = printLive(nil, rows: longRows, size: TerminalSize(columns: 50, rows: 100))
+        #expect(out.split(separator: "\n").allSatisfy { TerminalUI.displayWidth(String($0)) <= 50 })
+        #expect(out.contains("…"))
+    }
+
+    @Test func jsonIsNeverCutOnANarrowTerminal() throws {
+        let ctx = FakeWTContext(worktrees: longRows, current: "short")
+        ctx.buffer.stdoutIsTerminal = true
+        ctx.buffer.terminalSize = TerminalSize(columns: 40, rows: 100)
+        try WT.list(ctx, ["--json"])
+        let payload = try #require(jsonObject(ctx.buffer.stdout))
+        #expect(worktrees(payload).compactMap { $0["name"] as? String } == longRows.map(\.name))
+        #expect(worktrees(payload).compactMap { $0["branch"] as? String } == longRows.map(\.branch))
     }
 }

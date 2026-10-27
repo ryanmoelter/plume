@@ -261,4 +261,69 @@ struct TerminalUITests {
     @Test func redrawMovesUpByTheLineCountAndClears() {
         #expect(TerminalUI.redrawPrefix(lines: 3) == "\u{1B}[3A\u{1B}[J")
     }
+
+    // MARK: truncation
+
+    @Test func textThatFitsIsNotCut() {
+        #expect(TerminalUI.truncate("feature", toWidth: 7) == "feature")
+        #expect(TerminalUI.truncate("", toWidth: 0) == "")
+    }
+
+    @Test func asciiIsCutWithAnEllipsis() {
+        #expect(TerminalUI.truncate("feature-branch", toWidth: 8) == "feature…")
+        #expect(TerminalUI.truncate("feature", toWidth: 1) == "…")
+        #expect(TerminalUI.truncate("feature", toWidth: 0) == "")
+    }
+
+    /// A wide glyph that would straddle the cut is dropped whole, so the
+    /// result can be a column short of the width.
+    @Test func wideGlyphsAreNeverSplit() {
+        #expect(TerminalUI.truncate("日本語の名前", toWidth: 6) == "日本…")
+        #expect(TerminalUI.truncate("日本語の名前", toWidth: 5) == "日本…")
+        #expect(TerminalUI.truncate("日本語の名前", toWidth: 4) == "日…")
+    }
+
+    @Test func emojiGraphemesStayWhole() {
+        let family = "👨‍👩‍👧"
+        #expect(TerminalUI.truncate("🚀rocket", toWidth: 4) == "🚀r…")
+        #expect(TerminalUI.truncate("\(family)\(family)x", toWidth: 4) == "\(family)…")
+        #expect(TerminalUI.truncate("a🚀🚀", toWidth: 4) == "a🚀…")
+    }
+
+    @Test func escapesTakeNoColumnsAndSurviveTheCut() {
+        let colored = "\(ansi.green)feature-branch\(ansi.reset)"
+        #expect(TerminalUI.truncate(colored, toWidth: 14) == colored)
+        #expect(TerminalUI.truncate(colored, toWidth: 8) == "\(ansi.green)feature…\(ansi.reset)")
+    }
+
+    @Test func aHyperlinkedCellKeepsItsLinkAndCutsItsText() {
+        let url = "https://example.test/pull/12345"
+        let cell = ansi.hyperlink("a-long-branch-name", url: url)
+        let cut = TerminalUI.truncate(cell, toWidth: 7)
+        #expect(cut == ansi.hyperlink("a-long…", url: url))
+        #expect(TerminalUI.visibleWidth(cut) == 7)
+    }
+
+    @Test func visibleWidthSkipsEscapes() {
+        #expect(TerminalUI.visibleWidth("\(ansi.bold)日本\(ansi.reset) \(ansi.hyperlink("#7", url: "https://x.test"))") == 7)
+    }
+
+    @Test func fittingShrinksTheWiderColumnFirst() {
+        let fitted = TerminalUI.fitColumns([10, 30], floor: 8) { $0.reduce(0, +) <= 35 }
+        #expect(fitted == [10, 25])
+    }
+
+    @Test func fittingSharesTheOverflowOnceTheColumnsMeet() {
+        let fitted = TerminalUI.fitColumns([20, 30], floor: 8) { $0.reduce(0, +) <= 30 }
+        #expect(fitted == [15, 15])
+    }
+
+    @Test func fittingStopsAtTheFloor() {
+        #expect(TerminalUI.fitColumns([20, 30], floor: 8) { $0.reduce(0, +) <= 4 } == [8, 8])
+        #expect(TerminalUI.fitColumns([5, 30], floor: 8) { $0.reduce(0, +) <= 4 } == [5, 8])
+    }
+
+    @Test func columnsThatFitAreLeftAlone() {
+        #expect(TerminalUI.fitColumns([20, 30], floor: 8) { $0.reduce(0, +) <= 50 } == [20, 30])
+    }
 }

@@ -143,6 +143,8 @@ nonisolated extension WT {
     /// Worktree and branch names past this many columns are cut with an
     /// ellipsis, so one long name can't blow out the table.
     static let nameMax = 40
+    /// The narrowest a terminal's width cuts the name and branch columns to.
+    static let fittedColumnFloor = 8
     /// `--json` can wait longer than the table for PR status.
     static let jsonPRWait: TimeInterval = 3
     /// The table never waits on the forge, so the fetch gets a generous
@@ -171,12 +173,6 @@ nonisolated extension WT {
             let color = segment.hasPrefix(TerminalUI.ahead) ? ui.dim : ui.green
             return "\(color)\(segment)\(ui.reset)"
         }.joined(separator: " ")
-    }
-
-    /// `s` cut to `cap` columns, ending in an ellipsis when cut.
-    static func truncate(_ s: String, cap: Int) -> String {
-        if s.count <= cap { return s }
-        return cap >= 1 ? String(s.prefix(cap - 1)) + "…" : ""
     }
 
     /// `value` as one line of JSON, slashes unescaped. Keys are sorted:
@@ -256,6 +252,12 @@ nonisolated extension WT {
     }
 
     /// One chip per table line, with the columns the line occupies on screen.
+    ///
+    /// `columns`, the terminal's width, caps every line. The name and branch
+    /// columns narrow to fit (`TerminalUI.fitColumns`, down to
+    /// `fittedColumnFloor`), and a line still too wide is cut at its tail.
+    /// The fit reserves the widest PR column any fetch state could print, so
+    /// the loading frame and the resolved one share their column widths.
     static func renderListLines(
         _ rows: [WorktreeRow],
         currentIndex: Int?,
@@ -265,46 +267,67 @@ nonisolated extension WT {
         forgeIcon: String? = nil,
         trunkBranches: Set<String> = [],
         dirs: [String]? = nil,
+        columns: Int? = nil,
         ui: TerminalUI = .plain
     ) -> [Chip] {
-        let names = rows.map { truncate($0.name, cap: nameMax) }
-        let maxName = names.map(TerminalUI.displayWidth).max() ?? 0
-
-        func cluster(_ row: WorktreeRow) -> String {
-            statusCluster(ahead: row.ahead, dirty: row.dirty, remoteAhead: row.remoteAhead, remoteBehind: row.remoteBehind)
+        let names = rows.map { TerminalUI.truncate($0.name, toWidth: nameMax) }
+        let branches = rows.map { TerminalUI.truncate($0.branch, toWidth: nameMax) }
+        let clusters = rows.map {
+            statusCluster(ahead: $0.ahead, dirty: $0.dirty, remoteAhead: $0.remoteAhead, remoteBehind: $0.remoteBehind)
         }
+        let prChips = rows.map { row -> Chip in
+            if !row.hasUpstream, prState != .off {
+                // A branch never pushed can't have a PR, whatever the fetch says.
+                return ui.branchPRChip(nil, hasUpstream: false, forgeIcon: forgeIcon, numberPrefix: numberPrefix)
+            }
+            switch prState {
+            case .on:
+                let pr = trunkBranches.contains(row.branch) ? nil : prs[row.branch]
+                return ui.branchPRChip(pr, hasUpstream: row.hasUpstream, forgeIcon: forgeIcon, numberPrefix: numberPrefix)
+            case .loading: return ui.loadingChip(forgeIcon: forgeIcon)
+            case .wait: return ui.netOffChip(forgeIcon: forgeIcon, failed: false)
+            case .error: return ui.netOffChip(forgeIcon: forgeIcon, failed: true)
+            case .off: return Chip(text: "", width: 0)
+            }
+        }
+
         /// "<branch>  <cluster>", or the bare branch with no cluster.
         func fieldWidth(_ branch: String, _ plain: String) -> Int {
             TerminalUI.displayWidth(branch) + (plain.isEmpty ? 0 : 2 + TerminalUI.displayWidth(plain))
         }
-        let maxBranchStatus = rows.map { fieldWidth(truncate($0.branch, cap: nameMax), cluster($0)) }.max() ?? 0
 
-        return rows.enumerated().map { index, row in
+        var nameColumn = names.map(TerminalUI.displayWidth).max() ?? 0
+        var branchColumn = branches.map(TerminalUI.displayWidth).max() ?? 0
+        if let columns {
+            var prColumn = prChips.map(\.width).max() ?? 0
+            if prState != .off, rows.contains(where: \.hasUpstream) {
+                prColumn = max(prColumn, ui.netOffChip(forgeIcon: forgeIcon, failed: false).width)
+            }
+            let fitted = TerminalUI.fitColumns([nameColumn, branchColumn], floor: fittedColumnFloor) { widths in
+                let field = zip(branches, clusters).map { branch, plain in
+                    min(TerminalUI.displayWidth(branch), widths[1]) + fieldWidth("", plain)
+                }.max() ?? 0
+                return 2 + widths[0] + 2 + field + 2 + prColumn <= columns
+            }
+            nameColumn = fitted[0]
+            branchColumn = fitted[1]
+        }
+        let fittedNames = names.map { TerminalUI.truncate($0, toWidth: nameColumn) }
+        let fittedBranches = branches.map { TerminalUI.truncate($0, toWidth: branchColumn) }
+        let maxName = fittedNames.map(TerminalUI.displayWidth).max() ?? 0
+        let maxBranchStatus = zip(fittedBranches, clusters).map(fieldWidth).max() ?? 0
+
+        return rows.indices.map { index in
             let isCurrent = index == currentIndex
-            let branchName = truncate(row.branch, cap: nameMax)
-            let plain = cluster(row)
+            let branchName = fittedBranches[index]
+            let plain = clusters[index]
+            let prChip = prChips[index]
             let branchStatus = plain.isEmpty ? branchName : "\(branchName)  \(colorizeCluster(plain, ui: ui))"
             // Padded by the plain width: the colored cluster's escapes take no columns.
             let pad = String(repeating: " ", count: maxBranchStatus - fieldWidth(branchName, plain))
 
-            let prChip: Chip
-            if !row.hasUpstream, prState != .off {
-                // A branch never pushed can't have a PR, whatever the fetch says.
-                prChip = ui.branchPRChip(nil, hasUpstream: false, forgeIcon: forgeIcon, numberPrefix: numberPrefix)
-            } else {
-                switch prState {
-                case .on:
-                    let pr = trunkBranches.contains(row.branch) ? nil : prs[row.branch]
-                    prChip = ui.branchPRChip(pr, hasUpstream: row.hasUpstream, forgeIcon: forgeIcon, numberPrefix: numberPrefix)
-                case .loading: prChip = ui.loadingChip(forgeIcon: forgeIcon)
-                case .wait: prChip = ui.netOffChip(forgeIcon: forgeIcon, failed: false)
-                case .error: prChip = ui.netOffChip(forgeIcon: forgeIcon, failed: true)
-                case .off: prChip = Chip(text: "", width: 0)
-                }
-            }
-
-            let nameWidth = TerminalUI.displayWidth(names[index])
-            let paddedName = names[index] + String(repeating: " ", count: maxName - nameWidth)
+            let nameWidth = TerminalUI.displayWidth(fittedNames[index])
+            let paddedName = fittedNames[index] + String(repeating: " ", count: maxName - nameWidth)
             var line = "\(isCurrent ? "→" : " ") \(paddedName)  \(branchStatus)\(pad)  \(prChip.text)"
             var width = 2 + maxName + 2 + maxBranchStatus + 2 + prChip.width
             if let dirs {
@@ -318,6 +341,10 @@ nonisolated extension WT {
             if isCurrent, !ui.reset.isEmpty {
                 // Each interior reset also clears bold, so bold is re-armed after it.
                 line = ui.bold + line.replacingOccurrences(of: ui.reset, with: ui.reset + ui.bold) + ui.reset
+            }
+            if let columns, width > columns {
+                line = TerminalUI.truncate(line, toWidth: columns)
+                width = TerminalUI.visibleWidth(line)
             }
             return Chip(text: line, width: width)
         }
@@ -353,11 +380,11 @@ nonisolated extension WT {
 
     /// Prints the table, filling in the PR column when the fetch lands.
     ///
-    /// `live` (stdout is a terminal) paints a loading frame at once and
-    /// redraws it in place when the fetch resolves or its budget runs out.
-    /// A frame that doesn't fit `terminalSize` can't be rewound, so the
-    /// resolved one prints below it. Otherwise it waits the whole budget and
-    /// prints one frame.
+    /// `live` (stdout is a terminal) fits the table to `terminalSize`, paints
+    /// a loading frame at once, and redraws it in place when the fetch
+    /// resolves or its budget runs out. A frame too tall for the terminal
+    /// can't be rewound, so the resolved one prints below it. Otherwise it
+    /// waits the whole budget and prints one frame, never cut.
     static func printListLive(
         _ rows: [WorktreeRow],
         currentIndex: Int?,
@@ -369,35 +396,33 @@ nonisolated extension WT {
         ui: TerminalUI = .plain,
         console: any CLIConsole
     ) {
+        func table(_ state: PRState, _ prs: PullRequestMap) -> String {
+            renderListLines(
+                rows, currentIndex: currentIndex, prState: state, prs: prs, numberPrefix: fetch?.numberPrefix ?? "#",
+                forgeIcon: fetch?.forgeIcon, trunkBranches: trunkBranches, dirs: dirs,
+                columns: live ? terminalSize?.columns : nil, ui: ui
+            ).map(\.text).joined(separator: "\n")
+        }
+
         guard let fetch else {
-            console.print(renderList(rows, currentIndex: currentIndex, prState: .off, prs: [:], numberPrefix: "#", trunkBranches: trunkBranches, dirs: dirs, ui: ui))
+            console.print(table(.off, [:]))
             return
         }
-
-        func table(_ state: PRState, _ prs: PullRequestMap) -> [Chip] {
-            renderListLines(
-                rows, currentIndex: currentIndex, prState: state, prs: prs, numberPrefix: fetch.numberPrefix,
-                forgeIcon: fetch.forgeIcon, trunkBranches: trunkBranches, dirs: dirs, ui: ui
-            )
-        }
-        func text(_ chips: [Chip]) -> String { chips.map(\.text).joined(separator: "\n") }
-
         guard live else {
             let resolved = collectPRs(fetch, timeout: listPRTotal)
-            console.print(text(table(resolved.state, resolved.prs)))
+            console.print(table(resolved.state, resolved.prs))
             return
         }
 
-        let provisional = table(.loading, [:])
-        let provisionalRows = screenRows(widths: provisional.map(\.width), columns: terminalSize?.columns)
-        console.print(text(provisional))
+        console.print(table(.loading, [:]))
         let resolved = collectPRs(fetch, timeout: listPRTotal)
-        if redrawsInPlace(isTerminal: live, frameRows: provisionalRows, terminalRows: terminalSize?.rows) {
+        // A fitted line never wraps, so the frame is one screen row per worktree.
+        if redrawsInPlace(isTerminal: live, frameRows: rows.count, terminalRows: terminalSize?.rows) {
             // Clearing to the end of the screen also clears what is left of a
             // longer old line, since column widths change once PRs arrive.
-            console.write(TerminalUI.redrawPrefix(lines: provisionalRows))
+            console.write(TerminalUI.redrawPrefix(lines: rows.count))
         }
-        console.print(text(table(resolved.state, resolved.prs)))
+        console.print(table(resolved.state, resolved.prs))
     }
 
     /// Whether a frame `frameRows` tall can be painted and then redrawn.
@@ -407,13 +432,6 @@ nonisolated extension WT {
         guard isTerminal else { return false }
         guard let terminalRows else { return true }
         return frameRows < terminalRows
-    }
-
-    /// The screen rows lines of the given display `widths` fill, wrapping at
-    /// `columns`. Nil `columns` counts lines.
-    static func screenRows(widths: [Int], columns: Int?) -> Int {
-        guard let columns, columns > 0 else { return widths.count }
-        return widths.reduce(0) { $0 + max(1, ($1 + columns - 1) / columns) }
     }
 
     /// The fetch's column state once it lands, or `wait` past `timeout`.

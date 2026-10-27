@@ -313,13 +313,113 @@ nonisolated struct TerminalUI: Equatable, Sendable {
         }
     }
 
-    /// Rewinds over an `lines`-tall block already printed: cursor up, then
-    /// clear to the end of the screen.
     /// Terminal columns `text` occupies: East Asian wide and emoji graphemes
     /// take two, everything else one. Counts no escapes, since callers pass
     /// plain text.
     static func displayWidth(_ text: String) -> Int {
-        text.reduce(0) { $0 + (isWide($1) ? 2 : 1) }
+        text.reduce(0) { $0 + columns(of: $1) }
+    }
+
+    /// `displayWidth` of the text left once ANSI and OSC 8 escapes are
+    /// skipped.
+    static func visibleWidth(_ text: String) -> Int {
+        segments(of: text).reduce(0) { total, segment in
+            if case .glyph(let character) = segment { total + columns(of: character) } else { total }
+        }
+    }
+
+    /// `text` cut to at most `width` visible columns, ending in `…` when cut.
+    /// Every escape survives the cut, so a color still resets and a
+    /// hyperlink still closes around the shortened text.
+    static func truncate(_ text: String, toWidth width: Int) -> String {
+        let parts = segments(of: text)
+        guard visibleWidth(text) > width else { return text }
+        var result = ""
+        var used = 0
+        var cut = false
+        for segment in parts {
+            switch segment {
+            case .escape(let sequence):
+                result += sequence
+            case .glyph(let character):
+                guard !cut else { continue }
+                if used + columns(of: character) < width {
+                    result.append(character)
+                    used += columns(of: character)
+                } else {
+                    cut = true
+                    if width > 0 { result += "…" }
+                }
+            }
+        }
+        return result
+    }
+
+    /// `widths` narrowed one column at a time, always the widest, until
+    /// `fits` accepts them. No column goes below `floor`, and one already
+    /// narrower keeps its width, so the result can still fail `fits`.
+    static func fitColumns(_ widths: [Int], floor: Int, fits: ([Int]) -> Bool) -> [Int] {
+        var widths = widths
+        while !fits(widths) {
+            guard let widest = widths.indices.filter({ widths[$0] > floor }).max(by: { widths[$0] < widths[$1] }) else { break }
+            widths[widest] -= 1
+        }
+        return widths
+    }
+
+    private enum Segment {
+        case glyph(Character)
+        case escape(String)
+    }
+
+    /// `text` split into graphemes and whole escape sequences: CSI
+    /// (`ESC [` up to a final byte) and OSC (`ESC ]` up to BEL or `ESC \`).
+    private static func segments(of text: String) -> [Segment] {
+        let characters = Array(text)
+        var segments: [Segment] = []
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            index += 1
+            guard character == "\u{1B}", index < characters.count else {
+                segments.append(.glyph(character))
+                continue
+            }
+            var sequence = String(character)
+            let kind = characters[index]
+            sequence.append(kind)
+            index += 1
+            if kind == "[" {
+                while index < characters.count {
+                    let next = characters[index]
+                    sequence.append(next)
+                    index += 1
+                    if let value = next.unicodeScalars.first?.value, (0x40...0x7E).contains(value) { break }
+                }
+            } else if kind == "]" {
+                while index < characters.count {
+                    let next = characters[index]
+                    if next == "\u{07}" {
+                        sequence.append(next)
+                        index += 1
+                        break
+                    }
+                    if next == "\u{1B}", index + 1 < characters.count, characters[index + 1] == "\\" {
+                        sequence += "\u{1B}\\"
+                        index += 2
+                        break
+                    }
+                    sequence.append(next)
+                    index += 1
+                }
+            }
+            segments.append(.escape(sequence))
+        }
+        return segments
+    }
+
+    private static func columns(of character: Character) -> Int {
+        isWide(character) ? 2 : 1
     }
 
     private static func isWide(_ character: Character) -> Bool {
@@ -337,6 +437,8 @@ nonisolated struct TerminalUI: Equatable, Sendable {
         }
     }
 
+    /// Rewinds over an `lines`-tall block already printed: cursor up, then
+    /// clear to the end of the screen.
     static func redrawPrefix(lines: Int) -> String {
         "\u{1B}[\(lines)A\u{1B}[J"
     }
