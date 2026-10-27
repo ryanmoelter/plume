@@ -56,6 +56,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     @State private var shownPieces: [ChatPiece] = []
     /// Only for a list with no tab; a tab's cache outlives this view.
     @State private var untabbedCache = ChatPieceCache()
+    /// The reference revision the pieces were last built at.
+    @State private var builtReferenceRevision = 0
     /// The agent messages the reader has opened past their preview. View
     /// state only: every message starts collapsed again in a new view.
     @State private var expandedAgentMessages: Set<String> = []
@@ -175,6 +177,11 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         .onChange(of: pendingToolUseIDs) { rebuildPieces() }
         .background { LiveMessageObserver(tabID: tabID, onChange: scheduleStreamRebuild) }
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
+        .onChange(of: referenceRevision) { rebuildPieces() }
+        .onChange(of: linkDirectory) { rebuildPieces() }
+        .onDisappear {
+            if let tabID { ReferenceChipStore.shared.release(owner: tabID) }
+        }
         #if DEBUG
         .task(id: pieces.count) {
             await ScrollExercise.run(pieceIDs: pieces.map(\.id)) { id in
@@ -225,22 +232,36 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         }
     }
 
+    private var referenceRevision: Int {
+        tabID.map { ReferenceChipStore.shared.revision(for: $0) } ?? 0
+    }
+
     private func rebuildPieces() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
         let cache = tabID.map(ChatPieceCache.forTab) ?? untabbedCache
+        let store = ReferenceChipStore.shared
+        let revision = referenceRevision
         let split = { (status: TaskStatus) in
             cache.pieces(
                 for: merged,
                 status: status,
                 hiddenToolUseIDs: pendingToolUseIDs,
                 expandedAgentMessages: expandedAgentMessages,
-                dimensions: dimensions
+                dimensions: dimensions,
+                referenceRevision: revision,
+                linkBase: linkDirectory,
+                referenceTitle: { store.title(for: $0) }
             )
         }
         var rebuilt = split(status)
+        if let tabID { store.want(cache.referenceTargets, owner: tabID) }
+        // A title arriving grows a finished message without anything new
+        // being written, so it shows at once rather than revealing again.
+        let settling = revision == builtReferenceRevision ? [] : Set(merged.lazy.filter { !$0.isLive }.map(\.id))
+        builtReferenceRevision = revision
         // Before the pieces reach the list, so a new message's rows mount
         // with its reveal already in place.
-        revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt))
+        revealModel?.update(targets: ChatReveal.targets(of: merged, pieces: rebuilt), settling: settling)
         let turnEnded = status == .awaitingReply || status == .waitingOnSubagents
         heldTurnTargets = turnEnded ? revealModel?.unsettledTargets ?? [:] : [:]
         if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }

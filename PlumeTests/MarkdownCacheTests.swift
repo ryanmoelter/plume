@@ -173,6 +173,29 @@ struct MarkdownCacheTests {
         #expect(!MarkdownCache.chippedInline("Plain **prose**.", fontSize: 16).hasCode)
     }
 
+    @Test func aPlaceholderLedLinkIsAReferenceChip() throws {
+        let url = try #require(URL(string: "https://github.com/o/r/pull/7"))
+        let styled = MarkdownCache.chippedInline("See [\u{202F}Fix it](\(url)) and `x` and [plain](\(url)).", fontSize: 16)
+
+        #expect(styled.segments.map(\.chip) == [nil, .reference(id: 0, url: url), nil, .code(id: 1), nil])
+        #expect(styled.referenceURLs == [url])
+        #expect(styled.hasChips)
+        #expect(styled.plainText == "See \u{202F}Fix it and x and plain.")
+    }
+
+    @Test func aReferenceChipKernsItsPlaceholderAndEitherSide() throws {
+        let styled = MarkdownCache.chippedInline("See [\u{202F}Fix it](https://github.com/o/r/pull/7) now", fontSize: 16)
+        let chip = styled.segments[1].text
+        let lastKern = { (text: AttributedString) in
+            text.runs[text.characters.index(before: text.endIndex)].kern
+        }
+
+        #expect(lastKern(styled.segments[0].text) == styled.pad)
+        #expect(chip.runs[chip.startIndex].kern == ReferenceChipMetrics(fontSize: 16).placeholderKern)
+        #expect(lastKern(chip) == styled.pad)
+        #expect(styled.segments[2].text.runs.allSatisfy { $0.kern == nil })
+    }
+
     @Test func uppercasingKeepsTheChips() {
         let styled = MarkdownCache.chippedInline("See `make build` above", fontSize: 16).uppercased()
 

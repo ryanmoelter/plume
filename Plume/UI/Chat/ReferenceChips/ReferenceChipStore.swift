@@ -64,6 +64,8 @@ final class ReferenceChipStore {
     @ObservationIgnored private var inFlight: Set<ReferenceTarget> = []
     @ObservationIgnored private var pendingPullRequests: Set<ReferenceTarget> = []
     @ObservationIgnored private var pendingOwners: Set<UUID> = []
+    @ObservationIgnored private var titles: [ReferenceTarget: String] = [:]
+    @ObservationIgnored private var pendingTitles: Set<ReferenceTarget> = []
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var pullRequestTask: Task<Void, Never>?
     @ObservationIgnored private var flushTask: Task<Void, Never>?
@@ -76,8 +78,10 @@ final class ReferenceChipStore {
 
     // MARK: - Reading
 
+    /// Changes only when the revisions of the owners showing it bump, so a
+    /// rebuild that sees a new title always sees a new revision too.
     func title(for target: ReferenceTarget) -> String? {
-        box(for: target).resolution?.title
+        titles[target]
     }
 
     /// Nil for a target nothing has vouched for yet.
@@ -234,8 +238,9 @@ final class ReferenceChipStore {
         let titleChanged = box.resolution?.title != resolution?.title
         box.resolution = resolution
         guard titleChanged else { return }
+        pendingTitles.insert(target)
         for (owner, targets) in wants where targets.contains(target) { pendingOwners.insert(owner) }
-        if !pendingOwners.isEmpty, flushTask == nil { scheduleFlush() }
+        if flushTask == nil { scheduleFlush() }
     }
 
     private func scheduleFlush() {
@@ -243,6 +248,8 @@ final class ReferenceChipStore {
         flushTask = Task { [weak self] in
             await sleep(Self.coalescing)
             guard let self else { return }
+            for target in pendingTitles { titles[target] = box(for: target).resolution?.title }
+            pendingTitles = []
             let owners = pendingOwners
             pendingOwners = []
             for owner in owners where wants[owner] != nil { revisionBox(for: owner).value += 1 }

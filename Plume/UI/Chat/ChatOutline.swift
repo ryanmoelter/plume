@@ -267,7 +267,7 @@ enum ChatOutlineBuilder {
             }
             return content.isUserProse ? .prompt(firstLine(of: text)) : nil
         case .markdown, .codeSegment, .listSegment, .image:
-            return .prompt(firstLine(of: promptText(of: piece)))
+            return .prompt(firstLine(of: promptText(of: piece).replacingOccurrences(of: String(ReferenceChipText.placeholder), with: "")))
         default:
             return nil
         }

@@ -105,6 +105,7 @@ struct ReferenceChipStoreTests {
         store.want([.file(path: "/repo/Notes.md"), .pullRequest(owner: "o", repo: "r", number: 7)], owner: ownerA)
         await store.lookupsSettled()
         #expect(store.revision(for: ownerA) == 0)
+        #expect(store.title(for: .file(path: "/repo/Notes.md")) == nil)
         gate.open()
         await store.settled()
         #expect(store.revision(for: ownerA) == 1)
@@ -120,7 +121,7 @@ struct ReferenceChipStoreTests {
         #expect(store.title(for: target) == nil)
 
         linear.issues["A-1"] = issue("A-1", title: "Add chips")
-        for _ in 0..<1000 where store.title(for: target) == nil { await Task.yield() }
+        for _ in 0..<1000 where store.icon(for: target) == nil { await Task.yield() }
         await store.settled()
         #expect(store.title(for: target) == "Add chips")
         #expect(store.revision(for: ownerA) == 1)

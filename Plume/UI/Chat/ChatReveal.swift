@@ -712,11 +712,11 @@ extension View {
     }
 
     /// Fades this `Text`, built by `styled.text()`, in behind the reveal
-    /// with its code chips painted beneath.
-    func revealFade(_ styled: StyledInline, chipFill: Color) -> some View {
+    /// with its chips painted beneath.
+    func revealFade(_ styled: StyledInline, chipFill: Color, references: ReferenceChipDrawing? = nil) -> some View {
         modifier(RevealFade(
             text: styled.plainText,
-            chips: styled.hasCode ? CodeChips(pad: styled.pad, fill: chipFill) : nil
+            chips: styled.hasChips ? InlineChips(pad: styled.pad, fill: chipFill, references: references) : nil
         ))
     }
 
@@ -728,7 +728,7 @@ extension View {
 
 private struct RevealFade: ViewModifier {
     let text: String
-    var chips: CodeChips?
+    var chips: InlineChips?
     @Environment(\.chatReveal) private var context
     @Environment(\.chatSelectionSpan) private var span
     @Environment(\.theme) private var theme
@@ -764,7 +764,7 @@ private struct RevealFade: ViewModifier {
             let reveal = renderer(state: state, start: start, length: length, values: tuning.values)
             if let chips {
                 content
-                    .textRenderer(CodeChipRenderer(chips: chips, reveal: reveal))
+                    .textRenderer(InlineChipRenderer(chips: chips, reveal: reveal))
                     .textSelection(.disabled)
             } else {
                 content
@@ -773,7 +773,7 @@ private struct RevealFade: ViewModifier {
             }
         } else if let chips {
             // Draws only where nothing above made this text selectable.
-            content.textRenderer(CodeChipRenderer(chips: chips))
+            content.textRenderer(InlineChipRenderer(chips: chips))
         } else {
             content
         }

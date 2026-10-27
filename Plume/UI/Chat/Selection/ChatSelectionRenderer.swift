@@ -13,7 +13,7 @@ struct ChatSelectionRenderer: TextRenderer {
     var selected: Range<Int>?
     var highlight: Color
     var text: String
-    var chips: CodeChips?
+    var chips: InlineChips?
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         if let selected, !selected.isEmpty { fillSelection(selected, layout: layout, in: &ctx) }
