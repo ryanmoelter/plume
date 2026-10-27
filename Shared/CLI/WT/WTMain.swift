@@ -43,6 +43,12 @@ nonisolated extension WT {
                 usage(console: console, ui: ui)
                 if arguments.isEmpty { throw CLIFailure(nil) }
                 return CLIExitCode.success
+            } catch is CLIFailure where arguments.first == "__complete" {
+                // Completion runs on every Tab press, in any directory.
+                return CLIExitCode.success
+            } catch let failure as CLIFailure where arguments.first == "current" {
+                if currentOutsideRepository(Array(arguments.dropFirst()), console: console) { return CLIExitCode.success }
+                throw failure
             }
             try run(ctx, arguments)
             return CLIExitCode.success

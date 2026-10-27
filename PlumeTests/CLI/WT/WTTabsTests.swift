@@ -175,9 +175,11 @@ struct WTTabsTests {
         #expect(failure?.message == """
             switch needs a shell wrapper to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
 
-              eval "$(plume init zsh)"
+              eval "$(plume init zsh --aliases)"
 
-            Then reload. For a plain path (scripts, other shells), use `plume wt path`.
+            That wraps `plume wt switch`; `--aliases` also defines a bare `wt` that goes
+            through the wrapper, so leave it off if you only run `plume wt`. Then reload.
+            For a plain path (scripts, other shells), use `plume wt path`.
             """)
         #expect(ctx.recordingTabs.opened.isEmpty)
     }

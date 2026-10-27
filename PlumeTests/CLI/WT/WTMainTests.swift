@@ -47,6 +47,42 @@ struct WTMainTests {
         #expect(console.stderr == "wt: not inside a git repo\n")
     }
 
+    @Test func currentJSONOutsideARepositoryPrintsNullsAndSucceeds() throws {
+        let directory = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let console = BufferConsole()
+
+        let status = WT.main(["current", "--json"], environment: [:], console: console, version: nil, git: ProcessWorktreeGit(workingDirectory: directory))
+
+        #expect(status == 0)
+        let expected: NSDictionary = ["worktree": NSNull(), "branch": NSNull(), "path": NSNull(), "root": NSNull(), "layout": NSNull()]
+        #expect(jsonObject(console.stdout) == expected)
+        #expect(console.stderr.isEmpty)
+    }
+
+    @Test func currentWithoutJSONOutsideARepositoryStillFails() throws {
+        let directory = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let console = BufferConsole()
+
+        let status = WT.main(["current"], environment: [:], console: console, version: nil, git: ProcessWorktreeGit(workingDirectory: directory))
+
+        #expect(status == 1)
+        #expect(console.stderr == "wt: not inside a git repo\n")
+    }
+
+    @Test func completeOutsideARepositoryPrintsNothingAndSucceeds() throws {
+        let directory = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let console = BufferConsole()
+
+        let status = WT.main(["__complete", "worktrees"], environment: [:], console: console, version: nil, git: ProcessWorktreeGit(workingDirectory: directory))
+
+        #expect(status == 0)
+        #expect(console.stdout.isEmpty)
+        #expect(console.stderr.isEmpty)
+    }
+
     @Test func anUnknownSubcommandFailsNamingIt() {
         #expect(cliFailure { try WT.run(FakeWTContext(), ["bogus"]) }?.message == "unknown subcommand: bogus (try -h)")
     }

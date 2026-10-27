@@ -10,6 +10,8 @@ nonisolated struct PruneCandidate: Equatable, Sendable {
     var pr: PullRequest?
     /// `merged`, `closed`, or `merged into <base>`.
     var reason: String
+    /// Why it is listed but kept, such as commits its PR doesn't have.
+    var skipNote: String? = nil
 }
 
 /// A local branch with no worktree that `wt prune` offers to delete.
@@ -17,6 +19,7 @@ nonisolated struct BareBranchCandidate: Equatable, Sendable {
     var branch: String
     var pr: PullRequest?
     var reason: String
+    var skipNote: String? = nil
 }
 
 nonisolated extension WT {
@@ -27,10 +30,31 @@ nonisolated extension WT {
         git.isAncestor(branch, of: baseRef)
     }
 
-    /// Why a branch is prunable, or nil when it isn't.
-    private static func mergeReason(_ pr: PullRequest?, branch: String, baseBranch: String, locallyMerged: (String) -> Bool) -> String? {
-        if let pr, pr.state == .merged || pr.state == .closed { return pr.state.rawValue.lowercased() }
-        if locallyMerged(branch) { return "merged into \(baseBranch)" }
+    /// Whether the PR's head commit holds every commit on `branch`: the
+    /// branch's head equals `headOid` or is an ancestor of it. A head git
+    /// doesn't have locally counts as not containing it.
+    static func isWithinPRHead(_ git: any WorktreeGit, branch: String, headOid: String) -> Bool {
+        let ref = "refs/heads/\(branch)"
+        return git.revParse(ref) == headOid || git.isAncestor(ref, of: headOid)
+    }
+
+    /// Why a branch is prunable, or nil when it isn't. A merged or closed
+    /// PR's branch is still listed but kept, with a note, when it has commits
+    /// the PR doesn't, unless the base already contains them.
+    private static func mergeVerdict(
+        _ pr: PullRequest?,
+        branch: String,
+        baseBranch: String,
+        locallyMerged: (String) -> Bool,
+        withinPRHead: (_ branch: String, _ headOid: String) -> Bool
+    ) -> (reason: String, skipNote: String?)? {
+        let localReason = "merged into \(baseBranch)"
+        if let pr, pr.state == .merged || pr.state == .closed {
+            if let headOid = pr.headRefOid, withinPRHead(branch, headOid) { return (pr.state.rawValue.lowercased(), nil) }
+            if locallyMerged(branch) { return (localReason, nil) }
+            return (pr.state.rawValue.lowercased(), "has commits the PR doesn't")
+        }
+        if locallyMerged(branch) { return (localReason, nil) }
         return nil
     }
 
@@ -43,14 +67,19 @@ nonisolated extension WT {
         protected: [String],
         cwdName: String?,
         baseBranch: String,
-        locallyMerged: (String) -> Bool
+        locallyMerged: (String) -> Bool,
+        withinPRHead: (_ branch: String, _ headOid: String) -> Bool
     ) -> [PruneCandidate] {
         records.compactMap { record in
             let name = (record.path as NSString).lastPathComponent
             if protected.contains(name) || name == cwdName || record.branch == baseBranch { return nil }
             let pr = prs[record.branch]
-            guard let reason = mergeReason(pr, branch: record.branch, baseBranch: baseBranch, locallyMerged: locallyMerged) else { return nil }
-            return PruneCandidate(name: name, branch: record.branch, path: record.path, pr: pr, reason: reason)
+            guard let verdict = mergeVerdict(
+                pr, branch: record.branch, baseBranch: baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead
+            ) else { return nil }
+            return PruneCandidate(
+                name: name, branch: record.branch, path: record.path, pr: pr, reason: verdict.reason, skipNote: verdict.skipNote
+            )
         }
     }
 
@@ -63,7 +92,8 @@ nonisolated extension WT {
         currentBranch: String?,
         trunkBranches: Set<String>,
         baseBranch: String,
-        locallyMerged: (String) -> Bool
+        locallyMerged: (String) -> Bool,
+        withinPRHead: (_ branch: String, _ headOid: String) -> Bool
     ) -> [BareBranchCandidate] {
         // Trunk branches rather than the protected list, which names folders.
         var skip = Set(worktreeBranches).union(trunkBranches)
@@ -71,8 +101,10 @@ nonisolated extension WT {
         return branches.compactMap { branch in
             if skip.contains(branch) { return nil }
             let pr = prs[branch]
-            guard let reason = mergeReason(pr, branch: branch, baseBranch: baseBranch, locallyMerged: locallyMerged) else { return nil }
-            return BareBranchCandidate(branch: branch, pr: pr, reason: reason)
+            guard let verdict = mergeVerdict(
+                pr, branch: branch, baseBranch: baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead
+            ) else { return nil }
+            return BareBranchCandidate(branch: branch, pr: pr, reason: verdict.reason, skipNote: verdict.skipNote)
         }
     }
 }

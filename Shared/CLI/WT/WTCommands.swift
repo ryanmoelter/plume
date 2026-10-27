@@ -50,16 +50,17 @@ nonisolated extension WT {
         var worktree: String?
         var branch: String?
         var path: String?
-        var root: String
-        var layout: WorktreeLayout
+        /// Nil only outside a repository.
+        var root: String?
+        var layout: WorktreeLayout?
 
         func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encodeOrNull(worktree, forKey: .worktree)
             try container.encodeOrNull(branch, forKey: .branch)
             try container.encodeOrNull(path, forKey: .path)
-            try container.encode(root, forKey: .root)
-            try container.encode(layout, forKey: .layout)
+            try container.encodeOrNull(root, forKey: .root)
+            try container.encodeOrNull(layout, forKey: .layout)
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -67,14 +68,29 @@ nonisolated extension WT {
         }
     }
 
-    /// `current [--json]`. Outside a worktree, `--json` reports null fields
-    /// and succeeds: the Sublime status bar polls it for arbitrary files.
-    static func current(_ ctx: any WTContext, _ arguments: [String]) throws {
+    /// Whether `arguments` (after `current`) ask for JSON, failing on an
+    /// unknown flag.
+    private static func currentWantsJSON(_ arguments: [String]) throws -> Bool {
         var asJSON = false
         for argument in arguments {
             guard argument == "--json" else { throw CLIFailure("current: unknown flag: \(argument)") }
             asJSON = true
         }
+        return asJSON
+    }
+
+    /// `current --json` outside any repository: every field null, and
+    /// success. False when `arguments` ask for something else.
+    static func currentOutsideRepository(_ arguments: [String], console: any CLIConsole) -> Bool {
+        guard (try? currentWantsJSON(arguments)) == true else { return false }
+        console.print(jsonLine(CurrentPayload()))
+        return true
+    }
+
+    /// `current [--json]`. Outside a worktree, `--json` reports null fields
+    /// and succeeds: the Sublime status bar polls it for arbitrary files.
+    static func current(_ ctx: any WTContext, _ arguments: [String]) throws {
+        let asJSON = try currentWantsJSON(arguments)
 
         let current = ctx.currentWorktree()
         let branch = try current.map { try ctx.git.branchOf($0.path) }
@@ -214,10 +230,13 @@ nonisolated extension WT {
         }
         try ctx.ensureWorktreesDirectory()
 
-        let stashed = !clean
-        if stashed {
+        var stash: String?
+        if !clean {
             ctx.console.print("\(programName): stashing changes in \(cwdName)...")
-            try ctx.git.stashPush(cwdPath, message: "wt move from \(cwdName) \(Int(Date().timeIntervalSince1970))")
+            stash = try ctx.git.stashPush(cwdPath, message: "wt move from \(cwdName) \(Int(Date().timeIntervalSince1970))")
+        }
+        func restoreStash(in path: String, silent: Bool) -> Bool {
+            stash.map { ctx.git.stashRestoreOK(path, sha: $0, silent: silent) } ?? true
         }
 
         if originalBranch != ctx.baseBranch {
@@ -226,12 +245,12 @@ nonisolated extension WT {
             try ctx.git.checkoutFatal(cwdPath, ref: originalBranch, detach: true, quietStdout: true)
             if try !ctx.git.worktreeAdd(path: newPath, branch: originalBranch, new: false, baseRef: nil, fatal: false) {
                 let reattached = ctx.git.checkoutOK(cwdPath, ref: originalBranch, detach: false, silent: true)
-                let popped = stashed ? ctx.git.stashPopOK(cwdPath, silent: true) : true
+                let popped = restoreStash(in: cwdPath, silent: true)
                 switch (reattached, popped) {
                 case (true, true):
                     throw CLIFailure("failed to create new worktree; state restored in \(cwdName)")
                 case (true, false):
-                    throw CLIFailure("failed to create new worktree; branch reattached in \(cwdName) but stash pop failed — see `git stash list`")
+                    throw CLIFailure("failed to create new worktree; branch reattached in \(cwdName) but stash apply failed — see `git stash list`")
                 case (false, true):
                     throw CLIFailure("failed to create new worktree; reattach of \(originalBranch) failed — \(cwdName) is left detached")
                 case (false, false):
@@ -253,17 +272,17 @@ nonisolated extension WT {
             if ctx.git.branchExists(newBranch) { throw CLIFailure("branch already exists: \(newBranch)") }
             try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
             if try !ctx.git.worktreeAdd(path: newPath, branch: newBranch, new: true, baseRef: ctx.baseRef, fatal: false) {
-                if !stashed || ctx.git.stashPopOK(cwdPath, silent: true) {
+                if restoreStash(in: cwdPath, silent: true) {
                     throw CLIFailure("failed to create new worktree; stash restored in \(cwdName)")
                 }
-                throw CLIFailure("failed to create new worktree; stash pop failed — see `git stash list`")
+                throw CLIFailure("failed to create new worktree; stash apply failed — see `git stash list`")
             }
         }
 
-        if stashed {
+        if stash != nil {
             ctx.console.print("\(programName): restoring changes in \(newFolder)...")
-            if !ctx.git.stashPopOK(newPath, silent: false) {
-                ctx.console.printError("\(programName): stash pop had conflicts in \(newPath); the stash is still in `git stash list`")
+            if !restoreStash(in: newPath, silent: false) {
+                ctx.console.printError("\(programName): stash apply had conflicts in \(newPath); the stash is still in `git stash list`")
             }
         }
         ctx.console.print("\(programName): moved to \(newPath)")
@@ -284,10 +303,13 @@ nonisolated extension WT {
         if try !ctx.git.isClean(cwdPath) { throw CLIFailure("current worktree (\(cwdName)) has uncommitted changes") }
 
         let sourceBranch = try ctx.git.branchOf(sourcePath)
-        let stashed = try !ctx.git.isClean(sourcePath)
-        if stashed {
+        var stash: String?
+        if try !ctx.git.isClean(sourcePath) {
             ctx.console.print("\(programName): stashing changes in \(name)...")
-            try ctx.git.stashPush(sourcePath, message: "wt checkout from \(name) \(Int(Date().timeIntervalSince1970))")
+            stash = try ctx.git.stashPush(sourcePath, message: "wt checkout from \(name) \(Int(Date().timeIntervalSince1970))")
+        }
+        func restoreStash(in path: String, silent: Bool) -> Bool {
+            stash.map { ctx.git.stashRestoreOK(path, sha: $0, silent: silent) } ?? true
         }
 
         // The source is detached first, which is reversible, and removed
@@ -295,12 +317,12 @@ nonisolated extension WT {
         try ctx.git.checkoutFatal(sourcePath, ref: sourceBranch, detach: true, quietStdout: false)
         if !ctx.git.checkoutOK(cwdPath, ref: sourceBranch, detach: false, silent: false) {
             let reattached = ctx.git.checkoutOK(sourcePath, ref: sourceBranch, detach: false, silent: true)
-            let popped = stashed ? ctx.git.stashPopOK(sourcePath, silent: true) : true
+            let popped = restoreStash(in: sourcePath, silent: true)
             switch (reattached, popped) {
             case (true, true):
                 throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact")
             case (true, false):
-                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact, but stash pop failed — see `git stash list`")
+                throw CLIFailure("checkout \(sourceBranch) failed; source worktree \(name) left intact, but stash apply failed — see `git stash list`")
             case (false, true):
                 throw CLIFailure("checkout \(sourceBranch) failed; reattach in \(name) also failed — \(name) is left detached")
             case (false, false):
@@ -308,10 +330,10 @@ nonisolated extension WT {
             }
         }
 
-        if stashed {
+        if stash != nil {
             ctx.console.print("\(programName): restoring changes in \(cwdName)...")
-            if !ctx.git.stashPopOK(cwdPath, silent: false) {
-                ctx.console.printError("\(programName): stash pop had conflicts in \(cwdPath); the stash is still in `git stash list`")
+            if !restoreStash(in: cwdPath, silent: false) {
+                ctx.console.printError("\(programName): stash apply had conflicts in \(cwdPath); the stash is still in `git stash list`")
             }
         }
         try ctx.git.worktreeRemove(path: sourcePath, force: false)
@@ -373,11 +395,12 @@ nonisolated extension WT {
         try ctx.git.fetchBase(ctx.baseBranch, quiet: true)
         let baseRef = ctx.git.refExists(ctx.baseRef) ? ctx.baseRef : ctx.baseBranch
         let locallyMerged = { (branch: String) in isMergedLocally(ctx.git, branch: branch, baseRef: baseRef) }
+        let withinPRHead = { (branch: String, headOid: String) in isWithinPRHead(ctx.git, branch: branch, headOid: headOid) }
 
         let records = ctx.git.worktreeRecords()
         let candidates = pruneCandidates(
             records: records, prs: prs, protected: ctx.protected, cwdName: ctx.currentWorktreeNameOrNone(),
-            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged
+            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead
         )
         func chip(_ pr: PullRequest?) -> String {
             pr.map { ctx.ui.prChip($0, numberPrefix: numberPrefix, forgeIcon: forgeIcon).text } ?? ""
@@ -387,7 +410,18 @@ nonisolated extension WT {
         var skipped: [String] = []
         for candidate in candidates {
             let prChip = chip(candidate.pr)
-            if try !ctx.git.isClean(candidate.path) {
+            if let note = candidate.skipNote {
+                ctx.console.print("  skip \(candidate.name)  \(prChip)  (\(note))")
+                continue
+            }
+            let clean: Bool
+            do {
+                clean = try ctx.git.isClean(candidate.path)
+            } catch {
+                ctx.console.printError("\(programName): skip \(candidate.name): could not read its status at \(candidate.path)")
+                continue
+            }
+            if !clean {
                 skipped.append(candidate.name)
                 ctx.console.print("  skip \(candidate.name)  \(prChip)  (uncommitted changes)")
                 continue
@@ -412,13 +446,17 @@ nonisolated extension WT {
             branches: ctx.git.localBranches(),
             worktreeBranches: records.map(\.branch).filter { !deletedBranches.contains($0) },
             prs: prs, currentBranch: currentBranch, trunkBranches: ctx.trunkBranches,
-            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged
+            baseBranch: ctx.baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead
         )
         if candidates.isEmpty, bare.isEmpty {
             ctx.console.print("\(programName): nothing to prune")
             return
         }
         for candidate in bare {
+            if let note = candidate.skipNote {
+                ctx.console.print("  skip branch \(candidate.branch)  \(chip(candidate.pr))  (\(note))")
+                continue
+            }
             if !autoYes {
                 let reply = try readReply(ctx, "  delete branch \(candidate.branch)  \(chip(candidate.pr)) \(candidate.reason)? [y/N]> ")
                 if !isYes(reply) { continue }
@@ -514,9 +552,11 @@ nonisolated extension WT {
             throw CLIFailure("""
                 switch needs a shell wrapper to cd this shell, which a subprocess cannot do. Add to ~/.zshrc:
 
-                  eval "$(plume init zsh)"
+                  eval "$(plume init zsh --aliases)"
 
-                Then reload. For a plain path (scripts, other shells), use `plume wt path`.
+                That wraps `plume wt switch`; `--aliases` also defines a bare `wt` that goes
+                through the wrapper, so leave it off if you only run `plume wt`. Then reload.
+                For a plain path (scripts, other shells), use `plume wt path`.
                 """)
         }
         guard let name = arguments.first, !name.isEmpty else {

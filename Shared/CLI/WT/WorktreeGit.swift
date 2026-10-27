@@ -64,6 +64,8 @@ nonisolated protocol WorktreeGit: AnyObject {
     func branchExists(_ branch: String) -> Bool
     func refExists(_ ref: String) -> Bool
     func isAncestor(_ ref: String, of other: String) -> Bool
+    /// The full commit SHA `ref` names, or nil when it names none.
+    func revParse(_ ref: String) -> String?
     func localBranches() -> [String]
     func worktreeEntries() -> [WorktreeEntry]
     func fetchBase(_ baseBranch: String, quiet: Bool) throws
@@ -83,8 +85,14 @@ nonisolated protocol WorktreeGit: AnyObject {
     func aheadCount(_ path: String, baseRef: String) -> String
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool
     func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws
-    func stashPush(_ path: String, message: String) throws
-    func stashPopOK(_ path: String, silent: Bool) -> Bool
+    /// Stashes every change, untracked files included, and returns the new
+    /// entry's commit SHA. The stash list is shared by every worktree, and
+    /// other processes push to it too, so callers restore by this SHA rather
+    /// than by `stash@{0}`.
+    func stashPush(_ path: String, message: String) throws -> String
+    /// Applies the stash commit `sha` in `path`, then drops that entry. On
+    /// failure, conflicts included, the entry stays in the list.
+    func stashRestoreOK(_ path: String, sha: String, silent: Bool) -> Bool
     func branchMove(_ path: String, from: String, to: String) throws
     /// `git commit -a` with `extraArguments`; its exit status.
     func commitAll(_ path: String, extraArguments: [String]) -> Int32
@@ -223,6 +231,10 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         silentOK(repoGit("merge-base", "--is-ancestor", ref, other))
     }
 
+    func revParse(_ ref: String) -> String? {
+        outputOrNil(repoGit("rev-parse", "--verify", "--quiet", "\(ref)^{commit}"))
+    }
+
     func localBranches() -> [String] {
         lines(outputOrNil(repoGit("for-each-ref", "--format=%(refname:short)", "refs/heads")))
     }
@@ -304,13 +316,32 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
         try visibleFatal(checkoutArguments(path, ref: ref, detach: detach), quietStdout: quietStdout)
     }
 
-    func stashPush(_ path: String, message: String) throws {
-        try visibleFatal(worktreeGit(path, "stash", "push", "--include-untracked", "-m", message))
+    func stashPush(_ path: String, message: String) throws -> String {
+        // The UUID makes the message unique, so the entry is found by it
+        // even if another process pushes in between.
+        let unique = "\(message) [\(UUID().uuidString)]"
+        try visibleFatal(worktreeGit(path, "stash", "push", "--include-untracked", "-m", unique))
+        guard let entry = stashEntries(path).first(where: { $0.subject.hasSuffix(": \(unique)") }) else {
+            throw CLIFailure("stashed changes in \(path), but could not find the entry — see `git stash list`")
+        }
+        return entry.sha
     }
 
-    func stashPopOK(_ path: String, silent: Bool) -> Bool {
-        let arguments = worktreeGit(path, "stash", "pop")
-        return silent ? silentOK(arguments) : visibleOK(arguments)
+    func stashRestoreOK(_ path: String, sha: String, silent: Bool) -> Bool {
+        let apply = worktreeGit(path, "stash", "apply", sha)
+        guard silent ? silentOK(apply) : visibleOK(apply) else { return false }
+        // Re-found now: entries pushed since this one shift its index.
+        if let index = stashEntries(path).firstIndex(where: { $0.sha == sha }) {
+            _ = silentOK(worktreeGit(path, "stash", "drop", "stash@{\(index)}"))
+        }
+        return true
+    }
+
+    private func stashEntries(_ path: String) -> [(sha: String, subject: String)] {
+        lines(outputOrNil(worktreeGit(path, "stash", "list", "--format=%H %gs"))).compactMap { line in
+            guard let space = line.firstIndex(of: " ") else { return nil }
+            return (String(line[..<space]), String(line[line.index(after: space)...]))
+        }
     }
 
     func branchMove(_ path: String, from: String, to: String) throws {

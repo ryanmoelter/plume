@@ -81,4 +81,43 @@ struct WTGitIntegrationTests {
         #expect(try runGit(["status", "--porcelain"], in: repo) == "")
         #expect((ctx.console as? BufferConsole)?.stdout.contains("(cd ") == false)
     }
+
+    /// Another process can push to the shared stash list between a push and
+    /// its restore, so the restore must find its own entry rather than take
+    /// the top one.
+    @Test func aStashRestoresItsOwnEntryAfterAnotherIsPushed() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try makeScratchRepository(in: tmp)
+        let git = ProcessWorktreeGit(workingDirectory: repo)
+        try "mine\n".write(toFile: "\(repo)/README", atomically: true, encoding: .utf8)
+        let sha = try git.stashPush(repo, message: "mine")
+        try "other\n".write(toFile: "\(repo)/other.txt", atomically: true, encoding: .utf8)
+        try runGit(["stash", "push", "-q", "--include-untracked", "-m", "other"], in: repo)
+
+        #expect(git.stashRestoreOK(repo, sha: sha, silent: true))
+
+        #expect(try String(contentsOfFile: "\(repo)/README", encoding: .utf8) == "mine\n")
+        #expect(!FileManager.default.fileExists(atPath: "\(repo)/other.txt"))
+        #expect(try runGit(["stash", "list", "--format=%gs"], in: repo) == "On main: other")
+    }
+
+    @Test func backgroundMovesChangesAndLeavesOtherStashesAlone() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try makeScratchRepository(in: tmp)
+        try "unrelated\n".write(toFile: "\(repo)/unrelated.txt", atomically: true, encoding: .utf8)
+        try runGit(["stash", "push", "-q", "--include-untracked", "-m", "unrelated"], in: repo)
+        try runGit(["checkout", "-q", "-b", "ryanm/feat"], in: repo)
+        try "work\n".write(toFile: "\(repo)/README", atomically: true, encoding: .utf8)
+        let settings = ProjectsConfiguration(repositories: [repo: ProjectSettings(branchPrefix: "ryanm/")])
+        let ctx = try detect(from: repo, settings: settings)
+
+        try WT.background(ctx, ["--no-tab"])
+
+        let moved = "\(repo)/.plume/worktrees/feat"
+        #expect(try String(contentsOfFile: "\(moved)/README", encoding: .utf8) == "work\n")
+        #expect(try runGit(["rev-parse", "--abbrev-ref", "HEAD"], in: repo) == "main")
+        #expect(try runGit(["stash", "list", "--format=%gs"], in: repo) == "On main: unrelated")
+    }
 }

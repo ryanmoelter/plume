@@ -104,10 +104,18 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     var merged: Set<String>
     var branchByPath: [String: String]
     var statusLines: [String: [String]]
+    /// What `revParse` answers, by ref.
+    var shas: [String: String] = [:]
+    var dirtyPaths: Set<String> = []
+    /// Paths whose `isClean` fails, as a deleted folder's does.
+    var unreadablePaths: Set<String> = []
+    var stashRestoreSucceeds = true
 
     private(set) var added: [AddedWorktree] = []
     private(set) var fetched: [String] = []
     private(set) var removed: [String] = []
+    private(set) var stashes: [(path: String, sha: String)] = []
+    private(set) var restoredStashes: [(path: String, sha: String)] = []
 
     init(
         entries: [WorktreeEntry] = [],
@@ -145,6 +153,7 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func branchExists(_ branch: String) -> Bool { branches.contains(branch) }
     func refExists(_ ref: String) -> Bool { branches.contains(ref) }
     func isAncestor(_ ref: String, of other: String) -> Bool { merged.contains(ref) }
+    func revParse(_ ref: String) -> String? { shas[ref] }
     func localBranches() -> [String] { branches.sorted() }
     func worktreeEntries() -> [WorktreeEntry] { entries }
     func fetchBase(_ baseBranch: String, quiet: Bool) throws { fetched.append(baseBranch) }
@@ -160,14 +169,24 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
         guard let branch = branchByPath[path] else { throw CLIFailure(nil) }
         return branch
     }
-    func isClean(_ path: String) throws -> Bool { true }
+    func isClean(_ path: String) throws -> Bool {
+        if unreadablePaths.contains(path) { throw CLIFailure(nil, code: 128) }
+        return !dirtyPaths.contains(path)
+    }
     func statusV2Lines(_ path: String) -> [String] { statusLines[path] ?? [] }
     func shortHead(_ path: String) -> String? { "abc123" }
     func aheadCount(_ path: String, baseRef: String) -> String { "" }
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool { true }
     func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws {}
-    func stashPush(_ path: String, message: String) throws {}
-    func stashPopOK(_ path: String, silent: Bool) -> Bool { true }
+    func stashPush(_ path: String, message: String) throws -> String {
+        let sha = "stash-\(stashes.count + 1)"
+        stashes.append((path, sha))
+        return sha
+    }
+    func stashRestoreOK(_ path: String, sha: String, silent: Bool) -> Bool {
+        restoredStashes.append((path, sha))
+        return stashRestoreSucceeds
+    }
     func branchMove(_ path: String, from: String, to: String) throws {}
     func commitAll(_ path: String, extraArguments: [String]) -> Int32 { 0 }
     func enableUntrackedCache(_ path: String) {}
