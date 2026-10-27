@@ -125,6 +125,37 @@ nonisolated enum MarkdownHighlighter {
         }
     }
 
+    struct LinkRange: Equatable {
+        let whole: NSRange
+        let label: NSRange
+        /// Inside the parentheses, any `<…>` included.
+        let destination: NSRange
+        let isImage: Bool
+    }
+
+    /// The links and images in one run of inline markdown, outside its code
+    /// spans.
+    static func linkRanges(in text: String) -> [LinkRange] {
+        let ns = text as NSString
+        guard ns.range(of: "](").location != NSNotFound else { return [] }
+        var ignored: [Span] = []
+        let full = NSRange(location: 0, length: ns.length)
+        let codeRanges = inlineCodeSpans(in: ns, range: full, into: &ignored)
+        var links: [LinkRange] = []
+        linkPattern.enumerateMatches(in: text, range: full) { match, _, _ in
+            guard let match, !codeRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+            let opener = match.range(at: 1)
+            let closer = match.range(at: 2)
+            links.append(LinkRange(
+                whole: match.range,
+                label: NSRange(location: NSMaxRange(opener), length: closer.location - NSMaxRange(opener)),
+                destination: NSRange(location: closer.location + 2, length: closer.length - 3),
+                isImage: opener.length == 2
+            ))
+        }
+        return links
+    }
+
     private static let linkPattern = try! NSRegularExpression(
         pattern: #"(!?\[)(?:[^\[\]\\\n]|\\.)+(\]\((?:<(?:[^<>\\\n]|\\.)*>|[^()\s]+)\))"#
     )
