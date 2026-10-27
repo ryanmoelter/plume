@@ -385,6 +385,10 @@ struct ChatComposer: View, ThemedView {
         .onAppear {
             autocomplete.slash.onAccept = acceptSlashCommand
             autocomplete.mention.onAccept = acceptMention
+            let tabID = tab.id
+            autocomplete.mention.onResolve = { kind, resolution in
+                MentionResolver.shared.remember(resolution, for: kind, tabID: tabID)
+            }
             let draft = drafts.draft(forTab: tab.id)
             hasSendableText = sendableText(draft)
             // A composer mounting with an existing draft — returning from
@@ -511,7 +515,7 @@ struct ChatComposer: View, ThemedView {
         guard canSend, !isCommandMode, let headlessSession else { return }
         let text = drafts.draft(forTab: tab.id)
         let images = attachedImages
-        let blocks: [UserContentBlock] = [.text(text)] + images.map { .image($0) }
+        let blocks: [UserContentBlock] = [.text(expandingMentions(in: text))] + images.map { .image($0) }
         Task {
             guard await headlessSession.steer(blocks: blocks) else { return }
             // Do not erase text typed while the request was awaiting its
@@ -564,6 +568,7 @@ struct ChatComposer: View, ThemedView {
         }
         // Command mode, headless only: a terminal tab's composer feeds the
         // real TUI, whose own bash mode already handles a leading `!`.
+        let wasCommandMode = isCommandMode
         if isCommandMode {
             drafts.setCommandMode(false, forTab: tab.id)
             if let command = CommandModeMatcher.parse(text) {
@@ -571,9 +576,14 @@ struct ChatComposer: View, ThemedView {
                 return
             }
         }
+        let sentText = wasCommandMode ? text : expandingMentions(in: text)
         let blocks: [UserContentBlock] =
-            [.text(CommandModeMatcher.unescaped(text))] + images.map { .image($0) }
+            [.text(CommandModeMatcher.unescaped(sentText))] + images.map { .image($0) }
         dispatch(blocks)
+    }
+
+    private func expandingMentions(in text: String) -> String {
+        MentionResolver.shared.expandingReferences(in: text, tabID: tab.id)
     }
 
     /// Sends the queue, then the draft, as one message, without waiting for
@@ -590,7 +600,8 @@ struct ChatComposer: View, ThemedView {
         let text = drafts.draft(forTab: tab.id)
         var draftBlocks: [UserContentBlock] = []
         if canSend, !isCommandMode, PlumeSlashCommand.parse(text) == nil {
-            draftBlocks = [.text(CommandModeMatcher.unescaped(text))] + attachedImages.map { .image($0) }
+            draftBlocks = [.text(CommandModeMatcher.unescaped(expandingMentions(in: text)))]
+                + attachedImages.map { .image($0) }
             drafts.setDraft("", forTab: tab.id)
             drafts.clearAttachments(forTab: tab.id)
             hasSendableText = false
