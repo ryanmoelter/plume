@@ -122,7 +122,7 @@ struct CommandLineSettingsPane: View {
     }
 
     private func optInRow(_ command: CommandLineHelper.OptInCommand) -> some View {
-        let title = "`\(command.rawValue)` command"
+        let title: LocalizedStringKey = "`\(command.rawValue)` command"
         let summary = links?.optIn[command]
         let ids = Self.accessibilityIDs(command)
         return LabeledContent {
